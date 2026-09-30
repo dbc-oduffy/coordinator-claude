@@ -21,8 +21,9 @@
  *   - NOT the gate resolver. It does not derive planning waves, does not read `blocked_by`, and
  *     does not decide which batons are eligible — `roadmap.plan_gate` did all of that before
  *     this script was invoked, and its frozen report is an INPUT.
- *   - NOT a PM proxy. `route: pm-decision` and XL exits leave the wave in `surfacedToPm` rather
- *     than being resolved inside it.
+ *   - NOT the PM. `route: pm-decision` and XL exits go to an adjudicator agent (APM for scope,
+ *     direction and priority; staff-eng or the domain reviewer for code); only a `pm_only` ruling
+ *     stays in `surfacedToPm`, the rest are reported in `adjudicated`.
  *   - NOT a place where the EM gates mid-wave. Review and integration fire unconditionally; the
  *     EM's only gate is terminal (tripwire: A-BLITZ-WAVE-THAT-GATES-ON-THE-EM-IS-NOT-A-BLITZ).
  *
@@ -121,8 +122,7 @@
  *
  * REPAIR MODE IS RETIRED — plan-blitz has no `mode: 'repair'` invocation shape any more. A
  * plan whose review ran but whose ledger does not verify is re-fired as a targeted wave over
- * the args contract above, the same as any other unfinished plan (see the retire-review-
- * integrator plan, § Design decisions 4).
+ * the args contract above, the same as any other unfinished plan.
  *
  * Invocation — every field below is present because a caller COPIES this block. An example
  * that omits a required field teaches the omission, which is how `executionOpen` reached a
@@ -145,11 +145,20 @@
  *     }
  *   })
  *
- * Returns: { waveIndex, ready, pulled, replan, surfacedToPm, trailDir } — see WAVE RESULT below.
+ * Returns: { waveIndex, ready, pulled, replan, surfacedToPm, adjudicated, trailDir }
+ * (`surfacedToPm` is the PM residue: only entries an adjudicator marked `pm_only`, each carrying
+ * its `adjudication`; `adjudicated` holds the PM-bound entries an adjudicator ruled on.) — see WAVE RESULT below.
  */
 
 // `phases` is a DECLARATION LIST, not the schedule. Its order is what a reader sees in the run's
-
+// progress; what actually orders a phase is the data it consumes. A phase inserted or moved here
+// changes the display and nothing else -- the contract test asserts set-equality both directions,
+// never position.
+//
+// No apostrophe in a `detail` string. The engine's phase-title pairing logic pairs quotes
+// naively, so one `\'` shifts the pairing and every phase declared after it goes missing from
+// what the checker believes was declared -- reported as a WARN about a phase that is right there.
+// An even number happens to cancel, which is why this passes until it does not.
 
 export const meta = {
   name: 'plan-blitz',
@@ -162,17 +171,23 @@ export const meta = {
     { title: 'Review', detail: 'Reviewers resolved per baton from the EM dispatch spec, never prescribed in the plan file. Fires unconditionally — the EM is not consulted about whether a plan deserves review. Same plan means sequential: each reviewer applies its own findings in place and runs `review-findings-ledger verify` on its own sidecar before the next reviewer starts. A PIVOT/REJECTED verdict applies nothing and suspends every finding under it, with co-reviewer findings still logged.' },
     { title: 'Dispatch', detail: 'One executor per XS/dispatch baton whose EXECUTION gate is open. Runs AFTER planning so the wave plans against a stable tree and the only mutating phase is last. Bounded to the remit the baton itself states — an XS that grows is a sizing defect, not a bigger job.' },
     { title: 'Readiness gate', detail: 'One Opus blitz-em over the durable trail. Per plan: ready, pulled, or replan. A PIVOT routes to a replan baton for a later wave rather than halting this one, and is reconciled mechanically rather than left to the gate. Host availability on the executing box is never a pull reason and is stated in the brief, never reconciled: every mechanical reconciliation here makes a verdict stricter, and promoting one would run with the incentive the gate already has rather than against it.' },
+    { title: 'Adjudicate', detail: 'One agent per entry that would reach the PM (`surfacedToPm`, `routedElsewhere` with route pm-decision). coordinator:apm rules scope, direction and priority; coordinator:staff-eng (or the domain reviewer the baton calls for) rules code. The adjudicator writes a `pm_ruling:` line on the baton and returns a verdict. Only an entry it marks `pm_only` — important AND urgent AND no clear right answer, or an external or irreversible action — stays in `surfacedToPm`; the rest move to `adjudicated`.' },
   ],
 }
 
 
-// object can have it arrive here as the SERIALIZED TEXT of that object. Every
-
-
+// The Workflow tool's `args` input declares no type, so a caller passing a JSON
+// object can have it arrive here as the SERIALIZED TEXT of that object. Without the coercion
+// below, `parsedArgs.<key>` reads resolve `undefined` against a string, `batons` comes back
+// empty, and the run takes the legitimate empty-wave exit: it returns `{ empty: true }` having
+// dispatched nothing -- a REAL state the caller is told to RECORD rather than investigate, so
+// the fire reads as "nothing left to plan" while every baton in it returns as a candidate in the
+// next gate read. Bound under its own name rather than shadowing `args`: a module-scope
+// redeclaration of it is a SyntaxError on any host that binds it lexically.
 const parsedArgs = (typeof args === 'string') ? JSON.parse(args) : args
 if (!parsedArgs || typeof parsedArgs !== 'object') {
-  
-  
+  // Separates "the caller built no payload" from "the wave found nothing to do". Both reach the
+  // same exit shape otherwise, and only one of them is a defect.
   throw new Error(
     'plan-blitz received no args object (got ' + String(parsedArgs) + '). The caller resolves ' +
     'the wave with roadmap.plan_gate, freezes that report to disk, and passes waveIndex, ' +
@@ -244,6 +259,7 @@ const WAVE_DISPATCH_SCHEMA = {
           
           surfacedToPm: { type: 'boolean' },
           surfacedQuestion: { type: 'string' },
+          adjudicatorClass: { type: 'string', enum: ['scope', 'code', 'data-science', 'front-end', 'ux'] },
         },
       },
     },
@@ -393,6 +409,20 @@ const PRIOR_ART_SCHEMA = {
     sidecarPath: { type: 'string' },
     claimsChecked: { type: 'integer' },
     conflicts: { type: 'integer' },
+    tldr: RETURN_TLDR_SCHEMA,
+  },
+}
+
+const ADJUDICATION_SCHEMA = {
+  type: 'object',
+  required: ['batonId', 'verdict', 'pmOnly', 'ruling', 'sidecarPath', 'tldr'],
+  properties: {
+    batonId: { type: 'string' },
+    verdict: { type: 'string', enum: ['ruled', 'pm-only'] },
+    pmOnly: { type: 'boolean' },
+    pmOnlyGround: { type: 'string', enum: ['important-urgent-no-clear-answer', 'external-or-irreversible'] },
+    ruling: { type: 'string' },
+    sidecarPath: { type: 'string' },
     tldr: RETURN_TLDR_SCHEMA,
   },
 }
@@ -705,7 +735,7 @@ review finding none is almost certainly incomplete. Hold LLM-assisted work to a 
 lenses: correctness, scope honesty, sequencing, testability, and whether any premise the artifact
 rests on is actually true of this tree right now. Apply every finding you log yourself, in place,
 in the artifact under review — filtering does not happen upstream any more, and there is no
-integrator behind you to apply what you found. You are UNCONDITIONAL on verdict: an OK does not
+one behind you to apply what you found. You are UNCONDITIONAL on verdict: an OK does not
 skip applying. Never write attribution ("Review: <you>", a finding number, your name) into the
 reviewed artifact — the findings ledger in your own sidecar is the attribution record.`,
 
@@ -957,7 +987,7 @@ const ARMING_CHECK_CLI =
 // repo under plan happens to be coordinator-content-repo — the tree where the plugin root and the repo root
 // coincide. Firing the same wave against claude-klabauter made every spine validation a MISSING
 // FILE, and a missing file reads as "there is no such check" rather than "the path was not
-// resolved", so the plan-author and the integrator both returned having validated nothing and
+// resolved", so the plan-author and the reviewer both returned having validated nothing and
 // said so about a tool, not about a path. Measured 2026-09-10, claude-klabauter wave 0: a wave
 // reported that its plan's task spine "has never been mechanically validated in any pass".
 // Tripwire: `A-PLACEHOLDER-A-DISPATCHED-AGENT-CANNOT-RESOLVE-IS-A-CALLER-DEFECT`.
@@ -1034,6 +1064,8 @@ reader can check; an ABSENT key is one nobody can see. Declare all four:
      \`derived_from\`. It answers the one question a driver cannot answer against a task list:
      how do I know this is finished. A \`falsifier\` sub-object stays proportional to size and is
      not required here.
+     When present it nests UNDER \`prime_exit_criterion\` (never a top-level \`falsifier:\`), and
+     its \`baseline_ref\` is a bare commit sha — no branch, date, or prose around it.
 
      WHICH FILE \`derived_from\` NAMES, when this wave sized you: the wave's
      \`em-size-review.md\`, NOT the baton's \`.sizing.md\`, whenever a review exists. The
@@ -1350,7 +1382,7 @@ ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'planning-report'))}`,
 // WHAT THIS BUYS. Nothing between authoring and review resolves a plan's claims against the
 // tree, so the first reader to notice a path that does not exist, a symbol that means something
 // else, a branch nobody pushed, or a falsifier that cannot go red is an OPUS reviewer — and the
-// discovery costs that reviewer, an integrator, and a wave slot. Peer-reported, and NOT a DoE
+// discovery costs that reviewer and a wave slot. Peer-reported, and NOT a DoE
 // measurement: across an eight-wave sweep in one sibling repo and five waves in another, the
 // plans that reached execution-ready were a minority, and nearly every pull was this one shape.
 // The same series shows the ready rate having no relationship to plumbing state in either
@@ -1360,10 +1392,9 @@ ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'planning-report'))}`,
 // IT REPORTS. It does not refuse, does not gate, and does not edit. The semantic class is only
 // mechanically decidable where the repo carries a surface that forbids the assumption, so on the
 // occasions it is guessing a hard refusal would convert a recoverable authoring slip into a
-// pulled plan — the exact cost this exists to remove. Its output goes to the reviewers (who then
-// spend their pass on judgment rather than on resolving citations) and to the integrator (which
-// is what already edits the plan body, so a premise finding is repaired in-wave through a phase
-// that exists rather than a second pass that does not).
+// pulled plan — the exact cost this exists to remove. Its output goes to the reviewers, who then
+// spend their pass on judgment rather than on resolving citations and apply a premise finding
+// to the plan body in-wave.
 //
 // IT IS NOT A CORRECTNESS CLAIM, and the schema above has nowhere to make one.
 //
@@ -1485,7 +1516,7 @@ ${REVIEW_SIDECAR_RULE(
       phase: 'Premise check',
       // Sonnet, pinned rather than inherited, and the pass's whole economic premise: these are
       // questions with mechanical answers, priced against a discovery cost today of an opus
-      // reviewer plus an integrator plus a wave slot. An opus premise checker would cost more
+      // reviewer plus a wave slot. An opus premise checker would cost more
       // than the reader it is meant to spare.
       model: 'sonnet',
       // Low. The judgment is "did I open the thing", not "is this a good plan" — and raising it
@@ -1761,6 +1792,7 @@ alongside someone else's PIVOT is not redundant — your findings become inputs 
 
 **APPLY YOUR OWN FINDINGS.** There is no integrator behind you. Every finding you log is yours to
 apply in place, with Edit, to ${planResult.planPath} itself, before you return — nits included.
+A frontmatter field you correct keeps its schema type: a dead \`branch:\` becomes the branch you are on, never \`null\`.
 Filtering does not happen upstream: you are UNCONDITIONAL on verdict, and an OK does not skip
 applying anything you found. On PIVOT, or a REJECTED you resolve to PIVOT yourself, apply nothing —
 the plan is going to a replan, and repairing a plan about to be discarded produces a document that
@@ -2255,7 +2287,7 @@ batons you let into it, not by how thinly you staff the authoring of one.
     closest of the three — the gap is a thing for the EM to read, not a string for you to coin.
 
 Anything that is the PM's call — route: pm-decision, or an XL exit — set surfacedToPm: true with
-the question stated in the PM's register, and give it no reviewers. You are an EM proxy, never a
+the question stated in the PM's register, name its \`adjudicatorClass\` (scope for scope, direction and priority; code, data-science, front-end or ux for a code matter), and give it no reviewers. The wave adjudicates it after the gate; the PM sees only what the adjudicator marks \`pm_only\`. You are an EM proxy, never a
 PM proxy.
 
 **The test is the QUESTION, not the baton's shape.** Before you set the flag, write the question
@@ -2487,6 +2519,7 @@ if (plannable.length && scaffoldDenials.length === plannable.length && identityD
     pulled: [],
     replan: [],
     surfacedToPm,
+    adjudicated: [],
     routedElsewhere,
     duplicateDecisions,
     sizingObjectAbsences: scaffoldDenials.map((d) => ({
@@ -3039,6 +3072,100 @@ const verdicts = ((readiness && readiness.verdicts) || []).filter((v) => fireBat
 })
 const closable = closableDispatched(dispatched, verdicts, waveIndex)
 
+// ---------------------------------------------------------------------------
+// Phase 7 — Adjudicate: nothing reaches the PM without an adjudicator's verdict
+// ---------------------------------------------------------------------------
+
+const ADJUDICATORS = {
+  scope: 'coordinator:apm',
+  code: 'coordinator:staff-eng',
+  'data-science': 'coordinator:staff-data-sci',
+  'front-end': 'coordinator:senior-front-end',
+  ux: 'coordinator:staff-ux',
+}
+
+// Named irreversible or external-facing gates. An entry whose text names one stays `pm_only` whatever
+// the adjudicator's verdict says: a ruling clears a decision, never a merge, publish or push to main.
+const IRREVERSIBLE_GATE = /\b(merge[ds]? (to|into) main|push(ed|ing)? to main|force-push|publish(ed|ing)?|release|cross-repo commit|branch deletion|history rewrite|rewrite history)\b/i
+
+function adjudicate(entry, kindLabel) {
+  const baton = batonFor(entry)
+  const agentType = ADJUDICATORS[entry.adjudicatorClass] || ADJUDICATORS.scope
+  const question = entry.surfacedQuestion || entry.rationale || entry.reason || '(no question stated)'
+  return trackAgent(`adjudicator:${entry.batonId}`, agent(
+    `phase: adjudicate
+
+You are the PM's delegate for one matter in a plan-blitz wave. Nobody escalates to the human here:
+a scope, direction or priority matter is yours as the APM, a code matter is yours as the domain
+reviewer. Rule it, do not re-ask it.
+
+Baton: ${entry.batonId}${baton ? ` — "${baton.title}" (${baton.path})` : ''}
+Route: ${entry.route}   Size: ${entry.tshirt}   Surfaced as: ${kindLabel}
+Question: ${question}
+Blitz-em rationale: ${entry.rationale || '(none)'}
+
+Do this:
+  1. Read the baton and what it cites. Decide the question with what is on disk.
+  2. Write one line on the baton record: \`pm_ruling: "${agentType.replace('coordinator:', '')} (PM-delegated) <your ruling>"\`.
+  3. Return verdict 'ruled' and pmOnly false.
+
+Return pmOnly true (verdict 'pm-only', with pmOnlyGround) ONLY when the matter is important AND urgent
+AND has no clear right answer, or needs an external or irreversible action (merge, publish, push to
+main, cross-repo commit assent). Being unsure is not a ground. Nobody confirms a right answer; the PM
+reads the ruling at the receipt.
+${NO_EXECUTION_RULE}
+${REPO_ROOT_RULE}
+${TRAIL_RULE(sidecarFor(trailDir, entry.batonId, 'pm-adjudication'))}`,
+    withRole(agentType, {
+      label: `adjudicate:${entry.batonId}`,
+      phase: 'Adjudicate',
+      model: 'opus',
+      schema: ADJUDICATION_SCHEMA,
+    }),
+  )).then(
+    (v) => ({ agentType, verdict: v, error: null }),
+    (err) => ({ agentType, verdict: null, error: String((err && (err.message || err.error)) || err).slice(0, 500) }),
+  )
+}
+
+// A PM-bound entry leaves the wave as `pm_only` only. A missing verdict fails closed (the entry
+// stays PM-bound, carrying `verdict: 'unavailable'` and the failure's message as `error`), and a
+// named irreversible gate overrides a `pmOnly: false` ruling.
+function settleAdjudication(entry, outcome) {
+  const v = outcome.verdict
+  const text = [entry.surfacedQuestion, entry.rationale, entry.reason, v && v.ruling].join(' ')
+  const gated = IRREVERSIBLE_GATE.test(text)
+  const pmOnly = !v || v.pmOnly === true || gated
+  return {
+    ...entry,
+    adjudication: {
+      adjudicator: outcome.agentType,
+      verdict: v ? v.verdict : 'unavailable',
+      ...(!v && outcome.error ? { error: outcome.error } : {}),
+      pmOnly,
+      ...(v && v.pmOnlyGround ? { pmOnlyGround: v.pmOnlyGround } : {}),
+      ...(gated && !(v && v.pmOnly === true) ? { pmOnlyGround: 'external-or-irreversible' } : {}),
+      ruling: v ? v.ruling : null,
+      sidecarPath: v ? v.sidecarPath : null,
+    },
+  }
+}
+
+const pmBound = [
+  ...surfacedToPm.map((d) => ({ entry: d, kind: 'surfacedToPm' })),
+  ...routedElsewhere.filter((r) => r.route === 'pm-decision').map((r) => ({ entry: r, kind: 'routedElsewhere' })),
+]
+const settled = await Promise.all(
+  pmBound.map(async ({ entry, kind }) => ({
+    kind,
+    entry: settleAdjudication(entry, await adjudicate(entry, kind)),
+  })),
+)
+const settledIds = new Set(settled.map((x) => x.entry.batonId))
+const residueSurfacedToPm = settled.filter((x) => x.entry.adjudication.pmOnly).map((x) => x.entry)
+const adjudicated = settled.filter((x) => !x.entry.adjudication.pmOnly).map((x) => x.entry)
+const residueRoutedElsewhere = routedElsewhere.filter((r) => !settledIds.has(r.batonId))
+
 return {
   waveIndex,
   trailDir,
@@ -3076,7 +3203,12 @@ return {
   ready: [...verdicts.filter((v) => v.verdict === 'ready'), ...closable],
   pulled: verdicts.filter((v) => v.verdict === 'pulled'),
   replan: verdicts.filter((v) => v.verdict === 'replan'),
-  surfacedToPm,
+  // PM residue only: entries an adjudicator marked `pm_only` (or that named an irreversible gate,
+  // or whose adjudicator returned nothing). Every entry carries its `adjudication`.
+  surfacedToPm: residueSurfacedToPm,
+  // PM-bound entries an adjudicator ruled on, each carrying `adjudication` and the `pm_ruling` it
+  // wrote on the baton. The PM reads these at the receipt; nothing re-asks them.
+  adjudicated,
   // Verdicts this fire's gate returned for batons that are not its own, dropped before they
   // could reach the landing. Non-empty means the gate over-reached its fire — usually because a
   // concurrent fire is writing into the same shared trail. Carried so the caller can see what
@@ -3104,7 +3236,7 @@ return {
   dispatched,
   // Sized and routed, but neither planned nor dispatchable here — including an
   // XS whose EXECUTION gate is shut. Each names the room it belongs in.
-  routedElsewhere,
+  routedElsewhere: residueRoutedElsewhere,
   // Every phase whose returned `sidecarPath` carries no `subagent-share` segment. Not a lost
   // review — the findings are there — but a review whose ledger `review-findings-ledger` will
   // refuse to verify, so nothing else reports that.

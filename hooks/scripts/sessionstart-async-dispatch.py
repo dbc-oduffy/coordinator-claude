@@ -82,6 +82,8 @@ class StartGuard:
     sources: FrozenSet[str]
 
 
+#: Counterpart to the sync dispatcher's constant of the same name -- a non-empty `source` matching
+#: no guard here skips the cohort, but loudly.
 _UNMATCHED_SOURCE_BREADCRUMB = (
     "[sessionstart-async-dispatch] source={source!r} matches no guard in "
     "REGISTRY -- every guard skipped for this boot. If the harness added a "
@@ -97,6 +99,11 @@ REGISTRY: Tuple[StartGuard, ...] = (
     StartGuard("session_start_repair_prepare_commit_msg_hook",
                "session-start-repair-prepare-commit-msg-hook.py",
                frozenset({"startup"})),
+    # Published-engine registry self-heal, side-effect-only and folded here rather than given its
+    # own registration since it emits nothing on any path and must not sit on boot latency.
+    # All five sources match the content_root self-heal beside it: the registry is a property of the
+    # box, so narrowing this set would leave a container whose sessions all resolve an unstamped
+    # engine forever. Idempotent -- a healthy box costs one zero-spawn ladder resolution.
     StartGuard("session_start_register_published_engine",
                "session-start-register-published-engine.py",
                frozenset({"startup", "resume", "clear", "compact", "fork"})),
@@ -164,6 +171,11 @@ class _ByteSink:
 
 
 class _BufferedTextCapture(io.StringIO):
+    """Some folded guards emit through `sys.stdout.buffer.write()`/`sys.stderr.buffer.write()`,
+    which a plain StringIO has no attribute for. Both channels land in one ordered `io.BytesIO` --
+    `write(str)` encodes into it, `.buffer.write(bytes)` writes unmodified -- so `combined()`/
+    `combined_bytes()` are order-preserving and byte-exact rather than concatenating two
+    separately-accumulated buffers."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -203,6 +215,9 @@ def _import_guard(guard: StartGuard) -> Any:
 
 
 def _invoke(main_fn: Callable[[], int], stdin_text: str) -> Tuple[int, bytes, bytes]:
+    """Returns raw bytes for both channels -- this dispatcher has no string-specific logic
+    downstream (only truthiness checks before re-emission), so there is no reason to
+    decode-then-re-encode a guard's captured output."""
     old_stdin = sys.stdin
     out_buf = _BufferedTextCapture()
     err_buf = _BufferedTextCapture()
@@ -238,10 +253,16 @@ def main() -> int:
             skipped.append(guard.module_key + " (import)")
             continue
         try:
+            # Incremental flush: a future guard folded here that ever exits via os._exit would
+            # otherwise risk discarding an earlier guard's already-captured output if this
+            # dispatcher accumulated instead of flushing.
             _rc, out, err = _invoke(getattr(mod, "main"), raw)
         except BaseException:
             skipped.append(guard.module_key)
             continue
+        # `out`/`err` are raw bytes, written through `.buffer`, never the text wrapper, so a
+        # guard's raw sys.stdout.buffer.write()/sys.stderr.buffer.write() bytes (Windows
+        # CRLF-translation fix) survive re-emission unmodified.
         if out:
             sys.__stdout__.buffer.write(out)
             sys.__stdout__.buffer.flush()

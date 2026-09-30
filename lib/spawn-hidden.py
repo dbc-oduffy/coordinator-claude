@@ -168,10 +168,14 @@ def main(argv: list[str]) -> int:
         return 127
 
     # Windows: this process IS the CreateProcess parent, so CREATE_NO_WINDOW
+    # suppresses the console window directly — uniformly for python/node/
+    # powershell/anything else, with normal stdio inheritance in both stdin
     # modes (see DE-BASH SIMPLIFICATION in the module docstring). stdin/
     # stdout/stderr are passed EXPLICITLY (not left as the None default) —
     # see STDIO INHERITANCE MUST BE EXPLICIT, NOT DEFAULTED above: leaving
+    # all three at None trips a CPython fast path that skips
     # STARTF_USESTDHANDLES and inherits no handles at all, deadlocking a
+    # child that reads stdin.
     try:
         result = subprocess.run(
             cmd,

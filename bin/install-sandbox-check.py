@@ -9,16 +9,57 @@ as a DEFERRED manual gate. The validator logic lives claude-klabauter-side in
 coordinator_core.install.sandbox_check; this file resolves COORDINATOR_ROOT
 and hands it to that module.
 """
+# install-sandbox-check — CLI trampoline over claude-klabauter
+# coordinator_core.install.sandbox_check.
+#
 # Finish-strangler port (BIG_PORT Wave C): the bash implementation (sandbox
+# clean-install shape validator — Tier 1 filesystem checks, Tier 1b
+# maximalist-install-shape regression net, Tier 1c publish-repo clean-install
+# parameterization contract) has been fully ported to
+# coordinator_core/install/sandbox_check.py (claude-klabauter repo) with a co-located
+# pytest (test_sandbox_check.py). This file is now a thin DoE-side (contract)
+# trampoline over that claude-klabauter (engine) module, per DR-047 (DoE owns
+# contract/generator, claude-klabauter owns engine).
+#
+# This validator drives several dependency scripts (claude-author and
+# coordinator-content-repo's generator/resolver set) via subprocess, mirroring the
+# original bash oracle's invocation shape. This trampoline's only job is
+# to resolve the default
 # COORDINATOR_ROOT and hand it to the claude-klabauter module, which cannot self-locate
+# inside the DoE clone.
+#
 # COORDINATOR_ROOT resolution is NOT self-location (dirname(script_dir)).
+# b644d5a9 migrated THIS FILE into claude-klabauter's coordinator/bin/ while
 # coordinator/templates/ (which COORDINATOR_ROOT must point at — see
+# sandbox_check.py's claude-author-shim.sh.tmpl read) stayed behind in
 # coordinator-content-repo. The old bash oracle's `SCRIPT_DIR="$(cd "$(dirname
 # "${BASH_SOURCE[0]}")" && pwd)"` self-location was correct only while this
+# executable and coordinator/templates/ lived in the same repo; that
+# assumption no longer holds post-migration. The default now resolves via
+# `_resolve_coordinator_root()` -> the shared `content_root()` registry helper
+# (env var -> machine-local `repos.content_root` -> fail loud), never a
+# hardcoded or __file__-derived path. An explicit --coordinator-root on argv
+# still wins verbatim and skips this resolution entirely.
+#
+# Purpose (Tier 2 doc): Tier 2 (running-in-Claude-Code) cannot run inside a
 # subagent/this process — it is printed as a DEFERRED manual gate at the end
+# of every run, unchanged from the bash oracle.
+# Spec backlink: coordinator-content-repo:pln-doe-maximalist-execution-plugi-6d808d § W4.1
+#   AC-W4.1: "Sandbox clean-install produces thin ~/.claude + cloned DoE + wired wrapper"
+# Doctrine: docs/wiki/install-surface-completeness.md § Running-in-Claude-Code
+#
+# Exit codes (unchanged contract from the bash oracle, PLUS a new dedicated
+# transport code — addendum rule 3b): 0 all assertions passed/skipped;
 # 1 one or more assertions FAILed (business outcome); 3 TRANSPORT/
 # ORCHESTRATION failure — the engine root unresolvable, the default
 # COORDINATOR_ROOT unresolvable (content_root() raised _DoeUnresolvable),
+# coordinator_core not importable, or an unhandled exception inside the
+# claude-klabauter module. The bash oracle had no dedicated transport code (an
+# unhandled `set -euo pipefail` abort just propagated whatever exit status
+# the failing builtin produced); this is a flagged behavioral improvement,
+# not a silent one — a caller can now tell "checks ran, some failed" (1)
+# apart from "checks could not run at all, e.g. cold machine with
+# the engine root/DoE root unresolvable" (3).
 from __future__ import annotations
 
 INSTALL_CLASS = False
@@ -91,6 +132,12 @@ def main(argv: "list[str] | None" = None) -> int:
         return _TRANSPORT_FAILURE_RC
 
     # Resolve the default COORDINATOR_ROOT via content_root() (see
+    # _resolve_coordinator_root() docstring) — the claude-klabauter module cannot do
+    # this itself since it does not live inside the DoE clone. This is NOT
+    # self-location: this file lives in claude-klabauter (coordinator/bin/),
+    # not inside the DoE clone, so dirname(script_dir) no longer points at
+    # the tree that owns templates/. An explicit --coordinator-root on argv
+    # still wins verbatim and skips this resolution entirely.
     argv = list((sys.argv[1:] if argv is None else argv))
     if not any(a == "--coordinator-root" or a.startswith("--coordinator-root=") for a in argv):
         coordinator_root = _resolve_coordinator_root()

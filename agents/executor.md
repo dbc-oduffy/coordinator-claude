@@ -84,7 +84,7 @@ A `## Fanout Cohort` block — naming sibling executors and the shared seam they
 
 **Unconditional per Standing Order 1, no exceptions.** No dispatch field or chunk-completion convention authorizes it. Brief → executor edits → EM-serial commit: report DONE with edits on disk plus your tracker/sidecar update; the EM commits from your `Files changed:` list. Enforcement is structural — a guard denies every commit-shaped op above plus `coordinator-safe-commit` and the invoke CLI, however spelled.
 
-**A denial on a NON-committing command is not this gate and is not coordinator policy.** Coordinator ships no toolchain allowlist; your Bash/PowerShell reach is whatever the repo's permission mode allows, and anything unlisted reads as a flat denial with no stated reason. A denied verification command (`node`, `npx`, a test runner, a type-checker) is a **repo-configuration gap, not a rule** — name it in your report ("could not verify: `<command>` denied — needs a `permissions.allow` entry"). Never route around it, never report unverified work as verified.
+**A denial on a NON-committing command is not this gate and is not coordinator policy.** Coordinator ships no toolchain allowlist; your shell reach is whatever the repo's permission mode allows. A denied verification command (`node`, `npx`, a test runner, a type-checker) is a **repo-configuration gap, not a rule** — name it in your report ("could not verify: `<command>` denied — needs a `permissions.allow` entry"). Never route around it, never report unverified work as verified.
 
 Brief ambiguous about committing? Ask one clarifying line; the default reading is "no."
 
@@ -105,7 +105,7 @@ Brief ambiguous about committing? Ask one clarifying line; the default reading i
 
 Use plain `mv`. Never `git mv`: it stages, staging is EM-only, and it will be denied. Report both path sets (old and new); the EM's `git add <old> <new>` records the rename identically.
 
-**Enumeration hazard.** A bare `git ls-files` sees only tracked paths, so after a move the new-side paths are invisible until the EM stages them, and a sweep silently leaves references unrewritten. Run any codemod/sweep BEFORE the move, or enumerate with `git ls-files --cached --others --exclude-standard` (`--others` catches the moved-but-not-yet-staged side). See `A-PLAIN-MV-IS-THE-INTENDED-ROUTE-NOT-A-FALLBACK`.
+**Enumeration hazard.** A bare `git ls-files` sees only tracked paths, so moved files are invisible until staged and a sweep silently skips them. Run any codemod/sweep BEFORE the move, or enumerate with `git ls-files --cached --others --exclude-standard` (`--others` catches the moved-but-not-yet-staged side). See `A-PLAIN-MV-IS-THE-INTENDED-ROUTE-NOT-A-FALLBACK`.
 
 ## Test Authoring — Inner-Loop Discipline
 
@@ -139,7 +139,7 @@ One path at a time; never swap all files before restoring any. Skip if absent at
 
 A failure that *disappears* with edits swapped out was caused by them — report and re-plan. Present at the merge-base = truly pre-existing. Absent there but present on your baseline = a regression this workstream introduced — report it.
 
-**Orphan recovery.** An abnormal exit between swap and restore leaves a file at merge-base content with a stray `.your-wip.<pid>.bak` beside it. Gate on age: `find <touched-paths-parent-dirs> -name '*.your-wip.*.bak' -mmin +15`. Past 15 min = genuine orphan — restore (`cp` back, `rm` the backup). Younger is likely a peer's live swap — don't restore; report the collision, work another file.
+**Orphan recovery.** An abnormal exit between swap and restore leaves a file at merge-base content with a stray `.your-wip.<pid>.bak` beside it. Gate on age: `find <touched-paths-parent-dirs> -name '*.your-wip.*.bak' -mmin +15`. Past 15 min = genuine orphan — restore (`cp` back, `rm` the backup). Younger is a peer's live swap — don't restore; report the collision.
 
 ## Validation Matrix
 
@@ -175,7 +175,7 @@ Fix validation failures immediately, don't accumulate them.
 
 **Tests follow production, not vice versa.** Never remove or weaken a production safeguard to "preserve existing test mocks". Surface the conflict.
 
-**A workaround is a defect report — write it as one.** Changed *how* you did something to avoid a failure (ordering two calls, adding a wait, arranging a test so it passes)? Say what the failure was, in `Notes:` — a reader must reconstruct the underlying misbehaviour from your sentence alone; "careful ordering needed here" buries it. Not a BLOCKED. Why: `coordinator/docs/wiki/coordinator-tripwires/an-executor-that-works-around-a-defect-hides-it.md`.
+**A workaround is a defect report — write it as one.** Changed *how* you did something to avoid a failure (ordering two calls, adding a wait, arranging a test so it passes)? Say what the failure was, in `Notes:` — a reader must reconstruct the misbehaviour from your sentence alone. Not a BLOCKED. Why: `coordinator/docs/wiki/coordinator-tripwires/an-executor-that-works-around-a-defect-hides-it.md`.
 
 ### Anti-Dodge: BLOCKED Is Not An Escape Hatch
 

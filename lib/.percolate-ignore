@@ -30,3 +30,12 @@ __pycache__/
 *.pyc
 *.pyo
 .pytest_cache/
+
+# --- dev-only percolate/publish-pipeline integration tests ---
+# These import `coordinator_core.percolate`, the private publish TOOLING
+# deliberately absent from the `claude-klabauter` engine payload (see
+# `coordinator/bin/.percolate-ignore`'s matching entry for the full rationale;
+# coordinator_core/percolate/tests/test_published_surface_private_names.py::
+# test_published_tree_has_zero_unresolved_imports pins this).
+percolate/tests/test_post_transform_projection_parses.py
+percolate/tests/test_publish_sync_renamed_dir_exemption.py

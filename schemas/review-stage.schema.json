@@ -1,0 +1,197 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coordinator.local/schemas/review-stage.schema.json",
+  "x-schema-name": "review-stage",
+  "x-schema-version": "1.0.0",
+  "x-bump-note": "New schema with ZERO SHAPE EFFECT on any existing consumer (no prior version), docs/plans/2026-09-27-review-inside-execute-plan.md C1. One $defs entry per structured return the execute-review stage's agents produce (review-prep-result, slice-review-result, whole-diff-review-result, delivery-verdict, review-integration-result, brief-conformance-row). Findings never appear inline: a return carries counts (integers) and sidecar anchors, never a findings array -- the findings live in the reviewer's own sidecar. Every prose string carries a maxLength: 200 for a one-liner, 300 for an anchor line/description pair, so a return cannot smuggle a findings body back through a long string.",
+  "description": "Structured returns for the execute-review stage (docs/plans/2026-09-27-review-inside-execute-plan.md § Contract). Claude-klabauter's compose_execute_review injects the relevant $def as each agent call's schema. Never applies_to a sidecar file directly -- these are dispatch RETURN shapes, validated in-process by the caller, not documents on disk.",
+  "$defs": {
+    "anchor": {
+      "type": "object",
+      "description": "A pointer into a sidecar, never the finding itself.",
+      "required": ["line", "anchor"],
+      "additionalProperties": false,
+      "properties": {
+        "line": { "type": "integer", "minimum": 1 },
+        "anchor": { "type": "string", "maxLength": 300 }
+      }
+    },
+    "brief-conformance-row": {
+      "type": "object",
+      "description": "One line of brief-conformance bookkeeping: does the diff satisfy one verbatim item from the plan's PM brief or prime_exit_criterion.",
+      "required": ["brief_item", "requirement", "file_line", "verified_how", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "brief_item": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "Verbatim quote from the plan's ## PM brief or prime_exit_criterion.statement."
+        },
+        "requirement": { "type": "string", "maxLength": 200 },
+        "file_line": { "type": "string", "maxLength": 200 },
+        "verified_how": { "type": "string", "maxLength": 200 },
+        "status": { "type": "string", "enum": ["met", "partial", "unmet"] }
+      }
+    },
+    "review-prep-result": {
+      "type": "object",
+      "description": "The mechanical prep stage's return: the worktree-mode partition plus every sidecar path the rest of the wave reads. basis is always worktree -- there is no pre-review commit and no head SHA.",
+      "required": [
+        "plan_id", "share_dir", "verdict", "basis", "run_base_sha", "whole_diff_path",
+        "product_files", "foreign_claims", "slices", "whole_diff_sidecars"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "plan_id": { "type": "string", "maxLength": 200 },
+        "share_dir": { "type": "string", "maxLength": 300 },
+        "verdict": { "type": "string", "enum": ["PARTITION-MANDATORY", "single-reviewer-ok"] },
+        "basis": { "type": "string", "const": "worktree" },
+        "run_base_sha": { "type": "string", "pattern": "^[0-9a-f]{4,64}$" },
+        "whole_diff_path": { "type": "string", "maxLength": 300 },
+        "product_files": { "type": "integer", "minimum": 0 },
+        "foreign_claims": {
+          "type": "array",
+          "items": { "type": "string", "maxLength": 300 }
+        },
+        "slices": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "files", "diff_path", "sidecar_path", "contract_blocks"],
+            "additionalProperties": false,
+            "properties": {
+              "id": { "type": "string", "maxLength": 200 },
+              "files": { "type": "array", "items": { "type": "string", "maxLength": 300 } },
+              "diff_path": { "type": "string", "maxLength": 300 },
+              "sidecar_path": { "type": "string", "maxLength": 300 },
+              "contract_blocks": { "type": "integer", "minimum": 0 }
+            }
+          }
+        },
+        "whole_diff_sidecars": {
+          "type": "object",
+          "required": ["kira", "personas", "delivery"],
+          "additionalProperties": false,
+          "properties": {
+            "kira": { "type": "string", "maxLength": 300 },
+            "personas": { "type": "array", "items": { "type": "string", "maxLength": 300 } },
+            "delivery": { "type": "string", "maxLength": 300 }
+          }
+        }
+      }
+    },
+    "slice-review-result": {
+      "type": "object",
+      "description": "One slice-owning code-reviewer's return. findings/applied/out_of_slice are COUNTS -- the findings themselves live in the sidecar the ledger already tracks.",
+      "required": [
+        "slice_id", "sidecar_path", "verdict", "findings", "applied", "out_of_slice",
+        "em_may_think_differently", "brief_conformance"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "slice_id": { "type": "string", "maxLength": 200 },
+        "sidecar_path": { "type": "string", "maxLength": 300 },
+        "verdict": { "type": "string", "enum": ["OK", "WARN", "BLOCKED"] },
+        "findings": { "type": "integer", "minimum": 0 },
+        "applied": { "type": "integer", "minimum": 0 },
+        "out_of_slice": { "type": "integer", "minimum": 0 },
+        "em_may_think_differently": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/anchor" }
+        },
+        "brief_conformance": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/brief-conformance-row" }
+        }
+      }
+    },
+    "whole-diff-review-result": {
+      "type": "object",
+      "description": "A findings-only whole-diff lens (Kira or a signal-named persona). applies nothing itself in this stage.",
+      "required": ["sidecar_path", "agent_type", "verdict", "findings", "rebuild_recommended", "em_may_think_differently"],
+      "additionalProperties": false,
+      "properties": {
+        "sidecar_path": { "type": "string", "maxLength": 300 },
+        "agent_type": { "type": "string", "maxLength": 200 },
+        "verdict": { "type": "string", "enum": ["APPROVED", "APPROVED_WITH_NOTES", "REQUIRES_CHANGES", "REJECTED"] },
+        "findings": { "type": "integer", "minimum": 0 },
+        "rebuild_recommended": { "type": "boolean" },
+        "em_may_think_differently": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/anchor" }
+        }
+      }
+    },
+    "delivery-verdict": {
+      "type": "object",
+      "description": "The delivery verifier's return: every executor delivery claim checked against the frozen diff.",
+      "required": ["sidecar_path", "verdict", "product_files", "claims_checked", "claims_unbacked"],
+      "additionalProperties": false,
+      "properties": {
+        "sidecar_path": { "type": "string", "maxLength": 300 },
+        "verdict": { "type": "string", "enum": ["PASS", "FAIL"] },
+        "product_files": { "type": "integer", "minimum": 0 },
+        "claims_checked": { "type": "integer", "minimum": 0 },
+        "claims_unbacked": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["claim", "anchor"],
+            "additionalProperties": false,
+            "properties": {
+              "claim": { "type": "string", "maxLength": 200 },
+              "anchor": { "type": "string", "maxLength": 300 }
+            }
+          }
+        }
+      }
+    },
+    "review-integration-result": {
+      "type": "object",
+      "description": "The single integration pass's return. fixes_applied/slice_ledgers_verified/confinement_violations are counts. unresolved is where an unresolvable finding goes -- to the PM, never to a second review round.",
+      "required": [
+        "plan_id", "prep_sidecar", "sidecar_path", "fixes_applied", "slice_ledgers_verified",
+        "confinement_violations", "em_may_think_differently", "unresolved",
+        "brief_conformance", "rebuild_decision"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "plan_id": { "type": "string", "maxLength": 200 },
+        "prep_sidecar": { "type": "string", "maxLength": 300 },
+        "sidecar_path": { "type": "string", "maxLength": 300 },
+        "fixes_applied": { "type": "integer", "minimum": 0 },
+        "slice_ledgers_verified": { "type": "integer", "minimum": 0 },
+        "confinement_violations": { "type": "integer", "minimum": 0 },
+        "em_may_think_differently": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/anchor" }
+        },
+        "unresolved": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/anchor" }
+        },
+        "brief_conformance": {
+          "type": "object",
+          "required": ["items", "met", "partial", "unmet", "unmet_items"],
+          "additionalProperties": false,
+          "properties": {
+            "items": { "type": "integer", "minimum": 0 },
+            "met": { "type": "integer", "minimum": 0 },
+            "partial": { "type": "integer", "minimum": 0 },
+            "unmet": { "type": "integer", "minimum": 0 },
+            "unmet_items": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/anchor" }
+            }
+          }
+        },
+        "rebuild_decision": {
+          "anyOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/anchor" }
+          ]
+        }
+      }
+    }
+  }
+}

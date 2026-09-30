@@ -151,6 +151,8 @@ import _prompt_surface_citations as _surfaces  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
+#: Reused verbatim from the sibling citation detector -- same five percolating trees, same
+#: tests/fixtures exemption.
 iter_prompt_surface_files = _surfaces.iter_prompt_surface_files
 is_in_scope = _surfaces.is_in_scope
 
@@ -184,6 +186,12 @@ def _skip_entries() -> frozenset:
 
 
 def _ignore_patterns() -> tuple:
+    """`coordinator/.percolate-ignore`'s parsed exclusion patterns, reused verbatim from
+    `_oss_payload.py` rather than re-parsed here -- a second hand-maintained copy is exactly the
+    drifting-duplicate failure that module's own composition exists to prevent. This is a third
+    layer the manifest is missing without this call: allowlist + `source_map` alone overstate what
+    ships, because `.percolate-ignore` then excludes specific subtrees from entries that are
+    otherwise allowlisted and source_map-routed."""
     return _oss_payload.excluded_patterns()
 
 
@@ -214,6 +222,10 @@ def _coarse_dir_entries() -> frozenset:
 
 
 def _excluded_from_payload(rel_str: str, ignore_patterns: tuple) -> bool:
+    """True if a `coordinator/`-relative candidate falls inside a `.percolate-ignore`-excluded
+    subtree -- it never ships even though it is tracked/allowlisted. Callers must first confirm
+    the candidate's top-level entry is a coarse directory admission (see `_coarse_dir_entries`);
+    this function has no knowledge of that restriction itself."""
     rel_to_coordinator = rel_str[len("coordinator/") :]
     return _oss_payload._is_excluded(rel_to_coordinator, ignore_patterns)
 
@@ -227,7 +239,7 @@ def _excluded_from_payload(rel_str: str, ignore_patterns: tuple) -> bool:
 #: sixth unlisted form still classifies correctly — this tuple documents and
 #: tests the corpus's actual shapes, it does not gate the mechanism.
 _OBSERVED_ENGINE_CITATION_PREFIXES = (
-    "",
+    "",  # bare `coordinator/{entry}/...`
     "$CLAUDE_PLUGIN_ROOT/",
     "<claude-klabauter-root>/",
     "<claude-klabauter-root>/",
@@ -236,16 +248,28 @@ _OBSERVED_ENGINE_CITATION_PREFIXES = (
 
 
 _PLACEHOLDER_CHARS = ("<", ">", "*", "{", "}", "$", "[", "]")
+#: A trailing segment that is only an ellipsis marks prose elision, not a citation target --
+#: prose about citations is not itself a citation.
 _ELISION_SEGMENTS = ("…", "...")
+#: Derived from extensions actually observed among `coordinator/`-anchored citations in the
+#: corpus -- not a general-purpose extension allowlist.
 _FILE_EXTENSION = re.compile(r"\.(md|ya?ml|py|json|jsonl|sh|txt|js|toml)(?![\w-])")
 _URL = re.compile(r"^\w+://")
 _GIT_REV_REF = re.compile(r"[0-9a-f]{6,40}[\^~]*:")
 _PLUGIN_ROOT_PREFIX = re.compile(r"^\"?\$\{?CLAUDE_PLUGIN_ROOT\}?/")
 
+#: A trailing `:38` or `:62-76` line-locator anchor on an otherwise-real file citation --
+#: stripped before the existence check, which must resolve the file, not the anchored substring.
 _LINE_LOCATOR_SUFFIX = re.compile(r":\d+(?:-\d+)?$")
 
+#: A pytest node-id suffix (`::TestClass::test_method`) on an otherwise-real file citation --
+#: same shape of false positive as the line-locator above.
 _PYTEST_NODE_ID_SUFFIX = re.compile(r"::.*$")
 
+#: `coordinator/CLAUDE.md` was retired and is cited in changelog-voice parentheticals. That
+#: population belongs to the existing provenance gate, which already refuses changelog voice
+#: naming a retired file -- excluded here so this module's baseline doesn't duplicate a
+#: population another gate already owns.
 _ROUTED_TO_PROVENANCE_GATE = frozenset({"coordinator/CLAUDE.md"})
 
 _LEADING_STRIP = "\"'([{"
@@ -268,6 +292,8 @@ _CODE_SPAN = re.compile(r"`([^`\n]+)`")
 _MD_LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 _FENCE = re.compile(r"^\s*```")
 
+#: A citation on a line carrying one of these phrases is a correctly-hedged conditional read
+#: ("if it exists"), not an unconditional assertion the target is resolvable.
 _HEDGE_PHRASES = (
     "if it exists",
     "if present",
@@ -315,6 +341,17 @@ def classify_token(
     ignore_patterns: "tuple | None" = None,
     coarse_dir_entries: "frozenset | None" = None,
 ) -> str:
+    """Classify one already-extracted citation token. Returns one of "not-a-citation" (a
+    directory convention, a placeholder-bearing template, a URL, a home-dir path, a historical
+    git-revision reference, or anything else that is not a concrete file citation),
+    "resolved-engine" (under an allowlisted + source_map-routed tree and not
+    `.percolate-ignore`-excluded; ships from the engine repo, never checked for local existence),
+    "resolved-local" (exists in this working tree and is not excluded), or "dangling" (looks like
+    a concrete file citation but is not engine-resident-and-shipped, does not exist locally, or
+    falls inside an excluded subtree of an otherwise-shipping tree).
+
+    `ignore_patterns` and `coarse_dir_entries` each default to a fresh read when omitted --
+    callers classifying many tokens in one pass should compute both once and pass them through."""
     if ignore_patterns is None:
         ignore_patterns = _ignore_patterns()
     if coarse_dir_entries is None:
@@ -363,6 +400,9 @@ def _excerpt(line: str) -> str:
 
 
 def _extract_tokens(line: str) -> "list[str]":
+    """Every backtick-span word and markdown-link target on `line` -- the two citation shapes
+    this module deliberately limits itself to. A backtick span is split on whitespace so a
+    multi-word span still yields its path-shaped word."""
     tokens: "list[str]" = []
     for m in _CODE_SPAN.finditer(line):
         tokens.extend(m.group(1).split())
@@ -374,6 +414,8 @@ def _extract_tokens(line: str) -> "list[str]":
 
 
 def iter_violations(text: str) -> "list[Violation]":
+    """Every dangling-pointer violation in `text`, in line order. Pure function over already-
+    loaded text, mirroring `_prompt_surface_citations.iter_violations`'s shape."""
     skip_entries = _skip_entries()
     ignore_patterns = _ignore_patterns()
     coarse_dir_entries = _coarse_dir_entries()
@@ -436,6 +478,10 @@ def _violation_key(v: Violation) -> str:
 
 
 def new_violations(before: str, after: str) -> "list[Violation]":
+    """Violations present in `after` that were not already present in `before`, as a multiset
+    difference. Used by the mirror-vantage check to ask a content-level question rather than a raw
+    before/after count comparison, which cannot distinguish an unchanged violation that merely
+    shifted lines from a genuinely new one."""
     before_counts = Counter(_violation_key(v) for v in iter_violations(before))
     after_violations = iter_violations(after)
     after_counts = Counter(_violation_key(v) for v in after_violations)

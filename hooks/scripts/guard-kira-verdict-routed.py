@@ -234,6 +234,15 @@ def _read_frontmatter(path: str) -> dict:
             i += 1
             continue
         if rest in ("", "{}"):
+            # "{}" (explicit-empty-map YAML shorthand) is folded into the same
+            # branch as a blank scalar on purpose: this parser is a flat
+            # column-zero scan with no YAML dependency (module docstring), so
+            # it cannot distinguish an empty mapping from a blank/absent
+            # scalar or an empty list — all three read the same as "no value
+            # here, maybe a `- ` block follows". None of the keys this guard
+            # inspects are ever written as `{}`, so folding is safe today; a
+            # future key that legitimately uses `{}` would need this split
+            # out explicitly.
             items: list[str] = []
             j = i + 1
             while j < len(body):

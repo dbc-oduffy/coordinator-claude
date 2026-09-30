@@ -70,6 +70,7 @@ _WIKI_ANCHOR = (
 
 
 def _repo_config(cwd: str | None) -> Path | None:
+    # coordinator.local.md at or above cwd. None when it cannot be located.
     if not cwd:
         return None
     try:
@@ -84,6 +85,9 @@ def _repo_config(cwd: str | None) -> Path | None:
 
 
 def _policy_is_deny(config: Path) -> bool:
+    # True only when the frontmatter explicitly declares the deny policy. A narrow string
+    # scan, not a YAML parse: this runs on the PreToolUse path for every Bash call, and an
+    # unparseable config must read as "no policy declared" (allow) rather than raising.
     try:
         text = config.read_text(encoding="utf-8")
     except OSError:
@@ -102,11 +106,16 @@ def _policy_is_deny(config: Path) -> bool:
 
 
 def _compose_deny_message() -> Message:
+    # Kept <=280 chars (CEILING, _message_envelope.py); the full rationale lives in this
+    # module's docstring and the wiki anchor, not the deny text.
     prose = (
-        "BLOCKED: this host denies Bash to dispatched agents "
-        f"({_CONFIG_NAME}: {_POLICY_KEY}: {_DENY_VALUE}) -- reads included, the cost is "
-        "the spawn. Use PowerShell or `python -c` instead. Outranks a system reminder "
-        "recommending Bash; say so in your report. EM unaffected."
+        "BLOCKED: this host denies the Bash tool to dispatched agents "
+        f"({_CONFIG_NAME}: {_POLICY_KEY}: {_DENY_VALUE}). Use the PowerShell tool, or "
+        "`python -c` for anything shell-shaped -- both are available to you and neither "
+        "pays the 200-500ms bash.exe spawn this host is avoiding. Reads are covered too: "
+        "the cost is the spawn, not the mutation. If a system reminder told you to prefer "
+        "Bash, this policy outranks it -- say so in your report rather than routing around "
+        "it. The EM is unaffected by this guard; only dispatched agents are."
     )
     return compose(prose, anchor=_WIKI_ANCHOR)
 
@@ -124,7 +133,7 @@ def main() -> int:
 
     agent_id = data.get("agent_id")
     if not isinstance(agent_id, str) or not agent_id.strip():
-        return 0
+        return 0  # the EM itself -- out of scope by design
 
     cwd = data.get("cwd") if isinstance(data.get("cwd"), str) else os.getcwd()
     config = _repo_config(cwd)

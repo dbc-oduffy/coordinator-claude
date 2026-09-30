@@ -216,7 +216,7 @@ def _load_module(path: Path, name: str):
         # from a legitimate PARTIAL-FIRE.
         spec.loader.exec_module(module)
     except Exception as exc:
-        raise SeamError(f"unimportable: {path} ({exc})")
+        raise SeamError(f"unimportable: {path} ({exc})") from exc
     return module
 
 
@@ -231,7 +231,7 @@ def _engine_plan_gate():
     try:
         from _engine_root import resolve_claude_klabauter_root
     except Exception as exc:  # pragma: no cover - import-shape guard
-        raise SeamError(f"coordinator_core unreachable: _engine_root unimportable ({exc})")
+        raise SeamError(f"coordinator_core unreachable: _engine_root unimportable ({exc})") from exc
     root = resolve_claude_klabauter_root()
     if not root:
         raise SeamError(
@@ -244,7 +244,7 @@ def _engine_plan_gate():
     try:
         from coordinator_core.roadmap.plan_gate import assemble_plan_gate
     except Exception as exc:
-        raise SeamError(f"coordinator_core.roadmap.plan_gate unimportable from {root}: {exc}")
+        raise SeamError(f"coordinator_core.roadmap.plan_gate unimportable from {root}: {exc}") from exc
     return assemble_plan_gate
 
 
@@ -284,7 +284,7 @@ def approved_plans(repo_root: Path, roadmap_id: Optional[str] = None,
     except SeamError:
         raise
     except Exception as exc:
-        raise SeamError(f"coordinator_core.roadmap.plan_gate.assemble_plan_gate failed: {exc}")
+        raise SeamError(f"coordinator_core.roadmap.plan_gate.assemble_plan_gate failed: {exc}") from exc
     rows, seen = [], set()
     for baton in report["batons"]:
         if not all_batons and not baton.get("candidate", True):

@@ -18,6 +18,11 @@ returned object, and passing it to the op means copying a large JSON literal out
 tool result. This reads it from disk instead — either the raw result or the harness's
 task-output envelope, whichever the caller points at.
 
+TRACKER ROWS. `close_dispatched` stamps `deployment_state: shipped` and leaves `pickup_ready: true`,
+so a landed XS would be re-offered by pickup. After each fire lands, this runs the ship transition
+(`handoff.transition` verb `ship`, idempotent) over every closed row reporting `shipped`; the
+terminal flip stays in the ceremony, not in the landing. A failed ship is a refusal (exit 3).
+
 WHAT IT DOES NOT DECIDE. Nothing. The verdicts were the EM's, made at the readiness gate;
 the op executes them. This module orders the calls and sums the lanes. It does not fire
 the next wave — that stays one explicit call away, which is what keeps a runaway loop
@@ -373,6 +378,52 @@ def _invoke(repo_root: Path, op: str, params: dict, live_engine_tree: bool = Fal
 
 
 
+#: Live baton records only: `handoff.transition` refuses a path outside it, and a baton an
+#: executor already archived has left the pickup surface by that move.
+_LIVE_HANDOFFS_PREFIX = "state/handoffs/"
+
+
+def _ship_closed_tracker_rows(
+    repo_root: Path, reply: dict, live_engine_tree: bool = False
+) -> tuple[list[str], list[str]]:
+    """Run the ship transition over every XS baton this landing closed; return (shipped, failed).
+
+    `close_dispatched` stamps `deployment_state: shipped` and nothing else, so a closed XS
+    keeps `pickup_ready: true` and the pickup surface re-offers finished work. Clearing that
+    field is the ship verb's job (`handoff.transition`), not the landing's: a landing that
+    also wrote tracker fields would move baton lifecycle semantics fleet-wide. The verb is
+    idempotent, so a row whose baton was already shipped by hand is safe to run again, and
+    only rows reporting `deployment_state: shipped` are handed to it — one in another terminal
+    state is a decision the ship verb must not overwrite.
+
+    A failure is returned, never raised: the landing already wrote, and the row it names is
+    still pickup-ready, which is the defect this step exists to close.
+    """
+    shipped: list[str] = []
+    failed: list[str] = []
+    for row in reply.get("closed") or []:
+        if not isinstance(row, dict) or row.get("deployment_state") != "shipped":
+            continue
+        rel = _repo_relative(row.get("baton"), repo_root)
+        if not rel or not rel.startswith(_LIVE_HANDOFFS_PREFIX):
+            continue
+        try:
+            res = _invoke(
+                repo_root, "handoff.transition", {"verb": "ship", "handoff_path": rel},
+                live_engine_tree,
+            )
+        except ValueError as exc:
+            failed.append(f"{rel}: tracker row not shipped — {exc}")
+            continue
+        if res.get("exit_code", 0) != 0:
+            failed.append(
+                f"{rel}: tracker row not shipped — {res.get('error') or res.get('message')}"
+            )
+        else:
+            shipped.append(rel)
+    return shipped, failed
+
+
 def _refuse_live_tree_on_a_stamped_engine(engine_root, live_engine_tree: bool) -> str | None:
     """Enforce `--live-engine-tree`'s own stated precondition, or refuse.
 
@@ -621,6 +672,7 @@ def main(argv=None) -> int:
 
     totals = {lane: 0 for lane in _LANES}
     landings, all_refused, all_surfaced, all_fell_back = [], [], [], []
+    tracker_shipped: list[str] = []
     next_wave = None
 
     for path, result in fires:
@@ -674,6 +726,11 @@ def main(argv=None) -> int:
             print(line, file=sys.stderr)
         all_refused.extend(reply.get("refused") or [])
         all_refused.extend(_lane_refusals(reply))
+        shipped_rows, unshipped_rows = _ship_closed_tracker_rows(
+            repo_root, reply, args.live_engine_tree
+        )
+        tracker_shipped.extend(shipped_rows)
+        all_refused.extend(unshipped_rows)
         all_surfaced.extend(reply.get("surfaced_to_pm") or [])
         all_fell_back.extend(_fallback_lines(reply))
         # Each landing recomputes `next_wave` from a FRESH gate read taken after its
@@ -707,6 +764,7 @@ def main(argv=None) -> int:
         "refused": all_refused,
         "surfacedToPm": all_surfaced,
         "fellBack": all_fell_back,
+        "trackerShipped": tracker_shipped,
         "nextWave": next_wave,
         "landings": [{"fire": l["fire"], "counted": l["counted"]} for l in landings],
         "uncommitted": uncommitted,
@@ -733,6 +791,7 @@ def main(argv=None) -> int:
                     "refused": all_refused,
                     "surfacedToPm": all_surfaced,
                     "fellBack": all_fell_back,
+                    "trackerShipped": tracker_shipped,
                     "nextWave": next_wave,
                     "landings": [
                         {"fire": l["fire"], "counted": l["counted"]} for l in landings
@@ -760,6 +819,8 @@ def main(argv=None) -> int:
             print(f"  pm       {entry}")
         for entry in all_fell_back:
             print(f"  fellback {entry}")
+        for entry in tracker_shipped:
+            print(f"  shipped  {entry} (pickup_ready cleared)")
         if next_wave:
             print(f"  next     wave {next_wave.get('waveIndex')}: "
                   f"{len(next_wave.get('batons') or [])} baton(s)")

@@ -207,8 +207,8 @@ and states the stop condition from that sum. It refuses before landing anything 
 disagree about `waveIndex`, or if any fire dispatched XS and no `--shipped-in` was given. It
 orders the calls and does the arithmetic; it decides, fires and re-queues nothing.
 
-It writes the wave's own `wave-<n>.landing.json` into the trail, which the NEXT session reads
-instead of your stdout. **Never redirect its stdout onto that path** — text report and script write
+It writes `wave-<n>.landing.<slot>.json` into the trail (`<slot>` hashes the fire set the call landed, so sessions landing different fires of one wave never write the same path), which the NEXT session reads
+instead of your stdout. Readers aggregate every `wave-<n>.landing*.json` (`read_wave_landings`). **Never redirect its stdout onto that path** — text report and script write
 interleave into an unparseable file.
 
 **Commit before landing whenever the wave dispatched any XS.** `close_dispatched` stamps the baton
@@ -272,12 +272,16 @@ product at about half the cost of the multi-wave comparisons
   agents that died, and resumes only in its own session; after that re-emit and re-fire, closing a
   finished XS with `archive-stamp-cli ship-handoff <path> --sha <sha>`. Tripwire:
   `AN-UNFINISHED-WAVE-IS-NOT-A-WAVE-THAT-OPENED-NOTHING`.
+- The usage-limit advisory has fired this window — fire no further wave. Land the current wave
+  through step 4, then report and stop, with the advisory's reset time in the report. See
+  `coordinator/docs/wiki/skills-corpus/usage-limit-pause.md`; tripwire:
+  `A-DRIVER-PAST-ITS-USAGE-THRESHOLD-FIRES-NOTHING-NEW`.
 - `refused[]` is non-empty — report and stop; a landing that could not complete must not be built
   on.
-- `surfacedToPm` is non-empty — those need a PM answer. Carry them out; **never re-queue one.**
+- `surfacedToPm` is non-empty — the residue: each is `pm_only` (important, urgent, no clear answer, or an irreversible gate). Carry it out; **never re-queue one.** Report `adjudicated` by count.
 
 **What the driver escalates rather than decides:** an unresolved blocker, a cycle, any `refused`
-entry, anything in `surfacedToPm`, and a wave that lands nothing. Every other outcome has a defined
+entry, anything left in `surfacedToPm`, and a wave that lands nothing. Every other outcome has a defined
 next call.
 
 ---
@@ -317,8 +321,8 @@ add them back by hand.
 
 **Never open a gate the engine says is shut** — fix the blocking edge or clear the blocker.
 
-**Never let the blitz-em resolve a PM decision.** `route: pm-decision` and XL exits leave it in
-`surfacedToPm` — the blitz-em is an EM proxy, never a PM proxy.
+**The blitz-em never rules a PM decision.** `route: pm-decision` and XL exits go to the Adjudicate
+phase (APM for scope; staff-eng or domain reviewer for code); only `pm_only` stays in `surfacedToPm`.
 
 **`approved` is not `mise-prepped`, and a wave never stamps one.** Landing opens the *planning*
 gate; the `mise_prepped_by/_at/_sha/_findings` attest says a hands-off run may fire the plan without

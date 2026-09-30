@@ -159,8 +159,17 @@ _PYTEST_ENV_SCRUB = (
     "PYTEST_XDIST_WORKER_COUNT",
     "PYTEST_XDIST_TESTRUNUID",
 )
+# This module already spawns pytest as a
+# nested subprocess and needs the outer run's own pytest env vars scrubbed
 # out of that child's environment: a peer's `PYTEST_ADDOPTS` or xdist worker
+# identity would turn a genuine collection into one this gate misreads as a
+# tree defect. `coordinator/bin/tests/test_zero_test_module_ratchet.py`
 # carries the identical tuple under the same name (`_NESTED_PYTEST_ENV_SCRUB`)
+# for the same nested-subprocess reason; kept as a literal here rather than
+# loaded from that file by path (importlib spec, sys.path mutation, and a
+# transitive `coordinator_core` import on every publish round, to read four
+# strings) because the drift risk between two four-element literals is near
+# zero and any divergence is caught by that suite's own scrub test.
 
 MARKER_EXPRESSION = "not cadence and not pending_fix and not designed_red"
 """The tree's own documented fast-tier marker expression (parent plan's
@@ -446,7 +455,10 @@ def _parse_collection_summary(stdout: str) -> "tuple[int, bool, bool]":
     if _NO_TESTS_RE.search(tail_line):
         return 0, False, True
 
+    # Unrecognised summary shape — fail closed into "errored" rather than
+    # silently reporting a clean zero (see docstring), AND report it as
     # unrecognised so the caller treats this as INCOMPLETE, not as a
+    # content verdict about the tree.
     return 0, True, False
 
 

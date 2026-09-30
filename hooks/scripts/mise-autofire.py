@@ -158,25 +158,40 @@ except Exception:
     def _forwarder_argv(script_path, tail=()):  # type: ignore[misc]
         raise OSError("forwarder resolution unavailable -- import fallback declined to guess a launch decision")
 
+# Every consumer of _skill_invocation lives in this same directory, so a
+# deploy missing it is a deploy error to surface, not a shape to degrade past.
 from _skill_invocation import context_envelope as _context_envelope
 from _skill_invocation import read_invocation as _read_invocation
 
 
 def resolve_backlog_grind_assemble_bin(settings_home: Path) -> Path | None:
+    """Returns the extensionless script or the native `.exe`, whichever the
+    install carries, or None when neither is found -- the caller treats None
+    as a transport failure and fails open. Does not resolve
+    `bin/backlog-grind-assemble.cmd` (CreateProcess cannot launch one)."""
     return _resolve_forwarder(settings_home / "bin", "backlog-grind-assemble")
 
 
 def backlog_grind_assemble_argv(script_path: Path, tail: list[str]) -> list[str]:
+    """Interpreter prefix is decided by which variant resolved, not
+    assumed: an extensionless script requires it, a native `.exe` must be
+    launched bare."""
     return _forwarder_argv(script_path, tail)
 
 
 class _TransportFailure(Exception):
-    pass
+    """Raised when a `backlog-grind-assemble` invocation could not be
+    completed at all (binary unresolvable, spawn failure, timeout) --
+    as opposed to the target CLI running and returning a non-zero business
+    exit code, which is not a transport failure. This hook treats both the
+    same way (silent pass)."""
 
 
 def _run_backlog_grind_assemble(
     script_path: Path, tail: list[str], timeout: float
 ) -> subprocess.CompletedProcess:
+    # Never lets a raw OSError/TimeoutExpired escape -- every caller must be
+    # able to fail open.
     try:
         argv = backlog_grind_assemble_argv(script_path, tail)
         return subprocess.run(
@@ -193,6 +208,7 @@ def _run_backlog_grind_assemble(
 
 
 def decode_mint_payload(stdout: str) -> dict | None:
+    # Fail-open: None on any shape mismatch, never raises.
     try:
         obj = json.loads(stdout)
     except (json.JSONDecodeError, TypeError):

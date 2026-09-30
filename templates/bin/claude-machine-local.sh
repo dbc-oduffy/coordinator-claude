@@ -1,31 +1,22 @@
 #!/usr/bin/env bash
 
-
-# Purpose: make $REPO_PROJECT_RAG (and friends) cheaper to type than the
-
-
-#   1. $COORDINATOR_SETTINGS_HOME (if non-empty) → use verbatim
-#   2. else ${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings
-
-
-# The whole-script early-exit guard (CLAUDE_MACHINE_LOCAL_SOURCED) is retained
-
-
-# corrupt "$REPO_FOO/subdir" path joins to "/subdir".
-
-
-#   echo "$REPO_PROJECT_RAG/subdir/file.py"
+# Sourced helper exporting $REPO_* for portable, host-independent repo paths -- never a
+# hardcoded literal. Sourced once per shell session; idempotent via the
+# CLAUDE_MACHINE_LOCAL_SOURCED guard below. This file is installed standalone on a
+# consumer machine, so it resolves the settings home by pure path arithmetic rather than
+# sourcing coordinator/lib/settings-home.sh, which is not guaranteed present.
+#
+# A cleanly-absent key ($REPO_FOO unset) must not be exported as "" -- an empty export
+# would silently corrupt "$REPO_FOO/subdir" path joins to "/subdir".
+#
+# Not `set -e`: this file is sourced, so `set -e` would propagate to the caller's shell
+# and kill it on any error.
 
 if [ -n "${CLAUDE_MACHINE_LOCAL_SOURCED:-}" ]; then
     return 0
 fi
 
-
-# Settings-home resolution ladder (inline mirror of
-# coordinator/lib/settings-home.sh::_coordinator_settings_home — not sourced,
-# see file-top note). Scope matches that lib: MACHINE_LOCAL_REGISTRY_DIR is a
-# deeper registry-dir override handled by _machine_local.py itself, not here.
-
+# Settings-home resolution ladder, most-specific first.
 if [ -n "${COORDINATOR_SETTINGS_HOME:-}" ]; then
     _ml_settings_home="$COORDINATOR_SETTINGS_HOME"
 else
@@ -48,8 +39,9 @@ fi
 _ml_exports=$("$_ml_python" "$_ml_reader" dump --prefix repos --format sh)
 _ml_rc=$?
 if [ $_ml_rc -ne 0 ] && [ -z "$_ml_exports" ]; then
-    
-    
+    # Nothing resolved AND the reader failed -- most often a settings-home whose
+    # _machine_local.py predates `--format sh`. Every $REPO_* would silently be unset;
+    # say so instead.
     echo "claude-machine-local: error: reader at $_ml_reader failed (rc=$_ml_rc) and exported nothing — no \$REPO_* is set. If it predates 'dump --format sh', re-run the coordinator install to refresh it." >&2
 else
     eval "$_ml_exports"

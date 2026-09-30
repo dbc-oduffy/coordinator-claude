@@ -87,7 +87,10 @@ def main(argv: list[str] | None = None) -> int:
 
     params = {"run_id": run_id, "topic_slug": topic_slug, "dry_run": dry_run}
     try:
-        result = cc_invoke.route("fleet.archive_paper_trail", params, repo_root, _no_fallback)
+        result = cc_invoke.route_mutation("fleet.archive_paper_trail", params, repo_root, _no_fallback)
+    except cc_invoke.RouteMutationError as exc:
+        print(f"{prog}: fleet.archive_paper_trail refused: {exc}", file=sys.stderr)
+        return _ARCHIVE_DEGRADED
     except RuntimeError as exc:
         print(f"{prog}: fleet.archive_paper_trail failed (transport error): {exc}", file=sys.stderr)
         return _TRANSPORT_FAIL

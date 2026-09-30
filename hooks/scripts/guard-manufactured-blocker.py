@@ -165,6 +165,8 @@ from _touch_record import _touch_lines  # noqa: E402
 from _posture import resolve_posture  # noqa: E402
 
 
+# The overt handoff-to-PM construct -- the EM directly hands an item to the
+# PM ("wait on you", "your call", ...).
 _HANDOFF_PATTERNS = [
     re.compile(r"\bwait(?:s|ing)?\s+on\s+you\b", re.IGNORECASE),
     re.compile(r"\bblocks?\s+on\s+you\b", re.IGNORECASE),
@@ -174,6 +176,9 @@ _HANDOFF_PATTERNS = [
     re.compile(r"\bnow\s+wait\s+on\s+you\b", re.IGNORECASE),
 ]
 
+# The possessive form -- the EM tags an item as PM-owned by assertion
+# rather than demonstrating it. A softening qualifier ("genuinely",
+# "actually", "still") is an aggravating signal, not a mitigating one.
 _POSSESSIVE_PATTERNS = [
     re.compile(r"\bgenuinely\s+yours\b", re.IGNORECASE),
     re.compile(r"\bgenuinely\s+unresolved\b", re.IGNORECASE),
@@ -196,6 +201,12 @@ _OWNERSHIP_CUE_PATTERNS = [
 ]
 
 
+# A bare identifier with no plain-language gloss beside it: a chunk/AC id,
+# a plan slug, or a hex SHA/delivery id. Anchored to citation shapes
+# rather than a standalone `\bC\d+\b`/`\bA\d+\b`, which also matches
+# ordinary prose -- deliberately coarse, but this check is advisory-only
+# (never blocks), so the residual over-match is bounded to a spurious
+# nudge.
 _BARE_IDENTIFIER_PATTERNS = [
     re.compile(r"\bchunk\s+C\d+\b", re.IGNORECASE),
     re.compile(r"\bAC\s+A\d+\b", re.IGNORECASE),
@@ -211,6 +222,9 @@ _CATEGORY_CALL_RE = re.compile(
     r"\ba\s+(?:scope|product|direction|prioritization)\s+call\b", re.IGNORECASE
 )
 
+# Presence (not absence) of a recommendation -- checked against the whole
+# final message, since a recommendation need not sit in the same sentence
+# as the handoff clause.
 _RECOMMENDATION_RE = re.compile(
     r"\bI\s+recommend\b"
     r"|\bI'?d\s+suggest\b"
@@ -230,6 +244,9 @@ _DECIDABILITY_CORRECTION_TEXT = (
 )
 
 
+# An irreversible/external act named without pre-authorization already
+# granted. Kept narrow rather than broad -- a false fire is worse than a
+# miss for this exemption.
 _EXTERNAL_ACTION_PENDING_RE = re.compile(
     r"ask-before-external-action"
     r"|external[- ]action\b.{0,40}\b(?:pending|awaiting|authoriz)"
@@ -240,6 +257,11 @@ _EXTERNAL_ACTION_PENDING_RE = re.compile(
     re.IGNORECASE,
 )
 
+# The conflict-of-interest / wrong-signatory exemption: an item only the
+# PM can act on because the EM is structurally disqualified (a
+# two-decider record naming the EM as one of the deciders), not because of
+# scope or direction. Co-occurrence preferred over a single loose keyword
+# so an ordinary offload can't trivially borrow the phrasing.
 _WRONG_SIGNATORY_PATTERNS = [
     re.compile(r"\bwrong\s+signat(?:ure|ory)\b", re.IGNORECASE),
     re.compile(r"\bratify(?:ing)?\s+my\s+own\b", re.IGNORECASE),
@@ -272,6 +294,9 @@ _RATIFICATION_VOCAB_RE = re.compile(
 
 
 def _record_fire(repo_root: str, session_id: str, guard: str, reason: str) -> str | None:
+    """Mint a block-discharge nonce through the engine's ledger writer.
+    None when the engine is unresolvable or the write fails; the caller
+    reports that as an unrecorded fire, never as a clean check."""
     try:
         from _engine_root import place_engine_root_on_path, resolve_claude_klabauter_root
 
@@ -319,12 +344,15 @@ _CORRECTION_TEXT = (
 
 
 def _tail_text(path: str, max_bytes: int = _TAIL_WINDOW_BYTES) -> str:
+    """Last `max_bytes` of `path`, decoded, or "" on any I/O failure.
+    Bounded binary-seek read -- this is the only read this module performs
+    against the transcript; the whole conversation is never scanned."""
     try:
         size = os.path.getsize(path)
         with open(path, "rb") as fh:
             if size > max_bytes:
                 fh.seek(size - max_bytes)
-                fh.readline()
+                fh.readline()  # discard the partial line the seek landed inside
             raw = fh.read()
         return raw.decode("utf-8", errors="replace")
     except OSError:
@@ -332,6 +360,8 @@ def _tail_text(path: str, max_bytes: int = _TAIL_WINDOW_BYTES) -> str:
 
 
 def _final_assistant_text(transcript_path: str) -> str:
+    """Text of the final assistant message in the tail window, or "" --
+    never reasons about any earlier turn in the conversation."""
     text = _tail_text(transcript_path)
     if not text:
         return ""
@@ -355,6 +385,9 @@ def _final_assistant_text(transcript_path: str) -> str:
             for block in content
             if isinstance(block, dict) and block.get("type") == "text"
         ]
+        # Always overwrite, never only-if-non-empty: a tool_use-only turn
+        # (no text block) must reset last_text to "", not silently retain an
+        # earlier turn's text -- the invariant is "final message only".
         last_text = "\n".join(parts) if parts else ""
     return last_text
 
@@ -420,6 +453,7 @@ def _resolve_git_dir(dot_git: str) -> str | None:
 
 
 def _extract_scalar(lines: list[str], key: str) -> str | None:
+    """Flat `key: value` line-scan, matching `_posture.py`'s own idiom."""
     prefix = key + ":"
     for line in lines:
         stripped = line.strip()
@@ -435,6 +469,10 @@ def _extract_scalar(lines: list[str], key: str) -> str | None:
 
 
 def _extract_detents(lines: list[str]) -> list[str]:
+    """`detents` list values from a flat sizing-object line-scan. Handles
+    both the inline-list shape (`detents: [a, b]`) and the block-list shape
+    (`detents:` followed by `  - a` lines). No general YAML parsing --
+    stdlib-only."""
     values: list[str] = []
     collecting = False
     for raw_line in lines:
@@ -461,6 +499,10 @@ def _is_null_scalar(value: str | None) -> bool:
     return value is None or value in ("null", "~", "None", "")
 
 
+# The sizing exemption is topical, not turn-global: an open post-size
+# prompt exempts the sentence that ASKS it, never every possessive
+# construct sharing the turn. Matched generously -- an ambiguous sizing
+# sentence resolves toward silence.
 _SIZING_TOPIC_PATTERNS = [
     re.compile(r"\bt-?shirt\b", re.IGNORECASE),
     re.compile(r"\bappetite\b", re.IGNORECASE),
@@ -470,6 +512,9 @@ _SIZING_TOPIC_PATTERNS = [
     re.compile(r"\b(?:cut|split)\s+it\b", re.IGNORECASE),
     re.compile(r"\bgo\s+with\s+that\b", re.IGNORECASE),
     re.compile(r"\bmulti-session\b", re.IGNORECASE),
+    # Unambiguous sizing-gate vocabulary only -- bare `size`/`sized`/
+    # `sizing` was dropped: an ordinary word like "window size" carries no
+    # necessary connection to the PM sizing-gate.
     re.compile(r"\bsizing\s+lobby\b", re.IGNORECASE),
     re.compile(r"\bsized\s+it\b", re.IGNORECASE),
     re.compile(r"\bpost_size_prompt\b", re.IGNORECASE),
@@ -477,10 +522,17 @@ _SIZING_TOPIC_PATTERNS = [
 
 
 def _sizing_topic_in_scope(scope: str) -> bool:
+    """True iff the trigger window is talking about the size of the ask --
+    the only subject an open post-size/XL-exit prompt can be about."""
     return any(pattern.search(scope) for pattern in _SIZING_TOPIC_PATTERNS)
 
 
 def _sizing_object_exempts(repo_root: str, rel_path: str) -> bool:
+    """True iff the sizing object at `rel_path` carries an unresolved
+    appetite/post-size fork or an unresolved XL exit. Any read/parse
+    failure reads as "cannot prove the exemption doesn't apply" -> True ->
+    silence, matching a fail-toward-silence posture on every hard-exemption
+    read."""
     try:
         with open(os.path.join(repo_root, rel_path), "r", encoding="utf-8") as fh:
             lines = fh.readlines()
@@ -492,6 +544,9 @@ def _sizing_object_exempts(repo_root: str, rel_path: str) -> bool:
     xl_exit = _extract_scalar(lines, "xl_exit")
     detents = _extract_detents(lines)
 
+    # A recorded `pm_resolution` block IS the answer to the post-size
+    # prompt; `fork` alone cannot carry that signal since the engine emits
+    # it null unless the PM's answer happens to be cut- or raise-shaped.
     if any(line.strip().startswith("pm_resolution:") for line in lines):
         return False
 
@@ -503,6 +558,13 @@ def _sizing_object_exempts(repo_root: str, rel_path: str) -> bool:
 
 
 def _sizing_exemption_applies(payload: dict) -> bool:
+    """Outer preconditions (no session id, no resolvable repo root, no
+    `.git`, no `touched.txt` for this session) fail to False -- no
+    exemption -- deliberately not the fail-toward-True posture
+    `_sizing_object_exempts` uses on its own inner YAML read: failing open
+    here would exempt on every unresolvable-environment case regardless of
+    whether a sizing object was ever in play, a worse failure than the miss
+    this asymmetry accepts."""
     session_id = payload.get("session_id")
     if not isinstance(session_id, str) or not session_id.strip():
         return False
@@ -520,6 +582,10 @@ def _sizing_exemption_applies(payload: dict) -> bool:
 
 
 def _split_sentences(text: str) -> list[str]:
+    """Coarse sentence split -- lexical, not linguistic. Good enough to
+    scope the bare-identifier / category-call checks to the sentence
+    carrying the handoff/possessive construct rather than the whole
+    message."""
     pieces = re.split(r"(?<=[.!?])\s+|\n+", text)
     return [p.strip() for p in pieces if p.strip()]
 
@@ -548,6 +614,9 @@ def _trigger_window_idxs(text: str) -> tuple[list[str], set[int]]:
 
 
 def _trigger_window_text(text: str) -> str:
+    """Falls back to the whole message if no trigger sentence is found --
+    defensive only; the caller reaches this after a trigger already
+    matched somewhere in the message."""
     sentences, window_idxs = _trigger_window_idxs(text)
     if not sentences or not window_idxs:
         return text
@@ -584,6 +653,8 @@ def _any_exemption_applies(payload: dict, text: str) -> bool:
 
 
 def _candidate_ownership_sentence(text: str) -> str | None:
+    """First sentence carrying a handoff/possessive/ownership construct, or
+    None if the message hands nothing to the PM at all."""
     groups = (_HANDOFF_PATTERNS, _POSSESSIVE_PATTERNS, _OWNERSHIP_CUE_PATTERNS)
     for sentence in _split_sentences(text):
         for patterns in groups:
@@ -606,6 +677,9 @@ def _has_recommendation(full_text: str) -> bool:
 
 
 def _fails_decidability(sentence: str, full_text: str) -> bool:
+    """Any one of three signals is sufficient: a bare identifier with no
+    gloss, the choice named as a category rather than stated, or no
+    recommendation anywhere in the message."""
     return (
         _has_bare_identifier(sentence)
         or _has_category_call(sentence)
@@ -640,6 +714,8 @@ _DECLARATIVE_STALL_PATTERNS = [
         re.IGNORECASE,
     ),
     re.compile(r"\bnext\s+(?:up\b|I'?ll\b)", re.IGNORECASE),
+    # The confessional subspecies -- the EM narrating its own course
+    # correction to the PM instead of simply correcting course.
     re.compile(r"\bI'?ll\s+stop\s+\w+ing\b", re.IGNORECASE),
 ]
 
@@ -656,14 +732,27 @@ _DECLARATIVE_STALL_CORRECTION_TEXT = (
 
 
 def _final_sentence(text: str) -> str:
+    """Not fence/table-aware: a message ending on a trailing code-fence or
+    table line returns that line, not the prose above it."""
     sentences = _split_sentences(text)
     return sentences[-1] if sentences else ""
 
 
+# A bulleted or numbered continuation line -- "- x", "* x", "1. x". The
+# terminal-stall check strips these back to the line that introduces them,
+# since a hard newline split otherwise leaves the last list item as the
+# checked unit and the announcement itself (e.g. "Proceeding with:") goes
+# unseen.
 _BULLET_CONTINUATION_LINE_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
 
 
 def _final_stall_unit(text: str) -> str:
+    """Text checked for a terminal announcement. Only the last paragraph
+    (text after the last blank line) is ever considered, and within it,
+    trailing bullet/numbered lines are walked back to the non-bullet line
+    that introduces them -- never merged across a paragraph break, never
+    pulled from mid-message. A paragraph with no trailing bullet lines
+    falls back to the ordinary final-sentence check."""
     paragraphs = [p for p in re.split(r"\n\s*\n", text.strip()) if p.strip()]
     if not paragraphs:
         return ""
@@ -728,6 +817,12 @@ def main() -> int:
         return 0
 
     if not _matches_manufactured_blocker(text):
+        # No off-altitude handoff triggered here. The message may still be
+        # a genuinely PM-owned item worded as a bare ownership cue -- check
+        # decidability on that candidate sentence; no candidate -> silent.
+        # The terminal-stall check runs only on this path (not the blocking
+        # one) and only when no ownership candidate exists, so a message
+        # never carries both advisories in the same turn.
         candidate = _candidate_ownership_sentence(text)
         if candidate is None:
             return _emit_declarative_stall_verdict(text)

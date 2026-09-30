@@ -43,7 +43,7 @@ NOT-PREPPED residue is authorship: the bar asks what only a plan's author knows.
   `"${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/bin/mise-prep-gate" --repo-root <repo> <plan>`;
 - the charter: amend this plan in place, declaring only the classes named. No scaffold, no
   `status` change, no `mise_prepped_*` key, no body edit beyond a named class. Declared-empty only
-  where true. What only the PM can answer goes in the summary, class left undeclared.
+  where true. A matter that is scope, direction or priority goes to `coordinator:apm` (code, to `coordinator:staff-eng`), which writes `pm_ruling:` on the plan; only a `pm_only` matter (important, urgent, no clear answer) goes in the summary, class left undeclared.
 
 Not `coordinator:enricher` — it gathers facts and never decides, and a `prime_exit_criterion` is
 carried from the sizing's accepted `exit_criterion`; plan-author authors it only when the sizing

@@ -8,7 +8,7 @@ argument-hint: "[baton-path [AND baton-path]...] [--hibernate]"
 # Mise-en-Place — Autonomous Backlog Execution
 
 Flight-record the backlog, then run it straight through — implicit PM authorization, messy parts
-included. From Phase 5 on, never pause to ask; stop only for a PM-only question or § When to Stop.
+included. From Phase 5 on, never pause to ask; stop only for a `pm_only` question (important, urgent, no clear answer; scope, direction and priority go to `coordinator:apm`, code to `coordinator:staff-eng`) or § When to Stop.
 Not plan-as-you-go — decisions are made before the run.
 
 **Announce:** "Running /mise-en-place — prepping flight recorder, then straight shot through the
@@ -79,7 +79,7 @@ Otherwise, gate every item before Phase 1:
 | 5 | Verification mechanical — checkable, not "looks right" |
 
 Failing item → route out with a named reason, run the rest; decline the whole run only if the
-residue isn't coherent or routing needs a PM call. Patterns/examples: wiki.
+residue isn't coherent or routing needs a `pm_only` call. Patterns/examples: wiki.
 
 ## Phase 1: Inventory
 
@@ -179,7 +179,7 @@ compound command, and confirm the harness reports the new primary working direct
 proceeding. `A-CD-OUT-OF-A-REPO-DISARMS-EVERY-DISPATCHED-COMMIT-FOR-THE-SESSION`.
 
 Don't hand-author the script — mint and emit:
-`COORDINATOR_AGENT_TYPE_HOST=coordinator "${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/bin/emit-dispatch-workflow" --inventory state/mise-inventory/<run-id>.md`
+`COORDINATOR_AGENT_TYPE_HOST=coordinator "${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/bin/emit-dispatch-workflow" --inventory state/mise-inventory/<run-id>.md --out state/mise-inventory/<run-id>.workflow.mjs --repo-root <abs repo>`
 writes the spine (item-id → chunk-id, footprint → `writes`) plus the `.mjs`; fire it with the
 `Workflow({scriptPath, args: {repoRoot}})` call the emitter prints on stderr. An inventory row whose
 spec path is itself a plan carrying a `` ```yaml plan-tasks `` spine expands into that plan's own
@@ -380,6 +380,12 @@ Never merge to main; never worktrees, any phase. Full mechanics for every bullet
 
 Full worked rationale for each: wiki. Context exhaustion with backlog remaining is non-failure:
 run the full Phase 6 tail, take CONTINUANCE.
+
+**Stop when the usage-limit advisory has fired.** Fire nothing new, let in-flight fires land, run
+the Phase 6 tail and take CONTINUANCE with the advisory's reset time in the baton's next steps. An
+agent's rate-limit error is recovered; the account's threshold advisory ends the run cleanly. See
+`coordinator/docs/wiki/skills-corpus/usage-limit-pause.md`,
+`A-DRIVER-PAST-ITS-USAGE-THRESHOLD-FIRES-NOTHING-NEW`.
 
 | Situation | Action |
 |---|---|

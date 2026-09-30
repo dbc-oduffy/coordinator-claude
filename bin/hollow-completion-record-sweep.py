@@ -1,27 +1,38 @@
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """hollow-completion-record-sweep.py — CLI trampoline for
-completion_record_sweep.sweep_repos.
+completion_record_sweep.sweep_repos, plus an opt-in --repair mode backed by
+completion_record_repair.repair_repos.
 
-Purpose: READ-ONLY diagnostic. For one or more repo roots, report every
-``archive/completed/**/*.md`` record failing
+Purpose: READ-ONLY diagnostic by default. For one or more repo roots, report
+every ``archive/completed/**/*.md`` record failing
 ``coordinator_core.completion_record_integrity.hollow_reasons`` --
 placeholder markers still present, ``commits: []``, and/or a governing plan
 that never reached ``implemented``/``landed`` status. Never mutates, moves,
-or deletes a record.
+or deletes a record UNLESS ``--repair --apply`` is passed.
 
 Usage:
     python coordinator/bin/hollow-completion-record-sweep.py <repo-root> [<repo-root> ...]
+    python coordinator/bin/hollow-completion-record-sweep.py --repair <repo-root> [<repo-root> ...]
+    python coordinator/bin/hollow-completion-record-sweep.py --repair --apply <repo-root> [<repo-root> ...]
 
-With no arguments, sweeps the current repo (resolved via
+``--repair`` alone is a DRY RUN: reports exactly what would be repaired and
+what is residue (never fakeable — plan-not-landed/plan-unresolvable/
+placeholder-marker's missing needs-author status), touches no file.
+``--repair --apply`` performs the writes (``commits:`` backfill only — see
+``completion_record_repair``'s own docstring for the full negative-spec).
+``--apply`` without ``--repair`` is rejected (nothing to apply).
+
+With no repo-root arguments, sweeps the current repo (resolved via
 ``repo_identity.resolve_checked_repo_root``).
 
 Exit codes:
-  0 — swept successfully (regardless of how many hollow records were found
-      — this is a diagnostic, not a pass/fail gate).
-  1 — no repo root resolvable (no args, and cwd is not inside a git repo).
+  0 — swept/repaired successfully (regardless of how many hollow/repairable
+      records were found — this is a diagnostic, not a pass/fail gate).
+  1 — no repo root resolvable (no args, and cwd is not inside a git repo),
+      or ``--apply`` passed without ``--repair``.
   2 — engine-root resolution failed / coordinator_core not importable.
 
-NEVER writes anything.
+Plain sweep mode (no ``--repair``) NEVER writes anything.
 """
 from __future__ import annotations
 
@@ -58,6 +69,14 @@ def main(argv: list[str]) -> int:
         return 2
 
     args = argv[1:]
+    repair = "--repair" in args
+    apply_ = "--apply" in args
+    args = [a for a in args if a not in ("--repair", "--apply")]
+
+    if apply_ and not repair:
+        print("hollow-completion-record-sweep.py: --apply requires --repair", file=sys.stderr)
+        return 1
+
     if args:
         roots = [Path(a) for a in args]
     else:
@@ -70,6 +89,42 @@ def main(argv: list[str]) -> int:
         if verdict["verdict"] == "MISMATCH":
             print(verdict["message"], file=sys.stderr)
         roots = [Path(repo_root)]
+
+    if repair:
+        from coordinator_core.ops.completion_record_repair import repair_repos
+
+        reports = repair_repos(roots, apply=apply_)
+        total_repairable = sum(len(r.repairable) for r in reports)
+        total_residue = sum(len(r.residue) for r in reports)
+        total_process_ms = sum(r.process_ms for r in reports)
+        total_over_cap = sum(len(r.over_cap) for r in reports)
+        print(f"repos_swept={len(roots)}")
+        print(f"mode={'apply' if apply_ else 'dry-run'}")
+        print(f"repairable_records={total_repairable}")
+        print(f"residue_records={total_residue}")
+        print(f"over_cap_records={total_over_cap}  # matched >20 shas -- sent to residue, not written")
+        print(f"process_ms_total={total_process_ms:.1f}")
+        print("--- per-repo counts ---")
+        for r in reports:
+            print(
+                f"{r.repo_root}\trepairable={len(r.repairable)}\tresidue={len(r.residue)}\t"
+                f"over_cap={len(r.over_cap)}\tprocess_ms={r.process_ms:.1f}\t"
+                f"commits_scanned={r.commits_scanned}\tcommits_kept={r.commits_kept}"
+            )
+        print("--- over-cap (matched >20 shas, sent to residue) ---")
+        for r in reports:
+            for record_path, count in r.over_cap:
+                print(f"{r.repo_root}\t{record_path}\tsha_count={count}")
+        print("--- repairable ---")
+        for r in reports:
+            for rec in r.repairable:
+                written = "written" if rec.written else "would-write"
+                print(f"{r.repo_root}\t{rec.record_path}\t{written}\tsource={rec.match_source}\tshas={','.join(rec.shas)}")
+        print("--- residue (never written) ---")
+        for r in reports:
+            for record_path, reason in r.residue:
+                print(f"{r.repo_root}\t{record_path}\t{reason}")
+        return 0
 
     findings = sweep_repos(roots)
     summary = summarize_by_check(findings)

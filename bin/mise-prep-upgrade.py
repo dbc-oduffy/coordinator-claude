@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """mise-prep-upgrade — bring a plan authored before the mise-prep bar up to it.
 
 WHY THIS EXISTS. The bar (`coordinator_core/roadmap/prep_gate.py`) wants four
@@ -29,6 +30,15 @@ wrong" class this fleet has already found instances of.
                                         claim at all. `[]` asserts the plan rests on
                                         no counted premise — a claim, so it is written
                                         only where the text supports it.
+  falsifier nesting                     a top-level `falsifier:` block moved, bytes
+                                        intact, under `prime_exit_criterion:` — the
+                                        author wrote the falsifier; only its address
+                                        was wrong.
+  falsifier.baseline_ref bare sha       ONLY when the prose ref carries exactly one
+                                        sha-shaped token and names no repo other than
+                                        the plan's own. The prose survives as a YAML
+                                        comment on the same line: the schema closes
+                                        the falsifier object, so it has no key for it.
 
   REFUSED (reported, never written)     WHY
   ------------------------------------  ------------------------------------------
@@ -44,6 +54,8 @@ wrong" class this fleet has already found instances of.
                                         judgment about another repo's ownership.
   a missing spine                       a plan with no `yaml plan-tasks` block declares
                                         no scope; inventing rows would invent scope.
+  a multi-repo or sha-less baseline_ref which sha, in which repo, the baseline was
+                                        taken at is the author's to say.
 
 WHAT IS A PLAN — and what this tool refuses to have an opinion about.
 `docs/plans/` is not a directory of plans. It also holds the index, the readme,
@@ -106,12 +118,49 @@ _WRITE_TARGET = re.compile(
 )
 _PAREN_TAIL = re.compile(r"\s*\((?:new|edit|new\|edit)\)\s*$", re.I)
 
+#: Count-shaped claims. A bare integer >= 2 that is NOT a date part, a version, a
 #: sha, a percentage-of-a-version, or a path segment. Deliberately OVER-BROAD: a
+#: false positive costs one plan a hand-authored census, a false negative writes
+#: `census: []` onto a plan that does rest on a count — asymmetric, so this errs
+#: toward refusing to declare.
 _COUNTISH = re.compile(r"(?<![\w./-])(\d{2,6})(?![\w./-])")
 _DATEISH = re.compile(r"\b20\d{2}-\d{2}-\d{2}\b")
 _CODEFENCE = re.compile(r"```.*?```", re.S)
 
 _PLAN_KINDS = frozenset({"plan"})
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+# The gate's own sha predicates, so "already well-shaped" means what the gate means.
+from coordinator_core.execute_plan_assemble.falsifier_shape import (  # noqa: E402
+    _BASELINE_REF_CROSS_REPO_RE,
+    _DISPOSITION_REF_SHA_RE,
+)
+
+#: A sha-shaped token inside prose. An all-digit run still counts toward
+#: ambiguity (it may be a second sha) but is never itself taken as the sha.
+_PROSE_SHA = re.compile(r"(?<![0-9A-Za-z])[0-9a-fA-F]{7,40}(?![0-9A-Za-z])")
+
+#: Fleet repo names a prose ref may qualify a sha with, each to its canonical name.
+_REPO_ALIASES = {
+    "coordinator-content-repo": "coordinator-content-repo",
+    "claude-klabauter": "claude-klabauter",
+    "claude-klabauter": "claude-klabauter",
+    "claude-klabauter": "claude-klabauter",
+    "klabauter": "claude-klabauter",
+    "project-rag": "project-rag",
+    "coordinator-claude": "coordinator-claude",
+}
+_REPO_NAME = re.compile(
+    # Any `project-*` / `claude-*` word is a repo name too, known or not: an
+    # unrecognised repo is still some OTHER repo.
+    r"(?<![\w-])("
+    + "|".join(sorted(map(re.escape, _REPO_ALIASES), key=len, reverse=True))
+    + r"|(?:project|claude)-[a-z0-9][a-z0-9-]*)(?![\w-])",
+    re.I,
+)
+_BASELINE_LINE = re.compile(r"^(?P<indent>[ \t]+)baseline_ref:[ \t]*(?P<value>\S.*?)[ \t]*$", re.M)
+
+_repo_cache: Dict[Path, Optional[str]] = {}
 
 _SIDECAR_BACKREF_KEYS = ("plan",)
 
@@ -169,6 +218,155 @@ def split_frontmatter(text: str) -> Optional[Tuple[str, str]]:
     return text[4:end], (text[nl + 1 :] if nl != -1 else "")
 
 
+def plan_repo(path: Path) -> Optional[str]:
+    """Canonical name of the repo holding `path` (nearest `.git` ancestor);
+    a stat per directory level, cached per plan directory — no spawn."""
+    start = path.resolve().parent
+    if start not in _repo_cache:
+        found: Optional[str] = None
+        for anc in (start, *start.parents):
+            if (anc / ".git").exists():
+                found = _REPO_ALIASES.get(anc.name.lower(), anc.name)
+                break
+        _repo_cache[start] = found
+    return _repo_cache[start]
+
+
+def bare_baseline_sha(ref: str, own_repo: Optional[str]) -> Optional[str]:
+    """The single sha a prose `baseline_ref` unambiguously names for the
+    plan's own repo, else None (sha-less, several shas, or another repo named)."""
+    shas = _PROSE_SHA.findall(ref)
+    if len(shas) != 1 or shas[0].isdigit():
+        return None
+    for name in _REPO_NAME.findall(ref):
+        if _REPO_ALIASES.get(name.lower(), name) != own_repo:
+            return None
+    return shas[0]
+
+
+def _misnested_falsifier(fm: Dict[str, Any]) -> bool:
+    top = fm.get("falsifier")
+    prime = fm.get("prime_exit_criterion")
+    return (
+        isinstance(top, dict)
+        and bool(top)
+        and isinstance(prime, dict)
+        and "falsifier" not in prime
+    )
+
+
+def falsifier_report(fm: Dict[str, Any], own_repo: Optional[str]) -> Tuple[Dict[str, Any], List[str]]:
+    derivable: Dict[str, Any] = {}
+    residue: List[str] = []
+    prime = fm.get("prime_exit_criterion")
+    if not isinstance(prime, dict):
+        return derivable, residue
+    if _misnested_falsifier(fm):
+        derivable["prime_exit_criterion.falsifier(nest)"] = True
+        effective = fm["falsifier"]
+    else:
+        effective = prime.get("falsifier")
+    if not isinstance(effective, dict):
+        return derivable, residue
+    ref = effective.get("baseline_ref")
+    if not isinstance(ref, str) or not ref.strip():
+        return derivable, residue
+    ref = ref.strip()
+    if _DISPOSITION_REF_SHA_RE.match(ref) or _BASELINE_REF_CROSS_REPO_RE.match(ref):
+        return derivable, residue
+    sha = bare_baseline_sha(ref, own_repo)
+    if sha is None:
+        residue.append(
+            f"prime_exit_criterion.falsifier.baseline_ref: {ref!r} names no single "
+            "sha of this repo — which baseline, where, is authorship"
+        )
+    else:
+        derivable["prime_exit_criterion.falsifier.baseline_ref"] = (sha, ref)
+    return derivable, residue
+
+
+def _rewrite_baseline_ref(fm_text: str, sha: str, ref: str) -> Optional[str]:
+    """Replace the one single-line `baseline_ref:` whose value parses to
+    `ref`; None when no such line is uniquely found."""
+    hits = []
+    for m in _BASELINE_LINE.finditer(fm_text):
+        try:
+            value = yaml.safe_load(m.group("value"))
+        except yaml.YAMLError:
+            continue
+        if isinstance(value, str) and value.strip() == ref:
+            hits.append(m)
+    if len(hits) != 1:
+        return None
+    m = hits[0]
+    comment = " ".join(ref.split())
+    line = f"{m.group('indent')}baseline_ref: {sha}  # was: {comment}"
+    return fm_text[: m.start()] + line + fm_text[m.end() :]
+
+
+def _nest_falsifier(fm_text: str) -> Optional[str]:
+    """Move the top-level `falsifier:` block under a block-style
+    `prime_exit_criterion:`, shifting every line by the criterion's child indent."""
+    lines = fm_text.split("\n")
+
+    def block(key: str) -> Optional[Tuple[int, int]]:
+        starts = [i for i, ln in enumerate(lines) if re.match(rf"^{key}:[ \t]*(#.*)?$", ln)]
+        if len(starts) != 1:
+            return None
+        i = starts[0]
+        j = i + 1
+        while j < len(lines) and (not lines[j].strip() or lines[j][:1] in (" ", "\t")):
+            j += 1
+        while j > i + 1 and not lines[j - 1].strip():
+            j -= 1
+        return i, j
+
+    fal, pec = block("falsifier"), block("prime_exit_criterion")
+    if fal is None or pec is None or pec[1] == pec[0] + 1:
+        return None
+    child = re.match(r"^([ \t]+)", lines[pec[0] + 1])
+    if child is None:
+        return None
+    moved = [child.group(1) + ln if ln.strip() else ln for ln in lines[fal[0] : fal[1]]]
+    if fal[0] < pec[0]:
+        out = lines[: fal[0]] + lines[fal[1] : pec[1]] + moved + lines[pec[1] :]
+    else:
+        out = lines[: pec[1]] + moved + lines[pec[1] : fal[0]] + lines[fal[1] :]
+    return "\n".join(out)
+
+
+def upgrade_falsifier(fm_text: str, derivable: Dict[str, Any]) -> str:
+    """Apply the falsifier derivations; each is kept only if the reparsed
+    frontmatter equals the original with exactly that change made."""
+    try:
+        if not isinstance(yaml.safe_load(fm_text), dict):
+            return fm_text
+    except yaml.YAMLError:
+        return fm_text
+    out = fm_text
+    pair = derivable.get("prime_exit_criterion.falsifier.baseline_ref")
+    if pair:
+        sha, ref = pair
+        candidate = _rewrite_baseline_ref(out, sha, ref)
+        if candidate is not None:
+            expect = yaml.safe_load(out)
+            target = expect["falsifier"] if _misnested_falsifier(expect) else expect["prime_exit_criterion"]["falsifier"]
+            target["baseline_ref"] = sha
+            if yaml.safe_load(candidate) == expect:
+                out = candidate
+    if derivable.get("prime_exit_criterion.falsifier(nest)"):
+        candidate = _nest_falsifier(out)
+        if candidate is not None:
+            expect = yaml.safe_load(out)
+            expect["prime_exit_criterion"]["falsifier"] = expect.pop("falsifier")
+            try:
+                if yaml.safe_load(candidate) == expect:
+                    out = candidate
+            except yaml.YAMLError:
+                pass
+    return out
+
+
 def body_rests_on_a_count(body: str) -> List[str]:
     prose = _CODEFENCE.sub(" ", body)
     prose = _DATEISH.sub(" ", prose)
@@ -221,6 +419,9 @@ def plan_report(
             residue.append("prime_exit_criterion.derived_from: no sizing_object to derive from")
     if not has_statement:
         residue.append("prime_exit_criterion.statement: a falsifiable outcome sentence — authorship")
+    f_derivable, f_residue = falsifier_report(fm, plan_repo(path))
+    derivable.update(f_derivable)
+    residue.extend(f_residue)
 
     targets = write_targets(body)
     spine_rows = raw_spine_rows(text)
@@ -229,7 +430,13 @@ def plan_report(
     else:
         undeclared = [r.get("id") for r in spine_rows if isinstance(r, dict) and "writes" not in r]
         # STRINGIFIED, because a row id is only a string by convention and YAML believes
+        # otherwise: an unquoted `id: 0` parses as int, and every later use here — the
+        # `targets` lookup, the residue join — assumed str. The join raised TypeError and
+        # took the whole invocation down, so a corpus holding ONE such row could not be
+        # converted at all, and the crash named a `', '.join` rather than the row. This is
         # the tool a NOT-PREPPED verdict points its author at, so it has to survive the
+        # corpus it exists to repair. Falsy-but-real ids (`0`, `"0"`) survive the filter
+        # for the same reason: `if i` dropped the row silently.
         undeclared = [str(i) for i in undeclared if i is not None and str(i).strip()]
         recoverable = {i: targets[i] for i in undeclared if i in targets}
         if recoverable:
@@ -260,7 +467,7 @@ def apply_derivable(path: Path, derivable: Dict[str, Any]) -> bool:
     if split is None:
         return False
     fm_text, _ = split
-    new_fm = fm_text
+    new_fm = upgrade_falsifier(fm_text, derivable)
 
     if "census" in derivable:
         new_fm = new_fm.rstrip("\n") + (
@@ -284,6 +491,8 @@ def apply_derivable(path: Path, derivable: Dict[str, Any]) -> bool:
 
     out = text
     if new_fm != fm_text:
+        if not new_fm.endswith("\n"):
+            new_fm += "\n"
         out = "---\n" + new_fm.lstrip("\n") + "---\n" + split[1]
 
     writes = derivable.get("spine.writes") or {}

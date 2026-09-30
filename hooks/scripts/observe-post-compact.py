@@ -46,6 +46,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 try:
     from _git_common_dir import resolve_git_common_dir as _resolve_git_common_dir_str  # noqa: E402
 except Exception:
+    # Defensive fallback -- a deploy missing its sibling _git_common_dir.py
+    # must still fail open (empty common dir -> caller returns None) rather
+    # than crash on import.
     def _resolve_git_common_dir_str(git_root: str) -> str:
         return ""
 
@@ -53,6 +56,8 @@ _EVENT_NAME = "PostCompact"
 
 
 def _read_stdin(timeout: float = 2.0) -> str:
+    """Bounded stdin read (Windows hang guard) — same pattern as
+    track-dispatched-agents.py._read_stdin."""
     box = {"data": ""}
 
     def _read() -> None:
@@ -68,6 +73,9 @@ def _read_stdin(timeout: float = 2.0) -> str:
 
 
 def _resolve_git_common_dir(start: Path) -> Path | None:
+    """Walk up from `start` to the nearest `.git` (directory or gitdir-pointer file), then
+    resolve its `commondir` file if present via the shared `_git_common_dir` helper. Returns
+    None on any failure — never raises."""
     try:
         probe = start.resolve()
     except Exception:
@@ -118,6 +126,8 @@ def main() -> int:
         }
         cwd_hint = Path.cwd()
     else:
+        # No named-field access anywhere below — the whole point of this handler. `payload` is
+        # dumped back out whole, or `raw` is recorded verbatim if it did not even parse as JSON.
         record = {
             "observed_at": observed_at,
             "hook_event_name": _EVENT_NAME,
@@ -128,7 +138,7 @@ def main() -> int:
 
     git_common_dir = _resolve_git_common_dir(cwd_hint)
     if git_common_dir is None:
-        return 0
+        return 0  # fail-open — no resolvable git tree, nothing to write into
 
     _append_record(git_common_dir, record)
     return 0

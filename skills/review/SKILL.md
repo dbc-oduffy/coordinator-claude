@@ -2,7 +2,6 @@
 name: review
 description: "Review a plan/design doc, code diff, or roadmap spine/slice — findings land on the artifact."
 version: 2.0.0
-spec_backlink: archive/specs/2026-05/2026-05-06-review-super-skill.md
 argument-hint: "--surface plan|diff|roadmap"
 allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskUserQuestion","TaskCreate","TaskUpdate","TaskGet","TaskList"]
 ---

@@ -76,6 +76,14 @@ def _resolve_plugin_root() -> str:
 
 def main(argv: "list[str] | None" = None) -> int:
     # Set CLAUDE_PLUGIN_ROOT (if unset) so the ported op — which cannot
+    # locate the DoE coordinator/ tree via its own __file__ or a cwd()
+    # fallback (see coordinator_core.ops.verify_templates_setup_sync's
+    # _resolve_plugin_root()) — resolves the same templates/setup/
+    # directory this trampoline resolves. The op module reads the env var
+    # rather than taking an explicit argument, so mutating os.environ here
+    # is the seam, not a workaround; other callers (e.g.
+    # coordinator_core.plugin_health.sentinel's in-process probe P-11) set
+    # the same env var directly before invoking the op's main().
     if not os.environ.get("CLAUDE_PLUGIN_ROOT"):
         os.environ["CLAUDE_PLUGIN_ROOT"] = _resolve_plugin_root()
 

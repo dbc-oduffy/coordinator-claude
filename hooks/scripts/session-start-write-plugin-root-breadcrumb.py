@@ -86,7 +86,7 @@ def _installed_root(home: str) -> str | None:
     concurrent sessions loaded from different trees write identical bytes."""
     try:
         from _hook_plane_probe import _load_json_dict, _resolve_install_path
-        config_dir = Path(home) / ".claude"
+        config_dir = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path(home) / ".claude")
         plugins = _load_json_dict(config_dir / "plugins" / "installed_plugins.json").get("plugins")
         for key in sorted(plugins) if isinstance(plugins, dict) else ():
             if not key.startswith("coordinator@"):

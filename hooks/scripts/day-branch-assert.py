@@ -115,7 +115,7 @@ def main() -> int:
         if not is_author():
             return 0
     except Exception:
-        pass
+        return 0  # unknown profile fails open to consumer
 
     try:
         from _engine_root import _session_repo_root, resolve_claude_klabauter_root

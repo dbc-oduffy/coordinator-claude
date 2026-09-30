@@ -9,6 +9,9 @@ _LIB_DIR = os.path.normpath(_LIB_DIR)
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 
+# Windows-only: suppress the console window that console-subsystem child
+# processes flash when this process has no console to inherit (e.g. spawned
+# by an MCP server or a GUI Claude Code host). POSIX: empty dict —
 # CREATE_NO_WINDOW is Windows-only, so the ternary short-circuits.
 _NO_CONSOLE_WINDOW = (
     {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}

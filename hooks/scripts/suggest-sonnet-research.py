@@ -59,6 +59,9 @@ from pathlib import Path
 
 
 def _read_stdin(timeout: float = 2.0) -> str:
+    """Bounded read: a bare sys.stdin.read() can block forever if the harness
+    never closes stdin's write end; this backstops with a timeout instead of
+    hanging the hook chain."""
     box = {"data": ""}
 
     def _read() -> None:
@@ -79,6 +82,8 @@ if _HOOKS_DIR not in sys.path:
 try:
     from _engine_root import resolve_claude_klabauter_root as _resolve_claude_klabauter_root  # noqa: E402
 except Exception:
+    # Fallback for a hook script deployed without its sibling _engine_root.py:
+    # must fail-open rather than crash on import.
     def _resolve_claude_klabauter_root() -> str | None:
         return None
 
@@ -88,16 +93,19 @@ def main() -> int:
 
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0
+        return 0  # fail-open -- engine repo unresolvable on this machine
 
     from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
     _place_engine_root_on_path(root)
 
     try:
+        # Importing this triggers coordinator_core.hooks package __init__,
+        # which registers all advisory + bookkeeping ops as a side-effect --
+        # a per-fire cost (each hook fire is a fresh process), not one-time.
         from coordinator_core.hooks import suggest_sonnet_research as _op  # noqa: F401
         from coordinator_core.ipc import HookDispatchError, dispatch_from_hook
     except Exception:
-        return 0
+        return 0  # engine unimportable -> fail-open
 
     try:
         payload = json.loads(raw)
@@ -116,9 +124,9 @@ def main() -> int:
     try:
         result = dispatch_from_hook("hooks.suggest_sonnet_research", params)
     except HookDispatchError:
-        return 0
+        return 0  # any engine failure -> fail-open (never brick a tool call)
 
-    if result:
+    if result:  # {} (no_advisory) and None both fall through to no-output
         sys.stdout.write(json.dumps(result))
         sys.stdout.write("\n")
     return 0

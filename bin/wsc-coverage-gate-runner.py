@@ -73,7 +73,16 @@ def _ensure_repo_root_on_path() -> None:
         sys.path.insert(0, str(_CLAUDE_KLABAUTER_REPO_ROOT))
 
 
+#: The .cmd launcher's own basename — used by `recover_windows_argv` to locate
 #: where this invocation's own arguments begin within the raw `%CMDCMDLINE%`
+#: capture — see `coordinator/bin/lib/raw_cmdline_recovery.py`'s module
+#: docstring. The `write-trail --sha-range` subcommand this originally guarded
+#: (a git rev/range typed directly at the CLI, e.g. the `sha^..sha`
+#: predecessor-range shape cmd.exe's `%*` batch-parameter population silently
+#: strips a literal `^` from) was removed here per DR-372/DR-374 (the
+#: review_trail.write op and its CLI are gravestoned, not deleted — both
+#: remain on disk); kept for `claim-plan`'s own argv, refusing on an
+#: unvouchable capture same as before.
 _LAUNCHER_CMD_NAME = "wsc-coverage-gate-runner.cmd"
 
 

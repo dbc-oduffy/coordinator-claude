@@ -1,20 +1,37 @@
 #!/usr/bin/env bash
-
+# Cloud-environment setup script. Paste into "Setup script" at claude.ai/code.
+#
+# Lands coordinator-claude and its engine on a cloud VM before Claude Code launches, via a
+# `directory` marketplace source in user settings -- nothing is uploaded, no admin approval
+# surface is involved, no `claude` binary is needed at setup time.
+#
 
 # REPO-AGNOSTIC BY DESIGN, AND THAT IS THE POINT. This is pasted into a cloud ENVIRONMENT, which is
 # the OPERATOR's surface at claude.ai/code — not a file in any repo and not a step any repo's own
-
+# installer has to adopt. Everything it needs it clones itself, so the same paste works for a
+# session on any repo.
+#
 
 # ONE EXCEPTION, LIVE TODAY: doctrine (phase 3b)'s third candidate is a published copy that, as of
-
+# this writing, may not yet be in the plugin mirror. Status lives in README.md § Known gap, beside
+# this file -- don't restate it here, it is truth-expiring.
+#
 
 # PASTE THIS ALONGSIDE — the "Environment variables" box, which reaches the SESSION but NOT this
-
+# script (which is why every value below is also hardcoded here):
+#
 
 #     COORDINATOR_SETTINGS_HOME=/root/.coordinator-claude-settings
-
+#
 # NOT COORDINATOR_ENGINE_ROOT. It is a live-tree override, so a session-wide value pins every
-
+# session to the manual test-and-execute rung rather than the published engine. This script writes
+# the published pointer file instead.
+#
+# Every finding is a FAIL line in the setup checklist, and the script exits 0 -- a non-zero exit
+# fails the whole session -- with ONE exception: a missing review payload (roster fragment or
+# bin/ under the engine-resolved content root) exits 1. A session booted without it runs every
+# execute workflow with no review stage, which is worse than not booting. SCOPE and the
+# verification record: README.md beside this file.
 
 set -u
 
@@ -22,13 +39,19 @@ REPO_MARKETPLACE=https://github.com/dbc-oduffy/coordinator-claude
 REPO_ENGINE=https://github.com/dbc-oduffy/claude-klabauter
 LOG="$HOME/.coordinator-cloud-setup.log"
 
+# Everything runs inside main() so the whole run can be tee'd to a file -- the platform does not
+# persist this script's stdout anywhere else the session can reach, so the log file is the only
+# durable channel for "which route did a phase take?" after the fact.
+FATAL_MARK="$HOME/.coordinator-cloud-setup.fatal"
+rm -f "$FATAL_MARK"
 
 main() {
 
 echo "=== phase 0: probe (facts unestablishable from a developer host) ==="
 echo "whoami=$(whoami)  HOME=$HOME  PWD=$PWD"
 
-
+# /opt is the documented seed location; $HOME is the fallback. Which one we get changes the paths
+# the env-var block above must carry, so this is decided first.
 if mkdir -p /opt/coordinator 2>/dev/null; then
   ROOT=/opt/coordinator
 else
@@ -48,7 +71,6 @@ python3 -V 2>&1 || true
 # that installer, so the marker is not fatal here — but it decides how phase 2 installs deps, and
 # it decides whether the NEXT increment can run /coordinator:install at all.
 
-
 if command -v python3 >/dev/null 2>&1; then
   python3 - <<'PY' 2>&1 || true
 import os, sysconfig
@@ -60,7 +82,8 @@ fi
 command -v check-tools >/dev/null 2>&1 && check-tools 2>&1 | head -30
 
 echo "=== phase 1: clone (setup-phase egress, not the session's) ==="
-
+# Claude Code connects to the agent proxy AFTER this script runs, so reachability here is its own
+# question -- an in-session check would not have answered it.
 
 clone() {
   local url=$1 dest=$2
@@ -78,7 +101,10 @@ clone "$REPO_ENGINE" "$ROOT/claude-klabauter"
 HAVE_ENGINE=$?
 
 echo "=== phase 2: engine runtime deps ==="
-
+# coordinator_core needs Python >=3.11 plus these four; a bare clone cannot import without them.
+# Three routes tried in order of least surprise. --break-system-packages is deliberately NOT one
+# of them: the engine's own installer refuses that path, and a setup script that took it would
+# leave a machine the installer then declines to run on.
 
 DEPS="pydantic psutil jsonschema PyYAML"
 if pip3 install --user --quiet $DEPS 2>/dev/null; then
@@ -90,13 +116,17 @@ else
 fi
 
 echo "=== phase 3: register the plugin in user settings ==="
-
+# The `directory` source is what sidesteps the hosted surface: Claude Code reads the marketplace
+# manifest off local disk at launch and clones nothing. The mirror is FLAT -- its
+# .claude-plugin/marketplace.json sits at the repo root, unlike the DoE source tree where the
+# manifest is one level down under coordinator/. Pointing at the wrong level fails with
+# "Marketplace file not found".
 
 mkdir -p "$HOME/.claude"
 SETTINGS="$HOME/.claude/settings.json"
 if [ "$HAVE_PLUGIN" -eq 0 ] && command -v python3 >/dev/null 2>&1; then
-  
-  
+  # Merged, never clobbered: Claude Code may have written this file already, and a fresh write
+  # would silently drop whatever else it holds.
   MP="$ROOT/coordinator-claude" python3 - "$SETTINGS" <<'PY' 2>&1 || echo "settings: FAIL"
 import json, os, sys
 path = sys.argv[1]
@@ -119,7 +149,6 @@ fi
 
 echo "=== phase 3b: global doctrine into the VM's own HOME ==="
 
-
 # Cloud reads the VM's $HOME/.claude normally -- what does not carry over is the machine you
 # launched FROM. That is provenance, not path (tripwire
 # A-VM-WRITTEN-HOME-CLAUDE-IS-NOT-YOUR-MACHINES-HOME-CLAUDE), and it is why phase 3 can register a
@@ -128,8 +157,6 @@ echo "=== phase 3b: global doctrine into the VM's own HOME ==="
 # only copy on this VM is the one in the working repo's own clone -- present when the session runs
 # on a repo that authors doctrine, absent otherwise. Copy, never mirror-and-prune: $HOME/.claude is
 # the operator's, and on a self-hosted runner it may already carry seeded content this must not eat.
-# Review: code-reviewer — comment named two of three candidates; the sibling-checkout glob is
-# the second search rung, ahead of the published copy.
 # Search order is authoring-copy first, sibling-checkout glob second, published copy third. They are byte-identical when the
 # deriver has run, so the order only decides which one a doctrine-authoring repo uses; the
 # published copy under the plugin clone is what makes every OTHER repo work, since it rides the
@@ -143,11 +170,12 @@ for cand in "$PWD/global-doctrine" /workspace/*/global-doctrine \
 done
 if [ -n "$DOCTRINE_SRC" ]; then
   mkdir -p "$HOME/.claude/rules"
-  
-  
+  # The log line is the only durable verification channel this design has, so a failed copy must
+  # not report OK -- check the copy's own exit status before logging.
   if cp "$DOCTRINE_SRC/CLAUDE.md" "$HOME/.claude/CLAUDE.md"; then
-    
-    
+    # CLAUDE.md and rules are two independent outcomes, and doctrine-present-with-rules-missing
+    # is a real, distinct state a reader needs to see -- no `2>/dev/null`, a copy failure's
+    # stderr belongs on disk.
     if [ -d "$DOCTRINE_SRC/rules" ]; then
       if cp "$DOCTRINE_SRC/rules"/*.md "$HOME/.claude/rules/"; then
         RULES_STATUS="rules: OK"
@@ -162,16 +190,18 @@ if [ -n "$DOCTRINE_SRC" ]; then
     echo "doctrine: FAIL (copy error, see above) -> \$HOME/.claude/CLAUDE.md (from $DOCTRINE_SRC)"
   fi
 else
-  
-  
+  # None of the three candidates was found -- could be a failed clone, or the published-copy
+  # candidate's known gap. Loud rather than silent because a skip here looks identical to a
+  # working copy, and the session that boots next is the one that pays.
   echo "doctrine: FAIL (no copy found — session runs doctrine-blind; see README.md § Known gap)"
 fi
 
 echo "=== phase 4: engine root pointer ==="
-
+# The ordering hole: the machine-local registry's reader belongs to coordinator-claude's INSTALL,
+# which has not run and cannot run here. The durable pointer file is the documented cold-box
+# substitute and needs no reader at all.
 
 if [ "$HAVE_ENGINE" -eq 0 ]; then
-  
   # `-root`, NOT `-live-root`. Two pointers are read at different rungs and they assert different
   # things: `.claude-klabauter-root` is the PUBLISHED build (admitted only with a tracked
   # coordinator_core/_engine_stamp, which a fresh clone of the mirror carries), `-live-root` is a
@@ -179,8 +209,7 @@ if [ "$HAVE_ENGINE" -eq 0 ]; then
   # The wrong name does not fail loudly — the published arm falls through, the live arm accepts on
   # isdir, and the box resolves by asserting a published mirror is a live tree. That is DR-326's
   # manual test-and-execute carve-out, taken silently where nobody can attach a debugger.
-  
-  
+
   mkdir -p "$HOME/.coordinator-claude-settings/machine-local"
   echo "$ROOT/claude-klabauter" > "$HOME/.coordinator-claude-settings/machine-local/.claude-klabauter-root"
   echo "engine pointer: OK -> $ROOT/claude-klabauter"
@@ -190,7 +219,6 @@ fi
 
 echo "=== phase 4b: run the engine installer ==="
 
-
 # The point of doing this HERE rather than asking the session to run /coordinator:install: a
 # newborn cloud EM should inherit a working machine, not a chore. Both clones exist by now and the
 # image's python3 carries no EXTERNALLY-MANAGED marker, so the installer's exit-96 refusal cannot
@@ -199,16 +227,16 @@ echo "=== phase 4b: run the engine installer ==="
 # the bin/ CLI surface does not), which is exactly where this script stood before. It must never
 # take the session down with it, so the exit code is reported and swallowed.
 
-
 if [ "$HAVE_ENGINE" -eq 0 ]; then
-  
-  
+  # `--i-am-agent` plus a closed stdin: an ephemeral VM has nothing to negotiate, so this lands
+  # the DEFAULT installation and takes every default silently. `< /dev/null` matters: one offer
+  # still fires under --i-am-agent and relies on stdin being closed to decline it.
   ( cd "$ROOT/claude-klabauter" && COORDINATOR_ENGINE_ROOT="$ROOT/claude-klabauter" \
       COORDINATOR_SETTINGS_HOME="$HOME/.coordinator-claude-settings" \
       python3 scripts/setup.py --i-am-agent < /dev/null ) 2>&1 | tail -25
   rc=${PIPESTATUS[0]}
-  
-  
+  # Named rather than numeric: 90 is a missing hard dependency, 95 an unresolvable repo identity,
+  # 96 the interpreter refusal that should now be impossible here -- a 96 means the image changed.
   case "$rc" in
     0)  echo "engine install: OK" ;;
     90) echo "engine install: FAIL rc=90 (hard dep missing)" ;;
@@ -233,12 +261,40 @@ if [ "$HAVE_ENGINE" -eq 0 ]; then
   
   python3 -c "import pydantic, psutil, jsonschema, yaml; print('deps import: OK')" 2>&1 | tail -1
 fi
+# The review payload, located the way the engine locates it (content_root_for: `<clone>/coordinator`
+# for a source-shaped tree, the clone itself for the flat mirror). Fatal: see the header.
+REVIEW_PAYLOAD_FAIL=0
+if [ "$HAVE_PLUGIN" -eq 0 ]; then
+  python3 - "$ROOT/claude-klabauter" "$ROOT/coordinator-claude" <<'PYCHECK' 2>&1 || REVIEW_PAYLOAD_FAIL=1
+import sys
+sys.path.insert(0, sys.argv[1])
+try:
+    from coordinator_core._content_root_primitive import content_root_for
+except Exception as exc:
+    print(f"review payload: FAIL -- engine unimportable, cannot resolve content root ({exc})")
+    sys.exit(1)
+root = content_root_for(sys.argv[2])
+if root is None:
+    print(f"review payload: FAIL -- {sys.argv[2]} is not a coordinator content root")
+    sys.exit(1)
+missing = [p for p in (root / "contract" / "review-roster-fragment.json", root / "bin")
+           if not p.exists()]
+if missing:
+    print("review payload: FAIL -- missing " + ", ".join(map(str, missing))
+          + " (execute workflows would compose no review stage)")
+    sys.exit(1)
+print(f"review payload: OK ({root})")
+PYCHECK
+else
+  echo "review payload: FAIL -- no plugin clone"
+  REVIEW_PAYLOAD_FAIL=1
+fi
+[ "$REVIEW_PAYLOAD_FAIL" -eq 0 ] || : > "$FATAL_MARK"
 # The PUBLISHED-engine pointer, written here so the env block never has to carry an override to
 # do this job. The published arm admits a root only if <root>/coordinator_core/_engine_stamp
 # exists, and the stamp is tracked, so a fresh clone of the mirror satisfies it. The name is
 # load-bearing: `-live-root` would be accepted on isdir alone and resolve the mirror AS a live
 # working tree. See contract § Why the pointer name is `-root` and not `-live-root`.
-
 
 if [ "$HAVE_ENGINE" -eq 0 ]; then
   if [ -f "$ROOT/claude-klabauter/coordinator_core/_engine_stamp" ]; then
@@ -251,8 +307,9 @@ if [ "$HAVE_ENGINE" -eq 0 ]; then
     echo "engine pointer: SKIPPED — no _engine_stamp, so this clone is not a published build"
   fi
 fi
-
-
+# Everything above proves files are on disk, not that Claude Code READS them -- this script
+# finishes before Claude Code launches, so hook firing is unobservable from here. The session
+# that boots next is the only thing that can settle it, and cloud sessions are unattended ones.
 echo "UNVERIFIED: whether plugin-declared hooks fire in this session. Two probes and a results"
 echo "  table: coordinator-claude/coordinator/templates/cloud-env/verify-in-session.md"
 echo "  Until a row there is filled, treat cloud hook coverage as unknown, not present."
@@ -262,4 +319,10 @@ echo "=== setup complete ==="
 
 main 2>&1 | tee -a "$LOG"
 echo "full log: $LOG"
+# main runs in a pipeline subshell, so its verdict crosses back as a marker file.
+if [ -f "$FATAL_MARK" ]; then
+  rm -f "$FATAL_MARK"
+  echo "setup: FAIL -- review payload missing; see 'review payload:' above"
+  exit 1
+fi
 exit 0

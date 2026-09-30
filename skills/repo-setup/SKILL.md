@@ -43,6 +43,10 @@ the engine op lands, the caller's own answer to `p1.repo-classification-ask`) na
 - **`--answers <file.json | inline-json>` (single repo).** A JSON object keyed by lane `step_id` (`p2.ask-project-name`, `p2.ask-project-type`, `p2.ask-workstreams`, ...) overriding that step's lane value; every unlisted step takes its lane value. Implies `--non-interactive`; an unknown key fails loud, naming it.
 - **`--check-only` is batch-mode-only.** Passed to the default single-repo mode (without `--batch`), the skill exits with the one-line remediation: `"--check-only is only valid with --batch; for a single repo use --non-interactive or --answers."`
 
+## Optional `coordinator.local.md` key: `ceremony_day_anchor`
+
+`ceremony_day_anchor: local|utc` is a flat frontmatter key in `coordinator.local.md`. Absent or `local` anchors the ceremony day on the machine's local date; `utc` anchors it on the UTC date, so collaborators in different timezones share one day label. Repo-setup does not seed it: add the line by hand (or via the flat-key write) only for a repo that wants `utc`.
+
 ## Prerequisites
 
 - You are in the project's working directory (not `~/.claude`), or pass `--root`/`--target` (§ Flag contract).
@@ -59,6 +63,8 @@ the engine op lands, the caller's own answer to `p1.repo-classification-ask`) na
 **4. UNATTENDED-HALT SET.** `p3j.1-test-cmd-detect`, `p3m.verify-reachability`, `tw.windows-console-verify-run`, `batch.hook-respect` are never pre-answered by any lane (`lanes/CONTRACT.md`) — return them unresolved to the calling agent/PM exactly as mechanics.md's own procedure surfaces them.
 
 **5. Roster.** Report the firing lane's `roster_slots[]` verbatim in the Phase 4 output. Materializing the roster into batons is a later skill/ceremony's job.
+
+**5a. Posture overlay.** Read `engagement_posture` from `${CLAUDE_HOME:-$HOME}/.claude/coordinator-identity.yaml`; when set, run `render-posture-overlay <posture> "$_TARGET_ROOT/.claude/em-context.md"` (the same call as `commands/install.md`'s engagement-posture step, including its `.gitignore` check). Absent, skip silently. The op swaps in place, so re-running on a repo that already carries an overlay is safe.
 
 **6. Sentinel — signal that setup just ran.** As the final action, write a session-scoped sentinel so `/workstream-start` (if invoked in this same session) prints its one-line setup notice and then runs orientation once: create the `state/` directory if absent, then touch `state/.repo-setup-just-ran`. The sentinel is single-shot: `/workstream-start`'s Preflight consumes it on first read (`rm -f`). It MUST be gitignored, never committed — see `residue/mechanics.md` for the `.gitignore` line.
 

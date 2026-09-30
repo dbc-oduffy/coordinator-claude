@@ -69,6 +69,9 @@ import datetime
 import difflib
 from pathlib import Path
 
+# Read-path exit-code contract: an operational failure must be distinguishable
+# from a cleanly-absent key, so a consumer swallowing non-zero does not mask a
+# broken reader as "key not found".
 EXIT_OK = 0
 EXIT_NOT_FOUND = 1
 EXIT_OPERATIONAL = 2
@@ -86,6 +89,10 @@ if sys.version_info < (3, 11):
 
 import tomllib
 
+# A console-subsystem child with no console of its own allocates a fresh conhost
+# on Windows, with a visible window -- every git spawn below is short-lived and
+# output-captured, so without this each one flashes. 0 on POSIX, where the flag
+# does not exist.
 _NO_CONSOLE = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
 
 SCHEMA_EXPECTED = 1
@@ -128,6 +135,9 @@ def _settings_home() -> str:
 
 
 class AmbiguousRepoMatch(Exception):
+    """Raised when marker-autodiscovery finds >=2 distinct directories for the
+    same slug. The operator must set REPO_<SLUG> (rung 1 env override) to
+    resolve the ambiguity."""
     pass
 
 
@@ -155,12 +165,18 @@ def _registry_dir() -> str:
 
 
 def _load_toml(path: str) -> dict:
+    """Load a TOML file and return its contents as a dict. Errors loudly on
+    malformed TOML -- no silent degradation. Returns {} when the file is
+    absent. This is the default for every caller that is the root namespace
+    itself or feeds a write path that must fail loud; concern-file reads
+    during layer-building are the one exception -- see _load_toml_isolated."""
     if not os.path.exists(path):
         return {}
     try:
         with open(path, "rb") as f:
             return tomllib.load(f)
     except tomllib.TOMLDecodeError as exc:
+        # Operational failure, not absence: the reader could not parse its input.
         print(
             f"machine-local: malformed TOML in {path}: {exc}\n"
             "Remediation: fix the TOML syntax in the file above.",
@@ -170,6 +186,16 @@ def _load_toml(path: str) -> dict:
 
 
 def _load_toml_isolated(path: str) -> dict | None:
+    """Fail-soft counterpart to _load_toml, scoped only to concern-file reads
+    in _build_resolution_layers. Returns {} when the file is absent (same as
+    _load_toml), the parsed dict on success, or None on a TOMLDecodeError --
+    None is the drop-this-layer sentinel, distinct from {} (absent/empty), so
+    the caller can tell "nothing here" from "something here I couldn't read".
+    One malformed concern file must not take down every other concern's keys
+    or the registry layers. Registry files (registry.toml/registry.local.toml)
+    deliberately do NOT route through this function -- they stay on the fatal
+    _load_toml path, since they ARE the root namespace and degrading them
+    would silently produce a reader that answers with a partial registry."""
     if not os.path.exists(path):
         return {}
     try:
@@ -234,6 +260,13 @@ def _scan_marketplace_marker(candidate_dir: str) -> str | None:
 
 
 def _scan_dev_repo_marker(candidate_dir: str) -> str | None:
+    """Scan a candidate directory for its .coordinator-dev-repo identity marker
+    (the doctrine-repo authoring clone shape: no marketplace manifest). Reads a
+    non-comment `slug: <value>` line and returns it with `-` replaced by `_`,
+    matching the marketplace-name convention. Returns None if the file is
+    absent, unreadable, or carries no `slug:` key -- a keyless sentinel is a
+    valid marker for other, presence-only readers, but this leg needs the key
+    and must not guess."""
     marker_path = os.path.join(candidate_dir, ".coordinator-dev-repo")
     if not os.path.isfile(marker_path):
         return None
@@ -252,6 +285,12 @@ def _scan_dev_repo_marker(candidate_dir: str) -> str | None:
 
 
 def _scan_marker(candidate_dir: str) -> str | None:
+    """Collapse the two first-class, mutually-exclusive marker shapes
+    (marketplace and dev-repo) into a single slug. A candidate carrying BOTH
+    marker kinds is an identity contradiction, not a precedence question: this
+    returns None, the same as an unreadable or slug-less marker of either
+    single kind -- never a silent pick of one shape over the other. Does NOT
+    infer a slug from the directory basename in either shape."""
     marketplace_slug = _scan_marketplace_marker(candidate_dir)
     dev_repo_slug = _scan_dev_repo_marker(candidate_dir)
 
@@ -389,6 +428,10 @@ def _autodiscover_repo(slug: str, reg_dir: str) -> str | None:
 
 
 def _git_common_dir(cand: str) -> str | None:
+    """Resolve <cand>'s git common-dir to an absolute realpath, or None if
+    <cand> is not inside a git repository (or git is unavailable/errors/times
+    out). The common-dir is shared by a primary working tree and all of its
+    linked worktrees, making it the correct grouping key for worktree-collapse."""
     try:
         proc = subprocess.run(
             ["git", "-C", cand, "rev-parse", "--git-common-dir"],
@@ -410,6 +453,14 @@ def _git_common_dir(cand: str) -> str | None:
 
 
 def _collapse_git_worktree_duplicates(distinct: list[str]) -> list[str]:
+    """Collapse realpath-distinct candidates that are actually the same
+    underlying git repository (a primary working tree plus one or more linked
+    worktrees) into one representative -- the primary working tree. A linked
+    worktree's marker-bearing directory shares its parent repo's marketplace
+    slug, so without this step it counts as a second, spuriously-distinct
+    candidate and triggers a false AmbiguousRepoMatch. Non-git candidates are
+    never collapsed; genuinely-distinct git repos (different common-dirs) are
+    likewise preserved as distinct."""
     groups: dict[str, list[str]] = {}
     order: list[str] = []
     for cand in distinct:
@@ -456,6 +507,13 @@ def _load_path_exceptions(reg_dir: str) -> dict:
 
 
 def _to_native_drive_path(s: str) -> str:
+    """Convert an MSYS/Cygwin mount-form path ('/x/...' or '/cygdrive/x/...') to
+    native Windows drive form so native-Windows consumers (node, py.exe,
+    claude.exe, Path.exists) resolve it. No-op on POSIX and on paths already
+    in native drive form. Companion to the as_posix() backslash-drive fix,
+    which repairs a backslashed native drive path but does not touch
+    '/x/...', which a native-Windows process resolves as drive-relative
+    (doubled drive, drive-letter directory repeated)."""
     if os.name != "nt":
         return s
     m = re.match(r"^/(?:cygdrive/)?([A-Za-z])(/.*)?$", s)
@@ -465,19 +523,33 @@ def _to_native_drive_path(s: str) -> str:
 
 
 class SiblingRepoNotFoundError(Exception):
+    """Raised when resolve_sibling_repo_required cannot locate a sibling repo.
+    This exact name is pinned by the cross-machine path-resolution contract;
+    conformers catching this error must import or mirror it by this name."""
     pass
 
 
 def resolve_sibling_repo(name: str) -> "Path | None":
+    """Walk the 4-rung cross-machine resolution ladder; return first resolved
+    path or None. Never raises on absence; AmbiguousRepoMatch propagates
+    through (a misconfig, not absence) but only after the whole ladder has
+    been walked. A rung-1 set-but-nonexistent env var also propagates
+    (EnvironmentError), since it too is a misconfig. Does NOT fall through to
+    the generic _resolve_key/_build_resolution_layers stack: that stack's
+    lowest layer (registry.toml) carries `repos.x = ""` sentinel placeholders
+    it would return as hits, silently defeating fail-loud -- rung 4 reads only
+    registry.local.toml directly and treats empty-string as not-found."""
     slug = name
     env_var = f"REPO_{slug.upper()}"
     reg_dir = _registry_dir()
 
+    # Rung 1 -- explicit env override
     env_val = os.environ.get(env_var)
     if env_val is not None:
         p = Path(env_val)
         if p.exists():
             return p
+        # Set but absent: this is a misconfig (not a clean absence) -- hard error.
         raise EnvironmentError(
             f"{env_var} is set to {env_val!r} but that path does not exist. "
             f"Fix or unset {env_var} to allow autodiscovery to proceed."
@@ -499,6 +571,7 @@ def resolve_sibling_repo(name: str) -> "Path | None":
     if discovered is not None:
         return Path(discovered)
 
+    # Rung 3 -- path-exceptions.toml OS-keyed table
     exceptions = _load_path_exceptions(reg_dir)
     platform_exc = exceptions.get(sys.platform, {})
     if isinstance(platform_exc, dict):
@@ -508,6 +581,7 @@ def resolve_sibling_repo(name: str) -> "Path | None":
             if exc_path.exists():
                 return exc_path
 
+    # Rung 4 -- registry.local.toml direct read; empty-string is not a hit
     reg_local_path = os.path.join(reg_dir, "registry.local.toml")
     reg_local_data = _load_toml(reg_local_path)
     if reg_local_data:

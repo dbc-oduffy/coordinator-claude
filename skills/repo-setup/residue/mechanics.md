@@ -215,7 +215,9 @@ themselves don't vary by lane.
 
 **Declared exemption from the ≤200-word EM→PM budget** (global `CLAUDE.md § Communication Style`):
 this is a once-per-repo onboarding walkthrough, not a recurring status report — do not shorten it
-to satisfy the word-budget advisory hook.
+to satisfy the word-budget advisory hook. The template's first and last lines are the marker pair
+that declares the exemption to the comms hook (`em-pm-comms-instrumentation.md` § The
+ceremony-mandated marker).
 
 Report-by-exception on `### Already Existed (untouched)` — print only when non-empty.
 `### Created` and `### Needs Attention` always print. `### Recent Roadmap` is count-always — render
@@ -224,6 +226,7 @@ Report-by-exception on `### Already Existed (untouched)` — print only when non
 Template:
 
 ```
+<!-- ceremony-mandated:start -->
 ## Onboarding Complete — [Project Name]
 
 ### Created
@@ -231,6 +234,7 @@ Template:
 ### Needs Attention
 ### Recent Roadmap (last 90d, top-10 by size)
 ### What's next
+<!-- ceremony-mandated:end -->
 ```
 
 `### What's next` carries the fixed operator walkthrough: `~/.claude` is the surface the operator

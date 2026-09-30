@@ -9,7 +9,38 @@ schemas/ but forgotten in query-records.js TYPE_TO_GLOB fails loudly instead
 of silently drifting. Consumer: SSOT drift verification at cadence/CI gates.
 """
 from __future__ import annotations
+# verify-schema-registry-sync.sh — CLI trampoline over claude-klabauter
+# coordinator_core.ops.verify_schema_registry_sync.
+#
+# SSOT drift gate: every schemas/*.yaml with an applies_to: must have a
+# corresponding query --type recognised by bin/query-records.js at runtime.
 # Adding a new schema without wiring it into query-records.js TYPE_TO_GLOB
+# causes this script to fail loudly, making "add schema, forget
+# query-records" impossible.
+#
+# Finish-strangler port (DR-059): the bash implementation has been fully
+# ported to coordinator_core/ops/verify_schema_registry_sync.py (coordinator-content-repo
+# clean-slate migration, 2026-07-16). This file is now a thin DoE-side
+# (contract) trampoline over that claude-klabauter (engine) module, per DR-047 (DoE
+# owns contract/generator, claude-klabauter owns engine).
+#
+# Exit convention: this is a fail-loud gate script (SSOT drift check), NOT a
+# never-block auto-push shape — it exits 1 both on engine-root/import
+# resolution failure AND on the ported check's own FAIL verdict, mirroring
+# the pre-port .sh's own ERROR/FAIL exit-1 conventions (it never silently
+# skipped).
+#
+# Exit codes:
+#   0 — all schemas with applies_to: have a recognised --type in query-records.js
+#   1 — one or more schemas with applies_to: are NOT recognised by
+#       query-records.js, OR claude-klabauter-link resolution/import failed, OR a
+#       sanity guard (schemas dir / query-records.js missing) tripped.
+#
+# Usage:
+#   verify-schema-registry-sync.sh
+#   bash plugins/coordinator/bin/verify-schema-registry-sync.sh
+#
+# Spec backlink: docs/plans/2026-06-23-deliverable-type-schema-taxonomy.md § Decision 3 + C4
 
 import os
 import sys

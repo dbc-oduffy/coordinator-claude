@@ -89,11 +89,15 @@ from _message_envelope import CHANNEL_ADDITIONAL_CONTEXT, compose, emit  # noqa:
 try:
     from _git_common_dir import resolve_git_common_dir as _resolve_git_common_dir  # noqa: E402
 except Exception:
+    # Fails open (empty common dir -> callers skip) rather than crash on import
+    # if a deploy is missing its sibling _git_common_dir.py.
     def _resolve_git_common_dir(git_root: str) -> str:
         return ""
 try:
     from _session_hub import session_id_is_real, ensure_session_dir  # noqa: E402
 except Exception:
+    # Fails open to the pre-gate behaviour rather than crash on import if a
+    # deploy is missing its sibling _session_hub.py.
     def session_id_is_real(session_id: object) -> bool:
         return bool(session_id)
 
@@ -104,6 +108,8 @@ except Exception:
             return False
         return True
 
+# Offering "use Explore" to a dispatch that IS Explore/Plan is meaningless; both are
+# excluded case-insensitively (dispatch call sites vary on capitalization in practice).
 _EXEMPT_TARGETS = {"explore", "plan"}
 
 _READ_ONLY_RE = re.compile(
@@ -114,6 +120,11 @@ _READ_ONLY_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Presence anywhere disqualifies the offer, unconditionally -- no negation-scrubbing: a
+# false offer on real write-work is worse than a missed offer on read-only work. Each stem
+# carries `(?:re-?)?` INSIDE the outer `\b` rather than before it, since a bare
+# `\bwrit(?:e|...)` never matches "rewrite" ("e" and "w" share no word boundary) -- that
+# gap recurs across every stem here, so it is handled once, generally.
 _WRITE_VERB_RE = re.compile(
     r"\b(?:re-?)?(edit|editing|edits|"
     r"writ(?:e|es|ing|ten)|"
@@ -184,6 +195,7 @@ def _is_read_only_shaped(prompt: Any) -> bool:
 
 
 def _git_root(start: str) -> str:
+    """No-subprocess walk-up from `start` (falls back to os.getcwd()); fails open to "" on any error."""
     try:
         base = start if isinstance(start, str) and start else os.getcwd()
         if not base:
@@ -201,6 +213,12 @@ def _git_root(start: str) -> str:
 
 
 def _claim_offer_marker(cwd: str, session_id: str) -> bool:
+    """Atomically claims the once-per-session marker via exclusive create (O_CREAT | O_EXCL)
+    rather than a check-then-act isfile() gate, so two concurrent dispatches in the same
+    session cannot both observe "not yet offered" and both emit. Returns True iff this call
+    should emit the offer -- either it won the exclusive create, or the marker path could not
+    be resolved at all (fails open toward offering, since an unresolvable marker means dedup
+    is impossible). Returns False iff the marker already exists."""
     try:
         git_root = _git_root(cwd)
         if not git_root:
@@ -209,6 +227,8 @@ def _claim_offer_marker(cwd: str, session_id: str) -> bool:
         if not common_dir:
             return True
         session_dir = os.path.join(common_dir, "coordinator-sessions", session_id)
+        # A session id the hub gate rejects gets no directory minted for its marker,
+        # which leaves dedup impossible -- the same fail-open-toward-offering exit.
         if not session_id_is_real(session_id):
             return True
         ensure_session_dir(session_dir, session_id)
@@ -261,6 +281,8 @@ def main() -> int:
         cwd = ""
     session_id = data.get("session_id")
     if not isinstance(session_id, str) or not session_id:
+        # Without a session_id the once-per-session marker cannot dedupe; offering
+        # unconditionally on every qualifying call would spam rather than nudge.
         return 0
 
     if not _claim_offer_marker(cwd, session_id):

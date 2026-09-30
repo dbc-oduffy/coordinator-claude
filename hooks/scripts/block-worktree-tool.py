@@ -71,6 +71,7 @@ from _win_portability import no_console_creationflags  # noqa: E402
 try:
     from _git_root_walk import git_root_walk as _git_root_walk  # noqa: E402
 except Exception:
+    # Fail open: missing sibling module must not crash import, only skip the fast path.
     def _git_root_walk() -> str | None:
         return None
 
@@ -90,6 +91,8 @@ def _deny_message():
 
 
 def _git_root() -> "str | None":
+    # In-process parent walk first, subprocess only as fallback; any failure returns None
+    # rather than raising, so callers fail toward "no override".
     walked = _git_root_walk()
     if walked:
         return walked
@@ -110,6 +113,9 @@ def _git_root() -> "str | None":
 
 
 def _sentinel_override_active() -> bool:
+    # Sentinel-file override only -- reachable from inside a live session via touch, unlike an
+    # env var a running hook process could not have had injected into it mid-session. Fails
+    # toward "no override" on any resolution failure.
     root = _git_root()
     if not root:
         return False

@@ -230,7 +230,10 @@ def main(argv: list[str] | None = None) -> int:
         completed = subprocess.run(command, check=False, creationflags=_NO_WINDOW)
         head_after, dirty_after = _corpus_fingerprint()
 
+        # A None on either side means git
+        # could not be queried at all, which is NOT the same as "held still." Treat it as
         # UNSTABLE (a distinct reason, not folded into the moved-HEAD/moved-files cases
+        # below) rather than letting None == None report a false PASS/FAIL.
         if None in (head_before, dirty_before, head_after, dirty_after):
             print(
                 "\nstable-suite-run: UNSTABLE — git could not be queried (not on PATH, not "

@@ -59,6 +59,7 @@ from typing import Callable
 
 _SCRIPTS = Path(__file__).resolve().parent
 
+#: dispatcher filename -> the `hooks.json` key its carried guards are delivered under.
 FANIN_DISPATCHERS = {
     "sessionstart-dispatch.py": "SessionStart",
     "sessionstart-async-dispatch.py": "SessionStart",
@@ -76,6 +77,13 @@ FANIN_DISPATCHERS = {
 
 
 def load_dispatcher(filename: str):
+    """Import a fan-in-layer module by path -- its filename is not a legal
+    module name and it is not on any import path. Registered in
+    `sys.modules` before exec: these modules define their guard row as a
+    `@dataclass`, and dataclasses resolve string annotations through
+    `sys.modules[cls.__module__].__dict__`; exec'ing an unregistered module
+    makes that lookup return None and the decorator dies with an unrelated
+    AttributeError."""
     path = _SCRIPTS / filename
     spec = importlib.util.spec_from_file_location(
         "_fanin_" + filename.replace("-", "_").removesuffix(".py"), path
@@ -158,6 +166,9 @@ def carried_guards(filename: str):
 
 
 def all_carried_guards():
+    """`{guard_filename: dispatcher_filename}` across every fan-in dispatcher.
+    Fails loud on a guard carried by two dispatchers -- that is a
+    double-delivery, never resolved silently by last-writer-wins."""
     seen = {}
     for dispatcher in FANIN_DISPATCHERS:
         for _, guard_filename in carried_guards(dispatcher):

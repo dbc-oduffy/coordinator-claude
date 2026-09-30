@@ -74,6 +74,14 @@ from pathlib import Path
 
 
 def _read_stdin(timeout: float = 2.0) -> str:
+    """Bounded stdin read (Windows hang guard).
+
+    A bare sys.stdin.read() blocks forever if the harness never closes stdin's write end
+    (observed Windows failure mode). This hook fires on every Bash tool call (both Pre and
+    Post legs), so a hang here stalls every subsequent tool call in the session. Backstopped
+    with a threaded-join timeout, returning "" (the same fail-open value a JSON-decode failure
+    already produces) instead of hanging.
+    """
     box = {"data": ""}
 
     def _read() -> None:
@@ -94,6 +102,9 @@ if _HOOKS_DIR not in sys.path:
 try:
     from _engine_root import resolve_claude_klabauter_root as _resolve_claude_klabauter_root  # noqa: E402
 except Exception:
+    # Defensive fallback -- a hook script copied/deployed without its
+    # sibling _engine_root.py must still fail-open rather than crash on
+    # import.
     def _resolve_claude_klabauter_root() -> str | None:
         return None
 
@@ -103,16 +114,20 @@ def main() -> int:
 
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0
+        return 0  # fail-open -- engine repo unresolvable on this machine
 
     from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
     _place_engine_root_on_path(root)
 
     try:
+        # Importing coordinator_core.hooks.session_heartbeat triggers the
+        # coordinator_core.hooks package __init__ (registers advisory and
+        # bookkeeping ops via register_op side-effects at import time) --
+        # each hook fire is a fresh process, so this cost recurs every fire.
         from coordinator_core.hooks import session_heartbeat as _op  # noqa: F401
         from coordinator_core.ipc import HookDispatchError, dispatch_from_hook
     except Exception:
-        return 0
+        return 0  # engine unimportable -> fail-open
 
     try:
         payload = json.loads(raw)
@@ -141,9 +156,9 @@ def main() -> int:
             origin_worktree=payload.get("cwd", ""),
         )
     except HookDispatchError:
-        return 0
+        return 0  # any engine failure -> fail-open (never brick a tool call)
 
-    if result:
+    if result:  # {} (no_advisory) and None both fall through to no-output
         sys.stdout.write(json.dumps(result))
         sys.stdout.write("\n")
     return 0

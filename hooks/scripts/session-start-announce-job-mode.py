@@ -77,6 +77,9 @@ try:
         place_engine_root_on_path as _place_engine_root_on_path,
     )
 except Exception:
+    # Defensive fallback -- a hook script copied/deployed WITHOUT its
+    # sibling _engine_root.py must still fail-open rather than crash on
+    # import.
     def _resolve_claude_klabauter_root() -> "str | None":
         return None
 
@@ -89,6 +92,7 @@ except Exception:
         return None
 
 
+#: One line per SessionStart boot that resolved a job mode.
 _LOG_FILENAME = "job-mode-announce.log"
 
 
@@ -112,6 +116,8 @@ def resolve_settings_home() -> Path:
 
 
 def _append_durable_line(line: str) -> None:
+    """Best-effort append -- raises on any failure; `main()` catches it so a
+    durable-write failure never costs the stdout leg its own line."""
     log_path = resolve_settings_home() / "state" / _LOG_FILENAME
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with open(log_path, "a", encoding="utf-8") as fh:
@@ -138,10 +144,12 @@ def main() -> int:
 
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0
+        return 0  # fail-open -- engine repo unresolvable on this machine
 
     _place_engine_root_on_path(root)
 
+    # Must precede the first coordinator_core.* import -- see
+    # _engine_root.arm_lazy_ops for the eager package-init cost this avoids.
     _arm_lazy_ops()
 
     try:
@@ -151,7 +159,7 @@ def main() -> int:
             resolve_mode,
         )
     except Exception:
-        return 0
+        return 0  # engine unimportable -> fail-open
 
     env = dict(os.environ)
     session_id = _extract_session_id(raw)
@@ -164,7 +172,7 @@ def main() -> int:
         # call honest against a future key that does read it.
         mode = resolve_mode("job_mode", session_id if session_id != "unknown" else "", env=env)
     except Exception:
-        return 0
+        return 0  # any engine failure -> fail-open
 
     # Whether the value was explicitly ASSERTED via COORDINATOR_JOB_MODE, or
     # fell through to the conservative anchor -- read the same public wire
@@ -187,6 +195,9 @@ def main() -> int:
     except Exception:
         pass
 
+    # Durable leg is independent of the stdout leg above -- a failure here
+    # (unwritable path, permissions, ...) must never retract or suppress
+    # the stdout line already written.
     try:
         timestamp = datetime.now(timezone.utc).isoformat()
         _append_durable_line(f"{timestamp} session={session_id} job_mode={mode} ({provenance})")

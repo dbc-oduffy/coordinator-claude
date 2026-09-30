@@ -63,6 +63,8 @@ import os
 import sys
 from pathlib import Path
 
+#: Default move cap. The OP itself requires a positive cap and has no default —
+#: this is the CLI's own recommended value, mirroring `sweep-terminal-handoffs.py`
 #: citing `_RECOMMENDED_CAP_CHOICE` rather than re-deriving a rationale.
 _DEFAULT_CAP = 150
 

@@ -158,6 +158,7 @@ def _cmd_repomap_gate(args: argparse.Namespace) -> int:
     }
     gates = _gates()
     settings_home = gates._settings_home(None)
+    # repomap-gate resolves sibling CLIs from THIS bin/ dir, not
     # $COORDINATOR_SETTINGS_HOME/bin — override defaults directly when unset.
     if not overrides["check_rag_state_cli"]:
         overrides["check_rag_state_cli"] = str(_BIN_DIR / "check-rag-state.py")

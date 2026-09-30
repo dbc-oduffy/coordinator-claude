@@ -208,8 +208,15 @@ UNREACHABLE_REASON = (
     "(refused, timed out, or reset mid-response); the discovery record may be stale"
 )
 
+#: Same cap `http_listener.py` applies to its own POST bodies -- a hook event is
+#: a small JSON object, and anything larger here is malformed or hostile before
+#: it reaches this module's own (tiny) parsing.
 MAX_BODY_BYTES = 1 << 20
 
+#: How long the CONNECT leg may take before this module treats the backend as
+#: unreachable and denies. Small: the backend is loopback-local and
+#: sub-millisecond when it is actually up. This bound exists for the down
+#: case, not the up one.
 _FORWARD_CONNECT_TIMEOUT_SECS = 2.0
 
 #: How long the backend may spend RESPONDING once the socket is established. Deliberately an
@@ -280,6 +287,10 @@ HEALTH_PATH = "/health"
 DOOR_PROTOCOL_VERSION_KEY = "door_protocol_version"
 PUBLISHED_DOOR_PROTOCOL_VERSION = 1
 
+#: Published beside the marker so a human reading a probe body can tell WHICH
+#: conforming holder answered. The contract ignores extra keys, so this is safe
+#: to carry and strictly better than an anonymous 2xx: the marker says the
+#: transport is spoken, this says by whom.
 HOLDER_NAME = "doe-http-hook-forwarder"
 
 #: HTTP header the `type: "http"` registration carries `${COORDINATOR_CLONE_ROOT}` on, per
@@ -305,6 +316,9 @@ ROUTING_HEADER_NAME = "X-Coordinator-Clone-Root"
 #: `test_http_hook_forwarder_cookie.py`.
 COOKIE_HEADER_NAME = "X-Coordinator-Cookie"
 
+#: Env var overriding where the dial counter is persisted. Exists for tests
+#: and for a second forwarder deliberately run off to one side; a deployment
+#: never sets it.
 DIAL_COUNT_PATH_ENV = "COORDINATOR_FORWARDER_DIAL_COUNT_PATH"
 
 #: How many recent arrivals the counter keeps alongside the totals. A bare integer is
@@ -329,6 +343,8 @@ DIAL_COUNT_PATH_ENV = "COORDINATOR_FORWARDER_DIAL_COUNT_PATH"
 #: treat wall clock as free, which is why the deadline above is argued down rather than adopted.
 _BACKEND_WAIT_DEADLINE_SECS = 3.0
 
+#: Gap between discovery re-reads inside the wait. Small enough that a listener
+#: that binds at 0.78s is served at ~0.8s rather than at the next coarse tick.
 _BACKEND_WAIT_TICK_SECS = 0.1
 
 #: The three ways a dial that ARRIVED can still fail to reach a backend, counted separately.
@@ -389,8 +405,17 @@ CAUSE_SKEWED = "record_version_skewed"
 #: `DIAL_COUNT_PATH_ENV`; a deployment never sets it.
 DEGRADE_LOG_PATH_ENV = "COORDINATOR_FORWARDER_DEGRADE_LOG_PATH"
 
+#: Cap on the rung record file before it is truncated and restarted. Small on
+#: purpose -- a bounded breadcrumb, not an archive. A box in sustained rung 3
+#: writes one row per Bash call, and the reader's question ("is this
+#: happening, and since when") is answered by the recent tail, never by the
+#: whole history.
 _DEGRADE_LOG_MAX_BYTES = 2 << 20
 
+# Guards the stat/truncate/append sequence in `_record_rung` across
+# `ThreadingHTTPServer` handler threads: an unsynchronized truncate racing an
+# append can silently drop a degrade row on the hot path this file exists to
+# make loud.
 _degrade_log_lock = threading.Lock()
 
 _DIAL_RING_SIZE = 20
@@ -535,6 +560,8 @@ class DialCounter:
             return self._snapshot_locked()
 
     def _snapshot_locked(self) -> dict:
+        # Every schema bump here has been purely additive; a reader that only knows
+        # an older schema still parses every field it knew.
         return {
             "schema": 5,
             "boot_id": self._boot_id,
@@ -571,6 +598,8 @@ class DialCounter:
         return at
 
     def record_event(self, hook_event_name: Optional[str], at: Optional[str] = None) -> None:
+        """The arrival's body parsed and named this event. `at` is the timestamp
+        `record_arrival` returned for THIS request."""
         key = hook_event_name or "<unnamed>"
         stamped = at or _utc_now()
         with self._lock:
@@ -580,6 +609,8 @@ class DialCounter:
                 del self._recent[: len(self._recent) - _DIAL_RING_SIZE]
 
     def record_forwarded(self, hook_event_name: Optional[str]) -> None:
+        """The arrival reached a live backend, as opposed to being denied for
+        want of one."""
         key = hook_event_name or "<unnamed>"
         with self._lock:
             self._forwarded_by_event[key] = self._forwarded_by_event.get(key, 0) + 1
@@ -601,6 +632,13 @@ class DialCounter:
             self._denied_by_arm[arm] = self._denied_by_arm.get(arm, 0) + 1
 
     def record_cause(self, cause: Optional[str]) -> None:
+        """WHICH of the arm's many return sites produced it. `denied_by_arm`
+        says whose bug it is at three-way resolution; `no_backend` alone
+        covers many distinct return sites with different owners and different
+        first moves. Recorded, not derived: no arithmetic over the other
+        fields recovers it. A None cause is filed under `<unattributed>`
+        rather than dropped, so causes never silently sum to less than the
+        arm."""
         key = cause or "<unattributed>"
         with self._lock:
             self._denied_by_cause[key] = self._denied_by_cause.get(key, 0) + 1
@@ -618,6 +656,16 @@ class DialCounter:
             self._rungs[rung] = self._rungs.get(rung, 0) + 1
 
     def persist(self) -> None:
+        """Rewrite the file atomically. The lock is held across the write, not
+        merely across the snapshot -- a correctness requirement: this is a
+        `ThreadingHTTPServer`, two handlers persist concurrently, and
+        snapshotting under the lock but writing outside it lets an
+        out-of-order pair of writes settle the file at the older snapshot
+        permanently, with an arrival correctly counted in memory now absent
+        from the only surface anyone reads. Each write carries the whole
+        snapshot rather than a delta, so a write that loses a race is
+        corrected by the next one. Never raises: a counter able to take the
+        forwarder down would be a worse defect than the one it measures."""
         try:
             with self._lock:
                 payload = json.dumps(self._snapshot_locked(), indent=2, sort_keys=True)
@@ -1143,6 +1191,7 @@ def _ladder_response(
     hook_event_name: str,
     reason: str,
     cause: Optional[str] = None,
+    op: Optional[str] = None,
 ) -> Tuple[bytes, str]:
     """Descend the ladder from rung 2 and return `(response_body, rung_recorded)`.
 
@@ -1168,7 +1217,11 @@ def _ladder_response(
     # stale (still listing "unreachable" among the sites with no token).
     """
     recorded_cause = cause if cause is not None else reason
-    cold = _evaluate_cold(body)
+    # AN OP-ROUTED REQUEST SKIPS RUNG 2. `evaluate_cold` routes BY EVENT and serves PreToolUse
+    # only, so handing it a `/hook/<op>` request (Stop, UserPromptSubmit, ...) answers "no
+    # dispatch for <event>" -- the op the caller named is silently replaced by event routing.
+    # Cold cannot run a named op; the honest answer is rung 3.
+    cold = None if op else _evaluate_cold(body)
     if cold is not None:
         _record_rung(RUNG_COLD, recorded_cause, hook_event_name)
         return cold, RUNG_COLD
@@ -1926,7 +1979,8 @@ class _ForwarderHandler(BaseHTTPRequestHandler):
                     counter.record_denied(deny_arm or DENY_ARM_NO_BACKEND)
                     counter.record_cause(deny_cause)
                 ladder_body, rung = _ladder_response(
-                    body_to_forward, hook_event_name, DENY_REASON, cause=deny_cause
+                    body_to_forward, hook_event_name, DENY_REASON, cause=deny_cause,
+                    op=_registration_op(self.path),
                 )
                 if counter is not None:
                     counter.record_rung(rung)
@@ -1950,6 +2004,7 @@ class _ForwarderHandler(BaseHTTPRequestHandler):
                         hook_event_name,
                         UNREACHABLE_REASON,
                         cause=DENY_ARM_UNREACHABLE,
+                        op=_registration_op(self.path),
                     )
                     if counter is not None:
                         counter.record_rung(rung)
@@ -1986,7 +2041,8 @@ class _ForwarderHandler(BaseHTTPRequestHandler):
                 # becomes a cold evaluation, and failing that, a LOUD and durably recorded one.
                 # The hole stays shut; the fleet stays working.
                 ladder_body, rung = _ladder_response(
-                    body_to_forward, hook_event_name, REFUSED_REASON
+                    body_to_forward, hook_event_name, REFUSED_REASON,
+                    op=_registration_op(self.path),
                 )
                 if counter is not None:
                     counter.record_rung(rung)
@@ -2035,12 +2091,20 @@ def _apply_registration_op(backend_hook_path: str, incoming_path: Optional[str])
     registration, and the hand probes above that post to a bare `/hook`, on exactly the behaviour
     they have today. This function never invents a segment the caller did not send.
     """
-    if not incoming_path:
-        return backend_hook_path
-    op = incoming_path.split("?", 1)[0].split("#", 1)[0].rstrip("/").rsplit("/", 1)[-1]
-    if not op or "." not in op:
+    op = _registration_op(incoming_path)
+    if op is None:
         return backend_hook_path
     return backend_hook_path.rstrip("/") + "/" + op
+
+
+def _registration_op(incoming_path: Optional[str]) -> Optional[str]:
+    """The `<namespace>.<name>` op segment of an incoming url, or `None` for a bare/odd path."""
+    if not incoming_path:
+        return None
+    op = incoming_path.split("?", 1)[0].split("#", 1)[0].rstrip("/").rsplit("/", 1)[-1]
+    if not op or "." not in op:
+        return None
+    return op
 
 
 def _forward(

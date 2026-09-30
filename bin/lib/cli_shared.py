@@ -21,8 +21,45 @@ from repo_identity import resolve_checked_repo_root  # noqa: E402
 MACHINE_LOCAL_IMPL_ENV = "MACHINE_LOCAL_IMPL"
 CLAUDE_HOME_ENV = "CLAUDE_HOME"
 
+# C23 AC13-style bootstrap carve-out (named exception, mirrors
+# coordinator/bin/lib/cc_invoke.py's own AC13 note) -- this constant and
+# claude_klabauter_root() below are NOT routed through
+# coordinator_core.engine_root.coordinator_engine_root_env. This module is
+# DoE-resident CLI plumbing (see module docstring) consumed by the legacy
+# State-1 CLIs (coordinator-queue-append, coordinator-lesson-promote,
+# coordinator-harvest-deferrals, regen-cockpit-schema, klabauter-channel) --
+# scripts that must keep working in an environment where `coordinator_core`
+# is not yet pip-installed and is not necessarily on `sys.path` (the
+# published-mirror/State-1-fallback case DR-210 requires stays live
+# indefinitely). `claude_klabauter_root()` IS the primitive those callers use to find
+# where `coordinator_core` even lives; importing the accessor here would be
+# the same chicken-and-egg `cc_invoke.py`'s own AC13 rung exists to avoid.
 # PRECEDENCE HERE DELIBERATELY DIVERGES FROM THE ACCESSOR, AND SAYING SO IS
+# THE POINT. `coordinator_engine_root_env` reads the retired name only to
+# report it as retired and NEVER returns it (C14). This site still ANSWERS
+# from it when the new name is unset. That is not the same rule, and a
+# hand-duplicate that claims parity it does not have is worse than no
+# duplicate -- the two would disagree only in the skew case nobody exercises
+# until it breaks on the commit hot path.
+#
+# Why the divergence is kept: this is the primitive the State-1 fallback CLIs
+# use to locate `coordinator_core` at all. Dropping the retired rung here
+# cannot degrade to a slower path, only to a dead one, and DR-210 keeps that
+# fallback live indefinitely. Every in-tree exporter now sets BOTH names
+# (scripts/setup.py x2, append-goal-event, regen-cockpit-schema, cc_invoke
+# exports the new name only), so this rung should already be unreachable in
+# practice.
+#
 # CONDITION FOR REMOVING IT -- already met, not a future measurement:
+# C14 item 4 (this rung) was discharged at `02ef8ae9de77` on C23's
+# three-leg ratchet -- zero unexcluded executable read sites, proved as a
+# property of the code by falsification against planted tuple/list/dict
+# shapes. `coordinator_core.engine_root_census.census()` no longer reports
+# a verdict field at all (that field, `evidences_absence`, was removed as
+# part of the same cleanup) -- it reports fallback-read observations only,
+# and no future census reading can discharge this or anything else. Do not
+# wait on a census result before deleting this rung; the discharge already
+# happened.
 COORDINATOR_ENGINE_ROOT_ENV = "COORDINATOR_ENGINE_ROOT"
 CLAUDE_KLABAUTER_ROOT_ENV = "CLAUDE_KLABAUTER_ROOT"
 
@@ -324,8 +361,13 @@ def write_path_excl(out_path: str, content: str, *, caller_name: str) -> str:
             fh.write(content)
         return candidate
 
+#: Repo-relative parts to the engine build stamp, mirroring
 #: `coordinator_core.ipc._ENGINE_STAMP_RELATIVE_PARTS` /
 #: `coordinator/bin/tests/engine_stamp_probe.py::_STAMP_PARTS`. Restated
+#: rather than imported: this module is the State-1 fallback CLI plumbing
+#: (see module docstring) that must keep working when `coordinator_core` is
+#: not importable, so it cannot depend on the package to ask whether a root
+#: IS that package's published build.
 _ENGINE_STAMP_RELATIVE_PARTS = ("coordinator_core", "_engine_stamp")
 
 
@@ -370,5 +412,13 @@ def claude_klabauter_data_home() -> str | None:
     return None
 
 
+# Dual-read window for the engine-root rename (docs/plans/2026-08-20-an-engine-
+# root-is-not-named-for-the-repo.md), same class as cc_invoke's alias and found
 # by the same mechanism. The PUBLISHED engine and its CLIs are transformed on the
+# way out -- every `claude-klabauter` identifier becomes `claude_klabauter` -- but a
+# published CLI still imports THIS module from the live tree, which is not
+# transformed. So it asks for `claude_klabauter_root` and finds only `claude_klabauter_root`, and dies on
+# ImportError in whatever ceremony happens to call it rather than in any test.
+# In the mirror this line transforms into a self-assignment: a harmless no-op.
+# Remove it only once no published CLI references the old spelling.
 claude_klabauter_root = claude_klabauter_root

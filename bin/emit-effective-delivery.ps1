@@ -11,7 +11,11 @@ $_here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $_entry = Join-Path $_here 'emit-effective-delivery.py'
 $_pybin = '__PYTHON_BIN__'
 
+# No placeholder-vs-placeholder test here: install-substrate.py replaces EVERY
 # __PYTHON_BIN__ occurrence, so such a test compares the baked path against itself,
+# is unconditionally true, and discards the bake precisely when it succeeded. The
+# Test-Path line below is the property that matters and already covers the unbaked
+# case -- the literal token is not a path.
 
 
 if ($_pybin -ne '' -and -not (Test-Path -LiteralPath $_pybin)) { $_pybin = '' }
@@ -20,7 +24,12 @@ if ($_pybin -ne '') {
     exit $LASTEXITCODE
 }
 
+# Host-local resolution cache (DR-303 / windows-interpreter-bake-is-empty):
 # %LOCALAPPDATA% never syncs between machines, unlike the settings-home a
+# bake is written into, so it cannot be poisoned by a Mac/Windows-synced
+# home the way a bake can. Mirrors the bake's own Test-Path self-heal: a
+# cached path that is stale or foreign falls through to re-resolution.
+# Every step here is in-process (no new spawn on the steady-state path).
 
 
 $_cachefile = $null

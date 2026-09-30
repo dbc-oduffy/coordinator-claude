@@ -73,7 +73,10 @@ from _guard_runner_contract import (  # noqa: E402
     GuardScopeDescriptor,
 )
 
+#: A verdict is the shape both layers speak: {"channel": ..., "text": ...}.
 GuardVerdict = Dict[str, str]
+#: run_guards() accepts either an already-computed verdict dict, or a (name, callable) pair
+#: it invokes itself under exception isolation.
 GuardEntry = Union[GuardVerdict, Tuple[str, Callable[[Any], Optional[GuardVerdict]]]]
 
 
@@ -140,6 +143,10 @@ def run_guards(
 
 
 def envelope_to_verdict(out: Optional[dict]) -> Optional[GuardVerdict]:
+    """Translate an existing {"hookSpecificOutput": {...}} envelope (the shape both the
+    sibling engine call and a guard's own stdout already produce) into the
+    {"channel", "text"} verdict shape run_guards() aggregates. None in, None out; an
+    envelope with neither a deny nor an additionalContext key also yields None."""
     if not out or not isinstance(out, dict):
         return None
     hook_output = out.get("hookSpecificOutput")
@@ -156,6 +163,11 @@ def envelope_to_verdict(out: Optional[dict]) -> Optional[GuardVerdict]:
 
 
 def verdict_to_envelope(result: dict) -> Optional[dict]:
+    """Inverse of envelope_to_verdict: fold a run_guards() aggregate result back into the ONE
+    {"hookSpecificOutput": {...}} envelope a PreToolUse hook may write to stdout (only one
+    hookSpecificOutput envelope per hook process). Returns None when the aggregate carries
+    neither a deny nor any advisory text, matching the "print nothing on allow" contract.
+    """
     has_deny = result.get("permissionDecision") == "deny"
     has_context = bool(result.get("additionalContext"))
     if not has_deny and not has_context:
@@ -170,6 +182,10 @@ def verdict_to_envelope(result: dict) -> Optional[dict]:
 
 
 def _target_path_from_payload(payload: Any) -> Optional[str]:
+    """Cheap, import-free extraction of the edited path from a raw PreToolUse payload dict --
+    the input GuardScopeDescriptor.matches() is evaluated against. Covers the
+    file_path/notebook_path shapes tool_input carries across Write/Edit/MultiEdit/
+    NotebookEdit."""
     if not isinstance(payload, dict):
         return None
     tool_input = payload.get("tool_input")
@@ -218,6 +234,14 @@ class RegisteredGuard:
 
 
 def _invoke_guard_main(main_fn: Callable[[], int], stdin_text: str) -> GuardVerdict:
+    """Runs one guard's main() with stdin/stdout/stderr swapped, catches SystemExit (the
+    runner calls main() directly and never lets a guard's own control-flow exit escape),
+    captures the guard's stdout JSON envelope (captured here too, per-guard, never forwarded
+    to the real stderr stream directly), and translates the envelope into the
+    {"channel", "text"} verdict shape via envelope_to_verdict. A guard that raises something
+    other than SystemExit propagates -- the caller (run_guards, via its (name, callable)
+    entry path) is responsible for exception isolation; this function's job is translation,
+    not isolation."""
     stdin_buf = io.StringIO(stdin_text)
     stdout_buf = io.StringIO()
     stderr_buf = io.StringIO()
@@ -244,6 +268,10 @@ def _invoke_guard_main(main_fn: Callable[[], int], stdin_text: str) -> GuardVerd
 
 
 def _import_guard_module(guard: RegisteredGuard):
+    """Stage-two import: only reached once guard.descriptor.matches(target_path) is already
+    True. Uses importlib.util.spec_from_file_location (not import_module) because guard
+    filenames are hyphenated and not importable dotted names; the module is registered into
+    sys.modules[guard.module_key] so a test can observe the import directly."""
     if guard.module_key in sys.modules:
         return sys.modules[guard.module_key]
     spec = importlib.util.spec_from_file_location(guard.module_key, guard.module_path)
@@ -264,6 +292,10 @@ def build_registry_entries(
     raw_payload_text: str,
     payload: Any,
 ) -> List[Tuple[str, Callable[[Any], GuardVerdict]]]:
+    """Two-stage lazy import, realised as a list of (name, callable) entries run_guards() can
+    consume directly. A guard whose descriptor does NOT match payload's target path never
+    appears here at all -- its module is never imported, because the callable that would
+    import it is never constructed, let alone called."""
     target_path = _target_path_from_payload(payload)
     entries: List[Tuple[str, Callable[[Any], GuardVerdict]]] = []
     for guard in registry:
@@ -273,6 +305,10 @@ def build_registry_entries(
         def _call(_payload: Any, _guard: RegisteredGuard = guard) -> GuardVerdict:
             module = _import_guard_module(_guard)
             if _guard.verdict_attr:
+                # STDERR-verdict path: the guard's own callable already returns the
+                # {"channel", "text"} shape (or None) given the parsed payload directly --
+                # no stdin/stdout swap here, that plumbing is internal to the guard's own
+                # callable.
                 verdict_fn = getattr(module, _guard.verdict_attr)
                 return verdict_fn(_payload) or {}
             main_fn = getattr(module, _guard.entry_attr)
@@ -342,6 +378,10 @@ REAL_GUARD_REGISTRY: Tuple[RegisteredGuard, ...] = (
         module_path=str(Path(_HOOKS_DIR) / _GUARD_OSS_PAYLOAD_LOCALITY),
         descriptor=GuardScopeDescriptor(
             guard_module=_GUARD_OSS_PAYLOAD_LOCALITY,
+            # Real scope (is_in_scope -> is_payload_path) is ".py"/".md" tracked payload
+            # files, mostly under coordinator/ (the local third of the OSS mirror).
+            # ".py"/".md" + "coordinator/" overapproximates that cheaply without importing
+            # the payload-membership machinery.
             path_suffixes=frozenset({".py", ".md"}),
             directory_substrings=("coordinator/",),
         ),
@@ -351,6 +391,7 @@ REAL_GUARD_REGISTRY: Tuple[RegisteredGuard, ...] = (
         module_path=str(Path(_HOOKS_DIR) / _GUARD_PLAN_TEST_SURFACE_TIER),
         descriptor=GuardScopeDescriptor(
             guard_module=_GUARD_PLAN_TEST_SURFACE_TIER,
+            # Real scope is docs/plans/**/*.md (see the guard's own _is_plan_body_path).
             path_suffixes=frozenset({".md"}),
             directory_substrings=("docs/plans/",),
         ),
@@ -381,6 +422,9 @@ REAL_GUARD_REGISTRY: Tuple[RegisteredGuard, ...] = (
         module_key="check_claude_md_size",
         module_path=str(Path(_HOOKS_DIR) / _GUARD_CHECK_CLAUDE_MD_SIZE),
         descriptor=CHECK_CLAUDE_MD_SIZE_SCOPE_DESCRIPTOR,
+        # STDERR-verdict path: this guard's verdict travels via captured stderr
+        # (check-claude-md-size.py's own run_via_runner), not the stdout-JSON envelope the
+        # other four enrolled guards use.
         verdict_attr="run_via_runner",
     ),
     RegisteredGuard(
@@ -410,6 +454,12 @@ REAL_GUARD_REGISTRY: Tuple[RegisteredGuard, ...] = (
         module_path=str(Path(_HOOKS_DIR) / _GUARD_POSIX_INVOCATION_DOCTRINE_WRITE),
         descriptor=GuardScopeDescriptor(
             guard_module=_GUARD_POSIX_INVOCATION_DOCTRINE_WRITE,
+            # Real scope (the guard's own is_in_scope) is a target path under one of the
+            # three governed trees (skills/, commands/, docs/wiki/), no suffix restriction
+            # beyond that. This descriptor is exactly that predicate -- no heavier import is
+            # needed to build it, unlike the doctrine-changelog-prose / doctrine-surface-ratio
+            # guards above, which pull their governed trees from a module this registry must
+            # not import eagerly.
             directory_substrings=(
                 "coordinator/skills/",
                 "coordinator/commands/",
@@ -422,6 +472,8 @@ REAL_GUARD_REGISTRY: Tuple[RegisteredGuard, ...] = (
         module_path=str(Path(_HOOKS_DIR) / _GUARD_HANDOFF_SUMMARY_CAP_ON_WRITE),
         descriptor=GuardScopeDescriptor(
             guard_module=_GUARD_HANDOFF_SUMMARY_CAP_ON_WRITE,
+            # Real scope (the guard's own is_in_scope) is .md files under a state/handoffs/
+            # directory (live or archived). This descriptor is exactly that predicate.
             path_suffixes=frozenset({".md"}),
             directory_substrings=("state/handoffs/",),
         ),
@@ -435,5 +487,10 @@ def run_registered_guards(
     payload: Any,
     skipped_out: Optional[List[str]] = None,
 ) -> dict:
+    """The dispatcher-facing entrypoint: two-stage lazy import (build_registry_entries)
+    feeding the aggregation/exception-isolation core (run_guards). Returns the same
+    aggregate shape run_guards does; preuse-write-dispatch.py folds this together with the
+    engine's own verdict via envelope_to_verdict/verdict_to_envelope so exactly one
+    hookSpecificOutput envelope reaches the harness."""
     entries = build_registry_entries(registry, raw_payload_text, payload)
     return run_guards(entries, payload, skipped_out=skipped_out)

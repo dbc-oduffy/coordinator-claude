@@ -96,5 +96,13 @@ def run(
     print(json.dumps(result, ensure_ascii=False))
     return 0
 
+# Dual-read window for the engine-root rename (docs/plans/2026-08-20-an-engine-
+# root-is-not-named-for-the-repo.md), same class as cc_invoke's alias and found
 # by the same mechanism. The PUBLISHED engine and its CLIs are transformed on the
+# way out -- every `claude-klabauter` identifier becomes `claude_klabauter` -- but a
+# published CLI still imports THIS module from the live tree, which is not
+# transformed. So it asks for `resolve_claude_klabauter_root_or_exit` and finds only `resolve_claude_klabauter_root_or_exit`, and dies on
+# ImportError in whatever ceremony happens to call it rather than in any test.
+# In the mirror this line transforms into a self-assignment: a harmless no-op.
+# Remove it only once no published CLI references the old spelling.
 resolve_claude_klabauter_root_or_exit = resolve_claude_klabauter_root_or_exit

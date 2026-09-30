@@ -54,6 +54,7 @@ def main(argv: "list[str] | None" = None) -> int:
         op_main = _import_main()
     except RuntimeError as exc:
         # CLAUDE_KLABAUTER_ROOT resolution failed. This is an orientation nudge, not a
+        # gate -- never block the caller on a transport failure.
         print(f"check-harvest-debt.sh: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
         return 0
     except ImportError as exc:

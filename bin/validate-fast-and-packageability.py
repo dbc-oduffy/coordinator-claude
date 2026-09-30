@@ -330,7 +330,13 @@ def _run_resolved_command(cmd: str) -> int:
     argv = shlex.split(cmd)
     # env=child_env(): kept for its settings-home propagation (COORDINATOR_
     # SETTINGS_HOME), not for stripping anything. Until the `import-path-
+    # costs-nothing` sprint (C8) this comment described child_env() stripping
     # COORDINATOR_CORE_LAZY_OPS -- cc_invoke's own child_env() no longer
+    # writes or strips that var (see coordinator/bin/lib/cc_invoke.py), and
+    # lazy op registration is unconditional now, so an inherited value would
+    # have zero effect on this repo's own pytest suite's collection (see
+    # commit 5943ec01 / coordinator_core/ops/__init__.py for the retired
+    # history of that leak).
     spawn_kwargs = dict(
         env=child_env(),
         **no_console_passthrough_kwargs(),
@@ -340,7 +346,10 @@ def _run_resolved_command(cmd: str) -> int:
     try:
         proc = subprocess.Popen(argv, **spawn_kwargs)
     except OSError as exc:
+        # `bash -c` used to report an unresolvable first token as rc=127;
+        # direct exec instead raises (FileNotFoundError on both POSIX and
         # Windows for CreateProcess ERROR_FILE_NOT_FOUND). Preserve the rc=127
+        # contract rather than letting this escape as an uncaught traceback.
         print(f"command not found: {argv[0]!r} ({exc})", file=sys.stderr)
         return 127
 
@@ -397,6 +406,9 @@ def run_fast(repo_root: str | None) -> tuple[str, int]:
     cmd = result.stdout.rstrip("\n")
 
     # Shell-metachar guard runs on the CONFIGURED command, before any
+    # diff-scoping -- it is a config-validity check (can this value even be
+    # run without a shell?), independent of which test paths this run gets
+    # scoped to.
     try:
         _fail_on_ambiguous_shell_syntax(cmd)
     except AmbiguousShellSyntax:
@@ -432,7 +444,13 @@ def run_fast(repo_root: str | None) -> tuple[str, int]:
         cmd_exit = _run_resolved_command(scoped_cmd)
 
     if diff_paths and cmd_exit == PYTEST_NO_TESTS_COLLECTED:
+        # The diff-scoped run named a changed test file the `-m` marker
+        # filter then deselected entirely (e.g. it carries only
+        # designed_red-marked tests) -- pytest's own "no tests collected"
+        # exit code. That is neither a pass nor a failure; fall back to
         # the full configured fast tier so the gate still runs SOMETHING
+        # (fail-safe: always toward more testing, never toward silently
+        # running zero tests).
         diff_diag(
             "diff-scoped run collected zero tests (pytest rc="
             f"{PYTEST_NO_TESTS_COLLECTED}) -- falling back to the full "
@@ -463,6 +481,9 @@ def _cmd_fast(args: argparse.Namespace) -> int:
 
 def run_packageability(passthrough: list[str]) -> tuple[int, str | None]:
     if not os.path.isfile(_VALIDATE_INSTALL_CONTRACT):
+        # coordinator/bin itself is where THIS script lives -- this guard is
+        # ONLY about validate-install-contract.py specifically being absent
+        # (a partial/older checkout). Loud SKIP, never a silent
         # PACKAGEABILITY_EXIT=0-and-say-nothing.
         warn = (
             "WARN: Packageability check SKIPPED -- "
@@ -524,6 +545,8 @@ def main(argv: list[str]) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
     # argparse.REMAINDER can leave a leading "--" separator -- strip it so
+    # `packageability -- --manifest-path X` and `packageability --manifest-path X`
+    # forward identically.
     if getattr(args, "passthrough", None) and args.passthrough[0] == "--":
         args.passthrough = args.passthrough[1:]
     return args.func(args)

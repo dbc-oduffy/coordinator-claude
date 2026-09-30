@@ -962,6 +962,8 @@ def _emit_yaml_field(key: str, value) -> str:
             return f"{key}: []"
         items = "\n".join(f"  - {_yaml_quote_string(str(item))}" for item in value)
         return f"{key}:\n{items}"
+    if isinstance(value, bool):
+        return f"{key}: {'true' if value else 'false'}"
     if isinstance(value, str) and "\n" in value:
         return f"{key}: {_yaml_block_scalar(value)}"
     if isinstance(value, str):
@@ -1544,6 +1546,34 @@ Spec backlink: docs/plans/2026-06-25-example-initiative-tc-2-queues-lessons-cons
         metavar="LEVEL",
         choices=["P0", "P1", "P2", "P3"],
         help="(debt-backlog, bug-backlog) Priority classification: P0, P1, P2, P3. Required for bug-backlog; optional (default P2) for debt-backlog.",
+    )
+
+    # Deferred-grant fields (debt-backlog, bug-backlog): required together with
+    # --why-blocked and --case-against when --status deferred.
+    parser.add_argument(
+        "--pm-approved",
+        dest="pm_approved",
+        action="store_const",
+        const=True,
+        default=None,
+        help=(
+            "(debt-backlog, bug-backlog) Records that the PM gate authorising a "
+            "--status deferred row fired. Boolean flag; absent means the field is omitted."
+        ),
+    )
+    parser.add_argument(
+        "--deferred-by",
+        dest="deferred_by",
+        default=None,
+        metavar="TEXT",
+        help="(debt-backlog, bug-backlog) Who granted the deferral: ceremony plus session, or the granting authority.",
+    )
+    parser.add_argument(
+        "--deferred-until",
+        dest="deferred_until",
+        default=None,
+        metavar="YYYY-MM-DD",
+        help="(debt-backlog, bug-backlog) ISO date the deferral expires.",
     )
 
     # bug-backlog fields.
@@ -2200,6 +2230,9 @@ def main(argv: "list[str] | None" = None) -> int:
             "severity": args.severity,
             # bug-backlog domain fields.
             "why_blocked": args.why_blocked,
+            "pm_approved": args.pm_approved,
+            "deferred_by": args.deferred_by,
+            "deferred_until": args.deferred_until,
             "repro_steps": args.repro_steps,
             "environment": args.environment,
             # improvement-queue domain fields.

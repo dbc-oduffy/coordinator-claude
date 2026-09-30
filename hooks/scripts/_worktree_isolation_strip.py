@@ -61,6 +61,7 @@ from typing import Optional
 try:
     from _git_root_walk import git_root_walk as _git_root_walk
 except Exception:
+    # Fail open: missing sibling module must not crash import, only skip the fast path.
     def _git_root_walk() -> "str | None":
         return None
 
@@ -74,6 +75,8 @@ _STRIP_NOTE = (
 
 
 def _git_root() -> "str | None":
+    # In-process parent walk first, subprocess only as fallback; any failure returns None
+    # rather than raising, so callers fail toward "no override".
     walked = _git_root_walk()
     if walked:
         return walked
@@ -94,6 +97,8 @@ def _git_root() -> "str | None":
 
 
 def sentinel_override_active() -> bool:
+    # Sentinel-file override only, deliberately no env-var leg -- a dispatched subagent can
+    # set its own env, which would let it defeat a guard meant to bind subagents too.
     root = _git_root()
     if not root:
         return False
@@ -104,6 +109,9 @@ def sentinel_override_active() -> bool:
 
 
 def compute_strip(tool_input: dict) -> Optional[tuple[dict, str]]:
+    # Pure, no I/O beyond the override-sentinel check. Returns a FULL COPY of tool_input with
+    # "isolation" removed plus the advisory note, or None when there is nothing to strip
+    # (key absent, a non-"worktree" value, or the override sentinel is active).
     if tool_input.get("isolation") != "worktree":
         return None
     if sentinel_override_active():

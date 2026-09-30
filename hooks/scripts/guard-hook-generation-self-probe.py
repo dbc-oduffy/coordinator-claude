@@ -99,6 +99,8 @@ try:
         resolve_claude_klabauter_root as _resolve_claude_klabauter_root,
     )
 except Exception:
+    # Defensive fallback -- a deploy missing its sibling _engine_root.py must
+    # still fail-open rather than crash on import.
     def _resolve_claude_klabauter_root() -> str | None:
         return None
 
@@ -107,6 +109,8 @@ except Exception:
 try:
     from _git_root_walk import git_root_walk as _git_root_walk  # noqa: E402
 except Exception:
+    # Defensive fallback -- a deploy missing its sibling _git_root_walk.py
+    # must still fail open to the subprocess rung below, not crash on import.
     def _git_root_walk() -> str | None:
         return None
 
@@ -115,6 +119,11 @@ _SELF_PROBE_TIMEOUT_SECS = 5
 
 
 def _resolve_this_repo_root() -> str | None:
+    """Resolve the repo THIS hook is running in (cwd-based) — the
+    destination for the housekeeping-failures log, NOT the engine root.
+    `__file__` lives under the doctrine-plane source tree regardless of
+    which consumer repo's session invoked it, so a `__file__`-based root
+    would mis-file every non-doctrine-plane session's failure record."""
     walked = _git_root_walk()
     if walked:
         return walked
@@ -137,6 +146,12 @@ def _resolve_this_repo_root() -> str | None:
 
 
 def _write_raw_failure_record(repo_root: str, detail: str) -> None:
+    """Hand-rolled fallback append, format-matched to
+    `coordinator_core...detached_spawn.record_child_failure`'s own line
+    shape. `script=` is the basename, never an absolute path — this hook
+    runs from the doctrine-plane source tree regardless of which repo's
+    session invoked it, so an absolute path here would write a coordinator-content-repo
+    host path into a third repo's own tracked failures log."""
     from datetime import datetime, timezone
 
     try:
@@ -151,6 +166,9 @@ def _write_raw_failure_record(repo_root: str, detail: str) -> None:
 
 
 def _record_failure(claude_klabauter_root: str | None, detail: str) -> None:
+    """Best-effort, defensive-by-construction failure recorder shared by
+    every fail-open path below. NEVER raises — a broken observability path
+    must never become the thing that wedges SessionStart boot."""
     try:
         repo_root = _resolve_this_repo_root()
         if not repo_root:
@@ -170,7 +188,7 @@ def _record_failure(claude_klabauter_root: str | None, detail: str) -> None:
                 )
                 return
             except Exception:
-                pass
+                pass  # fall through to the hand-rolled writer below
         _write_raw_failure_record(repo_root, detail)
     except Exception:
         pass
@@ -190,6 +208,8 @@ def main() -> int:
     from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
     _place_engine_root_on_path(root)
 
+    # Skip the ~80-module eager op-registry population; this stub reaches
+    # exactly one engine function by direct import.
     _arm_lazy_ops()
 
     try:
@@ -208,6 +228,12 @@ def main() -> int:
     config_dir_raw = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(home, ".claude")
     config_dir = Path(config_dir_raw)
 
+    # NOT `with ThreadPoolExecutor(...)`, and NOT a plain `return` on timeout:
+    # both defeat the timeout completely, since normal shutdown/interpreter
+    # exit joins the very worker the timeout just gave up on, wedging the
+    # process. os._exit is the only portable way to leave a hung worker
+    # behind -- and this is a synchronous SessionStart hook, so wedging here
+    # hangs the whole session, not just a slow boot.
     executor = ThreadPoolExecutor(max_workers=1)
     try:
         future = executor.submit(run_self_probe, config_dir)

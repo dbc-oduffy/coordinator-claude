@@ -1,5 +1,50 @@
+# session-liveness-cli — CLI trampoline over claude-klabauter
+# coordinator_core.session.liveness (the two-layer session/claim liveness
+# module: is_session_live / session_live / claim_holder_live /
+# claim_held_by_me / active_sessions / live_session_ids). Direct-import
+# variant, mirroring coordinator/bin/session-claim-cli's resolve/import/
+# dispatch/exit shape (2026-07-21 liveness-trampoline-flip, sibling of the
+# same-day claim-lock-trampoline-flip).
+#
+# Subcommands (argv[1] selects; remaining argv forwarded to the mapped
+# coordinator_core.session.liveness function):
+#   is-session-live <pid> <elapsed_sec>       -> liveness.is_session_live(...)     bool->exit
+#   session-live <sid>                        -> liveness.session_live(...) for the exit
+#                                                 code (AC1: boolean contract unchanged,
+#                                                 unmigrated), plus liveness.session_verdict(...)
+#                                                 (read-only, for stdout text alone) to name
+#                                                 the state explicitly: prints one of
+#                                                 "live (<basis>)", "live-elsewhere[: <cwd>]",
+#                                                 "dead (<basis>)", "unknown" -- no arm exits
+#                                                 silently (C2, docs/plans/2026-08-13-liveness-
+#                                                 stops-conflating-dead-with-elsewhere.md, AC4).
+#   claim-holder-live <claim_dir>             -> liveness.claim_holder_live(...)  bool->exit
+#   claim-held-by-me <claim_dir> [my_sid]     -> liveness.claim_held_by_me(...)   bool->exit
+#   active-sessions                           -> liveness.active_sessions(): prints one
+#                                                 formatted line per session (or the
+#                                                 bash-parity placeholder lines), exit 0
+#   live-session-ids                          -> liveness.live_session_ids(): prints one
+#                                                 sid per line, SORTED for determinism
+#                                                 (mirrors js_bridge_cli's live-session-ids
+#                                                 sort rationale — directory-enumeration
+#                                                 order was never a contract), exit 0
+#
+# Exit codes: the mapped bool-returning functions map True->0, False->1 (matches
+# session-claim-cli's convention). The two print-returning subcommands
+# (active-sessions, live-session-ids) always exit 0 on success. A missing/
+# unresolvable engine root or an ImportError (this trampoline's own transport
 # failure) exits 3 (_TRANSPORT_FAIL — "the claude-klabauter engine could not be reached,"
+# never silently degraded to 0/1). A usage error (missing/unknown subcommand,
+# wrong arity) exits 2.
+#
+# session-live only (C2): 0 and 1 keep their EXACT existing meanings ("live in
+# THIS repo" / "not confirmed live in this repo") for every existing caller
+# that branches on them -- never repurposed. A session confirmed live in
+# ANOTHER repo (C1's "harness-registry-elsewhere" verdict) is a state no
+# existing caller's 0/1 branching distinguishes today, so it gets its own new
 # code, 4 (_EXIT_LIVE_ELSEWHERE), rather than silently folding into 1 the way
+# it used to. A caller doing a plain `== 0` or `!= 0` check is unaffected
+# either way, since "elsewhere" was already nonzero before this change.
 from __future__ import annotations
 """session-liveness-cli — see the # comment block above for the RAG-bait purpose
 text (the polyglot shebang line above makes THIS triple-quoted string a

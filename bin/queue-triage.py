@@ -211,7 +211,15 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="leg", required=True)
 
+    # argparse's subparsers action
+    # (nargs=PARSER) consumes the subcommand token plus ALL remaining argv as
+    # that subparser's own arguments, so `--repo-root` only worked when given
+    # BEFORE the leg name. Carrying the same flag as a `parents=[...]` shared
+    # parser on every subparser lets it work in either position — `default=
     # argparse.SUPPRESS` on the shared copy is load-bearing: without it, a
+    # subparser parse with `--repo-root` omitted would still set its own
+    # default and silently overwrite an already-populated top-level value
+    # when the outer namespace is merged (see _SubParsersAction.__call__).
     _repo_root_parent = argparse.ArgumentParser(add_help=False)
     _repo_root_parent.add_argument("--repo-root", default=argparse.SUPPRESS)
 

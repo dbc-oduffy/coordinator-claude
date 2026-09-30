@@ -427,9 +427,15 @@ def _report_predates_a_landing(trail_dir: Path, wave_number: int, wave_ids: list
     """
     if wave_number <= 0:
         return ""
-    prior = trail_dir / f"wave-{wave_number - 1}.landing.json"
-    if not prior.is_file():
+    # One landing file per fire set (`wave-<n>.landing.<slot>.json`, plus the legacy unslotted
+    # name); the newest carries the freshest gate read, matching land-wave's own reader.
+    landings = sorted(
+        (p for p in trail_dir.glob(f"wave-{wave_number - 1}.landing*.json") if p.is_file()),
+        key=lambda p: p.stat().st_mtime,
+    )
+    if not landings:
         return ""
+    prior = landings[-1]
     try:
         landing = json.loads(prior.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -550,7 +556,9 @@ def _engine_ref(repo_root: Path, script_source: Path) -> dict:
 
         result = _git_native(
             ["status", "--porcelain=v2", "--branch", "--", str(script_source)],
-            cwd=repo_root,
+            # The workflow's OWN checkout: run from the consumer repo, git refuses the path
+            # as outside the repository and every fire reports head/dirty as unknown.
+            cwd=script_source.parent,
             timeout=15,
         )
         if not result.ok:
@@ -705,6 +713,10 @@ def _bind(
         "method": "workflow.bind_args",
         "params": {"script_path": str(script_path), "args": args},
     }
+    # A cloud envelope carries no cwd, so the engine would otherwise scope this op to the
+    # process cwd — a sibling repo when the EM shell sits there. Same stamp as land-wave.
+    if args.get("repoRoot"):
+        msg["_origin_worktree"] = str(args["repoRoot"])
     reply = asyncio.run(dispatch_message(msg, caller="emit-wave-fire.py"))
     if "error" in reply:
         message = str((reply["error"] or {}).get("message") or reply["error"])

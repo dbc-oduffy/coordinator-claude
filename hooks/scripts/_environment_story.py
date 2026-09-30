@@ -161,13 +161,23 @@ class CoreOmissionError(Exception):
 
 
 class _ResolutionFailure(Exception):
+    """Internal signal, never raised out of resolve_environment_story. Covers the registry
+    (missing/unreadable/unparseable/torn-write) and sentinel-missing classes -- both are read
+    failures the resolver answers identically, via its own except Exception."""
     pass
 
 
 class ProbeTimeoutError(Exception):
+    """Internal signal, never raised out of resolve_environment_story. Raised when a
+    caller-supplied probe exceeds its bounded timeout."""
     pass
 
 
+# Environment-neutral prose: this is the story an OSS/container/CI consumer receives via the
+# one-way percolation mirror, with no selector and no install conversation -- it must read as
+# true of them, not as workstation-flavoured doctrine addressed to someone else. No second
+# person, no "on your workstation", no "in the cloud" -- only what holds everywhere this
+# switch could ever place a reader.
 _STRICTEST_PROSE = (
     "Every rule in the doctrine corpus applies, in full, with no omission "
     "and no environment-scoped exception. Code is authored for every host "
@@ -201,11 +211,23 @@ def validate_story(story: Story) -> None:
 
 
 def register_story(story: Story) -> None:
+    """Validate story, then admit it to the in-process registry keyed on story.name. Refuses
+    (raises, does not admit) any story that fails validate_story -- there is no override
+    parameter and no partial admission."""
     validate_story(story)
     _registry[story.name] = story
 
 
 def _read_registry_entry(registry_path: str, environment_id: str) -> Optional[str]:
+    """Read environment_id -> story_name from a flat key: value file at registry_path.
+    Returns the story name, or None when the file is readable but carries no entry for
+    environment_id. Raises _ResolutionFailure on the whole missing/unreadable/unparseable/
+    torn-write class -- caught by resolve_environment_story's own except Exception, the
+    single place the fall-to-strictest decision is made.
+
+    Duplicate keys: FIRST match wins, deliberately, and is not treated as a torn write -- the
+    worst case is a wrong-but-valid story, never a core-omitting one, since validate_story
+    still runs at the resolver's exit."""
     try:
         with open(registry_path, "r", encoding="utf-8") as handle:
             lines = handle.readlines()
@@ -222,6 +244,8 @@ def _read_registry_entry(registry_path: str, environment_id: str) -> Optional[st
         if stripped.startswith(prefix):
             value = stripped[len(prefix):].strip()
             if not value:
+                # A torn write can leave a key with no value -- treated as unreadable, never
+                # as "story name is empty string".
                 raise _ResolutionFailure(
                     f"torn registry entry for {environment_id!r}"
                 )
@@ -230,6 +254,8 @@ def _read_registry_entry(registry_path: str, environment_id: str) -> Optional[st
 
 
 def _read_sentinel(sentinel_path: str) -> str:
+    """Return the environment id recorded at sentinel_path, or raise _ResolutionFailure if
+    the file is absent, unreadable, or empty."""
     try:
         with open(sentinel_path, "r", encoding="utf-8") as handle:
             content = handle.read().strip()
@@ -291,6 +317,10 @@ def resolve_environment_story(
         if story is None:
             return STRICTEST_STORY
 
+        # register_story already validated this story on the way in. Re-checking on the way
+        # out costs a set difference and makes "the resolver can never return a story
+        # omitting a core member" true by construction, rather than true only while every
+        # writer goes through register_story.
         validate_story(story)
         return story
     except Exception:
@@ -298,6 +328,14 @@ def resolve_environment_story(
 
 
 def _run_probe_with_timeout(probe: Callable[[], str], timeout_s: float) -> str:
+    """Run probe with a bounded wall-clock timeout. Raises ProbeTimeoutError if probe does
+    not return a value within timeout_s, whether because it is still running, it raised, or
+    it finished without one -- the resolver's except Exception around this call answers all
+    three identically, so this function's only contract is: never block past timeout_s.
+
+    Zero-spawn, thread-based: a daemon thread runs probe, and Thread.join(timeout_s) bounds
+    the wait. A probe that never returns leaves its thread running in the background (daemon,
+    so it never blocks process exit) but the resolver itself is unblocked regardless."""
     import threading
 
     result: list[str] = []

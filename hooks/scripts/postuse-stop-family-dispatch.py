@@ -48,6 +48,9 @@ try:
         run_registered_stop_family_guards as _run_registered_stop_family_guards,
     )
 except Exception:
+    # Same defensive-fallback shape every dispatcher in this directory
+    # already uses -- a missing sibling module must degrade to a no-op,
+    # never crash the hook.
     _REAL_STOP_FAMILY_REGISTRY = ()  # type: ignore[assignment]
 
     def _run_registered_stop_family_guards(registry, raw_payload_text, payload, skipped_out=None):  # type: ignore[no-redef]
@@ -73,8 +76,10 @@ def main() -> int:
             _REAL_STOP_FAMILY_REGISTRY, raw, payload, skipped_out=_skipped
         )
     except Exception:
-        return 0
+        return 0  # any runner failure -> fail-open (never brick a tool call)
 
+    # Best-effort signal only -- must never affect the exit code above;
+    # mirrors preuse-write-dispatch.py's own `_skipped` breadcrumb.
     if _skipped:
         try:
             sys.stderr.write(

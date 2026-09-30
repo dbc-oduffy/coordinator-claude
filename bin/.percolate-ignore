@@ -30,3 +30,28 @@ __pycache__/
 *.pyc
 *.pyo
 .pytest_cache/
+
+# --- dev-only percolate/publish-pipeline integration tests ---
+# These exercise `coordinator_core.percolate`/`coordinator_core.message_register.
+# _codename_classes` -- the private publish TOOLING, deliberately absent from the
+# `claude-klabauter` engine payload (setup/percolate-hooks/percolate-store.yaml
+# `claude-klabauter` row's coordinator_core allowlist admits neither `percolate`
+# nor `message_register`; several `ops/percolate_*.py` siblings are explicitly
+# `!`-excluded in setup/publish-targets.portable for the same reason). A test file
+# that imports either module cannot resolve once published and would ImportError
+# for every consumer that collects it (coordinator_core/percolate/tests/
+# test_published_surface_private_names.py::test_published_tree_has_zero_unresolved_imports
+# pins this). Ignoring the TEST here, not shipping the module, matches the
+# existing "publish tooling stays private" boundary.
+tests/test_bin_emitted_messages_no_unreachable_repo.py
+tests/test_function_gate_parse_sweep.py
+tests/test_function_gate_wiring.py
+tests/test_mirror_native_inject_fidelity.py
+tests/test_percolate_identity_check_gate.py
+tests/test_percolate_round_seed_names_nested_rename.py
+tests/test_publish_door_name_map.py
+tests/test_publish_gate_predicate_symmetry.py
+tests/test_publish_identity_check_source_refresh.py
+tests/test_publish_identity_check_staged_deadlock.py
+tests/test_publish_preswap_payload_gate.py
+tests/test_publish_token_index_maintenance.py

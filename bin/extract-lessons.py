@@ -310,7 +310,18 @@ def _emit(records: list[dict], fmt: str, meta: dict) -> str:
     return "\n".join(out) + "\n"
 
 
+# ---------------------------------------------------------------------------
+# Verify gate — id-primary / source-advisory grounding (A6 fix, 2026-07-23).
+# The gate now grounds on `id` (unconditional, hard failure on mismatch) as the
 # PRIMARY key; `source` is ADVISORY metadata — missing, stripped, or rewritten
+# `:N` is re-attached/noted, never a failure. A present-but-disagreeing `source`
+# is a warning. Title-overlap remains a hard failure (catches summary-swap).
+# Negative-spec: do NOT reinstate a hard failure on `source`'s `:N` shape — that
+# shape is a synthetic enumeration index, not a real line number, and treating
+# it as load-bearing produced a 29/29 false-failure on honest records whose
+# `source` had merely been reformatted by a routing LLM. See verify()'s
+# docstring for the full incident writeup.
+# ---------------------------------------------------------------------------
 
 _ID_LINE = re.compile(r'^\s*-\s+id:\s*["\']?([^"\']+?)["\']?\s*$')
 _LIST_FIELD = re.compile(r'^\s{2,}(\w+):\s*["\']?(.*?)["\']?\s*$')
@@ -572,6 +583,7 @@ def verify(extraction_path: Path, routing_path: Path) -> int:
         ext_rec = by_id[rid]
 
         # (2) ADVISORY, SOFT — source is re-attached/note-only when missing or
+        # malformed; a present-but-disagreeing source is a warning, never a failure.
         if ln is None:
             canonical_source = ext_rec.get("source", "(none in extraction)")
             notes.append(

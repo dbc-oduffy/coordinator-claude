@@ -237,7 +237,10 @@ def cmd_record(args: argparse.Namespace) -> int:
         _git_add(ledger_path)
         print(f"block-discharge record: discharged {nonce} (session {session_id})")
         return 0
+    # Name the likelier cause first. Saying only that the NONCE did not match reads
+    # as "you typed the wrong id" and invites a retry -- when the actual fact is
     # almost always that the fire was recorded in a DIFFERENT repo's ledger, because
+    # the guard writes into whichever repo the session works in.
     hint = ""
     if not _LEDGER_DIR.is_dir() or not any(_iter_ledger_files()):
         hint = (
@@ -385,8 +388,12 @@ def main(argv: Optional[list] = None) -> int:
 
     args = parser.parse_args(argv)
 
+    # Re-resolve the ledger root for THIS invocation now that `--repo-root`
     # (if any) is known -- the module-level REPO_ROOT/_LEDGER_DIR computed at
+    # import time are only the no-argument default. Every command function
     # below reads REPO_ROOT/_LEDGER_DIR as module globals, so updating them
+    # here is what makes `--repo-root` (and the ladder under it) apply to
+    # `record`, `check`, and `archive` alike.
     global REPO_ROOT, _LEDGER_DIR
     REPO_ROOT = _resolve_ledger_root(args.repo_root)
     _LEDGER_DIR = REPO_ROOT / "state" / "block-discharge"

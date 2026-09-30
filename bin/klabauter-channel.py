@@ -303,7 +303,12 @@ def _cmd_set(args: argparse.Namespace) -> int:
 
     # Narrowed from tree-IDENTITY to
     # intent-CONFLICT. On a normal claude-klabauter developer box the discovered
+    # `repos.claude_klabauter` IS the publish mirror, so a blanket refusal
+    # here had zero mutating capability on the only box class that can
+    # reach this path. `--set X` that agrees with the declared `track_ref`
+    # is reconciliation -- the case this verb exists for -- and proceeds;
     # only a `--set X` that CONTRADICTS the declaration refuses, at which
+    # point naming `track_ref` as the lever is finally true.
     if _is_publish_mirror(tree):
         declared_branch = _declared_track_ref_branch()
         if declared_branch != target:

@@ -1,7 +1,66 @@
+# session-reachability-cli — CLI trampoline over claude-klabauter
+# coordinator_core.session.reachability / peer_roster / artifact_owner (the
+# live UUID -> SendMessage-address resolver, the cwd-filtered peer roster,
+# and the artifact-keyed "who's on this?" read). Direct-import variant,
+# mirroring coordinator/bin/session-liveness-cli's resolve/import/dispatch/
+# exit shape (same-day sibling: 2026-08-13 session-owner-reachability
+# registry, opening this callable surface to sibling repos' skills that
+# have no other way to reach the three ops
+# `session.resolve_address`/`session.peer_roster`/`session.artifact_owner`
+# already registered in `coordinator_core/ops/_registry_map.py`).
+#
+# Subcommands (argv[1] selects; remaining argv forwarded to the mapped
+# coordinator_core.session function):
+#   resolve-address <session_id>              -> reachability.resolve_address(...)
+#                                                 -- one live UUID -> SendMessage
+#                                                 address, plus this session's
+#                                                 own `caller_messaging_gate`
+#                                                 (messaging_gate.classify()).
+#   peer-roster [--repo <repo_root>]           -> peer_roster.build_roster(...)
+#                                                 -- every live session whose cwd
+#                                                 is within repo_root (default:
+#                                                 this process's own cwd).
+#   artifact-owner <artifact_path>             -> artifact_owner.resolve_artifact_owner(...)
+#                                                 -- every recorded owner id on
+#                                                 an artifact, each resolved
+#                                                 through resolve_address().
+#
+# Output contract: JSON on stdout, ONE object per invocation -- deliberately
+# distinct from session-liveness-cli's bool->exit convention, per the
+# consuming repo's own ask (cross-repo/inbox/2026-08-13-coordinator-content-repo-em-peer-
+# roster-doctrine-reply.md § Counter 1). Each subcommand's dataclass return
 # is serialized field-for-field, mirroring the JSON-RPC op veneers
+# (coordinator_core/ops/session_resolve_address.py,
+# session_peer_roster.py, session_artifact_owner.py) exactly -- this
+# trampoline direct-imports the underlying session module rather than
+# going through the op registry, but the wire shape it emits is the SAME
+# shape those op veneers already return, so a caller cannot tell the two
+# surfaces apart from their JSON alone.
+#
+# Exit codes:
 #   0  -- a successful resolution attempt, INCLUDING a `not_reachable`
+#         outcome or an owners-less artifact read. `not_reachable` is a
+#         legitimate answer, not an error (reachability.py's own module
+#         docstring negative-spec) -- this trampoline never raises that to
+#         a nonzero exit.
+#   2  -- usage error (missing/unknown subcommand, wrong arity).
 #   3  -- _TRANSPORT_FAIL: the engine root could not be resolved, the
+#         coordinator_core.session.{reachability,peer_roster,artifact_owner}
+#         modules were not importable, OR the wrapped
+#         resolve_address/build_roster/resolve_artifact_owner call itself
+#         raised at runtime (e.g. a harness_registry.snapshot() I/O error)
+#         -- "the engine could not be reached" covers both the import-time
+#         and the runtime-raise flavor of that failure (Review:
+#         code-reviewer -- P3, exit-code table must name every state the
+#         trampoline can actually reach; this table is exhaustively
+#         {0, 2, 3}, never a bare uncaught traceback). The diagnostic goes
 #         to stderr in the same terse register as the other _TRANSPORT_FAIL
+#         paths -- stdout stays JSON-only or empty, never a stack trace
+#         where a caller (e.g. a sibling repo's skill code) expects JSON.
+#
+# Spec backlink: cross-repo/inbox/2026-08-13-coordinator-content-repo-em-peer-roster-
+# doctrine-reply.md § Counter 1, state/handoffs/2026-08-13-session-owner-
+# reachability-registry.md.
 from __future__ import annotations
 """session-reachability-cli — see the # comment block above for the RAG-bait
 purpose text (the polyglot shebang line above makes THIS triple-quoted

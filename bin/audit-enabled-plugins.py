@@ -21,6 +21,8 @@ def main(argv: "list[str] | None" = None) -> int:
         op_main = _import_main()
     except RuntimeError as exc:
         # CLAUDE_KLABAUTER_ROOT resolution failed. This is an advisory check that must
+        # never block the calling ceremony, so this is a loud stderr note, not
+        # a nonzero exit.
         print(f"audit-enabled-plugins.py: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
         return 0
     except ImportError as exc:

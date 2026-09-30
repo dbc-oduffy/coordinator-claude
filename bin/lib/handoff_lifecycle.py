@@ -45,9 +45,15 @@ from __future__ import annotations
 
 from typing import Union, Callable
 
+# Fields whose status values are terminal (no flip allowed). DR-084 additive
+# widen: 'consumed' is being renamed to 'claimed'; both vocabularies are
+# accepted while the corpus is mixed. MUST mirror
 # coordinator/bin/lib/consumed-marker.js's TERMINAL_STATUS exactly — if the
+# two ever diverge, that is a cross-language drift bug, not an intentional
+# per-language choice.
 TERMINAL_STATUS = {"consumed", "claimed", "superseded"}
 
+# Status values meaning "claimed" under either vocabulary (a strict subset of
 # TERMINAL_STATUS — 'superseded' is terminal but not a claim-status value).
 _CLAIMED_STATUSES = {"consumed", "claimed"}
 
@@ -85,7 +91,12 @@ def _read_field(source: FrontmatterOrPath, new_key: str, old_key: str) -> str:
     return _fm_field(source, new_key) or _fm_field(source, old_key)
 
 
+#: Frontmatter-TEXT readers. A caller that has already read a handoff's bytes
+#: once — a single-open-per-file corpus pass — holds neither a dict nor a path.
+#: Before these existed it had to name `claimed_by`/`consumed_by` itself, which
 #: reintroduces exactly the second raw read site DR084-SINGLE-ACCESSOR forbids,
+#: in a caller whose own design forbids reopening the file to avoid it. The
+#: field names and the precedence rule stay here.
 def claim_holder_from_fm(fm_text: str, read_field: "Callable[[str, str], str | None]") -> str:
     """DR-084 dual-read over already-read frontmatter TEXT.
 

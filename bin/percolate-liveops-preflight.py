@@ -1,6 +1,34 @@
+# percolate-liveops-preflight — CLI trampoline over claude-klabauter
+# coordinator_core.session.{liveness,peer_roster} and
+# coordinator_core.machine_resolver, answering the operator's actual
+# question before a percolation/publish run: "will this affect any live
+# ops?" A REPORT, not a gate — see the module docstring below for the full
+# rationale and the negative-spec this deliberately does not violate.
+#
+# Subcommands (argv[0]; no argv means "run"):
+#   run | (no args)        -> census every repo the machine-local registry
+#                              knows about (`repos.*`), list each repo's
+#                              live sessions (`coordinator_core.session.
+#                              liveness`), classify each as affected/
+#                              unaffected by resolving whether that repo's
+#                              path IS the engine's own resolved source tree
+#                              (`_resolve_claude_klabauter.py::_resolve_claude_klabauter_root` --
+#                              the same structural check the resolver's own
+#                              gate makes; unaffected -- resolves its own
+#                              tree by construction) or falls through to the
+#                              published engine (affected), and emit a
+#                              plain-text report plus the verdict line
+#                              "affects N of M live sessions."
+#
 # Exit codes: 0 on a successful report (REGARDLESS of the N/M verdict --
 # this is a report, never a gate; see NEGATIVE SPEC below). 3
 # (_TRANSPORT_FAIL) when the engine root cannot be resolved or the wrapped
+# coordinator_core.session modules are not importable -- "the engine could
+# not be reached," same convention as session-liveness-cli /
+# session-reachability-cli. A usage error (unknown subcommand) exits 2.
+#
+# Spec backlink: docs/plans/2026-08-15-klabauter-release-channels.md, chunk
+# C11.
 """percolate-liveops-preflight — answers "will this percolation affect any
 live ops?" as a REPORT, not a gate (PM, 2026-08-15, reproduced verbatim in
 the plan chunk this ships against): "we do percolation and publishing
@@ -10,9 +38,8 @@ human, but we can include it in preflight for the percolate skill."
 
 WHAT IT DOES: for every repo the machine-local registry knows about
 (`repos.*`), lists that repo's currently-live coordinator sessions
-(`coordinator_core.session.liveness.active_sessions` /
-`live_session_ids`), and classifies each live session as AFFECTED or
-UNAFFECTED by a claude-klabauter engine percolation/publish:
+(`coordinator_core.session.liveness.active_sessions`, one pass per repo),
+and classifies each live session as AFFECTED or UNAFFECTED by a claude-klabauter engine percolation/publish:
 
   - UNAFFECTED: the session's repo IS the engine's own resolved source tree
     (same structural check `_resolve_claude_klabauter.py::resolve_claude_klabauter_root_with_class`
@@ -198,12 +225,33 @@ def _bootstrap_claude_klabauter_resolver() -> None:
         globals().setdefault(_name, _value)
 
 
+def _live_lines_by_id(lines: "list[str]") -> "dict[str, str]":
+    """One `active_sessions` pass yields both the live ids and their detail
+    lines: a live session's line is `<sid>  Live (...)`. Stale rows and the
+    placeholder rows (`(no active sessions)`, ...) never carry `Live (` as the
+    second field, so they drop out. Resolving ids via `live_session_ids` as
+    well would run the session-dir scan twice per repo."""
+    out: "dict[str, str]" = {}
+    for line in lines:
+        parts = line.split(None, 1) if line else []
+        if len(parts) == 2 and parts[1].startswith("Live ("):
+            out[parts[0]] = line
+    return out
+
+
 def _run(liveness_mod, peer_roster_mod, machine_resolver_mod) -> int:
     _bootstrap_claude_klabauter_resolver()
 
     repos = _load_registry_prefix(machine_resolver_mod, "repos.")
 
+    # The ONE path that IS the engine's own live source tree — same
+    # structural comparison `_resolve_claude_klabauter.py::_is_claude_klabauter_source_tree`
+    # makes, not a scan over `engine.working_repos.*` (C4 retired that as
+    # the resolution-class discriminant; the key survives elsewhere as a
+    # pure locator, but is no longer this question's input). `None` means
+    # undeterminable (no live source tree resolves on this box at all) --
     # every repo then classifies AFFECTED, since nothing resolves the live
+    # tree for anyone to be unaffected via.
     try:
         source_tree_path = _normalize_path(
             _resolve_claude_klabauter_source_root(_claude_klabauter_ml_dir())
@@ -233,14 +281,10 @@ def _run(liveness_mod, peer_roster_mod, machine_resolver_mod) -> int:
         path = deduped[name]
         if not os.path.isdir(path):
             continue
-        live_ids = sorted(liveness_mod.live_session_ids(cwd=path))
+        lines_by_id = _live_lines_by_id(liveness_mod.active_sessions(cwd=path))
+        live_ids = sorted(lines_by_id)
         if not live_ids:
             continue
-        lines_by_id = {}
-        for line in liveness_mod.active_sessions(cwd=path):
-            sid = line.split(None, 1)[0] if line else ""
-            if sid in live_ids:
-                lines_by_id[sid] = line
 
         is_working = source_tree_path is not None and _normalize_path(path) == source_tree_path
         affected_here = not is_working

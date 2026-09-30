@@ -17,7 +17,12 @@ class PublishModeDescriptor:
     is_bootstrap_bearing: bool = False
 
 
+# The `mirror` mode's wire name as an importable constant. Site 5
 # (`ensure_required_targets.py::_find_mirror_row`) is a NAMED-ROW lookup for
+# the single `coordinator-claude|mirror` row, not a mode-vocabulary
+# consumer — it imports this constant and keeps its equality test exact;
+# it must never be widened into a mirror-like predicate (Problem-table
+# site 5, plan AC2).
 MIRROR_WIRE_NAME = "mirror"
 
 _MIRROR_DESCRIPTOR = PublishModeDescriptor(

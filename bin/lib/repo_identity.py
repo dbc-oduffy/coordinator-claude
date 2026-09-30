@@ -196,7 +196,10 @@ def resolve_checked_repo_root(
 
     sid = os.environ.get("CLAUDE_CODE_SESSION_ID") or None
     if not sid:
+        # AC1's fail-open bias: do not pass sid=None into the gate and
         # trust its return -- short-circuit to UNRESOLVED here so the
+        # `sessionId == sid` equality leg and the `(resolved_root, sid)`
+        # memo key are never degenerately keyed on `None`.
         return resolved_root, _unresolved(resolved_root, None, "no $CLAUDE_CODE_SESSION_ID in environment")
 
     memo_key = (resolved_root, sid)
@@ -204,7 +207,14 @@ def resolve_checked_repo_root(
     if cached is not None:
         return resolved_root, cached
 
+    # Imported at call time, not module scope: this module is plumbing for
+    # ~25 CLIs, most of which never reach the gate (no
     # $CLAUDE_CODE_SESSION_ID, or a memo hit above returns first).
+    # `coordinator_core.repo_identity_gate` (C1 extraction) is itself lean --
+    # unlike the `coordinator_core.pickup_assemble` re-export it now lives
+    # alongside, importing it does not drag the 10k-line module in -- but
+    # this stays a call-time import to preserve the same import-chain shape
+    # the fake engine trees in facade tests are built against.
     from coordinator_core.repo_identity_gate import compute_repo_identity_gate
 
     verdict = compute_repo_identity_gate(Path(resolved_root), sid)

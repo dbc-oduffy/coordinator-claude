@@ -44,7 +44,12 @@ _VALID_POSTURES = frozenset({"precision", "default", "substrate-free"})
 # posture in the enum. A `_FAIL_OPEN_` prefix would read as the opposite.
 _MOST_CAUTIOUS_POSTURE = "precision"
 
+# Cache lifetime is the hook process; do not import this module into a
+# long-lived process without adding a TTL or invalidation path.
 _cached_posture: str | None = None
+# Keyed on the exact `repo_root` string passed to `resolve_posture`; a call
+# with a different `repo_root` must never be served a value cached under a
+# prior one. Same process-lifetime-only contract as `_cached_posture` above.
 _cached_posture_by_root: dict[str, str] = {}
 
 # Reuse the existing root-resolution PRIMITIVE (`_engine_root._session_repo_root`
@@ -61,10 +66,16 @@ if _SCRIPTS_DIR not in sys.path:
 try:
     from _engine_root import _session_repo_root as _resolve_consuming_repo_root  # noqa: E402
 except Exception:
+    # Defensive fallback -- a hook script copied/deployed without its sibling
+    # _engine_root.py must still fail-open (this rung simply never resolves)
+    # rather than crash on import.
     _resolve_consuming_repo_root = None  # type: ignore[assignment]
 
 
 def _extract_key_from_lines(lines, key: str) -> str | None:
+    """Scan flat `key: value` lines and return the first value for `key`, or
+    None if absent. Tolerates a leading `---` frontmatter fence and trailing
+    inline comments; does not attempt general YAML parsing."""
     prefix = key + ":"
     for line in lines:
         stripped = line.strip()
@@ -117,6 +128,9 @@ def _find_repo_root() -> str | None:
 
 
 def _resolve_posture_from(repo_root: str | None) -> str:
+    """Resolution body shared by both `resolve_posture()` call shapes:
+    `repo_root` is the already-decided consuming root (explicit-argument
+    call), or None to fall back to `_find_repo_root()`'s own anchoring."""
     try:
         root = repo_root if repo_root is not None else _find_repo_root()
         if root is not None:
@@ -127,8 +141,8 @@ def _resolve_posture_from(repo_root: str | None) -> str:
             if value in _VALID_POSTURES:
                 return value
 
-        # WS-2 home-resolution shape: CLAUDE_HOME first, `Path.home()` as the terminal
-        # rung. A bare `expanduser("~")` yields the literal "~" when every home rung is
+        # CLAUDE_HOME first, `Path.home()` as the terminal rung -- a bare
+        # `expanduser("~")` yields the literal "~" when every home rung is
         # unset, which silently reads a posture file that is not the operator's.
         from pathlib import Path
         claude_home = os.environ.get("CLAUDE_HOME") or Path.home()

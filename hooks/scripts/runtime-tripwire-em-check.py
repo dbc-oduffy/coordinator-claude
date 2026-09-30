@@ -184,11 +184,15 @@ _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
 try:
+    # Fail-open: a deploy missing its sibling _git_common_dir.py must still fail
+    # open (empty common dir -> callers skip) rather than crash on import.
     from _git_common_dir import resolve_git_common_dir as _resolve_git_common_dir  # noqa: E402
 except Exception:
     def _resolve_git_common_dir(git_root: str) -> str:
         return ""
 try:
+    # Fail-open: a deploy missing its sibling _session_hub.py must still fail
+    # open to the pre-gate behaviour, not crash on import.
     from _session_hub import ensure_session_dir as _ensure_session_dir  # noqa: E402
 except Exception:
     def _ensure_session_dir(session_dir: str, session_id: object) -> bool:
@@ -225,6 +229,11 @@ _ID_CHARSET_RE = re.compile(r"^[A-Za-z0-9_@-]+$")
 
 
 def _ensure_session_cursor_dir(cursor_dir: str, session_id: str) -> bool:
+    """Create this session's hub directory for a per-session cursor write.
+    Returns True when `cursor_dir` exists and is safe to write a cursor into,
+    False when the caller must skip its cursor write entirely -- the callers'
+    baseline writes are fail-open paths, so a refusal is a silent no-op, never
+    a broken tool call."""
     return _ensure_session_dir(cursor_dir, session_id)
 
 
@@ -257,6 +266,10 @@ def _read_stdin(timeout: float = 2.0) -> str:
 
 
 def _resolve_subagent_identity(agent_id: str, session_id: str) -> str:
+    """Translate a subagent-side agent_id to the canonical EM-side id. Three
+    paths: (a) bare hex -- unnamed agent fast path, return unchanged; (b)
+    named teammate -- build "<name>@session-<short8>"; (c) anything else ->
+    "" (fail-closed)."""
     if re.match(r"^[a-f0-9]{12,}$", agent_id):
         return agent_id
 
@@ -308,6 +321,13 @@ _arm_lazy_ops()
 
 
 def _fail_open(fn, *args, default=None):
+    """Run one detector, yielding `default` on any exception. Every advisory
+    leg in `main()` is independently wrapped so a bug in one can never take
+    down another. Catches `Exception`, NOT `BaseException` -- a
+    KeyboardInterrupt or SystemExit must still terminate the hook rather than
+    be swallowed. Do not add logging on the failure path: this runs on every
+    session event across every live session, and a detector that fails on
+    every fire would write a stderr line every time."""
     try:
         return fn(*args)
     except Exception:
@@ -315,6 +335,12 @@ def _fail_open(fn, *args, default=None):
 
 
 def _resolve_zero_tool_use_sessions_dir(git_root: str) -> str:
+    """Zero-tool-use-specific session-scoped directory, rooted at the git
+    common dir. Returns "" on any resolution failure -- callers must treat ""
+    as "nothing to do here" rather than falling back to the
+    separately-computed `sessions_dir` in `main()`. Both are common-dir-rooted
+    but stay two independent resolutions on purpose: conflating them would
+    misdirect this one to a location the engine op never touches."""
     try:
         common_dir = _resolve_git_common_dir(git_root)
         if not common_dir:
@@ -325,6 +351,13 @@ def _resolve_zero_tool_use_sessions_dir(git_root: str) -> str:
 
 
 def _git_root() -> str:
+    """Repo root as `git rev-parse --show-toplevel` would report it, fail-open
+    to "". Resolved by an in-process parent walk for a `.git` entry rather
+    than by spawning git -- this hook fires several times per turn across
+    every session on the box, so a spawn here is paid repeatedly. The
+    subprocess fallback below is for the case the walk cannot resolve (a bare
+    repo, or a GIT_DIR-driven invocation with no `.git` above cwd), not a
+    routine path."""
     try:
         start = Path.cwd().resolve()
         for candidate in (start, *start.parents):
@@ -349,6 +382,14 @@ def _git_root() -> str:
 
 
 def _resolve_git_dir_no_commondir(git_root: str) -> str:
+    """Resolve the git dir that actually holds `git_root`'s own private,
+    per-worktree state (HEAD, index) -- without following the `commondir`
+    indirection `_resolve_git_common_dir` applies. No subprocess; fail-open to
+    "" on any error. In an ordinary clone this is a no-op (the private dir IS
+    the common dir); in a linked worktree, `<git_root>/.git` is a FILE
+    pointing at the worktree's own private dir under
+    `<main>/.git/worktrees/<name>/`, which is where per-worktree state like
+    HEAD actually lives."""
     try:
         dot_git = os.path.join(git_root, ".git")
         if os.path.isdir(dot_git):
@@ -373,6 +414,18 @@ def _resolve_git_dir_no_commondir(git_root: str) -> str:
 
 
 def _current_branch_cheap(git_root: str) -> str:
+    """Current branch name via a raw `.git/HEAD` file read -- not a git
+    subprocess. This hook fires multiple times per turn, so a spawn here would
+    recreate the per-call spawn-tax hazard. Detached HEAD and any read failure
+    both degrade to "" -- never a crash, never mistaken for a `work/*` branch.
+    HEAD is rooted via the resolved private git dir
+    (`_resolve_git_dir_no_commondir`), not a naive `git_root + ".git"` join --
+    under a linked worktree that join would open a FILE and fail closed,
+    silently disabling the push-failure advisory for the whole session.
+    Deliberately does not route through `_resolve_git_common_dir`, since HEAD
+    is per-worktree private state, unlike refs/objects -- the commondir
+    substitution would report the MAIN checkout's branch instead of this
+    worktree's own."""
     try:
         git_dir = _resolve_git_dir_no_commondir(git_root)
         if not git_dir:
@@ -389,6 +442,9 @@ def _current_branch_cheap(git_root: str) -> str:
 
 
 def _configured_day_branch_cheap(git_root: str) -> str:
+    """`coordinator.dayBranch` off `.git/config` via a raw file read -- the
+    same zero-spawn posture as `_current_branch_cheap`. "" on any read failure
+    or absent key."""
     try:
         common_dir = _resolve_git_common_dir(git_root)
         if not common_dir:
@@ -468,6 +524,11 @@ def _unpushed_commit_count(git_root: str, session_id: str | None = None) -> int 
 
 
 def _own_session_unpushed_commit_count(git_root: str, session_id: str) -> int | None:
+    """Count of `@{upstream}..HEAD` commits carrying THIS session's own
+    `Session-Id:` trailer -- the rescope `_unpushed_commit_count` applies when
+    it has a session id to filter by. Returns None on any failure so the
+    caller falls back to the branch-wide count -- fail-toward-firing, never
+    fail-silent."""
     try:
         import subprocess
 
@@ -729,10 +790,13 @@ _HOOKS_JSON_STALE_REFERENCE_LINE = (
 
 
 def _hooks_json_path(git_root: str) -> str:
+    """Path to the plugin's own hooks.json, relative to the repo root."""
     return os.path.join(git_root, "coordinator", "hooks", "hooks.json")
 
 
 def _hash_file_sha256(path: str) -> str | None:
+    """sha256 hex digest of `path`'s contents, or None on any read failure --
+    fail-open, never raises."""
     try:
         import hashlib
 

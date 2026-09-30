@@ -69,11 +69,17 @@ def _settings_home() -> str:
 
 
 def _reader_invocation() -> list[str]:
+    # Never the bare `machine-local` wrapper -- forbidden for consumers and a
+    # CreateProcess-no-PATHEXT/shebang trap on Windows. Invoking the resolved
+    # script under sys.executable dodges that on every OS with no PATH lookup.
     impl = Path(_settings_home()) / "bin" / "_machine_local.py"
     return [sys.executable, str(impl)]
 
 
 class _Namespace:
+    # Lazy per-key resolution, cached process-local only: a registry change
+    # during a long-lived process needs a restart. Exceptions are never
+    # cached, so a missing/broken reader stays retryable after a fix.
 
     def __init__(self, prefix: str) -> None:
         self._prefix = prefix
@@ -81,11 +87,16 @@ class _Namespace:
 
     def __getattr__(self, name: str) -> Path:
         if name.startswith("_"):
+            # Let hasattr/getattr-default/debugger introspection work without
+            # consulting the registry.
             raise AttributeError(name)
         if name in self._cache:
             return self._cache[name]
         key = f"{self._prefix}.{name}"
         invocation = _reader_invocation()
+        # invocation[0] is sys.executable, which exists by construction, so
+        # subprocess.run below never raises FileNotFoundError for a missing
+        # script; check the path directly instead.
         impl_path = invocation[-1]
         if not os.path.isfile(impl_path):
             raise RuntimeError(

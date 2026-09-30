@@ -19,6 +19,9 @@ def main(argv: "list[str] | None" = None) -> int:
         run_op_main = _import_runner()
     except RuntimeError as exc:
         # CLAUDE_KLABAUTER_ROOT resolution failed. This is a fail-loud gate script (rc
+        # encodes real business outcomes 0/2/3), so a transport failure gets
+        # its own dedicated exit (4) -- see the exit-code table above for why
+        # it must not collide with 2 or 3.
         print(f"agent-worktree-sweep.py: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
         return 4
     except ImportError as exc:

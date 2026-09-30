@@ -94,12 +94,17 @@ except Exception:  # pragma: no cover -- exercised only in a PyYAML-less env
 
 _GUARDED_TOOLS = ("Write", "Edit", "MultiEdit")
 
+#: Directory substring match, not a suffix restriction -- matches
+#: `state/handoffs/` anywhere in the resolved path, including `archive/`.
 _SCOPE_DIR = "state/handoffs/"
 
+#: Transcribed from `coordinator/schemas/handoff.schema.json`'s `summary`
+#: property description; that schema is the source of truth for the cap.
 _HANDOFF_SUMMARY_CAP = 140
 
 
 def is_in_scope(target: Path) -> bool:
+    """A `.md` file somewhere under a `state/handoffs/` directory."""
     if target.suffix != ".md":
         return False
     posix = target.as_posix()
@@ -107,6 +112,8 @@ def is_in_scope(target: Path) -> bool:
 
 
 def _split_frontmatter(text: str) -> "tuple[dict | None, str]":
+    """Returns `(None, text)` on any shape mismatch -- fail-open, mirroring
+    `handoff-segment-inject.py`'s own `_split_frontmatter`."""
     if not text.startswith("---"):
         return None, text
     parts = text.split("---", 2)
@@ -137,6 +144,7 @@ def _warn_reason(target: str, length: int) -> str:
 
 
 def _warn_message(target: str, length: int) -> Message:
+    """The prose diagnosis (the only part `_message_envelope.CEILING` counts)."""
     return compose(_warn_reason(target, length))
 
 

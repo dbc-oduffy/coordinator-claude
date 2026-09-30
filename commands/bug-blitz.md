@@ -97,7 +97,7 @@ is "not already covered by a live handoff or plan" — phantom and mis-size chec
 policy already applied inside the grind, per the profile. No PM authorization message: the fire
 already discharged it.
 
-Only `park`, `wont-do`, `yagni`, `unclear-direction` and `needs-judgment` rows go to the PM list.
+`park`, `wont-do`, `yagni`, `unclear-direction` and `needs-judgment` rows go to `coordinator:apm` (staff-eng for code) for a `pm_ruling:` disposition, not to the PM; only a `pm_only` matter reaches the PM, and the PM sees the receipt.
 `plan-substrate-collision` is not on that list: fold the row into the colliding plan as a
 committed annotation, per the memo-to-plan write-through discipline, and close the row citing
 that plan; if the colliding plan is terminal, the row becomes a baton instead. The universal
@@ -158,5 +158,10 @@ already-fixed line, or a clean `Suite gate: PASS` line — their absence already
 Full tables: wiki. The load-bearing invariants that stay here: never rollback completed work on
 early stop; never fabricate a test command; never weaken an assertion; `git revert` (never `git
 reset`) for a self-inflicted regression on a pushed branch.
+
+**Usage-limit advisory.** On the usage-limit advisory, finish the item in hand, open no next
+item, then run Phase 4 (archive and report) and stop. See
+`coordinator/docs/wiki/skills-corpus/usage-limit-pause.md`; token
+`A-DRIVER-PAST-ITS-USAGE-THRESHOLD-FIRES-NOTHING-NEW`.
 
 `/workstream-start` advocates this command on backlog depth and, independently of it, on a **red-suite predicate** — a non-empty delta in `state/test-red/<machine>.yaml` against the acknowledged baseline, never bare redness. Both arrive here as the same emitted grind.

@@ -143,6 +143,8 @@ _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
 try:
+    # Fail-open: a copy/deploy missing its sibling _engine_root.py must still
+    # fail open rather than crash on import.
     from _engine_root import resolve_claude_klabauter_root as _resolve_claude_klabauter_root  # noqa: E402
 except Exception:
     def _resolve_claude_klabauter_root() -> str | None:
@@ -154,6 +156,8 @@ from _skill_invocation import (  # noqa: E402
 )
 
 try:
+    # Fail-open: a deploy missing its sibling _forwarder_resolve.py must degrade to
+    # the pre-existing extensionless-only behaviour, never crash on import.
     from _forwarder_resolve import forwarder_argv as _forwarder_argv  # noqa: E402
     from _forwarder_resolve import resolve_forwarder as _resolve_forwarder  # noqa: E402
 except Exception:
@@ -289,14 +293,24 @@ def resolve_settings_home() -> Path:
 
 
 def resolve_pickup_assemble_bin(settings_home: Path) -> Path | None:
+    """Resolve the installed `pickup-assemble` forwarder under `settings_home`
+    -- the extensionless script or the native `.exe`, whichever the install
+    carries, or None when neither is found; the caller treats None as a
+    transport failure and fails open (AC9c), never a crash."""
     return _resolve_forwarder(settings_home / "bin", "pickup-assemble")
 
 
 def pickup_assemble_argv(script_path: Path, tail: list[str]) -> list[str]:
+    """Build the subprocess argv for the resolved forwarder. The interpreter
+    prefix is decided by which variant resolved, not assumed."""
     return _forwarder_argv(script_path, tail)
 
 
 class _TransportFailure(Exception):
+    """Raised when a `pickup-assemble` invocation could not be completed at all
+    (binary unresolvable, spawn failure, timeout) -- as opposed to the target
+    CLI running and returning a non-zero business exit code, which is not a
+    transport failure."""
     pass
 
 
@@ -334,6 +348,11 @@ def _run_pickup_assemble(
 
 
 def decode_decision_payload(stdout: str) -> list[dict]:
+    """Parse a `pickup-assemble brief`/`apply` stdout blob into a list of
+    decision-object dicts: a bare JSON object (N==1) -> `[obj]`; a bare JSON
+    array (N>1) -> its dict elements, dropping any non-dict element; anything
+    else (unparseable, a scalar, a `{"briefs": [...]}`-wrapped dict) -> `[]`
+    (fail-open) without unwrapping a `briefs` key."""
     try:
         obj = json.loads(stdout)
     except (json.JSONDecodeError, TypeError):
@@ -346,6 +365,10 @@ def decode_decision_payload(stdout: str) -> list[dict]:
 
 
 def _stdout_is_well_formed(stdout: str) -> bool:
+    """True iff `stdout` decodes to a JSON object or array (empty or not) --
+    must agree byte-for-byte with `decode_decision_payload`'s notion of usable
+    shape, or the two could disagree about whether the CLI "answered". A bare
+    scalar is NOT well-formed here even though it parses cleanly."""
     try:
         obj = json.loads(stdout)
     except (json.JSONDecodeError, TypeError):
@@ -354,6 +377,12 @@ def _stdout_is_well_formed(stdout: str) -> bool:
 
 
 def _baton_grab_summary(decisions: list, spool_open_count: int, subagent: bool) -> str:
+    """The one line a baton-grab invocation always renders once
+    `pickup-assemble brief` has actually answered, whether it claimed anything
+    or not -- the key's unconditional presence, never its emptiness, is what
+    lets a reader tell "considered every baton, claimed zero" apart from "the
+    hook never ran". `spool_open_count` counts paths handed to `brief`, not
+    merely those claimed. Never called on a genuine transport failure."""
     claimed: list[str] = []
     if not subagent:
         for decision in decisions:
@@ -367,6 +396,10 @@ def _baton_grab_summary(decisions: list, spool_open_count: int, subagent: bool) 
 
 
 def coast_verdict(decision: dict) -> str | None:
+    """The `gates.coast.verdict` string, or None when absent/malformed.
+    Negative-spec: an absent or unrecognized verdict must read as HOLD, never
+    as permission -- callers compare for equality against the literal string
+    "clear"."""
     gates = decision.get("gates")
     if not isinstance(gates, dict):
         return None
@@ -383,12 +416,22 @@ def judgment_points_are_empty(decision: dict) -> bool:
 
 
 def should_apply(decision: dict) -> bool:
+    """Apply only on `coast == clear` AND `judgment_points == []` -- composes
+    `coast_verdict`'s absent-means-hold guarantee with an explicit empty-list
+    check; either signal alone gates the mutation."""
     return coast_verdict(decision) == "clear" and judgment_points_are_empty(decision)
 
 
 def _unclaimed_summary(
     decisions: list, multi: bool, subagent_guard: bool = False
 ) -> str | None:
+    """One line per briefed baton this run did NOT claim, naming why -- an
+    empty claimed-baton list reads the same as a hook that never ran, so a
+    correct skip must still say why nothing was claimed. `subagent_guard`:
+    True when this render is for a dispatched subagent's own tool call, whose
+    claim is never the main session's deliberate grab regardless of
+    session_id -- every baton `should_apply` would otherwise claim is named as
+    unclaimed for that reason instead of being silently skipped."""
     lines = []
     for index, decision in enumerate(decisions):
         would_apply = should_apply(decision)
@@ -417,6 +460,8 @@ def _unclaimed_summary(
         elif reason:
             why = reason
         else:
+            # Never "unknown" without saying what was read: an absent reason must
+            # read differently from an unexamined one.
             why = "not claimable, and the brief carried no claim_grant reason to quote"
         label = f"baton {index + 1}" if multi else "baton"
         lines.append(f"  - {name or label}: {why}")
@@ -426,6 +471,11 @@ def _unclaimed_summary(
 
 
 def _resolve_repo_root() -> Path | None:
+    """Zero-spawn mirror of the engine repo's `apply.py::resolve_repo_root`: a
+    pure-Python upward walk for a `.git` entry rather than shelling out to
+    `git rev-parse`. `_run_pickup_assemble` never overrides the child's cwd, so
+    this hook process's own OS cwd matches what the subprocess sees. Returns
+    None when undeterminable -- callers omit the pointer segment, never raise."""
     try:
         cwd = Path.cwd()
     except OSError:
@@ -440,15 +490,31 @@ def _resolve_repo_root() -> Path | None:
 
 
 def _sanitize_for_filename(value: str) -> str:
+    """Byte-for-byte mirror of the engine repo's own `_sanitize_for_filename` --
+    collapses both path separators to `__` so a session id or artifact path
+    round-trips into one flat filename component. This hook and the engine's
+    `apply.py::_session_decision_file_path` must compute the identical
+    filename from the identical inputs, independently."""
     return value.replace("/", "__").replace("\\", "__")
 
 
 def _session_decision_file_path(repo_root: Path, session_id: str, artifact_path: str) -> Path:
+    """Byte-for-byte mirror of the engine repo's own
+    `_session_decision_file_path`/`_session_decision_file_dir` -- the one
+    deterministic location both this hook and `apply` independently compute
+    from the same two inputs. `.git` is used directly rather than a worktree
+    `.git`-file redirection lookup, since worktrees are banned by doctrine."""
     name = f"{_sanitize_for_filename(session_id)}__{_sanitize_for_filename(artifact_path)}.json"
     return repo_root / ".git" / "coordinator-sessions" / "decisions" / name
 
 
 def _write_decision_files(decisions: list[dict], session_id: str) -> list[Path]:
+    """Best-effort: write each decoded decision to its own engine-computed path,
+    keyed off that baton's own `artifact.path` -- one file per baton, never a
+    shared file holding a list. A decision with a missing/empty `artifact.path`
+    is skipped without raising; sibling batons still get their files. The whole
+    operation is wrapped in one try/except: any OSError degrades the WHOLE call
+    to `[]`, never a partial pointer to a file that wasn't fully written."""
     repo_root = _resolve_repo_root()
     if repo_root is None:
         return []
@@ -511,6 +577,10 @@ def _your_call_text(decision: dict) -> str | None:
 
 
 def _evidence_judgment_points(decision: dict) -> list | None:
+    """The `judgment_points` slice retained in the droppable evidence tail:
+    each judgment_point's guidance-bearing `dispositions[]` entries are
+    stripped (already promoted to `_your_call_text`), leaving non-guidance
+    dispositions and every other field untouched."""
     jps = decision.get("judgment_points")
     if not isinstance(jps, list):
         return jps
@@ -537,6 +607,12 @@ def _evidence_judgment_points(decision: dict) -> list | None:
 
 
 def _evidence_is_informative(decision: dict) -> bool:
+    """True iff the Evidence tail would carry a fact beyond what `verdict_text`
+    already states. A non-empty `judgment_points` is always informative; an
+    empty one falls through to `gates` -- informative only when it carries a
+    key besides `coast`, or `coast` carries a key besides `verdict` (both
+    already named in `verdict_text`). Evidence exists to preserve raw decision
+    data for a genuinely complex decision, not to double-print a trivial one."""
     jps = decision.get("judgment_points")
     if isinstance(jps, list) and jps:
         return True
@@ -713,6 +789,8 @@ def render_additional_context(
     kept = protected + droppable
     rendered = _join(kept)
 
+    # Drop from the tail (evidence, then pointer) -- never drop a protected
+    # segment (narration/verdict/next_move/your_call) as a whole.
     while len(rendered) > _CONTEXT_BUDGET_CHARS and len(kept) > len(protected):
         kept.pop()
         rendered = _join(kept)
@@ -720,6 +798,12 @@ def render_additional_context(
     if len(rendered) > _CONTEXT_BUDGET_CHARS:
         kept = list(protected)
         if not narration_slots:
+            # No narration text to sacrifice, so per-character truncation has nothing to
+            # work with. Drop whole later-baton (verdict, next_move, your_call) triples
+            # from the tail first, one baton at a time, keeping earlier batons intact --
+            # a raw slice of the whole protected join could land mid-string inside a
+            # later baton's next_move. Only once the earliest baton's own protected
+            # segment alone still overflows the budget does this fall back to a slice.
             num_batons = len(per_baton)
             for keep_count in range(num_batons, 0, -1):
                 trial = protected[: baton_offset + keep_count * 4]

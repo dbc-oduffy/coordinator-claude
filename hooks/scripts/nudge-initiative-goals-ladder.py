@@ -57,10 +57,12 @@ try:
         place_engine_root_on_path as _place_engine_root_on_path,
     )
 except Exception:
+    # A deploy missing its sibling _engine_root.py must fail-open rather than crash on import.
     def _resolve_claude_klabauter_root() -> str | None:
         return None
 
     def _place_engine_root_on_path(root):
+        # Never index 0 when the hooks dir holds it; never the tail where site-packages outranks us.
         if root and root not in sys.path[:2]:
             sys.path.insert(1 if sys.path else 0, root)
         return root
@@ -68,6 +70,8 @@ except Exception:
 try:
     import _message_envelope as _envelope  # noqa: E402
 except Exception:
+    # A deploy missing its sibling _message_envelope.py must still compose and emit its
+    # nudge rather than crash on import. Reimplements only the exact shape this hook uses.
     from dataclasses import dataclass as _dataclass
     from typing import Optional as _Optional
 
@@ -94,6 +98,8 @@ except Exception:
             if message.anchor:
                 parts.append("")
                 parts.append("See {}.".format(message.anchor))
+            # .buffer.write bypasses Windows text-mode newline translation, which would
+            # otherwise turn every LF into CRLF and break byte-fidelity with the bash oracle.
             sys.stderr.buffer.write("\n".join(parts).encode("utf-8"))
             return 2
 
@@ -195,14 +201,9 @@ def _resolve_goal_candidates(repo_root: str, text: str) -> list:
 def _compose_nudge_message(
     initiative_id: str, candidate_ids: "list[str]", candidate_ids_str: str
 ) -> "_envelope.Message":
-    """Pure message composer, routed through `_message_envelope.compose`
-    (docs/plans/2026-08-02-guard-message-character-cap.md § C6). The
-    diagnosis names the initiative and any matched candidate goal(s); the
-    one runnable attach command rides in the exempt `alternative` slot;
-    the rest of the prior inline explanation (including the
-    COORDINATOR_INITIATIVE_GOALS_NUDGE_OFF=1 escape hatch) relocates to
-    `_WIKI_ANCHOR` -- see
-    state/relocations/guard-message-cap/nudge-initiative-goals-ladder.py.md."""
+    """Diagnosis names the initiative and any matched candidate goal(s); the one runnable
+    attach command rides in the exempt `alternative` slot; everything else (including the
+    COORDINATOR_INITIATIVE_GOALS_NUDGE_OFF=1 escape hatch) lives at `_WIKI_ANCHOR` instead."""
     if candidate_ids_str:
         prose = (
             "Initiative {} has no goals field; candidate goal(s): {}. Attach "
@@ -276,6 +277,8 @@ def main() -> int:
     if content:
         lines = content.split("\n")
 
+        # Suppress only on a genuinely non-empty `goals:` -- null, "", [], and ~ all count
+        # as empty and still trigger the nudge.
         inline_re = re.compile(r"^goals:[ \t]*[^ \t#\[]")
         goals_line_re = re.compile(r"^goals:")
         for line in lines:
@@ -300,6 +303,7 @@ def main() -> int:
     if not repo_root:
         repo_root = _git_toplevel(os.getcwd())
     if not repo_root:
+        # Repo unresolvable -- fail-open: no nudge (can't check goals/ either).
         return 0
 
     goals_dir = Path(repo_root) / "state" / "goals"

@@ -196,7 +196,8 @@ def _classify(repo_root: Path, template_rules: list[str]) -> tuple[str, list[str
     if not ignore_path.is_file():
         return ("ABSENT", [], 0)
     try:
-        text = ignore_path.read_text(encoding="utf-8", newline="")
+        with open(ignore_path, encoding="utf-8", newline="") as fh:
+            text = fh.read()
     except (UnicodeDecodeError, OSError):
         return ("UNREADABLE", [], 0)
     live = _rule_lines(text)
@@ -218,7 +219,8 @@ def _apply(ignore_path: Path, missing: list[str]) -> None:
 
     Writes via temp-file + os.replace in the same directory: this is the one path that mutates
     a peer repo's tracked file unattended, and a crash mid-write must not truncate it."""
-    text = ignore_path.read_text(encoding="utf-8", newline="")
+    with open(ignore_path, encoding="utf-8", newline="") as fh:
+        text = fh.read()
     eol = _detect_eol(text)
     if text and not text.endswith(eol):
         text += eol

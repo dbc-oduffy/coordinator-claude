@@ -212,6 +212,8 @@ from typing import Any, NamedTuple, Optional
 _OVERRIDE_ENV = "COORDINATOR_OVERRIDE_DISPATCH_SUITE_GUARD"
 _OVERRIDE_SENTINEL_NAME = ".coordinator-override-dispatch-suite-guard"
 
+# Deliberately hyphenated -- see module docstring's "Override" section, hatch 1. Anchored to
+# line start (allowing leading whitespace), case-sensitive, requires a non-empty reason.
 _OVERRIDE_MARKER_PREFIX = "COORDINATOR-OVERRIDE-DISPATCH-SUITE-GUARD:"
 _OVERRIDE_MARKER_RE = re.compile(
     r"^[ \t]*" + re.escape(_OVERRIDE_MARKER_PREFIX) + r"[ \t]*(\S.*)?$",
@@ -242,6 +244,9 @@ if str(_SCRIPTS_DIR) not in sys.path:
 
 from _message_envelope import compose, render  # noqa: E402
 
+#: Wiki section carrying the relocated deny/advisory explanation -- the three override
+#: hatches, the remediation-vs-reword distinction, and the directory-breadth advisory
+#: rationale all live there now, not restated in the deny/advisory prose.
 _WIKI_ANCHOR = (
     "coordinator/docs/wiki/guards/guard-message-concision.md"
     "#dispatch-suite-guard-overrides-and-directory-breadth-advisory"
@@ -249,6 +254,13 @@ _WIKI_ANCHOR = (
 
 
 def _git_root() -> "Optional[str]":
+    """Best-effort repo-root resolution for the sentinel-file override, without shelling out
+    to git (this hook is zero-spawn on the hot path). Walks upward from the session's cwd --
+    NOT this script's own on-disk location, which would resolve the coordinator plugin source
+    tree instead of the session's working repo. Mirrors `_classify()`'s own `cwd=os.getcwd()`
+    assumption. Any failure returns None -- the sentinel check is then skipped, never crashed
+    on.
+    """
     try:
         cur = Path(os.getcwd())
         for _ in range(8):
@@ -313,6 +325,7 @@ def _extract_dispatch_text(tool_name: str, tool_input: "dict[str, Any]") -> "_Di
         text = prompt if isinstance(prompt, str) else ""
         return _DispatchText(text, caller_authored=True)
 
+    # tool_name == "Workflow"
     script = tool_input.get("script", "") or ""
     if isinstance(script, str) and script:
         return _DispatchText(script, caller_authored=True)
@@ -345,6 +358,10 @@ def _has_override_marker(text: str) -> bool:
 
 
 def _classify(text: str) -> "list[Any]":
+    """Resolve the engine root, import the shared classifier, call it. Returns [] (never
+    raises) on any infra failure -- the caller treats an empty list identically to "no matches
+    found" (silent allow), the correct fail-open behavior for this guard.
+    """
     try:
         from _engine_root import resolve_claude_klabauter_root  # noqa: E402
     except Exception:
@@ -403,6 +420,8 @@ def _classify_precision(text: str) -> "list[Any]":
             classify_text_precision,
         )
     except Exception:
+        # Covers both "the engine repo's classify_text_precision module is missing" and "the
+        # sibling checkout hasn't shipped the symbol yet" -- ImportError either way, fail open.
         return []
 
     try:
@@ -480,7 +499,7 @@ def _compose_precision_deny_reason(
     prose now only states that a documented override exists, and
     `_WIKI_ANCHOR` -- already appended by `render()` -- is the one place
     its exact syntax is spelled out."""
-    del matched_text, remediation
+    del matched_text, remediation  # now covered by the wiki anchor, not restated per-deny
     message = compose(
         f"{tool_name}: Tier-{tier} suite command ({detected}) -- overridable "
         "for this one dispatch; see the doc for how.",
@@ -513,6 +532,8 @@ def main() -> int:
     if tool_name not in ("Agent", "Workflow"):
         return 0
 
+    # Only the dispatching EM's own Agent/Workflow call is guarded, never
+    # a subagent's nested dispatch (mirrors block-workflow-unmodeled-agent.py).
     if "agent_id" in payload:
         return 0
 
@@ -525,12 +546,18 @@ def main() -> int:
     if not text:
         return 0
 
+    # Hatch 1 (in-prompt marker) -- payload-dependent, so it runs here, after tool_input
+    # parsing. Only honored in caller-authored text -- see _DispatchText /
+    # _has_override_marker docstrings.
     if dispatch.caller_authored and _has_override_marker(text):
         return 0
 
     matches = _classify(text)
     imperative = [m for m in matches if getattr(m, "position", "") == "imperative"] if matches else []
     if not imperative:
+        # Identity leg didn't fire -- try the precision leg (directory breadth). Reached only
+        # once the leg above has already declined, so exactly one envelope is ever emitted
+        # per tool call.
         envelope = _precision_deny_envelope(text)
         if envelope is None:
             return 0

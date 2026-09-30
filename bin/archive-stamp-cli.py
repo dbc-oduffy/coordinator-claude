@@ -1,8 +1,98 @@
+# archive-stamp-cli — CLI trampoline over claude-klabauter
+# coordinator_core.archive_stamp (handoff/memo/plan lifecycle frontmatter
+# writes). Direct-import variant (template-variant #1, per
+# tasks/2026-07-16-clean-slate-recon/r1-doe-port-template.md § 1): a plain
+# in-process function call after resolving the engine root, no cc_invoke/IPC hop.
+#
+# Direct Python engine boundary (R1 template's variant discriminator) for
+# callers in skills/{handoff,pickup,workstream-complete}/SKILL.md.
+#
+# Subcommands (argv[1] selects; remaining argv forwarded to the mapped
+# coordinator_core.archive_stamp function):
+#   stamp-shipped-in <handoff_path> [--allow-branch-tip-fallback] [--sha <SHA>]
+#       [--kind <ship-commit|successor|scope-derived|no-commit>]
 #     (--kind is REQUIRED, keyword-only, on the mapped
+#     coordinator_core.archive_stamp.stamp_shipped_in choke point (DR-096) —
+#     this CLI defaults it when omitted: "ship-commit" when --sha is supplied,
+#     "scope-derived" otherwise, matching the choke point's own default-shaped
+#     callers. An explicitly-supplied --kind is validated against the
 #     canonical enum, coordinator_core.ops.handoff_stamp._SHIPPED_IN_KIND_ENUM.)
+#   ship-handoff <handoff_path> [<SHA>] [--sha <SHA>] [--archive] [--force]
+#   claim-handoff <handoff_path>
+#     (deprecated alias: consume-handoff — accepted, not advertised; DR-084
+#     renamed the verb to match the claimed/claimed_at/claimed_by frontmatter
+#     vocabulary this writer has stamped since the cutover)
+#   claim-memo-stamp <memo_path>
+#   action-memo <memo_path> [disposition-flags...]
+#   resolve-memo <memo_path> [disposition-flags...]
+#     (memo.transition verb resolve — collapses claim-memo-stamp + action-memo
+#     into ONE atomic locked_rmw closure, open->actioned with no in_progress
+#     ever visible on disk between the two calls; see
+#     coordinator_core/ops/memo_transition.py's _resolve docstring)
+#     # Review: overengineering-reviewer -- dropped the -file-sibling sentence
 #     # here; the usage rows below and _PROSE_DISPOSITION_FLAGS's comment
+#     # already carry it.
+#   release-memo-revert <memo_path>
+#   stamp-plan-implemented <plan_path>
+#   stamp-plan-superseded <plan_path> --by <successor>
+#     (plan_status_transition verb stamp-superseded, via
+#     coordinator_core.archive_stamp.cs_stamp_plan_superseded — the same
+#     native in-process route cs_stamp_plan_implemented takes. --by is
 #     REQUIRED: a missing --by is a usage error at this CLI layer, and the
+#     op's own refusal (an already-terminal-at-a-different-status plan)
+#     remains the authoritative gate.)
+#   gate-recheck-handoff <handoff_path> <at> [--cleared]
+#   close-handoff <handoff_path> --reason <cancelled|displaced|stale>
+#   repark-handoff <handoff_path>
+#   unclaim-handoff <handoff_path> [note] [--reaped-from <sid>]
+#     (deprecated alias: unconsume-handoff — accepted, not advertised)
+#     (--reaped-from is the reaper's opt-in provenance signal — see
+#     coordinator_core.ops.handoff_transition._unclaim's docstring for the
+#     reaped_from_session resolution order it triggers)
+#   chain-archive-handoff <handoff_path> [--exclude <path>]...
+#   supersede-archive-handoff <handoff_path> --continued-into <successor> [--exclude <path>]...
+#     (handoff.archive_transition mode='chain'/'supersede' — see
+#     coordinator_core/archive_stamp.py's cs_chain_archive_handoff /
+#     cs_supersede_archive_handoff docstrings)
+#   repair-archived-shipped-in <handoff_path> --reason <reason> (--sha <SHA> | --unset)
+#   repair-archived-deployment-state <handoff_path> --reason <reason> --deployment-state <state>
+#       [--continued-into <successor>] [--continued-into-override]
+#       [--closed-reason <cancelled|displaced|stale>]
+#     (--continued-into-override bypasses the resolution-and-existence check on
+#     --continued-into for the genuinely-cannot-verify-locally cases — a
+#     successor deleted by a distill sweep and recovered from git history, or
+#     a cross-repo continuation this single-repo op cannot resolve. --reason
+#     is the audit trail for why the override was needed.)
+#     (narrow provenance-repair doors onto archive/handoffs/ — see
+#     coordinator_core/archive_stamp.py's cs_repair_archived_shipped_in /
+#     cs_repair_archived_deployment_state docstrings. Every other verb above is
+#     state/handoffs/-only; these two are the ONLY verbs that reach an
+#     already-archived handoff, and only touch the one named field.)
+#   correct-handoff-body <handoff_path> --old-string <old> --new-string <new>
+#     (handoff.correct_body op veneer — a bounded, authorship-gated body
+#     correction for a status:claimed (or legacy status:consumed)
+#     state/handoffs/*.md file. --old-string/--new-string are free-form prose,
+#     hence flags rather than positionals; scanned order-independently, same
+#     idiom as --sha/--exclude above. See
+#     coordinator_core/archive_stamp.py's cs_correct_handoff_body docstring.
 #     THE AUTHORSHIP GATE IS ANTI-ACCIDENT, NOT ANTI-ADVERSARY (DR-247 § 3):
+#     the op's authorship check is a pure caller-controlled environment-
+#     variable lookup inside a subprocess the caller itself spawns, so a
+#     deliberately-set env var passes the gate unconditionally — this verb
+#     must never be read as enforcing "only the author can correct this".
+#     The real control is the stamped, auditable correction note the op
+#     writes on every applied correction; a spoofed invocation is made
+#     visible on disk, not prevented.)
+#
+# Exit codes: propagates the mapped function's own return value verbatim (see
+# coordinator_core/archive_stamp.py module docstring for the per-function
+# exit-code contract — cs_stamp_plan_implemented is now a plain 0/1 contract,
+# having moved to an in-process plan_status_transition.main() call with no
+# node/content-root resolution step of its own).
+# A missing/unresolvable the engine root (this trampoline's own transport failure,
+# distinct from any mapped function's business exit code) exits 3 — the
+# dedicated code below, since that failure means "the claude-klabauter engine could not
+# be reached," never silently degraded to 0.
 from __future__ import annotations
 """archive-stamp-cli — see the # comment block above for the RAG-bait purpose
 text (the polyglot shebang line above makes THIS triple-quoted string a
@@ -32,7 +122,7 @@ _SUBCOMMANDS = (
     "stamp-plan-implemented | stamp-plan-superseded | gate-recheck-handoff | close-handoff | "
     "repark-handoff | unclaim-handoff | chain-archive-handoff | "
     "supersede-archive-handoff | repair-archived-shipped-in | "
-    "repair-archived-deployment-state | correct-handoff-body\n"
+    "repair-archived-deployment-state | correct-handoff-body | correct-memo-note\n"
     "\n"
     "NOTE — close-handoff <path> --reason <cancelled|displaced|stale> is the live "
     "door for retiring a dead baton (handoff.transition verb 'close'). It stamps "
@@ -56,15 +146,26 @@ _SUBCOMMANDS = (
     "ANTI-ADVERSARY (DR-247 § 3): a caller-controlled session-id env var passed "
     "into a caller-spawned subprocess is not a security boundary; the real "
     "control is the stamped, auditable correction note the op writes on every "
-    "applied correction. See this file's top comment block."
+    "applied correction. See this file's top comment block.\n"
+    "\n"
+    "NOTE — correct-memo-note <memo_path> --decision-note <text> replaces ONLY the "
+    "decision_note of an already-actioned memo (decision and realized_by are "
+    "immutable; it cannot re-action) and stamps a [correction ...] clause naming "
+    "the calling session. Same anti-accident authorship gate as correct-handoff-body: "
+    "the caller must be the session that actioned the memo."
 )
 
 _HELP_FLAGS = ("--help", "-h", "help")
 
 _SUBCOMMAND_HELP_FLAGS = ("--help", "-h")
 
+# Single source of truth for the accepted-but-unadvertised deprecated verb
+# names (DR-084 rename, commit 92c902051): alias -> canonical verb. `main()`
+# below derives its dispatch conditions from this mapping rather than
+# hardcoding the alias tuples, so a future rename/retirement changes exactly
 # one place. Kept out of `_SUBCOMMANDS` deliberately — see that NOTE text —
 # but still given `_SUBCOMMAND_USAGE` rows so `<alias> --help` answers
+# directly instead of falling through to the positional-arg parser.
 _DEPRECATED_ALIASES = {
     "consume-handoff": "claim-handoff",
     "unconsume-handoff": "unclaim-handoff",
@@ -105,7 +206,10 @@ _SUBCOMMAND_USAGE = {
         "  combinable."
     ),
     "release-memo-revert": "archive-stamp-cli release-memo-revert <memo_path>",
-    "stamp-plan-implemented": "archive-stamp-cli stamp-plan-implemented <plan_path>",
+    "stamp-plan-implemented": (
+        "archive-stamp-cli stamp-plan-implemented <plan_path> "
+        "[--falsifier-verdict pass --falsifier-output <obs> --prose <obs>]"
+    ),
     "stamp-plan-superseded": (
         "archive-stamp-cli stamp-plan-superseded <plan_path> --by <successor>"
     ),
@@ -147,13 +251,29 @@ _SUBCOMMAND_USAGE = {
     ),
     "repair-archived-shipped-in": (
         "archive-stamp-cli repair-archived-shipped-in <handoff_path> "
-        "(--reason <reason> | --reason-file <path>) (--sha <SHA> | --unset)"
+        "(--reason <reason> | --reason-file <path>) "
+        "[--sha <SHA> | --unset] [--clear-advancement]\n"
+        "  At least one of --sha, --unset, --clear-advancement is required; --sha and "
+        "--unset are mutually exclusive. --clear-advancement removes "
+        "advanced_by/advanced_at (a false cascade) and leaves deployment_state and "
+        "shipped_in untouched."
     ),
     "repair-archived-deployment-state": (
         "archive-stamp-cli repair-archived-deployment-state <handoff_path> "
         "(--reason <reason> | --reason-file <path>) --deployment-state <state> "
         "[--continued-into <successor>] [--continued-into-override] "
         "[--closed-reason <cancelled|displaced|stale>]"
+    ),
+    "correct-memo-note": (
+        "archive-stamp-cli correct-memo-note <memo_path> "
+        "(--decision-note <text> | --decision-note-file <path>)\n"
+        "  Replaces ONLY decision_note on an already-actioned decision-shape memo; "
+        "decision and realized_by are immutable and a correction clause naming the "
+        "calling session is stamped. The note must be single-line. THE AUTHORSHIP "
+        "GATE IS ANTI-ACCIDENT, NOT ANTI-ADVERSARY: the caller's session id must "
+        "equal the memo's picked_up_by, a caller-controlled env lookup; the real "
+        "control is the stamped clause. PROSE TRAVELS AS A FILE ON WINDOWS: prefer "
+        "--decision-note-file for prose."
     ),
     "correct-handoff-body": (
         "archive-stamp-cli correct-handoff-body <handoff_path> "
@@ -216,10 +336,17 @@ def _scan_repeatable_flag(tail: list[str], flag: str) -> tuple[list[str] | None,
 _FLAG_RE = re.compile(r"--[a-z][a-z0-9-]*")
 
 # Verbs taking a FREE-TEXT positional whose value can legitimately begin with
+# `--`, so an unrecognized flag there is not distinguishable from the text.
+# Their usage lines already document that collision; strictness would change
+# documented behaviour rather than restore it, so they stay exempt.
 _FREE_TEXT_POSITIONAL_VERBS = frozenset({"unclaim-handoff", "unconsume-handoff"})
 
+# An OPEN FLAG TAIL: a bracketed placeholder ending in `...` that is not itself a
+# literal flag, e.g. `[disposition-flags...]`. It means the verb forwards its tail
+# to the engine verbatim and its flag vocabulary is the ENGINE's, not this file's,
 # so `_SUBCOMMAND_USAGE` cannot enumerate it and this guard has nothing to check
 # against. Deliberately does NOT match `[--exclude <path>]...` — a REPEATABLE
+# LITERAL flag, which is declared, enumerable, and stays guarded.
 _OPEN_FLAG_TAIL_RE = re.compile(r"\[[a-z][a-z0-9-]*\.\.\.\]")
 
 
@@ -290,12 +417,53 @@ def _reject_unknown_flags(subcmd: str, rest: list[str]) -> int | None:
     return None
 
 
+# --- Prose transport: the `.cmd` forwarder is lossy, so prose gets a file leg ---
+#
 # `%*` in a generated `.cmd` launcher is an UN-RE-QUOTED expansion, and cmd.exe
+# truncates its whole command line at the first LF during its own parse. A
+# multi-line `--new-string` therefore reaches this process holding only line 1,
+# with no signal anywhere: example-cockpit-repo-em measured
+# `archive-stamp-cli.cmd correct-handoff-body --old-string <one line>
+# --new-string <20 lines>` exiting 0, printing "applied body correction", and
+# writing line 1 glued onto the text it was meant to replace
+# (`cross-repo/archive/2026-08-21-example-cockpit-repo-em-cmd-wrapper-eats-argv-and-
+# wsc-tail-exit-3-hides-a-landed-commit.md` § 1). The corrupted file was
+# committed and reported as done.
+#
 # REMEDY CHOSEN DELIBERATELY, NOT DEFAULTED. The other candidate was enrolling
 # this entrypoint in `gen-launcher-shim.py::_RAW_CMDLINE_ENTRYPOINTS` /
 # `substrate.py::_RAW_CMDLINE_TARGETS` -- the `%CMDCMDLINE%` capture-and-recover
+# mechanism. Rejected on three measured grounds, all already written down
+# elsewhere in this tree:
+#   1. Recovery cannot work for this payload shape. `docs/wiki/windows-first-
+#      class.md` § "Quote-and-space-bearing payloads" records the measurement:
+#      PowerShell never distinguished literal-payload quotes from batch-syntax
+#      quotes on the way in, so recovering argv from the raw command line is
+#      genuinely ambiguous once a value contains a space -- widening the raw-
+#      cmdline set "would recover the unspaced case and silently mis-recover
+#      the spaced one". A body correction is prose; spaces are certain.
+#   2. Enrolment is not free, and this is a hot-path CLI. Every invocation of an
+#      enrolled target pays a per-invocation capture file (mkdir + write + read
+#      + unlink). `archive-stamp-cli` runs on every pickup claim and every
+#      close; the 50-70-concurrent-session load norm makes that cost fleet-wide,
+#      paid by every verb to protect four.
 #   3. The membership rule beside `_RAW_CMDLINE_ENTRYPOINTS` already routes this
+#      case away from itself, in its own words: "when a payload is prose rather
+#      than a rev, prefer the `--<flag>-file <path>` sibling
+#      `docs/wiki/windows-first-class.md` rules for, which removes the exposure
+#      instead of recovering from it."
+#
+# So: a `--<flag>-file <path>` sibling for every prose-bearing flag, plus a hard
+# refusal (never a silent truncation) when the inline form carries a newline.
+# The seam is `coordinator_core.argv_fidelity`, shared with the three CLIs
+# already on this pattern -- not a fourth local shape.
+#
 # NOT COVERED HERE, deliberately: a SINGLE-LINE prose value containing a quote
+# or a space is still corrupted by `%*`, and no refusal in this file can see it
+# (the damage is done before this process's first line runs). The file leg is
+# the escape; `docs/wiki/windows-first-class.md` is the ruling. The newline
+# refusal closes the silent-truncation half -- the half measured destroying a
+# committed artifact.
 
 
 def _scan_flag_value(tail: list[str], flag: str) -> str | None:
@@ -370,8 +538,20 @@ def _resolve_prose_pair(
         return None, f"archive-stamp-cli: {flag}: {exc}"
 
 
+# The prose-bearing disposition flags of `action-memo`/`resolve-memo`. Their
+# values are free text a reviewer writes by hand, so they carry the same
+# `%*`-truncation and quote-mangling exposure `_resolve_prose` exists for, and
+# this file's own header block already names the remedy for every prose-bearing
+# flag: a `--<flag>-file <path>` sibling. These three were the flags that
+# remedy had not reached (project-rag-em, 2026-08-31).
+#
 # NOT A MULTI-LINE CHANNEL. `memo_transition._validate_disposition` refuses a
+# note containing a newline or a carriage return, and that refusal stays:
+# `serialize_yaml_scalar` emits an inline YAML scalar, and its negative-spec
+# says so. A multi-line file is therefore still refused, by the engine,
 # loudly. What the file leg buys is LOSSLESS transport of a single-line note
+# carrying a quote or a space, which
+# the `.cmd` forwarder corrupts with nothing observable at any layer above it.
 _PROSE_DISPOSITION_FLAGS = ("--decision-note", "--actioned-note", "--supersede-note")
 
 
@@ -461,6 +641,7 @@ def main(argv: list[str]) -> int:
         print(f"usage: {_SUBCOMMAND_USAGE[subcmd]}")
         return 0
 
+    # After the help early-returns (a help request must still answer), before the
     # engine import (a usage error must not need a resolvable CLAUDE_KLABAUTER_ROOT).
     _bad_flag = _reject_unknown_flags(subcmd, rest)
     if _bad_flag is not None:
@@ -478,7 +659,14 @@ def main(argv: list[str]) -> int:
     if subcmd == "stamp-shipped-in":
         if not rest:
             return _usage_line(_SUBCOMMAND_USAGE["stamp-shipped-in"])
+        # Scan for --allow-branch-tip-fallback the same way
+        # --sha is scanned below (order-independent), rather than matching only the
+        # fixed 2nd positional slot. The prior positional-only match silently dropped
+        # the fallback flag when --sha preceded it (`stamp-shipped-in <path> --sha
+        # <sha> --allow-branch-tip-fallback`) — a detect-then-silently-drop footgun.
+        # --sha is a claude-klabauter-added capability (commit 3103ea3e) with no bash oracle
         # equivalent (coordinator-archive-stamp.sh, retired 2026-07-19 BIG_PORT); both
+        # flags are now scanned independently of position/order.
         allow_fallback = "--allow-branch-tip-fallback" in rest[1:]
         sha = None
         if "--sha" in rest[1:]:
@@ -487,6 +675,14 @@ def main(argv: list[str]) -> int:
                 return _usage_line(_SUBCOMMAND_USAGE["stamp-shipped-in"])
             sha = rest[idx + 1]
         # DR-096 made `kind` REQUIRED and keyword-only on stamp_shipped_in with no
+        # default (coordinator_core/archive_stamp.py:452) — this trampoline was
+        # never updated to supply it, so every invocation raised TypeError. --kind
+        # is scanned order-independently, same idiom as --sha/--allow-branch-tip-
+        # fallback above. When omitted, derive it from --sha presence exactly as
+        # the choke point's own docstring describes for its two default-shaped
+        # callers: a caller-supplied sha means "I have a specific commit in hand"
+        # (kind="ship-commit"; this is what reap-orphaned-in-flight-handoffs.py
+        # does), and no sha means the self-derivation path (kind="scope-derived").
         kind = None
         if "--kind" in rest[1:]:
             idx = rest.index("--kind")
@@ -525,7 +721,24 @@ def main(argv: list[str]) -> int:
     if subcmd == "ship-handoff":
         if not rest:
             return _usage_line(_SUBCOMMAND_USAGE["ship-handoff"])
+        # Order-independent flag/positional scan, mirroring the
+        # stamp-shipped-in --sha convention above (both flags scanned
+        # independently of position/order — see the Review comment on that
+        # block for why a fixed-slot positional match is a footgun).
+        #
         # Deliberately a SEPARATE verb from stamp-shipped-in: stamp-shipped-in
+        # must not flip state or archive (that would bypass the live-children
+        # guard) — cs_ship_handoff composes handoff.archive_transition so the
+        # guard stays intact.
+        #
+        # The prior parser took
+        # ONLY `rest[1:2] == ["--archive"]` and had NO sha-forwarding path at
+        # all: a caller passing a positional sha (`ship-handoff <path> <sha>`)
+        # or `--sha <sha>` had it silently swallowed, even though
+        # cs_ship_handoff/handoff.archive_transition already accept and thread
+        # a caller-supplied sha. A bare positional sha is accepted here (not
+        # just --sha) because that is the ergonomic form the fleet was already
+        # calling — silently dropping it is what caused the incident.
         handoff_path = rest[0]
         tail = rest[1:]
         archive = False
@@ -624,8 +837,17 @@ def main(argv: list[str]) -> int:
 
     if subcmd == "stamp-plan-implemented":
         if not rest:
-            return _usage("archive-stamp-cli stamp-plan-implemented <plan_path>")
-        return mod.cs_stamp_plan_implemented(rest[0])
+            return _usage_line(_SUBCOMMAND_USAGE["stamp-plan-implemented"])
+        plan_path, tail = rest[0], rest[1:]
+        record_flags = {"--falsifier-verdict": "falsifier_verdict",
+                        "--falsifier-output": "falsifier_output", "--prose": "prose"}
+        kwargs = {}
+        while tail:
+            if tail[0] not in record_flags or len(tail) < 2:
+                return _usage_line(_SUBCOMMAND_USAGE["stamp-plan-implemented"])
+            kwargs[record_flags[tail[0]]] = tail[1]
+            tail = tail[2:]
+        return mod.cs_stamp_plan_implemented(plan_path, refuse_open_spine_rows=True, **kwargs)
 
     if subcmd == "stamp-plan-superseded":
         if not rest:
@@ -650,7 +872,13 @@ def main(argv: list[str]) -> int:
     if subcmd == "close-handoff":
         if not rest:
             return _usage_line(_SUBCOMMAND_USAGE["close-handoff"])
+        # Order-independent --reason scan, mirroring the --sha convention on
         # stamp-shipped-in/ship-handoff above. --reason is REQUIRED (not
+        # optional like --sha) — a close-handoff call with no reason must
+        # refuse before reaching the engine, never silently write a partial
+        # terminal (mod.cs_close_handoff's own enum validation is the second,
+        # authoritative gate; this is the CLI-layer "did the operator supply
+        # one at all" check).
         handoff_path, tail = rest[0], rest[1:]
         reason: str | None = None
         if "--reason" in tail:
@@ -779,14 +1007,24 @@ def main(argv: list[str]) -> int:
                 return _usage_line(_SUBCOMMAND_USAGE["repair-archived-shipped-in"])
             sha = tail[idx + 1]
         unset = "--unset" in tail
-        if bool(sha) == bool(unset):
+        clear_advancement = "--clear-advancement" in tail
+        if sha and unset:
             print(
-                "archive-stamp-cli: repair-archived-shipped-in: exactly one of "
-                "--sha <SHA> or --unset is required",
+                "archive-stamp-cli: repair-archived-shipped-in: --sha <SHA> and "
+                "--unset are mutually exclusive",
                 file=sys.stderr,
             )
             return 2
-        return mod.cs_repair_archived_shipped_in(handoff_path, reason, sha=sha, unset=unset)
+        if not (sha or unset or clear_advancement):
+            print(
+                "archive-stamp-cli: repair-archived-shipped-in: one of --sha <SHA>, "
+                "--unset, or --clear-advancement is required",
+                file=sys.stderr,
+            )
+            return 2
+        return mod.cs_repair_archived_shipped_in(
+            handoff_path, reason, sha=sha, unset=unset, clear_advancement=clear_advancement
+        )
 
     if subcmd == "repair-archived-deployment-state":
         if not rest:
@@ -852,6 +1090,23 @@ def main(argv: list[str]) -> int:
             )
             return 2
         return mod.cs_correct_handoff_body(handoff_path, old_string, new_string)
+
+    if subcmd == "correct-memo-note":
+        if not rest:
+            return _usage_line(_SUBCOMMAND_USAGE["correct-memo-note"])
+        memo_path, tail = rest[0], rest[1:]
+        note, err = _resolve_prose(tail, "--decision-note")
+        if err:
+            print(err, file=sys.stderr)
+            return 2
+        if note is None:
+            print(
+                "archive-stamp-cli: correct-memo-note: --decision-note <text> "
+                "(or --decision-note-file <path>) is required",
+                file=sys.stderr,
+            )
+            return 2
+        return mod.cs_correct_memo_note(memo_path, note)
 
     print(f"archive-stamp-cli: unknown subcommand {subcmd!r}", file=sys.stderr)
     return _usage("archive-stamp-cli")

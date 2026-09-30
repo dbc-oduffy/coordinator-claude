@@ -101,7 +101,10 @@ from pathlib import Path
 from typing import Any
 
 
+# Split into two independent once-guards so that a divergence
+# warning from _check_machine_local_divergence() cannot consume the once-guard for the
 # legacy-fallback DEPRECATED warning emitted by machine_local_dir(). The two warning types
+# have distinct semantics and must suppress independently.
 _legacy_machine_local_divergence_warned: bool = False
 _legacy_machine_local_deprecated_warned: bool = False
 
@@ -138,6 +141,7 @@ def home_dir() -> Path:
     claude_home = os.environ.get("CLAUDE_HOME")
     if claude_home is not None:
         # empty-string CLAUDE_HOME (e.g. from `CLAUDE_HOME=` in CI)
+        # is set-but-malformed; treat as config error, not silent fallthrough.
         if not claude_home:
             raise ValueError(
                 "CLAUDE_HOME is set but empty; unset it or provide an absolute path"

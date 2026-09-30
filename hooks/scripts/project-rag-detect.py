@@ -41,6 +41,9 @@ from pathlib import Path
 
 
 def _read_stdin(timeout: float = 2.0) -> str:
+    """Bounded read: a bare sys.stdin.read() can block forever if the harness
+    never closes stdin's write end; this backstops with a timeout instead of
+    hanging session start."""
     box = {"data": ""}
 
     def _read() -> None:
@@ -61,16 +64,20 @@ if _HOOKS_DIR not in sys.path:
 try:
     from _engine_root import resolve_claude_klabauter_root as _resolve_claude_klabauter_root  # noqa: E402
 except Exception:
+    # Fallback for a hook script deployed without its sibling _engine_root.py:
+    # must fail-open rather than crash on import.
     def _resolve_claude_klabauter_root() -> str | None:
         return None
 
 
 def main() -> int:
+    # Only cwd is needed, but SessionStart always sends a JSON payload on
+    # stdin; drain it so the harness never sees a broken pipe.
     _read_stdin()
 
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0
+        return 0  # fail-open: engine repo unresolvable on this machine
 
     from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
     _place_engine_root_on_path(root)
@@ -78,14 +85,16 @@ def main() -> int:
     try:
         from coordinator_core.hooks.project_rag_detect import detect_banner
     except Exception:
-        return 0
+        return 0  # engine unimportable -> fail-open
 
     try:
         banner = detect_banner(os.getcwd())
     except Exception:
-        return 0
+        return 0  # any detection failure -> fail-open, silent
 
     if banner:
+        # Binary buffer, not text-mode stdout.write(): text mode translates
+        # "\n" to the platform separator, which would force CRLF on Windows.
         sys.stdout.buffer.write(banner.encode("utf-8"))
         sys.stdout.buffer.write(b"\n")
     return 0

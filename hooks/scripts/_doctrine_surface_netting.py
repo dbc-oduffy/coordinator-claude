@@ -61,9 +61,16 @@ if _HOOKS_DIR not in sys.path:
 
 from _doctrine_changelog_prose import surface_of  # noqa: E402
 
+#: The two `credit_scope` values `tier_boundaries_for` ever returns --
+#: mirrored here as the exact strings a `tier_of` resolver must produce,
+#: so a caller building one has a single literal source to match against.
 CREDIT_SCOPE_SURFACE = "surface"
 CREDIT_SCOPE_FILE = "file"
 
+#: The pure-function row shape shared by `net_bytes_by_surface`/
+#: `net_bytes_by_file` and the shim's own `_parse_raw_diff` output --
+#: `(old_bytes, new_bytes, path)`. Used as the annotation on both
+#: functions' `blob_size_rows` parameter below.
 BlobSizeRow = "tuple[int, int, str]"
 
 
@@ -106,9 +113,20 @@ def net_bytes_by_file(
     return totals
 
 
+# `_goes_red` reference implementations -- NOT used by the shim, kept here
+# only so the test module can import a shared naive baseline rather than
+# re-deriving one inline: a `_goes_red` companion that re-derives its own
+# inline comparison, rather than calling into shared naive code, can pass
+# even after a real regression.
+
+
 def _naive_net_bytes_by_surface_always(
     blob_size_rows: "list[tuple[int, int, str]]",
 ) -> "dict[str, int]":
+    """What the regression `test_credit_scope_is_tier_dependent`'s
+    `_goes_red` companion asserts against: sums EVERY row into its surface
+    pool regardless of `tier_of`, exactly what a flat "surface-wide credit
+    at every tier" implementation (the rejected design) would do."""
     totals: "dict[str, int]" = {}
     for old_bytes, new_bytes, path in blob_size_rows:
         surface = surface_of(Path(path))
@@ -118,6 +136,15 @@ def _naive_net_bytes_by_surface_always(
     return totals
 
 
+# Closed-enum reasoned-growth marker (carve-out 3) -- mirrors the shared
+# ratchet's `missing_reason` shape, but against a CLOSED set rather than
+# "any non-empty string": silence without the marker is not an exception,
+# and a value outside this set fails exactly the same way an empty/missing
+# reason already does.
+
+#: The closed set of sanctioned reasons a marker comment or commit trailer
+#: may name for growth beyond a surface/file's ratio. Not free text --
+#: an unrecognised value is treated identically to no marker at all.
 REASONED_GROWTH_MARKERS = frozenset(
     {
         "new-surface-onboarding",

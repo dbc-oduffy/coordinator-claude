@@ -146,11 +146,16 @@ if _HOOKS_DIR not in sys.path:
 try:
     from _engine_root import resolve_claude_klabauter_root as _resolve_claude_klabauter_root  # noqa: E402
 except Exception:
+    # Defensive fallback -- a deploy missing its sibling _engine_root.py
+    # must still fail-open rather than crash on import.
     def _resolve_claude_klabauter_root() -> str | None:
         return None
 try:
     from _git_common_dir import resolve_git_common_dir as _resolve_git_common_dir  # noqa: E402
 except Exception:
+    # Defensive fallback -- a deploy missing its sibling _git_common_dir.py
+    # must still fail open (empty common dir -> callers skip) rather than
+    # crash on import.
     def _resolve_git_common_dir(git_root: str) -> str:
         return ""
 
@@ -169,6 +174,8 @@ _TRANSPORT_DENY_MSG = (
 
 
 def _git_root(start: str) -> str:
+    """No-subprocess walk-up from `start` looking for a directory holding a
+    `.git` entry. Fails open to "" on any error."""
     try:
         if not isinstance(start, str) or not start:
             return ""
@@ -185,6 +192,11 @@ def _git_root(start: str) -> str:
 
 
 def _resolve_git_dir(cwd: str) -> str | None:
+    """Best-effort git COMMON-dir resolution from `cwd`, without spawning a
+    subprocess. Follows a worktree's `gitdir:` pointer and its `commondir`
+    indirection, never stopping at the worktree's own private dir. Returns
+    None on any resolution failure -- a best-effort read, not a replacement
+    for git itself."""
     if not cwd:
         return None
     try:
@@ -199,6 +211,8 @@ def _resolve_git_dir(cwd: str) -> str | None:
 
 
 def _bg_capable_marker_path(git_dir: str, session_id: str) -> Path:
+    """Same durable calibration marker the engine repo's `_bg_capable_path`
+    writes/reads -- keep both sides of this path agreement in sync."""
     return Path(git_dir) / "coordinator-sessions" / session_id / ".harness-bg-capable"
 
 
@@ -225,7 +239,7 @@ def _is_deliberate_foreground(flat: dict, cwd: str | None = None) -> bool:
     if rib is False or (isinstance(rib, str) and rib.strip().lower() == "false"):
         return True
     if rib is not None and rib != "":
-        return False
+        return False  # present-and-true (or unrecognized truthy value) -- never foreground
     session_id = flat.get("session_id")
     if not (isinstance(session_id, str) and session_id and cwd):
         return False
@@ -251,6 +265,9 @@ def _deny_envelope() -> str:
 def main() -> int:
     raw = sys.stdin.read()
 
+    # Parse BEFORE the engine-resolution legs: every fail-closed branch below
+    # needs to know whether this is a deliberate foreground dispatch, and
+    # that answer lives in the payload.
     try:
         payload = json.loads(raw)
         if not isinstance(payload, dict):
@@ -264,6 +281,9 @@ def main() -> int:
     flat = {k: v for k, v in payload.items() if k != "tool_input"}
     flat.update(tool_input)
 
+    # Resolved up-front: the calibrated-absent leg of _is_deliberate_foreground
+    # needs it too, for its own no-subprocess git-dir/marker lookup when the
+    # engine turns out to be unreachable.
     cwd = payload.get("cwd")
     if not isinstance(cwd, str) or not cwd:
         try:
@@ -274,6 +294,7 @@ def main() -> int:
     foreground = _is_deliberate_foreground(flat, cwd)
 
     def _fail() -> int:
+        """Engine unreachable: deny a known foreground dispatch, pass anything else."""
         if foreground:
             sys.stdout.write(_deny_envelope())
             sys.stdout.write("\n")
@@ -281,7 +302,7 @@ def main() -> int:
 
     root = _resolve_claude_klabauter_root()
     if not root:
-        return _fail()
+        return _fail()  # engine repo unresolvable on this machine
 
     from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
     _place_engine_root_on_path(root)
@@ -290,7 +311,7 @@ def main() -> int:
         from coordinator_core.hooks import nudge_foreground_agent_dispatch as _op  # noqa: F401
         from coordinator_core.ipc import HookDispatchError, dispatch_from_hook
     except Exception:
-        return _fail()
+        return _fail()  # engine unimportable
 
     params = {
         "tool_name": flat.get("tool_name", ""),
@@ -304,6 +325,10 @@ def main() -> int:
         "tool_input": tool_input,
     }
 
+    # _origin_worktree: the op is common_dir-scoped, so an unresolvable
+    # worktree means the engine never runs its business logic at all. `cwd`
+    # was already resolved above, so the engine decides from the same fact
+    # this shim's own fail-closed leg would fall back to.
     try:
         result = dispatch_from_hook(
             "hooks.nudge_foreground_agent_dispatch",

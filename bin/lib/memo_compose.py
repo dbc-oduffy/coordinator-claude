@@ -34,7 +34,11 @@ from __future__ import annotations
 
 import datetime
 
+# Maximum summary length — mirrors
 # `coordinator_core.ops.fleet._memo_summary._SUMMARY_MAX_CHARS`, which the
+# receiver-side cross-field rule (`schema_validate._memo_cf_summary_length_cap`)
+# and the emitted memo schema both read. If that constant moves, update this
+# one too. Both sides must stay in sync.
 _SUMMARY_MAX_CHARS = 120
 
 
@@ -153,7 +157,15 @@ def compose_frontmatter(
         resolved_summary = resolved_summary[: _SUMMARY_MAX_CHARS - 1] + "…"
 
     today = _today()
+    # Canonical terminal status is 'actioned' (open → actioned). 'action_taken'
+    # is a grandfathered pre-2026-05-21 value — do not stamp it on new memos.
+    # `draft` is the OUTBOX status (2026-08-30): a staged draft under
+    # state/memo-outbox/ that memo.send has not delivered yet. It is a
+    # different lifecycle point from `open` (delivered, awaiting the
+    # receiver) and `actioned` (terminal), and _outbox_frontmatter_rules
     # REQUIRES it -- a scaffolder emitting `open` produces a file that
+    # validator rejects. `self_receipt` still wins: a self-receipt is
+    # terminal by construction and is never a draft.
     if self_receipt:
         status = "actioned"
     elif draft:

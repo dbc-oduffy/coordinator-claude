@@ -153,9 +153,13 @@ _EXIT_STALE_BREADCRUMB = 3
 _EXIT_COULD_NOT_STOP = 4
 
 # Matches `warm.client.READ_DEADLINE_SECS`'s own bound for a single
+# request/response round trip -- an operator command should never itself
+# hang past a plausible server response window.
 _ASK_READ_DEADLINE_SECS = 2.0
 
 # Matches `warm.client.ERROR_PIPE_BUSY` -- kept as a local literal rather
+# than importing the private constant from a sibling module for a single
+# comparison.
 _ERROR_PIPE_BUSY = 231
 
 _TERMINATE_GRACE_SECS = 5.0
@@ -230,7 +234,12 @@ def _ask_server_to_stop(pipe: str) -> bool:
         except OSError:
             return False
         _read_line_with_deadline(fh, _ASK_READ_DEADLINE_SECS)
+        # Whether or not a response line arrived, the write succeeding
+        # means the server accepted the frame and (per `warm.server.
+        # _serve_line`'s fixed order) already ran respond -> close_listener
+        # -> drain before this function could observe anything further --
         # a dropped read here is an EXPECTED shape of a server that is now
+        # exiting, not a failure to report.
         return True
     finally:
         try:

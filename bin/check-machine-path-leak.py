@@ -158,7 +158,14 @@ def _check_settings_json(file, state):
         state["hard_violation"] = True
 
 
+# ---------------------------------------------------------------------------
 # YAML structural scan — collect leaf string values rooted at CURRENT_HOME only.
+#
+# Catalog drive roots and another operator's home directory are intentional
+# cross-machine catalog content and must NOT be flagged here. When PyYAML is
+# unavailable, fall back to a conservative line-scan that only flags a leaf
+# VALUE starting with $HOME.
+# ---------------------------------------------------------------------------
 
 def _walk_yaml(obj, current_home, path=""):
     if isinstance(obj, dict):
@@ -297,6 +304,8 @@ def main(argv):
     for sf in settings_files:
         _check_settings_json(sf, state)
 
+    # $HOME is POSIX-only; stock Windows (cmd.exe/
+    # PowerShell without Git Bash/WSL) doesn't set it — falls back to os.path.expanduser
     # (which honors USERPROFILE on Windows) instead of silently no-oping the soft-warn.
     current_home = os.environ.get("HOME") or os.path.expanduser("~")
     for wf in working_repos_files:

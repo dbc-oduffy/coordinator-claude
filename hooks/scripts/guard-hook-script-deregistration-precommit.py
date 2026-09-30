@@ -1,3 +1,6 @@
+# Native git pre-commit hook, not a hooks.json entrypoint: staged-set-for-
+# THIS-commit is only directly readable at pre-commit time, and a
+# PreToolUse hook sees one tool call, never a commit's whole staged diff.
 """Native git pre-commit hook: refuse a commit that removes a hook script
 `coordinator/hooks/hooks.json` still registers at HEAD, unless that same
 commit also removes the registration.
@@ -66,6 +69,8 @@ def _git(*args: str) -> "subprocess.CompletedProcess[bytes]":
         ["git", "--no-optional-locks", *args],
         capture_output=True,
         check=False,
+        # Suppresses the console window a spawned child otherwise flashes on
+        # headless Windows shells.
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
 
@@ -108,6 +113,11 @@ def main() -> int:
                 "utf-8", "surrogateescape"
             )
         else:
+            # A nonzero exit here means either hooks.json has no staged blob
+            # (deletion, handled as "nothing registered" by classify()) or
+            # some other git failure (corrupt/unreadable blob) that is not a
+            # deletion -- distinguish so the latter surfaces instead of
+            # silently reading as a deletion.
             stderr_text = staged_hooks_json.stderr.decode(
                 "utf-8", "surrogateescape"
             )

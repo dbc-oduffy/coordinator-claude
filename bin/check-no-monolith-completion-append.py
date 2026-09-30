@@ -1,4 +1,16 @@
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+# check-no-monolith-completion-append.py — pure-Python CLI; no sh/python
+# polyglot trampoline. Wave 4a (2026-07-20) dropped the .sh suffix and the
+# trampoline entirely — this used to be check-no-monolith-completion-append.sh,
+# kept on .sh because three call sites hardcode the literal filename
+# (coordinator/bin/tests/test-coordinator-complete-entry.sh,
+# coordinator/bin/tests/test-check-no-monolith-completion-append.sh, and
+# coordinator/skills/workstream-complete/SKILL.md's tripwire-comment
+# cross-ref); that call is reversed by the Wave 4a PM amendment.
+# test-check-no-monolith-completion-append.sh is repointed in this wave;
+# NOTE: test-coordinator-complete-entry.sh and workstream-complete/SKILL.md
+# are outside this chunk's remit and were left unedited — flag for the
+# owning chunk/EM to repoint separately.
 
 from __future__ import annotations
 

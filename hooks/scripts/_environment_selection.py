@@ -105,6 +105,9 @@ import _environment_stories  # noqa: F401,E402
 MARKER_START = "<!-- coordinator:environment-story:start -->"
 MARKER_END = "<!-- coordinator:environment-story:end -->"
 
+#: Filenames under the resolved settings-home an operator populates to select a story for this
+#: box. Not committed into the repo -- `coordinator/templates/environment-registry.example` is
+#: the template an operator copies and edits.
 _REGISTRY_FILENAME = "environment-registry"
 _SENTINEL_FILENAME = "environment-sentinel"
 
@@ -132,10 +135,16 @@ def _resolve_settings_home() -> str:
 
 
 def default_registry_path() -> str:
+    """The registry path this module supplies to `resolve_environment_story` when no caller
+    override is given. Not a literal baked into the resolver itself -- `resolve_environment_story`
+    takes `registry_path` as a parameter and never assumes one; this function is where a default
+    gets to live instead."""
     return os.path.join(_resolve_settings_home(), _REGISTRY_FILENAME)
 
 
 def default_sentinel_path() -> str:
+    """The sentinel path this module supplies to `resolve_environment_story` when no caller
+    override is given. Same non-literal reasoning as `default_registry_path` above."""
     return os.path.join(_resolve_settings_home(), _SENTINEL_FILENAME)
 
 

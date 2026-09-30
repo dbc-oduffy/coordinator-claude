@@ -84,6 +84,8 @@ export const meta = {
 }
 
 
+// args arrives as a JSON string even when the caller passes a JSON array/object — guard
+// unconditionally.
 const INPUT = typeof args === 'string' ? JSON.parse(args) : args
 
 
@@ -342,8 +344,10 @@ async function phaseZeroCensus() {
 }
 
 
+// Deterministic in-JS clustering of census files into Phase-1 sub-chunks by directory/prefix,
+// at zero agent cost.
 function buildChunkTable(censusResults) {
-  const SUBCHUNK_SIZE = 10 
+  const SUBCHUNK_SIZE = 10 // midpoint of the 8-12-file sub-chunk rule
   const chunks = []
   for (const bucket of censusResults) {
     const files = (bucket.files || []).map((f) => f.path)
@@ -352,7 +356,7 @@ function buildChunkTable(censusResults) {
     const subChunkCount = Math.ceil(files.length / SUBCHUNK_SIZE)
     for (let i = 0; i < subChunkCount; i += 1) {
       const slice = files.slice(i * SUBCHUNK_SIZE, (i + 1) * SUBCHUNK_SIZE)
-      const subChunkLabel = subChunkCount > 1 ? String.fromCharCode(65 + i) : '—' 
+      const subChunkLabel = subChunkCount > 1 ? String.fromCharCode(65 + i) : '—' // A, B, C... or — for single-chunk systems
       chunks.push({
         systemName: bucket.bucket_id,
         subChunkLabel,
@@ -365,6 +369,7 @@ function buildChunkTable(censusResults) {
 }
 
 
+// Groups Phase-1 chunks back up by systemName for the Phase-2 one-analyst-per-system dispatch.
 function groupChunksBySystem(chunks) {
   const bySystem = new Map()
   for (const c of chunks) {
@@ -416,6 +421,15 @@ Return: ok (true iff exit code is 0), exitCode, artifactPath ("${artifactPath}")
 error (the command's stderr, only when ok is false).`
 }
 
+// Phase "inventory": one cartography.symbols invocation for the whole run, its stdout redirected
+// straight to an artifact file rather than returned through agent() — the return-value transport
+// silently truncates large replies. Read back from the artifact to cross-check coverage.
+//
+// No agentic fallback: a file the producer does not claim, or one its extractor adapter could not
+// attempt, means the run stops loudly (naming the uncovered files) and writes no atlas rather than
+// narrowing the tree silently. An empty symbol list is not the same as uncovered — a file that
+// parses cleanly but declares no top-level symbols still counts as covered; only the producer's own
+// in-band unsupported/unavailable markers gate the stop.
 async function invokeSymbolsExtraction(files) {
   if (!CLAUDE_KLABAUTER_ROOT) {
     throw new Error(
@@ -586,7 +600,8 @@ async function phaseOneSymbolsExtraction(chunkTable) {
     return null
   }
 
-  
+  // unavailable and unsupported are disjoint per file (producer invariant), and the early return
+  // above means this only runs when unavailable_count === 0.
   const inventoriedCount = header.total_files - header.unsupported_count
   if (header.unsupported_count > 0) {
     const breakdown = (header.unsupported_extensions || []).map((e) => `${e.ext} x${e.count}`).join(', ')

@@ -206,18 +206,40 @@ def _bootstrap_engine() -> None:
     try:
 
         # Bootstrap on the DISPATCH axis before anything below can bind
+        # `coordinator_core` on the LOCATOR axis first. `cli_shared` (imported
+        # below) transitively imports `repo_identity`, which resolves and imports
         # `coordinator_core` at ITS OWN module level via the LOCATOR-axis
+        # `require_engine_on_path(__file__)` — on a conformant box the two axes can
+        # return different roots (see `require_dispatch_engine_on_path`'s own
+        # docstring), and once a package is bound in `sys.modules` no later
+        # `sys.path` insert can rebind it. Must run before `import cli_shared` /
+        # `from coordinator_registry import ...` below.
         import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
         from cc_invoke import _resolve_claude_klabauter_root, require_dispatch_engine_on_path  # noqa: F401
         
         require_dispatch_engine_on_path()
         # LOAD-BEARING, NOT DEAD. Do not delete on an unused-import sweep: this line is
+        # what BINDS coordinator_core, and binding it HERE is the whole fix.
+        # require_dispatch_engine_on_path() above only mutates sys.path -- it imports
+        # nothing. Without this line the next module-level import below (a binder module
+        # that resolves on the LOCATOR axis) wins the race and binds coordinator_core off
+        # the working tree instead of the dispatch root, and no later sys.path insert can
+        # rebind an already-imported package. Removing it restores a silent wrong-tree
+        # divergence that require_dispatch_engine_on_path now raises on.
+        # Why: docs/plans/2026-08-26-the-seam-reports-what-it-got.md C9,
+        # docs/research/engine-provenance-carrier-dependence.md
         import coordinator_core  # noqa: F401
         
         from coordinator_registry import content_root, _DoeUnresolvable
         
         # cli_shared.claude_klabauter_root() resolves repos.claude_klabauter (CLAUDE_KLABAUTER_ROOT env ->
+        # machine-local registry) — the SAME function coordinator-queue-append's
+        # _output_path() central branch calls for improvement-queue since commit
+        # 5b908173 ("central scope routes to claude-klabauter, not DoE — reconcile the two
         # implementations", 2026-07-23). Content_root() resolves the DIFFERENT
+        # repos.content_root key and is the correct root ONLY for lessons-outbox
+        # (coordinator-lesson-promote's _outbox_root() was not touched by that
+        # commit). Importing both, distinctly, is deliberate — do not conflate them.
         import cli_shared
         
         if _BIN_DIR not in sys.path:
@@ -225,6 +247,12 @@ def _bootstrap_engine() -> None:
         from _queue_append_locator import find_cli_cmd
         
         # Grouping-approval contract (2026-07-29). Selection on a GOVERNED plan keys
+        # on the plan's approved `defer` grouping rather than each row's pm_approved
+        # boolean — see `_select_harvest_candidates`.
+        #
+        # `coordinator_core` is already bound on the dispatch axis by the bootstrap
+        # above (moved ahead of `cli_shared`/`coordinator_registry` — see the comment
+        # there); this import just reaches into the now-established package.
         from coordinator_core.frontmatter.schema_validate import (
             compute_grouping_digest,
             is_governed_plan,
@@ -504,7 +532,11 @@ def _locate_tasks_block(plan_text: str) -> str | None:
     if fence_in_section is None:
         return None
 
+    # Offsets are identical between scan_text and plan_text (comment
+    # blanking is length-preserving), so re-slice plan_text with the same
     # span to return the ORIGINAL (un-blanked) block body. The yaml block
+    # itself contains no HTML comments, so this is a no-op for well-formed
+    # plans — the returned body is byte-identical either way.
     start, end = fence_in_section.span(1)
     heading_offset = heading_match.end()
     return plan_text[heading_offset + start : heading_offset + end]
@@ -660,8 +692,23 @@ def _harvest_key(plan_id: str, row_id: str) -> str:
     return f"harvest-key: {plan_id}:{row_id}"
 
 
+# Memoization for _repo_root() / _resolved_content_root() / _resolved_claude_klabauter_root():
+# each is a pure read whose answer cannot change within one process's harvest
+# run, but _candidate_search_dirs() previously called all three (git
+# subprocess + registry-ladder resolution, each potentially its own
 # subprocess) once PER CANDIDATE ROW inside _harvest()'s loop — N redundant
+# spawns for an answer computed once. This mirrors the existing
 # _CLI_CMD_CACHE pattern above (also a per-process, first-call memo). Never
+# invalidated mid-process: repo root / doe root / claude-klabauter root are read-only
+# machine/worktree facts for the lifetime of a single CLI invocation. Does
+# NOT touch the actual per-row write dispatch (_run_queue_append /
+# _run_lesson_promote) — each row's mutating write stays one-spawn-per-row so
+# one row's failure (a non-zero rc, or a hung child now caught as
+# `TimeoutExpired`, both surfaced as a `False` return) never blocks another's;
+# there is no per-row `try` inside `_harvest()` itself — the isolation is
+# entirely the `_run_*` helpers' return-False contract (Review: staff review
+# refuted an earlier revision of this comment that pointed at a "per-row try
+# shape" in `_harvest()` that does not exist).
 _repo_root_cache: dict[str, str | None] = {}
 _resolved_content_root_cache: dict[str, str | None] = {}
 _resolved_claude_klabauter_root_cache: dict[str, str | None] = {}
@@ -801,6 +848,7 @@ def _candidate_search_dirs(row: dict) -> list[str]:
     # coordinator-lesson-promote's _outbox_root() returns LESSON_PROMOTE_OUTBOX_ROOT
     # VERBATIM when set (it IS the lessons-outbox dir itself, unlike
     # QUEUE_APPEND_OUTPUT_ROOT which is a root that "state/improvement-queue" is
+    # joined onto) — do not append "state/lessons-outbox" onto it here.
     lessons_override = _isolation_root(
         _LESSON_PROMOTE_OUTBOX_ROOT_ENV, "coordinator-harvest-deferrals"
     )
@@ -1041,7 +1089,19 @@ def _harvest(
     for row in candidates:
         row_id = str(row["id"])
         key = _harvest_key(plan_id, row_id)
+        # A row harvested under this plan's OTHER key (see `_path_harvest_id`)
+        # is already queued; writing it again under the new key would duplicate
+        # it, which is the failure the key exists to prevent.
+        #
         # The window is PROSPECTIVE, not historical. Kira (2026-09-11, F6) read
+        # `legacy_plan_id` as dead on the grounds that no row can have been
+        # harvested under the path key before the commit that introduced it —
+        # true, and not the case it covers. The refusal this commit added tells
+        # authors to add a `plan_id` to a plan that has none; the moment one
+        # does, that plan's rows flip from the path key to the minted key, and
+        # any row harvested under the path key in between is the duplicate.
+        # `legacy_plan_id` is set exactly when a minted id exists AND a path id
+        # would also have resolved, which is that transition and nothing else.
         prior_keys = [key]
         if legacy_plan_id:
             prior_keys.append(_harvest_key(legacy_plan_id, row_id))

@@ -256,8 +256,14 @@ def main(argv: "list[str] | None" = None) -> int:
     params = {"payload": payload_from_event(event)}
 
     # A worktree-scoped op REQUIRES `_origin_worktree` and refuses (-32602)
+    # without it; `coordinator_core/invoke/__main__.py` injects it for the
+    # cold path, so this door must too or it fails open instead of running.
+    #
     # NEGATIVE SPEC: `show_toplevel` WALKS ONLY, never spawns -- a spawn here
+    # would be break-class on a PreToolUse hot path. Inject ONLY for ops in
     # `WORKTREE_SCOPED_OPS` (that set's parity-check contract clause (1)) --
+    # never stamp a central/none-scoped op. An unresolvable worktree passes
+    # None, which `dispatch_from_hook` omits rather than carrying as "".
     origin_worktree = None
     if op_name in WORKTREE_SCOPED_OPS:
         event_cwd = event.get("cwd")

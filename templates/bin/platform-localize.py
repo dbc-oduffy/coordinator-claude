@@ -97,6 +97,8 @@ def _resolve_coordinator_root() -> str:
             "resolve-coordinator-clone not found at any of: " + ", ".join(candidates)
         )
 
+    # resolve-coordinator-clone is a Python entry point -- invoke it with a
+    # Python interpreter, matching the house fallback ladder used elsewhere.
     python_bin = sys.executable or ("python" if os.name == "nt" else "python3")
     try:
         proc = subprocess.run(
@@ -119,6 +121,12 @@ def _resolve_coordinator_root() -> str:
 
 
 def _import_main():
+    """Resolve the coordinator root, then the engine root via cc_invoke's
+    ladder (env var -> settings-home pointer file -> coordinator-claude-klabauter-root.sh)
+    rather than re-deriving it -- this is a plain in-process import, not an
+    RPC invoke, so cc_invoke's subprocess-spawn transport is deliberately
+    NOT used here.
+    """
     # Rung 0 — COORDINATOR_ENGINE_ROOT env, honored directly.
     # cc_invoke.py migrated to the engine plane with the executable surface
     # (b644d5a9), so on a post-migration content root the cc_invoke import

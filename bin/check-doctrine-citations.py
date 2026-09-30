@@ -1,4 +1,6 @@
+# Unix shebang — see resolve-repo-path.py's header note: gen-launcher-shim.py's
 # --ensure-unix mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD); this
+# line is no longer regenerated but is kept for parity with its bin/ siblings.
 """check-doctrine-citations.py — refuse a doctrine citation that resolves to
 nothing, or to more than one doctrine tree.
 
@@ -130,7 +132,12 @@ from dataclasses import dataclass, field
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
+# Citation shapes measured live by the spike's probe 3 regex, reproduced
+# here verbatim as the recognized prefix set. Each entry maps the LITERAL
+# leading text of a citation to the single tree name it disambiguates to.
+# `_tree_for_prefix` does an exact `.get()` against the prefix text
 # `_CITATION_RE` already extracted, so THIS dict's insertion order is
+# irrelevant. If longest-alternative-first care is ever needed, it belongs
 # to `_CITATION_RE`'s own alternation, not this map.
 _PREFIX_TREE_MAP: dict[str, str] = {
     "coordinator/": "doe_coordinator",
@@ -145,10 +152,25 @@ _CITATION_RE = re.compile(
     """,
     re.VERBOSE,
 )
+# The bare "/" (absolute-path) alternative is gated on start-of-line or a
+# preceding whitespace char -- WITHOUT this gate a regex search finds the
+# leftmost position where prefix+core can match, and a "/" immediately
+# preceding "docs/" for an unrelated reason (a closing `>` of an
+# `<other-placeholder>` form, a `}` boundary of an unrecognized variable
+# expansion, any punctuation) gets silently mis-captured as a deliberate
+# absolute-path anchor. That is the SAME misparse class the
 # `${CLAUDE_PLUGIN_ROOT}/` fix corrects, generalized: `<resolved-engine-root>/
+# docs/wiki/uninstall-agentic-judgment.md` (coordinator/commands/uninstall.md)
+# is not an anchored citation -- `<resolved-engine-root>` is not a recognized
+# anchor prefix -- yet without this gate its trailing "/" resolved cleanly
+# against the claude-klabauter default tree and the citation was silently never
+# reported as unanchored.
 
+# Matches the census's own definition (state/audits/2026-07-23-doctrine-doc-
+# reference-resolution-census.md § headline: "Illustrative placeholders
 # (YYYY-MM-DD-, foo.md, path/to/... )") — a glob metacharacter, a `{...}`
 # template slot, a literal `YYYY-MM-DD-`/`path/to/` segment, or an `<...>`
+# angle placeholder. Tested against the full matched text (prefix + core).
 _ILLUSTRATIVE_RE = re.compile(r"[*?{}<>]|YYYY-MM-DD-|path/to/", re.IGNORECASE)
 
 
@@ -327,8 +349,13 @@ def _extract_citations(path: str) -> tuple[list[Citation], int]:
             if key in seen:
                 continue
             seen.add(key)
+            # Illustrative-ness is checked on `core` alone, never `prefix`:
+            # a recognized anchor prefix is already known-good text, and
             # `${CLAUDE_PLUGIN_ROOT}/` legitimately contains `{`/`}` -- the
             # very characters `_ILLUSTRATIVE_RE` uses to catch a `{...}`
+            # template slot in the CORE path. Folding prefix into the check
+            # would make every plugin-root-anchored citation excluded as
+            # illustrative rather than scanned.
             if _is_illustrative(core):
                 excluded += 1
                 continue
@@ -356,7 +383,12 @@ def _is_anchored(citation: Citation) -> bool:
 
 
 # The subset of `_PREFIX_TREE_MAP`'s keys that the HARNESS expands to a fixed
+# absolute location before a shell/reader ever sees the citation text --
+# cwd-independent by construction, distinct from an anchor like `coordinator/`
+# that is merely relative-to-some-repo-root (exactly what `--consumer-root`
 # mode exists to interrogate). `${CLAUDE_PLUGIN_ROOT}/` is the one form that
+# qualifies today; a future harness-expanded anchor form is added here, not
+# by duplicating this reasoning at each call site.
 _CWD_INDEPENDENT_PREFIXES: frozenset[str] = frozenset({"${CLAUDE_PLUGIN_ROOT}/"})
 
 

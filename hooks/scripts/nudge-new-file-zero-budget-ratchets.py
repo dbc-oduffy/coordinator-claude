@@ -122,10 +122,7 @@ from _engine_root import (  # noqa: E402
 )
 
 #: Wiki section carrying the full remedy explanations and the escape hatch
-#: (COORDINATOR_NEW_FILE_RATCHET_NUDGE_OFF=1) this hook's message used to
-#: state inline -- see docs/plans/2026-08-02-guard-message-character-cap.md
-#: § C6 and state/relocations/guard-message-cap/
-#: nudge-new-file-zero-budget-ratchets.py.md.
+#: (COORDINATOR_NEW_FILE_RATCHET_NUDGE_OFF=1) rather than the hook's own message.
 _WIKI_ANCHOR = (
     "coordinator/docs/wiki/guards/guard-message-concision.md"
     "#new-file-zero-budget-ratchet-remedies"
@@ -133,10 +130,14 @@ _WIKI_ANCHOR = (
 
 _LOCAL_ROOT = _oss_payload.REPO_ROOT.resolve()
 
+#: Byte-for-byte the same test `check_posix_exec_assumptions.scan()` runs -- a fixed
+#: byte literal, not a re-derivation of the classification logic, so there is nothing
+#: here to drift out of sync with the gate it predicts.
 _ENV_SHEBANG_PREFIX = b"#!/usr/bin/env"
 
 
 def _git_ls_files_error_unmatch(repo_root: str, relpath: str) -> bool:
+    """True iff `relpath` is already tracked in `repo_root`'s git index."""
     try:
         proc = subprocess.run(
             ["git", "-C", repo_root, "ls-files", "--error-unmatch", "--", relpath],
@@ -146,11 +147,17 @@ def _git_ls_files_error_unmatch(repo_root: str, relpath: str) -> bool:
             creationflags=_NO_WINDOW,
         )
     except Exception:
+        # Fail open toward "treat as new" -- an unresolvable git call means we cannot
+        # prove this file is a pre-existing, already-baselined one, and a false-positive
+        # nudge is far cheaper than a missed one.
         return False
     return proc.returncode == 0
 
 
 def _classify_leg(candidate: Path):
+    """`(leg, root, rel)` for `candidate` if it resolves inside this repo's own tree
+    ("local") or a resolvable engine-plane checkout ("engine"); `None` if neither --
+    fail-open, no nudge for a path this hook can't place."""
     try:
         rel_local = candidate.relative_to(_LOCAL_ROOT)
         return "local", _LOCAL_ROOT, rel_local
@@ -170,6 +177,10 @@ def _classify_leg(candidate: Path):
 
 
 def _payload_shaped(leg: str, rel: Path) -> "str | None":
+    """The `coordinator/...`-rooted relpath (POSIX form) the file would occupy in its
+    own repo's payload accounting if `candidate` is shaped like an admitted OSS-payload
+    entry, tested against the candidate's path shape rather than its git-tracked status.
+    `None` if not payload-shaped or on any parse failure (fail-open)."""
     try:
         row = _oss_payload.parse_mirror_row()
         patterns = _oss_payload.excluded_patterns()

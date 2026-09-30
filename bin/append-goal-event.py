@@ -10,20 +10,22 @@ invoke transport unconditionally (spawn-per-call, DR-215). There is no legacy
 body left to strangle: this trampoline parses the same CLI contract the
 pre-port bash body exposed (period/period-value/text/repo/root + the C11
 passthrough flags), builds the goal.append JSON-RPC params object exactly as
-the bash body's jq filter did, and spawns
-`coordinator_core.invoke goal.append --bare --params-file <f> --repo <root>`.
+the bash body's jq filter did, and dispatches
+`coordinator_core.invoke goal.append --bare --repo <root>` in-process (P055-C1,
+78ee4de534 -- was a `coordinator_core.invoke` subprocess spawn until then).
 On any transport/op failure it fails loud (no fallback).
 
 Deliberately does NOT reuse coordinator/bin/lib/cc_invoke.py's own `cc_invoke()`
-function: that sibling spawns coordinator_core.invoke WITHOUT `--bare` and
-unwraps a full JSON-RPC envelope (`envelope["result"]`), a different wire shape
-than the bash oracle's `--bare`/`--params-file` transport this script's own
-parity test (append-goal-event-facade.test.sh) exercises. `_resolve_claude_klabauter_root()`,
-`_op_timeout_ceiling()`, and `_timeout_exceeded_message()` are reused from that
-module (the timeout ceiling and its remedy text, not the wire transport, per
-coordinator:code-reviewer P3, 2026-08-08); the spawn+fail-closed ladder below is
-otherwise a local, `--bare`-shaped mirror of coordinator-core-invoke.sh's
-cc_invoke(), scoped to this one call site.
+function: that sibling dispatches WITHOUT `--bare` and unwraps a full JSON-RPC
+envelope (`envelope["result"]`), a different wire shape than the bash oracle's
+`--bare` transport this script's own parity test
+(append-goal-event-facade.test.sh) exercises. `_resolve_claude_klabauter_root()` is
+reused from that module; `_op_timeout_ceiling()`/`_timeout_exceeded_message()`
+are NOT (P055-C1 dropped the `subprocess.run(timeout=...)` kill guard this
+call site used to derive a ceiling for -- see `_cc_invoke_bare`'s own
+docstring). The fail-closed ladder below is otherwise a local, `--bare`-shaped
+mirror of coordinator-core-invoke.sh's cc_invoke(), scoped to this one call
+site.
 
 Usage (extended from the pre-port bash body — zero caller repoints for the
 pre-existing flags, AC8; --status is new, see below):
@@ -175,6 +177,8 @@ def _cc_invoke_bare(op: str, params: dict[str, object], repo_root: str) -> dict[
 
     claude_klabauter_root = _resolve_claude_klabauter_root()
     # `sys.path`, not the child-env PYTHONPATH the spawn form used: this call
+    # is in-process now, so coordinator_core must resolve from claude_klabauter_root
+    # for the interpreter already running this file, not a future child's.
     if claude_klabauter_root not in sys.path:
         sys.path.insert(0, claude_klabauter_root)
     os.environ["CLAUDE_KLABAUTER_ROOT"] = claude_klabauter_root

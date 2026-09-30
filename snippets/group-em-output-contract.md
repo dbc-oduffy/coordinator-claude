@@ -12,14 +12,16 @@ not formatting — see § Filter at source.
 ## The permitted emission
 
 Exactly one form reaches the PM's window: **a decision awaiting them.** Three fields, from the
-gem-01 research corpus's Core Output Contract (`state/roadmap/gem-01/research-corpus/
-supervisor-facing-agent-output.md` § What This Suggests for a Mechanism):
+gem-01 research corpus's Core Output Contract
+(`state/roadmap/gem-01/research-corpus/supervisor-facing-agent-output.md` § What This Suggests
+for a Mechanism):
 
 1. **The decision point** — one sentence: what cannot be resolved without them.
 2. **The action required** — approve / choose / provide input / override.
 3. **The address** — when the decision is live in another session, the resolved peer address
-   (never a relay of that session's state). See `coordinator/docs/wiki/
-   group-em-escalation-threshold.md` § Point for the resolution route.
+   (never a relay of that session's state). See
+   `coordinator/docs/wiki/dispatching-parallel-agents/group-em-standing/group-em-escalation-threshold.md`
+   § Point for the resolution route.
 
 ## Excluded classes
 
@@ -41,7 +43,8 @@ narration fails this contract — a summary tacked onto a wall of reasoning is s
 reasoning the PM has to read past. The alerting literature converges on this: presentational
 fixes fail, and verbosity measurably impairs human decision speed (SRE/clinical alarm-fatigue
 literature — 72-99% of clinical alarms are non-actionable and desensitize responders to the
-genuine ones; `supervisor-facing-agent-output.md` § Question 2, § Question 5).
+genuine ones; `state/roadmap/gem-01/research-corpus/supervisor-facing-agent-output.md`
+§ Question 2, § Question 5).
 
 ## Boundary with first-officer-posture C5
 

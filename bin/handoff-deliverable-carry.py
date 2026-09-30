@@ -138,7 +138,15 @@ def _import_ops():
 
 def _cmd_resolve(args: argparse.Namespace, read_frontmatter_field, mint) -> int:
     # `work_slug` is passed CONDITIONALLY, not unconditionally with a None
+    # default, because this CLI resolves its engine through
     # `require_dispatch_engine_on_path` — the PUBLISHED mirror, not the live
+    # tree this file sits in (the doc-new entrypoint's self-location walk-up
+    # ladder is a different one and does land live). Between a live edit here
+    # and the next publish round the mirror's cascade has no `work_slug`
+    # parameter, and an unconditional kwarg would TypeError every existing
+    # invocation for a value none of them supply. Passing it only when the
+    # caller actually asked confines the skew window to the new flag, where
+    # failing loud is correct.
     _extra_kwargs = {"work_slug": args.work_slug} if args.work_slug else {}
     dlvr_id, initiative_id = resolve_deliverable_and_initiative(
         read_frontmatter_field,

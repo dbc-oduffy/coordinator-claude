@@ -93,9 +93,14 @@ def _default_hooks_json() -> str:
 
     return str(data_root("hooks") / "hooks.json")
 
+# Matches the script's basename as it appears embedded in a hooks.json
 # command string, e.g. "...${CLAUDE_PLUGIN_ROOT}/hooks/scripts/foo.py ...".
 _SCRIPT_REF_RE = re.compile(r"hooks/scripts/([A-Za-z0-9_.-]+)")
 
+# Assignment-target-is-a-literal shape: a quoted or bare `hookEventName` key
+# (JSON/Python dict key, or a shell/python variable name), followed by `:`
+# or `=`, followed directly by a QUOTED STRING LITERAL value. Deliberately
+# anchored on the key text immediately adjacent to the separator — this is
 # what keeps `_VALID_HOOK_EVENTS = ("Stop", ...)` from matching: the
 # assignment target there is `_VALID_HOOK_EVENTS`, not `hookEventName`.
 _HARDCODED_ASSIGN_RE = re.compile(

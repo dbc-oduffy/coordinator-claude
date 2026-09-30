@@ -1,5 +1,66 @@
+# entry_point_shim.py — in-process loader for the `-assemble` entry points,
+# used by coordinator/bin/coordinator-assemble.py to fan multiple
+# subcommands into one interpreter instead of one process per subcommand.
+#
+# Mechanism is settled by measurement (docs/plans/2026-08-16-a-process-per-
+# predicate.md, C7): a forwarder that `subprocess.run`s a child dispatcher
+# was measured at -0.5123 (51% MORE expensive than the single-process path
+# it would replace — two process starts where today's direct-.py invocation
 # has one) and is REJECTED. Loading the target module in-process and calling
+# its own `main(argv)` — no child process, no second interpreter — was
+# measured at -0.0963 (inside the 46% A/A noise floor, i.e. free). This
+# module is the in-process shape, applied to the 14 `-assemble` entry
+# points; `coordinator/lib/resolve-claude-klabauter/_resolve_claude_klabauter.py :: exec_cli`
+# already ships the same choice (`runpy.run_path` in-process on Windows,
+# `os.execv` process-replacement on POSIX) for the general forwarder case —
+# that module's docstring documents choosing this over "spawning a second
+# Python interpreter and subprocess.run-ing the target". This module does
+# NOT reinvent that ladder; it is narrower (fixed set of 14 known-shape
+# targets under `coordinator/bin/`, no POSIX execv leg needed because the
+# caller — coordinator-assemble.py — is itself already the single process
+# multiple subcommands share, so there is nothing to replace this process
+# WITH).
+#
+# Target contract (verified against all 13 current `-assemble` `.py` files
+# before writing this module): each exposes a module-level `main(...)` where
+# 12 of 13 accept `main(argv: list[str]) -> int` and one
+# (`workday-start-inbox-blitz-assemble.py`) accepts no arguments at all
+# (`main() -> int`, reads no `sys.argv`). `run_target` below probes arity via
+# `inspect.signature` rather than hard-coding the one exception, so a future
+# 14th target that follows either shape needs no edit here.
+#
+# Committed, not generated (see plan's § Owed to the parked posix-exec plan,
+# "Denominator-collapse hazard" — substrate.py's `_write_agent_forwarder`
 # precedent GENERATES forwarders at install time, which would remove
+# tracked `.py` entry points from the repo tree and collapse
+# `check_posix_exec_assumptions.py`'s scan denominator). This module and
+# coordinator-assemble.py are ordinary tracked source files; the 13
+# pre-existing `-assemble` `.py`/`.cmd`/`.ps1` launchers are untouched by
+# this chunk (no deletion, no regeneration) — nothing about them changes,
+# so nothing about the posix-exec baseline's denominator changes either.
+#
+# Spec backlink: docs/plans/2026-08-16-a-process-per-predicate.md, chunk C8
+#
+# Routing half (2026-08-16, plan's AC7): the 13 bin/*.py files are now THIN
+# SHIMS (each: resolve lib/, `import entry_point_shim`, `sys.exit(
+# entry_point_shim.run_target("<name>", sys.argv[1:]))`) rather than
+# independent implementations — see § Name-to-callable mapping below.
+# Loading a shim BY PATH (the old `_load_module`/`_target_path` shape) would
+# recurse: the shim's own `main`/module-exec would call back into
+# `run_target` for the same name. So `run_target` now resolves 13 of the 14
+# names directly to an ENGINE module + entry callable (never back through
+# the shim .py file); only `workday-start-inbox-blitz-assemble` — real
+# 496-line logic, not a wrapper, deliberately left unconverted — is still
+# loaded by path, and its docstring below states why.
+#
+# Each of the 12 converted entrypoints' original bin/*.py file body (before
+# this change) was read in full and is reproduced here verbatim in effect —
+# same import target, same error-message text, same exit codes — so a
+# caller of `coordinator/bin/<name>.py` observes byte-identical stdout/
+# stderr/exit-code behavior to before, whether invoked directly or through
+# `coordinator-assemble.py`.
+#
+# Spec backlink: docs/plans/2026-08-16-a-process-per-predicate.md, chunk C8
 from __future__ import annotations
 
 import contextlib
@@ -36,9 +97,28 @@ BY_PATH_TARGETS = frozenset({"workday-start-inbox-blitz-assemble"})
 _TRANSPORT_FAIL = 3
 _USAGE_FAIL = 2
 
+# Targets whose argv can carry a JSON payload (`--decisions <json>`), and so
+# cannot survive a `.cmd` forwarder's `%*` intact on Windows: cmd.exe strips
+# the payload's double quotes during its OWN command-line parse, before the
+# launcher body or Python ever runs, and the CLI then rejects a payload that
+# was well-formed when sent. Shape W (the `.cmd` sibling through the call
+# operator) is the rung `resolve-coordinator-bin.md` mandates on a Windows
+# host, so without recovery the documented invocation shape and the
+# JSON-argument surface are mutually exclusive there
+# (cross-repo/inbox/2026-08-20-coordinator-content-repo-em-cmd-forwarder-eats-json-and-two-
+# smaller-seams.md, item 1).
+#
+# Narrow and named on purpose, mirroring `gen-launcher-shim.py`'s own
 # `_RAW_CMDLINE_ENTRYPOINTS` discipline: enrolment costs every invocation a
+# capture file, so a target earns a row only when a quote-bearing argument is
+# genuinely reachable in normal use. The three sets are kept in sync by
 # convention -- this one, `gen-launcher-shim.py::_RAW_CMDLINE_ENTRYPOINTS`,
 # and `coordinator_core/install/substrate.py::_RAW_CMDLINE_TARGETS` -- and
+# `test_raw_cmdline_json_payload_enrolment.py` fails if they drift.
+#: The JSON-valued flags recovered from the raw command line. Both spellings
+#: of the inline form are listed because `--decisions` is the flag every
+#: current parse site names; the `-file` sibling carries a PATH, which is
+#: quote-and-space-free by construction and never needed recovery.
 _JSON_PAYLOAD_FLAGS = ("--decisions",)
 
 _JSON_PAYLOAD_TARGETS = frozenset(
@@ -112,6 +192,23 @@ class UnknownTargetError(LookupError):
 def _record_invocation(name: str) -> None:
     try:
         # ORDERING IS LOAD-BEARING, and getting it wrong was a real defect
+        # (found 2026-08-16 during workstream-complete review, introduced by
+        # this hook). `coordinator_core.ops.<anything>` triggers that
+        # package's `_eager_import_all` over ~206 op modules, and several of
+        # them import the top-level `coordinator` package. If this hook runs
+        # BEFORE `_import_engine_module` puts the engine root on `sys.path`,
+        # `coordinator` is unresolvable, `app_session` (and any sibling like
+        # it) fails to import, and `coordinator_core.ops` CACHES that failure
+        # for the life of the process -- so the op stays unregistered and
+        # every ceremony prints an import traceback it never printed before
+        # these shims existed. The pre-shim entry points resolved the root
+        # first and never hit it.
+        #
+        # So resolve the root BEFORE importing anything under
+        # `coordinator_core.ops`. Cheap: `_cc_invoke_resolve_claude_klabauter_root`
+        # is the same resolver `_import_engine_module` uses moments later,
+        # and the import itself is already paid for by the engine module
+        # every converted target imports anyway.
         resolve_claude_klabauter_root = _cc_invoke_resolve_claude_klabauter_root()
         claude_klabauter_root = resolve_claude_klabauter_root()
         if claude_klabauter_root not in sys.path:
@@ -164,6 +261,11 @@ def _simple_entry(name: str, dotted: str) -> Callable[[List[str]], int]:
 
 
 #: Mirrors `apply_base.APPLY_EXIT_PARTIAL_MUTATION` (4) without importing
+#: `coordinator_core.contract.apply_base` at cold-path module scope -- this
+#: module's other engine-mapped entries already avoid importing their
+#: target's dependency graph until an actual invocation reaches them
+#: (`_import_engine_module`), and this one value is cheap to duplicate
+#: rather than pay for.
 _APPLY_EXIT_PARTIAL_MUTATION = 4
 
 
@@ -251,7 +353,18 @@ def _merge_assemble_dispatch(op: str, params: dict, print_fn, result_key: str, *
             result = _merge_assemble_cold_call(op, params)
             served_cold = True
         elif is_apply:
+            # Post-dispatch (or undiscriminable — fail closed per AC6):
+            # never retry cold, an apply directive may already have landed.
+            #
             # `is_timeout_error` sharpens the OPERATOR MESSAGE only; it must not
+            # gate the routing above. AC6 fails closed on every undiscriminable
+            # residual, so a timeout and an unrecognized RuntimeError take the
+            # same branch by design. What differs is what we can honestly tell
+            # the operator: a timeout carries cc_invoke's own documented
+            # guarantee that the engine was NOT stopped, so the op may well have
+            # landed in full, whereas an unclassified failure leaves even that
+            # unknown. Routing them identically while reporting them identically
+            # would discard the one discriminator the transport actually exposes.
             if cc_invoke.is_timeout_error(exc):
                 detail = (
                     "the op ran past its budget; the engine was NOT stopped, so "
@@ -307,7 +420,14 @@ def _native_route_entry(name: str, dotted: str) -> Callable[[List[str]], int]:
 
     def _entry(argv: List[str]) -> int:
         # NEGATIVE SPEC: served side runs the implementation; routing here
+        # again would re-enter this same shim through the door (this `main`
+        # IS what `invoke.from_argv` serves) -- unbounded self-recursion, cut
+        # only by the mutation read deadline. The pool worker declares its
+        # route (`server._worker_process_init`); a COLD-served
+        # `invoke.from_argv` declares none, so `_run_entrypoint` marks the
         # served span itself (`SERVED_ENTRYPOINT_ENV`) -- without it each cold
+        # rung spawns the next, forever. The caller side, undeclared, still
+        # routes exactly as before.
         if (
             os.environ.get("COORDINATOR_EXECUTION_ROUTE") == "warm_server"
             or os.environ.get("COORDINATOR_SERVED_ENTRYPOINT")
@@ -397,6 +517,14 @@ def _merge_assemble_entry(argv: List[str]) -> int:
         cli_mod = _import_engine_module("coordinator_core.merge_assemble.cli")
     except (RuntimeError, ImportError):
         # Seam-absent, PRE-DISPATCH: either CLAUDE_KLABAUTER_ROOT itself would not
+        # resolve, or it resolved to a root that has not yet been published
+        # with C1's `coordinator_core.merge_assemble.cli` split (observed:
+        # the resolved root can legitimately be a sibling publish tree that
+        # still only carries the pre-plan `coordinator_core.merge_assemble`
+        # package). Nothing has parsed argv or dispatched anything yet, so
+        # per AC6 this falls back cold — to the exact pre-warm-routing
+        # `_simple_entry` shape, which targets the package itself (not
+        # `.cli`) and always existed there.
         return _merge_assemble_legacy_entry(argv)
 
     try:
@@ -507,7 +635,11 @@ def _workday_complete_assemble_entry(argv: List[str]) -> int:
     return sub_main(rest)
 
 
+# Name -> engine entry callable, `argv -> int`, for every target NOT in
 # BY_PATH_TARGETS. Derived by reading each of the 14 bin/*.py files' actual
+# imports/calls (not guessed from the entry-point name) — see the module
+# docstring above and each target's own comment for the file it was derived
+# from.
 _ENGINE_ENTRIES: dict[str, Callable[[List[str]], int]] = {
     "backlog-grind-assemble": _backlog_grind_assemble_entry,
     "baton-assemble": _native_route_entry("baton-assemble", "coordinator_core.baton_assemble"),
@@ -539,10 +671,30 @@ def _load_module(name: str, path: Path):
 _load_module._counter = 0  # type: ignore[attr-defined]
 
 
+# --- GATE family (check-*/verify-*/assert-*), chunk C10 ---
+#
+# 60 entry points, one dispatcher (coordinator-gate.py). Same shim mechanism
 # as ASSEMBLE_TARGETS above (in-process, no subprocess), but this family is
+# far less uniform than the 14 `-assemble` entries: at least four distinct
+# CLI-trampoline shapes coexist (a `cli_entry.run_op_main` wrapper with
+# fail-loud vs never-block exit-code conventions; a bare top-level
+# `run_op_main` call with no wrapper; fully standalone modules with no
+# coordinator_core dependency at all; and multi-hundred-line files carrying
+# real logic inline). Forcing every name through one mapping shape risks
+# silently changing a fail-exit code or an error-message string this
+# chunk's own non-negotiable ("identical argv contract and exit code")
+# forbids changing.
+#
 # So: convert to GATE_ENGINE_ENTRIES only names whose full `coordinator/
+# bin/<name>.py` body was read in full this dispatch and reproduced here
 # verbatim in effect (same shape as ASSEMBLE_TARGETS' _simple_entry/
+# _backlog_grind_assemble_entry above). Every other name stays in
 # GATE_BY_PATH_TARGETS — its own bin/*.py file is left completely
+# unconverted (not shimmed), same as `workday-start-inbox-blitz-assemble`
+# above, so there is no risk of silently drifting a contract nobody
+# individually verified this dispatch. This is not a permanent shape: a
+# later pass that reads and verifies the remaining ~55 files' exact
+# exit-code/argv contracts can promote them the same way.
 GATE_TARGETS = (
     "assert-cwd",
     "assert-no-dangling-plan-backlinks",
@@ -608,11 +760,33 @@ GATE_TARGETS = (
 
 assert len(GATE_TARGETS) == 60, f"expected 60 gate targets, counted {len(GATE_TARGETS)}"
 
+# The corrected denominator for a shim-usage census (chunk C10 of
+# docs/plans/2026-08-21-the-cli-bootstrap-tax-dies-at-the-interpreter-floor.md).
+#
+# A naive cross-reference of "how many of the 434 shipping CLIs has
+# `record_invocation` ever seen fire" reads as 20 -- the count of bin/*.py
+# files that actually `import entry_point_shim` (the 13 converted
 # `-assemble` shims, the 5 converted GATE_ENGINE_ENTRIES shims, and the two
+# batch dispatchers `coordinator-assemble.py`/`coordinator-gate.py`). That
+# number answers "how many FILES route through this module", not "how many
+# NAMES this module's census can account for" -- `run_target` and
+# `run_gate_target` both call `_record_invocation(name)` unconditionally,
 # for every name in ASSEMBLE_TARGETS/GATE_TARGETS, regardless of whether
+# that name's own standalone bin/<name>.py has been converted to a shim.
 # A GATE_TARGETS member still resolved BY PATH (`GATE_BY_PATH_TARGETS`)
+# still gets recorded the moment it is reached through
+# `coordinator-gate.py`'s batched dispatch -- only a DIRECT invocation of
+# that name's own untouched .py file (bypassing both dispatchers) escapes
+# the census.
+#
+# So the true instrumented surface is this union: every name this module's
+# two dispatch tables know how to route AT ALL, whether by engine-callable
+# or by-path. Reading "417 of 434 never invoked" off the 20-file count
 # is FALSE -- it conflates 414 UNINSTRUMENTED names (no evidence either
 # way) with genuinely dead ones. `ALL_TARGETS` is the corrected 74-name
+# enumeration a census should read invocation evidence against; the
+# remaining 434-74 names are not covered by this module at all and stay
+# correctly "uninstrumented", not "unused".
 ALL_TARGETS = tuple(ASSEMBLE_TARGETS) + tuple(GATE_TARGETS)
 
 
@@ -691,6 +865,7 @@ def _check_pcli_drift_gate_entry(argv: List[str]) -> int:
 
 
 # Name -> engine entry callable for the subset of GATE_TARGETS whose bin/
+# <name>.py body was read in full and reproduced verbatim above. Every
 # GATE_TARGETS name NOT a key here is in GATE_BY_PATH_TARGETS instead.
 GATE_ENGINE_ENTRIES: dict[str, Callable[[List[str]], int]] = {
     "assert-no-dangling-plan-backlinks": _run_op_main_entry(
@@ -714,6 +889,10 @@ GATE_ENGINE_ENTRIES: dict[str, Callable[[List[str]], int]] = {
 
 # Every other GATE_TARGETS name: resolved BY PATH from its own untouched
 # bin/*.py file, same mechanism as ASSEMBLE_TARGETS' BY_PATH_TARGETS above
+# (in-process `_load_module` + SystemExit-catching `main` probe below) — no
+# subprocess, so the fan-in win (C7's 7.17x) still applies to these; only
+# the routing indirection (module dotted-path instead of file path) is
+# deferred pending individual verification of each file's exact contract.
 GATE_BY_PATH_TARGETS = frozenset(set(GATE_TARGETS) - set(GATE_ENGINE_ENTRIES))
 
 
@@ -743,7 +922,14 @@ def run_gate_target(name: str, argv: List[str]) -> int:
     _record_invocation(name)
 
     if name in GATE_ENGINE_ENTRIES:
+        # sys.argv asymmetry, audited empirically.
         # Grepped run_op_main and all 5 GATE_ENGINE_ENTRIES op modules
+        # (assert_no_dangling_plan_backlinks, assert_plan_sizing_citation,
+        # check_em_environment, check_posix_exec_assumptions,
+        # check_pcli_drift_gate) for `sys.argv`: each takes argv as a
+        # parameter; the only sys.argv reads are inside
+        # `if __name__ == "__main__":` guards, never reached here. No fix
+        # needed today; re-grep before promoting a 6th GATE target.
         return int(GATE_ENGINE_ENTRIES[name](list(argv)))
 
     path = _gate_target_path(name)
@@ -928,7 +1114,21 @@ def run_target(name: str, argv: List[str]) -> int:
         finally:
             sys.argv = original_argv
 
+    # sys.argv asymmetry, audited empirically. This
     # branch, unlike BY_PATH_TARGETS above, never sets sys.argv before
     # calling the target. Grepped all 12 engine-mapped ASSEMBLE_TARGETS
+    # modules (coordinator_core.{backlog_grind_assemble,baton_assemble,
+    # consolidate_assemble,merge_assemble,orient_assemble,pickup_assemble,
+    # plan_assemble,review_assemble,sizing_assemble,staff_session_assemble,
+    # workday_complete.{brief,apply},workstream_complete}) for `sys.argv`:
+    # every module-level `main(argv)` takes argv as a parameter and does not
+    # read sys.argv itself; the only `sys.argv` reads found are inside
+    # `if __name__ == "__main__":` guards (never reached when called as a
+    # library function) and workday_complete/apply.py's and
+    # workstream_complete/apply.py's OWN internal splice for the
+    # zero-arg-trampoline scripts THEY dispatch to (unrelated to this
+    # dispatcher's own argv passing — already save/restore in a finally).
+    # No fix needed today; re-grep before adding a 13th engine-mapped
+    # target.
     entry = _ENGINE_ENTRIES[name]
     return int(entry(list(argv)))

@@ -81,7 +81,7 @@ Contract-block names come from `contract_blocks:` in the policy file, read
 with a real `yaml.safe_load` -- never a hardcoded list or count.
 
 Windows-first: `subprocess.run` with an argv list, `shell=False` throughout
--- `waste-signal.py`'s attribution child is spawned via `sys.executable`,
+-- `waste-signal.py`'s attribution child is spawned via `python_interp.python_argv`,
 never a bare interpreter name. Diff-freezing no longer spawns at all:
 `_freeze_slices_batch` calls `coordinator_core.ops.review_freeze_diff.
 freeze_diffs_batch` in-process, once per compose() call, for every slice
@@ -606,7 +606,12 @@ def _run_waste_attribution(changed_paths: list[str], repo_root: Path) -> dict:
             "diff carried no parseable changed paths -- no executable surface to attribute against"
         )
 
-    argv = [sys.executable, str(_WASTE_SIGNAL_SCRIPT), "--attribute-diff", *changed_paths]
+    import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
+    from python_interp import python_argv
+
+    argv = python_argv(str(_WASTE_SIGNAL_SCRIPT), "--attribute-diff", *changed_paths)
+    if argv is None:
+        return _not_measurable_attribution("no console Python interpreter resolvable")
 
     # The child runs the slice's own covering tests, which is branch code this
     # gate does not yet trust. Give it a scratch HOME/TMP so a test writing to

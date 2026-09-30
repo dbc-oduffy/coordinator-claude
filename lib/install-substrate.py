@@ -108,6 +108,9 @@ def _import_main():
 
 def main() -> None:
     # Resolve CLAUDE_PLUGIN_ROOT, then validate the resolved root has the
+    # expected layout BEFORE touching claude-klabauter at all — a silently bad root is
+    # worse than no root, and the claude-klabauter module's own `run()` guard (which
+    # requires the env var pre-set) is not a substitute for this pre-flight.
     plugin_root = _derive_plugin_root()
     if not os.path.isdir(os.path.join(plugin_root, "lib")) or not os.path.isdir(
         os.path.join(plugin_root, "templates")

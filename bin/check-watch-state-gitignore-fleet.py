@@ -93,7 +93,7 @@ def _settings_home() -> Path:
     explicit = os.environ.get("COORDINATOR_SETTINGS_HOME")
     if explicit:
         return Path(explicit)
-    home = os.environ.get("CLAUDE_HOME") or os.path.expanduser("~")
+    home = os.environ.get("CLAUDE_HOME") or str(Path.home())
     return Path(home) / ".coordinator-claude-settings"
 
 

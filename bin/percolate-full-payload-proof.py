@@ -463,7 +463,11 @@ def _parse_end_of_run_leg_status(stderr_text: str) -> Dict[str, str]:
     elif _IDENTITY_SKIP_MARKER in stderr_text:
         status["identity_check"] = "skipped-advisory"
     elif _IDENTITY_RAN_CLEAN_MARKER not in stderr_text:
+        # Neither a failure line nor a skip line printed at all -- absence
         # of stderr chatter for a leg that ran clean is the EXPECTED shape
+        # (dispatch_end_of_run_identity_check only prints on skip or
+        # nonzero exit), so this is the "ran and found nothing to say"
+        # case, not evidence it never ran.
         status["identity_check"] = "ran-clean-silent"
 
     if _INSTALL_DOC_FAIL_MARKER in stderr_text:
@@ -693,6 +697,10 @@ def main(argv: Optional[List[str]] = None) -> int:
             for note in head_movement_notes:
                 print(f"    {note}")
         # foreign-identity: NOT-REACHABLE — basis: DELIBERATE INVOCATION, not true
+        # unreachability. Publish payload-proof/verify CLI (same shape as
+        # verify_dist_publish_repo_sync.py, audit row 16); a third-repo session cannot
+        # hit this ambiently, but a maintainer CAN reach it by deliberately verifying a
+        # publish.
         for pass_result in (pass1, pass2):
             declared_n = len(pass_result.declared_rows)
             not_processed = sorted(set(pass_result.skipped_rows) | set(pass_result.missing_rows))

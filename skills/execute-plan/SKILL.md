@@ -28,7 +28,7 @@ code review is the emitted workflow's own review wave (every reviewer applies it
 partitioned into file slices at or above `review-brightline-gate`),
 run once per plan after every row has written, on every plan at every size. The EM never
 hand-dispatches a reviewer after the workflow returns. Tripwire:
-`CODE-REVIEW-IS-A-STAGE-OF-THE-EXECUTE-WORKFLOW`. **EM-verify means the EM itself runs the chunk's
+`CODE-REVIEW-IS-A-STAGE-OF-THE-EXECUTE-WORKFLOW`. **A chunk that registers an op is verified with the registry-completeness tests, never the full suite** — in the engine repo: `coordinator_core/authz/tests/test_registration_quad.py`, `coordinator_core/ops/tests/test_registry_map_sync.py`, `coordinator_core/ops/tests/test_op_inventory_parity.py`, `coordinator_core/ops/tests/test_op_registration.py`, `coordinator_core/tests/test_op_scope_parity.py`. **EM-verify means the EM itself runs the chunk's
 tests, never trusts an executor's pass claim** — a dispatch vehicle can narrow the executor's Bash
 surface below what the tests need (wiki: `workflow-orchestration.md`), and an honest executor then
 reports "PASS (by inspection)". Inspection is not verification. **A host-dependent chunk's red is
@@ -520,6 +520,11 @@ Not on the list (EM decisions, made inline): accumulating patches, ambiguity, st
 verification failure (`/systematic-debugging`), routine fixable errors, minor judgment calls,
 wanting to check in. Record `Tried:/Failed:` in the plan doc and the task's
 `metadata.tried_and_abandoned`. Surface with a recommendation, not a question.
+
+**Usage-limit advisory** (a pause, not a PM emergency): dispatch no new task. Let in-flight agents
+land. Commit scoped. Write the handoff with the advisory's reset time in its next steps. Stop.
+`A-DRIVER-PAST-ITS-USAGE-THRESHOLD-FIRES-NOTHING-NEW` —
+`coordinator/docs/wiki/skills-corpus/usage-limit-pause.md`.
 
 ---
 

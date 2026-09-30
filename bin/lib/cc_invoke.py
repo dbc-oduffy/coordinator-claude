@@ -222,11 +222,32 @@ class AppliedReportUndecodableError(RuntimeError):
     """
 
 
+#: The ledger lives under the user-local runtime base, NOT inside any repo.
+#:
+#: It was repo-relative for its first hours and that was wrong in a way worth
+#: recording, because the failure renders as silence. The path resolved through
+#: the registry key `repos.claude_klabauter`, on the reasoning that every session
 #: should append to one registered checkout. The publish transform REWRITES
+#: that key when mirroring source to twin -- the published copy in
+#: `claude-klabauter` asks for `repos.claude_klabauter` and gets it -- so the
+#: mirror wrote its own `state/` file. Since this box resolves its hooks to the
+#: published engine, that was most of the traffic: 8.4KB in the mirror against
+#: five rows in the source, and a reader looking only at the source rendered
+#: nothing. Silence here is indistinguishable from health, which is the exact
+#: failure `test_the_writer_and_reader_agree_on_the_path` exists to catch --
+#: and it could not, because both halves agreed on a relative tuple that two
+#: clones resolved differently.
+#:
+#: A per-box location has no source/mirror to disagree about. Same three-
+#: candidate ladder as `warm.breadcrumb._runtime_base` (env override, then
 #: `%LOCALAPPDATA%`, then `~/.cache`) -- recomputed rather than imported
+#: because this module deliberately carries no `coordinator_core` dependency,
+#: and pinned against the reader's copy by full resolved path, not by relpath.
 _ROUTE_UNREACHABLE_LEDGER = ("coordinator", "sanctioned-route-unreachable.jsonl")
 
 #: Test-isolation seam, shared with `warm.breadcrumb.RUNTIME_BASE_ENV` by name
+#: so one `monkeypatch.setenv` moves warm runtime state and this ledger
+#: together. Read at call time, never cached. Not an operator knob.
 _ROUTE_UNREACHABLE_BASE_ENV = "COORDINATOR_WARM_RUNTIME_BASE"
 
 
@@ -399,8 +420,14 @@ def child_env(overrides: dict[str, str] | None = None) -> dict[str, str]:
     return env
 
 
+# ---------------------------------------------------------------------------
+# DEC-1..3 op-timeout-budget session cache (module-global, mirrors the shell
 # transport's _CC_OP_TIMEOUTS_* session vars). Populated at most ONCE per Python
+# process by _resolve_op_timeouts — a facade process is short-lived, so this is
+# the per-process analogue of the shell's per-shell-session cache.
 #   _OP_TIMEOUTS_STATE: None (unresolved) | "ok" | "absent" | "error"
+# Mirrors the retired bash transport's _cc_resolve_op_timeouts (DEC-1..3).
+# ---------------------------------------------------------------------------
 _OP_TIMEOUTS_STATE: str | None = None
 _OP_TIMEOUTS_MAP: dict[str, float] = {}
 _OP_TIMEOUTS_BREADCRUMB_SHOWN: bool = False
@@ -452,7 +479,16 @@ def _claude_home() -> str:
     return _machine_local_impl_resolver().claude_home()
 
 
+# Cross-reference (C11, pln-an-engine-root-is-not-named-for-the-repo-...):
+# coordinator_core/engine_root.py's `coordinator_engine_root_env`/
+# `coordinator_engine_root_env_exports` (C10) are the dual-read/dual-write seam
+# for this rename everywhere coordinator_core CAN be imported. This module sits
+# on the far side of the same one-way no-import boundary as
 # `_REGISTRY_READ_TIMEOUT_TOKEN` (imported from engine_bootstrap below) — its
+# own engine-root-resolution ladder exists to LOCATE coordinator_core in the
+# first place, so it cannot depend on importing coordinator_core.engine_root
+# to do it — this literal is duplicated by hand in engine_root.py for the
+# same reason, not an oversight.
 _ENGINE_ROOT_OLD_VAR = "CLAUDE_KLABAUTER_ROOT"
 
 _IN_PROCESS_REGISTRY_MEMO: dict[str, str | None] = {}
@@ -512,7 +548,36 @@ def _machine_local_get_in_process(key: str) -> str | None:
     return value
 
 
+# ---------------------------------------------------------------------------
+# Engine-root resolution — split into the sibling `engine_bootstrap` module
+# (docs/plans/2026-08-21-the-cli-bootstrap-tax-dies-at-the-interpreter-floor.md
+# § C2): `_resolve_engine_root` (+ its nested `_delegate_to_gate`) and every
 # helper/constant EXCLUSIVE to it now live there, os+sys-only at module top,
+# so a caller that needs only the bootstrap need not pay this module's own
+# 27-module import cost. `_machine_local_get`, `_machine_local_impl_resolver`,
+# `_walk_up_to_checkout`, and the resolution constants/exceptions moved
+# alongside it because `_resolve_engine_root`'s bare-name references to them
+# bind against THAT module's globals now — imported back here so every OTHER
+# function in THIS file that also references them (route(), resolve_engine_root(),
+# _state1_remediation_message(), _machine_local_get_in_process())
+# keeps resolving them through cc_invoke's own globals, unchanged.
+#
+# `_resolve_claude_klabauter_root = _resolve_engine_root` immediately below is a PLAIN
+# NAME ALIAS, never a wrapper — see that assignment's own comment and
+# engine_bootstrap.py's module docstring condition (b)/(c)/(d).
+# ---------------------------------------------------------------------------
+# `engine_bootstrap` is a SIBLING module, so this bare-name import resolves
+# only while this file's own directory is on `sys.path`. That holds for the
+# CLI entrypoints, which put it there -- and NOT for the several callers that
+# load this module BY PATH via `importlib.util.spec_from_file_location`, a
+# loader that deliberately does not touch `sys.path`. Those callers got a
+# bare `ModuleNotFoundError: engine_bootstrap` the moment the split landed
+# (2026-08-21), from a file that had always been by-path loadable.
+#
+# Self-locating rather than requiring every by-path caller to prepend the
+# directory itself: the requirement would be invisible at every call site and
+# rediscovered the same way each time. Appended, never prepended, so this can
+# never shadow an earlier entry a caller chose deliberately.
 _LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 if _LIB_DIR not in sys.path:
     sys.path.append(_LIB_DIR)
@@ -532,7 +597,15 @@ from engine_bootstrap import (  # noqa: E402 -- see module-top note on this file
 
 _resolve_claude_klabauter_root = _resolve_engine_root
 
+# Dual-read window for the engine-root rename (docs/plans/2026-08-20-an-engine-
 # root-is-not-named-for-the-repo.md). The PUBLISHED engine is transformed on the
+# way out -- every `claude-klabauter` identifier becomes `claude_klabauter` -- but it still
+# imports THIS module from the live tree, which is not transformed. So a published
+# workstream_complete asks for `_resolve_claude_klabauter_root` and finds only
+# `_resolve_claude_klabauter_root`, and the ceremony tail dies on ImportError for every
+# session on the box. Exporting both names costs nothing and closes that window.
+# In the mirror this line transforms into a self-assignment, which is a harmless
+# no-op. Remove it only once no published engine references the old spelling.
 _resolve_claude_klabauter_root = _resolve_claude_klabauter_root
 def resolve_colocated_claude_klabauter_root(script_file: str) -> str:
     """Resolve the engine root for a CLI that lives INSIDE the engine checkout itself.
@@ -777,7 +850,15 @@ def _report_provenance(caller: str, root: str, axis: str) -> ProvenanceReport:
             return report
         from coordinator_core.engine_provenance_counter import record_engine_provenance
 
+        # Omitting cwd left resolve_git_root_cheap's
+        # `if not cwd: return None` guard firing on every call, so the sink
+        # silently never wrote a record (indistinguishable at the call site
+        # from an intentional unresolvable-root degrade). os.getcwd() is a
         # MISS-MODE-appropriate cwd for this sink: a symlinked-ancestor
+        # divergence between this and resolve_git_root's realpath answer only
+        # changes WHERE the append-only record lands, never a VERDICT (no
+        # guard decision rides on it), matching resolve_git_root_cheap's own
+        # documented caller contract.
         record_engine_provenance(
             caller,
             axis,
@@ -941,7 +1022,8 @@ _ENGINE_SPLIT_ANNOUNCED = False
 
 def _norm_path_for_split_compare(path: str) -> str:
     """normcase over realpath, falling back to normcase(abspath) if realpath
-    raises (e.g. a broken junction or an inaccessible ancestor).
+    raises (e.g. a broken junction or an inaccessible ancestor), plus a
+    manual backslash/case fold on top.
 
     Plain
     abspath+normcase never resolves a symlink/junction/8.3-short-name
@@ -949,11 +1031,19 @@ def _norm_path_for_split_compare(path: str) -> str:
     read as a false split. realpath closes that gap; the fallback keeps
     this function from ever raising past `_announce_engine_cli_split`'s own
     outer `except Exception`, which must never take a dispatch down.
+
+    `os.path.normcase` only folds separator/case on the host it runs on
+    (a no-op on POSIX). The two roots compared here can be Windows-style
+    strings even off a Windows host -- e.g. a dispatch root read from a
+    registry entry authored on Windows -- so a manual `\\` -> `/` and
+    lowercase fold runs unconditionally after normcase, never relying on
+    the host platform to supply it.
     """
     try:
-        return os.path.normcase(os.path.realpath(path))
+        resolved = os.path.realpath(path)
     except OSError:
-        return os.path.normcase(os.path.abspath(path))
+        resolved = os.path.abspath(path)
+    return os.path.normcase(resolved).replace("\\", "/").lower()
 
 
 def _announce_engine_cli_split(dispatch_root: str) -> None:
@@ -1598,14 +1688,27 @@ def _settings_home_env(base_env: dict[str, str], claude_klabauter_root: str | No
 
 _IMPORT_ERROR_TOKENS = ("importerror", "modulenotfounderror", "no module named")
 
+#: Cap on the raw-stdout tail `_op_error_detail` falls back to when the child's
 #: stdout is not a parseable JSON-RPC envelope. A traceback or a debug dump can
+#: run to megabytes; the raised message has to stay readable in a terminal.
 _OP_ERROR_DETAIL_CAP = 2000
 
 #: Cap on the raw-stdout prefix `cc_invoke()` includes when the JSON-RPC envelope
+#: itself fails to decode (rung (4), a process-succeeded-but-unparseable-stdout
+#: case distinct from `_op_error_detail`'s nonzero-exit rung above). Without this,
+#: a decode failure reported only `json.JSONDecodeError`'s "line 1 column 1"
+#: text — discarding the bytes that would classify it (stdout pollution ahead of
+#: the envelope vs. a genuinely malformed one) and forcing a fresh repro.
 _JSON_DECODE_FAILURE_PREFIX_CAP = 500
 
 
 #: `warm.client.WARM_DISPATCH_INDETERMINATE`, restated rather than imported.
+#: `_raise_on_process_failure` runs on a path that is ALREADY failing and whose
+#: docstring forbids it acquiring a second failure mode of its own, so it may not
+#: pay an import that can raise. Kept honest by
+#: `coordinator/bin/tests/test_cc_invoke_indeterminate.py`, which asserts this
+#: equals the engine's own constant — if the engine renumbers, that test fails
+#: rather than this rung silently ceasing to match.
 _WARM_DISPATCH_INDETERMINATE_CODE = -32004
 
 
@@ -2090,7 +2193,12 @@ def _timeout_exceeded_message(op: str, timeout: int) -> str:
     The returned text always starts with `_TIMEOUT_MESSAGE_PREFIX` — `is_timeout_error`
     depends on that invariant, on every branch.
     """
+    # A ceremony op's budget is a ratchet, not a knob: naming
     # COORDINATOR_DISPATCH_TIMEOUT_SECS here would hand the reader a remedy that
+    # provably cannot work (the engine clamps ceremony ops with `min()` AFTER
+    # reading that var) and would point them at the one door the ratchet exists
+    # to close. The ratchet is stated as a FACT, last, so it forecloses the knob
+    # without being read as this breach's cause.
     if _is_ceremony_op(op):
         budget_txt = ""
         if _OP_TIMEOUTS_STATE == "ok":
@@ -2127,6 +2235,10 @@ def _timeout_exceeded_message(op: str, timeout: int) -> str:
 
 
 #: Mirror of `coordinator_core.telemetry.op_latency.ROUTE_ENV` / `WARM_SERVER`.
+#: Spelled here, not imported: this module carries no `coordinator_core` import
+#: at module scope, and every coordinator CLI on the box pays its import cost.
+#: Pinned against the engine's own constants by
+#: `coordinator/bin/tests/test_cc_invoke_in_process_reentry.py`.
 _ROUTE_ENV = "COORDINATOR_EXECUTION_ROUTE"
 _ROUTE_WARM_SERVER = "warm_server"
 
@@ -2486,7 +2598,9 @@ def cc_invoke(
     env = _build_subprocess_env(claude_klabauter_root)
 
     # Per-op timeout ceiling (DEC-1..3): _t = engine_budget(op) + _CLIENT_START_MARGIN_SECS,
+    # resolved once-per-process from the engine's --dump-op-timeouts map
     # (_NO_BUDGET_FALLBACK_SECS when absent/errored). Shares the ceiling path with
+    # cc_invoke_bare so a composite op (e.g. session.boot_sweep, engine budget 30s) never
     # gets a facade timeout tighter than its engine-side DISPATCH_TIMEOUT_SECS budget.
     timeout = _op_timeout_ceiling(op, claude_klabauter_root, env)
 
@@ -2495,6 +2609,9 @@ def cc_invoke(
     stderr_text: str = ""
 
     # params ride a temp file (--params-file), NOT argv — ARG_MAX-immune (see the
+    # docstring's Params transport note above). Written, closed, passed by path,
+    # and unlinked in finally so a large payload never overflows argv. Mirrors
+    # cc_invoke_bare()'s identical --params-file handling below.
     _params_fd, _params_path = tempfile.mkstemp(prefix="cc-invoke-params-")
     try:
         try:
@@ -2536,6 +2653,7 @@ def cc_invoke(
     _raise_on_process_failure(rc, stdout_text, stderr_text, op, claude_klabauter_root)
 
     # (4) Parse the JSON-RPC envelope and extract the bare result object.
+    #     Mirrors the inline python3 -c '...' parse in the retired bash transport.
     try:
         envelope = json.loads(stdout_text)
     except json.JSONDecodeError as exc:
@@ -2641,6 +2759,7 @@ def cc_invoke_bare(
     stderr_text: str = ""
 
     # params ride a temp file (--params-file), NOT argv — ARG_MAX-immune. Written, closed,
+    # passed by path, and unlinked in finally so a large payload never overflows argv.
     _params_fd, _params_path = tempfile.mkstemp(prefix="cc-invoke-params-")
     try:
         try:
@@ -2680,7 +2799,10 @@ def cc_invoke_bare(
 
     _raise_on_process_failure(rc, stdout_text, stderr_text, op, claude_klabauter_root)
 
+    # (4) --bare: stdout IS the bare result object already (no jsonrpc/id/result wrapper,
+    #     no second strip-the-envelope spawn). The engine only reaches rc0 on a success
     #     response (a JSON-RPC error always exits nonzero, caught by rung (2)), so on this
+    #     path stdout is json.dumps(response["result"]). Parse to a dict for the caller.
     try:
         result = json.loads(stdout_text)
     except json.JSONDecodeError as exc:
@@ -2697,7 +2819,19 @@ def cc_invoke_bare(
     return result
 
 
+# ---------------------------------------------------------------------------
+# State-1 remediation — W0.5 Option B+C (PM-ratified 2026-07-19): the engine repo
 # is a MANDATORY prerequisite of coordinator in every environment. A seam-absent
+# route() call is not a legitimate "no engine installed, degrade gracefully"
+# outcome anymore — it is a broken install. Prior to this, State-1 silently
+# delegated to legacy_fn(), and under the big-bang bash-cutover legacy_fn is
+# almost always a thin per-caller stub that raises a generic, non-actionable
+# "native seam required (no bash fallback)" message (see e.g.
+# the retired bash sweep-shipped-handoffs.sh's _no_fallback). This wraps any legacy_fn
+# failure on the seam-absent path with the SAME four-rung remediation ladder
+# _resolve_claude_klabauter_root() itself walks, so every caller gets one consistent,
+# actionable error instead of N different bespoke stub messages.
+# ---------------------------------------------------------------------------
 
 def _state1_remediation_message(
     op: str,

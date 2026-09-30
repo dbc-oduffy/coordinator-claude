@@ -5,7 +5,11 @@ import sys
 from dataclasses import dataclass
 from typing import Optional
 
+# ---------------------------------------------------------------------------
 # COORDINATOR_OVERRIDE_BRANCH pattern: every git mutation carries this env pair
+# so the off-daily-branch PreToolUse guard does not deny it. Do NOT remove —
+# the guard denies git checkout/push on non-daily branches without it.
+# ---------------------------------------------------------------------------
 _OVERRIDE_ENV = {
     "COORDINATOR_OVERRIDE_BRANCH": "1",
     "COORDINATOR_OVERRIDE_BRANCH_REASON": "session-ensure-branch: create/push workstream branch",
@@ -23,11 +27,20 @@ class EnsureResult:
 
 
 ADOPTED_EXISTING = "ADOPTED-EXISTING"
+#: Another session won the cut lock and this one inherited its branch. NOT
 #: "FRESH-CUT" (this session did not cut) and NOT "REFUSED-LIVE-PEERS" (the
+#: invariant now holds) — callers branching on the result MUST carry an arm
+#: for it rather than folding it into either.
 INHERITED = "INHERITED"
 
+#: Today's branch existed but lagged HEAD -- every commit it carried was
+#: already reachable from HEAD (the ordinary post-/merging-to-main state), so
+#: its ref was advanced to HEAD and checked out. Content-neutral in exactly
+#: the sense a fresh cut is: HEAD's commit does not move, no file is touched,
+#: no index entry changes, and no commit is discarded (the ancestor test
 #: below is what proves the last of those). NOT "FRESH-CUT" (no new ref was
 #: minted) and NOT "ADOPTED-EXISTING" (a ref DID move); callers branching on
+#: the result MUST carry an arm for it.
 ADVANCED_TO_HEAD = "ADVANCED-TO-HEAD"
 
 _INHERIT_POLL_SECONDS = 2.0
@@ -230,7 +243,11 @@ def session_ensure_branch(
 
     is_boot = caller == "boot"
     if is_boot and not is_main:
+        # Case (B) -- a detached HEAD and a zero-ahead non-span branch are not
+        # "on main" in the PM's own words and take C10's warn, never a cut. The
         # CEREMONY caller keeps the wider admission set; inheriting it here
+        # would silently extend the authorised reversal on a path that fires
+        # on every boot.
         return EnsureResult(result="", new_branch="")
 
     from coordinator_core.session import worktree_safety as _ws
@@ -316,7 +333,12 @@ def _cut_or_adopt(*, target: str, is_boot: bool, env, err) -> EnsureResult:
 
     if _branch_ref_exists(new_branch):
         if is_boot:
+            # Every-boot invariant: the tree returns to main routinely
+            # (/merging-to-main ends there), so re-entering the -N suffix loop
+            # on every subsequent boot would mint a new branch each time and
+            # raise SuffixCollisionError INSIDE a SessionStart hook on the
             # 10th. The cut mutex does not help -- it serialises CONCURRENT
+            # boots, not sequential ones hours apart.
             head_sha = _head_sha()
             if head_sha and head_sha == _head_sha(new_branch):
                 run_forwarding(
@@ -372,7 +394,16 @@ def _cut_or_adopt(*, target: str, is_boot: bool, env, err) -> EnsureResult:
     )
 
     if is_boot:
+        # NO network call on the boot path. The SessionStart fan-in runs under
+        # a single shared 10s timeout with no per-guard budget; a cold-
+        # connection push to GitHub routinely exceeds it, and a harness kill
+        # mid-push leaves the cut lock held by a dead process for the whole
         # stale-grace window. The upstream is established by the CEREMONY
+        # leg instead (workday-start-day-branch-resolve.py's
+        # day-branch-assert subcommand -> publish_day_branch), with
+        # push_with_retry's no-upstream arm as the backstop -- NOT by
+        # auto_push.push_once, whose per-commit caller C6/C7 of
+        # docs/plans/2026-08-30-who-pushes-and-when.md deleted.
         print(f"FRESH-CUT branch={new_branch}")
         return EnsureResult(result="FRESH-CUT", new_branch=new_branch)
 

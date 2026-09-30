@@ -1,14 +1,9 @@
-
-
-#   1. $env:COORDINATOR_SETTINGS_HOME (if non-empty) → use verbatim
-#   2. else ${env:CLAUDE_HOME} (if non-empty), else $HOME → join
-
-
-# Negative-spec: empty-string values are NOT exported. An empty $env:REPO_FOO
-# would corrupt "$($env:REPO_FOO)/subdir" path joins to "/subdir" — matching
-
-
-#   "$($env:REPO_PROJECT_RAG)/subdir/file.py"
+# Sourced helper exporting $env:REPO_* for portable, host-independent repo paths. This
+# script is installed standalone on a consumer machine, so it resolves the settings home
+# by pure path arithmetic rather than sourcing a shared lib that is not guaranteed present.
+#
+# Empty-string values are NOT exported: an empty $env:REPO_FOO would corrupt
+# "$($env:REPO_FOO)/subdir" path joins to "/subdir".
 
 if ($env:CLAUDE_MACHINE_LOCAL_SOURCED) { return }
 
@@ -46,8 +41,9 @@ if (-not $_python) {
 $_dumpJson = & $_python $_reader dump --prefix repos --include-unset
 $_dumpRc = $LASTEXITCODE
 if ($_dumpRc -ne 0 -and [string]::IsNullOrWhiteSpace($_dumpJson)) {
-    
-    
+    # Reader failed and produced nothing -- most often a settings-home whose
+    # _machine_local.py predates the `dump` verb. Every $env:REPO_* would silently be
+    # unset; say so instead of degrading to an empty hashtable.
     Write-Error "claude-machine-local: reader at $_reader failed (rc=$_dumpRc) and returned nothing — no `$env:REPO_* is set. If it predates the 'dump' verb, re-run the coordinator install to refresh it."
 }
 $_dumped = if ([string]::IsNullOrWhiteSpace($_dumpJson)) { @{} } else { $_dumpJson | ConvertFrom-Json -AsHashtable }
@@ -56,13 +52,13 @@ foreach ($key in $_dumped.Keys) {
     $value = $_dumped[$key]
     # Normalize: repos.foo-bar → REPO_FOO_BAR. Handle both . and - as separators.
     $var = "REPO_" + ($key.Substring("repos.".Length) -replace '[.\-]','_').ToUpper()
-    
+    # Validate identifier.
     if ($var -notmatch '^[A-Z_][A-Z0-9_]*$') {
         [Console]::Error.WriteLine("claude-machine-local: warning: skipping key '$key' — produces non-conformant identifier '$var'")
         continue
     }
     if ($null -eq $value) {
-        
+        # Clean absence (rc=1) -- ladder found no value for this key; skip export.
         [Console]::Error.WriteLine("claude-machine-local: warning: '$key' not resolved by ladder — `$env:${var} not exported")
     } elseif ([string]::IsNullOrEmpty($value)) {
         
@@ -70,7 +66,7 @@ foreach ($key in $_dumped.Keys) {
         # "$($env:REPO_FOO)/subdir" path joins (see negative-spec above).
         [Console]::Error.WriteLine("claude-machine-local: warning: '$key' declared but has no value — `$env:${var} not exported")
     } else {
-        
+        # A pre-set, non-empty override wins over the ladder.
         if (-not [string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($var))) {
             continue
         }

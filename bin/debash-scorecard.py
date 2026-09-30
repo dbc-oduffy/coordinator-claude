@@ -45,7 +45,24 @@ from pathlib import Path
 
 BASELINE = {"all": 666, "tests": 278, "runtime": 388}
 
+# Clean-slate floor: files that stay bash because no Python equivalent can
+# exist, not because a bash caller happens to want them.
+#
+# Emptied of resolve-python.sh 2026-07-22. Its chicken-egg rationale did not
+# survive inspection: every .cmd launcher states in its own header that it
+# CANNOT defer to resolve-python.sh "because that is bash", and carries an
+# independent resolution ladder — so the file was never on the Windows
+# bootstrap path it claimed to serve. gen-launcher-shim.py reimplements its
+# pinned-interpreter tier in Python, which is proof by construction that
+# Python can do the job. Its only remaining sourcers were three bash test
+# files, deleted with it. spawn-hidden.sh left this floor the same day for a
 # similar reason (a Python parent can set CREATE_NO_WINDOW directly).
+#
+# The surviving irreducibles are NOT tracked here because they are not under
+# the runtime-bash count: interrogating the invoking shell's own version
+# (invoking-shell-bash4-probe.sh) and exporting env into a parent shell via
+# `source` (claude-machine-local.sh). Both are things a child process cannot
+# do by construction — the only defensible shape for this list.
 FLOOR = ()
 
 

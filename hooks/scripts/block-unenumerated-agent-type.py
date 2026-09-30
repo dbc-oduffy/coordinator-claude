@@ -67,11 +67,15 @@ if _HOOKS_DIR not in sys.path:
 try:
     from _engine_root import resolve_claude_klabauter_root as _resolve_claude_klabauter_root  # noqa: E402
 except Exception:
+    # A hook script deployed without its sibling _engine_root.py must still resolve to a
+    # callable returning None (driving the loud-pass leg below), never crash on import.
     def _resolve_claude_klabauter_root() -> Optional[str]:
         return None
 
 
 def _guard_did_not_run(what_failed: str) -> None:
+    """Emit the loud pass: no permission decision, so the dispatch proceeds, but the
+    operator and the model both see that this guard did not run."""
     sys.stdout.write(json.dumps(
         {
             "systemMessage": f"coordinator: unenumerated-agent-type guard did not run ({what_failed})",

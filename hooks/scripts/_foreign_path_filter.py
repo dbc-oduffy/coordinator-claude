@@ -31,6 +31,9 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+#: The `repos.*` registry keys naming the two planes: this doctrine repo, and
+#: the engine plane's two own working trees (authoring vs. published-and-
+#: shipped).
 _PLANE_REGISTRY_KEYS = (
     "repos.content_root",
     "repos.claude_klabauter",
@@ -39,6 +42,9 @@ _PLANE_REGISTRY_KEYS = (
 
 
 def session_repo_is_plane(cwd: str | Path) -> bool:
+    # Fails open to False: an unreadable registry or an unregistered key means "not
+    # determinably a plane repo", never a raise -- callers on the hot SessionStart path need a
+    # plain bool, and a false negative here just suppresses one more foreign-path line as-shown.
     try:
         _hooks_dir = str(Path(__file__).resolve().parent)
         if _hooks_dir not in sys.path:

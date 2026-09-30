@@ -43,6 +43,10 @@ from _guard_runner_contract import GuardScopeDescriptor  # noqa: E402
 
 @dataclass(frozen=True)
 class RegisteredStopFamilyGuard:
+    """One enrolled Stop-family guard: where its `main()` lives, its import-free
+    `GuardScopeDescriptor`, and the `sys.modules` key it is registered under on import.
+    Mirrors `_guard_runner.RegisteredGuard` without importing that class -- the two
+    runners stay independent."""
 
     module_key: str
     module_path: str
@@ -79,6 +83,12 @@ class _ByteSink:
 
 
 class _BufferedTextCapture(io.StringIO):
+    """`sys.stderr` stand-in that also exposes `.buffer` (a `_ByteSink`), since some
+    guards write via `sys.stderr.buffer.write()`. Both channels land in one ordered
+    `io.BytesIO`, so `combined()`/`combined_bytes()` preserve true emission order
+    byte-exactly -- two separately-accumulated buffers would reorder mixed-channel
+    output. Duplicated from the test-fixtures harness rather than imported, since this
+    production module must not depend on the fixtures tree."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -96,10 +106,16 @@ class _BufferedTextCapture(io.StringIO):
         return self._bytes.getvalue()
 
     def getvalue(self) -> str:
+        # Defensive override: base io.StringIO.getvalue() reads this instance's own
+        # internal text buffer, which write() above never populates -- everything routes
+        # through self._bytes instead.
         return self.combined()
 
 
 def _target_path_from_payload(payload: Any) -> Optional[str]:
+    # Same shape as _guard_runner._target_path_from_payload (Write/Edit/MultiEdit/
+    # NotebookEdit all nest the path under tool_input), reimplemented locally for the
+    # same independence reason as the rest of this module.
     if not isinstance(payload, dict):
         return None
     tool_input = payload.get("tool_input")
@@ -113,6 +129,9 @@ def _target_path_from_payload(payload: Any) -> Optional[str]:
 
 
 def _import_guard_module(guard: RegisteredStopFamilyGuard):
+    # Only reached once guard.descriptor.matches(target_path) is already True. Uses
+    # importlib.util.spec_from_file_location, same as _guard_runner._import_guard_module,
+    # because hyphenated filenames are not valid dotted-import identifiers.
     if guard.module_key in sys.modules:
         return sys.modules[guard.module_key]
     spec = importlib.util.spec_from_file_location(guard.module_key, guard.module_path)
@@ -129,32 +148,14 @@ def _import_guard_module(guard: RegisteredStopFamilyGuard):
 
 
 def _invoke_stop_guard_main(main_fn: Callable[[], int], stdin_text: str) -> Tuple[int, str]:
-    """Runs one guard's `main()` with stdin swapped and stderr captured
-    (contract clause 3) -- mirrors `_guard_runner._invoke_guard_main`'s
-    stdio-swap technique, but captures STDERR (this protocol's real
-    channel) instead of stdout, and returns the RAW `(exit_code,
-    stderr_text)` pair rather than translating into a verdict shape (there
-    is only one shape here, so no translation step is needed).
-
-    Captures via `_BufferedTextCapture`, not a plain `io.StringIO()`: the
-    two `nudge-*.py` guards route their CHANNEL_STOP emission through
-    `_message_envelope.emit()`, which deliberately writes via
-    `sys.stderr.buffer.write()` (raw UTF-8 bytes, bypassing Python's
-    Windows text-mode CRLF translation -- see that module's own docstring)
-    rather than `sys.stderr.write()`. A plain `io.StringIO` has no
-    `.buffer` attribute and raises `AttributeError` the instant such a
-    guard fires -- the exact same gap `coordinator/tests/fixtures/
-    hook-message-sweeps/message_measurement_harness.py`'s own
-    `_BufferedTextCapture` class was built to close for its measurement
-    harness; this reuses that same fix rather than rediscovering it.
-
-    Catches `SystemExit` defensively (contract clause 1 says a guard's
-    `main()` must not use it for control flow, but the runner never trusts
-    that by assumption alone) -- an uncaught `SystemExit` is treated as
-    `return 0` with whatever was captured on stderr up to that point, an
-    ultra-conservative choice since no enrolled guard's `main()` actually
-    calls `sys.exit()` internally (verified at authoring time by reading
-    all four)."""
+    """Runs one guard's `main()` with stdin swapped and stderr captured, mirroring
+    `_guard_runner._invoke_guard_main`'s stdio-swap but capturing stderr (this
+    protocol's real channel) and returning the raw `(exit_code, stderr_text)` pair.
+    Uses `_BufferedTextCapture`, not a plain `io.StringIO()`, since guards that write
+    via `sys.stderr.buffer.write()` would raise `AttributeError` otherwise.
+    `SystemExit` is caught defensively (a guard's `main()` must not use it for control
+    flow, but this never trusts that by assumption alone) and treated as `return 0`
+    with whatever was captured on stderr up to that point."""
     stdin_buf = io.StringIO(stdin_text)
     stderr_buf = _BufferedTextCapture()
     old_stdin = sys.stdin
@@ -176,6 +177,8 @@ def build_stop_family_entries(
     raw_payload_text: str,
     payload: Any,
 ) -> List[Tuple[str, Callable[[], Tuple[int, str]]]]:
+    # Two-stage lazy import: a guard whose descriptor does NOT match payload's target
+    # path never appears here, so its module is never imported.
     target_path = _target_path_from_payload(payload)
     entries: List[Tuple[str, Callable[[], Tuple[int, str]]]] = []
     for guard in registry:
@@ -250,5 +253,7 @@ def run_registered_stop_family_guards(
     payload: Any,
     skipped_out: Optional[List[str]] = None,
 ) -> Tuple[int, str]:
+    # Dispatcher-facing entrypoint. The caller writes the combined text to stderr and
+    # exits with the combined exit code exactly once, regardless of how many guards fired.
     entries = build_stop_family_entries(registry, raw_payload_text, payload)
     return run_stop_family_guards(entries, skipped_out=skipped_out)

@@ -102,8 +102,12 @@ from typing import Tuple
 
 from _guard_runner_contract import GuardScopeDescriptor
 
+#: Greppable registry token for this contract.
 TRIPWIRE_TOKEN = "STOP-FAMILY-RUNNER-CONTRACT"
 
+#: The PostToolUse write-path guards that speak the Stop-family protocol (stderr text +
+#: `return 2`, or silent `return 0`). Filenames only (no directory prefix) -- each is a
+#: sibling of this module under coordinator/hooks/scripts/.
 ENROLLED_GUARD_MODULES: Tuple[str, ...] = (
     "derive-global-doctrine-live-copy.py",
     "derive-setup-copies.py",
@@ -118,15 +122,21 @@ ENROLLED_GUARD_MODULES: Tuple[str, ...] = (
 #: conformance test can both source from THIS one dict rather than either
 #: re-declaring a copy.
 STOP_FAMILY_SCOPE_DESCRIPTORS = {
+    # Real scope: file_path resolves to exactly the tracked global-doctrine/CLAUDE.md path,
+    # or a hook_event_name == "SessionStart" payload -- path-shape is the only discriminant
+    # a Write|Edit|MultiEdit-scoped descriptor needs.
     "derive-global-doctrine-live-copy.py": GuardScopeDescriptor(
         guard_module="derive-global-doctrine-live-copy.py",
         path_suffixes=frozenset({"CLAUDE.md"}),
         directory_substrings=("global-doctrine/",),
     ),
+    # Real scope: file_path resolves to one of the canonical/derived rows under a setup/
+    # tree. No suffix restriction: the tracked pairs are .yaml, .md, .py.
     "derive-setup-copies.py": GuardScopeDescriptor(
         guard_module="derive-setup-copies.py",
         directory_substrings=("setup/",),
     ),
+    # Real scope: file_path is a state/initiatives/*.yaml write.
     "nudge-initiative-goals-ladder.py": GuardScopeDescriptor(
         guard_module="nudge-initiative-goals-ladder.py",
         path_suffixes=frozenset({".yaml"}),

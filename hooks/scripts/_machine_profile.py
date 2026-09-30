@@ -5,6 +5,9 @@ an explicit ``coordinator.machine_profile`` registry value wins; absent, the box
 ``author`` when any registered ``repos.*`` path carries a ``.coordinator-dev-repo``
 sentinel at its root, else ``consumer``. Stdlib only, no engine import, no subprocess.
 An unreadable registry resolves to ``consumer``.
+
+``feature_enabled(name)`` reads ``coordinator.feature.<name>`` (``on``/``off``);
+``doctrine_edit_gate`` is off unless set ``on``, and an unreadable key is off.
 """
 
 from __future__ import annotations
@@ -67,3 +70,31 @@ def machine_profile() -> str:
 
 def is_author() -> bool:
     return machine_profile() == "author"
+
+
+FEATURE_KEY = "coordinator.feature."
+#: Unset default per feature, mirroring the engine's ``_FEATURE_DEFAULT``:
+#: ``"profile"`` follows the machine profile, ``"off"`` is off everywhere.
+_FEATURE_DEFAULT = {
+    "cross_repo_memos": "profile",
+    "publishing": "profile",
+    "doctrine_edit_gate": "off",
+}
+
+
+def feature_enabled(name: str) -> bool:
+    """Whether ``coordinator.feature.<name>`` is on; an unreadable key or
+    registry resolves to the feature's unset default."""
+    default = _FEATURE_DEFAULT.get(name, "off")
+    try:
+        reg_dir = _settings_home_registry_dir()
+        env = os.environ.get("MACHINE_LOCAL_COORDINATOR_FEATURE_" + name.upper())
+        raw = env or _registry_value(reg_dir, FEATURE_KEY + name)
+        value = (raw or "").strip().lower()
+        if value in ("on", "off"):
+            return value == "on"
+        if default == "profile":
+            return machine_profile() == "author"
+    except Exception:  # noqa: BLE001 -- hooks fail open
+        return False
+    return default == "on"

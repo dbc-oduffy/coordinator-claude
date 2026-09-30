@@ -45,11 +45,15 @@ try:
         place_engine_root_on_path as _place_engine_root_on_path,
     )
 except Exception:
+    # Defensive fallback -- a hook script deployed without its sibling _engine_root.py must
+    # still fail-open rather than crash on import.
     def _resolve_claude_klabauter_root() -> str | None:
         return None
 
 
     def _place_engine_root_on_path(root):
+        # Fallback mirrors the primitive's placement rule: never index 0 when the hooks dir
+        # holds it, never the tail where site-packages outranks us.
         if root and root not in sys.path[:2]:
             sys.path.insert(1 if sys.path else 0, root)
         return root
@@ -66,6 +70,9 @@ try:
         verdict_to_envelope as _verdict_to_envelope,
     )
 except Exception:
+    # Same defensive-fallback shape as the _engine_root import above -- a missing sibling
+    # _guard_runner.py must degrade the runner to a no-op (engine verdict passes through
+    # unchanged), never brick the hook.
     _RegisteredGuard = None  # type: ignore[assignment]
     _REAL_GUARD_REGISTRY = ()  # type: ignore[assignment]
 
@@ -97,6 +104,9 @@ _GUARD_REGISTRY: "tuple" = _REAL_GUARD_REGISTRY
 
 
 def _compose_skipped_guard_breadcrumb(skipped: "list[str]") -> str:
+    """Best-effort stderr breadcrumb naming write-guard module(s) that failed to import and
+    were skipped (fail-open for those guards only). Pure; main() is the only caller and the
+    only place that prints it."""
     return (
         "[preuse-write-dispatch] write-guard module(s) failed to import "
         f"and were skipped (fail-open for those guards only): {', '.join(skipped)}"
@@ -108,7 +118,7 @@ def main() -> int:
 
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0
+        return 0  # fail-open ALLOW — engine unresolvable on this machine
 
     # Contract clause 8 (SYS.PATH ORDERING, `_guard_runner_contract.py`):
     # the engine root is APPENDED, never inserted at index 0 -- the hooks
@@ -122,13 +132,17 @@ def main() -> int:
     # tree -- see _engine_root.place_engine_root_on_path.
     _place_engine_root_on_path(root)
 
+    # Must precede the first coordinator_core.* import -- see _engine_root.arm_lazy_ops for
+    # the package-init cost this avoids.
     _arm_lazy_ops()
 
     try:
         from coordinator_core.write_guards.engine import evaluate_payload_json
     except Exception:
-        return 0
+        return 0  # engine unimportable → fail-open ALLOW
 
+    # Policy file for the reused subagent_sandbox guard lives at the doctrine-plane plugin
+    # root. __file__ parents: [0]=scripts [1]=hooks [2]=coordinator(plugin root)
     policy_path = str(Path(__file__).resolve().parents[2] / "subagent-sandbox-policy.yaml")
 
     cwd = None
@@ -142,8 +156,30 @@ def main() -> int:
         cwd = None
         payload = {}
 
+    # `_skipped` is populated in-place by evaluate_payload_json()'s own discovery pass -- the
+    # runtime-visible half of the silent-import-failure fix: a guard module that raised on
+    # import is otherwise just absent, with nothing to show for it. The in-process guard
+    # runner below reuses this same list for its own exception isolation -- one breadcrumb
+    # surface, not two.
     _skipped: list[str] = []
 
+    # Aggregation opt-in. Without it the engine returns only the first matching advisory in
+    # priority order and stops, so a lower-priority guard that fired is discarded before
+    # anyone reads it -- a real masking case is one priority-105 nudge masking a priority-110
+    # advisory on exactly the files where a subprocess spawn site is being authored.
+    # Re-prioritising was rejected: it only moves which advisory is masked.
+    #
+    # evaluate_payload_json does not declare `aggregate` yet -- only the evaluate() it
+    # delegates to does. Passing it blind would raise TypeError into the fail-open below and
+    # silently disable EVERY write guard, hard-denies included. So this feature-detects:
+    # byte-for-byte identical behaviour until the engine plane forwards the keyword, and
+    # aggregating automatically the moment it does.
+    #
+    # Detection reads __code__ directly rather than importing `inspect`: this dispatcher runs
+    # in a fresh interpreter on every Write/Edit event, and `inspect` is a multi-millisecond
+    # import to answer a question one tuple lookup already answers. A callee without
+    # __code__ (a C function, an un-unwrappable wrapper) simply keeps today's non-aggregating
+    # behaviour.
     kwargs: dict = {"policy_path": policy_path, "cwd": cwd, "skipped_out": _skipped}
     try:
         _code = evaluate_payload_json.__code__
@@ -156,8 +192,12 @@ def main() -> int:
     try:
         out = evaluate_payload_json(raw, **kwargs)
     except Exception:
-        return 0
+        return 0  # any engine failure → fail-open ALLOW (never brick an edit)
 
+    # Under aggregate=True the advisory phase returns a LIST of envelopes (empty when nothing
+    # fired); the hard-deny phase is unchanged and still returns a single envelope.
+    # Normalising here keeps `out` a lone envelope or None for every path below -- a list
+    # must never reach stdout, where the harness expects exactly one hookSpecificOutput.
     engine_envelopes: list = []
     if isinstance(out, list):
         engine_envelopes = out
@@ -186,8 +226,12 @@ def main() -> int:
         if merged_out is not None:
             out = merged_out
     except Exception:
+        # Guard-runner failure must never override the engine's own verdict, nor brick the
+        # edit -- fall through with `out` unchanged.
         pass
 
+    # Best-effort signal only -- must never affect the ALLOW/DENY decision above or this
+    # hook's own exit code; any failure here is swallowed.
     try:
         if _skipped:
             print(_compose_skipped_guard_breadcrumb(_skipped), file=sys.stderr)

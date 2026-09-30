@@ -50,6 +50,8 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+# Extensionless first so a POSIX install (or a pre-migration Windows script) resolves to what
+# it resolved to before; `.exe` is additive coverage, not a behaviour change.
 _FORWARDER_SUFFIXES = ("", ".exe")
 
 # Suffixes whose file is a native executable, launched bare. A suffix is a
@@ -71,6 +73,8 @@ from _bin_impl_drift import _is_native_image  # noqa: E402
 
 
 def resolve_forwarder(bin_dir: Path, name: str) -> Optional[Path]:
+    # Pair the result with forwarder_argv -- the two are a unit, because which variant
+    # resolved determines whether an interpreter prefix is required.
     for suffix in _FORWARDER_SUFFIXES:
         candidate = bin_dir / f"{name}{suffix}"
         try:

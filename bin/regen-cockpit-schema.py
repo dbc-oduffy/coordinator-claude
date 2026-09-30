@@ -375,6 +375,11 @@ def main(argv: list[str] | None = None) -> int:
     mak_root = claude_klabauter_root()
     if not mak_root or not os.path.isdir(mak_root):
         # foreign-identity: NOT-REACHABLE — basis: DELIBERATE INVOCATION, not true
+        # unreachability. Schema-regen maintenance CLI (Usage: `python
+        # coordinator/bin/regen-cockpit-schema.py`, deliberately typed); a third-repo
+        # session cannot hit this ambiently, but a foreign-repo operator CAN reach it
+        # by typing the command — matching the audit's row 9/16 precedent for
+        # deliberately-invoked maintenance ops.
         print("ERROR: could not resolve the engine checkout path.", file=sys.stderr)
         print("  This script regenerates the cockpit-contract schema via claude-klabauter's Python emitter.", file=sys.stderr)
         print("  Prerequisite: a local checkout of the engine, registered as machine-local key", file=sys.stderr)
@@ -413,7 +418,13 @@ def main(argv: list[str] | None = None) -> int:
         capture_output=True,
         text=True,
     )
+    # Success-path stdout/stderr from the claude-klabauter emitter subprocess is not
+    # relayed here — this script prints its own "Done." summary below, and
+    # no test/wiki contract in this repo asserts on the emitter's own
     # success-path output. `_EMITTER_MODULE` is a claude-klabauter source
+    # module outside this repo; if it turns out to emit load-bearing
+    # progress output on success, switch this to unconditional relay.
+    # (Review: code-reviewer — Finding 6, 2026-07-22.)
     if result.returncode != 0:
         if result.stdout:
             print(result.stdout, file=sys.stderr, end="" if result.stdout.endswith("\n") else "\n")

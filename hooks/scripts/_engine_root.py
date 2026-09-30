@@ -1012,6 +1012,11 @@ def resolve_claude_klabauter_root_with_provenance() -> tuple[str | None, str, st
         env_override = _resolve_live_tree_env_override()
         if env_override:
             if (Path(env_override) / "coordinator_core").is_dir():
+                # An override that is only a link onto the stamped published
+                # engine (the cloud pin) names no live tree: report it as such.
+                published = _resolve_published_engine()
+                if published and os.path.realpath(env_override) == os.path.realpath(published):
+                    return published, RESOLUTION_RESOLVED_ENGINE, "published-target"
                 return env_override, RESOLUTION_LIVE_WORKING_TREE, "env-override"
             override_var = next(
                 (v for v in LIVE_TREE_ENV_VARS if os.environ.get(v) == env_override),

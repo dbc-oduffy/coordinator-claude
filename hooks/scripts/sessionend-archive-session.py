@@ -58,6 +58,7 @@ from pathlib import Path
 
 
 def _read_stdin(timeout: float = 2.0) -> str:
+    # Bounded read is a Windows hang guard.
     box = {"data": ""}
 
     def _read() -> None:
@@ -83,6 +84,10 @@ except Exception:
 
 
 def _note_degradation(payload: dict, note: str) -> None:
+    # Records a condition under which this hook archived NOTHING, so a silent-no-op run is
+    # discoverable by grep instead of invisible. Deliberately does not use the per-session dir
+    # (one caller has no session key) and never raises -- a diagnostics write that could break
+    # session teardown is worse than the blind spot it documents; every failure here is swallowed.
     try:
         cwd = payload.get("cwd")
         probe = Path(cwd).resolve() if isinstance(cwd, str) and cwd else Path.cwd()
@@ -121,6 +126,9 @@ def main() -> int:
 
     session_id = payload.get("session_id")
     if not isinstance(session_id, str) or not session_id:
+        # Never guess a session key, but do not vanish either: if session_id is absent contrary
+        # to the general hook-payload contract, this hook would no-op on EVERY session with no
+        # symptom besides slow directory growth reaped 24h later. Leave a breadcrumb.
         _note_degradation(
             payload,
             "SessionEnd payload carried no usable session_id; archival skipped.",
@@ -129,10 +137,13 @@ def main() -> int:
 
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0
+        return 0  # fail-open -- engine repo unresolvable on this machine
 
     archive_cli = Path(root) / "coordinator" / "bin" / "archive-session-scope.py"
     if not archive_cli.is_file():
+        # Fail-open, but never silently: this path is hardcoded against a tree this repo does
+        # not own, and a rename on that side would degrade the sole archival occasion to a
+        # no-op with nothing erroring.
         _note_degradation(
             payload,
             f"archival CLI absent at {archive_cli}; claim dir NOT archived this "
@@ -150,7 +161,7 @@ def main() -> int:
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except Exception:
-        pass
+        pass  # any subprocess failure (missing interpreter, timeout, ...) -- fail-open
 
     return 0
 

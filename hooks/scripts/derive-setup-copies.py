@@ -89,6 +89,8 @@ if _HOOKS_DIR not in sys.path:
 
 from _message_envelope import CHANNEL_STOP, compose, emit  # noqa: E402
 
+#: Wiki section documenting parity-mode semantics (permanent vs temporary
+#: contract-only rows, canonical->derived direction) referenced from advisories.
 _WIKI_ANCHOR = (
     "coordinator/docs/wiki/guards/guard-message-concision.md"
     "#derive-setup-copies-parity-modes-and-remedies"
@@ -119,6 +121,9 @@ class Row:
     parity_test: str | None = None
 
     def __post_init__(self) -> None:
+        # Fail loudly at construction time on any mode outside the known
+        # set, so a typo or a future third mode can never reach
+        # `_derive_or_raise` and silently fall through to `shutil.copyfile`.
         if self.mode not in _VALID_MODES:
             raise ValueError(
                 f"Row for {self.canonical} has unrecognized mode {self.mode!r}; "
@@ -128,6 +133,7 @@ class Row:
 
 @dataclass(frozen=True)
 class ResolvedRow:
+    """A `Row` with both sides resolved to absolute paths against one repo root."""
 
     canonical: Path
     derived: Path
@@ -135,6 +141,9 @@ class ResolvedRow:
     parity_test: str | None = None
 
     def __post_init__(self) -> None:
+        # Same guard as Row.__post_init__ -- a ResolvedRow can also be
+        # hand-constructed directly, so it must not accept an unrecognized
+        # mode either.
         if self.mode not in _VALID_MODES:
             raise ValueError(
                 f"ResolvedRow for {self.canonical} has unrecognized mode "
@@ -163,6 +172,9 @@ ROWS: tuple[Row, ...] = (
 
 
 class ContractOnlyNotOverwritten(Exception):
+    """Raised by `_derive_or_raise` when a canonical write matches a
+    contract-only row -- the mode is checked before any file I/O, so no
+    path here reaches `shutil.copyfile` for a contract-only row."""
 
     def __init__(self, row: ResolvedRow) -> None:
         super().__init__(f"contract-only row, not overwritten: {row.derived}")
@@ -187,6 +199,7 @@ def _parse_input(raw: str) -> dict:
 
 
 def _repo_root() -> Path:
+    # coordinator/hooks/scripts/<this file> -> parents[3] is the repo root.
     return Path(__file__).resolve().parents[3]
 
 
@@ -210,6 +223,10 @@ def _resolved_rows(repo_root: Path) -> tuple[ResolvedRow, ...]:
 
 
 def _derive_or_raise(row: ResolvedRow) -> None:
+    """Perform the canonical->derived derivation for one row, or raise.
+
+    `contract-only` rows raise `ContractOnlyNotOverwritten` before any file
+    is touched -- there is no fallthrough to `shutil.copyfile` for them."""
     if row.mode == CONTRACT_ONLY:
         raise ContractOnlyNotOverwritten(row)
     row.derived.parent.mkdir(parents=True, exist_ok=True)
@@ -252,6 +269,9 @@ def _advise_derived_write(file_path: str, row: ResolvedRow) -> None:
 
 
 def _exc_reason(exc: Exception) -> str:
+    """Short OS-error reason without the embedded filename `OSError.__str__`
+    repeats -- the path is already carried separately in the composer's
+    `alternative` slot."""
     return getattr(exc, "strerror", None) or str(exc)
 
 
@@ -282,6 +302,8 @@ def _compose_contract_only_message(row: ResolvedRow):
 
 
 def _compose_write_failure_message(row: ResolvedRow, exc: Exception, source_bytes: bytes):
+    """Pure composer for a derived-write failure after a successful
+    canonical read. `row.derived` rides the exempt `alternative` slot."""
     prose = (
         f"FAILED to write derived -- canonical read OK, derivation did NOT "
         f"complete ({_exc_reason(exc)})."
@@ -290,11 +312,16 @@ def _compose_write_failure_message(row: ResolvedRow, exc: Exception, source_byte
 
 
 def _compose_success_message(row: ResolvedRow, source_bytes: bytes):
+    """Pure composer for a successful byte-copy re-derivation. `row.derived`
+    rides the exempt `alternative` slot instead of being repeated inline
+    alongside `row.canonical`."""
     prose = f"re-derived derived copy from canonical ({len(source_bytes)} bytes)."
     return compose(prose, alternative=str(row.derived), anchor=_WIKI_ANCHOR)
 
 
 def _handle_canonical_write(row: ResolvedRow) -> int:
+    # Routed through `_message_envelope.emit()` -- see `_advise_derived_write`
+    # above for the CRLF byte-fidelity rationale.
     try:
         source_bytes = row.canonical.read_bytes()
     except Exception as exc:

@@ -136,6 +136,10 @@ from pathlib import Path
 
 
 def _read_stdin(timeout: float = 2.0) -> str:
+    """Bounded stdin read -- a bare sys.stdin.read() blocks forever if the harness never
+    closes stdin's write end (observed Windows failure mode). This hook fires on every
+    PostToolUse event, so a hang here stalls every subsequent tool call in the session.
+    Falls back to "" on timeout, same as a JSON-decode failure."""
     box = {"data": ""}
 
     def _read() -> None:
@@ -159,6 +163,7 @@ try:
         resolve_claude_klabauter_root as _resolve_claude_klabauter_root,
     )
 except Exception:
+    # A deploy missing its sibling _engine_root.py must fail-open rather than crash on import.
     def _resolve_claude_klabauter_root() -> str | None:
         return None
 
@@ -182,7 +187,7 @@ def main() -> int:
 
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0
+        return 0  # fail-open -- engine repo unresolvable on this machine
 
     from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
     _place_engine_root_on_path(root)
@@ -190,10 +195,14 @@ def main() -> int:
     _arm_lazy_ops()
 
     try:
+        # Importing coordinator_core.hooks.postuse_advisory_dispatch triggers the
+        # coordinator_core.hooks package __init__ (registers every advisory + bookkeeping op
+        # via register_op side-effects at import time) -- in-process, zero subprocess spawns,
+        # but a fresh cost every fire since each hook fire is a fresh process.
         from coordinator_core.hooks import postuse_advisory_dispatch as _op  # noqa: F401
         from coordinator_core.ipc import HookDispatchError, dispatch_ops_from_hook
     except Exception:
-        return 0
+        return 0  # engine unimportable -> fail-open
 
     try:
         payload = json.loads(raw)
@@ -214,6 +223,9 @@ def main() -> int:
         "agent_id": payload.get("agent_id", ""),
         "tool_name": tool_name,
     }
+    # file_path/content are gated on tool_name == "Write" -- the overwhelming majority of
+    # PostToolUse fires must not serialise an unbounded file body across the IPC seam for a
+    # param no consumer reads on other tools.
     if tool_name == "Write":
         params["file_path"] = tool_input.get("file_path", "")
         params["content"] = tool_input.get("content", "")
@@ -260,7 +272,7 @@ def main() -> int:
             origin_worktree=payload.get("cwd", ""),
         )
     except Exception:
-        return 0
+        return 0  # any engine failure -> fail-open (never brick a tool call)
 
     advisory_result = results[0] if results else None
     if isinstance(advisory_result, HookDispatchError):
@@ -272,7 +284,7 @@ def main() -> int:
     # "stdout NOTHING") -- a HookDispatchError there is simply discarded,
     # exactly as the old try/except swallow discarded it, and exactly as
     # the isolation contract above requires it not to touch advisory_result.
-    if advisory_result:
+    if advisory_result:  # {} (no_advisory) and None both fall through to no-output
         sys.stdout.write(json.dumps(advisory_result))
         sys.stdout.write("\n")
     return 0

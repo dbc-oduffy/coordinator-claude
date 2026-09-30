@@ -82,7 +82,10 @@ def main() -> None:
         )
         sys.exit(1)
 
+    # plugin_root mirrors the original .sh's own resolution:
     # ${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)} —
+    # env override first, else this file's own grandparent directory
+    # (coordinator/bin/install-health/seed-skill-overrides.sh -> coordinator/).
     plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT") or os.path.dirname(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     )

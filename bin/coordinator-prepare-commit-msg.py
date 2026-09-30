@@ -191,7 +191,14 @@ _UUID_RE = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 )
 
+#: Range-shaped chunk-id prefix on a commit subject — `C1-C5: <prose>`,
+#: `C1 - 5: <prose>`, `1-4: <prose>`. Deliberately requires DIGITS on BOTH
+#: sides of the hyphen, which is what keeps every real compound dash-tag in
 #: the corpus (`DOCTRINE-C7a:`, `RESIDUE-C9:`, `RESIDUE-C1..C7:`) out of it:
+#: their left component is prose, so the alternation never starts. The
+#: optional right-hand alpha prefix is captured so it can be checked equal to
+#: the left one (or absent) before firing — `C1-D4:` is two different spine
+#: families, not a range, and must not be reported as one.
 _HYPHEN_RANGE_SUBJECT_RE = re.compile(
     r"^\s*(?P<lp>[A-Za-z]{0,10}?)(?P<ln>\d+)\s*-\s*(?P<rp>[A-Za-z]{0,10}?)(?P<rn>\d+)\s*:"
 )
@@ -916,7 +923,7 @@ def _config_value(path: str, section: str, key: str) -> str:
 
 
 def _resolve_operator(git_dir: str) -> str:
-    home = os.environ.get("HOME") or os.path.expanduser("~")
+    home = os.environ.get("HOME") or os.environ.get("USERPROFILE") or str(Path.home())
     global_override = os.environ.get("GIT_CONFIG_GLOBAL")
     if global_override:
         candidates = [global_override]

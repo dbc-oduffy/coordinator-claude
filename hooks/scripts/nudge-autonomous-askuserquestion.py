@@ -111,6 +111,9 @@ _NUDGE_ANCHOR = (
 
 
 def _compose_advisory(posture: str):
+    """The single unconditional advisory emitted at every firing posture.
+    Renders no verdict on the question at hand -- it does not classify,
+    match, or inspect `tool_input.questions` at all -- and blocks nothing."""
     prose = (
         f"[first-officer posture: {posture}]\n"
         "Structure, naming, sequencing, break-class fixes: decide, report.\n"
@@ -124,18 +127,22 @@ def main() -> int:
     try:
         raw = sys.stdin.read()
     except Exception:
-        return 0
+        return 0  # fail-open -- stdin unreadable
 
     try:
         payload = json.loads(raw) if raw else {}
         if not isinstance(payload, dict):
             payload = {}
     except Exception:
+        # fail-open -- malformed JSON; an empty dict is behaviorally
+        # equivalent here since no agent_id means bypass 1 falls through.
         payload = {}
 
+    # Bypass 1: subagent fire -- not the EM's own AskUserQuestion
     if payload.get("agent_id"):
         return 0
 
+    # Bypass 2: irreversible-external override
     if os.environ.get("COORDINATOR_AUTONOMOUS_ASK_OK", "") == "1":
         return 0
 
@@ -143,19 +150,28 @@ def main() -> int:
     if not isinstance(session_id, str):
         session_id = ""
 
+    # Bypass 3: fail-open -- no session_id extracted
     if not session_id:
         return 0
 
+    # Bypass 4: sentinel gate OR standing posture -- fire inside an active
+    # autonomous run, OR when the resolved engagement_posture is
+    # "default"/"substrate-free" (the ask-bar disposition is standing at
+    # those postures, not gated behind a manual sentinel toggle).
+    # tempfile.gettempdir() is used rather than a literal "/tmp/..." path:
+    # under a Windows-native python3.exe, "/tmp" is not the MSYS mount Git
+    # Bash resolves to %TEMP%, so a literal path would silently miss every
+    # sentinel the bash hook can see.
     sentinel_path = os.path.join(tempfile.gettempdir(), f"autonomous-run-{session_id}")
     try:
         sentinel_present = os.path.isfile(sentinel_path)
     except Exception:
-        sentinel_present = False
+        sentinel_present = False  # fail-open -- stat failure
 
     try:
         posture = resolve_posture()
     except Exception:
-        posture = "precision"
+        posture = "precision"  # fail-open -- posture resolution failure
 
     if not sentinel_present and posture not in ("default", "substrate-free"):
         return 0

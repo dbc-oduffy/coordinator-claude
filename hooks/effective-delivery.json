@@ -651,7 +651,7 @@
       },
       "scripts/postuse-stop-family-dispatch.py": {
         "script": "scripts/postuse-stop-family-dispatch.py",
-        "matcher": "Write|Edit|MultiEdit",
+        "matcher": "Write|Edit|MultiEdit|Bash|PowerShell",
         "guards": [
           {
             "id": "derive-global-doctrine-live-copy.py",
@@ -659,7 +659,9 @@
             "tool_names": [
               "Write",
               "Edit",
-              "MultiEdit"
+              "MultiEdit",
+              "Bash",
+              "PowerShell"
             ]
           },
           {

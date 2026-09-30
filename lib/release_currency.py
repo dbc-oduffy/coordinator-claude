@@ -284,7 +284,25 @@ def release_currency_probe(plugin: str, owner_repo: str, install_root: str) -> s
 
     local_sha = _rc_resolve_version_txt(install_root)
     if local_sha is None:
+        # No version.txt — check whether the install-root is a git work-tree.
+        # A bare/junctioned git clone has no version.txt but IS a git
+        # work-tree and MUST NOT be silently exempt — it may be many commits
+        # behind origin/main.
+        #
+        # negative-spec: returning source_is_live here was the pre-fix
+        # behaviour that caused a false "not shipped" blocker (a stale clone
+        # got no "you're behind" warning). Do NOT revert to unconditional
+        # source_is_live for the no-version.txt case.
+        #
         # CONTRIBUTOR-CLONE GUARD (the Staff Engineer F3): before counting behind-ness,
+        # check whether this clone is registered as
+        # propagation_mode=source_is_live in the machine-local registry. An
+        # authoring/contributor box has a git clone but no version.txt and IS
+        # source_is_live — its live_path is the very content root the
+        # resolver returns. On a contributor's feature/work branch a
+        # behind-count would produce a false "N commits behind origin/main"
+        # nag during normal development. source_is_live-registered clones are
+        # silent.
         reg_live = _rc_registry_live_path()
         if reg_live and reg_live.rstrip("/") == install_root.rstrip("/"):
             return "source_is_live"

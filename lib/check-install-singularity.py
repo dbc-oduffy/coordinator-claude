@@ -1,5 +1,39 @@
+# check-install-singularity.py — CLI trampoline over claude-klabauter
+# coordinator_core.install.check_install_singularity.
+#
+# Finish-strangler port: the bash implementation (canonical-install-locus
+# invariant probe — detects accidental coordinator install splits) has been
+# fully ported to coordinator_core/install/check_install_singularity.py, with
+# tests in the co-located test_check_install_singularity.py. This file is now
+# a thin DoE-side (contract) trampoline over that claude-klabauter (engine) module, per
+# DR-047 (DoE owns contract/generator, claude-klabauter owns engine).
+#
+# Exit convention: this is a fail-loud gate/validator script (install.md
+# Step 7.5 "canonical-locus integrity gate", a `run_required` step; also a
+# doctor-sentinel P-18 probe treated as red-on-nonzero) — codes:
+#   0 — install singularity confirmed, or consented dev-loop override active
+#   1 — accidental split detected (remediation printed to stderr)
+#   2 — the claude-klabauter module's OWN internal-error floor (an unhandled exception
+#       inside check_install_singularity.py's run()) — reserved exclusively
+#       for that case; never used by this trampoline.
+#   3 — this trampoline's OWN transport failure: engine-root resolution
+#       failed, or the engine module could not be imported. Dedicated code
+#       (not 2) so a caller's exit-code branch can distinguish "the engine
+#       ran and hit an internal bug" (2, fix the ported check) from "the
+#       engine could never be reached at all" (3, fix engine-root/venv
+#       resolution) — these have different remediation paths. Matches the
+#       pattern used by the sibling `gen-settings-hooks.py` trampoline in
+#       this same port wave, which also reserves a code distinct from its
+#       own business codes for transport failure
 #       (PORTER-BRIEF-ADDENDUM rule 3b; review-integrator F4,
 #       2026-07-17 BIG_PORT Wave B review).
+#
+# Usage: check-install-singularity.py   (no arguments)
+#
+# Spec backlink:
+#   docs/plans/2026-06-26-coordinator-install-update-friction-fix-slate.md § C-R1b
+#   tasks/install-friction-triage/cluster-B-path-venv-registration.md § ISSUE #4
+# Port backlink: docs/plans/2026-07-15-bash-to-naked-python-engine-migration.md
 #   (BIG_PORT Wave B, item check-install-singularity)
 from __future__ import annotations
 

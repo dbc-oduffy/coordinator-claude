@@ -278,6 +278,7 @@ def _git_ls_files(repo_root: Path, pathspec: str) -> tuple:
         capture_output=True,
         text=True,
         check=True,
+        timeout=10,
         **no_console_creationflags(),
     )
     return tuple(line for line in result.stdout.splitlines() if line)
@@ -317,6 +318,7 @@ def _git_ls_files_batch(repo_root: Path, pathspecs: tuple) -> dict:
         capture_output=True,
         text=True,
         check=True,
+        timeout=10,
         **no_console_creationflags(),
     )
     matched = [line for line in result.stdout.splitlines() if line]

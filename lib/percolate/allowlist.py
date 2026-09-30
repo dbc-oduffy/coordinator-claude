@@ -226,7 +226,15 @@ class AllowlistError(Exception):
     pass
 
 
+# Keyed by the `Path` a `build_allowlisted_source` call returned, holding the
 # PRE-FILTER (pre-copy-time-ignore) restricted-tree-relative path list for
+# that build — see `build_allowlisted_source`'s multi-source branch and
+# `get_pre_filter_paths` below. `pathlib.Path` cannot carry an ad-hoc
+# attribute (it is `__slots__`-based), and `build_allowlisted_source`'s
+# return type is fixed at `-> Path` by contract, so this out-of-band-by-key
+# map is the seam: keyed by the unique per-call `tempfile.mkdtemp()` result,
+# never overwritten across calls, and cheap to leave unread (single-source
+# callers never touch it).
 _pre_filter_paths_by_tmp_src: dict[Path, list[str]] = {}
 
 
@@ -512,7 +520,18 @@ def _classify_dir_pattern_against_entries(
             return ("wholesale", longest)
         return ("below", longest)
 
+    # Per `ignore.py` branch 2, an any-depth directory pattern matches not
+    # only a strict path-prefix of `entry` (`e.startswith(dir_ + "/")`) but
     # also `dir_` occurring as an INTERIOR or TRAILING path segment of
+    # `entry` anywhere (`("/" + dir_ + "/") in rel_path` in `ignore.py`'s own
+    # matcher). The substring form below covers both: for `dir_` a strict
+    # prefix, `"/" + e + "/"` contains `"/" + dir_ + "/"` at its start; for
+    # `dir_` naming a middle or last segment (e.g. `wiki` against entry
+    # `docs/wiki`), the leading/trailing `/` padding turns the plain
+    # `in`-membership test into exactly ignore.py's any-depth check. The
+    # `nesting` check above runs first, so `dir_ == e` is already claimed as
+    # `wholesale` before reaching here — this substring test would also
+    # match that case, but it never gets the chance to.
     ancestored = [e for e in all_entries if ("/" + dir_ + "/") in ("/" + e + "/")]
     if ancestored:
         return ("ancestor", ancestored)
@@ -711,6 +730,10 @@ def build_allowlisted_source(
     sm = source_map or {}
 
     # SINGLE-SOURCE vs MULTI-SOURCE per the module contract: determined by
+    # the *shape of source_map itself*, not merely by which roots the
+    # current allowlist entries happen to use — a source_map that names a
+    # second root always puts the build on the multi-source path, even if
+    # (today) every entry still resolves to real_src.
     contributing_roots = {real_src} | set(sm.values())
     multi_source = len(contributing_roots) >= 2
 
@@ -733,7 +756,11 @@ def build_allowlisted_source(
 
     tmp_src = Path(tempfile.mkdtemp())
 
+    # Pre-filter relative-path list (multi-source only) — retained so
     # check_working_data_paths can scan what the allowlist ADMITTED before
+    # copy-time ignore filtering shrank the tree, rather than losing the
+    # ability to distinguish "allowlist is correct" from "allowlist is
+    # wrong but the ignore file happened to cover it."
     pre_filter_paths: list[str] = []
 
     matcher_cache: dict[Path, PercolateIgnoreMatcher] = {}

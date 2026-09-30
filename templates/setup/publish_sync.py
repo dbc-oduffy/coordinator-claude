@@ -200,6 +200,9 @@ def _locate_percolate_lib() -> Path:
                     return registry_candidate.parent.parent
 
     try:
+        # Assumes this file's fixed dev-tree depth (<checkout-root>/coordinator/templates/setup/).
+        # A deployed copy is shallower, so this either lands outside the real checkout
+        # or raises IndexError on a filesystem root -- both caught below.
         checkout_root = Path(__file__).resolve().parents[3]
         sibling_candidate = (
             checkout_root.parent
@@ -241,6 +244,10 @@ from percolate.publish_modes import (  # noqa: E402  (path setup must precede th
     argparse_mode_choices,
 )
 
+# A console-subsystem child with no console of its own allocates a fresh conhost
+# on Windows, with a visible window -- every git spawn below is short-lived and
+# output-captured, so without this each one flashes. 0 on POSIX, where the flag
+# does not exist.
 _NO_CONSOLE = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
 
 
@@ -1260,6 +1267,9 @@ def _run_git(dest_dir: Path, *args: str) -> None:
         **_NO_CONSOLE,
     )
     if result.returncode != 0:
+        # Bounded: an unbounded git stderr blob would otherwise fold in full into this
+        # exception's message, which propagates through publish.py into whatever surface
+        # reports it.
         stderr = result.stderr.strip()
         if len(stderr) > 2000:
             stderr = stderr[:2000] + f"... [{len(result.stderr.strip()) - 2000} more chars truncated]"

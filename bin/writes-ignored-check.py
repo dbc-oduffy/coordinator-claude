@@ -105,7 +105,12 @@ def declared_write_paths(spine_read, plan_path: pathlib.Path):
         rows = spine_read.read_spine(plan_path)
     except Exception as exc:
         message = str(exc)
+        # The reader raises ONE error type for both situations and names which
+        # inside the message, so branch on that rather than on the type. ABSENT
+        # is the ordinary case — most plans in a corpus are prose — and must not
         # report as a defect; MALFORMED means a spine is there and a YAML fault
+        # made it unreadable. Getting this backwards makes the tool cry wolf on
+        # every prose plan, which is how a check stops being run.
         if "is ABSENT" in message:
             return {}, None
         return {}, f"{type(exc).__name__}: {message}"

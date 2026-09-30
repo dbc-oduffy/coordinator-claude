@@ -125,8 +125,11 @@ def _resolve_repo_root(explicit_root: str | None = None) -> tuple[str | None, st
     if verdict["verdict"] == "MISMATCH":
         return None, verdict["message"]
     if not root:
+        # No git root resolved from cwd at all -- distinct from the
         # MISMATCH identity gate above (positive evidence of a DIFFERENT
+        # real repo). This is "nowhere to write"; refusing at the call
         # site below is not the AC4 "UNRESOLVED never refuses" carve-out
+        # being violated. mismatch_message stays None so the caller prints
         # its own generic no-repo message rather than a MISMATCH string.
         return None, None
     return root, None

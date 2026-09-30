@@ -78,7 +78,14 @@ def _import_module():
     return claude_klabauter_root, _op_module
 
 
+# Path-loaded libs substrate installs into settings-home/bin alongside every
+# generated forwarder (see module docstring's CONTENT axis section). Derived
+# from substrate's own install surface rather than hardcoded here (plan
 # C2 body) — `_RM_FAMILY_FILES` is substrate.py's own hand-maintained tuple
+# naming the resolve-claude-klabauter family (the same tuple `_install_bin_resolvers`'
+# `rm_family` writer reads), so this stays in sync with whatever substrate
+# actually installs into that family without re-deriving substrate's own
+# install policy here.
 def _content_axis_lib_names() -> tuple:
     try:
         from coordinator_core.install.substrate import _RM_FAMILY_FILES

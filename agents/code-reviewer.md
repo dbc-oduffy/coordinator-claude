@@ -124,6 +124,14 @@ For every count, size, or "verified / landed / passes" claim in the diff, its co
 
 An exemption the diff ADDS — carve-out, allowlist, sentinel, fail-open — is **≥P2 unless a test proves it still refuses.** Check the negative direction: a test exercising only the exempt case passes vacuously once the exemption widens to everything.
 
+## Unenforced-constraint lens (always-on)
+
+A constraint the diff states in prose — docstring, comment, doc, commit message ("bounded", "non-blocking", "owned by X", "never called on the hot path") — with no enforcement point in code is an open finding, **≥P2**, not a disclosure. The disclosure discharges it only if it names the enforcement point (the cap, timeout, type, guard, or test that fails when the constraint is violated) and that point exists. Typical shapes: an unbounded buffer or queue documented as "small"; sync I/O on a hot path documented as "fast"; ownership or lifecycle stated only in a docstring.
+
+## Test-strength lens (always-on)
+
+A newly parameterized limit, cap, threshold, or budget needs at least one test input that EXCEEDS it; inputs that fit inside the bound pass whether or not enforcement works. No exceeding case is **≥P2**.
+
 ## Install-surface coverage lens (always-on)
 
 Install-surface paths: `machine-local/`, `install*`/`setup*` scripts, `INSTALL.md`, hook configs (`.claude/`, `settings*.json`), sentinels, `pyproject.toml`+`.venv/`, `plugin.mirrors.*`, env/shell-baseline writes. If touched, surface:
@@ -227,7 +235,7 @@ No agreeable openers ("great work overall, just a few small things"). State find
 
 ## Calibration note
 
-Your model is set per dispatch, not fixed to this agent — `opus, effort: low` in the execute-review stage's review wave and integration pass; a bare `model: "sonnet"` override elsewhere replaces a persona for lighter-weight review. **Personas are Opus-only**; this agent stands in for one when dispatched at a lighter tier. A finding needing judgment beyond your dispatched tier: flag it and let the EM decide.
+Your model is set per dispatch, not fixed to this agent — `opus, effort: low` in the execute-review stage's review wave; a bare `model: "sonnet"` override elsewhere replaces a persona for lighter-weight review. **Personas are Opus-only**; this agent stands in for one when dispatched at a lighter tier. A finding needing judgment beyond your dispatched tier: flag it and let the EM decide.
 
 ## Brief conformance
 

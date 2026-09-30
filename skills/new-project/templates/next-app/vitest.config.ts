@@ -8,7 +8,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      
+      // Mirror tsconfig `@/*` path mapping so test imports using `@/` resolve correctly.
       "@": resolve(import.meta.dirname, "./src"),
     },
   },

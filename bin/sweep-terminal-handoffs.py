@@ -100,7 +100,9 @@ _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 _USAGE = "usage: python sweep-terminal-handoffs.py [-h] [--dry-run]"
 _DRY_RUN_FLAG = "--dry-run"
 
+# Mirrors coordinator_core/ops/fleet/archive_terminal_handoffs.py's own
 # `_RECOMMENDED_CAP_CHOICE` -- see module docstring "Cap" section for why
+# this is a cited literal, not an import.
 _CAP = 150
 
 
@@ -230,6 +232,13 @@ def main(argv: "list[str] | None" = None) -> int:
     from coordinator_core.git.repo_root import git_common_dir
 
     # `plan_sweep` is now SYNCHRONOUS (C2, docs/plans/2026-08-26-the-sweep-
+    # stops-paying-for-a-room-it-nev.md); `archive_and_commit` (a separate,
+    # out-of-scope module under active rewrite elsewhere -- staff-eng
+    # Finding 9) remains a coroutine, so `asyncio` is imported below on the
+    # ACT path only, for the single `asyncio.run(...)` boundary that still
+    # drives it. A `--dry-run` census reaches neither, so it must not pay the
+    # ~31ms `import asyncio` (which drags ssl/socket) to classify records —
+    # the same cost C2 deleted from the op module's classification path.
 
     try:
         common_dir = Path(git_common_dir(cwd=str(repo_root)))

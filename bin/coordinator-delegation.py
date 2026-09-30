@@ -14,6 +14,10 @@ _USAGE_FAIL = 2
 CEILING_SENTENCE = "this raises the cost of forgery and does not prevent it"
 
 #: Mirrors `fleet_delegation._MAX_LEASE` — checked here FIRST so a human
+#: sees the rejection without a round trip through the writer, and again
+#: inside the writer itself (the writer's own check is the one that
+#: actually protects a caller that imports `write_fleet_delegation`
+#: directly rather than going through this CLI).
 _MAX_LEASE_HOURS = 12
 
 _SUBCOMMANDS = "subcommands: grant --pid <pid> --classes <c1,c2,...> --lease-hours <N> (--note <text> | --note-file <path>) | show | revoke"
@@ -130,6 +134,12 @@ def _cmd_grant(mod, rest: list[str]) -> int:
     classes = [c for c in flags["--classes"].split(",") if c]
 
     # `NEVER_DELEGABLE` is declared once, in `fleet_delegation.py` (C2), and
+    # imported here rather than restated — this early check exists so the
+    # human sees the rejection immediately, the same reason the 12h ceiling
+    # is checked above before the writer is ever called. The writer's own
+    # identical check (module docstring's "Write-time validation") is what
+    # actually protects a caller that imports `write_fleet_delegation`
+    # directly rather than going through this CLI.
     never_delegable_hit = mod.NEVER_DELEGABLE.intersection(classes)
     if never_delegable_hit:
         print(

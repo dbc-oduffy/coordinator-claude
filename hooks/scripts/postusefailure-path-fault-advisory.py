@@ -4,7 +4,7 @@
 Fires on a hard tool failure whose `error` carries `command not found` or
 `Executable not found in $PATH`. Emits one additionalContext advisory only when the
 hook process's own PATH holds an element that cannot be a directory (placeholder
-brackets, a literal `$` reference, a relative entry). Any other failure passes silently.
+brackets, a literal `$` reference). Any other failure passes silently.
 
 Blind by construction when `python3` itself is unresolvable: this hook then never runs.
 Never blocks; always exits 0.
@@ -19,22 +19,27 @@ import sys
 
 _ERROR_RE = re.compile(r"command not found|Executable not found in \$PATH")
 
+_CLOUD_SETUP = "/root/cloud_setup.py"
+
 ADVISORY = (
     "[path-fault] PATH holds a non-path element ({bad}). Break-class environment fault: "
-    "report it, do not work around it silently. Repair in-session: prefix commands with "
-    "`export PATH=<real dirs>:/usr/local/bin:/usr/bin:/bin`, or re-run the pin step "
-    "(`python3 /root/cloud_setup.py`). Hooks and subagents keep the broken PATH until "
-    "`env.PATH` in ~/.claude/settings.json is pinned."
+    "report it, do not work around it silently. Repair PATH for this shell{pin}; hooks and "
+    "subagents keep the broken PATH until `env.PATH` in ~/.claude/settings.json is pinned."
 )
 
 
+def _pin_hint() -> str:
+    return f", or re-run `python3 {_CLOUD_SETUP}`" if os.path.isfile(_CLOUD_SETUP) else ""
+
+
 def bad_path_elements(path_value: str) -> list[str]:
-    """PATH elements that cannot name a directory: empty-string elements are legal and skipped."""
+    """PATH elements that are unexpanded placeholders (`<dir>`, `$VAR`). Empty and relative elements
+    (`.`, `node_modules/.bin`) are legitimate developer PATH entries and are skipped."""
     bad = []
     for el in path_value.split(os.pathsep):
         if not el:
             continue
-        if re.search(r"[<>$]", el) or not os.path.isabs(el):
+        if re.search(r"[<>$]", el):
             bad.append(el)
     return bad
 
@@ -55,7 +60,7 @@ def main() -> int:
     envelope = {
         "hookSpecificOutput": {
             "hookEventName": "PostToolUseFailure",
-            "additionalContext": ADVISORY.format(bad=", ".join(bad[:3])),
+            "additionalContext": ADVISORY.format(bad=", ".join(bad[:3]), pin=_pin_hint()),
         }
     }
     sys.stdout.write(json.dumps(envelope, separators=(",", ":")))

@@ -1,7 +1,86 @@
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+# coordinator-workflow-scaffold.py — DoE-side veneer for the claude-klabauter workflow.scaffold op.
+#
+# Purpose: builds the workflow.scaffold params object from CLI flags, dispatches via
+# the shared cc_invoke.py transport seam (cc_invoke_bare(), the --bare/--params-file
+# convention), and writes the returned `.script` field to --out (or stdout when --out
+# is omitted). This file does NOT re-implement the op contract or the
+# workflow-skeleton-stamper engine itself — it is a thin transport veneer, same idiom
+# as handoff-has-live-children.py's cc_invoke round-trip.
+#
+# This script used to carry a private hand-rolled
+# _cc_invoke() that spawned `coordinator_core.invoke workflow.scaffold --bare
+# --params-file <tmp> --repo <repo>` unconditionally. workflow.scaffold is a
+# "none"-scoped op (coordinator_core/op_scopes.py), so DR-279's engine-side refusal
+# (commit bd0e52a36154) made every invocation of this script fail loud with rc=1.
+# Fixed by routing through cc_invoke.py's own cc_invoke_bare(), which already applies
+# the DR-279-aware _should_pass_repo() gate on both its own spawn call sites — this
+# closes the duplicate-transport drift instead of adding a third private copy of the
+# scope check.
+#
+# Frozen op contract (producer-side, claude-klabauter):
 #   Op: workflow.scaffold — COMPUTE_ONLY, returns text, does NOT write to disk.
+#   Params: {"name": "<kebab-case>", "description": "<one-line>",
+#            "phases": [{"title": "...", "detail": "..."}, ...],
+#            "pattern": "<disk-poll-fanout|adversarial-verify|loop-until-dry|pipeline-default>"}
+#   Returns: {"script": "<conformant Workflow skeleton text>"}
+#
+# Usage:
+#   coordinator-workflow-scaffold.py --name <kebab> [--description "<line>" | --description-file <path>] \
+#       [--title "<line>" | --title-file <path>] [--phase "Title::Detail"]... [--pattern <p>] \
+#       [--out PATH]
+#
+#   --name         kebab-case workflow name (op `name`). Defaults to a slugified
+#                  --title when --name is omitted but --title is given.
+#   --title        Human-readable line; used as `description` fallback and as the
+#                  --name slugify source when --name is absent.
+#   --title-file   Lossless file-transport sibling for --title (mutually exclusive
+#                  with --title). A newline-bearing inline --title is refused
+#                  outright — the generated .cmd launcher forwards argv via an
+#                  un-re-quoted `%*`, which silently truncates a multi-line inline
+#                  value at the first newline; see coordinator_core/argv_fidelity.py.
+#   --description  Op `description` (one-line). Overrides --title for `description`
+#                  when both are given.
+#   --description-file
+#                  Lossless file-transport sibling for --description (mutually
+#                  exclusive with --description). Same newline refusal as --title.
+#   --phase        Repeatable. "Title::Detail" — split on the FIRST "::" only, so a
+#                  Detail string containing "::" is preserved intact. Each becomes
+#                  one {"title":..., "detail":...} entry in `phases[]`, in the order
+#                  given on the command line.
+#   --pattern      Op `pattern`. Defaults to pipeline-default (matches the harness's
+#                  "DEFAULT TO pipeline()" convention) when omitted.
+#   --repo         Refused: workflow.scaffold is a "none"-scoped op (see
+#                  docs/decisions/DR-279-repo-on-a-none-scoped-op-fails-loud.md) —
+#                  it accesses no repo-specific state, so --repo would be
+#                  meaningless. Passing it fails loud instead of silently
+#                  no-opping, matching DR-279's shape for the underlying op.
+#   --out          Write result.script here. Omitted -> stdout.
+#
+# Exit codes:
+#   0 — success; script text written to --out or stdout.
+#   1 — bad args (missing --name/--title, missing --description/--title, malformed
+#       --phase, --repo passed (DR-279 refusal), --out write failure).
+#   2 — op/dispatch error: coordinator_core.invoke started and exited nonzero with
 #       what looks like a JSON-RPC business/param error (e.g. missing name/description,
+#       unknown pattern) rather than a transport failure. Stderr is printed verbatim —
+#       this is NOT "claude-klabauter isn't ready," it's the op rejecting the given params.
+#       Also covers empty stdout / unparseable invoke output / missing "script" key.
+#   3 — genuine transport/engine failure: invoke timeout, ImportError/ModuleNotFoundError-
+#       shaped stderr (engine won't import/start), or engine-root resolution failure.
+#       (workflow.scaffold IS registered on claude-klabauter HEAD — see ops/__init__.py and
+#       @register_op("workflow.scaffold") in workflow_scaffold.py; this exit code
+#       does NOT imply the op is unshipped.)
+#
+# Spec backlink: pln-workflow-skeleton-stamper-maki-adab0d
+#
+# Negative-spec:
+#   - Does NOT write to disk itself when --out is omitted (stdout only).
+#   - Does NOT invent op params beyond the frozen four (name/description/phases/pattern).
+#   - Does NOT fall back to a local skeleton template when the op is unavailable —
 #     fails loud instead (the op is COMPUTE_ONLY and this veneer has no local copy
+#     of the harness's Workflow-skeleton conventions to fall back to).
+#   - Does NOT import coordinator_core.invoke in-process — it is spawned as a
 #     subprocess (ARG_MAX-safe --params-file transport), same as the bash oracle.
 
 from __future__ import annotations
@@ -47,8 +126,20 @@ def _cc_invoke(op: str, params: dict, repo_root: str) -> dict:
         raise _OpError(str(exc)) from exc
     except RuntimeError as exc:
         msg = str(exc)
+        # cc_invoke_bare() raises a single RuntimeError type for both transport and
+        # op-level failures; its message text is the discriminator (mirrors the
+        # ImportError-vs-generic-rc classification the removed private ladder did).
+        #
+        # The timeout arm goes through `is_timeout_error`, cc_invoke's own sanctioned
+        # discriminator, rather than a literal substring — that function anchors on
         # `_TIMEOUT_MESSAGE_PREFIX`, so it cannot drift out from under this classifier
+        # the way `"engine timeout" in msg` could. The engine-root arm accepts BOTH
+        # spellings on purpose: an in-flight rename is moving this fleet's prose from
         # `CLAUDE_KLABAUTER_ROOT` to engine-root wording, and matching only the old spelling
+        # would silently reclassify a resolution failure (transport, exit 3) as an
+        # op-level rejection (exit 2) the day that rename reaches cc_invoke's own
+        # message text. Both spellings mean the same failure; neither is load-bearing
+        # alone. (Review finding, s3-cli-callers, 618164b2e4ad.)
         if (
             "engine will not import/start" in msg
             or is_timeout_error(exc)

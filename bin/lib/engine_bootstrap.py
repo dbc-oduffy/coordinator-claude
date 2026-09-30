@@ -98,8 +98,13 @@ _CLAUDE_KLABAUTER_ROOT_REMEDIATION = (
     "  Reference: plugins/coordinator/docs/wiki/machine-local-registry.md §4c"
 )
 
+# Back-compat alias, same shape as `cc_invoke._resolve_claude_klabauter_root`
+# (C17, docs/plans/2026-08-20-an-engine-root-is-not-named-for-the-repo.md): a
+# published CLI puts this LIVE (untransformed) module on sys.path but imports
 # it under the TRANSFORMED name, since the published tree's own cc_invoke.py
 # re-exports `_CLAUDE_KLABAUTER_ROOT_REMEDIATION` as `_CLAUDE_KLABAUTER_ROOT_REMEDIATION`
+# post-transform. Exporting both spellings here closes that cross-tree seam
+# without touching the mirror.
 _CLAUDE_KLABAUTER_ROOT_REMEDIATION = _CLAUDE_KLABAUTER_ROOT_REMEDIATION
 
 _GATE_ENTRY_POINT_PATTERN = r"^def (coordinator_\w+_root_with_class)\s*\("
@@ -553,13 +558,33 @@ def _resolve_engine_root(caller_file: str | None = None) -> str:
 
     # Rung 1: already in environment — CANDIDATE only now, delegated through
     # the gate (see docstring's "DELEGATION" note) rather than answered here.
+    # C14 closed the dual-read window: the NEW name is the only one that
+    # answers here. This is an AC13 bootstrap carve-out site — it cannot import
+    # the accessor, because resolving the engine is what it does — so the
+    # precedence is duplicated by hand and MUST move in lockstep with
+    # coordinator_engine_root_env(). Pinned equal by test; see cc_invoke's own
     # literal duplication note near _ENGINE_ROOT_NEW_VAR/_ENGINE_ROOT_OLD_VAR.
     existing = os.environ.get(_ENGINE_ROOT_NEW_VAR, "")
     if existing:
         return _delegate_to_gate(existing, source=f"{_ENGINE_ROOT_NEW_VAR} environment variable")
 
+    # Rung 1.5 (NEW): cheap direct-file-read pointer, checked ahead of the
+    # expensive bash-spawn resolver below. On Windows this avoids spawning a
+    # bash subprocess on the per-invoke resolution hot path (fleet-wide
+    # hook-latency fix). Plain file read only — never spawns a subprocess.
+    # Writer follows reader: the install surface is expected to write
+    # <settings-home>/machine-local/.claude-klabauter-root; absence here is a normal
+    # fallback state, not an error — falls through to the bash resolver below.
+    #
+    # Settings-home precedence mirrors _machine_local.py::_settings_home()
+    # (Port of: settings-home.sh's _coordinator_settings_home, DoE b644d5a9,
+    # 2026-07-22) inline (kept inline here for the same single-file-module
+    # reason _machine_local.py documents — no cross-file import hack across
+    # the source/install-tree split):
     #   COORDINATOR_SETTINGS_HOME (explicit override) →
     #   ${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings
+    #
+    # Spec backlink: pln-claude-klabauter-windows-portability-a48fac § C1
     _settings_home = os.environ.get("COORDINATOR_SETTINGS_HOME") or os.path.join(
         os.environ.get("CLAUDE_HOME") or os.path.expanduser("~"),
         ".coordinator-claude-settings",
@@ -579,7 +604,12 @@ def _resolve_engine_root(caller_file: str | None = None) -> str:
             return ""
 
     # DR-326: engine dispatch resolves to the PUBLISHED build, never to the live
+    # working tree. The live tree is reachable here only via Rung 1's explicit
     # COORDINATOR_ENGINE_ROOT, which is what "claude-klabauter holds live processes only for testing"
+    # means in practice. `.claude-klabauter-root` is written by the same install
+    # pass that registers the mirror, so its presence IS the dual-boot signal —
+    # and reading it costs one more `open()`, honouring the no-subprocess bound
+    # that made this rung gate-blind in the first place.
     _published_pointer_val = _read_pointer(".claude-klabauter-root")
     if _published_pointer_val and os.path.isfile(
         os.path.join(_published_pointer_val, "coordinator_core", "_engine_stamp")
@@ -596,8 +626,24 @@ def _resolve_engine_root(caller_file: str | None = None) -> str:
     if _candidate and os.path.isdir(_candidate):
         return _delegate_to_gate(_candidate, source="machine-local repos.claude_klabauter")
 
+    # Rung 3 (terminal): self-locate from cc_invoke's OWN __file__ before
+    # raising. Reached only when env, pointer, and registry all missed — see
     # the docstring's "Rung 3 (TERMINAL)" note for the limitation this rung
+    # knowingly carries. Delegated the same way as every other candidate rung
     # (see docstring's "DELEGATION" note) — hard constraint 2 (a script run by
+    # name must still find its own tree) is preserved by self-location still
+    # supplying the candidate; only the final answer is no longer verbatim.
+    #
+    # This module (engine_bootstrap.py) is a sibling of cc_invoke.py, not
+    # cc_invoke itself — a bare `__file__` here would answer with THIS file's
+    # own location, never cc_invoke's, silently breaking the "cc_invoke's OWN
+    # __file__" contract above and every `unittest.mock.patch.object(cc_invoke,
+    # "__file__", ...)` test that relies on it. `caller_file` lets a caller
+    # thread its own `__file__` through explicitly (e.g. `_resolve_engine_root(
+    # __file__)`); when omitted, cc_invoke's already-imported module is looked
+    # up by name in `sys.modules` and its CURRENT `__file__` attribute is read
+    # at call time (so a patched `__file__` is honoured), falling back to this
+    # module's own `__file__` only if cc_invoke has not been imported at all.
     _self_file = caller_file
     if _self_file is None:
         _cc_invoke_mod = sys.modules.get("cc_invoke")

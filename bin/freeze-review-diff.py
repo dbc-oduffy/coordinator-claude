@@ -163,7 +163,17 @@ def _bootstrap_engine() -> None:
         sys.path.insert(0, str(_CLAUDE_KLABAUTER_REPO_ROOT))
     _BOOTSTRAP_DONE = True
 
+#: The .cmd launcher's own basename — used by `recover_windows_argv` to locate
 #: where this invocation's own arguments begin within the raw `%CMDCMDLINE%`
+#: capture (see `raw_cmdline_recovery` module docstring). `--range` is a git
+#: rev/range this CLI's caller types directly (never defaulted — see module
+#: docstring), and git revision syntax leans on a literal `^` (`sha^..sha`,
+#: the per-commit predecessor-range shape a chain-scoped caller types) --
+#: exactly the character cmd.exe's `%*` batch-parameter population strips
+#: silently. Refuses on an unvouchable capture (coordinator-write-review-
+#: trail.py's C2 posture, not scoped-git-commit's C2b detect-and-record --
+#: this is a low-traffic per-review CLI, not a ~40-concurrent-session commit
+#: hot path, so a false refusal does not carry C2b's fleet-break risk).
 _LAUNCHER_CMD_NAME = "freeze-review-diff.cmd"
 
 def _resolve_repo_root(explicit: str) -> Path | None:
@@ -192,6 +202,10 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
 
     # OUTLIVED the retired trail record rather than depending on it: a range
+    # that never reaches the reviewer's frozen payload can never be attested
+    # by anyone, whatever else is or is not written alongside it. That is what
+    # the 2026-06-15 multi-EM-brightline-noise failure was, and it is still
+    # live.
     if not args.range_:
         print(
             f"{_PROG}: --range is required and is never defaulted — the caller "
@@ -245,7 +259,10 @@ if __name__ == "__main__":
     try:
         _argv = recover_windows_argv(sys.argv[1:], _LAUNCHER_CMD_NAME)
     except UnsoundRawCmdlineTransport:
+        # Remediation names a runnable command line, not a slash command and not
+        # a bare basename: this fires before argv is trustworthy, so it cannot
         # assume a cwd. `_SCRIPT_DIR` resolves to wherever this file is actually
+        # installed. → CLAUDE.md § Runtime conventions (cold-path remediation).
         print(
             f"{_PROG}: the invoking shell stripped characters from this command "
             f'line before this process started — run `python "{_SCRIPT_DIR / "freeze-review-diff.py"}" '

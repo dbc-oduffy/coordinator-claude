@@ -103,7 +103,7 @@ def render_verdict_line(result: Optional[dict]) -> Optional[str]:
         )
     else:
         tail = (
-            "no watch has ever reported for this repo. This is NOT an all-clear: nothing has "
+            "no watch has ever reported for this repo. NOT an all-clear: nothing has "
             "looked. Arm one with /group-em."
         )
     return f"GROUP EM WATCH: {verdict} — {tail}"

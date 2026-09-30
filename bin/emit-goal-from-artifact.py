@@ -382,7 +382,13 @@ def main(argv: list[str]) -> int:
             continue
 
         text = objective if objective else artifact_id
+        # 2026-07-25: the artifact->wire status mapping is now live.
+        # append-goal-event.py exposes --status (added alongside this fix);
+        # _map_status() is called here and its result forwarded below. The
         # bash oracle's other dead computation, _PROV_PATH
+        # ("state/goals/<file>.yaml" for --provenance), remains deferred —
+        # append-goal-event.py still does not expose --provenance (see
+        # module docstring negative-spec, unchanged for that half).
         wire_status = _map_status(artifact_status) if artifact_status else None
 
         wire_text = f"{artifact_id}: {text}"

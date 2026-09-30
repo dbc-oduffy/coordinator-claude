@@ -34,6 +34,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Iterable, Optional
 
+#: `git diff --cached --name-status -z` status letters. A rename arrives as
+#: `R<score>`, not `D` -- a sanctioned `git mv` into an archive dir is
+#: reported as a rename and never reaches the deletion branch.
 STATUS_DELETE = "D"
 STATUS_ADD = "A"
 STATUS_RENAME = "R"
@@ -41,8 +44,12 @@ STATUS_RENAME = "R"
 
 @dataclass(frozen=True)
 class Finding:
+    """One staged deletion that would erase a path still present on disk."""
 
     path: str
+    #: True when on-disk bytes equal HEAD's blob for this path: the
+    #: stale-index phantom case (nobody edited the file, the index just
+    #: forgot it). A deliberate untrack of a modified file would be False.
     disk_matches_head: bool
 
     def render(self) -> str:
@@ -93,6 +100,13 @@ def classify(
     exists_on_disk: Callable[[str], bool],
     disk_matches_head: Callable[[str], Optional[bool]],
 ) -> "list[Finding]":
+    """`rows` is the staged change set for the commit being made, not the
+    repo's whole dirty state -- a `git commit -- <pathspec>` excluding an
+    armed path builds a temporary index without it, so this never fires
+    for paths the commit doesn't touch.
+
+    `exists_on_disk`/`disk_matches_head` are injected so this is testable
+    without a repository; the module runs inside a git hook."""
     rows = list(rows)
     added = {path for status, path in rows if status == STATUS_ADD}
 
@@ -101,17 +115,19 @@ def classify(
         if status != STATUS_DELETE:
             continue
         if not exists_on_disk(path):
-            continue
+            continue  # ordinary deletion: the file really is gone
         if path in added:
-            continue
+            continue  # deleted and re-added in one commit; not a disappearance
         same = disk_matches_head(path)
         if same is None:
-            continue
+            continue  # not in HEAD, so this commit cannot remove it from HEAD
         findings.append(Finding(path=path, disk_matches_head=same))
     return findings
 
 
 def render_report(findings: "list[Finding]", override_env: str) -> str:
+    """Says what will happen, not what is wrong -- a guard that only names a
+    rule gets overridden without being read."""
     lines = [
         "BLOCKED: this commit stages the deletion of "
         f"{len(findings)} path(s) that are still in HEAD and still on disk.",

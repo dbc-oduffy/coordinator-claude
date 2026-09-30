@@ -1,4 +1,11 @@
-#     artifact. READ-ONLY — mutates nothing (coordinator_core.pickup_assemble
+# Trampoline for coordinator_core.pickup_brief, routed by
+# entry_point_shim.run_target("pickup-assemble", ...).
+#
+# Subcommand: pickup-assemble brief <artifact> [--no-claim]
+#     `brief` writes no tracked content. A single-artifact `brief` takes the
+#     brief-stage pickup claim and adopts the artifact into the session baton,
+#     so the session's next /handoff supersedes it. `--no-claim` (or a
+#     multi-artifact ` AND ` survey) is the read-only inspection form.
 
 from __future__ import annotations
 

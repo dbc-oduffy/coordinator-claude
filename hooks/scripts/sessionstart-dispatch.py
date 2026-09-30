@@ -140,6 +140,7 @@ if str(_HOOKS_DIR) not in sys.path:
 
 
 class Ctx:
+    """Computed once per SessionStart event."""
 
     def __init__(self, raw: str) -> None:
         self.raw = raw
@@ -157,9 +158,13 @@ class StartGuard:
     module_key: str
     filename: str
     sources: FrozenSet[str]
+    #: None -> invoke bare main(); a list -> invoke main(that_list) explicitly (never relies on
+    #: this dispatcher's own sys.argv).
     argv: Optional[List[str]] = None
 
 
+#: Emitted when a non-empty `source` matches no guard's set at all -- the harness-drift tell.
+#: Skipping stays the behaviour; going quiet about it does not.
 _UNMATCHED_SOURCE_BREADCRUMB = (
     "[sessionstart-dispatch] source={source!r} matches no guard in REGISTRY -- "
     "every guard skipped for this boot. If the harness added a source value, "
@@ -176,6 +181,8 @@ REGISTRY: Tuple[StartGuard, ...] = (
                frozenset({"startup", "clear", "compact"})),
     StartGuard("session_start_write_bump_anchor", "session-start-write-bump-anchor.py",
                frozenset({"startup", "resume", "clear", "compact", "fork"})),
+    # `startup` only: what it watches changes when a template is edited, not when a session
+    # compacts or clears, and its own daily stamp makes extra firings no-ops anyway.
     StartGuard("bin_drift_refresh", "sessionstart-bin-drift-refresh.py",
                frozenset({"startup"})),
     # `startup` ONLY, and this one is load-bearing rather than merely narrow:
@@ -187,8 +194,13 @@ REGISTRY: Tuple[StartGuard, ...] = (
     # `test_sessionstart_day_branch_assert_registered.py` red.
     StartGuard("day_branch_assert", "day-branch-assert.py",
                frozenset({"startup"})),
+    # `startup` only: `job_mode` is a property of the environment a human launched the session in
+    # -- it cannot change mid-session, so announcing again on resume/clear/compact/fork would
+    # repeat a fact unchanged since boot.
     StartGuard("job_mode_announce", "session-start-announce-job-mode.py",
                frozenset({"startup"})),
+    # Every source: the boot payload is re-read on each of them, and the check is one in-process
+    # tree walk. Silent unless uncommitted governed-surface text fails admission.
     StartGuard("governed_surface_drift", "session-start-governed-surface-drift.py",
                frozenset({"startup", "resume", "clear", "compact", "fork"})),
     # LAST, deliberately -- see module docstring "INCREMENTAL FLUSH".
@@ -221,6 +233,11 @@ class _ByteSink:
 
 
 class _BufferedTextCapture(io.StringIO):
+    """Some folded guards emit through `sys.stderr.buffer.write()`, which a plain StringIO has no
+    attribute for. Both channels land in one ordered `io.BytesIO` -- `write(str)` encodes into it,
+    `.buffer.write(bytes)` writes unmodified -- so `combined()`/`combined_bytes()` are
+    order-preserving and byte-exact rather than concatenating two separately-accumulated
+    buffers."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -294,6 +311,8 @@ def main() -> int:
         sys.__stderr__.flush()
 
     for guard in REGISTRY:
+        # An empty source runs every guard (fail-open on a missing signal); a non-empty one gates
+        # to that guard's own set.
         if ctx.source and ctx.source not in guard.sources:
             continue
         try:
@@ -318,6 +337,10 @@ def main() -> int:
         if err:
             sys.__stderr__.buffer.write(err)
             sys.__stderr__.buffer.flush()
+        # Exit code carries no signal for any guard here: every guard is banner-only except
+        # `day_branch_assert`, which mutates git (cuts the day branch on main) but still reports
+        # through the banner channel and is fail-open by design, so a nonzero exit from it never
+        # signals a real failure to surface.
         del rc
 
     if skipped:

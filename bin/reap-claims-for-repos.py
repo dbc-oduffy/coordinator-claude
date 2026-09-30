@@ -5,7 +5,20 @@ import os
 import sys
 
 
+# Guarded, unlike reap-sessions.py's identical bare import, and for the same
+# reason `main` below catches Exception rather than RuntimeError: this module is
 # loaded IN-PROCESS by the ceremony apply loop, and
+# `ceremony_common.cli_dispatch.load_cli_module` propagates an import-time
+# exception uncaught. An unguarded ImportError here would halt
+# /workday-complete and /workweek-complete BEFORE `main` is ever called, so
+# `main`'s own handler could never see it -- the "exit 0 on every path"
+# contract in this module's docstring would be defeated by its own import
+# line. reap-sessions.py is safe bare only because it runs as its own
+# subprocess under a fail-open hook. The import itself now runs inside
+# `_try_import_cc_invoke`, called from `main` -- `load_cli_module` never
+# executes it at module-load time, only `main` does, and `main` still guards
+# it with the identical try/except, so the "exit 0 on every path" contract is
+# unchanged.
 def _try_import_cc_invoke():
     try:
         import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
@@ -59,7 +72,15 @@ def main(argv: list[str] | None = None) -> int:
             _no_fallback,
         )
     except Exception as exc:
+        # Deliberately broader than reap-sessions.py's `except RuntimeError`,
+        # which this module otherwise mirrors. That trampoline is spawned as
+        # its own process by a fail-open hook, so an escaping non-RuntimeError
+        # (ImportError, OSError, a transport timeout) kills only itself. This
         # one is loaded and called IN-PROCESS by the ceremony apply loop
+        # (`ceremony_common.cli_dispatch.invoke_cli_main`), so the same escape
+        # would propagate into /workday-complete and /workweek-complete and
+        # halt the ceremony -- defeating this module's own "exit 0 on every
+        # path" contract. Narrow is correct there and wrong here.
         print(
             f"reap-claims-for-repos.py: session.reap_claims_for_repos failed -- continuing (best-effort): {exc}",
             file=sys.stderr,

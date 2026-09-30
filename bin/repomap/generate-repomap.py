@@ -580,7 +580,9 @@ def parse_cpp_ue(path: Path, api_macro: str | None = None) -> list[str]:
             i += 1
             continue
 
+        # ---------------------------------------------------------------
         # Bare API-exported class (no preceding UCLASS macro)
+        # ---------------------------------------------------------------
         if not prev_line_had_uclass_macro:
             m = _re_bare_class.match(stripped)
             if m:
@@ -1413,7 +1415,10 @@ def generate_repomap(
             else:
                 defs, refs = (cached, []) if isinstance(cached, list) else ([], [])
         elif ue_mode and ext in (".h", ".cpp"):
+            # UE mode: regex parser for defs, tree-sitter for refs only.
             # Tree-sitter @def.name captures are DISCARDED in UE mode to
+            # prevent duplicate/conflicting entries (e.g., bare "ADGDronePawn"
+            # vs rich "class ADGDronePawn (APawn)").
             api_macro = get_api_macro_for_file(rel, ue_module_macros)
             defs = parse_cpp_ue(full, api_macro)
             refs = ts_parser.parse_refs_only(full, ext)
@@ -1509,7 +1514,11 @@ def generate_repomap(
 
 def find_git_root(start: Path) -> Path | None:
     try:
+        # Without this the import cannot succeed on the published mirror,
+        # where coordinator_core is not pip-installed. RuntimeError joins the
         # except tuple so an unresolvable root still DEGRADES rather than
+        # raises — this script ships standalone-runnable, per the docstring
+        # above.
         require_dispatch_engine_on_path()
         from coordinator_core.git.repo_root import show_toplevel
 

@@ -58,7 +58,11 @@ import sys
 
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+#: Every bin-shape name (besides `main`, handled separately below) a caller
+#: may reach for on this module before `_bootstrap_engine()` has run —
+#: `__getattr__` triggers a lazy bootstrap for any of these, matching
 #: `coordinator/bin/close-origin-stub-on-ship.py`'s `_BOOTSTRAPPED_NAMES`
+#: idiom (that file's own PEP 562 hook).
 _BOOTSTRAPPED_NAMES = (
     "InterpreterMissing",
     "MalformedValue",

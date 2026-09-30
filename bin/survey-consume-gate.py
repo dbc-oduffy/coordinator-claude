@@ -115,17 +115,15 @@ def _invoke_op(claude_klabauter_root: str, op: str, params: dict[str, Any]) -> t
     non-retryable. On non-zero exit `--bare` does not apply — stdout carries
     the full JSON-RPC envelope (or stderr, if stdout is empty).
     """
+    import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
+    from python_interp import python_argv
+
+    argv = python_argv("-m", "coordinator_core.invoke", op, "--params-file", "-", "--bare")
+    if argv is None:
+        return 1, None, f"subprocess invocation of {op} failed: no console Python interpreter resolvable"
     try:
         proc = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "coordinator_core.invoke",
-                op,
-                "--params-file",
-                "-",
-                "--bare",
-            ],
+            argv,
             input=json.dumps(params),
             cwd=claude_klabauter_root,
             capture_output=True,

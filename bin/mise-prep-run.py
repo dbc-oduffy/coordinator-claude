@@ -271,7 +271,10 @@ def _resolve_upgrade_cli(settings_home: str, engine_root: Path | None) -> list[s
     if engine_root is not None:
         forwarder = engine_root / "coordinator" / "bin" / "mise-prep-upgrade.py"
         if forwarder.is_file():
-            return [sys.executable, str(forwarder)]
+            import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
+            from python_interp import python_argv
+
+            return python_argv(str(forwarder))
     return None
 
 

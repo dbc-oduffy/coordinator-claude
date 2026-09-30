@@ -203,6 +203,12 @@ def cmd_ceremony_hook(args: argparse.Namespace) -> int:
         return 0
 
     # P055-C1 conversion: was a `[python, _CEREMONY_HOOK_CLI, "workday-complete"]`
+    # spawn via the (now-removed) generic `_run` helper. coordinator-ceremony-hook.py's
+    # own `__main__` guard wraps `main(sys.argv[1:])` in a broad try/except so an
+    # unanticipated escape still honors its "always exit 0" contract -- that backstop
+    # lived OUTSIDE `main()` itself, so calling `main()` directly here does not inherit
+    # it. Recreated locally: this call site's OWN contract is already "never blocks",
+    # so any exception maps to the same non-blocking WARN path a nonzero rc took.
     import contextlib
     import io
 

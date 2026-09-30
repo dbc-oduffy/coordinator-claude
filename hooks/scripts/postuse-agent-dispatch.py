@@ -69,6 +69,8 @@ if _HOOKS_DIR not in sys.path:
 try:
     from _engine_root import resolve_claude_klabauter_root as _resolve_claude_klabauter_root  # noqa: E402
 except Exception:
+    # Fallback for a hook script deployed without its sibling _engine_root.py
+    # (isolated test harness, partial deploy): fail-open, never crash on import.
     def _resolve_claude_klabauter_root() -> str | None:
         return None
 
@@ -78,16 +80,20 @@ def main() -> int:
 
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0
+        return 0  # fail-open -- engine unresolvable on this machine
 
     from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
     _place_engine_root_on_path(root)
 
     try:
+        # Importing coordinator_core.hooks.agent_postuse_dispatch triggers the
+        # hooks package __init__, which registers every op via side effects at
+        # import time (no lazy-skip guard here, unlike coordinator_core.ops) --
+        # a one-time in-process cost, still zero subprocess spawns.
         from coordinator_core.hooks import agent_postuse_dispatch as _op  # noqa: F401
         from coordinator_core.ipc import HookDispatchError, dispatch_from_hook
     except Exception:
-        return 0
+        return 0  # engine unimportable -> fail-open
 
     try:
         payload = json.loads(raw)
@@ -129,7 +135,7 @@ def main() -> int:
             origin_worktree=cwd if isinstance(cwd, str) else None,
         )
     except HookDispatchError:
-        return 0
+        return 0  # any engine failure -> fail-open (never brick a tool call)
 
     if result:
         sys.stdout.write(json.dumps(result))

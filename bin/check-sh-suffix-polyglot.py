@@ -102,6 +102,7 @@ import sys
 
 PROG = "check-sh-suffix-polyglot.py"
 
+# The verbatim trampoline every polyglot-class member contains within its
 # first 20 lines. Kept byte-identical to check-bin-sh-polyglot.py's TRAMPOLINE.
 TRAMPOLINE = (
     "''''exec \"$(command -v python3 || command -v python || command -v py)\" "

@@ -141,7 +141,9 @@ def cmd_cve_recheck(args: argparse.Namespace) -> int:
     return 0
 
 
+# ---------------------------------------------------------------------------
 # pcli-04 drift gate (BLOCKING)
+# ---------------------------------------------------------------------------
 
 def cmd_pcli_drift_gate(_args: argparse.Namespace) -> int:
     script = _sibling("check-pcli-drift-gate.py")

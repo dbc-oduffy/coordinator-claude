@@ -48,6 +48,9 @@ _EXPANSION_OPEN_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*):-")
 #: actually resolves the coordinator settings home down to a CLI forwarder.
 _BIN_CLI_RE = re.compile(r"/bin/([A-Za-z0-9_.-]+)")
 
+#: Generous enough to span the suffix between an expansion's close and the /bin/<cli> segment,
+#: narrow enough that an unrelated ${...} expansion elsewhere on a long line/paragraph does
+#: not spuriously pair with an unrelated /bin/ mention far downstream.
 _TRAILING_WINDOW = 200
 
 #: A Shape W invocation: the PowerShell call operator (`&`) applied to a
@@ -118,6 +121,9 @@ _NO_LAUNCHER_VAR = "CLAUDE_PLUGIN_ROOT"
 
 
 class PosixInvocationHit(NamedTuple):
+    """One matched POSIX-only invocation. start/end are character offsets into the scanned
+    text (half-open range); text is the matched substring, cli is the forwarder basename
+    /bin/ resolved to."""
 
     start: int
     end: int
@@ -126,6 +132,9 @@ class PosixInvocationHit(NamedTuple):
 
 
 def _balanced_brace_end(text: str, open_idx: int) -> int:
+    """Index of the } matching the { at text[open_idx], tracking nested-brace depth so an
+    inner ${...} default value does not prematurely close the outer expansion. Returns -1 if
+    text[open_idx] is not {, or no matching close is found before the end of text."""
     if open_idx < 0 or open_idx >= len(text) or text[open_idx] != "{":
         return -1
     depth = 0
@@ -144,6 +153,7 @@ def _balanced_brace_end(text: str, open_idx: int) -> int:
 
 
 def _line_of(text: str, offset: int) -> int:
+    """1-indexed line number containing character offset in text."""
     return text.count("\n", 0, offset) + 1
 
 
@@ -209,7 +219,7 @@ def find_posix_forwarder_invocations(text: str) -> "list[PosixInvocationHit]":
     shape_w_lines = _shape_w_lines_by_cli(text)
     raw: "list[PosixInvocationHit]" = []
     for m in _EXPANSION_OPEN_RE.finditer(text):
-        open_idx = m.start() + 1
+        open_idx = m.start() + 1  # index of the '{' immediately after '$'
         close_idx = _balanced_brace_end(text, open_idx)
         if close_idx == -1:
             continue
@@ -220,6 +230,11 @@ def find_posix_forwarder_invocations(text: str) -> "list[PosixInvocationHit]":
             continue
         cli = bin_match.group(1)
         if m.group(1) == _NO_LAUNCHER_VAR and cli.endswith(".py"):
+            # Require the literal coordinator/bin/ segment immediately before this match --
+            # var-name + .py alone does not narrow to the doctrine-repo rung; that carve-out
+            # would exempt a .py forwarder under any plugin-relative bin/ path. The
+            # prescribed form's own closing } sits between coordinator and /bin/, so strip
+            # at most one.
             prefix = text[: bin_match.start()]
             if prefix.endswith("}"):
                 prefix = prefix[:-1]
@@ -245,4 +260,7 @@ def find_posix_forwarder_invocations(text: str) -> "list[PosixInvocationHit]":
 
 
 def has_posix_forwarder_invocation(text: str) -> bool:
+    """True if text carries at least one hit of find_posix_forwarder_invocations -- the
+    cheap boolean form the write-time advisory hook uses (it only needs to know whether to
+    warn, not enumerate every hit)."""
     return bool(find_posix_forwarder_invocations(text))

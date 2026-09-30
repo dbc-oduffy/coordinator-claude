@@ -1,32 +1,23 @@
-
-
-# Every environment difference the stock profile produces for a NON-INTERACTIVE shell is
-
-
-# PORTABILITY. Nothing here is pinned to MINGW64/x86_64. `/etc/msystem` -- which the
-# stock profile itself sources at the same point -- is `source`d to derive MSYSTEM_*/
-# MINGW_* for whatever MSYSTEM this install actually is (MINGW32, UCRT64, CLANGARM64,
-
-# prefix below is then `${MINGW_PREFIX}`, never a literal. Hardcoding this host's values
-
-
-#   - the shell is NON-INTERACTIVE ($- has no `i`), so an interactive Git Bash --
-
-#     CLAUDECODE -- always takes the full stock path and keeps its prompt.
-#   - CLAUDECODE is set, which Claude Code puts in its own environment and every bash it
-
-#   - MSYS2_PATH_TYPE is unset, `inherit`, or `strict`. Any other value sends the stock
-
-
-# NOT ZERO-SPAWN, exactly once: `locale -uU` survives, for LANG. See the lang.sh block
-
-
-# Escape hatch: set COORDINATOR_FULL_PROFILE=1 to force the stock path for debugging
-
-
-# THIS BLOCK DOES NOT SURVIVE A GIT-FOR-WINDOWS UPDATE -- an update replaces /etc/profile
-
-
+# Reproduces, spawn-free, every environment difference the stock /etc/profile produces for
+# a NON-INTERACTIVE shell -- avoiding the stock profile's per-invocation cost. PS1 is
+# deliberately not reproduced: meaningless without a terminal, and unreachable here (see
+# the `$-` guard). `locale -uU` is the one spawn that survives, because LANG's value is
+# live per-host state and cannot be derived spawn-free.
+#
+# PORTABILITY: nothing here is pinned to MINGW64/x86_64. `/etc/msystem` is sourced to
+# derive MSYSTEM_*/MINGW_* for whatever MSYSTEM this install actually is; every prefix
+# below reads `${MINGW_PREFIX}`, never a literal -- hardcoding this host's values would
+# write a wrong environment onto a 32-bit or ARM64 Git install.
+#
+# Scope guard, all three conditions required: non-interactive shell; CLAUDECODE set
+# (Claude Code's own bash spawns inherit it); MSYS2_PATH_TYPE unset/inherit/strict (any
+# other value needs a `cygpath -Wu` spawn this path cannot reproduce, so it falls through
+# to stock).
+#
+# Escape hatch: COORDINATOR_FULL_PROFILE=1 forces the stock path for debugging.
+#
+# Does not survive a Git-for-Windows update -- an update replaces /etc/profile wholesale
+# and silently restores the cost.
 case "$-" in
   *i*) ;;
   *)
@@ -75,10 +66,10 @@ case "$-" in
 
       CONFIG_SITE=/etc/config.site
 
-      
+      # profile.d/env.sh: ~/bin ahead of everything.
       PATH="$HOME/bin:$PATH"
 
-      
+      # profile.d/perlbin.sh, verbatim -- `[ -d ]` is a builtin, so these cost nothing.
       [ -d /usr/bin/site_perl ] && PATH=$PATH:/usr/bin/site_perl
       [ -d /usr/lib/perl5/site_perl/bin ] && PATH=$PATH:/usr/lib/perl5/site_perl/bin
       [ -d /usr/bin/vendor_perl ] && PATH=$PATH:/usr/bin/vendor_perl
@@ -97,27 +88,22 @@ case "$-" in
       ORIGINAL_TEMP="${ORIGINAL_TEMP:-$TEMP}"
       TMPDIR="${TMPDIR:-/tmp}"
 
-      
+      # /etc/profile's own TMP/TEMP normalization, reproduced with a builtin substitution
+      # instead of the `cygpath -m` spawn it uses.
       case "$TMP" in *'\'*) TMP="${TMP//'\'//}" ;; esac
       case "$TEMP" in *'\'*) TEMP="${TEMP//'\'//}" ;; esac
 
-      # profile.d/lang.sh, reproduced faithfully -- and this is THE ONE RETAINED SPAWN.
-      
-      # Stock: `test -z "${LC_ALL:-${LC_CTYPE:-$LANG}}" && export LANG=$(exec /usr/bin/locale -uU)`.
-      
-      
+      # profile.d/lang.sh -- THE ONE RETAINED SPAWN. LANG is live per-host locale state and
+      # cannot be derived spawn-free, so guessing it would silently set a wrong LANG.
       if [ -z "${LC_ALL:-${LC_CTYPE:-$LANG}}" ]; then
         LANG=$(exec /usr/bin/locale -uU)
         export LANG
       fi
 
-      
-      # The case list below is env.sh's own, enumerated LITERALLY rather than pattern-matched.
-      
-      
-      # MINGW_PREFIX. Gating on `[ -n "$MINGW_PREFIX" ]` therefore set DISPLAY/SSH_ASKPASS on
-      
-      
+      # profile.d/env.sh: lets git prompt for credentials via GUI when the terminal is not
+      # usable -- load-bearing for git over HTTPS/SSH. The case list below is env.sh's own,
+      # enumerated literally rather than pattern-matched, since plain CLANG64 is a real
+      # MSYSTEM but not among them.
       case "${MSYSTEM}" in
       MINGW64|UCRT64|MINGW32|CLANGARM64) _cc_askpass_msystem=1 ;;
       *) _cc_askpass_msystem= ;;

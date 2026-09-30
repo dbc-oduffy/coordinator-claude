@@ -76,9 +76,30 @@ TRAMPOLINE = (
 
 TRAMPOLINE_WINDOW = 20
 
+# A guard whose SUBJECT is the trampoline must carry the literal as a data
+# value, so it would otherwise self-classify as in-class. This script and its
+# repo-wide sibling (check-sh-suffix-polyglot.py) are the only two such guards.
+# Membership is by construction, not convenience: merely mentioning the
+# trampoline does not qualify — the file must be a checker that detects it.
+#
+# Three surfaces carry this exemption independently: this set,
 # EXCLUDED_TRAMPOLINE_DOC_FILES in tests/test_no_bin_polyglot_invariant.py
 # (keyed on repo-relative path), and _SELF_SKIP_BASENAMES in
+# coordinator_core/bash_guards/commit_tripwires.py (keyed on basename, and
+# additionally retaining the dead pre-rename basename check-bin-sh-polyglot.sh
+# so a tree still carrying the old name stays exempt — inert wherever the
+# rename has landed, which is why that asymmetry is deliberate rather than
 # drift). The enforced invariant is therefore agreement on the LIVE-FILE
+# SUBSET, not strict set equality: after dropping entries naming files absent
+# from disk and normalizing basename-vs-repo-relative keying, all three must be
+# identical, or one surface reads green while another fires on the same file.
+# Mechanically checked by TestGuardSelfSkipCrossSetAgreement in
+# coordinator_core/bash_guards/tests/test_commit_tripwires.py.
+#
+# Basename keying is safe only because this guard's scan domain is
+# non-recursive over one directory (coordinator/bin/), so a basename collision
+# is impossible; widening the scan domain would require re-keying this set on
+# repo-relative path, as sh-suffix-polyglot-baseline.txt already is.
 _GUARD_SELF_SKIP_BASENAMES = {
     "check-bin-sh-polyglot.py",
     "check-sh-suffix-polyglot.py",

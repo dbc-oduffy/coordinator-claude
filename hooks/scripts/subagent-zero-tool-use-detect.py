@@ -134,6 +134,8 @@ _ID_CHARSET_RE = re.compile(r"^[A-Za-z0-9_@-]+$")
 
 
 def _read_stdin(timeout: float = 2.0) -> str:
+    """Bounded stdin read -- a bare sys.stdin.read() blocks forever if the harness never
+    closes stdin's write end (observed Windows failure mode). Falls back to "" on timeout."""
     box = {"data": ""}
 
     def _read() -> None:
@@ -154,11 +156,14 @@ if _HOOKS_DIR not in sys.path:
 try:
     from _engine_root import resolve_claude_klabauter_root as _resolve_claude_klabauter_root  # noqa: E402
 except Exception:
+    # A deploy missing its sibling _engine_root.py must fail-open rather than crash on import.
     def _resolve_claude_klabauter_root() -> str | None:
         return None
 try:
     from _git_common_dir import resolve_git_common_dir as _resolve_git_common_dir  # noqa: E402
 except Exception:
+    # A deploy missing its sibling _git_common_dir.py must fail open (empty common dir ->
+    # callers skip) rather than crash on import.
     def _resolve_git_common_dir(git_root: str) -> str:
         return ""
 
@@ -214,6 +219,10 @@ def _git_root(start: str) -> str:
 
 
 def _is_dispatched_this_session(git_root: str, session_id: str, agent_id: str) -> bool:
+    """Own-session filter: reads dispatched-agents.txt (agentId | model | subagent_type |
+    dispatched-at TSV) and returns True only when agent_id appears as its first column.
+    Any failure to resolve, read, or parse fails CLOSED (not a member) -- this filter exists
+    to exclude peer-session agents, so an unreadable ledger must not read as "everything is mine"."""
     if not git_root or not session_id or not agent_id:
         return False
     if not _ID_CHARSET_RE.match(session_id):
@@ -249,6 +258,7 @@ def main() -> int:
     except Exception:
         payload = {}
 
+    # Gate 1: agent_type first, before any other work.
     agent_type = payload.get("agent_type")
     if not isinstance(agent_type, str) or not agent_type:
         return 0
@@ -264,10 +274,14 @@ def main() -> int:
     if not isinstance(cwd, str):
         cwd = ""
 
+    # Gate 2: own-session filter. `_git_root` resolves from the payload's own `cwd` (the
+    # subagent's worktree), not ambient process cwd.
     git_root = _git_root(cwd)
     if not _is_dispatched_this_session(git_root, session_id, agent_id):
         return 0
 
+    # agent_transcript_path is authoritative; transcript_path is a decoy (the PARENT
+    # session's transcript) and must never be read here, not even as a fallback.
     agent_transcript_path = payload.get("agent_transcript_path")
     if not isinstance(agent_transcript_path, str):
         agent_transcript_path = ""
@@ -281,7 +295,7 @@ def main() -> int:
     except Exception:
         root = None
     if not root:
-        return 0
+        return 0  # fail-open -- engine repo unresolvable on this machine
 
     from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
     _place_engine_root_on_path(root)
@@ -290,7 +304,7 @@ def main() -> int:
         from coordinator_core.hooks import subagent_zero_tool_use as _op  # noqa: F401
         from coordinator_core.ipc import dispatch_ops_from_hook
     except Exception:
-        return 0
+        return 0  # engine unimportable -> fail-open
 
     ops: list[tuple[str, dict]] = [
         (
@@ -344,6 +358,9 @@ def main() -> int:
         ),
     ]
 
+    # One origin_worktree is stamped onto every op's envelope (a shared kwarg, not a
+    # per-op field) -- correct here because both ops are common_dir scoped, so both key
+    # off the same resolved common dir.
     try:
         # Per-op errors are RETURNED (HookDispatchError instances), never
         # raised, so neither op can suppress the other: on any install whose
@@ -358,8 +375,12 @@ def main() -> int:
             origin_worktree=cwd if isinstance(cwd, str) and cwd else None,
         )
     except Exception:
-        return 0
+        # Widened from `except HookDispatchError`: any other exception from the dispatch
+        # call would propagate uncaught and violate this file's own exit-0-always invariant.
+        return 0  # any engine failure -> fail-open (never brick a tool call)
 
+    # The op response IS the durable-record write -- no local write happens here on
+    # success or failure.
     return 0
 
 

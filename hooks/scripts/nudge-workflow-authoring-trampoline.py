@@ -119,6 +119,7 @@ _WIKI_ANCHOR = (
     "a-hand-authored-workflow-costs-4x-the-plan-execution.md"
 )
 
+# Mirrors nudge-multiwave-workflow.py's own session_id format guard.
 _SESSION_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{4,}$")
 
 _SENTINEL_NAME = "workflow-authoring-trampoline-nudged"
@@ -127,6 +128,7 @@ _TARGET_SKILL_NAMES = {"workflow-authoring", "coordinator:workflow-authoring"}
 
 
 def _git_root() -> str | None:
+    """Repo root, fail-open to None. In-process parent walk first, subprocess fallback."""
     walked = _git_root_walk()
     if walked:
         return walked
@@ -234,6 +236,8 @@ def main() -> int:
     if not common_dir:
         return 0
 
+    # Rooted at the git COMMON dir, never `<git_root>/.git` -- a worktree's `.git` FILE
+    # would silently never persist this session's sentinel.
     session_dir = Path(common_dir) / "coordinator-sessions" / session_id
     nudged_sentinel = session_dir / _SENTINEL_NAME
     if nudged_sentinel.is_file():

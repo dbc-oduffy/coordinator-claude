@@ -137,6 +137,8 @@ _SCAFFOLD_MECHANISM_MARKERS = (
     "scaffold_structure",
 )
 
+#: ``--root <val>`` / ``--target <val>`` (also ``--root=val``), tolerating a
+#: single- or double-quoted value. Mirrors SKILL.md's own documented flag pair.
 _ROOT_FLAG_RE = re.compile(r"--(?:root|target)(?:=|\s+)(\"[^\"]*\"|'[^']*'|\S+)")
 
 #: ``--dry-run`` is the scaffold CLI's own no-write mode: it prints the
@@ -160,6 +162,9 @@ _LEADING_CD_RE = re.compile(
     re.IGNORECASE | re.VERBOSE,
 )
 
+#: A drive-letter or UNC path. Recognized on EVERY host, not only Windows: the payload
+#: and env may carry a Windows-spelled path while the guard runs on POSIX, where
+#: ``pathlib.Path`` treats ``\`` as an ordinary character and a drive-letter path as relative.
 _WINDOWS_SPELLED_RE = re.compile(r"^(?:[A-Za-z]:[\\/]|\\\\)")
 
 
@@ -168,6 +173,8 @@ def _is_windows_spelled(path: str) -> bool:
 
 
 def _join_onto_cwd(raw: str, cwd: "str | None") -> str:
+    """``raw`` made absolute against ``cwd`` in ``cwd``'s own path flavour, or ``raw``
+    unchanged when it is already absolute or there is no cwd."""
     if _is_windows_spelled(raw) or Path(raw).is_absolute() or not cwd:
         return raw
     if _is_windows_spelled(cwd):
@@ -176,6 +183,10 @@ def _join_onto_cwd(raw: str, cwd: "str | None") -> str:
 
 
 def _canonical(path: str) -> str:
+    """The comparison key for a path. A Windows-spelled path is compared by Windows rules
+    (separators and ``..`` normalized, case folded); off Windows it is never handed to
+    ``Path.resolve()``, which would root it under the process cwd. Everything else is
+    ``Path.resolve()``d. Raises ``OSError`` as ``resolve`` does."""
     if not (_is_windows_spelled(path) and os.name != "nt"):
         path = str(Path(path).resolve())
     if _is_windows_spelled(path):
@@ -281,6 +292,9 @@ def _extract_candidate_root(cmd: str, cwd: "str | None", env: "dict[str, str]") 
 def is_denied_repo_setup_claude_home(
     cmd: str, cwd: "str | None", env: "dict[str, str]"
 ) -> bool:
+    """The whole predicate, isolated from stdin/exit-code plumbing. Returns True (deny) iff
+    ``cmd`` invokes the scaffold mechanism AND its resolved candidate target root is Claude
+    Home."""
     if not _names_scaffold_mechanism(cmd):
         return False
 
@@ -289,16 +303,16 @@ def is_denied_repo_setup_claude_home(
 
     claude_home = _resolve_claude_home(env)
     if not claude_home:
-        return False
+        return False  # cannot resolve what to compare against -- fail open
 
     candidate = _extract_candidate_root(cmd, cwd, env)
     if not candidate:
-        return False
+        return False  # no cwd and no explicit flag -- nothing to compare
 
     try:
         resolved_candidate = _canonical(candidate)
     except OSError:
-        return False
+        return False  # unresolvable candidate path -- fail open
 
     return resolved_candidate == claude_home
 
@@ -316,6 +330,8 @@ def is_denied_repo_setup_claude_home(
 
 def _compose_deny_message() -> Message:
     prose = (
+        # Names no repo, deliberately: pointing at the reader's OWN clone path clears
+        # every unreachable-pointer case a specific repo name would create.
         "BLOCKED: repo-setup's scaffold cannot target ~/.claude -- it is not "
         "a working tree. Run repo-setup against the project clone you mean to "
         "set up: /repo-setup --root <path-to-that-clone>."
@@ -327,7 +343,7 @@ def main() -> int:
     try:
         data = json.load(sys.stdin)
     except Exception:
-        return 0
+        return 0  # nothing to classify -- fail open
 
     if data.get("tool_name") not in _COMMAND_TOOL_NAMES:
         return 0
@@ -342,7 +358,7 @@ def main() -> int:
     try:
         denied = is_denied_repo_setup_claude_home(cmd, cwd, dict(os.environ))
     except Exception:
-        return 0
+        return 0  # any resolution failure -- fail open, never brick the call
 
     if not denied:
         return 0

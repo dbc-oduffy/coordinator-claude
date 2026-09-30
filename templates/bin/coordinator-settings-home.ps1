@@ -1,5 +1,7 @@
 
 
+# PowerShell twin of the Python coordinator-settings-home resolver -- must resolve the
+# SAME settings-home path a POSIX-shell consumer on the same machine would.
 #   $env:COORDINATOR_SETTINGS_HOME  — explicit override (sandboxes/CI/XDG users)
 #   ($env:CLAUDE_HOME or $env:HOME or $env:USERPROFILE or $HOME) + '\.coordinator-claude-settings'
 
@@ -7,13 +9,10 @@
 # RAG-bait: coordinator settings-home PowerShell CLI resolver; COORDINATOR_SETTINGS_HOME
 
 function Resolve-ClaudeHomeBase {
-    
-    # identical to the Python resolver's: CLAUDE_HOME -> HOME -> USERPROFILE,
-    
-    
-    # PowerShell derives $HOME from USERPROFILE and ignores $env:HOME entirely,
-    
-    
+    # Rung-for-rung identical to the Python resolver: CLAUDE_HOME -> HOME -> USERPROFILE,
+    # terminating on the automatic $HOME. Reads $env:HOME explicitly rather than the
+    # automatic $HOME: PowerShell derives the automatic $HOME from USERPROFILE and ignores
+    # $env:HOME on Windows, which would silently skip this rung and diverge from the Python resolver.
     if ($env:CLAUDE_HOME)   { return $env:CLAUDE_HOME }
     if ($env:HOME)          { return $env:HOME }
     if ($env:USERPROFILE)   { return $env:USERPROFILE }
@@ -21,7 +20,7 @@ function Resolve-ClaudeHomeBase {
 }
 
 function Resolve-SettingsHome {
-    
+    # Mirrors bash _resolve(); no side effects.
     if ($env:COORDINATOR_SETTINGS_HOME) {
         return $env:COORDINATOR_SETTINGS_HOME
     }
@@ -56,8 +55,8 @@ function Resolve-CanonicalPath {
 }
 
 function Test-Divergence {
-    
-    
+    # Mirrors bash _check_divergence(). True (OK) when homes are absent or share a
+    # canonical path (compat symlink); false (fail-loud) when both exist and diverge.
     $settingsHome = Resolve-SettingsHome
     $claudeHomeBase = Resolve-ClaudeHomeBase
     $legacy = Join-Path (Join-Path $claudeHomeBase '.claude') 'machine-local'

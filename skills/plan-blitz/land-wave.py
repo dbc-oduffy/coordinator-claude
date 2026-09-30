@@ -21,7 +21,7 @@ task-output envelope, whichever the caller points at.
 WHAT IT DOES NOT DECIDE. Nothing. The verdicts were the EM's, made at the readiness gate;
 the op executes them. This module orders the calls and sums the lanes. It does not fire
 the next wave — that stays one explicit call away, which is what keeps a runaway loop
-impossible — and it does not re-queue anything the wave surfaced to the PM.
+impossible — and it does not re-queue anything the wave left `pm_only` in `surfacedToPm`.
 
 REFUSALS, all before any landing is attempted:
 
@@ -47,6 +47,7 @@ non-empty `refused[]`.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -220,76 +221,6 @@ def _restore_prior_shipped_in(result: dict) -> list[str]:
         + ", ".join(restored),
         "  These came from this result, not from an assumption. Without them the landing refuses "
         "each baton for want of a SHA it was already carrying.",
-    ]
-
-
-def _missing_integration_records(result: dict) -> list[str]:
-    """Ready plan-route batons whose integration left no record in the trail slot.
-
-    THE WAVE CANNOT CHECK THIS AND THIS SCRIPT CAN. A workflow script has no filesystem
-    primitive, so the integrator's `reportPath` reaches the wave as a CLAIM; the wave's own
-    `ready`-to-`pulled` reconciliation therefore keys on whether the integrator RETURNED, which is
-    the only integration fact it can observe. That correctly leaves one case uncovered: the pass
-    ran, returned, edited the plan — and its sidecar never landed.
-
-    Measured 2026-09-11 on this run's fire-0-14. `hnd-single-surface-hook-cutover-th-a7d688`
-    gated READY with no `*.review-integration.md` anywhere in the trail, while the plan itself
-    carries the integrator's `<!-- Review: ... -->` annotations at the lines the gate cited. So the
-    work happened and the record did not, and an earlier fire of the same run PULLED on an absence
-    that looked identical. What is lost is not the edit but the account of it: which findings were
-    applied, which declined, and on what reasoning — the thing a later reader has no other source
-    for.
-
-    WARNS, never refuses. The plan is on disk and landing it is right; a refusal here would hold
-    good work over a missing file that re-running nothing can restore.
-    """
-    slot = result.get("trailSlotDir")
-    if not slot:
-        return []
-    slot_path = Path(str(slot))
-    if not slot_path.is_dir():
-        return []
-    # MATCHED ON A NORMALISED STEM, never on an exact path. A baton id is `hnd-` + a slug
-    # truncated to a fixed width + `-` + a hash, so a slug truncated ON a hyphen yields a DOUBLED
-    # dash — and the sidecar writer collapses it while the id keeps it. Reported by
-    # example-store-repo-fb on this check's first real use: `hnd-corpus-knowledge-delivery-raw--b8256d`
-    # warned as missing while `hnd-corpus-knowledge-delivery-raw-b8256d.review-integration.md` sat
-    # in the directory the check had just read. Not rare and not random — it is a property of the
-    # title, so it recurs forever on the same batons.
-    #
-    # This check exists to say a record is absent. A lookup that reports its own path arithmetic as
-    # an absence is the exact defect it was written to catch, one layer up:
-    # `A-DIAGNOSTIC-THAT-NAMES-A-CAUSE-IT-DID-NOT-OBSERVE`.
-    def _stem(name: str) -> str:
-        return re.sub(r"-+", "-", name).strip("-").lower()
-
-    present = {
-        _stem(p.name[: -len(".review-integration.md")]): p.name
-        for p in slot_path.glob("*.review-integration.md")
-    }
-    missing = [
-        str(v["batonId"])
-        for v in (result.get("ready") or [])
-        if isinstance(v, dict)
-        and v.get("route") in ("plan", "spec-dispatch")
-        and v.get("batonId")
-        and _stem(str(v["batonId"])) not in present
-    ]
-    if not missing:
-        return []
-    return [
-        "land-wave: NO INTEGRATION RECORD in the trail slot for: " + ", ".join(missing),
-        "  The plans are landing anyway and that is correct — the integrator's edits are in the "
-        "plan bodies. What is missing is the ACCOUNT: which findings it applied, which it "
-        "declined, and why. The integrator's return value still holds it: the fire's "
-        "journal.jsonl (the completion notification names it) carries one `result` line per "
-        "`integrate:<baton>` agent. Write the record from that, marked as reconstructed, before "
-        "the session that fired the wave ends — the journal does not outlive it.",
-        f"  Slot: {slot_path}",
-        # The evidence, not just the conclusion. fb caught this check's own false positive ONLY
-        # because it printed the slot and the listing was one command away; naming what WAS found
-        # makes the near-miss visible without that second step.
-        "  Records found there: " + (", ".join(sorted(present.values())) or "(none)"),
     ]
 
 
@@ -491,7 +422,7 @@ def _landing_pathspec(fires: list, replies: list, repo_root: Path) -> list[str]:
 
     `roadmap.blitz_land` does not commit, by its own negative spec, and this helper used to say
     nothing about what the caller then owes. Measured 2026-09-11, twice on one run: one fire's
-    landing stamps and another's integrated plan rewrites were never committed, because the
+    landing stamps and another's reviewed plan rewrites were never committed, because the
     landing commit named what the landing stamped and missed what the FIRE wrote. The next emit
     then HELD three batons as "uncommitted record — a live writer is still on them", against the
     driver's own work.
@@ -533,12 +464,42 @@ def _landing_candidates(fires: list, replies: list, repo_root: Path) -> set[str]
             if rel and rel.startswith(_LANDING_ROOTS) and rel.endswith((".md", ".yaml")):
                 candidates.add(rel)
     candidates |= _cited_records(candidates, repo_root)
+    candidates |= _replan_sources(candidates, repo_root)
     return candidates
 
 
+_REPLAN_OF = re.compile(r"^replan_of:", re.MULTILINE)
+_FORKED_FROM = re.compile(r"^forked_from:\s*[\"']?([^\"'\n]+?)[\"']?\s*$", re.MULTILINE)
+
+
+def _replan_sources(candidates: set[str], repo_root: Path) -> set[str]:
+    """The SOURCE baton of every replan this wave minted.
+
+    `blitz_land` re-stamps the source `claimed`/`continued` in the same landing, but the reply
+    names only the minted replan. The replan's own `forked_from:` is the one record naming the
+    source. Read only from minted replans (`replan_of:` present) under `state/handoffs/`, so a
+    plan's or peer baton's lineage never widens the set.
+    """
+    sources: set[str] = set()
+    for rel in candidates:
+        if not (rel.startswith("state/handoffs/") and rel.endswith(".md")):
+            continue
+        try:
+            text = (repo_root / rel).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if not _REPLAN_OF.search(text):
+            continue
+        match = _FORKED_FROM.search(text)
+        src = match and _repo_relative(match.group(1).strip(), repo_root)
+        if src and src.startswith(_LANDING_ROOTS):
+            sources.add(src)
+    return sources
+
+
 #: Records a wave WRITES that no lane field names: the scout's sizing object (named only by the
-#: plan's `sizing_object:` and the slot's sizing record) and the queue rows a planner or
-#: integrator spins off (named only in the slot's prose). Missed, they sit uncommitted after the
+#: plan's `sizing_object:` and the slot's sizing record) and the queue rows a planner
+#: spins off (named only in the slot's prose). Missed, they sit uncommitted after the
 #: landing commit — measured 2026-09-22, 37 sizings and one debt row on one wave.
 _CITED_RECORD = re.compile(
     r"(?<![\w.-])(state/(?:sizings|debt-backlog|bug-backlog|improvement-queue)/[\w.-]+\.yaml)"
@@ -587,6 +548,49 @@ def _dirty_among(candidates: set[str], repo_root: Path, run=subprocess.run) -> l
         if path:
             dirty.append(path)
     return sorted(set(dirty))
+
+
+def _landing_slot(fire_names: list[str]) -> str:
+    """Deterministic key for the fire set a call landed; disjoint sets never share a path."""
+    return hashlib.sha1("\n".join(sorted(fire_names)).encode("utf-8")).hexdigest()[:8]
+
+
+def read_wave_landings(trail: Path, wave_index: int) -> dict | None:
+    """Aggregate every `wave-<n>.landing*.json` in `trail` (legacy single file included).
+
+    Sessions landing different fires of one wave each write their own file, so a reader that
+    opens one path sees a fraction of the wave. Totals sum, lists concatenate, `nextWave` comes
+    from the newest file. None when no landing file exists or parses.
+    """
+    files = [
+        f for f in trail.glob(f"wave-{wave_index}.landing*.json")
+        if re.fullmatch(rf"wave-{wave_index}\.landing(\.[0-9a-f]+)?\.json", f.name)
+    ]
+    docs = []
+    for f in sorted(files, key=lambda f: (f.stat().st_mtime, f.name)):
+        try:
+            d = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(d, dict):
+            docs.append(d)
+    if not docs:
+        return None
+    agg = {"waveIndex": wave_index, "totals": {}, "advanced": 0, "nextWave": None}
+    for key in ("refused", "surfacedToPm", "fellBack", "landings", "uncommitted"):
+        agg[key] = []
+    agg["adjudicated"] = 0
+    for d in docs:
+        for lane, n in (d.get("totals") or {}).items():
+            agg["totals"][lane] = agg["totals"].get(lane, 0) + n
+        agg["advanced"] += d.get("advanced") or 0
+        agg["adjudicated"] += d.get("adjudicated") or 0
+        for key in ("refused", "surfacedToPm", "fellBack", "landings", "uncommitted"):
+            agg[key].extend(d.get(key) or [])
+        if d.get("nextWave") is not None:
+            agg["nextWave"] = d["nextWave"]
+    agg["uncommitted"] = sorted(set(agg["uncommitted"]))
+    return agg
 
 
 def main(argv=None) -> int:
@@ -696,12 +700,12 @@ def main(argv=None) -> int:
 
     totals = {lane: 0 for lane in _LANES}
     landings, all_refused, all_surfaced, all_fell_back = [], [], [], []
+    adjudicated = 0
     next_wave = None
 
     for path, result in fires:
+        adjudicated += len(result.get("adjudicated") or [])
         for line in _restore_prior_shipped_in(result):
-            print(line, file=sys.stderr)
-        for line in _missing_integration_records(result):
             print(line, file=sys.stderr)
         archived = _archive_result(result)
         if archived:
@@ -764,8 +768,9 @@ def main(argv=None) -> int:
     uncommitted = _landing_pathspec(fires, [l["reply"] for l in landings], repo_root)
     # The declaration written just below is dirty by construction, and the scan above ran before
     # it existed — so it is named here rather than left for the next landing to find.
+    landing_name = f"wave-{wave_index}.landing.{_landing_slot([l['fire'] for l in landings])}.json"
     for trail in {Path(l["trailDir"]) for l in landings if l["trailDir"]}:
-        rel = _repo_relative(str(trail / f"wave-{wave_index}.landing.json"), repo_root)
+        rel = _repo_relative(str(trail / landing_name), repo_root)
         if rel and trail.is_dir() and rel not in uncommitted:
             uncommitted = sorted([*uncommitted, rel])
 
@@ -773,14 +778,16 @@ def main(argv=None) -> int:
     # account of what a wave landed is stdout — which the next session does not have — and the
     # driver that must subtract pulled and surfaced batons from a fresh gate read has to
     # reconstruct them from prose across several trail dirs. Measured on project-rag: four trails
-    # carrying no landing result at all. Written per wave, so several fires landed in one call
-    # produce one file, and a second landing of the same wave supersedes it by design.
+    # carrying no landing result at all. Keyed by the fire set this call landed, so sessions
+    # landing different fires of one wave write different files and never conflict on rebase;
+    # `read_wave_landings` aggregates them.
     summary = {
         "waveIndex": wave_index,
         "totals": totals,
         "advanced": advanced,
         "refused": all_refused,
         "surfacedToPm": all_surfaced,
+        "adjudicated": adjudicated,
         "fellBack": all_fell_back,
         "nextWave": next_wave,
         "landings": [{"fire": l["fire"], "counted": l["counted"]} for l in landings],
@@ -789,7 +796,7 @@ def main(argv=None) -> int:
     for trail in {Path(l["trailDir"]) for l in landings if l["trailDir"]}:
         if trail.is_dir():
             try:
-                (trail / f"wave-{wave_index}.landing.json").write_text(
+                (trail / landing_name).write_text(
                     json.dumps(summary, indent=2), encoding="utf-8", newline="\n"
                 )
             except OSError as exc:
@@ -807,6 +814,7 @@ def main(argv=None) -> int:
                     "advanced": advanced,
                     "refused": all_refused,
                     "surfacedToPm": all_surfaced,
+                    "adjudicated": adjudicated,
                     "fellBack": all_fell_back,
                     "nextWave": next_wave,
                     "landings": [
@@ -833,6 +841,8 @@ def main(argv=None) -> int:
             print(f"  refused  {entry}")
         for entry in all_surfaced:
             print(f"  pm       {entry}")
+        if adjudicated:
+            print(f"  adjudicated {adjudicated} PM-bound entr(ies) ruled by an agent; the PM reads them at the receipt")
         for entry in all_fell_back:
             print(f"  fellback {entry}")
         if next_wave:

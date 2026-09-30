@@ -113,7 +113,12 @@ Write your report to `{report_path}` verbatim -- the verify pass reads that
 exact path.
 """.strip()
 
+# Framing is deliberately claim-shaped rather than finding-shaped: this brief is
+# shared across all three buckets, and `fyi` produces routes, never break-class
+# findings. Naming only findings let a verify pass read a route-only report as
+# having nothing to check — on the run this stage split came from, that bucket's
 # ESCALATEs were the ones most needing verification and three of five were
+# refuted. Keep the route vocabulary here if the brief is reworded.
 _VERIFY_BRIEF = """
 You are verifying the claims recorded in the triage report at
 `{report_path}` -- whatever shape this bucket's triage pass actually
@@ -472,7 +477,10 @@ def _resolve_repo_root() -> str:
         require_dispatch_engine_on_path()
         from coordinator_core.git.repo_root import show_toplevel
 
+        # `show_toplevel`'s own spawn fallback bounds its wait at 2s (see
         # `coordinator_core.git.repo_root._TIMEOUT_SECS`), tighter than this
+        # site's prior 10s — still bounded, still never blocks the morning
+        # ceremony (see docstring above).
         resolved = show_toplevel()
     except Exception:  # noqa: BLE001 -- fail-open, matches this file's transport posture
         resolved = None

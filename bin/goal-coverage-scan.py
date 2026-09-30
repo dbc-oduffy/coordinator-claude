@@ -66,8 +66,21 @@ _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _LIB_DIR = os.path.join(_SCRIPT_DIR, "lib")
 
 
+# Record types that may carry origin_goal_id (the work->goal edge).
+#
 # CURRENTLY WIRED: only `handoff` — handoff.schema.json declares
+# origin_goal_id (array<string>|null). This is the only leg that returns
+# real coverage data today.
+#
 # FORWARD-LOOKING / INERT: `plan`, `debt`, `bug`, `improvement` are named in
+# the plan's DEC-3/AC4 as intended origin_goal_id bearers, but their schemas
+# do not yet declare an origin_goal_id field — nothing on the current
+# producer surface writes one onto those types, so these four legs of the
+# coverage scan always return [] until their schemas are extended. Included
+# here so the scan is ready to pick up real data the moment those schemas
+# are wired, at the cost of four no-op query calls per goal in the meantime.
+#
+# Spec backlink: coordinator-content-repo:pln-close-the-weekly-goal-loop-yam-d31316 § C4/AC4, § C5/DEC-3
 COVERAGE_TYPES = ["handoff", "plan", "debt", "bug", "improvement"]
 
 

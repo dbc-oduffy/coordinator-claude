@@ -419,6 +419,9 @@ def _derive_register_rule_ids(
 
     Dev-time tooling only: called from `__main__` below, never from
     this module's import path."""
+    # Function-local: the enum split has one definition, in the omission ledger,
+    # and this keeps that module off the session-start import path, which only
+    # __main__ needs it on.
     from _environment_story_omission_ledger import RULE_BEARING_DISPOSITIONS
 
     rule_bearing_not_omitted: set[str] = set()

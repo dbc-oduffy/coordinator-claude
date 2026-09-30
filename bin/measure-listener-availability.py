@@ -146,7 +146,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+# --------------------------------------------------------------------------------------------
+# Engine-root resolution ("engine" class, § Path resolution). This script lives inside the
+# engine it probes, so its own `__file__` parent chain IS the engine root -- no registry lookup,
 # no sibling-checkout search. `COORDINATOR_ENGINE_ROOT` is kept as an override for a test
+# sandbox or a differently-laid-out clone.
+# --------------------------------------------------------------------------------------------
 
 _ENGINE_ROOT = Path(__file__).resolve().parents[2]
 
@@ -156,7 +161,11 @@ def _resolve_engine_root() -> Path:
     return Path(override) if override else _ENGINE_ROOT
 
 
+# --------------------------------------------------------------------------------------------
 # The probe. Imports `coordinator_core.warm.election` / `.client` READ-ONLY, and only the pure
+# derivation functions (`pipe_name`, `socket_path`, `engine_token`, the two deadline constants) --
+# never `client.try_warm_dispatch` or `client.dispatch`, which is exactly the seam C1 forbade.
+# --------------------------------------------------------------------------------------------
 
 SUBJECT_UP = "up"
 SUBJECT_DOWN = "down"
@@ -216,7 +225,12 @@ def _probe_windows(pipe: str, payload: bytes, read_deadline: float) -> tuple[str
         return SUBJECT_DOWN, "no_listener", (time.perf_counter() - started) * 1000
     except OSError as exc:
         # ERROR_PIPE_BUSY (231): server up, contended -- warm.client's own anti-storm table
+        # counts this as UP and refuses to retry into it; this sampler mirrors that verdict
+        # rather than inventing a third state for "present but momentarily contended".
         # Recorded under its own mode, never merged into "answered": for a BLOCKING guard the
+        # operator waits out contention, and this box's contention is not incidental -- the
+        # door-probe spike measured arm C at 324ms p50 against a 22ms floor. An uptime figure
+        # that cannot say how much of its "up" was queueing would overstate the guard's health.
         if getattr(exc, "winerror", None) == 231:
             return SUBJECT_UP, "busy", (time.perf_counter() - started) * 1000
         return SUBJECT_DOWN, f"connect_error:{exc!r}", (time.perf_counter() - started) * 1000
@@ -254,6 +268,7 @@ def _probe_posix(
         return SUBJECT_DOWN, "no_listener", (time.perf_counter() - started) * 1000
     except (TimeoutError, _socket.timeout):
         # Full backlog -- server up, contended. Same verdict as ERROR_PIPE_BUSY above,
+        # and likewise recorded under its own mode rather than merged into "answered".
         sock.close()
         return SUBJECT_UP, "backlog", (time.perf_counter() - started) * 1000
     except OSError as exc:
@@ -680,7 +695,9 @@ def build_report(output_path: Path, interval_secs: float, gap_threshold_multipli
         ),
         "sample_interval_observed_secs": round(observed_interval, 1),
         "outage_duration_buckets": buckets,
+        # Uptime is not uniform: a "busy"/"backlog" sample means the host process was present
         # but queued. For a BLOCKING guard the operator waits that out, so it is reported as its
+        # own share of uptime rather than left indistinguishable from a clean answer.
         "contended_secs": round(contended_secs, 1),
         "contended_share_of_uptime": (
             round(contended_secs / up_secs, 6) if up_secs > 0 else None

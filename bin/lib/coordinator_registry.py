@@ -1,8 +1,11 @@
 """coordinator_registry — shared registry loader for coordinator doc-type and identity data.
 
 Single source of truth (SoT): schemas/coordinator-registry.manifest.json.
-Loaded once at import time via json.load; callers import the named constants directly.
-An absent or malformed manifest is an install-integrity failure and raises immediately.
+Loaded lazily and cached once per process: importing this module reads no manifest; the
+first read of a manifest-derived name (module __getattr__) or a call to
+_central_canonical_id() resolves the path ladder and json.loads it. Callers still
+`from coordinator_registry import KNOWN_TYPES`. An absent or malformed manifest is an
+install-integrity failure and raises on that first read.
 
 Exposed names (reconstruction rules per manifest._reconstruction key):
   KNOWN_TYPES         — frozenset of all recognized --type values
@@ -48,6 +51,7 @@ Shared state-root resolver (canonical, importable by all doctrine CLIs):
 """
 from __future__ import annotations
 
+import functools
 import json
 import os
 import subprocess
@@ -66,7 +70,7 @@ from machine_local_impl_resolve import (  # noqa: E402
 
 #                      in coordinator-content-repo, because schemas are CONTRACT and DR-047
 _MANIFEST_RELPATH = os.path.join("schemas", "coordinator-registry.manifest.json")
-_MANIFEST_PATH = os.path.join(
+_MANIFEST_PATH_DEFAULT = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
     _MANIFEST_RELPATH,
 )
@@ -334,115 +338,143 @@ def _mp_marketplace_cache_rung() -> str:
     return _best
 
 
-if not os.path.exists(_MANIFEST_PATH):
-    # is defined — same chain (CONTENT_ROOT env → REPO_CONTENT_ROOT env → machine-local
-    # REPO_CONTENT_ROOT is aliased here too (not just in content_root() below) — it is
-    # below used to win and this module's RECEIVER_EM_ALIASES / centralReceiverIds
-    _doe = os.environ.get("CONTENT_ROOT", "").strip() or os.environ.get("REPO_CONTENT_ROOT", "").strip()
-    if not _doe:
-        _doe = _mlir_registry_get("repos.content_root") or ""
-    if not _doe:
-        for _ml_cand in _mlir_machine_local_bin_candidates():
-            if not os.path.exists(_ml_cand):
+@functools.lru_cache(maxsize=None)
+def _load_manifest() -> dict:
+    """Resolve, read and validate the registry manifest once per process.
+
+    Returns the manifest-derived public names plus `_MANIFEST_PATH`. Absent,
+    malformed, or key-incomplete manifests raise (install-integrity failure).
+    """
+    _manifest_path = _MANIFEST_PATH_DEFAULT
+    if not os.path.exists(_manifest_path):
+        _doe = os.environ.get("CONTENT_ROOT", "").strip() or os.environ.get("REPO_CONTENT_ROOT", "").strip()
+        if not _doe:
+            _doe = _mlir_registry_get("repos.content_root") or ""
+        if not _doe:
+            for _ml_cand in _mlir_machine_local_bin_candidates():
+                if not os.path.exists(_ml_cand):
+                    continue
+                try:
+                    _mlres = subprocess.run(
+                        [_ml_cand, "get", "repos.content_root"],
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                    )
+                    if _mlres.returncode == 0:
+                        _doe = _mlres.stdout.strip()
+                except (OSError, subprocess.SubprocessError):
+                    _doe = ""
+                if _doe:
+                    break
+        if _doe:
+            _candidate = _mp_candidate_manifest_path(_doe)
+            if _candidate:
+                _manifest_path = _candidate
+
+    if not os.path.exists(_manifest_path):
+        for _mp_root in (
+            _mp_content_root_pointer_rung(),
+            _mp_marketplace_cache_rung(),
+            _mp_flat_layout_probe_rung(),
+            os.environ.get("CLAUDE_PLUGIN_ROOT", "").strip(),
+            _registry_machine_local_get("plugin.mirrors.coordinator-claude.live_path") or "",
+        ):
+            if not _mp_root or not os.path.isdir(_mp_root):
                 continue
-            try:
-                _mlres = subprocess.run(
-                    [_ml_cand, "get", "repos.content_root"],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                )
-                if _mlres.returncode == 0:
-                    _doe = _mlres.stdout.strip()
-            except (OSError, subprocess.SubprocessError):
-                _doe = ""
-            if _doe:
+            _mp_manifest_cand = _mp_candidate_manifest_path(_mp_root)
+            if _mp_manifest_cand:
+                _manifest_path = _mp_manifest_cand
                 break
-    if _doe:
-        _candidate = _mp_candidate_manifest_path(_doe)
-        if _candidate:
-            _MANIFEST_PATH = _candidate
 
-if not os.path.exists(_MANIFEST_PATH):
-    # canonical registry anchor above did not resolve. CLAUDE_PLUGIN_ROOT is
-    for _mp_root in (
-        _mp_content_root_pointer_rung(),
-        _mp_marketplace_cache_rung(),
-        _mp_flat_layout_probe_rung(),
-        os.environ.get("CLAUDE_PLUGIN_ROOT", "").strip(),
-        _registry_machine_local_get("plugin.mirrors.coordinator-claude.live_path") or "",
-    ):
-        if not _mp_root or not os.path.isdir(_mp_root):
-            continue
-        _mp_manifest_cand = _mp_candidate_manifest_path(_mp_root)
-        if _mp_manifest_cand:
-            _MANIFEST_PATH = _mp_manifest_cand
-            break
+    # Last-resort rung: the OSS mirror carries no coordinator-content-repo checkout; the
+    # vendored byte-copy is consulted only after every live rung has missed.
+    if not os.path.exists(_manifest_path):
+        _mp_vendored = os.path.join(_REGISTRY_LIB_DIR, "_vendor", "coordinator-registry.manifest.json")
+        if os.path.exists(_mp_vendored):
+            _manifest_path = _mp_vendored
 
-# Last-resort rung: the OSS-published klabauter mirror carries no coordinator-content-repo
-# checkout at all (PM ruling — klabauter must run standalone), so every live
-# rung above is structurally dead there. Vendored the same way
-# coordinator_core/frontmatter/schemas/ vendors DoE's offerable schemas
-# (b4c6df071): a byte-copy of the manifest pinned at _vendor/.doe-ref-pin,
-# checked ONLY after every live rung has already missed.
-if not os.path.exists(_MANIFEST_PATH):
-    _mp_vendored = os.path.join(_REGISTRY_LIB_DIR, "_vendor", "coordinator-registry.manifest.json")
-    if os.path.exists(_mp_vendored):
-        _MANIFEST_PATH = _mp_vendored
+    try:
+        with open(_manifest_path, encoding="utf-8") as _f:
+            _manifest = json.load(_f)
+    except FileNotFoundError as _e:
+        raise FileNotFoundError(
+            f"coordinator_registry: manifest not found at {_manifest_path!r}, and no "
+            "CONTENT_ROOT/REPO_CONTENT_ROOT-resolvable candidate located one either. "
+            "This is an install-integrity failure — ensure the coordinator plugin is "
+            "fully installed, or set CONTENT_ROOT to the schemas-hosting repo's root."
+        ) from _e
+    except json.JSONDecodeError as _e:
+        raise ValueError(
+            f"coordinator_registry: manifest at {_manifest_path!r} is malformed JSON: {_e}. "
+            "This is an install-integrity failure — do not hand-edit the manifest."
+        ) from _e
 
-try:
-    with open(_MANIFEST_PATH, encoding="utf-8") as _f:
-        _manifest = json.load(_f)
-except FileNotFoundError as _e:
-    # from the same CONTENT_ROOT/REPO_CONTENT_ROOT resolution content_root() performs
-    # failure the operator can act on (set CONTENT_ROOT / REPO_CONTENT_ROOT), not
-    raise FileNotFoundError(
-        f"coordinator_registry: manifest not found at {_MANIFEST_PATH!r}, and no "
-        "CONTENT_ROOT/REPO_CONTENT_ROOT-resolvable candidate located one either. "
-        "This is an install-integrity failure — ensure the coordinator plugin is "
-        "fully installed, or set CONTENT_ROOT to the schemas-hosting repo's root."
-    ) from _e
-except json.JSONDecodeError as _e:
-    raise ValueError(
-        f"coordinator_registry: manifest at {_MANIFEST_PATH!r} is malformed JSON: {_e}. "
-        "This is an install-integrity failure — do not hand-edit the manifest."
-    ) from _e
+    try:
+        _doc_types: list[dict] = _manifest["docTypes"]
+        _queue_types_list: list[str] = _manifest["queueTypes"]
+        _identity: dict = _manifest["identity"]
+    except KeyError as _e:
+        raise ValueError(
+            f"coordinator_registry: manifest at {_manifest_path!r} is missing required key: {_e}. "
+            "This is an install-integrity failure — do not hand-edit the manifest."
+        ) from _e
 
-try:
-    _doc_types: list[dict] = _manifest["docTypes"]
-    _queue_types_list: list[str] = _manifest["queueTypes"]
-    _identity: dict = _manifest["identity"]
-except KeyError as _e:
-    raise ValueError(
-        f"coordinator_registry: manifest at {_MANIFEST_PATH!r} is missing required key: {_e}. "
-        "This is an install-integrity failure — do not hand-edit the manifest."
-    ) from _e
+    try:
+        _repo_aliases_raw = _identity["repoAliases"]
+        _central_receiver_ids_raw = _identity["centralReceiverIds"]
+    except KeyError as _e:
+        raise ValueError(
+            f"coordinator_registry: manifest at {_manifest_path!r} is missing required identity key: {_e}. "
+            "This is an install-integrity failure — do not hand-edit the manifest."
+        ) from _e
+
+    # The literal is a FALLBACK DEFAULT for manifests predating redirectAliases.
+    _redirect_aliases_raw = _identity.get(
+        "redirectAliases",
+        [".claude-em", "claude-home", "coordinator-claude", "coordinator-claude-em"],
+    )
+    return {
+        "_MANIFEST_PATH": _manifest_path,
+        "KNOWN_TYPES": frozenset(d["type"] for d in _doc_types) | frozenset(_queue_types_list),
+        "SIDECAR_TYPES": frozenset(d["type"] for d in _doc_types if d["isSidecar"]),
+        "QUEUE_TYPES": frozenset(_queue_types_list),
+        "REPO_ALIASES": {a["registryKey"]: a["shortname"] for a in _repo_aliases_raw},
+        "CENTRAL_RECEIVER_IDS": frozenset(_central_receiver_ids_raw),
+        "REDIRECT_ALIASES": frozenset(
+            a.strip().lower() for a in _redirect_aliases_raw if isinstance(a, str) and a.strip()
+        ),
+        "RECEIVER_EM_ALIASES": {a["shortname"]: a["registryKey"] for a in _repo_aliases_raw},
+        "SIDECAR_SUFFIXES": {
+            d["type"]: d["suffix"] for d in _doc_types if d.get("isSidecar") and "suffix" in d
+        },
+        "DOC_TYPES": tuple(_doc_types),
+        "_CENTRAL_CANONICAL_ID": _central_receiver_ids_raw[0],
+    }
 
 
-# KNOWN_TYPES = {d.type for d in docTypes} ∪ set(queueTypes)
-# so this union byte-equals the pre-refactor coordinator-doc-new._KNOWN_TYPES.
-KNOWN_TYPES: frozenset[str] = frozenset(d["type"] for d in _doc_types) | frozenset(_queue_types_list)
+_LAZY_NAMES = frozenset(
+    {
+        "_MANIFEST_PATH",
+        "KNOWN_TYPES",
+        "SIDECAR_TYPES",
+        "QUEUE_TYPES",
+        "REPO_ALIASES",
+        "CENTRAL_RECEIVER_IDS",
+        "REDIRECT_ALIASES",
+        "RECEIVER_EM_ALIASES",
+        "SIDECAR_SUFFIXES",
+        "DOC_TYPES",
+    }
+)
 
-# SIDECAR_TYPES = {d.type for d in docTypes if d.isSidecar}
-SIDECAR_TYPES: frozenset[str] = frozenset(d["type"] for d in _doc_types if d["isSidecar"])
 
-# QUEUE_TYPES = set(queueTypes)
-QUEUE_TYPES: frozenset[str] = frozenset(_queue_types_list)
-
-try:
-    _repo_aliases_raw = _identity["repoAliases"]
-    _central_receiver_ids_raw = _identity["centralReceiverIds"]
-except KeyError as _e:
-    raise ValueError(
-        f"coordinator_registry: manifest at {_MANIFEST_PATH!r} is missing required identity key: {_e}. "
-        "This is an install-integrity failure — do not hand-edit the manifest."
-    ) from _e
-
-# REPO_ALIASES: registryKey → shortname — matches the Python _REPO_KEY_ALIASES convention
-REPO_ALIASES: dict[str, str] = {a["registryKey"]: a["shortname"] for a in _repo_aliases_raw}
-
-# CENTRAL_RECEIVER_IDS: valid central EM receiver identity strings
-CENTRAL_RECEIVER_IDS: frozenset[str] = frozenset(_central_receiver_ids_raw)
+def __getattr__(name: str):
+    """PEP 562: serve the manifest-derived names, loading the manifest on first read."""
+    if name in _LAZY_NAMES:
+        return _load_manifest()[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def _central_canonical_id() -> str:
@@ -459,31 +491,7 @@ def _central_canonical_id() -> str:
     a bare literal anywhere that needs the canonical id — derive it from here so
     a future manifest re-ordering of centralReceiverIds propagates automatically.
     """
-    return _central_receiver_ids_raw[0]
-
-# REDIRECT_ALIASES: DoE-canonical home/mirror redirect aliases (identity.redirectAliases).
-# invocation. The literal below is therefore a FALLBACK DEFAULT, not the authority —
-_redirect_aliases_raw = _identity.get(
-    "redirectAliases",
-    [".claude-em", "claude-home", "coordinator-claude", "coordinator-claude-em"],
-)
-REDIRECT_ALIASES: frozenset[str] = frozenset(
-    a.strip().lower() for a in _redirect_aliases_raw if isinstance(a, str) and a.strip()
-)
-
-# RECEIVER_EM_ALIASES: shortname → registryKey (inverse of REPO_ALIASES; used by cross-repo-memo)
-RECEIVER_EM_ALIASES: dict[str, str] = {a["shortname"]: a["registryKey"] for a in _repo_aliases_raw}
-
-# SIDECAR_SUFFIXES: sidecar-type → filesystem suffix (e.g. "review" → "review").
-# review F3 — replaces the local _SIDECAR_SUFFIX dict in coordinator-doc-new; derived from
-SIDECAR_SUFFIXES: dict[str, str] = {
-    d["type"]: d["suffix"]
-    for d in _doc_types
-    if d.get("isSidecar") and "suffix" in d
-}
-
-# DOC_TYPES: raw docTypes list for callers needing schemaName/offerable fields.
-DOC_TYPES: tuple[dict, ...] = tuple(_doc_types)
+    return _load_manifest()["_CENTRAL_CANONICAL_ID"]
 
 
 def _same_path(a: str, b: str) -> bool:
@@ -727,3 +735,13 @@ def content_root() -> str:
         "repos.content_root not set in machine-local registry and neither "
         "REPO_CONTENT_ROOT nor CONTENT_ROOT (legacy alias) env var is set"
     )
+
+
+# publish-time alias: percolate's base depersonalize table text-rewrites this
+# module's `content_root` identifier to `content_root` in the published mirror, but
+# leaves the live source untouched. A published CLI's `from coordinator_registry
+# import content_root` therefore resolves against the live tree's `bin/lib` (see
+# coordinator/bin/tests/test_published_cli_cross_tree_imports_resolve.py) only if
+# both spellings are exported here. Self-assigns harmlessly once percolate
+# renames `content_root` -> `content_root` in the mirror.
+Content_root = content_root

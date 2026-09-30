@@ -78,11 +78,37 @@ import sys
 import time
 from pathlib import Path
 
+# Module-level crash guard — narrow, covers only the imports below (and their
+# sys.path bootstrap) that can realistically fail at import time: a missing
+# lib dir, a broken workday_ceremony_lib/cc_invoke, or (the 2026-08-12
+# incident this closes) an unreachable coordinator_core transitively pulled
+# in by them. Without this, such a failure propagates before
+# `_main_with_crash_guard` (which wraps `main()`, further below) is ever
+# reached — the exact "crash before any status line" failure mode
+# state/bug-backlog/2026-08-12-ceremony-cannot-distinguish-a-step-0-tha-
+# 2245f21fe6d0.yaml describes; a REAL 2026-08-12 incident on this exact
+# import (ModuleNotFoundError: coordinator_core, since fixed in d2d4ec545)
+# is what proved the class, not just the theory. Uses only stdlib
+# (print/sys/traceback) already imported above — never depends on anything
+# from the imports it is guarding, which may not exist in a half-imported
+# module.
 # Bootstrap-and-bind ordering (DISPATCH axis before `import workday_ceremony_lib`)
+# now lives at the top of `main()`, wrapped by `_main_with_crash_guard` (near the
+# bottom of this file) instead of a bare module-level try/except — `main()` is
+# ALWAYS invoked through that guard (see `if __name__ == "__main__":` below), so
+# an import-time failure there is caught and reported exactly the same way (stdout
+# "CRASH", traceback on stderr, exit 1) as the module-level guard this replaced.
+# `wc` (workday_ceremony_lib) is bound as a module global by `main()` before any
+# other function in this file that reads it (`wc.git(...)`) can run. No
+# placeholder is bound here (PEP 562): a `wc = None` module-level default
+# would sit in `__dict__` and permanently shadow the `__getattr__` hook below,
+# which fires ONLY for names absent from `__dict__` — a placeholder means
+# every reader gets `None` back instead of triggering the lazy import.
 
 PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _LIB_DIR = os.path.join(PLUGIN_ROOT, "lib")
 # STEP0_SYNC_MAIN override mirrors step3's STEP3_SYNC_MAIN seam (defaults to the real
+# path — behavior is unchanged when unset; the override exists for hermetic testing).
 _BIN_SYNC_MAIN = os.environ.get("STEP0_SYNC_MAIN") or os.path.join(PLUGIN_ROOT, "bin", "sync-main.py")
 _BIN_RECONCILE = os.path.join(PLUGIN_ROOT, "bin", "workday-start-step0-reconcile.py")
 
@@ -188,7 +214,13 @@ def contributor_slug_self_heal() -> None:
 def _exec_reconcile() -> int:
     _ensure_claude_klabauter_on_path()
 
+    # Converted from a subprocess spawn to a direct in-process import+call
+    # (P055-C2): the callee's own main() prints its stdout/stderr line
+    # directly and never raises (see workday-start-step0-reconcile.py::main,
+    # which catches RuntimeError/ImportError internally and returns an int),
+    # so no stdio-capture-and-relay is needed here — that relay existed only
     # to make a Windows silent-kill (inherited-stdio + CREATE_NO_WINDOW)
+    # diagnosable across a process boundary that no longer exists.
     import importlib.util
 
     _spec = importlib.util.spec_from_file_location(
@@ -202,7 +234,9 @@ def _exec_reconcile() -> int:
         return exc.code if isinstance(exc.code, int) else 1
 
 
+# ---------------------------------------------------------------------------
 # Check 4 — session-meta branch carry (AC8-AC10)
+# ---------------------------------------------------------------------------
 
 def _session_meta_dirs() -> "list[str]":
     """Enumerate this tree's session-claim directories under the git common
@@ -399,6 +433,15 @@ def main(argv: list[str]) -> int:
 
     require_dispatch_engine_on_path()
     # LOAD-BEARING, NOT DEAD. Do not delete on an unused-import sweep: this line is
+    # what BINDS coordinator_core, and binding it HERE is the whole fix.
+    # require_dispatch_engine_on_path() above only mutates sys.path -- it imports
+    # nothing. Without this line the next import below (a binder module that
+    # resolves on the LOCATOR axis) wins the race and binds coordinator_core off
+    # the working tree instead of the dispatch root, and no later sys.path insert can
+    # rebind an already-imported package. Removing it restores a silent wrong-tree
+    # divergence that require_dispatch_engine_on_path now raises on.
+    # Why: docs/plans/2026-08-26-the-seam-reports-what-it-got.md C9,
+    # docs/research/engine-provenance-carrier-dependence.md
     import coordinator_core  # noqa: F401
 
     _bootstrap_wc()
@@ -486,12 +529,20 @@ def main(argv: list[str]) -> int:
         # ADOPTED-EXISTING (today's branch already existed and HEAD was at its
         # tip), ADVANCED-TO-HEAD (it existed but lagged HEAD after a merge to
         # main, so its ref was advanced with HEAD held still) and INHERITED
+        # (another session won the cut lock) are the same
         # settled-on-a-day-branch terminal as FRESH-CUT: the invariant HOLDS.
         # They are deliberately NOT folded into REFUSED-LIVE-PEERS, which
+        # reports the opposite state -- see session_ensure_branch's negative
+        # spec on the result vocabulary.
         return _exec_reconcile()
     if ensure.result == "REFUSED-LIVE-PEERS":
         # Settled-on-this-branch terminal, same shape as FRESH-CUT and
         # NAMED-WORKSTREAM: the cut was declined because it would switch the
+        # shared checkout under live peers, so the tree stays where it is and
+        # we reconcile it rather than falling through to Check 3.5/4, whose
+        # span parse cannot succeed on `main` and would exit 1 on a
+        # non-EM-skippable step. session_ensure_branch has already printed the
+        # peer detail; this line names the day-level consequence.
         _err("LIVENESS-GATE: staying on "
              f"{current or '<detached>'} — no day branch was cut. "
              "Branch discipline is NOT in force for this session.")

@@ -125,6 +125,8 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 2
 
+    # Strip any prior block first, so this is idempotent and a re-apply after a Git
+    # update cannot stack two copies.
     base = _strip_block(current, profile)
     new = base if args.uninstall else block + base
 

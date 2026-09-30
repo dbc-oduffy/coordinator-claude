@@ -251,7 +251,7 @@ def _no_legacy() -> None:
     raise RuntimeError(
         "plan-tasks-resolve: coordinator_core.invoke seam absent — no legacy "
         "path exists for plan.tasks.mutate. Verify COORDINATOR_ENGINE_ROOT "
-        "(or CLAUDE_KLABAUTER_ROOT) and the claude-klabauter coordinator_core install."
+        "and the claude-klabauter coordinator_core install."
     )
 
 

@@ -98,8 +98,12 @@ _SLUG_MAX_CHARS = 40
 
 _OUTBOX_ROOT_ENV = "LESSON_PROMOTE_OUTBOX_ROOT"
 
+# Env var for test isolation — overrides the central wiki inventory directory used
 # by --target-wiki validation (A7). Mirrors _OUTBOX_ROOT_ENV's override shape: when
 # set, points DIRECTLY at a directory of .md files (not the DoE repo root), so tests
+# never need a real coordinator-content-repo checkout on disk to exercise validation.
+# Spec backlink: cross-repo/inbox/2026-07-23-example-cockpit-repo-em-learn-lessons-dogfood-2026-07-23.md
+# (finding A7)
 _WIKI_ROOT_ENV = "LESSON_PROMOTE_WIKI_ROOT"
 
 _EXIT_DOE_UNRESOLVABLE = 3
@@ -115,6 +119,9 @@ def _is_publish_mirror_root(resolved_root: str) -> bool:
     return any(marker in normalized for marker in _PUBLISH_MIRROR_MARKERS)
 
 # Env var for CONTENT_ROOT override — mirrors CLAUDE_KLABAUTER_ROOT §4b idempotency gate.
+# Honoured by coordinator_registry.content_root() (bound by _bootstrap_imports()) —
+# kept here as a local constant for documentation and error-message reference.
+# Spec backlink: docs/plans/2026-07-06-gate2-w23-state-seam-caller-switch.md § C1
 _CONTENT_ROOT_ENV = "CONTENT_ROOT"
 
 
@@ -168,6 +175,15 @@ def _bootstrap_engine() -> None:
 
         require_dispatch_engine_on_path()
         # LOAD-BEARING, NOT DEAD. Do not delete on an unused-import sweep: this line is
+        # what BINDS coordinator_core, and binding it HERE is the whole fix.
+        # require_dispatch_engine_on_path() above only mutates sys.path -- it imports
+        # nothing. Without this line the next module-level import below (a binder module
+        # that resolves on the LOCATOR axis) wins the race and binds coordinator_core off
+        # the working tree instead of the dispatch root, and no later sys.path insert can
+        # rebind an already-imported package. Removing it restores a silent wrong-tree
+        # divergence that require_dispatch_engine_on_path now raises on.
+        # Why: docs/plans/2026-08-26-the-seam-reports-what-it-got.md C9,
+        # docs/research/engine-provenance-carrier-dependence.md
         import coordinator_core
 
         import cli_shared
@@ -185,6 +201,8 @@ def _bootstrap_engine() -> None:
         _CLAUDE_HOME_ENV = cli_shared.CLAUDE_HOME_ENV
 
         # Env var for CLAUDE_KLABAUTER_ROOT override — mirrors coordinator-claude-klabauter-root.sh §4b
+        # idempotency gate. Set to the claude-klabauter repo root to bypass machine-local resolution.
+        # Spec backlink: pln-stop-the-rot-claude-klabauter-state-home-placement-4cc787 § AC1 / AC13
         _CLAUDE_KLABAUTER_ROOT_ENV = cli_shared.CLAUDE_KLABAUTER_ROOT_ENV
 
         _claude_home = cli_shared.claude_home
@@ -281,6 +299,8 @@ def _describe_schema_node(schema_name: str) -> dict:
     return _cc_route("schema.describe", {"schema_name": schema_name}, repo_root, _no_legacy)
 
 
+# Registry aliases: stable doctrine EM names that diverge from the repo's
+# machine-local shortname convention. Derived from schemas/coordinator-registry.manifest.json
 # via coordinator_registry.REPO_ALIASES (loaded above). Mirrors cross-repo-memo RECEIVER_EM_ALIASES.
 
 
@@ -333,7 +353,10 @@ def _outbox_root() -> str:
     )
     if override:
         return override
+    # Central state (lessons-outbox) routes to DoE — doctrine class.
+    # content_root() raises _DoeUnresolvable when repos.content_root is unregistered and
     # CONTENT_ROOT env var is not set; _DoeUnresolvable propagates to legacy_fn() catch.
+    # Spec backlink: gate2-w23-state-seam-caller-switch.md § C1 / AC2
     resolved_content_root = content_root()
     if _is_publish_mirror_root(resolved_content_root):
         raise RuntimeError(
@@ -693,15 +716,41 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_parser(change_kind_values)
     args = parser.parse_args(argv)
 
+    # coordinator_core is not on sys.path here by construction on the
+    # published mirror (not pip-installed there) — the _LIB_DIR insert at the
+    # top of this file only reaches coordinator/bin/lib, never the engine root.
+    #
     # A fresh machine with repos.claude_klabauter unregistered (no CLAUDE_KLABAUTER_ROOT
+    # env override either) is the reachable, production case this guards:
+    # `_resolve_engine_root()` walks all the way to
+    # `coordinator_core.engine_root.coordinator_engine_root_with_class()`,
+    # whose own resolve-claude-klabauter shim fails loud with `ClaudeKlabauterResolutionError`
+    # (its documented, correct contract — see that module's own docstring;
+    # NOT touched here). Prior to this fix that propagated as an unhandled
+    # traceback instead of the same graceful WARN+skip degrade this CLI
+    # already gives an unresolvable coordinator-content-repo root. Caught narrowly (never
+    # a bare `except Exception`) via `_claude_klabauter_resolution_error_class()`,
+    # because the exception class this raises has no import-stable identity
+    # this CLI can name ahead of time — see that helper's docstring.
     try:
         require_dispatch_engine_on_path()
     except RuntimeError as exc:
         _resolution_err_cls = _claude_klabauter_resolution_error_class()
         if _resolution_err_cls is None or not isinstance(exc, _resolution_err_cls):
             raise
+        # Same remediation vocabulary the resolver itself already names —
+        # do not invent a second one (message-register doctrine, one fact
         # once). Reuses _EXIT_DOE_UNRESOLVABLE: the one caller in this tree
+        # that shells out to this CLI (coordinator-harvest-deferrals.py)
+        # only ever branches on `returncode != 0`, never on the specific
+        # code, so a distinct exit code would buy no caller anything today.
+        # foreign-identity: SUBJECT — names WHICH prerequisite failed to
+        # resolve, context the appended {exc} resolver diagnostic needs to be
+        # actionable, and this is reachable from any repo via routine lesson
         # capture. It names it by REGISTRY KEY, not by repo name: a reader
+        # standing in a third repo cannot navigate to the bare name, and the
+        # key is what they type back (`_codename_classes` pins the family and
+        # exempts the `repos.<key>` form for exactly that reason).
         print(
             f"warn: coordinator-lesson-promote: engine root unresolvable "
             f"(repos.claude_klabauter) — skipping central lessons-outbox "
@@ -729,6 +778,14 @@ def main(argv: list[str] | None = None) -> int:
             f"wiki-append (got --change-kind {args.change_kind!r})"
         )
 
+    # A9: normalize BEFORE the A7 inventory check, so 'foo' and 'foo.md' validate
+    # (and later write) identically instead of diverging into two dedup keys.
+    # Gated on change_kind (A7/A9 scope fix): --target-wiki is the generic
+    # promotion-target field for every change_kind, not only wiki entries — a
+    # skill-edit promotion stores a SKILL.md path here, not a central-wiki name.
+    # Only wiki-new/wiki-append (the schema's wiki-targeting change_kinds — see
+    # docs/wiki/lessons-outbox-schema.md § Change-kind enum) run the directory
+    # collapse and the central-wiki-inventory check; every other change_kind's
     # --target-wiki passes through UNCHANGED and UNVALIDATED.
     if args.change_kind in _WIKI_TARGETING_CHANGE_KINDS:
         args.target_wiki = _normalize_target_wiki(args.target_wiki)
@@ -760,7 +817,13 @@ def main(argv: list[str] | None = None) -> int:
         except _DoeUnresolvable as exc:
             # A13 fix: graceful-skip on unresolvable CONTENT_ROOT is WARN + skip, but the
             # skip is NEVER silent success — exit _EXIT_DOE_UNRESOLVABLE (3), not 0.
+            # A coordinator install without repos.content_root registered (pre-fleet-clone
+            # or non-DoE machine) WARNs, writes nothing, and reports that honestly via
+            # a non-zero exit code — a caller checking only `returncode == 0` must be
             # able to trust that outcome. Negative-spec: this was PREVIOUSLY `return 0`
+            # (A13 defect) — every promotion on a machine without repos.content_root
+            # registered evaporated while the exit code claimed success.
+            # Spec backlink: docs/plans/2026-07-06-gate2-w23-state-seam-caller-switch.md § C1 / AC2
             print(
                 f"warn: coordinator-lesson-promote: CONTENT_ROOT unresolvable — "
                 f"skipping central lessons-outbox write: {exc}",
@@ -785,7 +848,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  from_repo:   {from_repo}")
         print(f"  change_kind: {args.change_kind}")
         print(f"  target_wiki: {args.target_wiki}")
+        # C5 floor (docs/plans/2026-08-14-cli-authored-writes-get-claimed.md):
+        # this genuine dual-path CLI's State-1 body writes in-process, so the
+        # write must be declared, not just printed. Guarded import: `route()`
+        # only calls legacy_fn() when coordinator_core.invoke was already
+        # unresolvable, so coordinator_core is usually unimportable here too —
         # this degrades to a no-op except under the LESSON_PROMOTE_OUTBOX_ROOT
+        # test-isolation gate below, which forces legacy_fn with a live engine
+        # still on sys.path.
         try:
             require_dispatch_engine_on_path()
             from coordinator_core.session.declared_writes import declare_write  # noqa: PLC0415
@@ -833,13 +903,21 @@ def main(argv: list[str] | None = None) -> int:
         "evidence": args.evidence if args.evidence else None,
         "from_repo": from_repo,
     }
+    # The native op must write under the SAME DoE root --target-wiki was validated
     # against (CONTENT_ROOT honoured), not re-resolve it from the warm server's own env
+    # and registry (claude-klabauter#33). Unresolvable here → omit, and the op's own
+    # resolution reports the skip.
     try:
         params["content_root"] = content_root()
     except _DoeUnresolvable:
         pass
     # Test isolation gate: LESSON_PROMOTE_OUTBOX_ROOT redirects the outbox path (see
+    # _outbox_root() above), which the native queue.promote op honours only for an
+    # in-process caller (queue_promote._outbox_root_override). Routed to a warm
+    # server, the override would be dropped and the write would land in the real
+    # DoE outbox — mirrors
     # coordinator-queue-append's identical QUEUE_APPEND_OUTPUT_ROOT gate immediately
+    # above _cc_route("queue.append", ...) in that sibling CLI. In production,
     # LESSON_PROMOTE_OUTBOX_ROOT is NEVER set, so this check is a no-op.
     if cli_shared.isolation_root_if_under_test(
         _OUTBOX_ROOT_ENV, caller_name="coordinator-lesson-promote"
@@ -848,9 +926,13 @@ def main(argv: list[str] | None = None) -> int:
 
     # CONTENT_ROOT gate (klabauter#33): CONTENT_ROOT is documented (module docstring, § from_repo
     # resolution / _CONTENT_ROOT_ENV) as this CLI's steering lever for the coordinator-content-repo root, and
+    # this CLI's OWN content_root() (coordinator_registry.content_root(), used by --target-wiki
+    # validation above and by the legacy write path) trusts it as rung 1a. The NATIVE
     # queue.promote op's resolver (coordinator_core.ops.coordinator_content_root) has no CONTENT_ROOT
     # rung at all — only REPO_CONTENT_ROOT — so an operator who set CONTENT_ROOT (without also
     # setting REPO_CONTENT_ROOT) would see --target-wiki validation obey it while the native
+    # write silently fell through to a different resolution (up to and including an OSS
+    # publish-mirror install — see _is_publish_mirror_root). Force the legacy in-process
     # write, which resolves through THIS module's own CONTENT_ROOT-aware content_root(), whenever
     # CONTENT_ROOT is the only lever the operator has pulled.
     if os.environ.get(_CONTENT_ROOT_ENV, "").strip() and not os.environ.get("REPO_CONTENT_ROOT", "").strip():
@@ -860,8 +942,12 @@ def main(argv: list[str] | None = None) -> int:
 
     if isinstance(result, dict):
         if result.get("skipped"):
+            # A13 fix (native-op mirror of the legacy_fn _DoeUnresolvable handler
             # above): skipped:true → WARN + exit _EXIT_DOE_UNRESOLVABLE (3), never 0.
             # Negative-spec: this was PREVIOUSLY `return 0` (A13 defect) — identical
+            # silent-success hole to the legacy path, just reached via the native
+            # queue.promote op's {"skipped": true, "reason": ...} result shape instead
+            # of a raised _DoeUnresolvable exception.
             reason = result.get("reason", "CONTENT_ROOT unresolvable")
             print(
                 f"warn: coordinator-lesson-promote: CONTENT_ROOT unresolvable — "
@@ -875,6 +961,8 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return _EXIT_DOE_UNRESOLVABLE
+        # Guard out_path access; bare KeyError
+        # on unexpected op result shape (missing both out_path and skipped) gives a misleading
         # traceback instead of a clean error. TWO-SIGNAL contract lives in the op, not here.
         out_path = result.get("out_path")
         if not out_path:
@@ -884,7 +972,10 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 1
+        # Echo the write destination on success (claude-klabauter#33) — the one
         # cheap check that would have made the CONTENT_ROOT/native-write mismatch
+        # self-evident in a single invocation, matching legacy_fn's own labelled
+        # stdout contract below.
         print(f"Lesson outbox entry written: {_repo_relative_outbox_path(out_path)}")
         print(f"  id:          {result.get('entry_id', entry_id)}")
         print(f"  from_repo:   {result.get('from_repo', from_repo)}")

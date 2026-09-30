@@ -104,10 +104,12 @@ case: `(no tech-debt completions logged in last 90d — hot-zone analysis unavai
 ## Step 5: Present to PM
 
 Ask for: (1) approval to close no-longer-applicable items; (2) YAGNI/scope calls; (3)
-prioritization of immediate-action items; (4) agreement on deferral reasoning; (5) disposition of
-the improvement leg's PM-bound hand-back types (`park`, `wont-do`, `yagni`,
-`unclear-direction`, `needs-judgment`) — Step 6b consumes them after this authorization and does
-not gate a second time. Engine-originated hand-back types (`budget-exhausted`, `verify-failed`,
+prioritization of immediate-action items; (4) agreement on deferral reasoning; (5) — item 5 goes to
+`coordinator:apm`, not the PM: the improvement leg's hand-back types (`park`, `wont-do`, `yagni`,
+`unclear-direction`, `needs-judgment`) are dispositioned by the APM (a code matter by
+`coordinator:staff-eng`), which writes `pm_ruling: "<agent> (PM-delegated) ..."` on the row. Step
+6b consumes that ruling; the PM sees the receipt. Only a matter marked `pm_only` (important, urgent,
+no clear answer, or irreversible) reaches the PM. Engine-originated hand-back types (`budget-exhausted`, `verify-failed`,
 and the rest) are reported by count; their rows stay open and are not presented here.
 
 ## Step 6: Update backlog
@@ -137,7 +139,7 @@ After PM decisions:
 
 ## Step 6b: Consume the improvement leg's hand-back
 
-Runs over the improvement leg's PM-gated hand-back (Step 5 item 5), after the run. This does not
+Runs over the improvement leg's APM-dispositioned hand-back (Step 5 item 5), after the run. This does not
 touch Step 2's `Dispatch Haiku agents` text, a different step that stays unedited. Items 1-2 below
 do not govern debt-backlog rows today (debt-backlog stays on the current 6b, unedited); if 6b is
 ever applied to debt-backlog rows, that governance still applies.

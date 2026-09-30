@@ -56,8 +56,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+#: Counts Python `len(str)` chars, not bytes -- deliberately independent
+#: from the sibling control-plane engine's own byte-based guard-message cap:
+#: different corpora, different units, so converging the two numbers would
+#: be a coincidence, not a shared fact.
 CEILING = 280
 
+#: Switches `emit()` from writing a hook's real channel output to writing a
+#: structured measurement record instead. Set by the measurement harness,
+#: never by a hook itself.
 MEASURE_ENV_VAR = "COORDINATOR_HOOK_MESSAGE_MEASURE"
 
 CHANNEL_STOP = "stop"
@@ -66,11 +73,16 @@ CHANNEL_DENY = "deny"
 
 _CHANNELS = frozenset({CHANNEL_STOP, CHANNEL_ADDITIONAL_CONTEXT, CHANNEL_DENY})
 
+#: Generous enough for a real copy-pasteable command/diff, while still
+#: ruling out a hook smuggling paragraphs of prose into the exempt
+#: alternative slot under cover of a fence.
 ALTERNATIVE_MAX_LINES = 10
 
 
 @dataclass(frozen=True)
 class Message:
+    """`prose` is the only field the char ceiling counts; `alternative` and
+    `anchor` are structurally separate and exempt from it."""
 
     prose: str
     alternative: Optional[str] = None
@@ -97,7 +109,14 @@ class Message:
 _COMMAND_TOKEN_RE = re.compile(r"^(?:[A-Za-z]:[\\/])?[A-Za-z0-9_./\\-]+$")
 _SHELL_VAR_TOKEN_RE = re.compile(r"^[A-Za-z0-9_./\\${}:=,@%+~-]+$")
 _SENTENCE_END_RE = re.compile(r"[.!?]\s*$")
+#: A comma/semicolon/em-dash, or a colon that is not part of a
+#: drive-letter-style path prefix -- punctuation shapes common in
+#: natural-language prose and rare in a single command or path invocation.
 _PROSE_PUNCT_RE = re.compile(r"[,;\u2014]|(?<![A-Za-z]):(?![\\/])")
+#: Two or more hits among the line's tokens is treated as prose; a single
+#: hit is not enough since these are ordinary content words that can
+#: legitimately appear once in a real command/path (e.g. a flag named
+#: `name`).
 _STOPWORDS = frozenset(
     {
         "the",
@@ -203,6 +222,11 @@ def _looks_like_command_or_path(line: str) -> bool:
 def validate_alternative_shape(
     alternative: Optional[str], *, max_lines: int = ALTERNATIVE_MAX_LINES
 ) -> "tuple[bool, Optional[str]]":
+    """`(True, None)` when `alternative` is `None` or a valid runnable
+    block; `(False, reason)` otherwise. Callers pass raw block text -- an
+    embedded fence is rejected because this module owns fencing at render
+    time, and allowing one would let a caller smuggle a second "alternative"
+    inside the first."""
     if alternative is None:
         return True, None
     if not isinstance(alternative, str) or not alternative.strip():
@@ -227,6 +251,9 @@ def validate_alternative_shape(
 def compose(
     prose: str, alternative: Optional[str] = None, anchor: Optional[str] = None
 ) -> Message:
+    """Pure: no I/O, no environment read. Raises `ValueError` on a shape
+    violation (empty prose, an invalid alternative block, or an empty-string
+    anchor) rather than composing a malformed `Message`."""
     if not isinstance(prose, str) or not prose.strip():
         raise ValueError("_message_envelope.compose: prose must be non-empty text")
     if alternative is not None:
@@ -303,6 +330,12 @@ _WIKI_CITATION_RE = re.compile(
 
 
 def _coordinator_dir() -> "Path":
+    """Returns the `coordinator/` directory this process runs from, in
+    either install shape: the source-repo layout (where `coordinator/` IS
+    the plugin root) or an installed layout (where the true plugin root
+    sits one level above this same `coordinator/` subdirectory). Never the
+    true plugin root of the installed layout -- hence the name, not
+    `plugin_root`."""
     return Path(__file__).resolve().parent.parent.parent
 
 
@@ -374,6 +407,9 @@ def resolve_wiki_citation(text: str) -> str:
 
 
 def render(message: Message) -> str:
+    """Flattens `message` to the text a real (non-measurement) channel
+    carries: prose, then the alternative re-fenced in triple backticks (if
+    present), then a trailing wiki-anchor pointer (if present)."""
     parts = [message.prose]
     if message.alternative:
         parts.append("")
@@ -396,6 +432,10 @@ def _measurement_record(message: Message) -> str:
 
 
 def _write_measurement_record(message: Message) -> None:
+    """Writes the record to fd 3, or falls back to stdout when fd 3 is not
+    open (any `OSError`, including Windows' "bad file descriptor" shape) --
+    stdout is free for this since `emit()` skips the real channel write
+    under measurement mode. One of the two writes always happens."""
     line = _measurement_record(message)
     try:
         os.write(3, (line + "\n").encode("utf-8"))
@@ -406,6 +446,9 @@ def _write_measurement_record(message: Message) -> None:
 
 
 def _write_stdout_envelope(envelope: dict) -> None:
+    """Degrades to silence on any `OSError` -- both PreToolUse channels this
+    module serves are advisory and must always exit 0, so an undeliverable
+    write must never propagate."""
     try:
         sys.stdout.write(json.dumps(envelope, separators=(",", ":")))
     except OSError:

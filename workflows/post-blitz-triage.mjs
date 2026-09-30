@@ -1,4 +1,32 @@
-
+/*
+ * Dispatches the three post-plan-blitz follow-up categories a readiness gate produces: items
+ * surfaced to the PM, plans pulled for a named fixable defect, and XS/dispatch batons whose
+ * execution gate is open. `ready` and `replan` batons feed back into roadmap.blitz_land
+ * automatically; these three categories need a human (or a persona doing the human's first pass)
+ * to actually look.
+ *
+ * args contract:
+ *   {
+ *     vpProductItems: [ { id, title, path, question, slug } ],
+ *       // one per baton surfacedToPm during a blitz wave. `question` is the blitz-em's original
+ *       // surfacedQuestion verbatim; `slug` is a filesystem-safe stem for the output file
+ *       // (state/pm-recommendations/<slug>.md).
+ *     staffEngItems: [ { id, title, path, defect, slug } ],
+ *       // one per baton pulled for a named, fixable defect (not XS/dispatch, not a PM question).
+ *     executorItems: [ { id, title, path } ],
+ *       // one per XS/dispatch baton whose execution gate the caller has already confirmed is
+ *       // open (routedElsewhere entries with a shut execution gate do not belong here).
+ *   }
+ *
+ * Before firing: cross-check every item against a fresh roadmap.plan_gate read, not the
+ * gate-report snapshot the items were originally sorted from -- a concurrent plan-blitz run can
+ * resolve, re-plan, or close any of these out from under a stale list. Every persona prompt below
+ * re-checks current state itself as a second layer, but a stale caller-side list still wastes a
+ * dispatch on work already done elsewhere.
+ *
+ * Output: writes to disk only (state/pm-recommendations/, plan edits, baton work) -- commits
+ * nothing. The invoking session reviews the diff and commits.
+ */
 
 export const meta = {
   name: 'post-blitz-triage',
@@ -16,7 +44,7 @@ export const meta = {
 // Rubric, and staff-eng.md/vp-product.md's own "Do Not Commit"/Tools Policy sections):
 //   - Judgment/review personas (vp-product, staff-eng) run OPUS, but their write access is for
 //     their OWN findings/recommendation artifact only -- staff-eng.md is explicit: "never change
-//     source under review; fixes are the review-integrator's and Executor's job."
+//     source under review; fixes are the Executor's job."
 //   - Anything that WRITES THE FIX ITSELF runs SONNET, always -- "Dispatched executors are always
 //     Sonnet. No exceptions." (delegate-execution.md). So staff-eng INVESTIGATES and reports what
 //     needs to change; a separate sonnet pass applies it. Same reasoning nearly makes a two-step

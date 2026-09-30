@@ -23,8 +23,53 @@ coordinator_data_root.data_root() split-repo ladder — this file no longer
 walks its own on-disk location to find templates/, since templates/ moved
 to coordinator-content-repo in the 2026-07-22 executable-surface migration.
 """
+# render-posture-overlay.py — CLI trampoline over claude-klabauter
+# coordinator_core.ops.render_posture_overlay.
+#
+# Finish-strangler port (DR-059 / bash-clean-slate residual migration): the
+# bash implementation (idempotent managed-section merge of a Posture overlay
+# block into a target CLAUDE.md — marker-delimited insert/swap, collision
+# detection against markerless legacy '## Posture'/'## Working Style'
+# headings, size-guard enforcement against the check-claude-md-size.py hook's
+# HARD threshold) has been fully ported to
+# coordinator_core/ops/render_posture_overlay.py (see
+# test_render_posture_overlay.py). This file is now a thin DoE-side
+# (contract) trampoline over that claude-klabauter (engine) module, per DR-047 (DoE
+# owns contract/generator, claude-klabauter owns engine).
+#
+# coordinator_root is resolved HERE (DoE-side) and passed into the op's
+# main() explicitly — the anchor templates (templates/postures/<anchor>.md)
+# are DoE-resident, not claude-klabauter-resident, so the op cannot re-derive this root
+# itself the way a claude-klabauter-native op would. The op no longer reads a
+# size-guard SSOT at all; templates/ is now the only DoE-resident input.
+#
+# Post-2026-07-22 executable-surface migration, this file's own on-disk
+# location (coordinator/bin/ under claude-klabauter) is no longer a valid
+# anchor for templates/ or hooks/ (those stayed in coordinator-content-repo, per DR-047).
+# coordinator_root is now resolved via the shared
+# coordinator_data_root.data_root() split-repo ladder (co-located rung 1 ->
+# DoE-resident rung 2 via coordinator_registry.content_root()), with a
 # CLAUDE_PLUGIN_ROOT env override taking precedence first — the same
+# override convention every other bin/ trampoline honors (see
+# coordinator/bin/snippet-registry's _resolve_plugin_root).
+#
+# Exit codes (parity-critical — forwarded verbatim from the op's own
+# contract, see that module's docstring):
+#   0 — success (insert/swap performed, or --check-only report printed)
+#   1 — usage error / validation failure / collision
+#   2 — engine-root resolution failure OR coordinator_core.ops.
+#       render_posture_overlay not importable (transport/claude-klabauter-link
 #       failure) — a DEDICATED code, distinct from both business codes
+#       above, per the porter-brief addendum §3b rule that a transport
+#       failure must never collide with a business exit code. This is a
+#       fail-loud validator/gate script (its rc is consumed by install
+#       flows to decide whether the merge happened), so — unlike
+#       coordinator-auto-push's never-block posture — a claude-klabauter-link failure
+#       here degrades to a loud, distinguishable exit 2, not a silent 0.
+#
+# Spec backlink: coordinator-content-repo:pln-bash-polyglot-clean-slate-full-5c71ee
+# Prior bash implementation: see git log (render-posture-overlay.py, 262
+#   lines pre-port, retired on this cutover)
 import os
 import sys
 

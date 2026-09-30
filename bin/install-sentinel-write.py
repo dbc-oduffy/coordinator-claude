@@ -4,6 +4,7 @@ from __future__ import annotations
 INSTALL_CLASS = True
 
 import argparse
+import json
 import re
 import subprocess
 import sys
@@ -45,6 +46,22 @@ def _resolve_sha(source: Path, sha_arg: str | None) -> str:
     return sha
 
 
+PLUGIN_VERSION_FILE = "plugin-version.txt"
+
+
+def read_plugin_version(source: Path) -> str | None:
+    """The plugin's ``version`` from its ``plugin.json``, or None when absent or unreadable."""
+    for rel in (".claude-plugin/plugin.json", "coordinator/.claude-plugin/plugin.json"):
+        try:
+            data = json.loads((source / rel).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        version = data.get("version") if isinstance(data, dict) else None
+        if isinstance(version, str) and version.strip():
+            return version.strip()
+    return None
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Write a 40-hex source-HEAD SHA into <path>/version.txt.",
@@ -63,8 +80,12 @@ def main(argv: list[str] | None = None) -> int:
 
     sentinel = target / "version.txt"
     sentinel.write_text(sha + "\n", encoding="utf-8", newline="\n")
+
+    version = read_plugin_version(Path(args.source))
+    if version is not None:
+        (target / PLUGIN_VERSION_FILE).write_text(version + "\n", encoding="utf-8", newline="\n")
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv))
+    sys.exit(main(sys.argv[1:]))

@@ -245,7 +245,11 @@ def query_records(
     else:
         params["type"] = record_type
         params["where"] = where
+    # `is not None`, NOT a truthiness check: the op treats limit=0 as
     # UNLIMITED (verified empirically — a `decision` corpus of 89 records
+    # returns all 89 under limit=0, and only 50 under omitted limit). A bare
+    # `if limit:` guard drops the falsy 0 from params, silently downgrading an
+    # explicit "no cap" request into the op's default 50-record truncation.
     if limit is not None:
         params["limit"] = int(limit)
     if sort:
@@ -301,7 +305,15 @@ def main(argv: list[str] | None = None) -> int:
         help="Request the native `unattached` union lens instead of a single "
         "<type>/<where> query. Mutually exclusive with <type>/<where>.",
     )
+    # --format/--limit flags (distinct dest from the positionals above, to
     # avoid an attribute collision) exist SPECIFICALLY for --unattached
+    # invocations: with type/where omitted, the format/limit positionals
+    # would otherwise be ambiguous with argparse's left-to-right positional
+    # fill (an omitted type/where means the NEXT positional given is
+    # consumed as type, not format — there is no way to "skip" a nargs="?"
+    # positional from the CLI). The flags let --unattached callers name
+    # format/limit unambiguously; the positionals remain the only path for
+    # every pre-existing non---unattached invocation, unchanged.
     parser.add_argument("--format", dest="format_flag", default=None)
     parser.add_argument("--limit", dest="limit_flag", default=None)
     parser.add_argument("--sort", dest="sort", default=None)

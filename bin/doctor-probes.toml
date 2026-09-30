@@ -179,7 +179,9 @@ severity_if_fail = "error"
 remediation = "bash login shell orphaned ~/.local/bin — run coordinator:install or normalize-env.sh"
 
 
+# ---------------------------------------------------------------------------
 # Cluster: ue-overrides — UE override path verifier (OPTIONAL — silent skip if absent)
+# ---------------------------------------------------------------------------
 
 
 [[probe]]
@@ -217,6 +219,7 @@ fix = "none"
 symptom_keywords = ["release currency", "plugin update available", "coordinator behind", "coordinator-update", "git tag currency", "release tag", "update available"]
 triage = false
 severity_if_fail = "degraded"
+advisory_only = true  # body emits note_advisory only; never drives AMBER. Catalog renders "advisory".
 remediation = "Run `/coordinator-update` to update coordinator"
 
 

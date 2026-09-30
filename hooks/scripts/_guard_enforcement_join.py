@@ -67,6 +67,9 @@ import yaml
 _SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(_SCRIPTS_DIR)))
 
+#: Where a delivered join lands. One path, named here rather than passed in,
+#: so that "the join is absent" is a checkable fact about this repo and not a
+#: property of how some caller was invoked.
 DEFAULT_JOIN_PATH = os.path.join(
     _REPO_ROOT, "state", "audits", "2026-09-07-guard-enforcement-join-from-claude-klabauter.yaml"
 )
@@ -94,7 +97,12 @@ DEFAULT_JOIN_PATH = os.path.join(
 
 
 class JoinError(ValueError):
-    pass
+    """The join file exists but cannot be trusted to answer anything.
+
+    Raised rather than returned, and never caught by this module: a
+    malformed join is a delivery defect on the engine plane, and silently
+    degrading it to "unresolved" would hide a broken artifact behind the
+    same empty ledger a missing one produces."""
 
 
 def _require(condition: bool, message: str) -> None:
@@ -103,6 +111,11 @@ def _require(condition: bool, message: str) -> None:
 
 
 class GuardEnforcementJoin:
+    """One delivered join, parsed and queryable.
+
+    `complete_over_guards` is the single fact that licenses a negative
+    answer: the engine plane asserting that the rows below cover every
+    registered guard in the population named by `guard_population`."""
 
     def __init__(self, document: dict) -> None:
         _require(isinstance(document, dict), "join is not a mapping")
@@ -212,6 +225,10 @@ class GuardEnforcementJoin:
 
 
 def load_join(path: Optional[str] = None) -> "Optional[GuardEnforcementJoin]":
+    """The delivered join, or `None` when none has been delivered.
+
+    Absence is the expected state until the engine plane walks this path and
+    is not an error."""
     target = path or DEFAULT_JOIN_PATH
     if not os.path.isfile(target):
         return None

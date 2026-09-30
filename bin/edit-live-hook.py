@@ -18,7 +18,11 @@ def _import_runner():
 
 def main(argv: "list[str] | None" = None) -> int:
     # EDIT_LIVE_HOOK_SCRIPT_DIR tells the ported module where THIS trampoline
+    # lives, so its Bash-matcher hooks.json detection can resolve
+    # ../hooks/hooks.json relative to this bin/ directory -- the same
+    # resolution the original bash script did via
     # `$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)`. Only set if unset, so
+    # an explicit caller-provided override is never clobbered.
     os.environ.setdefault(
         "EDIT_LIVE_HOOK_SCRIPT_DIR", os.path.dirname(os.path.abspath(__file__))
     )

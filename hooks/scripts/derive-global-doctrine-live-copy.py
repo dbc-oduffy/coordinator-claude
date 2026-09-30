@@ -28,7 +28,12 @@ source on this shared-branch repo changes far more often via `git pull` /
 Write/Edit -- none of those fire a PostToolUse event, so a Write|Edit-only
 registration is structurally blind to the most common way the source
 changes. SessionStart closes that gap; Write|Edit stays registered
-alongside it for immediacy on the tool-mediated path.
+alongside it for immediacy on the tool-mediated path. A third, manual
+trigger is the `--session-start` argv flag: it runs the SessionStart branch
+without reading stdin, so an agent can re-derive by running
+`<python> <this file> --session-start` from Bash even with an inherited open
+stdin. The drift asserts in test_global_doctrine_tracked_copy.py print that
+exact command; the dev-repo gate still applies.
 
 OSS-CLOBBER HAZARD -- read `_is_dev_repo()` before touching the gate below.
 `~/.claude/CLAUDE.md` and `~/.claude/rules/` are the OPERATOR'S OWN global
@@ -157,6 +162,7 @@ def _live_path() -> Path:
 
 
 def _published_path() -> Path:
+    """The in-plugin copy: what reaches a machine that never clones this repo."""
     return _repo_root() / "coordinator" / "templates" / "global-doctrine" / "CLAUDE.md"
 
 
@@ -173,6 +179,9 @@ def _live_rules_dir() -> Path:
 
 
 def _tracked_rules_files() -> list[Path]:
+    """Every tracked `*.md` file under `global-doctrine/rules/`, sorted for deterministic
+    derivation order. Copy-in only -- a live file absent here is NEVER deleted. Returns an
+    empty list on a missing directory or any read error (fails open)."""
     rules_dir = _tracked_rules_dir()
     try:
         if not rules_dir.is_dir():
@@ -250,6 +259,10 @@ def _emit_stop(message: str, emit_state: dict) -> int:
 
 
 def _derive_live_copy(tracked: Path, live: Path, *, emit_state: dict | None = None) -> int:
+    """Shared read/compare/write path for both invocation modes and both mirrored targets.
+    Silent (return 0) when the live copy is already byte-identical to the tracked source.
+    Loud (stderr + exit 2) only when a real derivation happens (drift found and corrected)
+    or a read/write failure occurs."""
     # Routed through `_message_envelope.emit()` (CHANNEL_STOP) rather than
     # hand-rolling `render()` + a text-mode `sys.stderr.write()` -- `emit()`'s
     # CHANNEL_STOP branch writes via `sys.stderr.buffer.write()`, which
@@ -282,15 +295,19 @@ def _derive_live_copy(tracked: Path, live: Path, *, emit_state: dict | None = No
 
 
 def main() -> int:
-    raw = _read_stdin()
-    data = _parse_input(raw)
+    argv_session_start = "--session-start" in sys.argv[1:]
+    data = {} if argv_session_start else _parse_input(_read_stdin())
 
+    # OSS-clobber gate, applied on EVERY path through this script -- checked FIRST,
+    # before any payload interpretation.
     if not _is_dev_repo():
         return 0
 
     hook_event_name = data.get("hook_event_name")
     if not isinstance(hook_event_name, str):
         hook_event_name = ""
+    if argv_session_start:
+        hook_event_name = "SessionStart"
 
     tool_input = data.get("tool_input")
     file_path = ""
@@ -299,6 +316,9 @@ def main() -> int:
     if not isinstance(file_path, str):
         file_path = ""
 
+    # Requires an explicit positive signal for SessionStart mode -- never inferred from
+    # absence. A payload carrying neither a recognized hook_event_name nor a usable
+    # file_path falls through to the `if not file_path: return 0` no-op below.
     session_start_mode = hook_event_name == "SessionStart"
 
     emit_state: dict = {}
@@ -338,6 +358,10 @@ def main() -> int:
     except Exception:
         tracked_resolved = tracked
 
+    # Strict Path equality: Path.resolve() does not case-normalize on
+    # case-insensitive-but-case-preserving filesystems (macOS APFS default, Windows NTFS),
+    # so a differently-cased file_path for the same physical file fails to match here
+    # (fails open, not a false positive). Same caveat applies to the rules-dir match below.
     if resolved == tracked_resolved:
         return max(
             _derive_live_copy(tracked, _live_path(), emit_state=emit_state),

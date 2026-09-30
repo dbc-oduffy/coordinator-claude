@@ -52,6 +52,8 @@ if _HOOKS_DIR not in sys.path:
 try:
     from _engine_root import resolve_claude_klabauter_root as _resolve_claude_klabauter_root  # noqa: E402
 except Exception:
+    # Defensive fallback -- a hook copied/deployed without its sibling
+    # _engine_root.py must still fail open rather than crash on import.
     def _resolve_claude_klabauter_root() -> str | None:
         return None
 
@@ -59,7 +61,7 @@ except Exception:
 def main() -> int:
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0
+        return 0  # fail-open -- engine root unresolvable on this machine
 
     from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
     _place_engine_root_on_path(root)
@@ -69,9 +71,15 @@ def main() -> int:
             repin_cloud_engine_root,
         )
     except Exception:
-        return 0
+        return 0  # engine unimportable, or op not present on this build -- fail-open
 
+    # Called directly, never through coordinator_core.ipc/register_op: this
+    # shim needs one plain function call, not the ops/ipc package's eager
+    # module import for register_op() side effects.
     try:
+        # repin_cloud_engine_root() already fails open internally, but this
+        # call site swallows unconditionally too -- a SessionStart hook
+        # erroring is worse than one that silently no-ops.
         repin_cloud_engine_root()
     except Exception:
         pass

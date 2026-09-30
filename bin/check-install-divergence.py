@@ -289,6 +289,10 @@ def _git_hash_object_batch(source: Path, relpaths: list[str]) -> dict[str, objec
     stderr for it — cheaper, and doesn't depend on hash-object's per-line
     partial-failure behavior across a batch.
 
+    Paths are sent absolute: ``hash-object --stdin-paths`` resolves relative
+    paths against the repo toplevel, not ``-C``, so a *source* that is a
+    repo subdirectory would otherwise hash the wrong file or fail.
+
     ``--no-optional-locks``: read-only plumbing; see `_git_ls_tree_all`.
     """
     result: dict[str, object] = {}
@@ -301,7 +305,7 @@ def _git_hash_object_batch(source: Path, relpaths: list[str]) -> dict[str, objec
 
     for start in range(0, len(existing), _HASH_OBJECT_BATCH_SIZE):
         chunk = existing[start:start + _HASH_OBJECT_BATCH_SIZE]
-        stdin_text = "\n".join(chunk) + "\n"
+        stdin_text = "\n".join(str(source / relpath) for relpath in chunk) + "\n"
         output = _run_git_stdin(
             ["--no-optional-locks", "hash-object", "--stdin-paths"],
             source=source,

@@ -119,8 +119,16 @@ def __getattr__(name: str):
 
 UNATTACHED_TYPES = ["bug", "debt", "improvement", "roadmap", "handoff", "plan"]
 
+# ---------------------------------------------------------------------------
+# Core clustering logic
+# ---------------------------------------------------------------------------
+#
 # detect_candidates() and its STOP_WORDS/_extract_keywords/_normalize_tags/
+# _parent_dir/_dedupe_preserve_order/_humanize/_item helpers moved to
+# coordinator_core/clustering/candidates.py (2026-07-23 C2 extraction) —
 # this module now only imports detect_candidates/MIN_CLUSTER_SIZE (see the
+# import block above) and calls it from _emit() below; it is no longer a
+# clustering-logic owner.
 
 
 def _query_unattached_all(root: str | None) -> list[dict]:

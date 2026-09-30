@@ -46,11 +46,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 try:
     from _git_common_dir import resolve_git_common_dir as _resolve_git_common_dir_str  # noqa: E402
 except Exception:
+    # Defensive fallback -- a deploy missing its sibling _git_common_dir.py
+    # must still fail open (empty common dir -> caller returns None) rather
+    # than crash on import.
     def _resolve_git_common_dir_str(git_root: str) -> str:
         return ""
 
 _EVENT_NAME = "ConfigChange"
 
+# Fields recorded by name, not dumped verbatim, because this event's payload
+# shape is confirmed, not guessed.
 _KNOWN_FIELDS = (
     "session_id",
     "transcript_path",
@@ -62,7 +67,12 @@ _KNOWN_FIELDS = (
 )
 
 
+#  `_read_stdin` and `_append_record` below are duplicated verbatim in the sibling
+#  observe-post-compact.py and track-dispatched-agents.py: both observer scripts must run
+#  standalone through the fail-open site-packages seam, and a shared-module import is a real
+#  risk to that seam, so a fix to either copy MUST be mirrored to the others.
 def _read_stdin(timeout: float = 2.0) -> str:
+    """Bounded stdin read (Windows hang guard)."""
     box = {"data": ""}
 
     def _read() -> None:
@@ -78,6 +88,9 @@ def _read_stdin(timeout: float = 2.0) -> str:
 
 
 def _resolve_git_common_dir(start: Path) -> Path | None:
+    """Walk up from `start` to the nearest `.git` (directory or gitdir-pointer file), then
+    resolve its `commondir` file if present via the shared `_git_common_dir` helper. Returns
+    None on any failure — never raises."""
     try:
         probe = start.resolve()
     except Exception:
@@ -142,7 +155,7 @@ def main() -> int:
 
     git_common_dir = _resolve_git_common_dir(cwd_hint)
     if git_common_dir is None:
-        return 0
+        return 0  # fail-open — no resolvable git tree, nothing to write into
 
     _append_record(git_common_dir, record)
     return 0

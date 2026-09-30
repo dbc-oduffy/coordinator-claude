@@ -100,6 +100,9 @@ from __future__ import annotations
 import re
 from typing import Iterable, Mapping, Optional, Sequence
 
+#: Verified, not merely asserted -- this module's test sums these against the
+#: register's committed `counts:` block rather than trusting the set stays
+#: complete after a register edit.
 RULE_BEARING_DISPOSITIONS: frozenset[str] = frozenset(
     {
         "binds",
@@ -111,11 +114,16 @@ RULE_BEARING_DISPOSITIONS: frozenset[str] = frozenset(
     }
 )
 
+#: The safe-arm's only legal "omittable, cleared" answer. Any row not
+#: matching both exactly is refusal 3.
 _SAFE_ARM_GUARD = "none"
 _SAFE_ARM_VERDICT = "n/a"
 
+#: A lead alone is not enough -- see `is_placeholder_party`.
 _PLACEHOLDER_LEAD_RE = re.compile(r"^(n/a|none|same)\b", re.IGNORECASE)
 
+#: A noun list, not a topic list -- a placeholder-lead value that goes on to
+#: name one of these is naming an actual party, not concluding an absence.
 _PARTY_NOUN_TOKENS = frozenset(
     {
         "party", "parties",
@@ -146,10 +154,19 @@ _WORD_RE = re.compile(r"[A-Za-z']+")
 
 
 class OmissionLedgerError(Exception):
-    pass
+    """Fail loud, never a silent admit -- names every offending id/row found,
+    not just the first."""
 
 
 def is_placeholder_party(value: Optional[str]) -> bool:
+    """None/blank is always a placeholder. Otherwise the value must both lead
+    with a not-applicable spelling and name no party-class noun elsewhere.
+
+    Independently reimplemented from the producer's own detector of the same
+    name and shape rather than imported from it: this is the consumer-side
+    check on the emitted artifact, and a consumer that could only ever agree
+    with its producer's detector would not be an independent check on it.
+    """
     if value is None:
         return True
     stripped = value.strip()
@@ -174,6 +191,10 @@ def find_unaccounted_rule_ids(
     story_rule_ids: Iterable[str],
     omission_rows_for_story: Sequence[Mapping],
 ) -> frozenset[str]:
+    """Refusal 1. A real set difference, not an arithmetic identity -- a
+    count-based "the story keeps exactly N ids" check cannot catch a story
+    narrowed by dropped ids with zero omission rows and a count still green.
+    """
     carrying_a_reasoned_row = {
         row["rule_id"]
         for row in omission_rows_for_story
@@ -183,6 +204,9 @@ def find_unaccounted_rule_ids(
 
 
 def find_unnamed_party_rows(omission_rows: Sequence[Mapping]) -> list[Mapping]:
+    """Refusal 2 / Constraint 3. A row with an empty or placeholder party
+    does not omit a rule, it reports a finding -- refused as an omission
+    claim regardless of story."""
     return [
         row
         for row in omission_rows
@@ -192,6 +216,9 @@ def find_unnamed_party_rows(omission_rows: Sequence[Mapping]) -> list[Mapping]:
 
 
 def find_unresolved_enforcement_rows(omission_rows: Sequence[Mapping]) -> list[Mapping]:
+    """Refusal 3. A named guard, a pending verdict, a mismatched pairing, or
+    either field missing are all refused alike -- silence never buys an
+    omission for a rule whose enforcement is unresolved."""
     return [
         row
         for row in omission_rows
@@ -201,6 +228,8 @@ def find_unresolved_enforcement_rows(omission_rows: Sequence[Mapping]) -> list[M
 
 
 def validate_omission_rows(omission_rows: Sequence[Mapping]) -> None:
+    """Refusals 2 and 3, per-row and story-independent. Raises naming every
+    offending row's rule_id if either refusal fires; silent otherwise."""
     unnamed = find_unnamed_party_rows(omission_rows)
     unresolved = find_unresolved_enforcement_rows(omission_rows)
     if not unnamed and not unresolved:
@@ -225,6 +254,8 @@ def validate_story_accounting(
     story_rule_ids: Iterable[str],
     omission_rows_for_story: Sequence[Mapping],
 ) -> None:
+    """Refusal 1. Raises naming every unaccounted id if any exist; silent
+    otherwise."""
     unaccounted = find_unaccounted_rule_ids(rule_bearing, story_rule_ids, omission_rows_for_story)
     if unaccounted:
         raise OmissionLedgerError(
@@ -240,6 +271,10 @@ def validate_ledger(
     story_rule_ids: Iterable[str],
     omission_rows_for_story: Sequence[Mapping],
 ) -> None:
+    """All three refusals, in order. Per-row checks (2, 3) run first, so by
+    the time refusal 1's coverage check runs, an invalid row can never
+    rescue a rule from being unaccounted for. Raises on the first refusal
+    that fires; silent iff the story's accounting is fully clean."""
     validate_omission_rows(omission_rows_for_story)
     validate_story_accounting(
         rule_bearing_ids(register_rows), story_rule_ids, omission_rows_for_story

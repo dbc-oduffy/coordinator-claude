@@ -37,7 +37,6 @@ REM isolated behind its own `goto` label instead, so `%ERRORLEVEL%` is read
 REM outside any parenthesized block (fresh at that point, not frozen at
 REM block-parse-time) with no delayed expansion needed.
 set "_py=__PYTHON_BIN__"
-if "%_py%"=="__PYTHON_BIN__" set "_py="
 if not "%_py%"=="" if exist "%_py%" goto :run_baked
 set "_py="
 

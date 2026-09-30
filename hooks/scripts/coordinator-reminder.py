@@ -47,6 +47,8 @@ if _HOOKS_DIR not in sys.path:
 try:
     from _engine_root import resolve_claude_klabauter_root as _resolve_claude_klabauter_root  # noqa: E402
 except Exception:
+    # Defensive fallback -- a hook script deployed without its sibling
+    # _engine_root.py must still fail-open rather than crash on import.
     def _resolve_claude_klabauter_root() -> str | None:
         return None
 
@@ -54,7 +56,7 @@ except Exception:
 def main() -> int:
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0
+        return 0  # fail-open silent exit -- engine repo unresolvable on this machine
 
     from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
     _place_engine_root_on_path(root)
@@ -62,7 +64,7 @@ def main() -> int:
     try:
         from coordinator_core.hooks.coordinator_reminder import render_reminder
     except Exception:
-        return 0
+        return 0  # engine unimportable -> fail-open silent exit
 
     # Capability catalog lives at the doctrine-plane plugin root -- mirrors the bash
     # PLUGIN_ROOT ($SCRIPT_DIR/../..) resolution and preuse-write-dispatch.py's
@@ -73,8 +75,10 @@ def main() -> int:
     try:
         text = render_reminder(catalog_path)
     except Exception:
-        return 0
+        return 0  # any engine failure -> fail-open silent exit
 
+    # Write raw bytes, not sys.stdout.write() -- on Windows, text-mode stdout
+    # translates LF to CRLF, which would diverge byte-for-byte from LF-only output.
     sys.stdout.buffer.write(text.encode("utf-8"))
     return 0
 

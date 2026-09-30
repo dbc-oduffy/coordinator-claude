@@ -1,3 +1,5 @@
+# guard-not-a-hook-entrypoint: the live guard is the engine's own port,
+# run behind preuse-bash-dispatch.py -- hooks.json never invokes this file.
 """PreToolUse(Bash) hook: close the Bash escape from the C7 doctrine
 admission gate (`check-claude-md-size.py`, registered on
 ``Write|Edit|MultiEdit`` only).
@@ -366,6 +368,11 @@ unrelated-redirect with a BARE, unquoted mention), or any
 and the point-4 heredoc-stripping comment in ``is_denied_bash_write`` for
 the narrowing logic and why each stays scoped.
 
+OPT-IN. The doctrine-edit approval gate is off on every profile: ``main``
+exits 0 before reading stdin unless ``machine-local set
+coordinator.feature.doctrine_edit_gate on`` has been run (an unreadable key
+is off).
+
 Contract: reads PreToolUse JSON from stdin (mirrors
 ``check-claude-md-size.py``): exit 0 = allow (silent), exit 2 = BLOCK
 (stderr message shown to the user). Any failure to decode the stdin JSON, or
@@ -390,6 +397,7 @@ if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
 
 from _claude_md_ledger import GOVERNED_AUTHORING_SURFACES  # noqa: E402
+from _machine_profile import feature_enabled  # noqa: E402
 from _message_envelope import compose, render  # noqa: E402
 
 _WIKI_ANCHOR = (
@@ -460,6 +468,10 @@ _GOVERNED_IDENTIFIER_PATTERNS = tuple(
     for identifier in _GOVERNED_IDENTIFIERS_LOWER
 )
 
+#: Redirect targets that are never a write to a governed surface: fd
+#: duplication (`2>&1`, `>&2`) and `/dev/null`. Stripped before scanning for a
+#: bare `>`/`>>` so stderr/stdout plumbing naming no real file never counts as
+#: a write marker.
 _SAFE_REDIRECT_RE = re.compile(r"\d?>&\d|>>?\s*/dev/null")
 _BARE_REDIRECT_RE = re.compile(r">>?")
 
@@ -506,6 +518,11 @@ _SED_WRITE_SCRIPT_RE = re.compile(r"\bsed\b.{0,200}?\bw\s+\S", re.DOTALL)
 
 
 def _redirect_target_token(segment: str) -> "str | None":
+    """The token immediately following the last real (non-fd-duplication,
+    non-/dev/null) bare `>`/`>>` in `segment` -- None when there is no such
+    redirect, or it trails with nothing after it. Used to tell a redirect
+    targeting a governed surface from one that merely shares a segment with a
+    quoted mention of one."""
     masked = _SAFE_REDIRECT_RE.sub(lambda m: " " * len(m.group(0)), segment)
     last = None
     for match in _BARE_REDIRECT_RE.finditer(masked):
@@ -626,6 +643,11 @@ _EVAL_RE = re.compile(r"\beval\b")
 _XARGS_RE = re.compile(r"\bxargs\b")
 _CMD_SUBST_RE = re.compile(r"\$\(|`")
 
+#: Interpreter / command-assembly indirection markers. Presence of one of
+#: these, alongside a governed-identifier mention in the same segment, is
+#: itself enough to deny -- an interpreter payload can write a file with no
+#: textual trace of `>`/`tee`/`open(...,'w')` at all, so the indirection
+#: marker alone is treated as "cannot prove this is a read".
 _INDIRECTION_PATTERNS = (
     _INTERPRETER_RE,
     _SHELL_DASH_C_RE,
@@ -760,6 +782,10 @@ def _strip_heredoc_bodies(text: str) -> str:
     return "\n".join(out)
 
 
+#: An interpreter invocation that makes stdin the program text rather than a
+#: data stream: `python3 -`, `bash -s`, a bare `bash`/`sh` with no script
+#: operand, etc. For these -- and only these -- a heredoc body is executable
+#: source, not inert stdin data.
 _STDIN_PROGRAM_RE = re.compile(
     r"(?:^|[;&|]|\s)(?:python3?|perl|ruby|node)\s+-(?=\s|$)"
     r"|(?:^|[;&|]|\s)(?:bash|sh)\s+-s(?=\s|$)"
@@ -825,6 +851,14 @@ def _stdin_program_heredoc_bodies(text: str) -> "list[str]":
     return bodies
 
 
+#: `NAME = "<governed path>"` in an interpreter payload. The value must be the
+#: governed identifier alone (optionally with a directory prefix) -- prose
+#: that merely embeds the name inside a larger string must keep passing.
+#: Quoted form covers interpreter payloads; the bare form covers a shell
+#: assignment (`p=CLAUDE.md`), which carries no quotes at all. Triple-quoted
+#: branch is checked first so a Python triple-quoted literal is matched
+#: against the true `"""`/`'''` terminator rather than closing early on the
+#: literal's own adjacent leading quote pair.
 _PAYLOAD_ASSIGN_RE = re.compile(
     r"(?<![\w.])([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"
     r"(?:('''|\"\"\")([\s\S]*?)\2"
@@ -857,6 +891,9 @@ def _has_stdin_program_var_write(cmd: str) -> bool:
                 continue
             if not _mentions_governed_identifier(value.rsplit("/", 1)[-1]):
                 continue
+            # WRITE intent through the bound name only. A bare `open(NAME)` is a READ
+            # and must keep passing -- matching on the name alone denied
+            # `print(open(p).read())`.
             escaped_name = re.escape(name)
             deref = re.compile(
                 rf"open\s*\(\s*{escaped_name}\s*,\s*['\"][wax]"
@@ -870,6 +907,13 @@ def _has_stdin_program_var_write(cmd: str) -> bool:
 
 
 def _copy_command_substitution(text: str, start: int) -> "tuple[str, int]":
+    """The verbatim span of a command substitution beginning at `start`
+    (`text[start]` is a backtick, or `text[start:start+2] == "$("`), plus how
+    many characters it consumes. Backtick spans end at the next unescaped
+    backtick; `$(...)` spans end at the balancing close-paren, tracking
+    nesting depth so an inner `(...)`/`$(...)` doesn't close the span early.
+    Used only by `_strip_quoted_spans` -- command substitution inside a
+    quoted span must stay live text, not be erased as inert literal data."""
     n = len(text)
     if text[start] == "`":
         end = start + 1
@@ -892,6 +936,18 @@ def _copy_command_substitution(text: str, start: int) -> "tuple[str, int]":
 
 
 def _strip_quoted_spans(text: str) -> str:
+    """`text` with the contents of single- and double-quoted spans removed
+    (quote characters kept, so token boundaries survive) -- except for any
+    command-substitution span (`$(...)` or a backtick pair) inside the quote,
+    which is copied through verbatim, since bash evaluates that substitution
+    regardless of the surrounding quotes (quoting only suppresses
+    word-splitting of the result, never the execution). Lets the git carve-out
+    ask "is there a redirect OUTSIDE any quoted argument?" -- distinguishing
+    `git commit -m "a > b"` (prose, harmless) from a redirect smuggled inside a
+    substitution (`"$(echo pwned > CLAUDE.md)"`), which stays visible to the
+    write-marker re-scan. A heredoc-wrapped substitution has its body already
+    removed by `_strip_heredoc_bodies` before this function runs, so the
+    preserved substitution text contains no live redirect to find."""
     out: "list[str]" = []
     quote: "str | None" = None
     prev = ""
@@ -927,6 +983,11 @@ def _strip_quoted_spans(text: str) -> str:
     return "".join(out)
 
 
+#: `git` subcommands that never modify working-tree file content. Anything NOT
+#: listed here (`checkout`, `restore`, `apply`, `reset`, `clean`, `rm`, `mv`,
+#: `stash`, and every unrecognised subcommand) is deliberately absent: this
+#: carve-out must be an allow-list, never a deny-list, or a new
+#: content-mutating subcommand silently inherits the exemption.
 _GIT_CONTENT_SAFE_SUBCOMMANDS = frozenset(
     {
         "commit",
@@ -944,6 +1005,11 @@ _GIT_CONTENT_SAFE_SUBCOMMANDS = frozenset(
     }
 )
 
+#: `git` subcommands that DO overwrite working-tree file content -- a write
+#: marker in their own right. `git checkout HEAD~5 -- CLAUDE.md` carries no
+#: redirect, no `tee`, no interpreter, so without this set it matches none of
+#: the other write markers and is silently allowed while truncating a
+#: governed surface to an arbitrary historical revision.
 _GIT_CONTENT_MUTATING_SUBCOMMANDS = frozenset(
     {
         "checkout",
@@ -963,12 +1029,19 @@ _GIT_CONTENT_MUTATING_SUBCOMMANDS = frozenset(
     }
 )
 
+#: Pre-subcommand `git` options that take a value (`git -C <path> commit`) --
+#: skipped in pairs when locating the subcommand.
 _GIT_VALUE_OPTS = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace"})
 
 
 def _git_subcommand(segment: str) -> "str | None":
+    """The `git` subcommand `segment` invokes, skipping any pre-subcommand
+    global options. None when the segment is not a `git` invocation, or
+    carries no subcommand at all."""
     tokens = segment.split()
     idx = 0
+    # Tolerate a leading env-assignment prefix (GIT_DIR=... git ...); anything
+    # else means git is not this segment's command.
     while idx < len(tokens) and tokens[idx] != "git":
         if not _ASSIGN_RE.match(tokens[idx]):
             return None
@@ -1019,6 +1092,10 @@ _CMD_SUFFIX_RE = re.compile(r"\.cmd$", re.IGNORECASE)
 
 
 def _segment_command_token(segment: str) -> "str | None":
+    """The first non-env-assignment token in `segment` -- the command actually
+    being invoked, tolerating a leading `NAME=value` prefix the same way
+    `_git_subcommand` does. None for a segment that is entirely
+    env-assignments (or empty)."""
     tokens = segment.split()
     for token in tokens:
         if _ASSIGN_RE.match(token):
@@ -1054,6 +1131,10 @@ def _is_commit_wrapper_command(segment: str) -> bool:
 
 
 def _is_commit_wrapper_read_shape(segment: str) -> bool:
+    """The wrapper-family mirror of `_is_git_read_shape`: the wrappers take no
+    git subcommand, so an invocation is inherently commit-shaped -- but every
+    other scan (heredoc-body stripping, quoted-span-stripped write-marker
+    re-scan, unstripped code-execution re-scan) applies unchanged."""
     if not _is_commit_wrapper_command(segment):
         return False
     without_heredocs = _strip_heredoc_bodies(segment)
@@ -1063,10 +1144,17 @@ def _is_commit_wrapper_read_shape(segment: str) -> bool:
 
 
 def _is_git_content_mutation(segment: str) -> bool:
+    """A `git` subcommand that overwrites working-tree content."""
     return _git_subcommand(segment) in _GIT_CONTENT_MUTATING_SUBCOMMANDS
 
 
 def _is_git_read_shape(segment: str) -> bool:
+    """A content-safe `git` subcommand that smuggles no redirect outside its
+    quoted arguments and no code-execution marker outside its heredoc bodies.
+    Both scans run on heredoc-stripped text, since a heredoc body is data and
+    cannot execute or redirect anything; the write-marker scan additionally
+    strips quoted spans, so message prose containing `>` stays allowed while a
+    real redirect on the command line does not."""
     if _git_subcommand(segment) not in _GIT_CONTENT_SAFE_SUBCOMMANDS:
         return False
     without_heredocs = _strip_heredoc_bodies(segment)
@@ -1075,6 +1163,10 @@ def _is_git_read_shape(segment: str) -> bool:
     return not _has_code_execution_marker(without_heredocs)
 
 
+#: The known-safe grant-CLI module. Its write target is its own grant record
+#: for every subcommand, never a governed doctrine surface, so a segment
+#: invoking it via `python3 -m` is never denied on the strength of a governed
+#: identifier appearing inside its (data-only) arguments.
 _CLAUDE_MD_GRANT_MODULE = "coordinator_core.session.claude_md_grant"
 
 #: Interpreter basenames recognised for the point-9 carve-out -- deliberately
@@ -1086,6 +1178,9 @@ _PYTHON_BASENAMES = frozenset({"python", "python3"})
 
 
 def _python_dash_m_module(segment: str) -> "str | None":
+    """The module name following a `-m` flag in a `python`/`python3`
+    invocation, tolerating a leading env-assignment prefix -- None if
+    `segment` is not such an invocation, or carries no `-m`."""
     tokens = segment.split()
     idx = 0
     while idx < len(tokens) and _ASSIGN_RE.match(tokens[idx]):
@@ -1103,20 +1198,33 @@ def _python_dash_m_module(segment: str) -> "str | None":
 
 
 def _is_claude_md_grant_invocation(segment: str) -> bool:
+    """True iff `segment` invokes the `coordinator_core.session.claude_md_grant`
+    CLI via `python3 -m` (or `python -m`)."""
     return _python_dash_m_module(segment) == _CLAUDE_MD_GRANT_MODULE
 
 
 def _is_claude_md_grant_read_shape(segment: str) -> bool:
+    """The grant-CLI mirror of `_is_git_read_shape`/`_is_commit_wrapper_read_shape`:
+    a recognised grant-CLI invocation is treated as read-shape for the
+    governed-identifier mention (its write target is never the governed
+    file), but a real write marker outside any quoted argument still denies.
+    Only the CLI's own expected `python3`/`-m` indirection is exempted, not an
+    actual write."""
     if not _is_claude_md_grant_invocation(segment):
         return False
     without_heredocs = _strip_heredoc_bodies(segment)
     return not _has_write_marker(_strip_quoted_spans(without_heredocs))
 
 
+#: A shell variable assignment opening a segment -- `NAME=...` or `NAME="..."`.
 _ASSIGN_RE = re.compile(r"^\s*[A-Za-z_][A-Za-z0-9_]*=")
 
 
 def _split_top_level_segments(cmd: str) -> "list[str]":
+    """Split `cmd` at top-level `;`, `&&`, `||`, `|`, and newline -- "top-level"
+    meaning outside single/double quotes and outside parenthesis grouping
+    (`(...)`/`$(...)`), so a separator embedded in a quoted argument or a
+    subshell does not fracture a single logical command."""
     segments: "list[str]" = []
     current: "list[str]" = []
     quote: "str | None" = None
@@ -1164,6 +1272,10 @@ def _split_top_level_segments(cmd: str) -> "list[str]":
 
 
 def _has_var_assignment_indirection(segments: "list[str]") -> bool:
+    """True iff some segment is (or opens with) a shell variable assignment
+    whose value mentions a governed identifier. The caller still requires a
+    write marker somewhere in the whole command before denying on this
+    basis."""
     for segment in segments:
         if _ASSIGN_RE.match(segment) and _mentions_governed_identifier(segment):
             return True
@@ -1175,6 +1287,10 @@ _VAR_DEREF_RE = re.compile(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?")
 
 
 def _governed_bound_variables(segments: "list[str]") -> "set[str]":
+    """Variable names bound to a governed path, following aliases: `p=CLAUDE.md`
+    binds `p` directly; `q=$p` then binds `q` too. The fixed-point loop is
+    bounded (an alias chain longer than the segment count cannot exist) so a
+    pathological command cannot spin here."""
     bound: "set[str]" = set()
     for _ in range(len(segments) + 1):
         changed = False
@@ -1237,6 +1353,10 @@ def _assignment_indirection_reaches_a_write(segments: "list[str]") -> bool:
         target = _redirect_target_token(segment)
         if not target:
             return True
+        # `_names_governed_identifier` (boundary-anchored, suffix-decoy-excluding),
+        # not the broad `_mentions_governed_identifier` prefilter -- this IS the
+        # decision point for this single resolved target token, so a bare
+        # substring match would deny a write that never touches the governed file.
         if _names_governed_identifier(target):
             return True
         if any(deref in bound for deref in _VAR_DEREF_RE.findall(target)):
@@ -1272,6 +1392,11 @@ def _has_xargs_pipe_indirection(segments: "list[str]") -> bool:
     return any(_XARGS_RE.search(segment) for segment in segments)
 
 
+#: Markers that prove a segment can actually EXECUTE arbitrary code via an
+#: OS-level escape hatch reachable from an interpreter with no textual write
+#: marker of its own. Used only by `_is_interpreter_read_shape`, to keep that
+#: carve-out from misclassifying a payload that could still write via one of
+#: these as a read.
 _OS_EXEC_RE = re.compile(
     r"\bos\.system\(|\bsubprocess\.(run|call|Popen|check_call|check_output)\("
     r"|shell\s*=\s*True|\beval\(|\bexec\("
@@ -1282,6 +1407,10 @@ def _has_os_exec_marker(text: str) -> bool:
     return bool(_OS_EXEC_RE.search(text))
 
 
+#: The one write shape whose sink is analysable inside an interpreter payload:
+#: a write-mode `open(<literal>, ...)`. Everything else -- a non-literal path,
+#: a `.write*` not chained directly onto such an open -- keeps the segment
+#: unanalysable and fails closed.
 _OPEN_CALL_RE = re.compile(r"\bopen\s*\(")
 _WRITE_MODE_RE = re.compile(r"['\"][^'\"]*[wax][^'\"]*['\"]")
 _LITERAL_FIRST_ARG_RE = re.compile(r"\A\s*(['\"])(?P<path>[^'\"]*)\1\s*(?:,|\Z)")
@@ -1289,6 +1418,12 @@ _TRAILING_WRITE_CALL_RE = re.compile(r"\A\s*\.\s*write(?:_text|_bytes)?\s*\(")
 
 
 def _open_call_spans(segment: str) -> "list[tuple[int, int, str]]":
+    """Every `open(` call in `segment` as `(start, end, args)`, where `end` is
+    one past the call's matching close paren. Depth-counted rather than
+    regex-matched: an argument list can itself contain parens
+    (`open(str(p), 'w')`), and a regex that stops at the first `)` would
+    truncate the mode and read a write as a read. A call whose paren never
+    closes is skipped, so a truncated payload falls back to closed."""
     spans: "list[tuple[int, int, str]]" = []
     for match in _OPEN_CALL_RE.finditer(segment):
         depth = 0
@@ -1578,6 +1713,9 @@ def is_denied_bash_write(cmd: str) -> bool:
     ) and _assignment_indirection_reaches_a_write(stripped_segments):
         return True
 
+    # The one case the strip above cannot cover: a heredoc feeding an interpreter
+    # that takes its program from stdin. There the body is executable source, so
+    # an assign-then-write-through-the-name payload is a real indirected write.
     if _has_stdin_program_var_write(cmd):
         return True
 
@@ -1604,6 +1742,12 @@ def is_denied_bash_write(cmd: str) -> bool:
 
 
 def _looks_commit_shaped(cmd: str) -> bool:
+    """True iff some top-level segment of a denied command is a `git
+    commit`/`git add` invocation or a scoped-commit wrapper -- used only to
+    decide whether the deny message owes the reader the commit-specific hint:
+    a denied commit-shaped command was denied for a real reason (an actual
+    redirect/tee/interpreter marker outside its message), not because
+    committing is disallowed."""
     for segment in _split_top_level_segments(cmd):
         if _git_subcommand(segment) in ("commit", "add"):
             return True
@@ -1613,6 +1757,13 @@ def _looks_commit_shaped(cmd: str) -> bool:
 
 
 def _looks_quoted_content_shaped(cmd: str) -> bool:
+    """True iff every top-level segment mentioning a governed identifier does
+    so only inside a quoted span -- the identifier never appears as a bare
+    path operand anywhere in the command. Used only to decide whether the
+    deny message owes the reader the "use Write/Edit" remedy: that remedy
+    presumes the governed file itself is the write target, which is false by
+    construction here -- the mention is prose whose real destination is a
+    different, non-governed path."""
     mentioning_segments = [
         segment
         for segment in _split_top_level_segments(cmd)
@@ -1622,6 +1773,11 @@ def _looks_quoted_content_shaped(cmd: str) -> bool:
         return False
     for segment in mentioning_segments:
         target = _redirect_target_token(segment)
+        # A QUOTED mention can still be the redirect's own destination
+        # (`echo x > "CLAUDE.md"`). That denies correctly on the point-3 path, but
+        # it is NOT this shape: emitting the quoted-content remedy for it would
+        # tell the operator the governed name is prose about a command whose write
+        # target is exactly that name. Fall through to the default shape instead.
         if target and _mentions_governed_identifier(target):
             return False
         # The same reasoning for the write sinks that take their
@@ -1691,13 +1847,15 @@ def _compose_deny_message(*, commit_shaped: bool = False, quoted_content_shaped:
     else:
         prose = (
             "BLOCKED: this Bash command writes a governed doctrine "
-            "surface. If the real target is one of the four files, use "
+            "surface. If the real target is one of the governed files, use "
             "Write or Edit."
         )
     return compose(prose, anchor=_WIKI_ANCHOR)
 
 
 def main() -> int:
+    if not feature_enabled("doctrine_edit_gate"):
+        return 0
     try:
         data = json.load(sys.stdin)
     except Exception:

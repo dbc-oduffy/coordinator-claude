@@ -3001,7 +3001,11 @@ def _cmd_round_default(
             # and leaves the mirror dirty, but here it would move the commit
             # ahead of `_run_ci_smoke` and make this round's own commit leg a
             # no-op.
-            real_cmd = [sys.executable, str(_PUBLISH), target, "--no-commit"]
+            progress_path = tmp / "publish-progress.json"
+            real_cmd = [
+                sys.executable, str(_PUBLISH), target, "--no-commit",
+                "--progress-file", str(progress_path),
+            ]
             if not args.delta:
                 real_cmd.append("--no-delta")
             import os as _os
@@ -3012,6 +3016,17 @@ def _cmd_round_default(
             # manifest`'s own docstring for why this is the freshness check
             # that makes deleting the destination-dirtiness gate safe.
             real_run_started_at = time.time()
+            # This process idles while the child works, so its own CPU says
+            # nothing about progress; the child's pid and staged/declared
+            # counts are in the progress file.
+            print(
+                "  publish.py runs as a child of this process; CPU and file activity "
+                "are the child's, this process idles.\n"
+                f"  Staging progress (pid, staged/declared): {progress_path}\n"
+                "  A dead pid in the sidecar lock is informational (the kernel lock "
+                "releases on process death); do not delete it.",
+                flush=True,
+            )
             real = _run(real_cmd, timeout=_PUBLISH_LEG_TIMEOUT_SECS, env=real_env)
             print(real.stdout)
             _real_row_failure_text = (

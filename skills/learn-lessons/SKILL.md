@@ -131,6 +131,15 @@ handed back an engine-originated type — surface those to the PM before writing
 top-level EM writes the sentinel last, after every apply/commit lands, never a dispatched lead,
 which cannot commit and so cannot know the applies landed.
 
+Wrap the emitted report in the marker pair, which is how the exemption is declared to the comms
+hook (`em-pm-comms-instrumentation.md` § The ceremony-mandated marker):
+
+```
+<!-- ceremony-mandated:start -->
+...the Phase 8 report...
+<!-- ceremony-mandated:end -->
+```
+
 ## Anti-Patterns
 
 Auto-applying central promotions without the PM gate. Bespoke extra parameters (modes are the

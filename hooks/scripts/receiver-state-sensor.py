@@ -96,11 +96,14 @@ if _HOOKS_DIR not in sys.path:
 try:
     from _engine_root import resolve_claude_klabauter_root as _resolve_engine_root  # noqa: E402
 except Exception:
+    # Fail-open rather than crash on import if deployed without its sibling _engine_root.py.
     def _resolve_engine_root():  # type: ignore[misc]
         return None
 
 
 def _transcript_for(payload: dict) -> str:
+    """Never fall back to `transcript_path` on a SubagentStop: that transcript belongs to
+    the parent session and is a plausible-looking decoy, not a missing value."""
     event = payload.get("hook_event_name") or ""
     if event == "SubagentStop" or payload.get("agent_id"):
         value = payload.get("agent_transcript_path")
@@ -112,6 +115,8 @@ def _transcript_for(payload: dict) -> str:
 def _log_degradation(
     payload: dict, token: str, exc: Exception | None = None, session_id: str = ""
 ) -> None:
+    """Records which silent degrade branch fired, so a degraded run is distinguishable
+    from one that never ran. Every failure here is swallowed -- must never change the exit."""
     try:
         cwd = payload.get("cwd") if isinstance(payload, dict) else None
         probe = Path(cwd).resolve() if isinstance(cwd, str) and cwd else Path.cwd()
@@ -155,7 +160,7 @@ def main() -> int:
     root = _resolve_engine_root()
     if not root:
         _log_degradation(payload, "engine-unresolvable")
-        return 0
+        return 0  # fail-open -- the engine is unresolvable on this machine
 
     from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
     _place_engine_root_on_path(root)
@@ -165,7 +170,7 @@ def main() -> int:
         from coordinator_core.ipc import HookDispatchError, dispatch_from_hook
     except Exception as exc:
         _log_degradation(payload, "engine-unimportable", exc)
-        return 0
+        return 0  # engine unimportable -> fail-open
 
     session_id = payload.get("session_id") or ""
     transcript_path = _transcript_for(payload)
@@ -173,6 +178,7 @@ def main() -> int:
         _log_degradation(payload, "payload-incomplete", session_id=session_id)
         return 0
 
+    # The op treats both as required; a missing either is a silent no-op engine-side anyway.
     params = {
         "session_id": session_id,
         "transcript_path": transcript_path,
@@ -190,8 +196,9 @@ def main() -> int:
         return 0
     except Exception as exc:
         _log_degradation(payload, "unexpected-error", exc, session_id=session_id)
-        return 0
+        return 0  # any engine failure -> fail-open (never block a Stop)
 
+    # The op always returns no_advisory(); this shim emits nothing, ever.
     return 0
 
 

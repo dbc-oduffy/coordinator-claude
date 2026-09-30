@@ -95,6 +95,10 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
+# Ceiling the internal terminate/grace/kill budget below must stay comfortably under --
+# exceeding it means the harness kills the hook process before the soft-terminate/hard-kill
+# sequence can finish, reproducing one layer up the exact "cleanup never ran" failure this
+# sequence exists to prevent. Comment-only; not read at runtime.
 _HOOKS_JSON_REGISTERED_TIMEOUT_SECS = 30
 
 _SUBPROCESS_TIMEOUT_SECS = 22
@@ -122,6 +126,7 @@ _POST_KILL_DRAIN_SECS = 2
 
 
 def _read_stdin(timeout: float = 2.0) -> str:
+    """Bounded stdin read -- Windows hang guard."""
     box = {"data": ""}
 
     def _read() -> None:
@@ -147,6 +152,10 @@ except Exception:
 
 
 def _log_diagnostic(payload: dict, note: str) -> None:
+    """Append one best-effort line so a genuinely unexpected failure mode (not "nothing to
+    commit", not "no session_id", not a push-retry exhaustion) is discoverable by grep instead
+    of invisible. Never raises; a diagnostics-write failure must not itself break session
+    teardown."""
     try:
         cwd = payload.get("cwd")
         probe = Path(cwd).resolve() if isinstance(cwd, str) and cwd else Path.cwd()
@@ -184,16 +193,18 @@ def main() -> int:
 
     session_id = payload.get("session_id")
     if not isinstance(session_id, str) or not session_id:
+        # Never guess a session key -- silent no-op is correct (no session_id means nothing
+        # to rescue), but leave a breadcrumb in case this payload shape is wrong.
         _log_diagnostic(payload, "SessionEnd payload carried no usable session_id; auto-commit skipped.")
         return 0
 
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0
+        return 0  # fail-open -- engine plane unresolvable on this machine
 
     cli = Path(root) / "coordinator" / "bin" / "safe-commit-offer.py"
     if not cli.is_file():
-        return 0
+        return 0  # fail-open -- CLI not present on this checkout
 
     try:
         proc = subprocess.Popen(
@@ -238,6 +249,8 @@ def main() -> int:
             try:
                 proc.communicate(timeout=_POST_KILL_DRAIN_SECS)
             except Exception:
+                # Best-effort: the child is already killed; a still-blocked pipe read
+                # must not itself raise out of a SessionEnd hook.
                 pass
             _log_diagnostic(
                 payload,

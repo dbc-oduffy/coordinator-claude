@@ -79,7 +79,15 @@ from pathlib import Path
 _PROG = "parallel-review-orthogonality-guard.py"
 _BIN_DIR = Path(__file__).resolve().parent
 
+#: The .cmd launcher's own basename — used by `recover_windows_argv` to locate
 #: where this invocation's own arguments begin within the raw `%CMDCMDLINE%`
+#: capture. `snapshot --range` takes a git rev/range typed directly at the
+#: CLI (e.g. the `sha^..sha` predecessor-range shape), which cmd.exe's `%*`
+#: batch-parameter population silently strips a literal `^` from — see
+#: `coordinator/bin/lib/raw_cmdline_recovery.py`'s module docstring. Refuses
+#: on an unvouchable capture (coordinator-write-review-trail.py's C2
+#: posture — this is a low-traffic weekly-gate CLI, not scoped-git-commit's
+#: ~40-concurrent-session hot path).
 _LAUNCHER_CMD_NAME = "parallel-review-orthogonality-guard.cmd"
 _VERIFY_CLI = _BIN_DIR / "verify-parallel-review-lens-orthogonality.py"
 _FREEZE_CLI = _BIN_DIR / "freeze-review-diff.py"

@@ -106,7 +106,10 @@ def _no_console_kw() -> dict:
         return {}
 
 
+# Duplicated from coordinator_core/ops/handoff_phase_stamp.py's own
 # _VALID_PHASES on purpose: this local tuple drives argparse's `choices=`,
+# giving a fast pre-op exit-2 usage error instead of a round-trip through the
+# engine. Keep in sync with the op's tuple if a phase value is ever added.
 _VALID_PHASES = ("continuation", "execution")
 
 

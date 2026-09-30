@@ -53,6 +53,7 @@ except Exception:
 FOCUS_ENV = "COORDINATOR_CLOUD_FOCUS_REPO"
 TEAMS_FLAG_ENV = "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"
 
+# Must match cloud_setup.py's own retrieval_search_roots. abs-path-ok: cloud VM mount points, cloud-only hook.
 CHECKOUT_ROOTS = (Path("/home/user"), Path("/workspace"))
 
 _GIT_TIMEOUT_S = 3
@@ -178,7 +179,7 @@ def render_teams_line(flag: str) -> Optional[str]:
         return None
     return (
         f"CLOUD: agent teams OFF. Add {TEAMS_FLAG_ENV}=1 to `env` in ~/.claude/settings.json "
-        "(in-session); the env-var box reaches only sessions started later."
+        "(the env-var box misses this session)."
     )
 
 

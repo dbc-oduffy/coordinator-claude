@@ -59,11 +59,17 @@ if _HOOKS_DIR not in sys.path:
 try:
     from _engine_root import resolve_claude_klabauter_root as _resolve_claude_klabauter_root  # noqa: E402
 except Exception:
+    # Defensive fallback -- a hook script copied/deployed without its
+    # sibling _engine_root.py must still fail-open rather than crash on
+    # import.
     def _resolve_claude_klabauter_root() -> str | None:
         return None
 
 
 def main() -> int:
+    # This hook needs only cwd, but SessionStart hooks are invoked with a
+    # JSON payload on stdin regardless of whether the hook consumes it --
+    # drain it so the harness never sees a broken pipe.
     try:
         sys.stdin.read()
     except Exception:
@@ -71,7 +77,7 @@ def main() -> int:
 
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0
+        return 0  # fail-open silent exit -- engine repo unresolvable on this machine
 
     from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
     _place_engine_root_on_path(root)
@@ -79,7 +85,7 @@ def main() -> int:
     try:
         from coordinator_core.hooks.ue_knowledge_distrust import run
     except Exception:
-        return 0
+        return 0  # engine unimportable -> fail-open silent exit
 
     # PLUGIN_ROOT: the bash oracle derived this from
     # `${BASH_SOURCE[0]}/../..` (hooks/scripts -> plugin root). Historically
@@ -94,7 +100,7 @@ def main() -> int:
     try:
         result = run(os.getcwd(), plugin_root)
     except Exception:
-        return 0
+        return 0  # any engine failure -> fail-open silent exit
 
     for line in result.stderr_lines:
         try:
@@ -104,6 +110,9 @@ def main() -> int:
             pass
 
     if result.banner:
+        # Raw bytes, not sys.stdout.write(): on Windows, text-mode stdout
+        # translates LF to CRLF, which would diverge byte-for-byte from the
+        # bash oracle's LF-only output.
         sys.stdout.buffer.write(result.banner.encode("utf-8"))
 
     return 0

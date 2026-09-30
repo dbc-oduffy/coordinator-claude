@@ -17,7 +17,12 @@ if ($_pybin -ne '') {
     exit $LASTEXITCODE
 }
 
+# Host-local resolution cache (DR-303 / windows-interpreter-bake-is-empty):
 # %LOCALAPPDATA% never syncs between machines, unlike the settings-home a
+# bake is written into, so it cannot be poisoned by a Mac/Windows-synced
+# home the way a bake can. Mirrors the bake's own Test-Path self-heal: a
+# cached path that is stale or foreign falls through to re-resolution.
+# Every step here is in-process (no new spawn on the steady-state path).
 
 
 $_cachefile = $null

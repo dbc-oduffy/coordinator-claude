@@ -194,6 +194,7 @@ def main(argv: list[str]) -> int:
         repo_root = os.getcwd()
     elif verdict["verdict"] == "MISMATCH":
         # DR-277: this hook DISPATCHES a configured post-command, it does not
+        # itself write into the resolved root -- warn and proceed rather than
         # refuse. UNRESOLVED never refuses either (AC4).
         print(verdict["message"], file=sys.stderr)
 
@@ -205,7 +206,17 @@ def main(argv: list[str]) -> int:
     rvc._metachar_warn(cmd, f"ceremony-hook:{ceremony}", caller="coordinator-ceremony-hook")
     redacted = rvc.redact_for_diag(cmd)
 
+    # W1 pre-exec routing (coordinator_core.ceremony_config.argv_only): a
+    # `VAR=value` first-token prefix parses cleanly under shlex (it is not a
+    # ValueError, see the try/except below) and used to reach the exec
+    # attempt, where it fails with ENOENT and only THEN explains itself in
+    # the launch-failure WARN's trailing clause — the confusing primary
+    # signal (`No such file or directory: 'VAR=value'`) ran ahead of the
+    # precise diagnosis. `check_argv_only` classifies this case before any
+    # exec is attempted, so a W1 command routes straight to its own
+    # diagnostic instead of arriving there by way of a failed launch. See
     # `argv_only.py`'s module docstring, "CORRECTION" section, for the
+    # sequencing defect this closes.
     try:
         from coordinator_core.ceremony_config.argv_only import check_argv_only
     except ImportError as exc:
@@ -264,6 +275,9 @@ def main(argv: list[str]) -> int:
         )
         rc = proc.returncode
     except ImportError as exc:
+        # widened alongside the bin/lib and resolver guards above —
+        # an unimportable coordinator_core (partial live-install mirror) is
+        # the identical failure mode; it must degrade to WARN+0, not escape
         # main()'s ALWAYS-0 contract.
         print(
             f"[coordinator-ceremony-hook] WARN: coordinator_core module unavailable "

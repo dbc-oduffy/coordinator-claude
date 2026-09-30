@@ -112,17 +112,31 @@ _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 if _THIS_DIR not in sys.path:
     sys.path.insert(0, _THIS_DIR)
 
+# F6 fix (2026-08-08, hermetic-ac-reverify) — `claude_home()` is pure
+# (module docstring: only imports `os`, no subprocess), safe at module top
+# level like coordinator_registry.py's own `_mlir_claude_home` import.
+# Converges this module's home derivation onto the SAME semantics
+# `coordinator_registry.py::_mp_marketplace_cache_rung`/
+# `_mp_flat_layout_probe_rung` already use — `claude_home()` treats
 # `CLAUDE_HOME` as a `$HOME` substitute (Convention A) and returns
 # `<CLAUDE_HOME>/.claude`, agreeing with
+# `check_install_singularity._claude_base_dir()`. This module's own rungs
 # previously inlined `CLAUDE_HOME or HOME or USERPROFILE` and then
 # unconditionally joined `.claude`, so with `CLAUDE_HOME` set the two
+# modules probed different directories — see F6 in
+# state/review-findings/2026-08-08-successor-partitioned/hermetic-ac-reverify.md.
 from machine_local_impl_resolve import claude_home as _mlir_claude_home
 
+# coordinator/lib — sibling of coordinator/bin/lib (this file's own dir),
+# hosting the shared coordinator_read_content_root_pointer() substrate. Two
 # dirname()s up from _THIS_DIR (bin/lib -> bin -> coordinator), then down
 # into lib/. Mirrors coordinator_registry.py's own _COORDINATOR_LIB_DIR.
 _CDR_COORDINATOR_LIB_DIR = os.path.join(os.path.dirname(os.path.dirname(_THIS_DIR)), "lib")
 
+# Published payload flattens: the mirror ships helper at "<repo root>/lib"
 # with no "coordinator/" segment. Three dirname()s up from _THIS_DIR
+# (bin/lib -> bin -> coordinator -> repo root), then down into lib/. Probed
+# as a fallback below — private tree wins first.
 _CDR_COORDINATOR_LIB_DIR_FLAT = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(_THIS_DIR))), "lib"
 )

@@ -205,6 +205,7 @@ _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
 try:
+    # Fail-open: a deployed copy missing its sibling module must degrade, not crash on import.
     from _message_envelope import compose, render  # noqa: E402
 except Exception:
     def compose(prose, alternative=None, anchor=None):  # type: ignore[no-redef]
@@ -255,6 +256,7 @@ except Exception:
         return None
 
 def main() -> int:
+    # Fail-open: an unreadable stdin degrades to an empty payload rather than raising.
     try:
         raw = sys.stdin.read()
     except Exception:
@@ -357,6 +359,10 @@ def main() -> int:
     except Exception:
         foreground_result = None
 
+    # Side effect only, deliberately outside the emit-gate below: this is the only
+    # event carrying the child's prompt, so the plan path a plan-derivable dispatch
+    # needs has to cross to disk here. Fail-open: a miss just falls through to the
+    # session-keyed home.
     try:
         _record_plan_path(
             str(data.get("session_id") or ""),
@@ -367,6 +373,10 @@ def main() -> int:
     except Exception:
         pass
 
+    # Single-emitter invariant: exactly one hookSpecificOutput is ever built and
+    # written, at the single write call site below -- a deny and an allow are
+    # mutually exclusive outcomes of the same decision, never two write sites
+    # racing to be the last one out.
     out: Optional[dict[str, Any]] = None
 
     if teammate_name_deny_message is not None:
@@ -401,6 +411,8 @@ def main() -> int:
         or named_dispatch_result is not None
         or foreground_result is not None
     ):
+        # Each leg is independent: the worktree strip, named-dispatch strip, and
+        # foreground reroute must each fire even when none of the other concerns apply.
 
         # --- Emit: permissionDecision "allow" + updatedInput (full merge,
         # whichever mutations apply). Type guard mirrors the oracle's jq path
@@ -414,6 +426,9 @@ def main() -> int:
         if need_mode_elevation:
             merged["mode"] = parent_mode
 
+        # additionalContext notes are concatenated in a fixed order below
+        # (worktree, named-dispatch, foreground-reroute) -- deterministic, since
+        # this is one hook building one string, not several hooks racing.
         additional_context_parts: list[str] = []
         if worktree_strip_result is not None:
             _, worktree_note = worktree_strip_result

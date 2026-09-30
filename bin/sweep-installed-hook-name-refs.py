@@ -1,4 +1,26 @@
+# coordinator/bin/sweep-installed-hook-name-refs.py
+#
+# Answers "which coordinator/bin entrypoint names do the git hooks installed on
+# this machine actually name?" by reading every co-located repo's `.git/hooks/`
+# directly.
+#
+# Why this exists: `.git/hooks` is untracked state living in peer working trees,
+# so no repo grep, cross-repo memo, or reference census reaches it. The C6
+# rename chunk of docs/plans/2026-08-13-grind-the-posix-exec-baseline-to-zero.md
+# names it as a blind spot and reasons about it indirectly, via the installer's
 # `_GATE_REGISTRY` version stamp. That indirection is unnecessary on a machine
+# where the sibling trees are co-located: the hooks are readable, so the
+# question has a direct answer. Renaming a name this script reports breaks the
+# installed hook in every tree listed beside it, until that tree re-runs the
+# installer.
+#
+# The failure is not uniform, and the quiet one is the dangerous one:
+# `prepare-commit-msg` and `post-commit` end their resolution chain with a
+# warning and `exit 0`, so a rename silently stops annotating and auto-pushing;
+# `pre-commit` exits 1 on a missing gate script, which at least announces
+# itself. Read the hook body before deciding a hit is survivable.
+#
+# Exit 0 always -- this reports, it does not gate. Callers decide.
 
 from __future__ import annotations
 

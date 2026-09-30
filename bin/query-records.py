@@ -191,6 +191,15 @@ def main(argv: list[str] | None = None) -> int:
 
     require_dispatch_engine_on_path()
     # LOAD-BEARING, NOT DEAD. Do not delete on an unused-import sweep: this line is
+    # what BINDS coordinator_core, and binding it HERE is the whole fix.
+    # require_dispatch_engine_on_path() above only mutates sys.path -- it imports
+    # nothing. Without this line the next import below (a binder module that
+    # resolves on the LOCATOR axis) wins the race and binds coordinator_core off
+    # the working tree instead of the dispatch root, and no later sys.path insert
+    # can rebind an already-imported package. Removing it restores a silent
+    # wrong-tree divergence that require_dispatch_engine_on_path now raises on.
+    # Why: docs/plans/2026-08-26-the-seam-reports-what-it-got.md C9,
+    # docs/research/engine-provenance-carrier-dependence.md
     import coordinator_core  # noqa: F401
 
     from records_query import _no_legacy, _resolve_repo_root, route_mutation
@@ -210,7 +219,9 @@ def main(argv: list[str] | None = None) -> int:
     where = _compose_where(args.where or "", args.status)
     repo_root = os.path.abspath(args.root) if args.root else _resolve_repo_root()
 
+    # Closed param set — mirrors coordinator_core.ops.records_query.py's own
     # _KNOWN_PARAM_KEYS (snake_case only; no kebab aliasing). Only send keys
+    # this trampoline's flags actually populate.
     params: dict[str, object] = {
         "type": args.type_,
         "where": where,

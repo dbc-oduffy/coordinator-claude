@@ -39,11 +39,13 @@ Spec backlink: coordinator-content-repo coordinator/commands/workweek-complete.m
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import os
 import re
 import shutil
 import subprocess
 import sys
+from collections.abc import Sequence
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -241,9 +243,20 @@ def _bare_week_date(value: str) -> str | None:
     return m.group(1) if m else None
 
 
-def _in_week_window(d: date, week_starting: date) -> bool:
-    """Half-open `[week_starting, week_starting + 7 days)` membership."""
-    return week_starting <= d < (week_starting + timedelta(days=7))
+def _in_week_window(d: date, week_starting: date, week_ending: date | None = None) -> bool:
+    """Membership in `[week_starting, week_starting + 7 days)`, optionally cut
+    short by `week_ending` — an INCLUSIVE last day, so a mid-week release can
+    close a partial week. A `week_ending` past the 7-day window changes
+    nothing: the bound only ever narrows."""
+    end = week_starting + timedelta(days=7)
+    if week_ending is not None:
+        end = min(end, week_ending + timedelta(days=1))
+    return week_starting <= d < end
+
+
+def _is_excluded(name: str, exclude: Sequence[str]) -> bool:
+    """True when `name` matches any fnmatch pattern in `exclude`."""
+    return any(fnmatch.fnmatchcase(name, pat) for pat in exclude)
 
 
 def _bin_dir() -> Path:
@@ -347,6 +360,8 @@ def perform_archive_files(
     week_only: bool = False,
     move_priorities: bool = False,
     clean_shards: bool = False,
+    week_ending: str | None = None,
+    exclude: Sequence[str] = (),
     session_id: str = "",
     relocate_fn=None,
     relocate_cwd: str | None = None,
@@ -370,6 +385,15 @@ def perform_archive_files(
     closing the live week at a real week boundary passes True to reach
     byte-parity with the unscoped (`week_only=False`) path, which always
     deletes them. Ignored when `week_only` is False.
+
+    `week_ending` (`YYYY-MM-DD`, inclusive) and `exclude` (fnmatch patterns on
+    the bare filename) refine the `week_only` window and are ignored when
+    `week_only` is False. `week_ending` closes a partial week: an ISO week
+    straddling two releases archives only through the release day, leaving
+    later files in place. `exclude` keeps named files out of both the
+    changelog and review-trail sweeps — chiefly the live
+    `YYYY-MM-DD-pending-release.md` accumulator, which the date-prefix match
+    otherwise sweeps. Both default to the prior behaviour.
 
     `session_id` / `relocate_fn`: every real content-file move below (daily
     changelogs, priorities fragments, review-trail records) is routed
@@ -399,6 +423,14 @@ def perform_archive_files(
     actions: list[str] = []
     touched = touched_out if touched_out is not None else []
     week_starting_date = date.fromisoformat(week_starting) if week_only else None
+    week_ending_date = (
+        date.fromisoformat(week_ending) if week_only and week_ending else None
+    )
+    if week_ending_date is not None and week_ending_date < week_starting_date:
+        raise SystemExit(
+            f"archive: --week-ending {week_ending} precedes --week-starting {week_starting}"
+        )
+    exclude = exclude if week_only else ()
 
     archive_dest = archive_week_root / week_starting
     archive_dest.mkdir(parents=True, exist_ok=True)
@@ -410,7 +442,11 @@ def perform_archive_files(
         if _DAILY_FILE_RE.match(f.name):
             if week_only:
                 d = _parse_leading_date(f.name)
-                if d is None or not _in_week_window(d, week_starting_date):
+                if (
+                    d is None
+                    or not _in_week_window(d, week_starting_date, week_ending_date)
+                    or _is_excluded(f.name, exclude)
+                ):
                     continue
             dest = archive_dest / f.name
             _relocate_or_move(relocate_fn, session_id, f, dest, cwd=relocate_cwd)
@@ -456,8 +492,13 @@ def perform_archive_files(
             # instead of being left behind forever.
             if week_only:
                 d = _parse_leading_date(f.name)
-                if d is None or not _in_week_window(d, week_starting_date):
-                    # Unparseable or out-of-window — fail-safe, leave in place.
+                if (
+                    d is None
+                    or not _in_week_window(d, week_starting_date, week_ending_date)
+                    or _is_excluded(f.name, exclude)
+                ):
+                    # Unparseable, out-of-window, or excluded — fail-safe,
+                    # leave in place.
                     continue
             dest = review_trail_dest / f.name
             _relocate_or_move(relocate_fn, session_id, f, dest, cwd=relocate_cwd)
@@ -577,6 +618,12 @@ def _cmd_archive(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
 
+    if (args.week_ending or args.exclude) and not args.week_only:
+        print(
+            "archive: note: --week-ending/--exclude have no effect without --week-only",
+            file=sys.stderr,
+        )
+
     touched: list[Path] = []
     actions = perform_archive_files(
         week_changelog_dir,
@@ -590,6 +637,8 @@ def _cmd_archive(args: argparse.Namespace) -> int:
         week_only=args.week_only,
         move_priorities=args.move_priorities,
         clean_shards=args.clean_shards,
+        week_ending=args.week_ending,
+        exclude=args.exclude,
         session_id=_resolve_session_id_for_relocate(),
         relocate_fn=_import_relocate_touched_path(),
         relocate_cwd=str(repo_root),
@@ -708,6 +757,23 @@ def _build_parser() -> argparse.ArgumentParser:
         "shards (only the caller closing the live week at a real week boundary should "
         "pass this, to reach parity with the unscoped path). Ignored when --week-only "
         "is not set.",
+    )
+    p_archive.add_argument(
+        "--week-ending",
+        default=None,
+        metavar="YYYY-MM-DD",
+        help="Under --week-only, inclusive last day of the archived window "
+        "(closes a partial week when a release ships mid-week; files dated "
+        "after it stay in place). Ignored when --week-only is not set.",
+    )
+    p_archive.add_argument(
+        "--exclude",
+        action="append",
+        default=[],
+        metavar="PATTERN",
+        help="Under --week-only, fnmatch pattern on the bare filename to leave "
+        "in place (repeatable), e.g. '*-pending-release.md' to keep the live "
+        "accumulator out of the sweep. Ignored when --week-only is not set.",
     )
     p_archive.set_defaults(func=_cmd_archive)
 

@@ -44,15 +44,37 @@ export const meta = {
 }
 
 
+// `args` arrives as a JSON string even when the caller passes a JSON array/object -- guard
+// unconditionally.
 const INPUT = typeof args === 'string' ? JSON.parse(args) : args
 
-
+// Expected INPUT shape:
+// {
 //   runId: 'YYYY-MM-DD-HHhMM',
-
-
+//   repoRoot: '/absolute/path/to/repo',
+//   batches: [ { batchId: 'b1', description: '...', files: ['path1', ...], formatHints: '...' }, ... ],
+//   wikiDirs:  ['docs/wiki', 'coordinator/docs/wiki'],   // ordered; [0] is the default/primary NEW-file home.
+//   wikiSlugs: { '<slug>': '<repo-relative-path>', ... }, // flat index: slugified filename-stem -> existing file
+//                                                          // path, union across every dir in wikiDirs.
+//   resumeFromRunId: '<prior-run-id>' | null,
+//   inputFile: '/absolute/path/to/input.json' | undefined,  // see § Three input modes below
+// }
+//
+// Three input modes, in precedence order (highest wins):
+//   1. args.inputFile — the (potentially large) `batches` table lives in a JSON file on disk
+//      instead of being authored inline into `args`. Workflow scripts have no filesystem access
 //      `import('node:os')` note on CONCURRENCY_CAP below), so the first action when this is set
-
-
+//      is a single Haiku agent() call whose ONLY job is to Read that file and return its parsed
+//      content verbatim as structured output. Fields present in the file win over the same field
+//      in `args`; fields the file omits fall back to `args`. Fails loud (throws) if the file is
+//      missing/unreadable/malformed rather than silently falling back to (2)/(3) — a silent
+//      fallback here would run a stale or wrong batch table with no signal that it happened.
+//   2. args-passed input — the caller passes the full INPUT JSON inline, including `batches`.
+//      Fine for small runs; a large batch table burns EM context to author inline, which is
+//      exactly what (1) exists to avoid.
+//   3. embedded INPUT default — a forked copy of this script with a literal `const INPUT = {...}`
+//      still runs unchanged.
+// (2) and (3) keep working exactly as before; (1) is resolved first, per-field, and wins.
 const RAW_ARGS_INPUT = INPUT
 const INPUT_FILE_SCHEMA = {
   type: 'object',
@@ -380,8 +402,8 @@ const scanResults = (await parallel(
       model: 'haiku',
     })
   ),
-  
-  
+  // concurrency is a parallel() barrier option only; agent() has no concurrency knob, so a
+  // per-agent field here would be redundant/dead.
   { concurrency: CONCURRENCY_CAP }
 )).filter(Boolean)
 
@@ -601,14 +623,38 @@ log(`join integrity: ${joinVerdict} — ${unjoinableCount}/${distinctSourceCount
 //   * `resumeFromRunId` is the Workflow *tool's* harness-assigned run id (`wf_...`), which exists
 //     only in invocation A's Workflow tool RESULT — this script cannot see or return it.
 // So invocation B passes `resumeFromRunId: <the wf_... id from invocation A's tool result>` and
-
-
+// `runId: <the same distillation slug>`. See `resume_hint` in the returned object.
+//
+// `failed_batch_ids` is the RAW INPUT to the scan-success gate, never the verdict — that gate is
+// an EM/Phase-0 computation over this run's per-batch journal, not computed in this script.
+// `join_integrity` IS inline-computed above; that asymmetry with failed_batch_ids is deliberate.
+//
+// `recommended_keep_threshold` is returned alongside `tag_counts` — curation's minting policy
+// lives entirely on claude-klabauter's side of the seam, as the `keep_threshold` value we pass into their
+// gate call, not as a constant kept on our side.
+//
+// `tag_counts` reuses clusterNuggets()'s own topicKey derivation below (a plain read of its
+// grouping).
+//
+// `recommended_keep_threshold` — claude-klabauter's `distill.curate_clusters` gate compares
+// `keep_threshold` against a cluster's FAMILY total (summed across every tag folded into it), so
+// the threshold is the one knob that decides cold-start survival vs. steady-state floor
+// semantics. Derivation uses only claude-klabauter's two measured points (mean-of-20-seeds drop rate over
+// a 433-nugget/249-tag census):
+//   thr=2: 20n->71.2%, 60n->44.4%, 150n->27.4%, 433n(full)->17.1%
+//   thr=1: 20n->12.0%, 60n->8.7%,  150n->8.8%,  433n(full)->8.1% (flat 8-12% across a 20x range)
+//
 // Cold-start -> 1: fires when WIKI_SLUGS is empty (virgin wiki tree) OR the carry-forward nugget
-
-
+// count is below 150 — at 150 nuggets thr=2 still discards 27.4% of the corpus, which is not a
+// tail, it is the harvest. Mature -> 2 (the measured 17.1%-drop default) otherwise.
+// Deliberately NOT 3: pure floor semantics ("a 1-2-nugget cluster doesn't earn its own file")
+// would want it, but nobody has measured its drop rate on any corpus.
+//
+// Honest limitation (measured-boundary gap): at threshold 2, only 1-nugget families are
+// suppressed — a 2-nugget family still mints its own file.
 // SINGLETON_FLOOR's stated job ("a 1-2-nugget cluster doesn't earn its own new file") is thus
-
-
+// only partly discharged by this derivation, and stays that way until a threshold-3 measurement
+// lands.
 if (!CURATED_TAGS) {
   const tagCensusClusters = clusterNuggets(scanResults)
   const tagCounts = {}

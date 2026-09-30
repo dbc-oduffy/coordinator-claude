@@ -274,9 +274,10 @@ def _resolve_this_repo_root() -> str | None:
             ["git", "rev-parse", "--show-toplevel"],
             capture_output=True,
             text=True,
+            timeout=3,
             creationflags=_NO_WINDOW,
         )
-    except OSError:
+    except (OSError, subprocess.TimeoutExpired):
         return None
     root = result.stdout.strip()
     if result.returncode != 0 or not root:

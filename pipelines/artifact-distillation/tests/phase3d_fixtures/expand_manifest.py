@@ -34,10 +34,13 @@ SUPPORTED_VERSIONS = {1, 2}
 
 
 class ManifestExpansionError(Exception):
-    pass
+    """Raised when the manifest fails the expansion contract (fail-loud)."""
 
 
 def _strip_front_matter(raw: str) -> str:
+    # Manifests may carry prose after the closing ---, which creates a
+    # second YAML document and makes yaml.safe_load reject the stream — so
+    # only the text between the first and second --- is kept.
     lines = raw.splitlines()
     if lines and lines[0].rstrip() == "---":
         close_idx = None
@@ -71,6 +74,8 @@ def _expand_group(group: dict, scout_base: str, warnings: list[str]) -> list[str
     with open(scout_path, encoding="utf-8") as fh:
         scout_text = fh.read()
 
+    # H2-only match: lstrip("#") alone would also match H1/H3/H4 headings
+    # carrying the same text.
     anchor_line = section_anchor.lstrip("#").strip()
     lines = scout_text.splitlines()
     anchor_idx = None
@@ -143,6 +148,9 @@ def _expand_group(group: dict, scout_base: str, warnings: list[str]) -> list[str
 
 
 def check_fanout_sentinel(manifest_path: str) -> None:
+    """Fires when fragment files are present in the manifest dir AND the
+    canonical assembled manifest is not the file being expanded — i.e.
+    fragments exist but assembly hasn't completed yet."""
     manifest_dir = os.path.dirname(manifest_path)
     manifest_base = os.path.basename(manifest_path)
     fragment_count = 0
@@ -159,6 +167,11 @@ def check_fanout_sentinel(manifest_path: str) -> None:
 
 
 def expand(manifest_path: str, scout_base: str | None = None) -> tuple[list[str], list[str]]:
+    """Returns (md_paths, warnings): the sorted, deduped, .md-only delete
+    set and human-readable WARN strings. Raises ManifestExpansionError on
+    any condition treated as fatal (unsupported schema_version, missing
+    scout file or anchor, malformed/missing YAML fence, count mismatch,
+    missing count:, fanout sentinel)."""
     if not os.path.isfile(manifest_path):
         raise ManifestExpansionError(f"manifest file not found: {manifest_path}")
 
@@ -207,6 +220,8 @@ def expand(manifest_path: str, scout_base: str | None = None) -> tuple[list[str]
         for group in doc.get("deletion_groups", []) or []:
             if not isinstance(group, dict):
                 continue
+            # Whitelist DELETE only: a missing disposition is a schema
+            # error, not an implicit DELETE.
             if group.get("disposition") != "DELETE":
                 continue
             delete_paths.extend(_expand_group(group, scout_base, warnings))

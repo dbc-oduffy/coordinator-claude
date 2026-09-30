@@ -174,6 +174,8 @@ _BOOTSTRAPPED_NAMES = (
     "_resolve_show_toplevel",
     "_native_resolve_git_dir",
     "_native_resolve_git_common_dir",
+    "build_throwaway_tree",
+    "discard_throwaway_tree",
 )
 
 
@@ -260,6 +262,17 @@ def _bootstrap_engine() -> None:
             resolve_git_dir as _native_resolve_git_dir,
             resolve_git_common_dir as _native_resolve_git_common_dir,
         )
+        # DR-445 (docs/decisions/DR-445-publish-assembles-in-a-throwaway-and-
+        # moves-once.md) — Peer T's module (`coordinator/lib/percolate/
+        # throwaway_tree.py`), bound the same bootstrapped way as every other
+        # engine-repo name here so `_run_round_dr445` calls it as a bare
+        # module global (never a per-call lazy import) and a test can
+        # monkeypatch `publish.build_throwaway_tree`/`publish.discard_
+        # throwaway_tree` directly.
+        from percolate.throwaway_tree import (  # noqa: E402
+            build_throwaway_tree,
+            discard_throwaway_tree,
+        )
 
         # Publish LAST, once every name is bound -- a publish placed mid-function
         # silently omits everything imported after it, and the omission surfaces as a
@@ -337,6 +350,29 @@ class EngineUnavailableError(Exception):
     what this driver was authored against, or a target is not declared in the
     store's `targets` map. The caller's contract: on this exception, abort —
     never sync/publish the affected target."""
+
+
+@dataclass
+class StagedRowResult:
+    """DR-445 (docs/decisions/DR-445-publish-assembles-in-a-throwaway-and-
+    moves-once.md): `process_target`'s success-path return value once it
+    stopped writing `target.dest_dir` itself. Carries everything the round
+    orchestrator (`_run_round_dr445`) needs to (a) overlay this row into a
+    throwaway tree for gating and (b) — only after every gate has passed —
+    fold this row's bookkeeping and perform the one real swap
+    (`_swap_all_rows_into_dest`). `staging_dir` is NOT discarded by
+    `process_target`'s own `finally` block on this path; ownership passes to
+    the caller, which must eventually swap it into `dest_dir` or discard it
+    via `_discard_publish_staging_dir` (gate failure / dry-run preview)."""
+
+    staging_dir: Path
+    row_visited: "set[Path]"
+    row_changed_files: "Optional[set[str]]"
+    row_removed_files: "set[str]"
+    row_published_files: "set[Path]"
+    report_text: str
+    synced: int
+    deleted: int
 
 
 class PublishSwapPartial(OSError):
@@ -641,6 +677,31 @@ class PercolateEngineContext:
 
     engine_claude_klabauter: Optional[ClaudeKlabauterPercolate]
     store: Optional[dict]
+    accepts_written_paths: bool = False
+
+
+def _engine_accepts_written_paths(engine_claude_klabauter) -> bool:
+    """Does `engine_claude_klabauter.run_percolate` DECLARE `written_paths` by name?
+    Evaluated once per run in `main()`; a lagging engine must never be passed
+    the kwarg."""
+    fn = getattr(engine_claude_klabauter, "run_percolate", None)
+    if fn is None:
+        return False
+    try:
+        return "written_paths" in inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return False
+
+
+def _staged_rel_ids(visited: "set[Path]", staging_dir: Path) -> frozenset:
+    """Staging-relative posix ids of `visited`; entries outside `staging_dir` are dropped."""
+    out = set()
+    for p in visited:
+        try:
+            out.add(p.relative_to(staging_dir).as_posix())
+        except ValueError:
+            continue
+    return frozenset(out)
 
 
 def _assert_no_guard_failures(
@@ -1373,6 +1434,7 @@ def dispatch_percolate_pre_ci(
     *,
     identity_dest_dir: Optional[Path] = None,
     percolate_root: Optional[Path] = None,
+    written_paths: Optional[frozenset] = None,
 ) -> None:
     """pre_ci phase — final class-(b) guard/assert checks (§ engine.py
     `run_pre_ci`), run LAST, after `dispatch_percolate_inject` has landed any
@@ -1457,6 +1519,11 @@ def dispatch_percolate_pre_ci(
 
     effective_source_count = _compute_effective_source_count(engine_claude_klabauter, effective_source_dir, section)
 
+    # Omit the kwarg entirely (never None) when the engine does not declare it.
+    extra_kwargs: dict = {}
+    if written_paths is not None and engine_ctx.accepts_written_paths:
+        extra_kwargs["written_paths"] = written_paths
+
     _run_percolate_start = time.perf_counter()
     try:
         wire = engine_claude_klabauter.run_percolate(
@@ -1467,6 +1534,7 @@ def dispatch_percolate_pre_ci(
             effective_source_count=effective_source_count,
             rename_manifest=rename_manifest,
             source_root=str(effective_source_dir),
+            **extra_kwargs,
         )
     except Exception as exc:  # noqa: BLE001 - AC15 phase-raise fail-closed path
         raise EngineUnavailableError(f"{target.name}: pre_ci phase raised: {exc}") from exc
@@ -1835,6 +1903,13 @@ _FUNCTION_GATE_SEED_MODULES: "tuple[tuple[str, str], ...]" = (
     ("coordinator/bin/lib/coordinator_data_root.py", "coordinator_data_root"),
     ("coordinator_core/data_root.py", "coordinator_core.data_root"),
 )
+
+
+#: Attributes the FUNCTION gate reads after importing a seed module, so a
+#: payload whose manifest does not resolve fails the gate, not a consumer.
+_FUNCTION_GATE_ATTRIBUTE_PROBES: "dict[str, tuple[str, ...]]" = {
+    "coordinator_registry": ("KNOWN_TYPES",),
+}
 
 
 def _function_gate_in_scope_seed_entries(rel_root: str) -> "List[tuple[str, str]]":
@@ -2326,6 +2401,7 @@ def dispatch_end_of_run_function_gate(
                         modules,
                         env=env,
                         search_paths=search_paths,
+                        attribute_probes=_FUNCTION_GATE_ATTRIBUTE_PROBES,
                     )
         except Exception as exc:  # noqa: BLE001 - AC15 fail-closed path, same as any phase raise
             print(
@@ -2485,6 +2561,7 @@ def dispatch_preswap_function_gate(
                     env=env,
                     search_paths=search_paths,
                     package_roots=package_roots,
+                    attribute_probes=_FUNCTION_GATE_ATTRIBUTE_PROBES,
                 )
     except Exception as exc:  # noqa: BLE001 - AC15 fail-closed path, same as end-of-run leg
         print(
@@ -3776,6 +3853,7 @@ def dispatch_end_of_run_assembled_mirror_gate(
     *,
     rows_by_repo_root: "dict[Path, List[ResolvedTarget]]",
     target_filtered: bool,
+    declared_scope_root_by_repo_root: "Optional[dict[Path, Path]]" = None,
     out: IO[str] = sys.stdout,
 ) -> bool:
     """END-OF-RUN leg (docs/plans/2026-08-28-a-dropped-module-must-not-
@@ -3902,12 +3980,27 @@ def dispatch_end_of_run_assembled_mirror_gate(
             ok = False
             continue
 
+        # DR-445 (docs/decisions/DR-445-publish-assembles-in-a-throwaway-and-
+        # moves-once.md) — `repo_root` here may itself be a throwaway
+        # candidate tree, not a real destination (§ `_run_round_dr445`'s own
+        # `gate_roots` substitution): `run_assembled_mirror_gate` below is
+        # meant to collect over whatever tree this call was actually given.
+        # `coordinator_core_in_declared_scope` is NOT — it is a lookup
+        # against declared TARGET rows, which name real destinations a
+        # throwaway path can never match, so it is resolved from the REAL
+        # repo root (`declared_scope_root_by_repo_root`, when given) rather
+        # than from `repo_root` itself. Left unmapped (`None`/absent), this
+        # is a no-op and `repo_root` is used directly, unchanged from before
+        # this parameter existed.
+        _declared_scope_root = (declared_scope_root_by_repo_root or {}).get(repo_root, repo_root)
         if declared is None:
             coordinator_core_in_declared_scope = True
         else:
             engine_roots, all_declared_roots = declared
             coordinator_core_in_declared_scope = (
-                True if repo_root not in all_declared_roots else repo_root in engine_roots
+                True
+                if _declared_scope_root not in all_declared_roots
+                else _declared_scope_root in engine_roots
             )
         result = run_assembled_mirror_gate(
             repo_root,
@@ -7248,7 +7341,22 @@ def dispatch_mirror_like(
     (`sync_target = replace(target, dest_dir=staging_dir)`), and a staging tree's
     path shape says nothing about whether the row lands at a mirror repo's root
     or in a subdirectory the row owns outright. Deriving it here would read the
-    staging path and get the answer wrong in the direction that deletes."""
+    staging path and get the answer wrong in the direction that deletes.
+
+    `sync_mirror`'s real signature also declares `injected_paths` (§
+    `percolate/publish_sync.py`'s own docstring) — deliberately NOT
+    forwarded here. This call site's kwarg set must stay a subset every
+    resolved override's `sync_mirror` accepts, including sibling repos this
+    tree cannot edit (`test_publish_sync_override_seam_parity.py`); those
+    overrides do not yet declare `injected_paths`, and unlike
+    `foreign_dir_names` there is no runtime signature probe gating it, so
+    passing it unconditionally would raise `TypeError` mid-publish against
+    every such override. The value would be `None` on every call site
+    today regardless (no caller resolves a real exemption set yet — that
+    remains queued, state/handoffs/2026-09-26-inbox-blitz-claude-klabauter-fixes-doe-
+    thread-2026.md item 26), so omitting it is 100% behavior-preserving.
+    (§ `test_publish_mirror_dispatch_kwargs_pinned.py`, which pins this
+    kwarg as a deliberate exclusion.)"""
     _bootstrap_engine()
     print(f"  Mode: {target.mode} (copy + delete)", file=out)
     print("", file=out)
@@ -8456,17 +8564,34 @@ def delta_row_unchanged(
     return True
 
 
-def write_lastsync_marker(setup_dir: Path, name: str, dest_dir: Path, *, dry_run: bool) -> None:
+def write_lastsync_marker(
+    setup_dir: Path,
+    name: str,
+    dest_dir: Path,
+    *,
+    dry_run: bool,
+    precomputed_head: Optional[str] = None,
+) -> None:
     """Records the DESTINATION repo HEAD at publish time — the pre-publish
     HEAD (before the operator commits the synced files), matching the bash
     original's documented semantics exactly. No-op in dry-run, when dest_dir
     is not a git working tree, or when HEAD cannot be resolved (e.g. an
-    empty/unborn repo)."""
+    empty/unborn repo).
+
+    `precomputed_head`, when given, is used verbatim instead of re-reading
+    `dest_dir`'s CURRENT HEAD — required since DR-445's git-merge swap
+    mechanism (`_commit_throwaway_and_merge_into_dest`) can advance the real
+    HEAD as part of the swap itself, so a caller running after the swap must
+    hand in the HEAD it captured BEFORE the swap ran, or this would silently
+    start recording the POST-commit HEAD instead."""
     if dry_run:
         return
-    if not _is_git_repo(dest_dir):
-        return
-    dest_head = _git_head(dest_dir)
+    if precomputed_head is not None:
+        dest_head = precomputed_head
+    else:
+        if not _is_git_repo(dest_dir):
+            return
+        dest_head = _git_head(dest_dir)
     if not dest_head:
         return
     marker_dir = setup_dir / "percolate-state"
@@ -10034,6 +10159,112 @@ def _publish_staging_parent(dest_dir: Path) -> Path:
     return parent
 
 
+#: Where `_StagingProgress` mirrors its counters, set by `main` from
+#: `--progress-file`. `percolate-round.py` captures this process's stdout and
+#: stderr until it exits, so a 30-60 minute staging copy is otherwise silent to
+#: every observer; the file is the one channel readable while the child runs.
+_staging_progress_file: "Optional[Path]" = None
+
+#: Cadence of the progress file rewrite / the stderr line when no file is set.
+_STAGING_PROGRESS_FILE_INTERVAL_SECS = 5.0
+_STAGING_PROGRESS_STDERR_INTERVAL_SECS = 30.0
+
+
+def _count_stageable_files(dest_dir: Path, unstaged: frozenset) -> int:
+    """The denominator for `_StagingProgress`: how many files
+    `_create_publish_staging_dir`'s `copytree` will hand to its copy function.
+
+    Applies the SAME top-level exclusion as that call's `_ignore` (`.git` plus
+    `unstaged`) and prunes at the top level, so an excluded fleet-env tree is
+    never walked. Symlinks are not counted: `copytree(symlinks=True)` recreates
+    them without calling the copy function. Must stay in step with `_ignore`;
+    a drift shows as staged != declared on the finished row.
+    """
+    root = str(dest_dir)
+    total = 0
+    stack = [root]
+    while stack:
+        current = stack.pop()
+        try:
+            with os.scandir(current) as entries:
+                for entry in entries:
+                    if current == root and (entry.name == ".git" or entry.name in unstaged):
+                        continue
+                    if entry.is_symlink():
+                        continue
+                    if entry.is_dir(follow_symlinks=False):
+                        stack.append(entry.path)
+                    else:
+                        total += 1
+        except OSError:
+            continue
+    return total
+
+
+class _StagingProgress:
+    """Publishes the staging copy's numerator (`staged`) and denominator
+    (`declared`) — the two numbers an observer cannot otherwise derive from
+    outside the run. Best-effort by construction: a failure to report never
+    fails the publish.
+
+    CPU and file activity of a round belong to THIS process (`pid` in the
+    file), not to the `percolate-round.py` supervisor that waits on it.
+    Covers the staging copy only; later phases of a row report nothing here.
+    """
+
+    def __init__(self, dest_dir: Path, declared: int, *, sink: "Optional[Path]") -> None:
+        self._dest = dest_dir
+        self.declared = declared
+        self.staged = 0
+        self._sink = sink
+        self._started = time.time()
+        self._last = time.monotonic()
+        print(
+            f"  staging {dest_dir.name}: copying {declared} files "
+            "(destination tree minus .git and fleet-env)",
+            file=sys.stderr,
+        )
+        self._write("staging")
+
+    def copy(self, src, dst, *, follow_symlinks: bool = True):
+        result = shutil.copy2(src, dst, follow_symlinks=follow_symlinks)
+        self.staged += 1
+        now = time.monotonic()
+        interval = (
+            _STAGING_PROGRESS_FILE_INTERVAL_SECS
+            if self._sink is not None
+            else _STAGING_PROGRESS_STDERR_INTERVAL_SECS
+        )
+        if now - self._last >= interval:
+            self._last = now
+            self._write("staging")
+        return result
+
+    def finish(self) -> None:
+        self._write("staged")
+
+    def _write(self, phase: str) -> None:
+        if self._sink is None:
+            if phase == "staging" and self.staged:
+                print(f"  staging {self._dest.name}: {self.staged}/{self.declared} files", file=sys.stderr)
+            return
+        payload = {
+            "pid": os.getpid(),
+            "phase": phase,
+            "dest": str(self._dest),
+            "staged": self.staged,
+            "declared": self.declared,
+            "started_at": self._started,
+            "updated_at": time.time(),
+        }
+        try:
+            tmp_path = self._sink.with_name(self._sink.name + ".tmp")
+            tmp_path.write_text(json.dumps(payload), encoding="utf-8")
+            os.replace(tmp_path, self._sink)
+        except OSError:
+            pass
+
+
 def _create_publish_staging_dir(dest_dir: Path) -> Path:
     """Materializes a fresh, destination-ADJACENT staging directory seeded
     with a copy of `dest_dir`'s current on-disk content (`.git` excluded),
@@ -10141,13 +10372,20 @@ def _create_publish_staging_dir(dest_dir: Path) -> Path:
 
     try:
         if dest_dir.is_dir():
+            progress = _StagingProgress(
+                dest_dir,
+                _count_stageable_files(dest_dir, unstaged),
+                sink=_staging_progress_file,
+            )
             shutil.copytree(
                 dest_dir,
                 staging_dir,
                 ignore=_ignore,
                 symlinks=True,
                 dirs_exist_ok=True,
+                copy_function=progress.copy,
             )
+            progress.finish()
     except BaseException:
         shutil.rmtree(staging_dir, onerror=_rmtree_clear_readonly_onerror)
         raise
@@ -10431,285 +10669,38 @@ def discard_per_root_artifact_views(views: "dict[Path, Path]") -> None:
         discard_per_root_artifact_view(view_root)
 
 
-def _dir_trees_equal(a: Path, b: Path) -> bool:
-    """Cheap recursive equality check (relative file paths + size + mtime,
-    never byte content) used only by `_swap_publish_staging_into_dest_root`
-    to decide whether a root-dest top-level DIRECTORY genuinely needs its
-    rename-aside swap, or can be left untouched.
-
-    A root-dest row's `staging_dir` is seeded by `shutil.copytree`-ing the
-    ENTIRE previous `dest_dir` (§ `_create_publish_staging_dir`), so every
-    sibling row's top-level directory this row does not itself manage rides
-    along as an untouched copy — `copytree`'s default `copy2` preserves
-    mtimes, so an untouched copy's (size, mtime) pairs match the original
-    exactly. Swapping those unconditionally would rename-aside (and risk a
-    Windows sharing violation on) every OTHER row's live output for no
-    reason — exactly the defect this whole change exists to stop causing.
-    A directory this row's own manifest actually updated differs in at
-    least one file's size or mtime and is swapped; an unmodified sibling
-    copy does not, and is left alone."""
-    if not b.is_dir():
-        return False
-    a_stat = {p.relative_to(a).as_posix(): (p.stat().st_size, p.stat().st_mtime_ns) for p in a.rglob("*") if p.is_file()}
-    b_stat = {p.relative_to(b).as_posix(): (p.stat().st_size, p.stat().st_mtime_ns) for p in b.rglob("*") if p.is_file()}
-    return a_stat == b_stat
-
-
-def _load_publish_refusal_record_module():
-    """Lazy-loads the sibling `publish_refusal_record.py` module (same
-    directory as this file) via `spec_from_file_location`, matching this
-    module's own established sibling-load pattern (§ `_load_publish_sync_
-    module` above) rather than a bareword `import publish_refusal_record` —
-    `coordinator/bin` is never added to `sys.path`, and this module can
-    itself be loaded under an arbitrary name (§ `coordinator/bin/tests/
-    test_publish_swap_preserves_dest_git.py`), so a bareword import is not
-    guaranteed to resolve. Called ONLY from inside an `except` handler at
-    one of the six swap call sites (§ CALL SITES, dispatch brief C1) — the
-    success path never pays this import."""
-    bin_dir = Path(__file__).resolve().parent
-    spec = importlib.util.spec_from_file_location(
-        "publish_refusal_record", bin_dir / "publish_refusal_record.py"
-    )
-    if spec is None or spec.loader is None:
-        raise ImportError("could not build a module spec for publish_refusal_record.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-def _record_publish_swap_refusal(
-    exc: BaseException,
-    *,
-    refused_path: Path,
-    aside_path: Optional[Path],
-    swap_branch: str,
-    failing_operation: str,
-) -> None:
-    """Records ONE of the six publish-swap call sites' refusals, only when
-    `exc` is the discriminated holder shape (§ `publish_refusal_record.
-    is_holder_refusal`). Callers wrap this call in `try: ... except
-    BaseException: pass` (§ ORDERING, dispatch brief C1) — a record-write
-    (or import) failure must never substitute for or mask the original
-    refusal, so this function is deliberately allowed to raise and relies
-    entirely on the caller to swallow it."""
-    module = _load_publish_refusal_record_module()
-    if not module.is_holder_refusal(exc):
-        return
-    module.record_publish_swap_refusal(
-        refused_path=refused_path,
-        aside_path=aside_path,
-        swap_branch=swap_branch,
-        failing_operation=failing_operation,
-        exc=exc,
-    )
-
-
-def _swap_publish_staging_entry(dest_entry: Path, staging_entry: Path) -> None:
-    """Swaps ONE top-level name from `staging_entry` into `dest_entry` —
-    the per-entry primitive `_swap_publish_staging_into_dest_root` uses in
-    place of a single whole-tree rename. A file is replaced with
-    `os.replace` (same-filesystem, effectively atomic). A directory is
-    renamed aside first (`dest_entry` -> `dest_entry` + `.prior`), then
-    `staging_entry` -> `dest_entry`; a failure of that second rename
-    restores the aside copy, so a partial failure leaves `dest_entry`
-    exactly as it was before this call, never missing.
-
-    Each of the three legs below (aside rename, second rename, file
-    replace) records a refusal (§ `_record_publish_swap_refusal`) before
-    re-raising unchanged — this is the root-dest branch's per-entry
-    primitive, so every recorded `swap_branch` here is `"root-dest"`."""
-    if staging_entry.is_dir():
-        prior = dest_entry.with_name(dest_entry.name + ".prior")
-        if dest_entry.exists():
-            try:
-                _rename_with_retry(dest_entry, prior)
-            except OSError as exc:
-                try:
-                    _record_publish_swap_refusal(
-                        exc,
-                        refused_path=dest_entry,
-                        aside_path=prior,
-                        swap_branch="root-dest",
-                        failing_operation="aside_rename",
-                    )
-                except BaseException:
-                    pass
-                raise
-        try:
-            _rename_with_retry(staging_entry, dest_entry)
-        except OSError as exc:
-            # THE RESTORE CAN NOW FAIL ON ITS OWN, AND IT MUST NOT EAT THE ORIGINAL CAUSE.
-            # Unguarded, a raise here skips the refusal record below AND the bare `raise`,
-            # so what propagates is the RESTORE's exception rather than the content-swap
-            # failure that started it -- the diagnostic surface silently changing identity
-            # depending on whether the restore also hit contention. Chain instead: record
-            # the restore under its own `failing_operation` (a reader needs to know the
-            # destination may be ABSENT, not merely stale), then re-raise it FROM the
-            # original so both are visible.
-            if prior.exists():
-                try:
-                    _rename_with_retry(prior, dest_entry)
-                except OSError as restore_exc:
-                    try:
-                        _record_publish_swap_refusal(
-                            restore_exc,
-                            refused_path=prior,
-                            aside_path=dest_entry,
-                            swap_branch="root-dest",
-                            failing_operation="content_rename_restore",
-                        )
-                    except BaseException:
-                        pass
-                    raise restore_exc from exc
-            try:
-                _record_publish_swap_refusal(
-                    exc,
-                    refused_path=staging_entry,
-                    aside_path=prior,
-                    swap_branch="root-dest",
-                    failing_operation="content_rename",
-                )
-            except BaseException:
-                pass
-            raise
-        if prior.exists():
-            shutil.rmtree(prior, onerror=_rmtree_clear_readonly_onerror)
-    else:
-        try:
-            os.replace(staging_entry, dest_entry)
-        except OSError as exc:
-            try:
-                _record_publish_swap_refusal(
-                    exc,
-                    refused_path=staging_entry,
-                    aside_path=None,
-                    swap_branch="root-dest",
-                    failing_operation="file_replace",
-                )
-            except BaseException:
-                pass
-            raise
-
-
-def _refuse_stranded_root_swap_prior(dest_dir: Path) -> None:
-    """The root-dest branch's counterpart to the whole-tree branch's own
-    stranded-prior refusal, which it could never have reached OR matched.
-
-    Could not reach: `_swap_publish_staging_into_dest` delegates to the
-    root-dest branch and RETURNS before the whole-tree refusal below it ever
-    runs. Both publish mirrors are repo roots, so both take that branch and
-    neither has ever been offered a stranded-prior check.
-
-    Could not match: the whole-tree refusal globs `dest_dir.parent` for
-    `.{dest_dir.name}.publish-staging-*.prior` and predicates on a `.git`
-    inside the candidate. `_swap_publish_staging_entry` mints
-    `<entry>.prior` INSIDE `dest_dir` and never moves `.git` (it is not in
-    `staging_dir` at all), so a root-branch strand matches neither the glob
-    nor the predicate. `surface.PUBLISH_STAGING_DIR_RE` does not match it
-    either -- no surface walk, manifest widening or pathspec filter sees one.
-
-    WHAT IT COSTS TO GO UNSEEN, which is why this is a refusal and not a
-    warning. `_swap_publish_staging_entry` renames `dest_entry` aside to
-    `<entry>.prior`, then renames `staging_entry` into place; the restore
-    sits in an `except OSError` and so covers a failed rename but NOT a
-    SIGKILL, OOM or host reboot between the two. A death in that window
-    leaves a whole top-level subtree gone from the worktree, its content in
-    an untracked `<entry>.prior`, and every one of its files still tracked at
-    dest HEAD -- which is exactly the three conditions percolate-round's
-    removal side reads as a stranded removal (`(head_tree n row_scope) -
-    declared_payload`). `_refuse_removals_present_on_disk` cannot catch it:
-    those paths are genuinely absent. The per-entry loop reopens the window
-    once per top-level entry per round.
-
-    Reported by coordinator-content-repo-6e (2026-08-26), verified line-by-line here.
-    Live mechanism, not a live incident -- neither mirror carried a strand
-    when this landed.
-
-    NO FALSE-POSITIVE PATH FROM NORMAL OPERATION. A successful swap
-    `rmtree`s its own `.prior` before returning, so a surviving one means a
-    swap that did not finish. `surface.STRUCTURAL_NEVER_PUBLISHED_PREFIXES`
-    is subtracted because it NAMES `.fleet-env.prior` -- destination-repo
-    build plumbing minted by something else entirely, which an unfiltered
-    check would read as a strand and refuse every round on.
-    """
-    from coordinator_core.percolate.surface import (  # noqa: PLC0415
-        stranded_swap_priors as _stranded_swap_priors,
-    )
-
-    stranded = _stranded_swap_priors(dest_dir)
-    if not stranded:
-        return
-    shown = "".join(f"      {p}\n" for p in stranded[:10])
-    raise PublishSwapPartial(
-        f"refusing to publish {dest_dir}: {len(stranded)} stranded "
-        "prior-backup entr(ies) from an earlier incomplete root-dest swap "
-        "sit in the destination root:\n"
-        f"{shown}"
-        "    Each one holds the ONLY copy of a top-level subtree that is "
-        "still tracked at dest HEAD but absent from its worktree. Restore it "
-        "by hand (rename `<entry>.prior` back to `<entry>`, or reconcile "
-        "against HEAD) before re-running this row -- publishing over it "
-        "would let the removal side read that subtree as retired payload.",
-        # representative sample only -- the rendered message above carries
-        # the full `stranded` list; the sole consumer (`process_target`)
-        # only prints the message on this path, never reads this field.
-        prior_backup=stranded[0],
-        content_swapped=False,
-    )
-
-
-#: Win32 errors a directory rename raises when something else momentarily holds a handle
-#: in the tree: 32 `ERROR_SHARING_VIOLATION`, 5 `ERROR_ACCESS_DENIED` (what a delete-pending
-#: child surfaces as). Both are contention, not a verdict about the tree.
+#: Win32 errors a rename raises when something else momentarily holds a handle
+#: in the tree: 32 `ERROR_SHARING_VIOLATION`, 5 `ERROR_ACCESS_DENIED` (what a
+#: delete-pending child surfaces as). Both are contention, not a verdict.
 _TRANSIENT_RENAME_WINERRORS = frozenset({5, 32})
 
-#: How long to keep trying a swap rename before giving up and refusing as before. ~24x the
-#: measured 21ms contention window (see `_rename_with_retry`), which also keeps this at the
-#: repo's brightline (§ Load norm) rather than over it.
+#: How long to keep retrying before giving up. ~24x the measured 21ms
+#: contention window (§ `_rename_with_retry`'s own docstring).
 _SWAP_RENAME_DEADLINE_SECS = 0.5
 
 
 def _rename_with_retry(src: Path, dst: Path) -> None:
-    """`os.rename`, retried while Windows says another process is holding the tree.
+    """`os.rename`, retried while Windows says another process is holding the
+    tree — this repo's one retry-on-transient-rename-contention primitive.
+    Kept here (not duplicated) after DR-445's swap rewrite retired this
+    module's own per-row rename-based swap, because `coordinator_core.ops.
+    fleet_machinery_sweep` imports it BY FILE PATH from `publish.py`
+    specifically (`_load_rename_with_retry`, "refusing to write a second
+    retry primitive") — deleting it here would silently break that sweep's
+    own rename-contention handling, not just this module's now-removed
+    swap.
 
-    A 21ms `ERROR_SHARING_VIOLATION` window, measured under ~50 concurrent sessions -- not a
-    held destination. See `state/lessons/2026-09-02-the-obvious-mechanism-was-the-wrong-one-measure-before-you-file.md`
-    for how that was determined and why the more obvious explanation was wrong.
+    A 21ms `ERROR_SHARING_VIOLATION` window, measured under ~50 concurrent
+    sessions -- not a held destination. See `state/lessons/2026-09-02-the-
+    obvious-mechanism-was-the-wrong-one-measure-before-you-file.md` for how
+    that was determined.
 
-    THIS REOPENS A RULING THAT CUT A RETRY HERE, ON THAT RULING'S OWN STATED CONDITION.
-    `_swap_publish_staging_into_dest`'s docstring records a bounded retry removed on PM
-    ruling 2026-08-10 (staff-eng finding 5), and names what would reopen it: "a single
-    observed `PermissionError` with `winerror` 5 or 32 from these renames in a real run."
-    That is what happened -- `PermissionError(13)`, winerror 5, `prior_backup_rename`,
-    recorded in `state/audits/publish-swap-refusals/20260902T183923.956093Z-60636.json`.
-    The shape below is the one that ruling prescribed, not a fresh design.
-
-    OWNERSHIP WAS ESTABLISHED FIRST, WHICH IS THE WHOLE POINT OF THAT RULING.
-    `state/lessons/2026-08-07-a-retry-over-a-resource-error-hides-whet-e31057280e2b.yaml`
-    (2026-08-07) is the case it came from: a retry was added for an "antivirus race" that
-    was really a lock sidecar THIS process held open inside the destination `.git` for the
-    whole run -- unclearable by any amount of waiting, and the retry cost a diagnosis cycle
-    by making a deterministic failure look intermittent. Two facts separate this occurrence
-    from that one. The sidecar lives under `<dest>/.git/coordinator-locks/`, and a handle
-    there cannot block renaming its SIBLING `coordinator_core`, so the known self-held cause
-    is excluded by path rather than by assumption. And the holder was caught directly: a
-    20ms-interval probe of the exact access a rename needs recorded the directory HELD with
-    `ERROR_SHARING_VIOLATION` for 21ms and free on all 589 other samples, at a moment when
-    no round of this process was running. External, demonstrated, not inferred.
-
-    NEGATIVE SPEC -- THIS RETRIES CONTENTION AND NOTHING ELSE. `PermissionError` only, never
-    a blanket `except OSError`: `FileExistsError`/`NotADirectoryError`/`IsADirectoryError`
-    are permanent and would just be retried pointlessly. Discrimination is on `.winerror`,
-    never `.errno` -- CPython maps both Windows codes to `EACCES`, so `.errno` cannot tell
-    them apart. On timeout the LAST exception is re-raised unchanged, so the caller's own
-    refusal record and its `failing_operation` label are exactly what they were before this
-    function existed -- a genuinely wedged destination still refuses, no less loudly.
-
-    A FUTURE FAILURE HERE IS STILL RE-DIAGNOSED, NOT RE-MITIGATED. This function absorbs a
-    brief external holder; it is not evidence that any future `PermissionError` on these
-    renames is one. Find whose handle it is before touching the budget.
-    """
+    NEGATIVE SPEC -- THIS RETRIES CONTENTION AND NOTHING ELSE. `PermissionError`
+    only, never a blanket `except OSError`: `FileExistsError`/
+    `NotADirectoryError`/`IsADirectoryError` are permanent and would just be
+    retried pointlessly. Discrimination is on `.winerror`, never `.errno` --
+    CPython maps both Windows codes to `EACCES`, so `.errno` cannot tell them
+    apart. On timeout the LAST exception is re-raised unchanged."""
     deadline = time.monotonic() + _SWAP_RENAME_DEADLINE_SECS
     while True:
         try:
@@ -10720,343 +10711,9 @@ def _rename_with_retry(src: Path, dst: Path) -> None:
                 raise
             if time.monotonic() >= deadline:
                 raise
-            # Flat, not exponential. Backoff earned its place against the 10s budget this
-            # started with; against 0.5s it only coarsens the last few attempts, and the
-            # measured window (21ms) is one sleep wide. 25 polls of 20ms is the whole loop.
+            # Flat, not exponential -- the measured window (21ms) is one
+            # sleep wide; 25 polls of 20ms is the whole loop.
             time.sleep(0.02)
-
-
-def _swap_publish_staging_into_dest_root(dest_dir: Path, staging_dir: Path) -> None:
-    """Root-dest branch of `_swap_publish_staging_into_dest`, taken when
-    `dest_dir` IS a repo root (§ that function's docstring for the
-    detection and the tradeoff this branch accepts). Never renames
-    `dest_dir` itself — instead swaps top-level names one at a time via
-    `_swap_publish_staging_entry`, so a live handle held anywhere under a
-    SIBLING row's subtree (another `claude-klabauter*` row's own subdir, or
-    a coordinator ceremony interpreter running out of this same live
-    engine install) can never block this row's own publish the way a
-    whole-tree rename of the repo root can on Windows.
-
-    Add/update: for each top-level entry in `staging_dir`, swap it into
-    `dest_dir` — except a directory whose content already matches `dest_dir`
-    byte-for-byte per `_dir_trees_equal` (an untouched sibling-row copy;
-    § that function's docstring) is left alone entirely, not even
-    renamed-aside. `.git` is never a candidate here: `_create_publish_
-    staging_dir` never copies it into `staging_dir` in the first place.
-
-    Removal: a top-level FILE present in `dest_dir` but absent from
-    `staging_dir` is deleted, matching what a whole-tree replace would
-    have discarded — `staging_dir` is a full copy of `dest_dir` taken
-    before this row's own sync/transform pipeline ran (§ `_create_
-    publish_staging_dir`), and nothing else ever mutates this staging_dir
-    instance, so a file that vanished from it was deliberately removed by
-    THIS row's own processing (e.g. `sync_flat_mirror`'s own "not in
-    source" deletion phase, which already runs against this same staging
-    copy — see `process_target`'s `sync_target = replace(target,
-    dest_dir=staging_dir)`). `.git` is excluded from this walk explicitly
-    (belt-and-braces; it was never in `staging_dir` to begin with, so it
-    could never be flagged as absent-from-staging regardless).
-
-    Top-level DIRECTORIES are never removed here: `staging_dir` is seeded
-    as a full recursive copy of `dest_dir` (§ `_create_publish_staging_
-    dir`), so a directory present in `dest_dir` before this call is always
-    still present in `staging_dir` too (untouched or updated) — it can
-    never be "absent from staging", so no directory-removal case exists to
-    preserve. This is a real asymmetry with the subdir-row whole-tree path
-    (which discards an entire missing directory the same as a missing
-    file), accepted because this row's actual dispatch mode
-    (`sync_flat_mirror`) never manages directories at all (file-only, by
-    that function's own Phase 1/2 split) — a hypothetical future root-dest
-    row in a directory-managing mode would need this reconsidered, and
-    should say so rather than silently relying on this note.
-
-    Never touches `.git/coordinator-sessions/` (nested under `.git`,
-    already excluded) or any other entry the row does not own; ownership
-    for the add/update leg is exactly "named in `staging_dir`" — never
-    inferred by listing `dest_dir` — and for the removal leg is exactly
-    "a file that was in `dest_dir`'s original copy and is no longer in
-    `staging_dir`"."""
-    staged_names = {p.name for p in staging_dir.iterdir()}
-    for staging_entry in sorted(staging_dir.iterdir(), key=lambda p: p.name):
-        dest_entry = dest_dir / staging_entry.name
-        if staging_entry.is_dir() and dest_entry.is_dir() and _dir_trees_equal(staging_entry, dest_entry):
-            continue
-        _swap_publish_staging_entry(dest_entry, staging_entry)
-
-    if dest_dir.is_dir():
-        for dest_entry in sorted(dest_dir.iterdir(), key=lambda p: p.name):
-            if dest_entry.name == ".git":
-                continue
-            if dest_entry.is_file() and dest_entry.name not in staged_names:
-                try:
-                    dest_entry.unlink()
-                except OSError as exc:
-                    try:
-                        _record_publish_swap_refusal(
-                            exc,
-                            refused_path=dest_entry,
-                            aside_path=None,
-                            swap_branch="root-dest",
-                            failing_operation="unlink",
-                        )
-                    except BaseException:
-                        pass
-                    raise
-
-    # Every entry this loop moved is gone from `staging_dir` already
-    # (`os.replace`/`os.rename` both remove the source); what remains is
-    # leftover cruft this row does not own (a `_dir_trees_equal`-skipped
-    # sibling copy) — discard the whole staging tree now, matching the
-    # whole-tree branch's own contract that `staging_dir` never survives a
-    # successful swap. `_rmtree_clear_readonly_onerror` clears a Windows
-    # read-only bit rather than aborting the walk partway (§ that
-    # function's own docstring).
-    if staging_dir.exists():
-        shutil.rmtree(staging_dir, onerror=_rmtree_clear_readonly_onerror)
-
-
-def _swap_publish_staging_into_dest(dest_dir: Path, staging_dir: Path) -> None:
-    """Replaces `dest_dir`'s content with the fully-verified content of
-    `staging_dir` (§ `_create_publish_staging_dir`) — the ONLY point in a
-    staged publish row where the real destination is ever mutated, reached
-    only after sync + the content-transform sweep + its guards + inject +
-    pre_ci have all already succeeded against `staging_dir`.
-
-    Root-dest branch (`dest_dir` IS a repo root — detected via `(dest_dir /
-    ".git").exists()`, the same signal `_ensure_dest_ready` already uses to
-    distinguish a toplevel row's own `.git` from a `dest_subdir` row's
-    ancestor `.git`; a `dest_subdir` row's `dest_dir` never holds `.git`
-    directly, only an ancestor does, so this check cannot false-positive on
-    one): delegates to `_swap_publish_staging_into_dest_root` and returns
-    immediately, BEFORE any of the whole-tree steps below ever run. On
-    Windows, renaming a directory fails with a sharing violation if ANY
-    process holds an open handle ANYWHERE in that subtree — for a repo-root
-    `dest_dir` that subtree is the union of every sibling row's own output
-    plus a live engine install's `.git`/`.git/coordinator-sessions/`
-    interpreters, so the single `os.rename(dest_dir, prior_backup)` below
-    can essentially never succeed for that row (`claude-klabauter-publish-
-    repo-toplevel`, diagnosed via `WinError 32`/`PermissionError(13, ...)`).
-    The root branch trades whole-tree swap atomicity for PER-ENTRY
-    atomicity to make that rename avoidable at all — a `dest_subdir` row
-    keeps the stronger whole-tree guarantee unchanged below; only the
-    root-dest row takes the weaker, entry-scoped one. This tradeoff is
-    deliberate, already decided, not open for re-litigation here.
-
-    That branch also makes step 3 below (the `.git` re-home) and the
-    `PublishSwapPartial` stranded-`.git` raise UNREACHABLE for the only row
-    that could ever hit them: `_swap_publish_staging_into_dest_root` never
-    touches `.git` at all (it is never copied into `staging_dir` — §
-    `_create_publish_staging_dir` — and this function's root branch
-    explicitly skips the name `".git"` in both its add/update and removal
-    legs), so no `.git`-bearing `prior_backup` is ever created for that row
-    under the new code, and the stranded-`.prior`-with-`.git` refuse-loudly
-    guard at the top of this function (below) is also never reached for it
-    (the root branch returns before that check runs). A pre-existing
-    stranded `.prior` from a run of the OLD code cannot exist for this row
-    either: the diagnosis established this row's root `os.rename(dest_dir,
-    prior_backup)` always failed on Windows (the mirror root's files carry
-    stale mtimes from before this fix), so `prior_backup` itself was never
-    successfully created historically. Verified against the code, not
-    assumed: the only remaining caller of step 3 / `PublishSwapPartial` is
-    a `dest_subdir` row, which never has a `.git` of its own to strand in
-    the first place (§ this docstring's own prior paragraph on seven of
-    eight rows carrying a `dest_subdir`) — so in practice this class is now
-    dead for every row, kept only because a hypothetical row shape this
-    driver does not currently declare could still reach it.
-
-    `.git` is deliberately NOT pre-moved into `staging_dir` before the swap.
-    It rides with `dest_dir` into `prior_backup` untouched, and is re-homed
-    into the new `dest_dir` only afterward, if one was there to move — this
-    keeps `.git` out of the doomed tree that every early `return`/exception
-    in `process_target` discards via `_discard_publish_staging_dir`. Refusing
-    to pre-move also means step 3 below is a NO-OP on most rows: seven of
-    `setup/publish-targets.portable`'s eight `claude-klabauter*` rows carry a
-    `dest_subdir`, so `dest_dir` is never a repo root and never holds a real
-    `.git`; only the `-publish-repo-toplevel` row does. Refuse-on-stranded-
-    `.prior` guard: before any rename, refuse loudly if a `.prior` directory
-    from an earlier, incomplete swap of this same destination already exists
-    and still holds a `.git` — see the guard block below. `dest_dir.name` is
-    `glob.escape`d before interpolation here too (§
-    `_sweep_stale_publish_staging_dirs`, same rationale): an un-escaped
-    `*`/`?`/`[...]` in the name would let this guard's glob under- or
-    over-match against the exact literal `.prior` directories a real swap
-    mints. The trailing `*.prior` suffix is appended after escaping and must
-    keep its glob meaning.
-
-    Every rename below is same-filesystem (`staging_dir` was created via
-    `tempfile.mkdtemp(dir=str(_publish_staging_parent(dest_dir)))`), so each is a metadata-only
-    operation on every OS this driver supports, never a full-tree copy. The
-    prior `dest_dir` is renamed aside rather than deleted outright, and only
-    reclaimed after `staging_dir` has successfully taken its place — this
-    keeps the window in which the destination NAME resolves to neither tree
-    as small as a single `os.rename` call, on both POSIX and Windows (neither
-    of which supports atomically renaming onto an existing, non-empty
-    directory, so the aside-then-remove sequence is the portable shape, not a
-    POSIX-only single rename).
-
-    Sequence and the state after a raise at each step:
-      1. `dest_dir -> prior_backup` (only if `dest_dir` exists). A raise here
-         leaves `dest_dir` untouched — nothing to unwind.
-      2. `staging_dir -> dest_dir`. A raise here is caught, `prior_backup` is
-         restored to `dest_dir` (now a COMPLETE repo, `.git` included, since
-         `.git` rode along in step 1), and the exception is re-raised.
-      3. `prior_backup / ".git" -> dest_dir / ".git"`, only when
-         `prior_backup` exists AND holds a `.git` (i.e. only on the
-         repo-toplevel row). A raise here is the one genuinely new state:
-         content is already current at `dest_dir`, but `.git` is still sitting
-         in `prior_backup`. This is NOT swallowed and NOT bare-re-raised — it
-         is wrapped in `PublishSwapPartial`, naming `prior_backup`'s concrete
-         path so an operator can finish the `.git` re-home by hand.
-         `process_target` catches it, records the swap as having happened
-         (content DID change), and re-raises so the row still reports FAILED.
-      4. `shutil.rmtree(prior_backup, ignore_errors=True)`, reached only on
-         full success.
-
-    Accepted residual risk — an external transient holder (antivirus scan,
-    search indexer) on any of these renames is not mitigated here, and that is
-    deliberate. A bounded retry once wrapped all three; it was removed because
-    the `PermissionError` it was added for came from a handle THIS process held
-    for the whole publish (the per-destination lock sidecar, then living under
-    `<dest>/.git/coordinator-locks/`), which no amount of retrying could ever
-    clear. The retry did not fix that and did delay its diagnosis by a full
-    cycle. A future `PermissionError` here should therefore be re-diagnosed
-    from first principles — find whose handle it is — never answered by
-    restoring a blind retry.
-
-    A shape that WAS considered and cut, kept here as the shape to reach for
-    IF an external holder is ever actually demonstrated (not assumed): catch
-    ONLY `PermissionError`, discriminating on `.winerror in (5, 32)`
-    (ERROR_ACCESS_DENIED / ERROR_SHARING_VIOLATION) — never on `.errno`
-    (CPython maps both Windows codes to `EACCES`, so `.errno` cannot tell them
-    apart) — and never a blanket `except OSError` (`FileExistsError` /
-    `NotADirectoryError` / `IsADirectoryError` are permanent and would just be
-    retried pointlessly). Bounded tightly, well under a second total, given
-    the machine's 50-70 concurrent sessions. Cut on PM ruling 2026-08-10,
-    staff-eng finding 5: eliminating the known self-held cause (above) is not
-    the same as demonstrating an external one. Condition that would change
-    this ruling: a single observed `PermissionError` with `winerror` 5 or 32
-    from these renames in a real run — cite
-    `state/lessons/2026-08-07-a-retry-over-a-resource-error-hides-whet-e31057280e2b.yaml`
-    by file and date, not paraphrase, if reopening this. This sits ALONGSIDE
-    the "re-diagnose from first principles" warning above, not instead of it.
-
-    REOPENED 2026-09-02 ON THAT EXACT CONDITION — the paragraph above is kept
-    verbatim because its reasoning still governs, but its closing sentence ("No
-    retry is added here") no longer describes this function. The renames below
-    now go through `_rename_with_retry`, in the shape this paragraph prescribes:
-    `PermissionError` only, discriminated on `.winerror`, bounded well under a
-    second. The triggering observation is
-    `state/audits/publish-swap-refusals/20260902T183923.956093Z-60636.json`
-    (winerror 5, `prior_backup_rename`); the ownership work that had to come
-    first, and why the self-held lock sidecar is excluded by path here, is in
-    `_rename_with_retry`'s own docstring. The re-diagnose-first-principles
-    warning above is NOT retired by this and applies to the next failure."""
-    if (dest_dir / ".git").exists():
-        _refuse_stranded_root_swap_prior(dest_dir)
-        _swap_publish_staging_into_dest_root(dest_dir, staging_dir)
-        return
-
-    prior_backup = staging_dir.with_name(staging_dir.name + ".prior")
-
-    escaped_prefix = glob.escape(f".{dest_dir.name}.publish-staging-")
-    for candidate in _publish_staging_parent(dest_dir).glob(f"{escaped_prefix}*.prior"):
-        if (candidate / ".git").exists():
-            raise PublishSwapPartial(
-                f"refusing to publish {dest_dir}: a stranded prior-backup "
-                f"directory from an earlier incomplete swap still holds a "
-                f".git at {candidate} — finish that re-home by hand (move "
-                f"{candidate / '.git'} into {dest_dir / '.git'}) before "
-                f"re-running this row",
-                prior_backup=candidate,
-                content_swapped=False,
-            )
-
-    if dest_dir.exists():
-        try:
-            _rename_with_retry(dest_dir, prior_backup)
-        except OSError as exc:
-            try:
-                _record_publish_swap_refusal(
-                    exc,
-                    refused_path=dest_dir,
-                    aside_path=prior_backup,
-                    swap_branch="whole-tree",
-                    failing_operation="prior_backup_rename",
-                )
-            except BaseException:
-                pass
-            raise
-
-    try:
-        _rename_with_retry(staging_dir, dest_dir)
-    except OSError as exc:
-        # Content swap itself failed. `.git` (if any) rode into
-        # `prior_backup` untouched in step 1, so restoring it here returns a
-        # COMPLETE repo under the real name, not a content-only tree.
-        #
-        # THE RESTORE RETRIES TOO, AND IT IS THE LEG THAT MOST NEEDS TO. Failing here
-        # leaves the destination ABSENT rather than merely stale -- the old tree is
-        # sitting under `.prior` and nothing answers to the real name. Losing that race
-        # to a 21ms holder would turn a refused publish into a broken mirror.
-        if prior_backup.exists():
-            try:
-                _rename_with_retry(prior_backup, dest_dir)
-            except OSError as restore_exc:
-                # Same hazard as the root-dest branch, and worse here: failing this restore
-                # leaves the destination ABSENT rather than stale -- the old tree sits under
-                # `.prior` and nothing answers to the real name. Record it under its own
-                # label and chain, never let it silently stand in for the content failure.
-                try:
-                    _record_publish_swap_refusal(
-                        restore_exc,
-                        refused_path=prior_backup,
-                        aside_path=dest_dir,
-                        swap_branch="whole-tree",
-                        failing_operation="content_rename_restore",
-                    )
-                except BaseException:
-                    pass
-                raise restore_exc from exc
-        # This leg carried NO refusal record at all before -- pre-existing, and the weakest
-        # diagnostic trail of any swap failure mode. Added here rather than left, because
-        # the restore record above would otherwise be the only trace of a failure whose
-        # actual cause is this one.
-        try:
-            _record_publish_swap_refusal(
-                exc,
-                refused_path=staging_dir,
-                aside_path=prior_backup,
-                swap_branch="whole-tree",
-                failing_operation="content_rename",
-            )
-        except BaseException:
-            pass
-        raise
-
-    if prior_backup.exists() and (prior_backup / ".git").exists():
-        try:
-            _rename_with_retry(prior_backup / ".git", dest_dir / ".git")
-        except OSError as exc:
-            try:
-                _record_publish_swap_refusal(
-                    exc,
-                    refused_path=prior_backup / ".git",
-                    aside_path=prior_backup,
-                    swap_branch="whole-tree",
-                    failing_operation="git_rehome",
-                )
-            except BaseException:
-                pass
-            raise PublishSwapPartial(
-                f"{dest_dir}: content swap succeeded but re-homing .git from "
-                f"{prior_backup} failed ({exc}) — repo metadata is stranded "
-                f"at {prior_backup}; finish the re-home by hand",
-                prior_backup=prior_backup,
-                content_swapped=True,
-            ) from exc
-
-    if prior_backup.exists():
-        shutil.rmtree(prior_backup, ignore_errors=True)
 
 
 def _forward_sync_diagnostics(buffer: "io.StringIO", real_out: IO[str]) -> None:
@@ -11365,6 +11022,140 @@ def _report_rename_manifest(
         print(f"  RENAME{tag}: {old_rel} -> {new_rel}", file=out)
 
 
+class PublishDestNotCleanError(RuntimeError):
+    """Raised when `_restore_dest_subtree_to_head` cannot bring a row's dest
+    subtree back to byte-identical-with-HEAD after a failed/aborted row --
+    the PM-ratified invariant (docs/plans/2026-09-23-partial-round-strand.md,
+    tightened 2026-09-29: "impossible to exit with the dest dirty or
+    half-committed") is that this can never happen silently. Surfaces as a
+    FATAL row failure in `main()`'s per-row exception handler, never
+    swallowed."""
+
+
+def _restore_dest_subtree_to_head(repo_root: Path, dest_dir: Path) -> None:
+    """Restores `dest_dir` (a subtree of `repo_root`, or the root itself)
+    back to byte-identical with `repo_root`'s HEAD, scoped to `dest_dir`'s
+    own pathspec so a sibling row's already-swapped or already-committed
+    content elsewhere in a shared repo is never touched.
+
+    Two-part restore, same shape as `round.py::_restore_touched_to_head`
+    (this module's swap-based writer has no per-file touched-set to replay,
+    so it restores the whole subtree rather than a recorded file list):
+    tracked changes are checked out from HEAD; anything left UNTRACKED
+    under `dest_dir` (a file this round's swap created, that HEAD never
+    had) is removed directly, never via `git clean` (which would also reap
+    a pre-existing `.percolate-ignore`-protected survivor this round did
+    not create).
+
+    A NO-OP on an already-clean subtree -- safe to call defensively on
+    every row-failure path, not only a known-dirty one, per the "final
+    assertion" requirement this function backs (§ `PublishDestNotCleanError`).
+    Never raises for git/OS failures encountered while reading status or
+    restoring -- the caller re-checks cleanliness afterward and raises loud
+    on ITS OWN terms if this best-effort pass did not finish the job."""
+    from coordinator_core.git.run import run_git  # noqa: PLC0415 - lazy, matches this module's other git imports
+
+    try:
+        status = run_git(["status", "--porcelain", "--", str(dest_dir)], cwd=str(repo_root))
+    except (OSError, subprocess.SubprocessError):
+        return
+    if not status.ok or not status.stdout.strip():
+        return
+
+    tracked: "list[str]" = []
+    untracked: "list[str]" = []
+    for line in status.stdout.splitlines():
+        if not line.strip():
+            continue
+        code, _, rel = line.partition(" ")
+        rel = line[3:].strip() if len(line) > 3 else rel.strip()
+        if " -> " in rel:
+            rel = rel.split(" -> ", 1)[1]
+        if line[:2].strip() == "??":
+            untracked.append(rel)
+        else:
+            tracked.append(rel)
+
+    if tracked:
+        try:
+            run_git(["checkout", "HEAD", "--"] + tracked, cwd=str(repo_root))
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+    for rel in untracked:
+        path = repo_root / rel
+        try:
+            if path.is_dir() and not path.is_symlink():
+                shutil.rmtree(path, onerror=_rmtree_clear_readonly_onerror)
+            elif path.exists() or path.is_symlink():
+                path.unlink()
+        except OSError:
+            continue
+
+
+def _dirty_round_roots(roots: "List[Path]") -> "List[Tuple[Path, str]]":
+    """Every repo root in `roots` whose working tree or index differs from
+    HEAD, with its porcelain status. A directory outside any git repo has no
+    HEAD to differ from and is skipped; any other unreadable status counts as
+    dirty."""
+    from coordinator_core.git.run import run_git  # noqa: PLC0415
+
+    dirty: "List[Tuple[Path, str]]" = []
+    seen: "set[str]" = set()
+    for root in roots:
+        key = os.path.realpath(str(root))
+        if key in seen:
+            continue
+        seen.add(key)
+        if not root.is_dir():
+            # A path that does not exist at all has no HEAD to differ from
+            # either — same "skip, not dirty" disposition as the "not a git
+            # repository" branch below, per this function's own docstring.
+            # Without this, `run_git`'s `cwd=str(root)` failure ("cannot
+            # change to ... No such file or directory") fell through to the
+            # generic `dirty.append` below and this function's own
+            # round-start caller printed a confusing "has uncommitted
+            # changes -- commit or discard them first" for a directory that
+            # was never there — a missing source/dest is a distinct,
+            # clearer refusal `process_target`'s own per-row gates already
+            # report, not this round-start dirty check's to name.
+            continue
+        try:
+            status = run_git(["status", "--porcelain"], cwd=str(root))
+        except (OSError, subprocess.SubprocessError) as exc:
+            dirty.append((root, f"git status failed: {exc}"))
+            continue
+        if not status.ok:
+            if "not a git repository" in status.stderr:
+                continue
+            dirty.append((root, f"git status failed: {status.stderr.strip()}"))
+        elif status.stdout.strip():
+            dirty.append((root, status.stdout.strip()))
+    return dirty
+
+
+def _assert_dest_subtree_clean(repo_root: Path, dest_dir: Path, *, context: str) -> None:
+    """Final loud assertion (§ `PublishDestNotCleanError`): raises unless
+    `dest_dir` is byte-identical with `repo_root`'s HEAD. Called after
+    `_restore_dest_subtree_to_head` on every row-failure path -- a restore
+    that did not actually finish the job must never pass as quiet success."""
+    from coordinator_core.git.run import run_git  # noqa: PLC0415
+
+    try:
+        status = run_git(["status", "--porcelain", "--", str(dest_dir)], cwd=str(repo_root))
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise PublishDestNotCleanError(
+            f"{context}: could not verify {dest_dir} is clean after restore "
+            f"(git status failed: {exc}) -- refusing to treat this as safe."
+        ) from exc
+    if status.ok and not status.stdout.strip():
+        return
+    raise PublishDestNotCleanError(
+        f"{context}: {dest_dir} is NOT byte-identical with HEAD after restore "
+        f"-- git status --porcelain reports:\n{status.stdout.strip()[:2000]}"
+    )
+
+
 def _discard_publish_staging_dir(staging_dir: Optional[Path]) -> None:
     """Reclaims a staged publish row's staging directory on any abort path
     before the swap has landed (`staging_swapped` still False in
@@ -11380,21 +11171,18 @@ def _discard_publish_staging_dir(staging_dir: Optional[Path]) -> None:
         shutil.rmtree(staging_dir, onerror=_rmtree_clear_readonly_onerror)
 
 
-# P079-C2 (docs/plans/2026-09-11-publish-build-verify-swap-one-staging-pa.md):
-# with C1 landed, `_swap_publish_staging_into_dest` is the ONLY phase THIS
-# FUNCTION (`process_target`) dispatches under `not dry_run` alone — every
-# other percolate-engine phase now runs in both modes against the staging
-# copy (§ C1). Declared once, here, rather than left to a scatter of
-# `if not dry_run:` reads: `coordinator/bin/tests/
-# test_publish_dryrun_real_run_step_parity.py` enumerates the `_time_phase`
-# labels `process_target` actually dispatches in each run mode and asserts
-# the two sets differ by exactly this one member. Scoped to `process_target`
-# itself — `main()`'s own real-run-only steps (the per-row commit,
-# `report_candidate_divergence`, the push nudge) are a separate, unenumerated
-# surface this constant does not cover.
-PROCESS_TARGET_REAL_RUN_ONLY_PHASES: "frozenset[str]" = frozenset({
-    "_swap_publish_staging_into_dest",
-})
+# P079-C2 (docs/plans/2026-09-11-publish-build-verify-swap-one-staging-pa.md),
+# RETIRED by DR-445 (docs/decisions/DR-445-publish-assembles-in-a-throwaway-
+# and-moves-once.md): `process_target` no longer performs ANY destination
+# write in either run mode — `_swap_publish_staging_into_dest` moved to the
+# round orchestrator (`_run_round_dr445` / `_swap_all_rows_into_dest`), which
+# runs it once per round, after every gate, never inside this function. This
+# constant is therefore empty rather than deleted: `coordinator/bin/tests/
+# test_publish_dryrun_real_run_step_parity.py` still enumerates the
+# `_time_phase` labels `process_target` dispatches in each run mode and
+# asserts the two sets are now IDENTICAL (a real run and a dry run dispatch
+# the exact same phases — staging only, both modes).
+PROCESS_TARGET_REAL_RUN_ONLY_PHASES: "frozenset[str]" = frozenset()
 
 
 def process_target(
@@ -11421,7 +11209,23 @@ def process_target(
     timing_sink: "Optional[List[tuple[str, str, float, float]]]" = None,
     out: IO[str] = sys.stdout,
     pre_round_digest_sink: "Optional[dict[Path, Optional[str]]]" = None,
-) -> None:
+) -> "Optional[StagedRowResult]":
+    # DR-445 (docs/decisions/DR-445-publish-assembles-in-a-throwaway-and-
+    # moves-once.md): `process_target` is STAGE-ONLY — it never writes
+    # `target.dest_dir` on any path, in either run mode. Every phase below
+    # (sync, transform, guards, inject, pre_ci) dispatches against
+    # `staging_dir` exactly as it already did under P079-C1; the one step
+    # this function used to perform after that — `_swap_publish_staging_
+    # into_dest(target.dest_dir, staging_dir)` — has moved to the round
+    # orchestrator (`_run_round_dr445` / `_swap_all_rows_into_dest`), which
+    # runs it ONCE per round, after every gate (including the assembled-
+    # mirror gate, now evaluated against a throwaway tree rather than the
+    # live destination) has passed. On success this function returns a
+    # `StagedRowResult` naming the still-on-disk `staging_dir` for the
+    # caller to overlay/swap; the `*_sink` parameters below are accepted
+    # for call-site compatibility but are no longer populated here — a row
+    # is not "published" until the round orchestrator's swap actually lands
+    # it, so folding those sinks now happens there, not in this function.
     _bootstrap_engine()
     _staging_seed_relpaths: "set[Path]" = set()
     print(f"=== {target.name} ({target.mode}) ===", file=out)
@@ -11491,6 +11295,18 @@ def process_target(
     # `try`, and any exception.
     staging_dir: Optional[Path] = None
     staging_swapped = False
+    # Structural restore-or-commit invariant (2026-09-29 PM ruling, docs/
+    # plans/2026-09-23-partial-round-strand.md tightened): `staging_swapped`
+    # alone answers "did real bytes land in `target.dest_dir`", never "is
+    # this row's outcome final". `row_committed_ok` flips True only at the
+    # very end of a fully successful row (right before `totals.processed +=
+    # 1`, this function's one unconditional success signal) -- so the
+    # `finally` block below can tell "swapped AND the round will commit it"
+    # apart from "swapped, then something else failed before we got there",
+    # which used to leave real bytes stranded dirty with nothing to restore
+    # them (§ that `finally` block's own comment, "does NOT mean the real
+    # destination is guaranteed untouched").
+    row_committed_ok = False
 
     # C8 (declared-ref assertion) — MUST run before the one-shot bootstrap
     # just below (`repo-cut`'s bootstrap already writes to `target.dest_dir`)
@@ -12075,6 +11891,7 @@ def process_target(
                         rename_manifest,
                         identity_dest_dir=target.dest_dir,
                         percolate_root=setup_dir.parent,
+                        written_paths=_staged_rel_ids(row_visited, sync_target.dest_dir),
                     )
             except EngineUnavailableError as exc:
                 # A raise from dispatch_percolate_inject itself attaches
@@ -12210,6 +12027,13 @@ def process_target(
             # fail-wide direction, matching `changed_undetermined_sink`'s own
             # convention, and it degrades to the pre-fix behaviour rather than to
             # silence.
+            # DR-445: relative-to-`staging_dir`, NOT anchored to `target.
+            # dest_dir` — this row's success path no longer knows (or needs
+            # to know) whether its eventual anchor will be a throwaway
+            # candidate tree (every end-of-run gate) or the real destination
+            # (the post-swap bookkeeping fold) — the caller re-anchors a
+            # relative-id set onto whichever tree it needs, same convention
+            # `row_changed_files`/`row_removed_files` already use.
             _row_published_files: "set[Path]" = set()
             if published_files_sink is not None:
                 for _staged_path in staging_dir.rglob("*"):
@@ -12217,125 +12041,79 @@ def process_target(
                         continue
                     _rel = _staged_path.relative_to(staging_dir)
                     if row_changed_files is None or _rel not in _staging_seed_relpaths:
-                        _row_published_files.add(target.dest_dir / _rel)
+                        _row_published_files.add(_rel)
                 if row_changed_files is not None:
                     for _relative_id in row_changed_files:
-                        _row_published_files.add(target.dest_dir / _relative_id)
-            # The swap itself, and every bookkeeping fold below it, is
-            # withheld under dry-run (P079-C1's collapse only builds the
-            # staging tree in both modes; the swap is the one step this
-            # chunk keeps real-run-only — P079-C2 pins that formally, via
-            # `PROCESS_TARGET_REAL_RUN_ONLY_PHASES` above). The `finally`
-            # block's `_discard_publish_staging_dir` reclaims this row's
-            # staging tree on the dry-run path since `staging_swapped` never
-            # flips True here.
+                        _row_published_files.add(Path(_relative_id))
+            # DR-445: no swap here. Every row's success path now STOPS at a
+            # fully-staged `staging_dir` — the caller (`_run_round_dr445`)
+            # overlays it into a throwaway tree, runs every gate against that
+            # throwaway, and only then performs the one real swap
+            # (`_swap_all_rows_into_dest`) plus the bookkeeping fold this
+            # block used to do inline (`totals.synced`/`deleted`, every
+            # `*_sink`, `write_lastsync_marker`). `staging_dir` deliberately
+            # survives this function's own `finally` block below (via the
+            # `staging_swapped`/`row_committed_ok` latch) so it is still on
+            # disk for that later step; under `--dry-run` no `StagedRowResult`
+            # is returned at all and the `finally` block discards it exactly
+            # as before.
+            staged_result: "Optional[StagedRowResult]" = None
             if not dry_run:
-                try:
-                    with _time_phase(timing_sink, target.name, "_swap_publish_staging_into_dest"):
-                        _swap_publish_staging_into_dest(target.dest_dir, staging_dir)
-                except PublishSwapPartial as exc:
-                    # Do NOT swallow: re-raise either way so the row still marks
-                    # FAILED and the operator sees `exc`'s message. Whether to
-                    # record a swap depends on which of the two situations §
-                    # `PublishSwapPartial`'s docstring describes this is:
-                    if exc.content_swapped:
-                        # Content DID land this run even though the row still
-                        # fails overall — record exactly as the success path
-                        # below does, so this stays honest to `process_target`'s
-                        # stated invariant (a path reported as written was
-                        # actually written this run).
-                        staging_swapped = True
-                        out.write(report_buffer.getvalue())
-                        print(
-                            f"  Warning: content published, but .git re-home failed — "
-                            f"repo metadata stranded at {exc.prior_backup}: {exc}",
-                            file=out,
-                        )
-                        totals.synced += report_totals.synced
-                        totals.deleted += report_totals.deleted
-                        if visited_files_sink is not None:
-                            for staged_path in row_visited:
-                                rel = staged_path.relative_to(staging_dir)
-                                visited_files_sink.add(target.dest_dir / rel)
-                        if row_changed_files is None:
-                            if changed_undetermined_sink is not None:
-                                changed_undetermined_sink.add(target.dest_dir)
-                        elif changed_files_sink is not None:
-                            for relative_id in row_changed_files:
-                                changed_files_sink.add(target.dest_dir / relative_id)
-                        if removed_files_sink is not None:
-                            for relative_id in row_removed_files:
-                                removed_files_sink.add(target.dest_dir / relative_id)
-                        if published_dest_dirs_sink is not None:
-                            published_dest_dirs_sink.add(target.dest_dir)
-                        if published_files_sink is not None:
-                            published_files_sink.update(_row_published_files)
-                    else:
-                        # Refused before touching this run's `dest_dir`/
-                        # `staging_dir` at all — nothing to record, the throwaway
-                        # `staging_dir` is reclaimed by the `finally` block below
-                        # as on any other pre-swap abort.
-                        print(f"  Error: {exc}", file=sys.stderr)
-                    raise
+                staged_result = StagedRowResult(
+                    staging_dir=staging_dir,
+                    # Relative-to-`staging_dir` — see `_row_published_files`'s
+                    # own comment just above; `row_visited` used to be folded
+                    # as absolute staging paths, which silently produced the
+                    # WRONG real-dest path once re-anchored (`Path("/dest") /
+                    # Path("/staging/x")` returns `Path("/staging/x")` —
+                    # pathlib drops the left operand for an absolute right
+                    # one), a latent bug this relative form fixes.
+                    row_visited={p.relative_to(staging_dir) for p in row_visited},
+                    row_changed_files=row_changed_files,
+                    row_removed_files=set(row_removed_files),
+                    row_published_files=set(_row_published_files),
+                    report_text=report_buffer.getvalue(),
+                    synced=report_totals.synced,
+                    deleted=report_totals.deleted,
+                )
+                # Latch staging_dir out of the discard-on-exit path below —
+                # ownership of `staging_dir` now passes to the caller via
+                # `staged_result`. `row_committed_ok` is also set here (not
+                # just below) so the `finally` block's post-swap-failure
+                # restore branch — which assumes a real dest write already
+                # happened — never fires for a row that never touched dest.
                 staging_swapped = True
-                out.write(report_buffer.getvalue())
-                totals.synced += report_totals.synced
-                totals.deleted += report_totals.deleted
-                if visited_files_sink is not None:
-                    for staged_path in row_visited:
-                        rel = staged_path.relative_to(staging_dir)
-                        visited_files_sink.add(target.dest_dir / rel)
-                # `row_changed_files` fold (§ docs/plans/2026-08-16-percolate-
-                # round-timing-and-changed-only.md chunk C4) — `None` means this
-                # row's changed-set is undeterminable (§ its own comment above),
-                # recorded via `changed_undetermined_sink` so the caller's
-                # per-repo-root aggregation fails WIDE (full sweep) for this
-                # row's repo root rather than silently treating it as "changed
-                # nothing".
-                if row_changed_files is None:
-                    if changed_undetermined_sink is not None:
-                        changed_undetermined_sink.add(target.dest_dir)
-                elif changed_files_sink is not None:
-                    for relative_id in row_changed_files:
-                        changed_files_sink.add(target.dest_dir / relative_id)
-                # `row_removed_files` fold (chunk C3.5) — always determined once
-                # `_report_published_diff` has run (unlike `row_changed_files`,
-                # there is no undetermined state for the removed set here: this
-                # comparison always runs before the swap on this path), so it
-                # folds unconditionally, no undetermined-sink counterpart needed.
-                if removed_files_sink is not None:
-                    for relative_id in row_removed_files:
-                        removed_files_sink.add(target.dest_dir / relative_id)
-                # § `dispatch_end_of_run_unscanned_published_check` fix (unscanned-
-                # published-guard false-positive) — reached ONLY after this row's
-                # swap has actually landed, i.e. `target.dest_dir` right now holds
-                # exactly what THIS run published for it. Recorded here, not
-                # derived later from `target.dest_dir.is_dir()` at check time,
-                # because a dest_dir this run never reached (gate failure, --target
-                # exclusion, unmatched mode) must NOT be treated as "published by
-                # this run" even though it may still exist on disk from a prior run.
-                if published_dest_dirs_sink is not None:
-                    published_dest_dirs_sink.add(target.dest_dir)
-                if published_files_sink is not None:
-                    published_files_sink.update(_row_published_files)
-
-        write_lastsync_marker(setup_dir, target.name, target.dest_dir, dry_run=dry_run)
+                row_committed_ok = True
 
         totals.processed += 1
         print("", file=out)
+        return staged_result
     finally:
         # Guard-before-mutate staging reclaim (§ `_create_publish_staging_dir`
         # module comment) — every early `return` above, and every exception
         # raised before the swap has landed, leaves `staging_swapped` False;
-        # discard the throwaway staging copy in that case. This does NOT mean
-        # the real destination is guaranteed untouched on every path anymore:
-        # a `PublishSwapPartial` from `_swap_publish_staging_into_dest` sets
-        # `staging_swapped = True` before re-raising precisely because the
-        # content swap DID land in that case — only `.git`'s re-home failed.
-        # A `None` `staging_dir` (dry-run, engine unavailable, or a `return`
-        # before staging was ever created) is a no-op.
+        # discard the throwaway staging copy in that case.
         if not staging_swapped:
             _discard_publish_staging_dir(staging_dir)
+        elif not row_committed_ok:
+            # Real bytes landed in `target.dest_dir` (the swap ran) but this
+            # row did NOT reach its own success line -- a `PublishSwapPartial`
+            # re-raise, or any exception in the bookkeeping between the swap
+            # and `totals.processed += 1`. `main()`'s own failure handling
+            # only EXCLUDES a failed row's dest-dir from the round's commit
+            # pathspec (or skips the whole shared repo root) -- neither
+            # restores anything, so without this the swap's bytes were left
+            # stranded dirty forever (the exact incident this fix closes,
+            # 2026-09-29 PM ruling: "impossible to exit with the dest dirty
+            # or half-committed"). Restore-or-loud-failure, never silent.
+            _restore_repo_root = _dest_repo_root(target.dest_dir)
+            if _restore_repo_root is not None:
+                _restore_dest_subtree_to_head(_restore_repo_root, target.dest_dir)
+                _assert_dest_subtree_clean(
+                    _restore_repo_root,
+                    target.dest_dir,
+                    context=f"process_target({target.name}): post-swap failure restore",
+                )
         if staging_dir is not None:
             _remove_empty_publish_staging_parent(target.dest_dir)
         # Allowlist restricted-tree cleanup — matches the bash original's
@@ -12462,6 +12240,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "`coordinator-publish` run wants the default, since exiting 0 with "
             "green gates and a dirty mirror is what makes the next round refuse "
             "on its dest-cleanliness precondition."
+        ),
+    )
+    p.add_argument(
+        "--progress-file",
+        default=None,
+        help=(
+            "Path this process rewrites with the staging copy's pid, staged "
+            "count and declared count while it runs. Passed by "
+            "`percolate-round`, which captures this process's output until "
+            "exit and so cannot otherwise show that a long staging copy is "
+            "moving."
         ),
     )
     p.add_argument(
@@ -12718,6 +12507,878 @@ def _mirror_sigil_for_alias(alias: str, sigil_map: Mapping[str, str]) -> Optiona
     return None
 
 
+def _throwaway_delta_paths(throwaway_root: Path) -> "tuple[list[str], list[str]]":
+    """One `git status --porcelain=v1 -z --untracked-files=all --no-renames`
+    spawn against `throwaway_root` — a local clone of the dest at the dest's
+    own HEAD (§ `throwaway_tree.build_throwaway_tree`), with this round's
+    staged rows already overlaid onto its worktree and nothing else ever
+    writing to it. Everything the status line reports IS this round's delta,
+    by construction — no recompute, no re-walk.
+
+    Returns `(present_paths, deleted_paths)`, both throwaway-root-relative
+    POSIX paths, sorted: `present` is every path this round added or
+    modified (still on disk), `deleted` is every path this round removed
+    (gone from disk, still named by `git status`). `--no-renames` keeps a
+    rename as an add + a delete rather than one paired entry, so the delete
+    side is never silently folded away — same contract `_dirty_paths_under`
+    already carries for the pre-DR-445 commit path this replaces."""
+    from coordinator_core.git.run import run_git  # noqa: PLC0415 - lazy, matches this module's other git imports
+
+    result = run_git(
+        ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--no-renames"],
+        cwd=str(throwaway_root),
+    )
+    if not result.ok:
+        raise RuntimeError(
+            f"git status failed in throwaway {throwaway_root} (exit "
+            f"{result.returncode}): {result.stderr.strip()}"
+        )
+    entries = [e for e in result.stdout.split("\0") if e]
+    present: "list[str]" = []
+    deleted: "list[str]" = []
+    for entry in entries:
+        rel = entry[3:]
+        if " -> " in rel:  # belt-and-braces; --no-renames should prevent this shape
+            rel = rel.split(" -> ", 1)[1]
+        if (throwaway_root / rel).exists():
+            present.append(rel)
+        else:
+            deleted.append(rel)
+    return sorted(present), sorted(deleted)
+
+
+def _commit_throwaway_and_merge_into_dest(
+    repo_root: Path,
+    throwaway_root: Path,
+    *,
+    present_paths: "list[str]",
+    deleted_paths: "list[str]",
+    succeeded_row_names: "Sequence[str]",
+    round_pinned_shas: "dict[str, str]",
+) -> None:
+    """PM-directed mechanism (2026-09-29, superseding this module's own
+    earlier file-copy cut of DR-445 phase 4): let git move the delta rather
+    than Python. Commits this round's delta INSIDE the throwaway — the same
+    commit path/identity `_commit_published_dests` already used against the
+    real dest (`commit_paths` writes the commit object and advances the
+    throwaway's own HEAD via CAS plumbing, the way this repo's merges do;
+    zero git spawns of its own) — then lands it at `repo_root` with exactly
+    two spawns: `git fetch <throwaway_root> HEAD`, then `git merge --ff-only
+    FETCH_HEAD`. Git computes and applies the tree diff itself; no path this
+    function touches is ever read or written by Python.
+
+    `--ff-only` is the backstop: it refuses outright, touching neither
+    `repo_root`'s index nor its worktree, unless `repo_root`'s HEAD is still
+    exactly the commit the throwaway was cloned from — i.e. unless nothing
+    else advanced `repo_root` since this round's throwaway was built. The
+    start-of-round dirty check (`_dirty_round_roots`) is what is supposed to
+    make that always true; a refusal here means that precondition was
+    violated mid-round, not a normal outcome, and is reported as a refusal
+    rather than papered over."""
+    from functools import partial  # noqa: PLC0415 - lazy, matches this module's other cheap-import calls
+
+    from coordinator_core.git.commit import commit_paths, hash_worktree_blobs_via_spawn  # noqa: PLC0415
+    from coordinator_core.git.run import run_git as _run_git  # noqa: PLC0415
+
+    subject = _sync_commit_message(
+        repo_root.name,
+        succeeded_row_names,
+        present_paths,
+        deleted_paths,
+        _source_sha_suffix(round_pinned_shas),
+    )
+    commit_paths(
+        throwaway_root,
+        present_paths,
+        subject,
+        deleted_paths=deleted_paths,
+        blob_fallback=partial(hash_worktree_blobs_via_spawn, cwd=throwaway_root),
+    )
+    fetch = _run_git(["fetch", str(throwaway_root), "HEAD"], cwd=str(repo_root), remote=True)
+    if not fetch.ok:
+        raise RuntimeError(
+            f"git fetch of throwaway {throwaway_root} into {repo_root} failed "
+            f"(exit {fetch.returncode}): {fetch.stderr.strip()}"
+        )
+    merge = _run_git(["merge", "--ff-only", "FETCH_HEAD"], cwd=str(repo_root))
+    if not merge.ok:
+        raise RuntimeError(
+            f"git merge --ff-only FETCH_HEAD into {repo_root} refused (dest "
+            f"untouched, exit {merge.returncode}): {merge.stderr.strip()}"
+        )
+
+
+def _apply_throwaway_delta_to_dest(
+    repo_root: Path,
+    throwaway_root: Path,
+    present_paths: "list[str]",
+    deleted_paths: "list[str]",
+) -> None:
+    """The `--no-commit` leg (`percolate-round.py` owns its own commit
+    afterward, over bytes THIS applies) — an `--ff-only` merge cannot land
+    content without a commit to carry it, so this leg cannot reuse `_commit_
+    throwaway_and_merge_into_dest`'s mechanism and instead applies the same
+    throwaway-sourced, `git status`-computed delta directly onto `repo_root`'s
+    worktree, uncommitted. `.git` is never a candidate — `git status` never
+    reports a path under it. An unchanged file (absent from the delta) is
+    never opened, so its mtime and inode survive untouched; a changed one is
+    replaced atomically (same-directory temp file + `os.replace`, preserving
+    its mode) so a reader never observes a half-written file.
+
+    A raise partway through is reported via `PublishSwapPartial` — this loop
+    has no whole-root undo, so anything already applied stays applied; the
+    caller reads `content_swapped` off the raised exception the same way it
+    already reads it for a mid-swap `PublishSwapPartial`, to decide whether
+    this repo root's dirty state must be excluded from a LATER separate
+    commit rather than trusted as clean."""
+    applied_any = False
+    try:
+        for rel in present_paths:
+            src = throwaway_root / rel
+            dst = repo_root / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            mode = stat.S_IMODE(src.stat().st_mode)
+            fd, tmp_name = tempfile.mkstemp(prefix=".claude-klabauter-swap-", dir=str(dst.parent))
+            try:
+                with os.fdopen(fd, "wb") as tmp_f, open(src, "rb") as src_f:
+                    shutil.copyfileobj(src_f, tmp_f)
+                os.chmod(tmp_name, mode)
+                os.replace(tmp_name, dst)
+            except BaseException:
+                try:
+                    os.unlink(tmp_name)
+                except OSError:
+                    pass
+                raise
+            applied_any = True
+        for rel in deleted_paths:
+            dst = repo_root / rel
+            if dst.is_dir() and not dst.is_symlink():
+                shutil.rmtree(dst, onerror=_rmtree_clear_readonly_onerror)
+            elif dst.exists() or dst.is_symlink():
+                dst.unlink()
+            applied_any = True
+            parent = dst.parent
+            while parent != repo_root and parent.exists() and not any(parent.iterdir()):
+                parent.rmdir()
+                parent = parent.parent
+    except BaseException as exc:
+        raise PublishSwapPartial(
+            f"{repo_root}: delta apply from throwaway {throwaway_root} failed "
+            f"partway ({exc!r}) — {'some bytes already landed' if applied_any else 'nothing landed'}",
+            prior_backup=repo_root,
+            content_swapped=applied_any,
+        ) from exc
+
+
+def _swap_all_rows_into_dest(
+    staged_by_repo_root: "dict[Path, list[tuple[ResolvedTarget, StagedRowResult]]]",
+    throwaway_by_repo_root: "dict[Path, Path]",
+    *,
+    commit_now: bool,
+    succeeded_row_names: "Sequence[str]",
+    round_pinned_shas: "dict[str, str]",
+) -> "dict[str, Optional[BaseException]]":
+    """DR-445's single destination write. Called by `_run_round_dr445`
+    EXACTLY ONCE per round, and ONLY after every gate (including the
+    assembled-mirror gate, evaluated against a throwaway tree — never this
+    function) has passed.
+
+    PM ruling (2026-09-29): the throwaway is ALREADY the delta — a local
+    clone of `repo_root` at `repo_root`'s own HEAD with this round's staged
+    rows overlaid, so `git status` inside it reports exactly what changed.
+    Landing that delta is therefore a git operation (`_commit_throwaway_
+    and_merge_into_dest`, `commit_now=True`) or a direct-but-still-
+    throwaway-sourced file apply (`_apply_throwaway_delta_to_dest`,
+    `commit_now=False`, the `--no-commit` leg) — never a rename-based swap
+    of a full per-row staging copy, and never a Python walk of the WHOLE
+    tree (only the delta `git status` names is ever touched).
+
+    Failure is REPO-ROOT atomic, not per-row: a shared repo root's delta is
+    landed in one pass (one commit+merge, or one file-apply pass), not one
+    swap per row, so a git-merge refusal or a mid-apply failure fails every
+    row sharing that root together. `commit_now`/`succeeded_row_names`/
+    `round_pinned_shas` build the SAME round-commit message `_commit_
+    published_dests` used to build, just once per repo root rather than
+    once for the whole round's already-swapped dest — `succeeded_row_names`
+    here is the round's pre-swap succeeded set (this function cannot know a
+    LATER repo root's own outcome while building an EARLIER one's message).
+
+    Returns `{target.name: exception_or_None}` for every `(target, staged)`
+    pair across every repo root — `None` means that row's repo root landed
+    cleanly. Keyed by NAME, not the `ResolvedTarget` object itself: it is a
+    plain `@dataclass` (not `frozen`), so it is unhashable and cannot be a
+    dict key. Never raises itself: a repo root whose swap fails is recorded
+    against every one of its rows, not propagated, so a sibling repo root's
+    swap in the same round still runs."""
+    outcomes: "dict[str, Optional[BaseException]]" = {}
+    for repo_root, rows in staged_by_repo_root.items():
+        row_names = [target.name for target, _staged in rows]
+        throwaway_root = throwaway_by_repo_root.get(repo_root)
+        if throwaway_root is None:
+            exc: BaseException = RuntimeError(f"no throwaway tree built for {repo_root}")
+            for name in row_names:
+                outcomes[name] = exc
+            continue
+        try:
+            present_paths, deleted_paths = _throwaway_delta_paths(throwaway_root)
+            if not present_paths and not deleted_paths:
+                for name in row_names:
+                    outcomes[name] = None
+                continue
+            if commit_now:
+                _commit_throwaway_and_merge_into_dest(
+                    repo_root,
+                    throwaway_root,
+                    present_paths=present_paths,
+                    deleted_paths=deleted_paths,
+                    succeeded_row_names=succeeded_row_names,
+                    round_pinned_shas=round_pinned_shas,
+                )
+            else:
+                _apply_throwaway_delta_to_dest(repo_root, throwaway_root, present_paths, deleted_paths)
+        except BaseException as swap_exc:  # noqa: BLE001 - repo-root isolation, recorded not raised
+            for name in row_names:
+                outcomes[name] = swap_exc
+        else:
+            for name in row_names:
+                outcomes[name] = None
+    return outcomes
+
+
+@dataclass
+class _RoundGateResult:
+    """`_run_round_dr445`'s return value — every end-of-run gate verdict plus
+    the commit/residue bookkeeping `main()` needs to print its summary and
+    pick an exit code. Every `succeeded_row_names`/`failed_row_names`/
+    `end_of_run_*` accumulator `main()` passed in is mutated in place (same
+    sink idiom `process_target` already uses throughout this module) rather
+    than round-tripped through this dataclass."""
+
+    identity_ok: bool
+    install_doc_ok: bool
+    unscanned_ok: bool
+    function_gate_ok: bool
+    entrypoint_gate_ok: bool
+    argv_parity_ok: bool
+    assembled_mirror_gate_ok: bool
+    gates_ok: bool
+    commit_ran: bool
+    commit_ok: bool
+    uncommitted_after_commit: "set[Path]"
+    residue_roots: "set[Path]"
+    deduped_roots: "list[Path]"
+
+
+def _run_round_dr445(
+    rows: "List[str]",
+    parsed_rows: "dict[str, ResolvedTarget]",
+    requested_names: "List[str]",
+    *,
+    args: argparse.Namespace,
+    setup_dir: Path,
+    identity_file_exists: bool,
+    identity: Optional[PercolateIdentity],
+    round_pinned_shas: "dict[str, str]",
+    engine_ctx: PercolateEngineContext,
+    percolate_store_path: Optional[Path],
+    publish_sync_module: object,
+    all_rows: "List[ResolvedTarget]",
+    module_accepts_foreign_dir_names: bool,
+    totals: RunTotals,
+    round_timings: "List[tuple]",
+    delta_active: bool,
+    delta_signature: Optional[str],
+    percolate_root: Path,
+    all_shadow_roots: "List[Path]",
+    end_of_run_check_roots: "List[Path]",
+    end_of_run_rows_by_repo_root: "dict[Path, List[ResolvedTarget]]",
+    end_of_run_row_sections: "List[tuple]",
+    end_of_run_visited_by_repo_root: "dict[Path, set[Path]]",
+    end_of_run_changed_by_repo_root: "dict[Path, set[Path]]",
+    end_of_run_changed_undetermined_roots: "set[Path]",
+    end_of_run_token_index_invalidate_roots: "set[Path]",
+    end_of_run_removed_by_repo_root: "dict[Path, set[Path]]",
+    end_of_run_pre_round_digests: "dict[Path, Optional[str]]",
+    end_of_run_published_dest_dirs_by_repo_root: "dict[Path, set[Path]]",
+    end_of_run_published_files_by_repo_root: "dict[Path, set[Path]]",
+    succeeded_row_names: "List[str]",
+    failed_row_names: "List[str]",
+    failed_dest_dirs_by_repo_root: "dict[Path, set[Path]]",
+    failed_row_mutated_roots: "set[Path]",
+    skipped_row_names: "List[str]",
+) -> _RoundGateResult:
+    # DR-445 (docs/decisions/DR-445-publish-assembles-in-a-throwaway-and-
+    # moves-once.md): throwaway -> gate -> one swap -> commit -> delete.
+    #
+    # Phase 1 (below): every row STAGES ONLY (`process_target` never writes
+    # `target.dest_dir`, per its own DR-445 docstring). Phase 2: every
+    # staged row is overlaid into one throwaway tree per repo root. Phase 3:
+    # every end-of-run gate — including the assembled-mirror gate — runs
+    # against that throwaway, never against the live destination. Phase 4:
+    # ONLY on a clean gate verdict, `_swap_all_rows_into_dest` performs the
+    # round's one real destination write, and the existing round-commit call
+    # (`_commit_published_dests`) runs directly after it — nothing else runs
+    # in that gap. On any gate failure the destination is never written for
+    # any row this round staged; every throwaway and every row's staging
+    # directory is discarded either way.
+    staged_by_repo_root: "dict[Path, list[tuple[ResolvedTarget, StagedRowResult]]]" = {}
+
+    try:
+        try:
+            for row in rows:
+                target = parsed_rows[row]
+                if requested_names and target.name not in requested_names:
+                    continue
+                repo_root = _dest_repo_root(target.dest_dir) or target.dest_dir
+                end_of_run_check_roots.append(repo_root)
+                end_of_run_rows_by_repo_root.setdefault(repo_root, []).append(target)
+                if engine_ctx.engine_claude_klabauter is not None and engine_ctx.store is not None:
+                    try:
+                        section = engine_ctx.engine_claude_klabauter.resolve_target(engine_ctx.store, target.name)
+                        end_of_run_row_sections.append((target, section))
+                    except KeyError:
+                        pass  # unresolvable target already surfaces via process_target's own dispatch below
+
+                if delta_active and delta_signature is not None and delta_row_unchanged(
+                    setup_dir, target, delta_signature, round_pinned_shas
+                ):
+                    print(f"=== {target.name} ({target.mode}) ===", file=sys.stdout)
+                    if target.mode in mirror_like_wire_names():
+                        print(
+                            "  --delta: unchanged since last publish (store+transform "
+                            "signature, source HEAD, destination HEAD all match; "
+                            "clean-tree check does not apply to mirror-mode rows) — "
+                            "skipping.",
+                            file=sys.stdout,
+                        )
+                    else:
+                        print(
+                            "  --delta: unchanged since last publish (store+transform "
+                            "signature, source HEAD, destination HEAD all match, "
+                            "destination tree clean) — skipping.",
+                            file=sys.stdout,
+                        )
+                    print("", file=sys.stdout)
+                    skipped_row_names.append(target.name)
+                    continue
+
+                prev_processed = totals.processed
+                try:
+                    staged = process_target(
+                        target,
+                        setup_dir,
+                        totals,
+                        identity_file_exists=identity_file_exists,
+                        identity=identity,
+                        dry_run=args.dry_run,
+                        round_pinned_shas=round_pinned_shas,
+                        engine_ctx=engine_ctx,
+                        percolate_store_path=percolate_store_path,
+                        publish_sync_module=publish_sync_module,
+                        all_rows=all_rows,
+                        module_accepts_foreign_dir_names=module_accepts_foreign_dir_names,
+                        shadow_roots_sink=all_shadow_roots,
+                        timing_sink=round_timings,
+                        pre_round_digest_sink=end_of_run_pre_round_digests,
+                    )
+                except (SystemExit, Exception) as exc:  # noqa: BLE001 - row isolation, see main()'s own prior ledger comment
+                    code = getattr(exc, "code", None)
+                    filename = getattr(exc, "filename", None)
+                    filename2 = getattr(exc, "filename2", None)
+                    winerror = getattr(exc, "winerror", None)
+                    path_detail = ""
+                    if filename is not None or filename2 is not None or winerror is not None:
+                        path_detail = (
+                            f" [filename={filename!r}, filename2={filename2!r}, "
+                            f"winerror={winerror!r}]"
+                        )
+                    print(
+                        f"  FATAL: {target.name} aborted mid-row ({exc!r}, code={code!r}"
+                        f"{path_detail}) — "
+                        "marking this row FAILED and continuing with the remaining "
+                        "requested rows (a single row's fatal guard must not silently "
+                        "take the rest of the run with it).",
+                        file=sys.stderr,
+                    )
+                    print("", file=sys.stdout)
+                    failed_row_names.append(target.name)
+                    failed_dest_dirs_by_repo_root.setdefault(repo_root, set()).add(target.dest_dir)
+                    continue
+
+                # Success is `totals.processed` advancing — the SAME signal
+                # the pre-DR-445 contract used (`process_target` returns
+                # `None` on both its success path and every gate-declined
+                # path; only the counter tells them apart). `staged` is
+                # `None` on both --dry-run (preview only, nothing to stage
+                # for a later swap) and any gate-declined/engine-unavailable
+                # row — `process_target` already printed its own
+                # "skipping"/refusal line in that case.
+                if totals.processed == prev_processed:
+                    failed_row_names.append(target.name)
+                    failed_dest_dirs_by_repo_root.setdefault(repo_root, set()).add(target.dest_dir)
+                    continue
+
+                succeeded_row_names.append(target.name)
+                if not args.dry_run:
+                    # `staged` is always a real `StagedRowResult` here in
+                    # production (`process_target`'s own DR-445 contract:
+                    # non-None exactly when `totals.processed` advanced under
+                    # a real run) — the `is None` guard exists only so a test
+                    # double that advances `totals.processed` without
+                    # returning a `StagedRowResult` (control-flow/ordering
+                    # tests, not content tests) still gets a valid, empty
+                    # staging tree to overlay/swap rather than crashing.
+                    if staged is None:
+                        staged = StagedRowResult(
+                            staging_dir=Path(tempfile.mkdtemp(prefix=".publish-empty-stage-")),
+                            row_visited=set(),
+                            row_changed_files=set(),
+                            row_removed_files=set(),
+                            row_published_files=set(),
+                            report_text="",
+                            synced=0,
+                            deleted=0,
+                        )
+                    staged_by_repo_root.setdefault(repo_root, []).append((target, staged))
+        finally:
+            _cleanup_shadow_roots(tuple(dict.fromkeys(all_shadow_roots)))
+
+        if not args.dry_run:
+            write_publish_provenance_record(
+                succeeded_row_names=succeeded_row_names,
+                failed_row_names=failed_row_names,
+                skipped_row_names=skipped_row_names,
+                rows_by_name={t.name: t for t in parsed_rows.values()},
+                round_pinned_shas=round_pinned_shas,
+            )
+
+        deduped_roots = list(dict.fromkeys(end_of_run_check_roots))
+
+        if args.dry_run:
+            # Never called under --dry-run — unchanged from the pre-DR-445
+            # contract (`dispatch_end_of_run_identity_check`'s own docstring,
+            # "Never called under --dry-run"): a preview run mutates no
+            # destination for any gate to meaningfully collect against, and
+            # `main()` returns before consuming any of the fields below other
+            # than `deduped_roots`/`gates_ok` (vacuously true — nothing was
+            # gated). No throwaway is ever built in this mode either.
+            return _RoundGateResult(
+                identity_ok=True,
+                install_doc_ok=True,
+                unscanned_ok=True,
+                function_gate_ok=True,
+                entrypoint_gate_ok=True,
+                argv_parity_ok=True,
+                assembled_mirror_gate_ok=True,
+                gates_ok=True,
+                commit_ran=False,
+                commit_ok=True,
+                uncommitted_after_commit=set(),
+                residue_roots=set(),
+                deduped_roots=deduped_roots,
+            )
+
+        from coordinator_core.percolate import surface as _sweep_surface
+
+        for _sweep_root in deduped_roots:
+            _swept = _sweep_surface.sweep_never_published_state(
+                Path(_sweep_root),
+                published_dest_dirs=end_of_run_published_dest_dirs_by_repo_root.get(Path(_sweep_root)),
+            )
+            if _swept:
+                print(f"  swept {len(_swept)} never-published state/ file(s) from {_sweep_root}")
+
+        # DR-445 Phase 2 — one throwaway tree per repo root this round
+        # actually staged something for, built from Peer T's
+        # `coordinator.lib.percolate.throwaway_tree` module: a copy of that
+        # repo root's tracked HEAD content with every staged row of this
+        # round overlaid at its dest-relative path (row deletions honoured).
+        # A repo root with nothing staged this round (every row for it
+        # skipped/failed pre-stage) has no throwaway and gates read its real,
+        # untouched tree — nothing this round could publish there anyway.
+        throwaway_by_repo_root: "dict[Path, Path]" = {}
+        if not args.dry_run and staged_by_repo_root:
+            _bootstrap_engine()
+            for repo_root, staged_rows in staged_by_repo_root.items():
+                overlays = [
+                    (staged.staging_dir, target.dest_dir.relative_to(repo_root))
+                    for target, staged in staged_rows
+                ]
+                deletions = [
+                    str(target.dest_dir.relative_to(repo_root) / rel)
+                    for target, staged in staged_rows
+                    for rel in staged.row_removed_files
+                ]
+                throwaway_by_repo_root[repo_root] = build_throwaway_tree(repo_root, overlays, deletions)
+
+        # DR-445 Phase 3 (coordinator ruling, 2026-09-29: Peer T's throwaway
+        # is now a real local clone, HEAD == dest HEAD, working tree == the
+        # candidate, so `git status` inside it shows exactly this round's
+        # changes) — EVERY end-of-run gate below reads the throwaway, never
+        # the live destination. No gate call below may take a `deduped_
+        # roots` path once this block is reached.
+        gate_roots = [throwaway_by_repo_root.get(_root, _root) for _root in deduped_roots]
+        # `dispatch_end_of_run_assembled_mirror_gate` (and `..._identity_
+        # check`) key `rows_by_repo_root` off the SAME `repo_roots` list they
+        # are handed — the throwaway substitution above means that key must
+        # be remapped in lockstep, or every row-scope lookup silently misses.
+        # `end_of_run_rows_by_repo_root` itself stays keyed by the real repo
+        # root for every OTHER consumer (the manifest write, the commit).
+        _gate_rows_by_repo_root = {
+            throwaway_by_repo_root.get(_root, _root): _rows
+            for _root, _rows in end_of_run_rows_by_repo_root.items()
+        }
+        # The inverse of `throwaway_by_repo_root` — throwaway path back to
+        # the real repo root it stands in for — for the ONE lookup inside
+        # `dispatch_end_of_run_assembled_mirror_gate` that must stay keyed
+        # by the real destination regardless of substitution (§ its own
+        # `declared_scope_root_by_repo_root` docstring).
+        _declared_scope_root_by_throwaway = {
+            _throwaway: _root for _root, _throwaway in throwaway_by_repo_root.items()
+        }
+
+        # `end_of_run_visited_by_repo_root`/`..._changed_by_repo_root`/
+        # `..._published_dest_dirs_by_repo_root`/`..._published_files_by_
+        # repo_root` are NOT usable for gating here — they are populated by
+        # the swap-fold below, which has not run yet (by construction: every
+        # gate must precede the swap). Every gate that reads "what did this
+        # round actually change/publish" therefore reads a THROWAWAY-anchored
+        # rebuild of the same information, sourced from `staged_by_repo_root`
+        # (pre-swap) instead — relative-id sets re-anchored onto `throwaway_
+        # root / target.dest_dir.relative_to(repo_root) / rel`, the same
+        # relative-to-staging convention `StagedRowResult` itself now uses
+        # (§ its own fields' docstrings in `process_target`).
+        _gate_visited_by_repo_root: "dict[Path, set[Path]]" = {}
+        _gate_published_dest_dirs_by_repo_root: "dict[Path, set[Path]]" = {}
+        _gate_published_files_by_repo_root: "dict[Path, set[Path]]" = {}
+        _gate_changed_by_repo_root: "dict[Path, set[Path]]" = {}
+        _gate_changed_undetermined_roots: "set[Path]" = set()
+        for _repo_root, _staged_rows in staged_by_repo_root.items():
+            _throwaway_root = throwaway_by_repo_root.get(_repo_root)
+            if _throwaway_root is None:
+                continue
+            for _target, _staged in _staged_rows:
+                _rel_dest = _target.dest_dir.relative_to(_repo_root)
+                _gate_anchor = _throwaway_root / _rel_dest
+                _gate_visited_by_repo_root.setdefault(_throwaway_root, set()).update(
+                    _gate_anchor / _rel for _rel in _staged.row_visited
+                )
+                _gate_published_dest_dirs_by_repo_root.setdefault(_throwaway_root, set()).add(
+                    _gate_anchor
+                )
+                _gate_published_files_by_repo_root.setdefault(_throwaway_root, set()).update(
+                    _gate_anchor / _rel for _rel in _staged.row_published_files
+                )
+                if _staged.row_changed_files is None:
+                    _gate_changed_undetermined_roots.add(_throwaway_root)
+                else:
+                    _gate_changed_by_repo_root.setdefault(_throwaway_root, set()).update(
+                        _gate_anchor / _rel for _rel in _staged.row_changed_files
+                    )
+        _gate_changed_files_by_repo_root: "dict[Path, Optional[set[Path]]]" = {
+            root: (None if root in _gate_changed_undetermined_roots else changed)
+            for root, changed in _gate_changed_by_repo_root.items()
+        }
+        with _time_phase(round_timings, "<round>", "dispatch_end_of_run_identity_check"):
+            identity_ok = dispatch_end_of_run_identity_check(
+                engine_ctx,
+                gate_roots,
+                target_filtered=bool(args.target),
+                percolate_root=percolate_root,
+                rows_by_repo_root=_gate_rows_by_repo_root,
+                skipped_row_names=skipped_row_names,
+            )
+        with _time_phase(round_timings, "<round>", "dispatch_end_of_run_install_doc_payload_check"):
+            install_doc_ok = dispatch_end_of_run_install_doc_payload_check(
+                gate_roots,
+                target_filtered=bool(args.target),
+            )
+        with _time_phase(round_timings, "<round>", "dispatch_end_of_run_unscanned_published_check"):
+            unscanned_ok = dispatch_end_of_run_unscanned_published_check(
+                end_of_run_row_sections,
+                target_filtered=bool(args.target),
+                visited_files_by_repo_root=_gate_visited_by_repo_root,
+                published_dest_dirs_by_repo_root=_gate_published_dest_dirs_by_repo_root,
+                published_files_by_repo_root=_gate_published_files_by_repo_root,
+            )
+        with _time_phase(round_timings, "<round>", "dispatch_end_of_run_function_gate"):
+            function_gate_ok = dispatch_end_of_run_function_gate(
+                engine_ctx,
+                gate_roots,
+                target_filtered=bool(args.target),
+            )
+        with _time_phase(round_timings, "<round>", "dispatch_end_of_run_entrypoint_gate"):
+            entrypoint_gate_ok = dispatch_end_of_run_entrypoint_gate(
+                engine_ctx,
+                gate_roots,
+                target_filtered=bool(args.target),
+                changed_files_by_repo_root=_gate_changed_files_by_repo_root,
+                changed_only=bool(args.changed_only) and not bool(args.full_sweep),
+            )
+        drift_check_ok = True
+        with _time_phase(round_timings, "<round>", "dispatch_end_of_run_argv_parity_gate"):
+            argv_parity_ok = dispatch_end_of_run_argv_parity_gate(
+                gate_roots,
+                target_filtered=bool(args.target),
+            )
+        with _time_phase(round_timings, "<round>", "dispatch_end_of_run_assembled_mirror_gate"):
+            assembled_mirror_gate_ok = dispatch_end_of_run_assembled_mirror_gate(
+                gate_roots,
+                rows_by_repo_root=_gate_rows_by_repo_root,
+                target_filtered=bool(args.target),
+                declared_scope_root_by_repo_root=_declared_scope_root_by_throwaway,
+            )
+        gates_ok = (
+            identity_ok
+            and install_doc_ok
+            and unscanned_ok
+            and function_gate_ok
+            and entrypoint_gate_ok
+            and drift_check_ok
+            and argv_parity_ok
+            and assembled_mirror_gate_ok
+        )
+        if not gates_ok:
+            print(
+                "publish.py: FATAL — end-of-run check(s) failed; treat this run's "
+                "published bytes as unverified (AC15 fail-closed).",
+                file=sys.stderr,
+            )
+
+        commit_ran = False
+        commit_ok = True
+        uncommitted_after_commit: "set[Path]" = set()
+
+        # `swap_ran` is gated on `gates_ok`/staged content only — matching
+        # the pre-DR-445 contract, where the swap itself ran unconditionally
+        # per successful row regardless of `--no-commit` (`args.commit`only
+        # ever gated the COMMIT call below, never whether bytes landed at
+        # dest — `percolate-round.py` passes `--no-commit` and owns its own
+        # commit -> CI-smoke -> push sequence over bytes THIS swap put on
+        # disk).
+        swap_ran = bool(not args.dry_run and gates_ok and staged_by_repo_root)
+        if swap_ran:
+            # PM ruling (2026-09-29): the round commit now lands AS PART OF
+            # the swap (git commit-in-throwaway + fetch + ff-only merge), so
+            # `commit_now` must be decided here rather than after the swap
+            # loop has run — `succeeded_row_names` at this point is the
+            # round's PRE-swap succeeded set (staging + gates only), which is
+            # also the only set `_swap_all_rows_into_dest` can honestly put
+            # in an EARLY repo root's commit message (it cannot know a LATER
+            # repo root's own outcome yet either).
+            commit_now = bool(args.commit and succeeded_row_names)
+            # `write_lastsync_marker` documents "the DESTINATION repo HEAD at
+            # publish time — the pre-publish HEAD (before the operator
+            # commits the synced files)". Previously true by construction
+            # (the swap never advanced HEAD, only the commit — read afterward
+            # — did). Now the swap itself can advance HEAD via the merge, so
+            # each repo root's HEAD is captured here, BEFORE any swap runs,
+            # to preserve that documented semantic.
+            _pre_swap_dest_head_by_repo_root: "dict[Path, str]" = {
+                _root: _git_head(_root)
+                for _root in staged_by_repo_root
+                if _is_git_repo(_root)
+            }
+            # DR-445 Phase 4 — the ONE destination write this round performs,
+            # committing (when `commit_now`) as part of the same operation —
+            # nothing else runs between the two.
+            swap_outcomes = _swap_all_rows_into_dest(
+                staged_by_repo_root,
+                throwaway_by_repo_root,
+                commit_now=commit_now,
+                succeeded_row_names=list(succeeded_row_names),
+                round_pinned_shas=round_pinned_shas,
+            )
+            commit_ran = commit_now
+            if commit_now:
+                print("=== publish.py — commit ===")
+            for repo_root, staged_rows in staged_by_repo_root.items():
+                for target, staged in staged_rows:
+                    exc = swap_outcomes.get(target.name)
+                    if exc is not None:
+                        if isinstance(exc, PublishSwapPartial) and exc.content_swapped:
+                            # Content landed for this row despite the raise
+                            # (§ `PublishSwapPartial`'s own docstring) — the
+                            # whole root's dirty state can't be attributed to
+                            # one dest-dir subtree, so it is excluded from
+                            # this round's commit entirely, same as before.
+                            failed_row_mutated_roots.add(repo_root)
+                            end_of_run_token_index_invalidate_roots.add(repo_root)
+                            if uncommitted_after_commit is not None:
+                                uncommitted_after_commit.add(repo_root)
+                        if commit_now:
+                            commit_ok = False
+                        print(f"  Error: swap of {target.name} failed: {exc!r}", file=sys.stderr)
+                        if target.name in succeeded_row_names:
+                            succeeded_row_names.remove(target.name)
+                        failed_row_names.append(target.name)
+                        failed_dest_dirs_by_repo_root.setdefault(repo_root, set()).add(target.dest_dir)
+                        continue
+
+                    sys.stdout.write(staged.report_text)
+                    totals.synced += staged.synced
+                    totals.deleted += staged.deleted
+                    # The per-row staging_dir was only ever a SOURCE for the
+                    # throwaway overlay (§ `build_throwaway_tree`'s own
+                    # overlays contract) — the swap itself now reads and
+                    # writes exclusively through the throwaway, so nothing
+                    # else ever consumes this row's staging_dir. Discard it
+                    # here, on the success path only (a failed row's staging
+                    # copy is left in place, matching this driver's existing
+                    # failure-evidence convention).
+                    _discard_publish_staging_dir(staged.staging_dir)
+                    write_lastsync_marker(
+                        setup_dir,
+                        target.name,
+                        target.dest_dir,
+                        dry_run=False,
+                        precomputed_head=_pre_swap_dest_head_by_repo_root.get(repo_root),
+                    )
+                    end_of_run_visited_by_repo_root.setdefault(repo_root, set()).update(
+                        target.dest_dir / rel for rel in staged.row_visited
+                    )
+                    end_of_run_published_dest_dirs_by_repo_root.setdefault(repo_root, set()).add(
+                        target.dest_dir
+                    )
+                    end_of_run_published_files_by_repo_root.setdefault(repo_root, set()).update(
+                        staged.row_published_files
+                    )
+                    if staged.row_changed_files is None:
+                        end_of_run_changed_undetermined_roots.add(repo_root)
+                    else:
+                        end_of_run_changed_by_repo_root.setdefault(repo_root, set()).update(
+                            target.dest_dir / rel for rel in staged.row_changed_files
+                        )
+                    end_of_run_removed_by_repo_root.setdefault(repo_root, set()).update(
+                        target.dest_dir / rel for rel in staged.row_removed_files
+                    )
+                    if delta_active and delta_signature is not None:
+                        post_source_sha = _delta_row_source_sha(target, round_pinned_shas)
+                        post_dest_head = (
+                            _git_head(target.dest_dir) if _is_git_repo(target.dest_dir) else ""
+                        )
+                        if post_source_sha is not None and post_dest_head:
+                            write_delta_record(
+                                setup_dir,
+                                target.name,
+                                signature=delta_signature,
+                                source_sha=post_source_sha,
+                                dest_head=post_dest_head,
+                            )
+
+            # RoundManifest per repo root — verbatim port of the pre-DR-445
+            # block, unchanged logic, now running after the real swap (it
+            # writes a sidecar record, not a gate, so it belongs beside the
+            # bookkeeping fold above, not before it).
+            import uuid as _uuid  # noqa: PLC0415
+
+            from coordinator_core.percolate.manifest import RoundManifest as _RoundManifest
+            from coordinator_core.percolate.manifest import write_manifest as _write_manifest
+            from coordinator_core.percolate.round import default_manifest_path as _default_manifest_path
+            from coordinator_core.wire_paths import rel_id as _rel_id
+
+            _manifest_round_id = f"publish-{_uuid.uuid4().hex}"
+            for _manifest_root in dict.fromkeys(end_of_run_check_roots):
+                _token_index_action = _token_index_action_for_root(
+                    _manifest_root,
+                    invalidate_roots=end_of_run_token_index_invalidate_roots,
+                    undetermined_roots=end_of_run_changed_undetermined_roots,
+                )
+                if _token_index_action == "invalidate":
+                    _invalidate_token_index(_manifest_root)
+                if _manifest_root in end_of_run_changed_undetermined_roots:
+                    continue
+                _root_changed = end_of_run_changed_by_repo_root.get(_manifest_root) or set()
+                _root_removed = end_of_run_removed_by_repo_root.get(_manifest_root) or set()
+                _root_declared = end_of_run_visited_by_repo_root.get(_manifest_root) or set()
+                _root_published_dest_dirs = (
+                    end_of_run_published_dest_dirs_by_repo_root.get(_manifest_root) or set()
+                )
+                if not _root_changed and not _root_removed and not _root_declared:
+                    continue
+                _root_declared_paths = (
+                    set(_root_declared) | _walk_published_payload(_root_published_dest_dirs)
+                ) - _root_removed
+                _round_manifest = _RoundManifest(
+                    round_id=_manifest_round_id,
+                    added_or_updated=frozenset(
+                        _rel_id(p, _manifest_root)
+                        for p in _net_changed_paths(_root_changed, end_of_run_pre_round_digests)
+                    ),
+                    removed=frozenset(_rel_id(p, _manifest_root) for p in _root_removed),
+                    declared_payload=frozenset(
+                        _rel_id(p, _manifest_root) for p in _root_declared_paths
+                    ),
+                    published_dest_dirs=frozenset(
+                        _rel_id(p, _manifest_root) for p in _root_published_dest_dirs
+                    ),
+                )
+                _write_manifest(
+                    _round_manifest,
+                    _default_manifest_path(_manifest_root, _manifest_round_id),
+                )
+                if _token_index_action == "update":
+                    _update_token_index_from_delta(_manifest_root, _root_changed, _root_removed)
+
+            # The round commit already ran (or was skipped) as part of the
+            # swap itself above — `_commit_throwaway_and_merge_into_dest`,
+            # gated on `commit_now` — never here. `.percolate/round-manifest.
+            # json` (just written above) is gitignored at every dest (§
+            # `default_manifest_path`), so its ordering relative to the
+            # commit is immaterial: it was never part of either commit's
+            # pathspec.
+        else:
+            # Gate failure, dry-run, or nothing staged this round — the
+            # destination is never written for any row this round staged.
+            # Every row's staging tree is discarded here (never swapped).
+            for staged_rows in staged_by_repo_root.values():
+                for _target, staged in staged_rows:
+                    _discard_publish_staging_dir(staged.staging_dir)
+
+        # DR-445 step 5 — delete the throwaway, pass or fail, LAST: after the
+        # swap and the commit that follows it directly (or after the failed-
+        # gate `else:` branch above discarded every row's own staging dir).
+        # Every gate that will ever read a throwaway has already done so by
+        # this point.
+        if throwaway_by_repo_root:
+            for _throwaway in throwaway_by_repo_root.values():
+                discard_throwaway_tree(_throwaway)
+
+        # AC5 residue set (unchanged semantics from the pre-DR-445 contract):
+        # every dest root this round leaves with synced-but-uncommitted
+        # bytes. A root a failed row actually mutated is always residue.
+        # When the commit ran, the rest of the residue is exactly what
+        # `_commit_published_dests` reports uncommitted. When bytes landed
+        # (`swap_ran`) but the commit did NOT run (`--no-commit`, or no
+        # succeeded rows), every root this round published into is residue
+        # — expected and accepted for `--no-commit`, whose caller
+        # (`percolate-round.py`) owns reconciling it.
+        residue_roots: "set[Path]" = set(failed_row_mutated_roots)
+        if commit_ran:
+            residue_roots |= uncommitted_after_commit
+        elif swap_ran:
+            residue_roots |= set(end_of_run_published_dest_dirs_by_repo_root.keys())
+
+        return _RoundGateResult(
+            identity_ok=identity_ok,
+            install_doc_ok=install_doc_ok,
+            unscanned_ok=unscanned_ok,
+            function_gate_ok=function_gate_ok,
+            entrypoint_gate_ok=entrypoint_gate_ok,
+            argv_parity_ok=argv_parity_ok,
+            assembled_mirror_gate_ok=assembled_mirror_gate_ok,
+            gates_ok=gates_ok,
+            commit_ran=commit_ran,
+            commit_ok=commit_ok,
+            uncommitted_after_commit=uncommitted_after_commit,
+            residue_roots=residue_roots,
+            deduped_roots=deduped_roots,
+        )
+    finally:
+        pass
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     """Exit-code contract (state/bug-backlog/2026-08-10-coordinator-publish-s-
     exit-code-is-not-a-542c9750e55a.yaml): a caller may trust the exit code
@@ -12768,6 +13429,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     # captured value is threaded down to the lock loop below via
     # `_inherited_roots_token`; PID-binding/verification happens there.
     _inherited_roots_token = os.environ.pop(_INHERITED_LOCK_ROOTS_ENV, "")
+
+    global _staging_progress_file
+    _staging_progress_file = Path(args.progress_file) if args.progress_file else None
 
     # Capture the rung that actually
     # resolved `percolate_root`/`setup_dir` here, once, and thread it into
@@ -12888,7 +13552,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     try:
         claude_klabauter_pct = _import_claude_klabauter_percolate()
         store = assert_percolate_store_ready(claude_klabauter_pct, percolate_store_path)
-        engine_ctx = PercolateEngineContext(engine_claude_klabauter=claude_klabauter_pct, store=store)
+        engine_ctx = PercolateEngineContext(
+            engine_claude_klabauter=claude_klabauter_pct,
+            store=store,
+            accepts_written_paths=_engine_accepts_written_paths(claude_klabauter_pct),
+        )
     except EngineUnavailableError as exc:
         if args.dry_run:
             print(
@@ -13289,6 +13957,26 @@ def main(argv: Optional[List[str]] = None) -> int:
         # with "another publish is running against it" when neither actually
         # is stuck).
         lock_repo_roots.sort(key=lambda p: os.path.realpath(str(p)))
+        # A round never starts on a dirty tree: residue in a destination would
+        # be swept into the round commit, and a dirty source means the operator
+        # is publishing something other than what they are looking at.
+        dirty = _dirty_round_roots(
+            lock_repo_roots
+            + [
+                root
+                for row in rows
+                if not requested_names or parsed_rows[row].name in requested_names
+                for root in _contributing_roots(parsed_rows[row])
+            ]
+        )
+        if dirty:
+            for root, porcelain in dirty:
+                print(
+                    f"[publish.py] REFUSED: {root} has uncommitted changes -- commit or "
+                    f"discard them first:\n{porcelain[:2000]}",
+                    file=sys.stderr,
+                )
+            return 1
 
     # No anchor is passed: `held_lock` derives the sidecar directory from its
     # per-user, per-machine rendezvous (`_machine_lock_dir`), which is what
@@ -13405,190 +14093,55 @@ def main(argv: Optional[List[str]] = None) -> int:
                 return 1
 
     try:
-        try:
-            for row in rows:
-                target = parsed_rows[row]
-                if requested_names and target.name not in requested_names:
-                    continue
-                repo_root = _dest_repo_root(target.dest_dir) or target.dest_dir
-                end_of_run_check_roots.append(repo_root)
-                end_of_run_rows_by_repo_root.setdefault(repo_root, []).append(target)
-                if engine_ctx.engine_claude_klabauter is not None and engine_ctx.store is not None:
-                    try:
-                        section = engine_ctx.engine_claude_klabauter.resolve_target(engine_ctx.store, target.name)
-                        end_of_run_row_sections.append((target, section))
-                    except KeyError:
-                        pass  # unresolvable target already surfaces via process_target's own dispatch below
-                row_visited: "set[Path]" = set()
-                row_published_dest_dirs: "set[Path]" = set()
-                row_published_files: "set[Path]" = set()
-                row_changed: "set[Path]" = set()
-                row_changed_undetermined: "set[Path]" = set()
-                row_removed: "set[Path]" = set()
-
-                # --delta whole-row skip (task brief "Deliverable 2") — a skip
-                # here runs NO gates, sync, or engine phases for this row; it
-                # does NOT touch `end_of_run_check_roots` (already appended
-                # above, unconditionally — the end-of-run identity/install-doc
-                # checks still scan this repo root's FULL tree regardless), and
-                # deliberately leaves `row_visited`/`row_published_dest_dirs`
-                # empty, matching a row this run never reached (§
-                # `dispatch_end_of_run_unscanned_published_check`'s
-                # `published_dest_dirs_by_repo_root` scoping — a skipped row
-                # published nothing THIS run, so it is correctly out of scope
-                # for that check's verdict too).
-                if delta_active and delta_signature is not None and delta_row_unchanged(
-                    setup_dir, target, delta_signature, round_pinned_shas
-                ):
-                    print(f"=== {target.name} ({target.mode}) ===", file=sys.stdout)
-                    if target.mode in mirror_like_wire_names():
-                        print(
-                            "  --delta: unchanged since last publish (store+transform "
-                            "signature, source HEAD, destination HEAD all match; "
-                            "clean-tree check does not apply to mirror-mode rows) — "
-                            "skipping.",
-                            file=sys.stdout,
-                        )
-                    else:
-                        print(
-                            "  --delta: unchanged since last publish (store+transform "
-                            "signature, source HEAD, destination HEAD all match, "
-                            "destination tree clean) — skipping.",
-                            file=sys.stdout,
-                        )
-                    print("", file=sys.stdout)
-                    skipped_row_names.append(target.name)
-                    continue
-
-                prev_processed = totals.processed
-                try:
-                    process_target(
-                        target,
-                        setup_dir,
-                        totals,
-                        identity_file_exists=identity_file_exists,
-                        identity=identity,
-                        dry_run=args.dry_run,
-                        round_pinned_shas=round_pinned_shas,
-                        engine_ctx=engine_ctx,
-                        percolate_store_path=percolate_store_path,
-                        publish_sync_module=publish_sync_module,
-                        all_rows=all_rows,
-                        module_accepts_foreign_dir_names=module_accepts_foreign_dir_names,
-                        shadow_roots_sink=all_shadow_roots,
-                        visited_files_sink=row_visited,
-                        published_dest_dirs_sink=row_published_dest_dirs,
-                        published_files_sink=row_published_files,
-                        changed_files_sink=row_changed,
-                        changed_undetermined_sink=row_changed_undetermined,
-                        removed_files_sink=row_removed,
-                        timing_sink=round_timings,
-                        pre_round_digest_sink=end_of_run_pre_round_digests,
-                    )
-                except (SystemExit, Exception) as exc:  # noqa: BLE001 - row isolation, see ledger comment above
-                    # § chunk C4 (AC8) — `content_swapped=True` means dest was
-                    # actually mutated by this row before the raise; this row's
-                    # own changed-set never reaches the fold below (the raise
-                    # happens before it), so the token index for this root must
-                    # be invalidated rather than left stale-but-covered.
-                    if isinstance(exc, PublishSwapPartial) and exc.content_swapped:
-                        end_of_run_token_index_invalidate_roots.add(repo_root)
-                        failed_row_mutated_roots.add(repo_root)
-                    code = getattr(exc, "code", None)
-                    # `OSError.__repr__` (what `{exc!r}` prints) emits only
-                    # `(errno, strerror)` — it discards `.filename`/
-                    # `.filename2`/`.winerror`, the very attributes
-                    # `os.rename`/`os.replace` populate and that name the
-                    # actual path(s) a sharing-violation/permission failure
-                    # hit. Surfacing them here is what let this defect
-                    # (`claude-klabauter-publish-repo-toplevel`'s root-dest
-                    # rename, WinError 32) be diagnosed from the FATAL line
-                    # alone instead of a dispatched investigation.
-                    filename = getattr(exc, "filename", None)
-                    filename2 = getattr(exc, "filename2", None)
-                    winerror = getattr(exc, "winerror", None)
-                    path_detail = ""
-                    if filename is not None or filename2 is not None or winerror is not None:
-                        path_detail = (
-                            f" [filename={filename!r}, filename2={filename2!r}, "
-                            f"winerror={winerror!r}]"
-                        )
-                    print(
-                        f"  FATAL: {target.name} aborted mid-row ({exc!r}, code={code!r}"
-                        f"{path_detail}) — "
-                        "marking this row FAILED and continuing with the remaining "
-                        "requested rows (a single row's fatal guard must not silently "
-                        "take the rest of the run with it).",
-                        file=sys.stderr,
-                    )
-                    print("", file=sys.stdout)
-                    failed_row_names.append(target.name)
-                    failed_dest_dirs_by_repo_root.setdefault(repo_root, set()).add(target.dest_dir)
-                    continue
-                # `process_target` returns `None` on BOTH its success path and
-                # every gate-declined-this-row path (allowlist build failure,
-                # dest-not-ready, engine unavailable, etc.) — none of those
-                # raise, they print their own "skipping" line and `return`
-                # early. The only on-disk signal that this row actually
-                # completed a publish is `totals.processed` having advanced
-                # (incremented once, at the very end of `process_target`'s
-                # success path, right before staging normally exits). Treating
-                # "did not raise" as "succeeded" counted a skipped row in
-                # "Rows succeeded", which also let the succeeded-count disagree
-                # with `totals.processed`'s own tally on the summary line.
-                if totals.processed == prev_processed:
-                    failed_row_names.append(target.name)
-                    failed_dest_dirs_by_repo_root.setdefault(repo_root, set()).add(target.dest_dir)
-                    continue
-                succeeded_row_names.append(target.name)
-                end_of_run_visited_by_repo_root.setdefault(repo_root, set()).update(row_visited)
-                end_of_run_published_dest_dirs_by_repo_root.setdefault(repo_root, set()).update(
-                    row_published_dest_dirs
-                )
-                end_of_run_published_files_by_repo_root.setdefault(repo_root, set()).update(
-                    row_published_files
-                )
-                end_of_run_changed_by_repo_root.setdefault(repo_root, set()).update(row_changed)
-                if row_changed_undetermined:
-                    end_of_run_changed_undetermined_roots.add(repo_root)
-                end_of_run_removed_by_repo_root.setdefault(repo_root, set()).update(row_removed)
-
-                # Record this row's new delta state ONLY after a verified
-                # successful publish (`totals.processed` incremented — §
-                # `process_target`'s success path). A failed/skipped-by-gate
-                # row must never record a delta record — an unrecorded row
-                # always falls through to the full path next time, which is
-                # the safe direction.
-                if delta_active and delta_signature is not None and totals.processed > prev_processed:
-                    post_source_sha = _delta_row_source_sha(target, round_pinned_shas)
-                    post_dest_head = (
-                        _git_head(target.dest_dir) if _is_git_repo(target.dest_dir) else ""
-                    )
-                    if post_source_sha is not None and post_dest_head:
-                        write_delta_record(
-                            setup_dir,
-                            target.name,
-                            signature=delta_signature,
-                            source_sha=post_source_sha,
-                            dest_head=post_dest_head,
-                        )
-        finally:
-            _cleanup_shadow_roots(tuple(dict.fromkeys(all_shadow_roots)))
-
-        # Publish provenance record (docs/plans/2026-08-19-the-published-
-        # engine-says-what-it-was-published-from.md C1) — after shadow-root
-        # cleanup, alongside the row-outcome tallies this same block already
-        # computed. Never under --dry-run: nothing landed to record
-        # provenance for, and the round's row lists above are advisory only
-        # in that mode.
-        if not args.dry_run:
-            write_publish_provenance_record(
-                succeeded_row_names=succeeded_row_names,
-                failed_row_names=failed_row_names,
-                skipped_row_names=skipped_row_names,
-                rows_by_name={t.name: t for t in parsed_rows.values()},
-                round_pinned_shas=round_pinned_shas,
-            )
+        # DR-445 (docs/decisions/DR-445-publish-assembles-in-a-throwaway-and-
+        # moves-once.md): stage every row -> assemble one throwaway tree per
+        # repo root -> gate the throwaway -> ONE swap -> commit directly ->
+        # delete. See `_run_round_dr445`'s own docstring for the phase
+        # breakdown; every `end_of_run_*`/`*_row_names`/`*_by_repo_root`
+        # accumulator below is mutated in place, same sink idiom `process_
+        # target` already used throughout this module.
+        round_result = _run_round_dr445(
+            rows,
+            parsed_rows,
+            requested_names,
+            args=args,
+            setup_dir=setup_dir,
+            identity_file_exists=identity_file_exists,
+            identity=identity,
+            round_pinned_shas=round_pinned_shas,
+            engine_ctx=engine_ctx,
+            percolate_store_path=percolate_store_path,
+            publish_sync_module=publish_sync_module,
+            all_rows=all_rows,
+            module_accepts_foreign_dir_names=module_accepts_foreign_dir_names,
+            totals=totals,
+            round_timings=round_timings,
+            delta_active=delta_active,
+            delta_signature=delta_signature,
+            percolate_root=percolate_root,
+            all_shadow_roots=all_shadow_roots,
+            end_of_run_check_roots=end_of_run_check_roots,
+            end_of_run_rows_by_repo_root=end_of_run_rows_by_repo_root,
+            end_of_run_row_sections=end_of_run_row_sections,
+            end_of_run_visited_by_repo_root=end_of_run_visited_by_repo_root,
+            end_of_run_changed_by_repo_root=end_of_run_changed_by_repo_root,
+            end_of_run_changed_undetermined_roots=end_of_run_changed_undetermined_roots,
+            end_of_run_token_index_invalidate_roots=end_of_run_token_index_invalidate_roots,
+            end_of_run_removed_by_repo_root=end_of_run_removed_by_repo_root,
+            end_of_run_pre_round_digests=end_of_run_pre_round_digests,
+            end_of_run_published_dest_dirs_by_repo_root=end_of_run_published_dest_dirs_by_repo_root,
+            end_of_run_published_files_by_repo_root=end_of_run_published_files_by_repo_root,
+            succeeded_row_names=succeeded_row_names,
+            failed_row_names=failed_row_names,
+            failed_dest_dirs_by_repo_root=failed_dest_dirs_by_repo_root,
+            failed_row_mutated_roots=failed_row_mutated_roots,
+            skipped_row_names=skipped_row_names,
+        )
+        deduped_roots = round_result.deduped_roots
+        gates_ok = round_result.gates_ok
+        commit_ran = round_result.commit_ran
+        commit_ok = round_result.commit_ok
+        residue_roots = round_result.residue_roots
 
         print("===============================")
         if mirror_expansion is not None:
@@ -13755,348 +14308,67 @@ def main(argv: Optional[List[str]] = None) -> int:
             _print_round_timing_summary(round_timings, _round_wall_start)
             return 1 if failed_row_names else 0
 
-        # 2026-08-14 aggregate-instead-of-abort fix: this used to be an early
-        # `return 1` on `failed_row_names`, which meant a round with a
-        # failing row NEVER reached the end-of-run gates below — a gate
-        # defect coexisting with a row failure only ever surfaced on the
-        # NEXT round, after the row failure was fixed, costing one extra
-        # round to discover per defect class. The gates read real,
-        # already-on-disk destination content (`end_of_run_check_roots`,
-        # populated for every row this run reached, success or failure — see
-        # the row loop above), so running them regardless of `failed_row_
-        # names` reports every problem in a single round instead of one
-        # class at a time. No gate's own verdict logic changed — only
-        # whether/when it runs.
-        # § chunk C3.5 (docs/plans/2026-08-23-rebuild-the-percolate-round-as-
-        # six-steps.md) — persist ONE `RoundManifest` per repo root this run
-        # actually wrote to, using C2's own shape (`coordinator_core.percolate.
-        # manifest`) rather than a second one. This is the step that WROTE the
-        # bytes (`end_of_run_changed_by_repo_root`/`end_of_run_removed_by_
-        # repo_root`, folded above from `process_target`'s `changed_files_
-        # sink`/`removed_files_sink` — both themselves sourced from
-        # `_report_published_diff`'s honest staging-vs-dest comparison, never
-        # a re-parse of this driver's own printed report), so this is the
-        # correct place to record what it did — independent of the end-of-run
-        # gates below, which verify the result rather than produce it. A repo
-        # root with at least one row whose changed-set was undeterminable
-        # (`end_of_run_changed_undetermined_roots`) gets NO manifest — a
-        # manifest that silently under-reports its own added/updated set is
-        # worse than one that does not exist yet (fail wide, never narrow, §
-        # `PhaseResult.changed_files`'s own contract). `declared_payload` (§ C1,
-        # docs/dispatch-briefs/2026-08-26-a-refused-round-strands-its-payload-
-        # forever/C1.md) is sourced from `end_of_run_visited_by_repo_root` --
-        # the same per-row `visited_files_sink` enumeration `dispatch_end_of_
-        # run_unscanned_published_check` already reads, itself a cheap path
-        # enumeration (`dispatch_percolate_post_rsync`/`dispatch_percolate_
-        # inject`'s `visited_sink`), never a re-derived whole-payload AST walk
-        # (§ `payload_parity`'s own docstring: 3.27s against a 500ms ceiling).
-        import uuid as _uuid  # noqa: PLC0415 - lazy, this round-id generation is the only user
-
-        from coordinator_core.percolate.manifest import RoundManifest as _RoundManifest
-        from coordinator_core.percolate.manifest import write_manifest as _write_manifest
-        from coordinator_core.percolate.round import default_manifest_path as _default_manifest_path
-        from coordinator_core.wire_paths import rel_id as _rel_id
-
-        # § chunk C4 (state/dispatch-briefs/2026-08-26-payload-parity-asks-an-
-        # index-not-the-payload/C4.md) — each round updates
-        # `coordinator_core.percolate.token_index`'s on-disk index from the
-        # SAME `_root_changed`/`_root_removed` sets the manifest above is
-        # built from (never a hand-rolled second delta — a probe's exactness
-        # result is a result about THOSE sets). One "invalidate this root"
-        # call covers all three branches AC8 names: an undetermined root, a
-        # refused row (never swapped, contributes nothing, needs no special
-        # case here), and a `PublishSwapPartial(content_swapped=True)` root
-        # (`end_of_run_token_index_invalidate_roots`, populated at the row
-        # exception handler above since that row's own delta never reaches
-        # `end_of_run_changed_by_repo_root`).
-        _manifest_round_id = f"publish-{_uuid.uuid4().hex}"
-        for _manifest_root in dict.fromkeys(end_of_run_check_roots):
-            # § chunk C4 (AC8) — one named disposition per root, both
-            # invalidating branches routed through the same single call.
-            _token_index_action = _token_index_action_for_root(
-                _manifest_root,
-                invalidate_roots=end_of_run_token_index_invalidate_roots,
-                undetermined_roots=end_of_run_changed_undetermined_roots,
-            )
-            if _token_index_action == "invalidate":
-                _invalidate_token_index(_manifest_root)
-            if _manifest_root in end_of_run_changed_undetermined_roots:
-                continue
-            _root_changed = end_of_run_changed_by_repo_root.get(_manifest_root) or set()
-            _root_removed = end_of_run_removed_by_repo_root.get(_manifest_root) or set()
-            _root_declared = end_of_run_visited_by_repo_root.get(_manifest_root) or set()
-            # § AC1, docs/dispatch-briefs/2026-08-26-open-the-
-            # percolate-removal-side/C1.md — the row scope a removal-side
-            # derivation must intersect against, sourced from the SAME
-            # `published_dest_dirs_sink` accumulator the unscanned-published
-            # guard already reads (§ its own comment above), never re-derived.
-            _root_published_dest_dirs = (
-                end_of_run_published_dest_dirs_by_repo_root.get(_manifest_root) or set()
-            )
-            # A no-change round MUST still write its manifest when the row
-            # declared a payload. The changed/removed-only guard that used to
-            # stand here is precisely what strands a refused round's bytes: the
-            # residue compares byte-equal forever after, so `_root_changed` and
-            # `_root_removed` are both empty on every subsequent round, no
-            # manifest is written, and the commit leg is handed nothing to name.
-            # `declared_payload` is the whole point of the third set -- it is
-            # non-empty on exactly the rounds the other two are empty on.
-            if not _root_changed and not _root_removed and not _root_declared:
-                continue
-            # § AC2 — `_root_declared` (`end_of_run_visited_by_repo_root`) only
-            # names what the percolation-surface walk SCANNED
-            # (`include_extensions`/`narrow_to_include_extensions`-eligible),
-            # not everything the row actually published -- a payload file
-            # whose extension is not transform-eligible (e.g. a binary) is
-            # tracked at dest HEAD but absent from that scan. Widen past the
-            # scan surface by enumerating every path already on disk under
-            # THIS run's own published dest dirs directly -- `os.walk`-class
-            # path enumeration of directories already known, no per-path
-            # spawn, no content read (§ `payload_parity`'s 3.27s-at-500ms-
-            # ceiling anti-scope, binding here too).
-            #
-            # NARROW, after the widening above and never before it: a path
-            # THIS round deleted as absent from source is the opposite of a
-            # declared payload path -- the row's own claim is that it does not
-            # belong -- yet it reaches both operands. The percolation-surface
-            # scan and the orphan sweep (`publish_sync :: sync_mirror`'s
-            # `REMOVE DIR:` leg) are separate passes over the same tree, so a
-            # path one row swept can still be scanned under a sibling row's
-            # `dest_dir`, and can still be on disk under a sibling
-            # `published_dest_dirs` entry for `_walk_published_payload` to
-            # name. Left in, the overlap is silently self-defeating rather
-            # than loud: the removal rule is `(head_tree n row_scope) -
-            # declared_payload` (§ `percolate-round.py ::
-            # _pathspec_from_manifest`), so exactly the paths the round most
-            # explicitly intends to delete are the ones it protects. Measured
-            # on the `coordinator-claude` mirror 2026-08-26 (cross-repo/inbox/
-            # 2026-08-26-coordinator-content-repo-em-coordinator-claude-remeasured-declared-
-            # payload-protects-the-removals.md): the retired `whoami/` package
-            # sat in `declared_payload` and `removed` at once, 23 of that
-            # mirror's 67 outstanding removals.
-            _root_declared_paths = (
-                set(_root_declared) | _walk_published_payload(_root_published_dest_dirs)
-            ) - _root_removed
-            # The manifest is what the round commits and counts from, so it
-            # carries the NET change set; the token-index delta below keeps the
-            # raw one.
-            _round_manifest = _RoundManifest(
-                round_id=_manifest_round_id,
-                added_or_updated=frozenset(
-                    _rel_id(p, _manifest_root)
-                    for p in _net_changed_paths(_root_changed, end_of_run_pre_round_digests)
-                ),
-                removed=frozenset(_rel_id(p, _manifest_root) for p in _root_removed),
-                declared_payload=frozenset(
-                    _rel_id(p, _manifest_root) for p in _root_declared_paths
-                ),
-                published_dest_dirs=frozenset(
-                    _rel_id(p, _manifest_root) for p in _root_published_dest_dirs
-                ),
-            )
-            _write_manifest(
-                _round_manifest,
-                _default_manifest_path(_manifest_root, _manifest_round_id),
-            )
-            # § chunk C4 — reuse the SAME `_root_changed`/`_root_removed` sets
-            # the manifest just above was built from, never a re-derived
-            # delta. Skipped for a root this round already invalidated
-            # (§ `end_of_run_token_index_invalidate_roots` above) — folding a
-            # partial delta on top of a just-deleted index would only cover
-            # the delta, not the full tree, defeating the invalidation.
-            if _token_index_action == "update":
-                _update_token_index_from_delta(_manifest_root, _root_changed, _root_removed)
-
-        # All four legs always run (never short-circuited by an earlier one's
-        # failure) so a single run surfaces every defect it can find, not just
-        # the first.
-        deduped_roots = list(dict.fromkeys(end_of_run_check_roots))
-
-        # STRIP `state/` FROM EVERY DESTINATION, before the four legs below read
-        # the tree. `state` is in `STRUCTURAL_NEVER_PUBLISHED_PREFIXES`, but that
-        # tuple is a WALK exclusion and removes nothing, and the removal side only
-        # ever names TRACKED dest-HEAD paths -- a mirror's `state/` is untracked and
-        # gitignored, so neither surface could clear it and the mirror accumulated
-        # it round after round (19 files across ~13 writers by 2026-09-02). See
-        # `surface.sweep_never_published_state` for why the two jobs are separate.
-        #
-        # Placed BEFORE the end-of-run legs, not after: the unscanned-published
-        # check is the leg that fail-closes on this residue, and clearing it first
-        # is the difference between a round that passes and one that FATALs and
-        # abandons its remaining per-row commits.
-        from coordinator_core.percolate import surface as _sweep_surface
-
-        for _sweep_root in deduped_roots:
-            _swept = _sweep_surface.sweep_never_published_state(
-                Path(_sweep_root),
-                published_dest_dirs=end_of_run_published_dest_dirs_by_repo_root.get(
-                    Path(_sweep_root)
-                ),
-            )
-            if _swept:
-                print(
-                    f"  swept {len(_swept)} never-published state/ file(s) from "
-                    f"{_sweep_root}"
-                )
-        with _time_phase(round_timings, "<round>", "dispatch_end_of_run_identity_check"):
-            identity_ok = dispatch_end_of_run_identity_check(
-                engine_ctx,
-                deduped_roots,
-                target_filtered=bool(args.target),
-                percolate_root=percolate_root,
-                rows_by_repo_root=end_of_run_rows_by_repo_root,
-                skipped_row_names=skipped_row_names,
-            )
-        with _time_phase(round_timings, "<round>", "dispatch_end_of_run_install_doc_payload_check"):
-            install_doc_ok = dispatch_end_of_run_install_doc_payload_check(
-                deduped_roots,
-                target_filtered=bool(args.target),
-            )
-        with _time_phase(round_timings, "<round>", "dispatch_end_of_run_unscanned_published_check"):
-            unscanned_ok = dispatch_end_of_run_unscanned_published_check(
-                end_of_run_row_sections,
-                target_filtered=bool(args.target),
-                visited_files_by_repo_root=end_of_run_visited_by_repo_root,
-                published_dest_dirs_by_repo_root=end_of_run_published_dest_dirs_by_repo_root,
-                published_files_by_repo_root=end_of_run_published_files_by_repo_root,
-            )
-        # § chunk C4B (AC3) — wires C4's `run_function_gate` into the driver.
-        # FAIL-HARD unconditionally (see that function's own docstring for the
-        # judgement-call rationale) — engine_ctx.engine_claude_klabauter is narrowed non-None by
-        # the same `not dry_run` guard the other three legs rely on.
-        with _time_phase(round_timings, "<round>", "dispatch_end_of_run_function_gate"):
-            function_gate_ok = dispatch_end_of_run_function_gate(
-                engine_ctx,
-                deduped_roots,
-                target_filtered=bool(args.target),
-            )
-        # § chunk C3 (AC3/AC4) — wires C2's `run_entrypoint_gate` into the
-        # driver. FAIL-HARD unconditionally, same shape as `function_gate_ok`
-        # immediately above; a distinct, complementary check (§ that
-        # function's own docstring) — neither leg subsumes the other.
-        # § chunk C4 (docs/plans/2026-08-16-percolate-round-timing-and-
-        # changed-only.md) — a repo root in `end_of_run_changed_undetermined_
-        # roots` maps to `None` (undeterminable, § `dispatch_end_of_run_
-        # entrypoint_gate`'s own per-root fallback), never to its partial
-        # `end_of_run_changed_by_repo_root` union — fail WIDE, not narrow.
-        end_of_run_changed_files_by_repo_root: "dict[Path, Optional[set[Path]]]" = {
-            root: (None if root in end_of_run_changed_undetermined_roots else changed)
-            for root, changed in end_of_run_changed_by_repo_root.items()
-        }
-        with _time_phase(round_timings, "<round>", "dispatch_end_of_run_entrypoint_gate"):
-            entrypoint_gate_ok = dispatch_end_of_run_entrypoint_gate(
-                engine_ctx,
-                deduped_roots,
-                target_filtered=bool(args.target),
-                changed_files_by_repo_root=end_of_run_changed_files_by_repo_root,
-                changed_only=bool(args.changed_only) and not bool(args.full_sweep),
-            )
-        # functional-identifier drift detector into this sequence, because
-        # nothing called it and a scrub that renamed a wire identifier shipped
-        # unnoticed.
-        #
-        # NOT CALLED, deliberately, pending a discriminator respec. The leg and
-        # its tests are retained and correct; what is wrong is what the detector
-        # discriminates on. Measured 2026-08-08 over all 7 targets
-        # (docs/research/spike-verdicts/2026-08-08-drift-gate-discriminator-
-        # position-validity.md): 7236 reported pairs, 0 defects among them, and
-        # the SyntaxError-across-15-files defect this gate exists to catch is
-        # NOT reportable by it under any discriminator -- both sides of that pair
-        # are classified 'mention' by _extract_functional_tokens and never enter
-        # the candidate stream. Enabling it therefore blocks every publish while
-        # detecting nothing. Re-enable only once extraction is position-aware.
-        drift_check_ok = True
-        # § chunk C4 (AC4/AC6) — wires C1's `argv_parity_report` into the
-        # driver as an end-of-run leg, over the same deduplicated
-        # destination roots as the four legs above. FAIL-HARD
-        # unconditionally (see that function's own docstring for the
-        # judgement-call rationale); target_filtered is still passed
-        # through for call-site symmetry and the docstring's own record of
-        # why severity does not vary on it here.
-        with _time_phase(round_timings, "<round>", "dispatch_end_of_run_argv_parity_gate"):
-            argv_parity_ok = dispatch_end_of_run_argv_parity_gate(
-                deduped_roots,
-                target_filtered=bool(args.target),
-            )
-        # § chunk C3 (docs/plans/2026-08-28-a-dropped-module-must-not-leave-
-        # its-test-behind.md) — wires C2's `run_assembled_mirror_gate` into
-        # the driver as an end-of-run leg, over the same `deduped_roots` /
-        # `end_of_run_rows_by_repo_root` shape as the legs above. FAIL-HARD
-        # unconditionally (see that function's own docstring for the
-        # judgement-call rationale, mirroring `argv_parity_ok` immediately
-        # above); a declared exemption in `setup/publish-allowlist-
-        # declarations.yaml`'s `assembled_mirror_gate_exemptions` is the
-        # only way past a refusal -- no override flag.
-        with _time_phase(round_timings, "<round>", "dispatch_end_of_run_assembled_mirror_gate"):
-            assembled_mirror_gate_ok = dispatch_end_of_run_assembled_mirror_gate(
-                deduped_roots,
-                rows_by_repo_root=end_of_run_rows_by_repo_root,
-                target_filtered=bool(args.target),
-            )
-        gates_ok = (
-            identity_ok
-            and install_doc_ok
-            and unscanned_ok
-            and function_gate_ok
-            and entrypoint_gate_ok
-            and drift_check_ok
-            and argv_parity_ok
-            and assembled_mirror_gate_ok
-        )
-        if not gates_ok:
-            print(
-                "publish.py: FATAL — end-of-run check(s) failed; treat this run's "
-                "published bytes as unverified (AC15 fail-closed).",
-                file=sys.stderr,
-            )
-
         # § C1 — printed once here, ahead of every return below it (row
         # failure, gate failure, or clean success): all three return points
         # from here down are sequential, not alternative branches, so one
         # placement covers all of them without duplicating the summary print.
+        # DR-445: `gates_ok`/`commit_ran`/`commit_ok`/`residue_roots` are now
+        # `_run_round_dr445`'s own return fields (§ `round_result` above),
+        # not recomputed here — the commit itself already ran, directly
+        # after the round's one swap, inside that function.
         _print_round_timing_summary(round_timings, _round_wall_start)
 
-        # § C1 (docs/plans/2026-09-23-partial-round-strand.md) — the commit
-        # now runs AHEAD of the failed-row / gate-failure returns below, not
-        # after them: a partial round's succeeded rows are verified (every
-        # end-of-run gate passed) whether or not every requested row landed,
-        # and committing them here is what stops a partial round from
-        # stranding synced-but-uncommitted bytes. The exit-code precedence
-        # is otherwise UNCHANGED — a row failure still wins exit 1 over a
-        # gate failure's 2, and a commit failure is still 3 — this only
-        # moves WHETHER the commit happens ahead of those checks, never
-        # what they return. A failed row's own subtree is always excluded
-        # (`failed_dest_dirs_by_repo_root`) and a root a failed row actually
-        # mutated is always skipped whole (`failed_row_mutated_roots`) — see
-        # `_commit_published_dests`'s own negative-spec block. Never called
-        # when no row succeeded or when `--dry-run` returned further up.
-        commit_ran = bool(args.commit and gates_ok and succeeded_row_names)
-        commit_ok = True
-        uncommitted_after_commit: "set[Path]" = set()
-        if commit_ran:
-            print("=== publish.py — commit ===")
-            commit_ok = _commit_published_dests(
-                end_of_run_published_dest_dirs_by_repo_root,
-                succeeded_row_names=succeeded_row_names,
-                round_pinned_shas=round_pinned_shas,
-                exclude_dirs_by_repo_root=failed_dest_dirs_by_repo_root,
-                skip_repo_roots=failed_row_mutated_roots,
-                uncommitted_roots_sink=uncommitted_after_commit,
-            )
-
-        # AC5 residue set — every dest root this round leaves with synced-
-        # but-uncommitted bytes. A root a failed row actually mutated is
-        # always residue (never committed, whatever else happened). When
-        # the commit ran, the rest of the residue is exactly what
-        # `_commit_published_dests` reports uncommitted (a skipped or
-        # commit-failed root). When it did NOT run (gate failure, or no
-        # succeeded rows, or --commit not passed), every root this round
-        # published bytes into is still uncommitted.
-        residue_roots: "set[Path]" = set(failed_row_mutated_roots)
-        if commit_ran:
-            residue_roots |= uncommitted_after_commit
-        else:
-            residue_roots |= set(end_of_run_published_dest_dirs_by_repo_root.keys())
+        # Structural restore-or-commit invariant (2026-09-29 PM ruling): a
+        # residue root is, by definition, synced-but-uncommitted bytes this
+        # round is about to exit WITHOUT committing (a row failure excluded
+        # it, a gate failure blocked the commit entirely, or the commit call
+        # itself failed). The prior contract left it dirty on purpose, for a
+        # human to reconcile via `percolate-round --reconcile-dest`; that is
+        # exactly the half-committed state the PM ruling forbids. Every
+        # dest_dir this round published into, under a residue root, is
+        # restored to HEAD here — scoped per dest_dir pathspec, never a
+        # whole-root `git checkout .`/`git clean`, so a concurrent human
+        # edit elsewhere in the same repo (outside every row's own dest_dir)
+        # is untouched. `_assert_dest_subtree_clean` fails LOUD (raises,
+        # uncaught here — a residue root this cannot clean is a defect this
+        # run must not paper over by returning quietly) if the restore did
+        # not finish the job.
+        # Trap: a clean `--no-commit` round's residue is its deliverable --
+        # `percolate-round.py` commits exactly these bytes next. Restoring it
+        # here erased every such round while it still reported success.
+        _no_commit_handoff = (
+            not args.commit and not failed_row_names and gates_ok and commit_ok
+        )
+        for _residue_repo_root in residue_roots:
+            if _no_commit_handoff and _residue_repo_root not in failed_row_mutated_roots:
+                continue
+            if _residue_repo_root in failed_row_mutated_roots:
+                # `PublishSwapPartial(content_swapped=True)` -- the failed
+                # row's OWN dest_dir subtree is `process_target`'s job to
+                # restore (§ its own `finally` block); this whole-root case
+                # is distinct: the mutated root's dirty state "cannot be
+                # attributed to one dest-dir subtree" (§ `_commit_published_
+                # dests`'s own docstring for `skip_repo_roots`), so restore
+                # the WHOLE repo root here rather than trusting the narrower
+                # `published_dest_dirs_sink` set, which may not even include
+                # the failed row (it records only on that row's OWN success
+                # path).
+                _restore_dest_subtree_to_head(_residue_repo_root, _residue_repo_root)
+                _assert_dest_subtree_clean(
+                    _residue_repo_root,
+                    _residue_repo_root,
+                    context="main(): end-of-round mutated-root residue restore",
+                )
+                continue
+            for _residue_dest_dir in end_of_run_published_dest_dirs_by_repo_root.get(
+                _residue_repo_root, set()
+            ):
+                _restore_dest_subtree_to_head(_residue_repo_root, _residue_dest_dir)
+                _assert_dest_subtree_clean(
+                    _residue_repo_root,
+                    _residue_dest_dir,
+                    context="main(): end-of-round residue restore",
+                )
 
         # Checked AFTER the gates above run (2026-08-14 aggregate-instead-of-
         # abort fix), not before — see this branch's `--dry-run` counterpart

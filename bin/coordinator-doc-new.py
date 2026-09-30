@@ -1370,6 +1370,37 @@ def _resolve_session_display_name(session_id: str) -> str | None:
     return record.name or None
 
 
+def _resolve_minted_by_line() -> str | None:
+    """The ``minted_by: <github alias>`` frontmatter line, or ``None`` when the
+    operating human does not resolve.
+
+    ``minted_by`` is the machine-readable attribution field: the casefolded
+    ``github`` alias of the operating person, the same value
+    ``handoff.normalize`` stamps at the other creation doors
+    (``handoff_author_fork`` / ``queue_scaffold_baton``). The ``# minted by
+    <session name>`` comment beside ``authoring_session:`` is a human-readable
+    annotation of a different axis (the harness session) and no reader parses
+    it.
+
+    Trap: never write the session display name into this field -- that value
+    space is the person alias, and a session name there reads as a person to
+    every consumer. Unresolvable identity omits the key entirely (no null, no
+    sentinel), matching ``handoff_normalize``.
+    """
+    try:
+        _ensure_engine_on_path()
+        from coordinator_core.person_resolver import resolve_operating_person
+        alias = resolve_operating_person().get("github")
+    except Exception:  # noqa: BLE001 -- identity seam absent; omit the key
+        return None
+    if not alias:
+        return None
+    # Bare, like the value handoff.normalize writes; quote only if unsafe bare.
+    if not re.fullmatch(r"[a-z0-9][a-z0-9._-]*", alias):
+        alias = _yaml_quote(alias)
+    return f"minted_by: {alias}"
+
+
 def _resolve_plan_author() -> str:
     """Stamp a plan's `author:` with the minting session's name AND its uuid,
     as `claude-klabauter-76 (7f3a...-...)`, not the repo-wide EM role string
@@ -2747,6 +2778,9 @@ def _scaffold_handoff(
         if _display_name:
             lines.append(f"# minted by {_display_name}")
         lines.append(f"authoring_session: {_yaml_quote(_authoring_session)}")
+        _minted_by_line = _resolve_minted_by_line()
+        if _minted_by_line:
+            lines.append(_minted_by_line)
     lines.extend([
         "---",
         "",
@@ -3071,6 +3105,9 @@ def _scaffold_spinoff(
     _authoring_session_line = (
         f"# minted by {_display_name}\n" if _display_name else ""
     ) + f"authoring_session: {_yaml_quote(_authoring_session_value)}"
+    _minted_by_line = _resolve_minted_by_line()
+    if _minted_by_line:
+        _authoring_session_line += f"\n{_minted_by_line}"
     # --gated-open declares an ORDERING edge (blocked_by), never the
     # predecessor:none-by-design lineage edge (A3a-3) -- see this function's
     # docstring. Blank is refused for the same reason _scaffold_handoff
@@ -3246,6 +3283,7 @@ def _scaffold_roadmap_baton(
     blocks: list[str] | None = None,
     predecessor: str | None = None,
     goals: list[str] | None = None,
+    covers: list[str] | None = None,
 ) -> str:
     """Generate validator-clean roadmap-baton frontmatter + canonical section skeleton.
 
@@ -3283,6 +3321,13 @@ def _scaffold_roadmap_baton(
     the same terms as `blocks` — never resolved, validated, or minted here.
     Omitted → `predecessor: none`, byte-identical to every caller that does not
     pass it.
+
+    `covers` (--covers, repeatable) is the coverage carrier `audit-roadmap`'s
+    stub-coverage check reads: the KEEP cluster ids this baton folds (Step 2.1.6
+    folds many clusters into one baton, so a verdict-cell count cannot model it).
+    Emitted verbatim, never resolved or validated here; omitted -> `covers: []`,
+    the visible empty carrier the author fills, which the audit reads as "no
+    coverage declared" (count-measured legacy arm) rather than as a defect.
 
     Still NOT carried, named rather than silently dropped: `blocked_by`, `sprint`,
     `wave`. `blocked_by` is deliberately excluded — it is DERIVED readiness state
@@ -3365,6 +3410,12 @@ def _scaffold_roadmap_baton(
         lines.extend(f"  - {_yaml_quote(_entry)}" for _entry in _blocks)
     else:
         lines.append("blocks: []")
+    _covers = [c.strip() for c in (covers or []) if isinstance(c, str) and c.strip()]
+    if _covers:
+        lines.append("covers:")
+        lines.extend(f"  - {_yaml_quote(_entry)}" for _entry in _covers)
+    else:
+        lines.append("covers: []  # KEEP cluster ids this baton folds (Step 2.1.6); audit-roadmap reads coverage from here")
     lines += [
         "blocked_by: []",
         "scope:",
@@ -3548,6 +3599,9 @@ def _scaffold_goal_seed(
         if _display_name:
             lines.append(f"# minted by {_display_name}")
         lines.append(f"authoring_session: {_yaml_quote(_authoring_session_value)}")
+        _minted_by_line = _resolve_minted_by_line()
+        if _minted_by_line:
+            lines.append(_minted_by_line)
     else:
         lines.append("authoring_session: PLACEHOLDER")
     lines.append("workstream: PLACEHOLDER")
@@ -3714,6 +3768,9 @@ def _scaffold_roadmap_seed(
         if _display_name:
             lines.append(f"# minted by {_display_name}")
         lines.append(f"authoring_session: {_yaml_quote(_authoring_session_value)}")
+        _minted_by_line = _resolve_minted_by_line()
+        if _minted_by_line:
+            lines.append(_minted_by_line)
     else:
         lines.append("authoring_session: PLACEHOLDER")
     lines.extend([
@@ -4928,12 +4985,88 @@ def _scaffold_goal(title: str) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _sizing_schema_enums() -> dict[str, tuple[str, ...]]:
+    """The sizing-object schema's enums for the flags `--type sizing-object` takes.
+
+    Read off the schema at call time, never hand-copied: an enum member the
+    schema gains is accepted here in the same commit. Located off the imported
+    package, never `__file__` — this CLI is published one directory shallower
+    than it is authored.
+    """
+    import json as _json  # noqa: PLC0415
+    from pathlib import Path as _SchemaPath  # noqa: PLC0415
+    import coordinator_core.frontmatter as _frontmatter_pkg  # noqa: PLC0415
+
+    _bootstrap_engine()
+    _schema_path = (
+        _SchemaPath(_frontmatter_pkg.__file__).resolve().parent
+        / "schemas" / "sizing-object.schema.json"
+    )
+    _props = _json.loads(_schema_path.read_text(encoding="utf-8"))["properties"]
+    return {
+        "tshirt": tuple(_props["estimate"]["properties"]["tshirt"]["enum"]),
+        "route": tuple(_props["route"]["enum"]),
+        "premise": tuple(_props["premise"]["properties"]["provenance"]["enum"]),
+        "detents": tuple(_props["detents"]["items"]["enum"]),
+    }
+
+
+#: `premise.evidence` is required by the schema for every provenance but this one.
+_SIZING_PREMISE_EVIDENCE_EXEMPT = "unrecorded"
+
+
+def _validate_sizing_flags(args) -> tuple[list[str] | None, str | None]:
+    """Validate `--tshirt/--route/--premise/--premise-evidence/--detents`.
+
+    Returns `(detents, error)`: `error` is a refusal message (nothing written)
+    or None, and `detents` is the parsed `--detents` list (None when the flag
+    is absent). Enums come from `_sizing_schema_enums`, so a value the schema
+    would reject never reaches disk.
+    """
+    _enums = _sizing_schema_enums()
+    _detents = None
+    for _flag, _val, _key in (
+        ("--tshirt", args.tshirt, "tshirt"),
+        ("--route", args.route, "route"),
+        ("--premise", args.premise, "premise"),
+    ):
+        if _val is not None and _val not in _enums[_key]:
+            return None, f"{_flag} '{_val}' is not one of: {', '.join(_enums[_key])}."
+    if args.detents is not None:
+        _detents = [d.strip() for d in args.detents.split(",") if d.strip()]
+        _bad = [d for d in _detents if d not in _enums["detents"]]
+        if _bad:
+            return None, (
+                f"--detents value(s) {', '.join(_bad)} not in the schema enum: "
+                f"{', '.join(_enums['detents'])}."
+            )
+    if args.premise_evidence is not None and not args.premise_evidence.strip():
+        return None, "--premise-evidence must not be empty."
+    if args.premise_evidence and args.premise is None:
+        return None, "--premise-evidence requires --premise."
+    if (
+        args.premise is not None
+        and args.premise != _SIZING_PREMISE_EVIDENCE_EXEMPT
+        and not args.premise_evidence
+    ):
+        return None, (
+            f"--premise {args.premise} requires --premise-evidence: cite the "
+            "file:line, test, or command output the premise rests on."
+        )
+    return _detents, None
+
+
 def _scaffold_sizing(
     title: str,
     deliverable_id: str | None = None,
     exit_criterion: str | None = None,
     interaction_mode: str | None = None,
     name: str | None = None,
+    tshirt: str | None = None,
+    route: str | None = None,
+    premise: str | None = None,
+    premise_evidence: str | None = None,
+    detents: list[str] | None = None,
 ) -> str:
     """Generate validator-clean whole-document-YAML sizing-object record.
 
@@ -4989,6 +5122,13 @@ def _scaffold_sizing(
     the field out entirely (no backfill posture; unlike `deliverable_id`
     there is no present-as-null convention for either — the schema declares
     them optional, not required-and-nullable).
+
+    `tshirt`, `route`, `premise`, `premise_evidence` and `detents`, when
+    supplied, replace the scaffold defaults (XS / dispatch / unrecorded /
+    PLACEHOLDER evidence / []) with the caller's values, so a caller with no
+    Edit tool can record a real sizing at birth. Values arrive already
+    validated against the sizing schema by `_validate_sizing_flags`; each
+    omitted one leaves its default line byte-identical.
     """
     _bootstrap_engine()
     intent_placeholder = title if title else "PLACEHOLDER — replace with the PM's ask, verbatim"
@@ -5005,16 +5145,20 @@ def _scaffold_sizing(
         _name_line,
         f"intent: {_yaml_quote(intent_placeholder)}",
         "estimate:",
-        "  tshirt: XS  # XS | S | M | L | XL | XXL — reuses loe.tshirt; coarse ROUTING estimate only",
+        f"  tshirt: {tshirt or 'XS'}  # XS | S | M | L | XL | XXL — reuses loe.tshirt; coarse ROUTING estimate only",
         "  provisional: true  # always true — never the committed plan-body LoE",
-        "route: dispatch  # dispatch | spec-dispatch | shape | plan | roadmap | pm-decision | goal-setting",
-        "detents: []  # boundary detents crossed while sizing (e.g. appetite_exceeded); [] if none",
+        f"route: {route or 'dispatch'}  # dispatch | spec-dispatch | shape | plan | roadmap | pm-decision | goal-setting",
+        f"detents: [{', '.join(detents or [])}]  # boundary detents crossed while sizing (e.g. appetite_exceeded); [] if none",
         "fork: null  # cut_to_fit | raise_appetite | null — set ONLY on genuine appetite/estimate divergence; never auto-resolved",
         "xl_exit: null  # split | shape | roadmap | accept_multi_session | null — the PM's pick at a pm-decision route; null means NOT YET CHOSEN, never 'accepted'",
         "status: draft  # draft | sized | routed | shipped | declined | superseded",
         "premise:",
-        "  provenance: unrecorded  # executed | read | not-applicable | unrecorded — how the premise was verified; ADVISORY, never blocks a route",
-        "  evidence: PLACEHOLDER — cite the file:line, test, or command output you actually looked at; answered in place, never spun into its own record",
+        f"  provenance: {premise or 'unrecorded'}  # executed | read | not-applicable | unrecorded — how the premise was verified; ADVISORY, never blocks a route",
+        (
+            f"  evidence: {_yaml_quote(premise_evidence)}"
+            if premise_evidence
+            else "  evidence: PLACEHOLDER — cite the file:line, test, or command output you actually looked at; answered in place, never spun into its own record"
+        ),
         f"deliverable_id: {_yaml_quote(deliverable_id) if deliverable_id else 'null'}  # durable spine join key — re-scaffold with --deliverable-id <id> to join an existing baton's, never hand-edit",
     ]
     if exit_criterion:
@@ -6277,6 +6421,59 @@ Spec backlink (workflow): pln-workflow-skeleton-stamper-maki-adab0d
         ),
     )
     parser.add_argument(
+        "--tshirt",
+        dest="tshirt",
+        default=None,
+        metavar="SIZE",
+        help=(
+            "(sizing-object) estimate.tshirt: XS | S | M | L | XL | XXL. Validated "
+            "against the sizing-object schema; omitted scaffolds XS. Refused for every "
+            "other --type."
+        ),
+    )
+    parser.add_argument(
+        "--route",
+        dest="route",
+        default=None,
+        metavar="ROUTE",
+        help=(
+            "(sizing-object) route: dispatch | spec-dispatch | shape | plan | roadmap | "
+            "pm-decision | goal-setting. Validated against the sizing-object schema; "
+            "omitted scaffolds dispatch. Refused for every other --type."
+        ),
+    )
+    parser.add_argument(
+        "--premise",
+        dest="premise",
+        default=None,
+        metavar="PROVENANCE",
+        help=(
+            "(sizing-object) premise.provenance: executed | read | not-applicable | "
+            "unrecorded. Every value but unrecorded requires --premise-evidence. "
+            "Omitted scaffolds unrecorded. Refused for every other --type."
+        ),
+    )
+    parser.add_argument(
+        "--premise-evidence",
+        dest="premise_evidence",
+        default=None,
+        metavar="TEXT",
+        help=(
+            "(sizing-object) premise.evidence: the file:line, test, or command output "
+            "the premise rests on. Requires --premise. Refused for every other --type."
+        ),
+    )
+    parser.add_argument(
+        "--detents",
+        dest="detents",
+        default=None,
+        metavar="D1,D2",
+        help=(
+            "(sizing-object) Comma-separated detents, each a member of the schema's "
+            "detents enum. Omitted scaffolds []. Refused for every other --type."
+        ),
+    )
+    parser.add_argument(
         "--name",
         dest="sizing_name",
         default=None,
@@ -6585,6 +6782,21 @@ Spec backlink (workflow): pln-workflow-skeleton-stamper-maki-adab0d
             "reads to every gate check as a severed graph, which is what the "
             "blocks/blocked_by asymmetry surface then reports as a data defect. "
             "Omitted -> blocks: [], byte-identical to callers that do not pass it."
+        ),
+    )
+
+    parser.add_argument(
+        "--covers",
+        dest="covers",
+        action="append",
+        default=None,
+        metavar="CLUSTER_ID",
+        help=(
+            "(roadmap-baton) Repeatable, one KEEP cluster id per occurrence (same "
+            "no-comma-join rationale as --blocks). Written to the covers: frontmatter "
+            "list that audit-roadmap's stub-coverage check reads (every KEEP cluster "
+            "named in exactly one stub's covers:). Carried verbatim, never validated "
+            "here. Omitted -> covers: [] (empty carrier to fill)."
         ),
     )
 
@@ -7216,71 +7428,77 @@ def main(argv: "list[str] | None" = None) -> int:
                     title, doc_type, _current_repo_root()
                 )
         elif doc_type == "plan":
-            # Session-state parent tier (2026-08-01 deliverable-id-fork-remediation
-            # C1/AC1) — reachable for `plan` only, ordered after explicit/env carry
-            # and before mint-from-slug. Resolves the parent from SESSION STATE
-            # (never from this file's own commented-out predecessor_handoff — see
-            # _resolve_session_held_spinoff_roadmap_stub_path's docstring), and
-            # deliverable_carry.resolve_session_state_parent_deliverable_id gates
-            # the carry on the held claim's own `kind` being a roadmap stub kind
-            # (`roadmap-baton` or the retired `spinoff-roadmap` — see
-            # deliverable_carry._ROADMAP_STUB_KINDS), never on mere claim
-            # existence (AC1/AC4b false-merge guard).
-            _session_stub_path = _resolve_session_held_spinoff_roadmap_stub_path(
-                _current_repo_root()
-            )
-            _session_parent_dlv = None
-            if _session_stub_path:
-                try:
-                    _ensure_engine_on_path()
-                    from coordinator_core.ops.deliverable_carry import (
-                        resolve_session_state_parent_deliverable_id,
-                    )
-                    from coordinator_core.ops.read_frontmatter_field import (
-                        read_frontmatter_field as _read_frontmatter_field,
-                    )
-
-                    _session_parent_dlv = resolve_session_state_parent_deliverable_id(
-                        _read_frontmatter_field, _session_stub_path
-                    )
-                except Exception:  # noqa: BLE001 -- best-effort; degrade to no-carry, never block scaffolding
-                    _session_parent_dlv = None
-            if _session_parent_dlv:
+            # `plan` carry ladder, after explicit/env carry above:
+            #   1. cited sizing-object's own deliverable_id
+            #   2. session-state parent (the held roadmap stub's id)
+            #   3. mint from slug
+            #
+            # The cited sizing outranks the held baton. `--sizing-object` is
+            # the author's explicit statement of which work this plan
+            # belongs to, and the sizing object is the earliest artifact in
+            # the deliverable chain (sizing-object.schema.json's
+            # `deliverable_id` description) -- a plan citing one carries its
+            # id verbatim rather than minting a forked id that
+            # `deliverable.cascade_terminal`'s exact-string join can never
+            # match. The held baton is ambient session state: it says what
+            # the session happens to be carrying, not what this plan is for.
+            # A novel ask sized into its own freshly-minted deliverable must
+            # not be re-joined to that baton (the `sizing-object` doc type
+            # already declines the held claim for the same reason).
+            #
+            # `--fan-out` skips the sizing rung: an asserted fan-out means a
+            # SECOND plan is citing a sizing already routed to a first one,
+            # and carrying that id verbatim would fork one deliverable across
+            # two plan files with `deliverable.cascade_terminal`'s
+            # exact-string join unable to tell them apart. The flag is the
+            # caller's own assertion of this shape (see
+            # `_mutate_sizing_reverse_edge`'s docstring) -- never inferred
+            # from disk state here.
+            _sizing_carry_dlv = None
+            if getattr(args, "sizing_object", None) and not getattr(args, "fan_out", False):
+                _sizing_repo_root_for_carry = _current_repo_root() or "."
+                _sizing_carry_dlv = _resolve_cited_sizing_deliverable_id(
+                    args.sizing_object, _sizing_repo_root_for_carry
+                )
+            if _sizing_carry_dlv:
                 _resolved_deliverable_id = _mint_deliverable_id(
-                    deliverable_id=_session_parent_dlv,
-                    carry_source="session-state parent (roadmap stub)",
+                    deliverable_id=_sizing_carry_dlv,
+                    carry_source="cited sizing-object",
                 )
             else:
-                # Cited-sizing carry tier (2026-08-10 deliverable-id-fork-
-                # remediation follow-up) — ordered after explicit/env and the
-                # session-state-parent tier above, and before mint-from-slug.
-                # A sizing-object is the earliest artifact in the deliverable
-                # chain (sizing-object.schema.json's own `deliverable_id`
-                # description) — a plan citing one must carry its id verbatim
-                # rather than minting a second, forked id that
-                # `deliverable.cascade_terminal`'s exact-string join can never
-                # match. Reached only when nothing more explicit (flag/env/
-                # session-parent) already resolved an id, so a deliberate
-                # caller-supplied id is never overridden by the cited sizing.
-                #
-                # `--fan-out` skips this tier entirely: an asserted fan-out
-                # means a SECOND plan is citing a sizing already routed to a
-                # first one, and carrying that sizing's id verbatim into the
-                # second plan would fork one deliverable across two plan
-                # files with `deliverable.cascade_terminal`'s exact-string
-                # join unable to tell them apart. The flag is the caller's
-                # own assertion of this shape (see `_mutate_sizing_reverse_
-                # edge`'s docstring) — never inferred from disk state here.
-                _sizing_carry_dlv = None
-                if getattr(args, "sizing_object", None) and not getattr(args, "fan_out", False):
-                    _sizing_repo_root_for_carry = _current_repo_root() or "."
-                    _sizing_carry_dlv = _resolve_cited_sizing_deliverable_id(
-                        args.sizing_object, _sizing_repo_root_for_carry
-                    )
-                if _sizing_carry_dlv:
+                # Session-state parent tier (2026-08-01 deliverable-id-fork-
+                # remediation C1/AC1). Resolves the parent from SESSION STATE
+                # (never from this file's own commented-out predecessor_handoff
+                # -- see _resolve_session_held_spinoff_roadmap_stub_path's
+                # docstring), and deliverable_carry.resolve_session_state_
+                # parent_deliverable_id gates the carry on the held claim's own
+                # `kind` being a roadmap stub kind (`roadmap-baton` or the
+                # retired `spinoff-roadmap` -- see deliverable_carry.
+                # _ROADMAP_STUB_KINDS), never on mere claim existence
+                # (AC1/AC4b false-merge guard).
+                _session_stub_path = _resolve_session_held_spinoff_roadmap_stub_path(
+                    _current_repo_root()
+                )
+                _session_parent_dlv = None
+                if _session_stub_path:
+                    try:
+                        _ensure_engine_on_path()
+                        from coordinator_core.ops.deliverable_carry import (
+                            resolve_session_state_parent_deliverable_id,
+                        )
+                        from coordinator_core.ops.read_frontmatter_field import (
+                            read_frontmatter_field as _read_frontmatter_field,
+                        )
+
+                        _session_parent_dlv = resolve_session_state_parent_deliverable_id(
+                            _read_frontmatter_field, _session_stub_path
+                        )
+                    except Exception:  # noqa: BLE001 -- best-effort; degrade to no-carry, never block scaffolding
+                        _session_parent_dlv = None
+                if _session_parent_dlv:
                     _resolved_deliverable_id = _mint_deliverable_id(
-                        deliverable_id=_sizing_carry_dlv,
-                        carry_source="cited sizing-object",
+                        deliverable_id=_session_parent_dlv,
+                        carry_source="session-state parent (roadmap stub)",
                     )
                 else:
                     _resolved_deliverable_id = _mint_deliverable_id_from_title(
@@ -7664,6 +7882,28 @@ def main(argv: "list[str] | None" = None) -> int:
         )
         return 1
 
+    _sizing_only = [
+        _f for _f, _v in (
+            ("--tshirt", args.tshirt), ("--route", args.route),
+            ("--premise", args.premise), ("--premise-evidence", args.premise_evidence),
+            ("--detents", args.detents),
+        ) if _v is not None
+    ]
+    if _sizing_only and doc_type != "sizing-object":
+        print(
+            f"coordinator-doc-new: {_sizing_only[0]} is not accepted for --type {doc_type}. "
+            "--tshirt, --route, --premise, --premise-evidence and --detents are "
+            "sizing-object-only fields.",
+            file=sys.stderr,
+        )
+        return 1
+    _sizing_detents = None
+    if doc_type == "sizing-object":
+        _sizing_detents, _sizing_flag_error = _validate_sizing_flags(args)
+        if _sizing_flag_error:
+            print(f"error: {_sizing_flag_error}\n  Nothing was written.", file=sys.stderr)
+            return 1
+
     if (args.exit_criterion or args.interaction_mode) and doc_type != "sizing-object":
         _bad_flag = "--exit-criterion" if args.exit_criterion else "--interaction-mode"
         print(
@@ -7705,6 +7945,14 @@ def main(argv: "list[str] | None" = None) -> int:
             f"coordinator-doc-new: --goals is not accepted for --type {doc_type}. "
             "--goals is scoped to --type goal-seed, --type roadmap-seed, and "
             "--type roadmap-baton.",
+            file=sys.stderr,
+        )
+        return 1
+
+    if args.covers and doc_type != "roadmap-baton":
+        print(
+            f"coordinator-doc-new: --covers is not accepted for --type {doc_type}. "
+            "--covers is scoped to --type roadmap-baton.",
             file=sys.stderr,
         )
         return 1
@@ -7792,6 +8040,7 @@ def main(argv: "list[str] | None" = None) -> int:
             blocks=args.blocks,
             predecessor=args.predecessor,
             goals=_goals_list,
+            covers=args.covers,
         )
     elif doc_type == "goal-seed":
         _goals_list = [g.strip() for g in args.goals.split(",") if g.strip()] if args.goals else None
@@ -7861,6 +8110,11 @@ def main(argv: "list[str] | None" = None) -> int:
             exit_criterion=args.exit_criterion,
             interaction_mode=args.interaction_mode,
             name=args.sizing_name,
+            tshirt=args.tshirt,
+            route=args.route,
+            premise=args.premise,
+            premise_evidence=args.premise_evidence,
+            detents=_sizing_detents,
         )
     elif doc_type == "health-status":
         content = _scaffold_health_status(title=title)
@@ -8146,39 +8400,6 @@ def main(argv: "list[str] | None" = None) -> int:
         if _sizing_reverse_old_text is not None:
             _revert_sizing_reverse_edge(_sizing_abs_path, _sizing_reverse_old_text, _write_repo_root)
         raise
-
-    # Author-side plan claim (wires the acquire half of the plan claim
-    # lifecycle whose release half was already wired: /handoff's d5 directive
-    # emits `session-claim-cli release-artifact plan <slug>` against a claim
-    # nothing on the authoring path ever took). Taken only after the write
-    # above lands — never on a doc_type/path that did not actually write a
-    # plan file. Bare stem only (claim_plan rejects a path-shaped slug loud
-    # and non-zero) — plan files are always `docs/plans/<stem>.md` (see
-    # `_default_output_path`). Non-fatal, mirroring `claim_plan`'s own
-    # session-shape.json write: the plan file is the deliverable, the claim
-    # is instrumentation on top of it, so a failure here warns and continues
-    # rather than failing the scaffold. The later re-claim at workstream-
-    # complete's d-claim-plan-execution-lock (same session) is covered by
-    # `claim_artifact`'s plan-class-only re-entrant self-claim branch — this
-    # acquisition does not disturb that.
-    if doc_type == "plan":
-        _ensure_engine_on_path()
-        try:
-            from coordinator_core.session.claims import claim_plan  # noqa: PLC0415
-
-            _plan_stem = os.path.splitext(os.path.basename(out_path))[0]
-            if not claim_plan(_plan_stem, cwd=_write_repo_root):
-                print(
-                    f"coordinator-doc-new: plan claim not taken for {_plan_stem} "
-                    "— scaffold written; reconcile the claim separately",
-                    file=sys.stderr,
-                )
-        except Exception as _claim_exc:  # noqa: BLE001 -- non-fatal, see above
-            print(
-                f"coordinator-doc-new: plan claim not taken for {out_path} "
-                f"({_claim_exc}) — scaffold written; reconcile the claim separately",
-                file=sys.stderr,
-            )
 
     # Success-path-only liveness stamp (completion_scaffold): reached only after the
     # write above completed without raising, and only for --type completion -- every

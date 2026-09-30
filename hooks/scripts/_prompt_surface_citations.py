@@ -89,10 +89,14 @@ PY_SURFACE_DIRS = (REPO_ROOT / "coordinator" / "hooks",)
 
 _TESTS_DIR = REPO_ROOT / "coordinator" / "tests"
 
+#: Test fixtures are test data, not prompt surfaces a model reads mid-task.
 _EXEMPT_PATH_SEGMENTS = frozenset({"tests", "fixtures"})
 
 
 def _load_module(path: Path, name: str):
+    """Returns None on any failure (missing file, syntax error, import-time
+    exception) rather than raising, so callers degrade detection instead of
+    crashing the guard."""
     try:
         spec = importlib.util.spec_from_file_location(name, path)
         if spec is None or spec.loader is None:
@@ -124,6 +128,8 @@ def _load_structural_markers() -> tuple:
     return tuple(getattr(module, "STRUCTURAL_MARKERS", ()))
 
 
+#: Resolved once at import time. Empty means unresolvable on this run --
+#: callers must fail open in that case.
 SEED_WIKIS: frozenset = _load_seed_wikis()
 STRUCTURAL_MARKERS: tuple = _load_structural_markers()
 
@@ -165,6 +171,8 @@ def is_in_scope(path: Path) -> bool:
 
 
 def iter_prompt_surface_files() -> Iterable[Path]:
+    """Every in-scope file under the prompt-surface `.md` trees and the
+    `.py` hooks tree, sorted for determinism."""
     for root in PROMPT_SURFACE_DIRS:
         if not root.is_dir():
             continue
@@ -179,6 +187,8 @@ def iter_prompt_surface_files() -> Iterable[Path]:
                 yield path
 
 
+#: A specific-file citation under any of these prefixes is unresolvable for
+#: a non-local reader.
 _NONPERCOLATING_TREES = (
     ("docs/plans/", "docs/plans/ citation (plan, never percolates)"),
     ("docs/decisions/", "docs/decisions/ citation (decision record, never percolates)"),
@@ -190,6 +200,8 @@ _NONPERCOLATING_TREES = (
     ("state/lessons/", "state/lessons/ citation (never percolates)"),
     ("state/review-trail/", "state/review-trail/ citation (never percolates)"),
     (
+        # Gitignored in every tree, so nothing beneath it resolves for a
+        # non-local reader.
         ".coordinator-local/",
         ".coordinator-local/ citation (machinery root, gitignored, never percolates)",
     ),
@@ -216,6 +228,8 @@ _PATH_TOKEN = re.compile(r"[^\s`)\]\"'>]*")
 
 _DR_ID = re.compile(r"\bDR-\d{2,}\b|\bSC-DR-\d{2,}\b")
 
+#: An inline `code span`. A DR id in a bare code span is still an ordinary
+#: prose citation and is NOT exempt.
 _CODE_SPAN = re.compile(r"`([^`\n]+)`")
 
 
@@ -429,6 +443,7 @@ _PY_STDERR_NAMES = frozenset({"stderr"})
 
 
 def _py_is_stderr_attr(node: "ast.AST") -> bool:
+    """`sys.stderr` or any attribute chain rooted at it (`sys.stderr.buffer`)."""
     if not isinstance(node, ast.Attribute):
         return False
     if (
@@ -441,6 +456,9 @@ def _py_is_stderr_attr(node: "ast.AST") -> bool:
 
 
 def _py_is_stdout_buffer_attr(node: "ast.AST") -> bool:
+    """`sys.stdout.buffer` only -- deliberately narrower than
+    `_py_is_stderr_attr`: a bare `sys.stdout.write(...)` does not by itself
+    indicate a guard-prose emission channel."""
     if not isinstance(node, ast.Attribute) or node.attr != "buffer":
         return False
     value = node.value
@@ -453,6 +471,8 @@ def _py_is_stdout_buffer_attr(node: "ast.AST") -> bool:
 
 
 def _py_envelope_import_bindings(tree: "ast.AST") -> "tuple[set, dict]":
+    """Local names bound to the `_message_envelope` module, and local names
+    bound directly to its `compose`/`emit` callables."""
     module_aliases: "set" = set()
     callable_aliases: "dict" = {}
     for node in ast.walk(tree):
@@ -470,6 +490,9 @@ def _py_envelope_import_bindings(tree: "ast.AST") -> "tuple[set, dict]":
 
 
 def _py_emission_value_nodes(tree: "ast.AST") -> "list[ast.AST]":
+    """The argument/value AST subtree carrying the payload at each real
+    emission site in `tree` -- not the whole call/dict node, just the part
+    that becomes text a reader sees."""
     module_aliases, callable_aliases = _py_envelope_import_bindings(tree)
     values: "list[ast.AST]" = []
 
@@ -555,6 +578,9 @@ def _py_name_definitions(tree: "ast.AST") -> "dict[str, list]":
 
 
 def _py_local_function_params(tree: "ast.AST") -> "dict[str, list]":
+    """`function-name -> [positional-and-keyword param names in signature
+    order, *args name if present, **kwargs name if present]` for every
+    `def`/`async def` in `tree`, module-level or nested."""
     params: "dict[str, list]" = {}
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -670,11 +696,137 @@ def _emitted_line_numbers(text: str) -> "set | None":
 
 
 def _restrict_text_to_lines(text: str, keep: "set") -> str:
+    """`text` with every line not in `keep` blanked out (length/line-count
+    preserved, so line numbers in reported violations stay accurate)."""
     lines = text.split("\n")
     return "\n".join(line if (i + 1) in keep else "" for i, line in enumerate(lines))
 
 
+def _classify_line(line: str, line_no: int, fingerprint: str) -> list:
+    found: list = []
+    for prefix, label in _NONPERCOLATING_TREES:
+        start = 0
+        while True:
+            idx = line.find(prefix, start)
+            if idx == -1:
+                break
+            after_prefix = line[idx + len(prefix) :]
+            suffix = _PATH_TOKEN.match(after_prefix).group(0)
+            if _looks_like_specific_file(suffix):
+                found.append(Violation(line_no, label, _excerpt(line), fingerprint))
+            start = idx + len(prefix)
+
+    if SEED_WIKIS:
+        for m in _WIKI_CITATION.finditer(line):
+            name = m.group(1)
+            if name not in SEED_WIKIS and name not in _CONSUMING_REPO_CONVENTION_FILES:
+                found.append(
+                    Violation(
+                        line_no,
+                        f"non-seed wiki citation: docs/wiki/{name}",
+                        _excerpt(line),
+                        fingerprint,
+                    )
+                )
+
+    if SEED_WIKIS and REAL_WIKI_PAGES:
+        for pattern in (_BARE_WIKI_PAGE_TOKEN, _WIKI_SHORT_PREFIX_TOKEN):
+            for m in pattern.finditer(line):
+                name = m.group(1)
+                if name not in REAL_WIKI_PAGES or name in _CONSUMING_REPO_CONVENTION_FILES:
+                    continue
+                if name in SEED_WIKIS:
+                    continue
+                if _preceded_by_placeholder(line, m.start()):
+                    continue
+                found.append(
+                    Violation(
+                        line_no,
+                        f"non-seed wiki citation, de-prefixed: {name}",
+                        _excerpt(line),
+                        fingerprint,
+                    )
+                )
+
+    sentinel_spans = _literal_sentinel_spans(line)
+    for m in _DR_ID.finditer(line):
+        if any(lo <= m.start() < hi for lo, hi in sentinel_spans):
+            continue
+        found.append(
+            Violation(
+                line_no,
+                f"bare decision-record id: {m.group(0)}",
+                _excerpt(line),
+                fingerprint,
+            )
+        )
+    return found
+
+
+_SEAM_PREFIXES = tuple(prefix for prefix, _ in _NONPERCOLATING_TREES) + ("docs/wiki/",)
+_SEAM_CLOSERS = "`*_"
+
+
+def _seam_trigger(line: str) -> "tuple[str, str] | None":
+    """`(prefix, closers)` when the line ends in a governed prefix followed
+    only by closing code-span/emphasis delimiters, else None."""
+    stripped = line.rstrip()
+    tail = stripped.rstrip(_SEAM_CLOSERS)
+    for prefix in _SEAM_PREFIXES:
+        if tail.endswith(prefix):
+            return prefix, stripped[len(tail) :]
+    return None
+
+
+def _seam_token(line: str, closers: str) -> str:
+    rest = line.strip()
+    if rest.startswith(">"):
+        rest = rest[1:].lstrip()
+    rest = rest.lstrip(closers)
+    return rest.split(None, 1)[0].rstrip(closers) if rest else ""
+
+
+def _seam_violations(lines: "list[str]", eligible: "list[bool]", found: list) -> "tuple[list, set]":
+    """Violations for a citation whose directory prefix ends line N and whose
+    filename opens line N+1, plus the `(line_no, name)` de-prefixed hits on
+    line N+1 the seam supersedes."""
+    seams: list = []
+    superseded: set = set()
+    kinds_by_line: dict = {}
+    for v in found:
+        kinds_by_line.setdefault(v.line_no, set()).add(v.kind)
+    for i in range(len(lines) - 1):
+        if not (eligible[i] and eligible[i + 1]):
+            continue
+        trigger = _seam_trigger(lines[i])
+        if trigger is None:
+            continue
+        prefix, closers = trigger
+        token = _seam_token(lines[i + 1], closers)
+        if not token:
+            continue
+        seam = prefix + token
+        fingerprint = " ".join(seam.split())
+        for v in _classify_line(seam, i + 1, fingerprint):
+            if v.kind in kinds_by_line.get(i + 1, ()) or v.kind in kinds_by_line.get(i + 2, ()):
+                continue
+            seams.append(v)
+            if prefix == "docs/wiki/":
+                name = _PATH_TOKEN.match(token).group(0)
+                superseded.add((i + 2, f"non-seed wiki citation, de-prefixed: {name}"))
+    return seams, superseded
+
+
 def iter_violations(text: str, *, path: "Path | None" = None) -> list:
+    """Every unresolvable-citation violation in `text`, in line order. Pure
+    over already-loaded text.
+
+    `path` is optional and additive: when given and its suffix is `.py`,
+    scanning is first restricted to lines reachable from a real emission
+    site, keeping a `.py` hook's module docstring / inline comments out of
+    scope while still catching a genuinely unresolvable citation inside
+    text an agent actually receives. Omitting `path` preserves the prior
+    full-text behaviour exactly."""
     if path is not None and path.suffix == ".py":
         emitted = _emitted_line_numbers(text)
         if emitted is not None:
@@ -682,6 +834,7 @@ def iter_violations(text: str, *, path: "Path | None" = None) -> list:
     text = _neutralize_structural_comments(text)
     lines = text.split("\n")
     violations: list = []
+    eligible = [False] * len(lines)
     in_fence = False
     in_frontmatter = False
 
@@ -702,74 +855,41 @@ def iter_violations(text: str, *, path: "Path | None" = None) -> list:
         if in_fence:
             continue
 
-        if in_frontmatter and _SPEC_BACKLINK_FRONTMATTER_KEY.match(line):
-            continue
-
-        for prefix, label in _NONPERCOLATING_TREES:
-            start = 0
-            while True:
-                idx = line.find(prefix, start)
-                if idx == -1:
-                    break
-                after_prefix = line[idx + len(prefix) :]
-                suffix = _PATH_TOKEN.match(after_prefix).group(0)
-                if _looks_like_specific_file(suffix):
-                    violations.append(Violation(line_no, label, _excerpt(line), fingerprint))
-                start = idx + len(prefix)
-
-        if SEED_WIKIS:
-            for m in _WIKI_CITATION.finditer(line):
-                name = m.group(1)
-                if name not in SEED_WIKIS and name not in _CONSUMING_REPO_CONVENTION_FILES:
-                    violations.append(
-                        Violation(
-                            line_no,
-                            f"non-seed wiki citation: docs/wiki/{name}",
-                            _excerpt(line),
-                            fingerprint,
-                        )
-                    )
-
-        if SEED_WIKIS and REAL_WIKI_PAGES:
-            for pattern in (_BARE_WIKI_PAGE_TOKEN, _WIKI_SHORT_PREFIX_TOKEN):
-                for m in pattern.finditer(line):
-                    name = m.group(1)
-                    if name not in REAL_WIKI_PAGES or name in _CONSUMING_REPO_CONVENTION_FILES:
-                        continue
-                    if name in SEED_WIKIS:
-                        continue
-                    if _preceded_by_placeholder(line, m.start()):
-                        continue
-                    violations.append(
-                        Violation(
-                            line_no,
-                            f"non-seed wiki citation, de-prefixed: {name}",
-                            _excerpt(line),
-                            fingerprint,
-                        )
-                    )
-
-        sentinel_spans = _literal_sentinel_spans(line)
-        for m in _DR_ID.finditer(line):
-            if any(lo <= m.start() < hi for lo, hi in sentinel_spans):
+        if in_frontmatter:
+            if _SPEC_BACKLINK_FRONTMATTER_KEY.match(line):
                 continue
-            violations.append(
-                Violation(
-                    line_no,
-                    f"bare decision-record id: {m.group(0)}",
-                    _excerpt(line),
-                    fingerprint,
-                )
-            )
+        else:
+            eligible[line_no - 1] = True
 
+        violations.extend(_classify_line(line, line_no, fingerprint))
+
+    seams, superseded = _seam_violations(lines, eligible, violations)
+    if seams:
+        violations = [
+            v for v in violations if (v.line_no, v.kind) not in superseded
+        ] + seams
+        violations.sort(key=lambda v: v.line_no)
     return violations
 
 
 def _violation_key(v: Violation) -> tuple:
+    """Identity used for before/after delta comparison -- kind + the full
+    normalized line, deliberately not line number (an edit elsewhere in the
+    file can shift line numbers for untouched content, which would make an
+    untouched violation look "new") and not the truncated `excerpt` (two
+    distinct long citations could share their first 90 chars and collide)."""
     return (v.kind, v.line_fingerprint)
 
 
 def new_violations(before: str, after: str, *, path: "Path | None" = None) -> list:
+    """Violations present in `after` that were not already present in
+    `before`, as a multiset difference keyed by `_violation_key`. A file
+    with a legacy violation sitting untouched contributes the same count to
+    both sides, so its delta is zero regardless of how many times this runs
+    against that file -- only a violation the current write introduces
+    survives the subtraction. Do not diff a hard-deny decision off
+    `iter_violations`'s raw count on a post-write file; that re-flags every
+    legacy violation on every future edit to the same file."""
     before_counts = Counter(_violation_key(v) for v in iter_violations(before, path=path))
     after_violations = iter_violations(after, path=path)
     after_counts = Counter(_violation_key(v) for v in after_violations)

@@ -145,6 +145,7 @@ def is_stamped_engine_root(candidate: Path) -> bool:
 
 
 def discover_published_mirror() -> Path | None:
+    # A stamped claude-klabauter in one of rung 3's two sibling positions. Never raises.
     try:
         plugin_root = _find_plugin_root(Path(__file__).resolve().parent)
         if plugin_root is None:
@@ -167,30 +168,32 @@ def main() -> int:
         return 0
 
     if resolution_class == RESOLUTION_RESOLVED_ENGINE:
-        return 0
+        return 0  # already healthy — no read of the registry, no write, no spawn
 
     try:
         if root and is_stamped_engine_root(Path(root)):
-            return 0
+            return 0  # a live tree that IS a usable build — the co-dev box
     except Exception:
         return 0
 
     mirror = discover_published_mirror()
     if mirror is None:
-        return 0
+        return 0  # nothing on this box to register; the refusal surfaces name it
 
     try:
         reg_dir = _settings_home_registry_dir()
         if reg_dir is None:
             return 0
         if _engine_registry_value(reg_dir, _REGISTRY_KEY):
-            return 0
+            return 0  # a real install (or an operator) already wrote it
     except Exception:
         return 0
 
     try:
         _machine_local_set(_REGISTRY_KEY, str(mirror))
     except Exception:
+        # machine_local_set already fails open internally; this call site swallows too,
+        # because a SessionStart hook raising is worse than one that silently no-ops.
         pass
 
     return 0

@@ -5,7 +5,10 @@ interface ContainerProps {
   className?: string;
 }
 
-
+/**
+ * 2xl padding is viewport-relative (10vw) because no Tailwind spacing token
+ * maps cleanly to a vw unit.
+ */
 export function Container({ children, className }: ContainerProps) {
   return (
     <div

@@ -264,6 +264,7 @@ _REASON_DELIVERY = "delivery"
 
 
 def _reason_for(subagent_type: Any) -> Optional[str]:
+    """`None` means out of scope entirely -- an ordinary pass, never a failure."""
     if subagent_type in _RESTRICTED_SUBAGENT_TYPES:
         return _REASON_CONFINEMENT
     if subagent_type in _REPORTING_SUBAGENT_TYPES:

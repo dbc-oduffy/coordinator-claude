@@ -56,17 +56,26 @@ import re
 import time
 from typing import Any, Optional
 
+#: Reader/fallback `reason` strings a nudge may be offered for -- both spell the same
+#: condition, the peer's turn closed. Enumerated, never pattern-matched.
 SEND_ELIGIBLE_REASONS = frozenset({"turn-ended", "tail-turn-duration"})
 
+#: Excluded by name so the exclusion is greppable rather than implied by the allow-list.
 NEVER_SEND_REASONS = frozenset({"away"})
 
+#: Per-peer cooldown: a peer offered in one digest is suppressed from later digests in
+#: this session until it elapses.
 DEFAULT_COOLDOWN_SECONDS = 3600
 
+#: Rate ceiling: the most entries one digest may carry. A digest at the ceiling is
+#: reported truncated rather than silently cut.
 DEFAULT_MAX_ENTRIES = 5
 
 _SEND_LOG_FILENAME = "group-em-send-log.jsonl"
 _LEDGER_FILENAME = "next-move-ledger.jsonl"
 
+#: A session id feeds straight into a path `_record_offer` will makedirs; rejects an
+#: unsafe component (bare `.`/`..`) the character class alone would pass.
 _SAFE_SID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 #: Per-field character cap on the free-text values a peer/verdict producer
@@ -119,10 +128,16 @@ def _safe_session_id(session_id: Any) -> bool:
 
 
 def _session_share_dir(repo_root: str, session_id: str) -> str:
+    # This module is stdlib-only, invoked from a PM-gated skill body, and must not
+    # import coordinator_core, so the machinery-root leaf spelling is duplicated here
+    # rather than imported.
     return os.path.join(repo_root, ".coordinator-local", "subagent-share", session_id)
 
 
 def undischarged_obligations(repo_root: str, session_id: str) -> Optional[int]:
+    """`None` (no ledger) and `0` (a ledger saying nothing is owed) are deliberately
+    distinct -- the first is a producer coverage gap. Unparseable lines are skipped: a
+    malformed ledger degrades to a lower count, never to a crash or an inferred obligation."""
     if not _safe_session_id(session_id):
         return None
     path = os.path.join(_session_share_dir(repo_root, session_id), _LEDGER_FILENAME)
@@ -149,6 +164,8 @@ def undischarged_obligations(repo_root: str, session_id: str) -> Optional[int]:
 
 
 def send_suppression_reason(verdict: dict[str, Any]) -> Optional[str]:
+    """The single admission rule -- doubles as the `suppressed[].why` label. Fails
+    closed on every unrecognised shape."""
     if not verdict.get("candidate"):
         return "not-a-candidate"
     reason = verdict.get("reason")
@@ -166,6 +183,8 @@ def send_log_path(repo_root: str, caller_session_id: str) -> str:
 
 
 def offer_key(caller_session_id: str, peer_session_id: str) -> str:
+    """A salted digest, never the peer's session id -- storing the raw id would breach
+    the no-persisted-address rule, since a session id is itself an address."""
     return hashlib.sha256(
         (caller_session_id + "|" + peer_session_id).encode("utf-8")
     ).hexdigest()
@@ -199,6 +218,8 @@ def _record_offer(
     peer_session_id: str,
     now: Optional[float] = None,
 ) -> bool:
+    """Append one offer, starting its cooldown. `False` if the write failed -- reported,
+    never raised, so the caller can name the peer as unrecorded."""
     now = time.time() if now is None else now
     if not _safe_session_id(caller_session_id) or not _safe_session_id(peer_session_id):
         return False
@@ -222,6 +243,9 @@ def _cooldown_remaining(
     now: float,
     cooldown_seconds: int,
 ) -> float:
+    """Degenerate timestamps are neutralised, not trusted: non-numeric or future
+    (skew, ms-epoch) entries are ignored, and the result is clamped to the window -- a
+    corrupt log must not silently suppress a peer forever."""
     remaining = 0.0
     for record in records:
         if record.get("offer_key") != key:
@@ -271,6 +295,14 @@ def build_send_digest(
     cooldown_seconds: int = DEFAULT_COOLDOWN_SECONDS,
     max_entries: int = DEFAULT_MAX_ENTRIES,
 ) -> dict[str, Any]:
+    """One digest per invocation -- the batching discipline itself. Emitting an entry
+    IS the offer and arms its cooldown here: a throttle left to the actor it throttles
+    is not one. A cooldown that could not be written is named in `unrecorded` and its
+    entry still stands, so the caller learns the throttle is unarmed.
+
+    Known limitation: no lock spans the log read and the per-entry appends, so this
+    assumes one caller at a time per `caller_session_id`; the log path is caller-scoped,
+    so a violation cannot cross sessions."""
     if max_entries < 1:
         raise ValueError("max_entries must be >= 1; got %r" % (max_entries,))
     now = time.time() if now is None else now
@@ -299,6 +331,8 @@ def build_send_digest(
             )
             continue
 
+        # Corroboration, not a gate: `None` is a producer coverage gap, never evidence
+        # the peer owes nothing.
         obligations = undischarged_obligations(repo_root, peer_session_id)
 
         remaining = _cooldown_remaining(
@@ -334,6 +368,8 @@ def build_send_digest(
             }
         )
 
+    # Deterministic before the ceiling cuts: most-owed first, then session id -- an
+    # unsorted cut would make ceiling survival random between digests.
     eligible.sort(
         key=lambda e: (-(e["undischarged_obligations"] or 0), e["session_id"])
     )

@@ -101,6 +101,12 @@ _DEFAULT_ALTERNATIVE = "prefer a portable, capability-named alternative"
 
 
 def _deny_reason(target: str, violations: list) -> str:
+    """The prose diagnosis (the ONLY part `_message_envelope.CEILING` counts) -- kept
+    as a separate, importable, plain-string-returning function so the character-cap
+    measurement harness's adapter can call it directly with synthesized violations,
+    with no process/stdin/envelope setup. `_deny_message` below wires this into the
+    real `Message`/emission path. A mixed-kind write still names the first two
+    distinct kinds inline rather than collapsing to a bare count."""
     kinds = sorted({v.kind for v in violations})
     first = min(violations, key=lambda v: v.line)
     where = f" First at line {first.line}: {first.excerpt[:60]!r}."

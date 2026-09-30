@@ -116,6 +116,9 @@ _TAIL_BYTES = 262144
 
 
 class Ctx:
+    """Computed once per Stop event and shared by all preconditions -- the
+    transcript tail and repo root walk were each paid multiple times when
+    every guard ran in its own process."""
 
     def __init__(self, raw: str) -> None:
         self.raw = raw
@@ -131,6 +134,7 @@ class Ctx:
         self._tail: Optional[str] = None
         self._repo_root: Optional[str] = None
 
+    # -- lazy, memoised: only paid if some precondition actually asks
     def tail(self) -> str:
         if self._tail is None:
             self._tail = ""
@@ -176,6 +180,8 @@ class Ctx:
 
 
 def _pre_em_check(ctx: Ctx) -> bool:
+    # em-check exits 0 immediately without a session_id or a git root; both
+    # are payload/one-stat cheap, and the git walk is shared.
     return bool(ctx.session_id) and bool(ctx.repo_root())
 
 
@@ -231,16 +237,24 @@ def _pre_manufactured_blocker(ctx: Ctx) -> bool:
 
 
 def _pre_transcript_present(ctx: Ctx) -> bool:
+    # The two engine-backed pointer shims both work off the final assistant
+    # message; no transcript, no possible fire.
     return bool(ctx.final_assistant_text())
 
 
 def _pre_em_report_altitude(ctx: Ctx) -> bool:
+    # A subagent's own Stop (agent_id present) is never an EM->PM message.
     if ctx.agent_id:
         return False
     return bool(ctx.final_assistant_text())
 
 
 def _pre_kira_verdict_routed(ctx: Ctx) -> bool:
+    # Relevant only on the EM's own Stop, in a session with a share dir.
+    # Both machinery roots are probed because the engine's provisioned root
+    # moved from `state/` to `.coordinator-local/` -- probing the old
+    # literal alone would suppress the guard for every session provisioned
+    # today, indistinguishable from the guard passing.
     if ctx.agent_id or ctx.stop_hook_active:
         return False
     root = ctx.repo_root()
@@ -255,6 +269,10 @@ def _pre_kira_verdict_routed(ctx: Ctx) -> bool:
 
 
 def _pre_receiver_state(ctx: Ctx) -> bool:
+    # Deliberately does NOT read the transcript -- `os.path.isfile` only,
+    # never `ctx.tail()`: paying a tail read here to decide whether to let
+    # the engine do its own tail read would double the cost to answer
+    # nothing.
     if not ctx.session_id:
         return False
     return bool(ctx.transcript_path) and os.path.isfile(ctx.transcript_path)
@@ -344,6 +362,11 @@ class _ByteSink:
 
 
 class _BufferedTextCapture(io.StringIO):
+    """The nudge shims emit through `sys.stderr.buffer.write()`, which a
+    plain StringIO has no attribute for. Both channels land in ONE ordered
+    `io.BytesIO` so `combined()`/`combined_bytes()` are order-preserving
+    AND byte-exact, rather than concatenating two separately-accumulated
+    buffers."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -383,6 +406,10 @@ def _import_guard(guard: StopGuard) -> Any:
 
 
 def _invoke(main_fn: Callable[[], int], stdin_text: str) -> Tuple[int, str, str]:
+    """Run one guard's main() with stdin swapped and BOTH channels captured
+    -- Stop guards use stderr+exit 2 to speak to Claude and stdout+exit 0
+    for the posture-scaled advisory channel, so both must be captured and
+    merged."""
     old_stdin = sys.stdin
     out_buf = _BufferedTextCapture()
     err_buf = _BufferedTextCapture()
@@ -444,6 +471,8 @@ def main() -> int:
                     f"import={(_t1 - _t0) * 1000:.1f}ms "
                     f"run={(_t.perf_counter() - _t1) * 1000:.1f}ms\n")
         except BaseException as exc:
+            # Exception isolation: this guard alone fails open; the others
+            # still run.
             skipped.append(guard.module_key)
             if trace:
                 sys.stderr.write(f"[trace] {guard.module_key}: RAISED {exc!r}\n")
@@ -456,6 +485,10 @@ def main() -> int:
                 fired_err.append(err.rstrip("\n"))
 
     if advisory_out:
+        # Re-emit through .buffer, never the text wrapper -- these strings
+        # may carry a folded guard's raw byte-mode writes (Windows
+        # CRLF-translation fix); a text-mode write here would reintroduce
+        # exactly the translation that convention exists to avoid.
         _out_text = "\n\n".join(advisory_out) + "\n"
         sys.stdout.buffer.write(_out_text.encode("utf-8"))
         sys.stdout.buffer.flush()

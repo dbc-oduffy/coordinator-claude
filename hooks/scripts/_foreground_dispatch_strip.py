@@ -148,11 +148,16 @@ from _message_envelope import resolve_wiki_citation  # noqa: E402
 try:
     from _git_common_dir import resolve_git_common_dir as _resolve_git_common_dir  # noqa: E402
 except Exception:
+    # Defensive fallback -- a deploy missing its sibling _git_common_dir.py
+    # must still fail open (empty common dir -> callers skip) rather than
+    # crash on import.
     def _resolve_git_common_dir(git_root: str) -> str:
         return ""
 try:
     from _session_hub import ensure_session_dir  # noqa: E402
 except Exception:
+    # Defensive fallback -- a deploy missing its sibling _session_hub.py must
+    # still fail open to the pre-gate behaviour, not crash on import.
     def ensure_session_dir(session_dir: Any, session_id: Any) -> bool:
         try:
             Path(session_dir).mkdir(parents=True, exist_ok=True)
@@ -214,6 +219,8 @@ _DENY_MESSAGE = (
 
 
 def _git_root(start: str) -> str:
+    """No-subprocess walk-up from `start` looking for a directory holding a
+    `.git` entry. Fails open to "" on any error."""
     try:
         if not isinstance(start, str) or not start:
             return ""
@@ -230,6 +237,12 @@ def _git_root(start: str) -> str:
 
 
 def _resolve_git_dir(cwd: Any) -> Optional[str]:
+    """Best-effort git COMMON-dir resolution from `cwd`, without spawning a
+    subprocess: walks up to the `.git` entry, then resolves it to the common
+    dir, following a worktree's `gitdir:` pointer and its `commondir`
+    indirection rather than stopping at the worktree's own private dir.
+    Returns `None` on any failure; callers degrade to the fail-open
+    "nothing to do" answer."""
     if not isinstance(cwd, str) or not cwd:
         return None
     try:
@@ -252,12 +265,19 @@ def _foreground_ok_path(git_dir: str, session_id: str) -> Path:
 
 
 def _mark_bg_capable(git_dir: Optional[str], session_id: str) -> None:
+    """Record that this session's harness demonstrably exposes
+    run_in_background. Best-effort and silent on failure: a missing marker
+    degrades to the pre-calibration answer, the safe direction for the
+    absent-key case."""
     if not git_dir or not session_id:
         return
     marker = _bg_capable_path(git_dir, session_id)
     try:
         if marker.exists():
             return
+        # A session id the hub gate rejects gets no directory minted for this
+        # marker; the uncalibrated read that follows already degrades to the
+        # absent-key case.
         if not ensure_session_dir(marker.parent, session_id):
             return
         marker.touch()
@@ -280,6 +300,18 @@ def compute_foreground_reroute(
     tool_input: dict,
     cwd: Any,
 ) -> Optional[tuple[str, Optional[bool], str]]:
+    """Pure computation (plus the calibration-marker touch): no stdout, no
+    sys.exit.
+
+    Returns:
+        `None` -- nothing to do (background already set, uncalibrated
+            absent, or the `.foreground-ok` escape hatch is active).
+        `("reroute", True, notice)` -- rewrite to background; caller sets
+            `merged["run_in_background"] = True` and surfaces `notice`.
+        `("deny", None, message)` -- foreground detected but no safe
+            rewrite exists; caller must deny the whole dispatch outright,
+            never fold this into an "allow".
+    """
     sid = session_id if isinstance(session_id, str) else ""
     if sid and not _SESSION_ID_RE.match(sid):
         sid = ""
@@ -291,6 +323,8 @@ def compute_foreground_reroute(
 
     git_dir = _resolve_git_dir(cwd)
 
+    # Calibrate first: presence (either value) proves the build exposes the
+    # param, and that fact is only observable here.
     if has_bg and sid:
         _mark_bg_capable(git_dir, sid)
 
@@ -298,6 +332,7 @@ def compute_foreground_reroute(
         return None
 
     if not has_bg:
+        # Fall through: calibrated absent = deliberate foreground.
         if not _is_bg_capable(git_dir, sid):
             return None
 
@@ -308,6 +343,7 @@ def compute_foreground_reroute(
             if type_name in SYNC_RETURN_TYPES:
                 return None
 
+    # Escape hatch -- explicit opt-in to foreground for this session.
     if sid and git_dir:
         try:
             if _foreground_ok_path(git_dir, sid).exists():

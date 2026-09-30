@@ -172,7 +172,13 @@ def main(argv: list[str] | None = None) -> int:
     from coordinator_core.cli_entry import recording_declared_writes
     from coordinator_core.session.declared_writes import declare_write
 
+    # Format-preserving edit: this manifest is hand-maintained JSON (comments
+    # via `_comment_*` keys, deliberate inline arrays elsewhere). A whole-file
+    # `json.dump` reflows every field it touches -- escapes non-ASCII prose to
+    # `\uXXXX`, and re-indents any hand-inlined array in the file, not just
+    # `tested_platforms`. Splice only the `tested_platforms` array's own text
     # region instead of re-serializing the document.
+    # cross-repo/archive/2026-08-26-coordinator-content-repo-em-generate-tested-platforms-write-reflows-the-manifest.md
     import re
 
     with open(manifest_path, "r", encoding="utf-8") as fh:

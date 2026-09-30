@@ -94,6 +94,15 @@ USAGE (library)
     g.generate("coordinator-queue-append", out_dir) -> list[Path]  (ps1=True is the default; shown here bare since passing ps1=True explicitly is now redundant)
     g.spec_backlink_for_entry_path("bin/foo.py")        -> str | None
 
+FIELD 7 REGENERATION
+    When the launchers are written into this repo's own `coordinator/bin`, the
+    CLI's last step regenerates `setup/publish-targets.portable` field 7 with the
+    entrypoint and every file just written passed as `--pending` to
+    `publish-allowlist-generate.py` (`regenerate_field7`). The generator derives
+    from `git ls-files`, so without `--pending` the new files are invisible to it
+    and the bin row is stale the moment they are staged. The fast-tier drift
+    check is `coordinator/tests/test_publish_allowlist_is_not_drifted.py`.
+
 SPEC BACKLINKS (2026-08-03)
     CLAUDE.md makes a spec backlink a REQUIRED exception to the
     no-inline-comments rule (the "RAG-bait exception"). A generated launcher
@@ -163,6 +172,7 @@ NEGATIVE SPEC
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import stat
@@ -1197,6 +1207,49 @@ def generate(
     return written
 
 
+def _load_allowlist_generator(bin_dir: Path):
+    import importlib.util  # noqa: PLC0415
+
+    spec = importlib.util.spec_from_file_location(
+        "_publish_allowlist_generate_for_shim", bin_dir / "publish-allowlist-generate.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def regenerate_field7(name: str, out_dir: str | os.PathLike, written: list[Path]) -> int:
+    """Regenerate `setup/publish-targets.portable` field 7 to cover the files a
+    launcher run just produced, so a new bin entrypoint cannot leave the
+    bin row stale. Returns the generator's exit code (0 when `out_dir` is not
+    this repo's `coordinator/bin` and nothing needed regenerating).
+
+    The entrypoint and every launcher written are passed as `--pending`: the
+    generator derives from `git ls-files`, and none of them is tracked yet.
+    """
+    bin_dir = Path(__file__).resolve().parent
+    out = Path(out_dir).resolve()
+    if out != bin_dir:
+        return 0
+    entry = out / name
+    candidates = [*written, *([entry] if entry.is_file() else [])]
+    pending: list[str] = []
+    for path in candidates:
+        rel = path.resolve().relative_to(REPO_ROOT).as_posix()
+        if rel not in pending:
+            pending.append(rel)
+
+    module = _load_allowlist_generator(bin_dir)
+    argv = [arg for rel in pending for arg in ("--pending", rel)]
+    with contextlib.redirect_stdout(sys.stderr):
+        rc = module.main(argv)
+    if rc == 0:
+        from coordinator_core.session.declared_writes import declare_write  # noqa: PLC0415
+
+        declare_write(module._PORTABLE_PATH)
+    return rc
+
+
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="gen-launcher-shim.py",
@@ -1271,9 +1324,10 @@ def main(argv: list[str] | None = None) -> int:
         written = generate(
             args.name, args.dir, ps1=args.ps1, whoami_bootstrap=args.whoami_bootstrap
         )
+        field7_rc = regenerate_field7(args.name, args.dir, written)
     for path in written:
         print(path)
-    return 0
+    return field7_rc
 
 
 if __name__ == "__main__":

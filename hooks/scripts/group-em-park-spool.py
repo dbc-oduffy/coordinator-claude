@@ -65,14 +65,24 @@ import sys
 from pathlib import Path
 from typing import Any, Optional
 
+#: Sits beside `state/group-em-watch.json` (`watch_heartbeat.watch_path`) and
+#: `state/group-em-watch-parked.json` (`watch.parked_state_path`); a repo
+#: without `state/` has no watch line and is skipped rather than scaffolded.
 SPOOL_RELPATH = ("state", "group-em-watch-spool.jsonl")
 
+#: The ladder's bare tag for a parked session. Only this verdict spools.
 _PARKED_VERDICT = "PAUSED"
 
+#: Diagnostic only -- names the producing guard so a spool line can be traced
+#: back here. The drain never branches on it.
 _WRITER = "receiver-state-sensor"
 
 
 def _git_root() -> str:
+    """Overwritten by `stop-dispatch.py`'s shared-context injection with a closure over
+    the root it already resolved via its own zero-spawn parent walk; the standalone body
+    below runs only when this file is invoked directly (tests, manual probe) and never
+    spawns `git`."""
     here = Path(__file__).resolve()
     for parent in here.parents:
         if (parent / ".git").exists():
@@ -81,6 +91,10 @@ def _git_root() -> str:
 
 
 def _load_receiver_state_reader() -> Optional[Any]:
+    """Import `lib/receiver_state_reader.py` by path, not by package: a hook process is
+    not guaranteed to have the repo root on `sys.path`. Resolving from `__file__` works
+    under any plugin-root layout without depending on cwd or on any package being
+    importable."""
     lib_path = Path(__file__).resolve().parents[2] / "lib" / "receiver_state_reader.py"
     spec = importlib.util.spec_from_file_location(
         "_group_em_park_spool_rsr", str(lib_path)
@@ -103,12 +117,20 @@ def spool_path(repo_root: str) -> str:
 
 
 def build_record(session_id: str, verdict: dict) -> Optional[dict]:
+    """The ladder's verdict in, one spool record out -- or None to not spool.
+
+    `at` is the record's OWN `stamped_at`, never `now()`: the drain compares it against
+    `last_tick_at`, so it must be the instant the ladder decided.
+    """
     if verdict.get("verdict") != _PARKED_VERDICT:
         return None
     stamped_at = verdict.get("stamped_at")
     if not isinstance(stamped_at, str) or not stamped_at:
         return None
     reason = verdict.get("reason")
+    # Narrow to str before the join, so a malformed carrier degrades to the bare
+    # PAUSED tag rather than embedding a non-string repr -- this file still never
+    # classifies.
     reason = reason if isinstance(reason, str) and reason else None
     state = f"{_PARKED_VERDICT}:{reason}" if reason else _PARKED_VERDICT
     return {
@@ -120,12 +142,17 @@ def build_record(session_id: str, verdict: dict) -> Optional[dict]:
 
 
 def append_record(path: str, record: dict) -> None:
+    """One `open(..., "a")`, one `write()` of one line. Create-on-append; deliberately no
+    lock, no read-modify-write, no `os.replace`."""
     line = json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n"
     with open(path, "a", encoding="utf-8") as fh:
         fh.write(line)
 
 
 def main() -> int:
+    # The whole body is wrapped, not just the tail half: `_git_root()` and the `isdir`
+    # check can raise too (a broken symlink loop, a permission error), and this file's
+    # exit-0-on-every-path contract has no room for "normally they don't".
     try:
         payload = _read_payload()
 
@@ -140,6 +167,11 @@ def main() -> int:
         if not os.path.isdir(os.path.join(root, SPOOL_RELPATH[0])):
             return 0
 
+        # The carrier file is deliberately NOT re-checked here after stop-dispatch.py's
+        # own precondition passed -- a designed TOCTOU tolerance (there is no locking
+        # anywhere in this pipeline), not an omission: a vanished carrier between
+        # precondition and invocation just falls through `read_receiver_state` into the
+        # `except` below.
         rsr = _load_receiver_state_reader()
         if rsr is None:
             return 0

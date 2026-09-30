@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import ntpath
 import os
 import shutil
 import sys
 
 
 def is_console_python_basename(path: str) -> bool:
-    stem = os.path.splitext(os.path.basename(path))[0].lower()
+    # ntpath splits on both `\\` and `/`, so a Windows path is classified the
+    # same on every host; posixpath would keep `C:\\...\\python.exe` whole.
+    stem = ntpath.splitext(ntpath.basename(path))[0].lower()
     return stem.startswith("python") and not stem.startswith("pythonw")
 
 

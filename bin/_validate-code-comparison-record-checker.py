@@ -20,7 +20,9 @@ def check_record(record, label: str = "") -> list[str]:
         if not condition:
             violations.append(prefix + message)
 
+    # A non-mapping record node (empty file -> None,
     # or a scalar) must fail as a clean VIOLATION, not an uncaught TypeError from
+    # `field in record` on a non-mapping.
     if not isinstance(record, dict):
         violations.append(
             f"{prefix}record must be a mapping, got {type(record).__name__}"
@@ -105,6 +107,8 @@ def check_record(record, label: str = "") -> list[str]:
             if not isinstance(ref, dict):
                 continue
             url = ref.get("url", "")
+            # Url must be a string before regex
+            # search; a schema-shaped-but-wrong-typed value (int/list) would
             # otherwise raise TypeError instead of a clean VIOLATION.
             require(isinstance(url, str), f"observation.{side}.evidence[{i}].url must be a string")
             if not isinstance(url, str):
@@ -143,6 +147,9 @@ def check_record(record, label: str = "") -> list[str]:
         r"\bneeds? to\b",
     ]
     analysis_text = record.get("analysis", "") or ""
+    # Analysis must be a string before the
+    # token-search loop, mirroring the `derivation` isinstance guard above;
+    # a non-string truthy value (YAML list/dict) would otherwise raise
     # TypeError from re.search instead of a clean VIOLATION.
     require(isinstance(analysis_text, str), "analysis must be a string")
     if isinstance(analysis_text, str):

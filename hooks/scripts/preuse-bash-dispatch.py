@@ -146,20 +146,33 @@ def main() -> int:
     # confinement guards onto resolved caller-context first.
     raw = sys.stdin.read()
 
+    # The payload reaches the engine dispatch with the tool_name the caller actually
+    # used. NEVER normalize it, here or at any transport layer: the engine's guards read
+    # the dialect themselves and gate their PowerShell conversions on it, so a rewritten
+    # tool_name silently deletes the conversions that depend on the real value. If a
+    # matcher ever needs a normalized form, compute a LOCAL value for that gate and
+    # leave payload["tool_name"] untouched.
     root, resolution_class, _provenance = _resolve_engine()
     if not root:
-        return 0
+        return 0  # fail-open ALLOW -- engine unresolvable on this machine
 
     from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
     _place_engine_root_on_path(root)
 
+    # Must precede the first coordinator_core.* import -- see
+    # _engine_root.arm_lazy_ops for the package-init cost this avoids. This dispatcher
+    # is the hottest hook stub in the system: one fresh subprocess per PreToolUse(Bash)
+    # event.
     _arm_lazy_ops()
 
     try:
         from coordinator_core.bash_guards.dispatch import evaluate_payload_json
     except Exception:
-        return 0
+        return 0  # engine unimportable -- fail-open ALLOW
 
+    # __file__ parents: [0]=scripts [1]=hooks [2]=coordinator(plugin root) -- same depth
+    # as enforce-agent-dispatch-mode.py's identical computation, since both scripts live
+    # in this same directory.
     policy_file = Path(__file__).resolve().parents[2] / "subagent-sandbox-policy.yaml"
 
     try:
@@ -179,7 +192,7 @@ def main() -> int:
     try:
         out = evaluate_payload_json(raw, **kwargs)
     except Exception:
-        return 0
+        return 0  # any engine failure -- fail-open ALLOW (never brick a Bash call)
 
     if out is not None:
         import json

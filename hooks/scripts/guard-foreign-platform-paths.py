@@ -60,6 +60,8 @@ try:
         resolve_claude_klabauter_root as _resolve_claude_klabauter_root,
     )
 except Exception:
+    # Defensive fallback -- a hook script copied/deployed WITHOUT its
+    # sibling _engine_root.py must still fail-open rather than crash on import.
     def _resolve_claude_klabauter_root() -> str | None:
         return None
 
@@ -68,6 +70,7 @@ except Exception:
 
 
 def main() -> int:
+    # --- Drain stdin (mirror the bash-hook stdin-drain pattern). ---
     try:
         sys.stdin.read()
     except Exception:
@@ -75,8 +78,11 @@ def main() -> int:
 
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0
+        return 0  # fail-open — engine repo unresolvable on this machine
 
+    # Single direct-import engine call, no dispatch-by-name -- the ~80-module
+    # eager op-registry population is dead weight here. Must precede the first
+    # coordinator_core import. See _engine_root.arm_lazy_ops for the rationale.
     from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
     _place_engine_root_on_path(root)
 
@@ -87,12 +93,16 @@ def main() -> int:
             evaluate_foreign_platform_paths,
         )
     except Exception:
-        return 0
+        return 0  # engine unimportable -> fail-open (never block SessionStart)
 
+    # Path.home() (not os.path.expanduser) fails loud -- RuntimeError, not a
+    # silent literal "~" -- when every home rung is unset. Caught here and
+    # degraded to the same fail-open 0 this hook already returns for an
+    # unimportable engine, matching its never-block-SessionStart posture.
     try:
         home = str(Path.home())
     except RuntimeError:
-        return 0
+        return 0  # fail-open — home unresolvable on this machine
     config_dir_raw = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(home, ".claude")
     config_dir = Path(config_dir_raw)
     settings_path = config_dir / "settings.json"
@@ -100,7 +110,7 @@ def main() -> int:
     try:
         text = evaluate_foreign_platform_paths(settings_path, config_dir=config_dir)
     except Exception:
-        return 0
+        return 0  # any engine failure -> fail-open (never block SessionStart)
 
     if text:
         sys.stdout.write(text)

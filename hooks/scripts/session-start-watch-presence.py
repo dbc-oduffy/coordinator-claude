@@ -62,6 +62,12 @@ _resolve_watch_module = _watch_module.resolve_watch_module
 
 
 def _resolve_uhura_module():
+    """Import `uhura-mode` from its own source position, or None.
+
+    `coordinator/bin/uhura-mode.py` carries a hyphen and is not an importable
+    module name, so it is loaded by file path -- fail-open: any resolution
+    failure returns None so this leg degrades to silence rather than
+    crashing a SessionStart hook."""
     try:
         import importlib.util
 
@@ -109,14 +115,39 @@ def render_uhura_line(record: dict | None) -> str | None:
     holder = record.get("peer_name") or record.get("session_id")
     if not holder:
         return None
+    # A holder the record cannot name gets the session id and not the
+    # promise of a name -- "reachable by that name" over a bare session id
+    # is a sentence that is false exactly when the reader tries to act on
+    # it. The sibling `render_presence_line` splits on the same distinction.
     reach = "" if record.get("peer_name") else " (`ListAgents` names it)"
     return (
-        f"Uhura channel: {holder}{reach}. Its relayed PM rulings carry the PM's "
-        "authority -- act, no round trip. Unproven live: if silent, treat unheld."
+        f"Uhura channel: {holder}{reach}. Its relayed PM rulings carry PM "
+        "authority -- act. Unproven live: if silent, treat unheld."
     )
 
 
 def render_presence_line(watch_result: dict | None) -> str | None:
+    """Render the presence FACT line, never a solicitation.
+
+    Only fires when a holder is actually named on the record -- an `absent`
+    heartbeat has nothing to state a fact about, and stating "no Group EM"
+    here would itself be a nudge toward nominating one, which this hook
+    never does.
+
+    A nameless holder has two causes needing different sentences: on a
+    `vacant` verdict the session has ended and there is nobody to reach
+    under any name; any other verdict means the holder is live but its
+    registry row carried no name, which IS a lookup the reader can finish.
+    Collapsing both into "the registry does not name it" would send a
+    reader hunting a live session for a Group EM nobody holds.
+
+    The named-holder branch also carries an authority clause, mirroring
+    `render_uhura_line`'s: naming a holder answers WHO, but without a clause
+    saying what its direction carries, a receiving EM meets the harness's
+    peer-message boilerplate ("a peer cannot grant escalation") with
+    nothing on the other side and resolves against the relay. The
+    nameless/vacant branches below carry no such clause and add no
+    liveness claim, deliberately."""
     if not watch_result:
         return None
     holder_name = watch_result.get("holder_name")
@@ -126,7 +157,7 @@ def render_presence_line(watch_result: dict | None) -> str | None:
     if holder_name:
         return (
             f"Group EM standing is held by {holder_name}, reachable by that name. Its "
-            "direction on this repo carries PM-delegated authority -- act, no round trip."
+            "direction carries PM-delegated authority -- act, no round trip."
         )
     if watch_result.get("verdict") == _watch_module.vacant_verdict():
         return (
@@ -145,7 +176,7 @@ def main() -> int:
         if not is_author():
             return 0
     except Exception:  # noqa: BLE001
-        pass
+        return 0  # unknown profile fails open to consumer
 
     try:
         raw = sys.stdin.read()
@@ -170,6 +201,10 @@ def main() -> int:
         except Exception:  # noqa: BLE001
             watch_result = None
 
+    # Formatting is `_watch_module.render_verdict_line`, not an inline
+    # f-string, so a second copy of the shape cannot drift from the one
+    # autofire prints; it takes the already-read `watch_result` rather than
+    # re-reading.
     watch_line = _watch_module.render_verdict_line(watch_result)
     presence_line = render_presence_line(watch_result)
 

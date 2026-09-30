@@ -98,7 +98,11 @@ def main(argv: "list[str] | None" = None) -> int:
             print(f"ERROR: Unknown argument: {arg}", file=sys.stderr)
             return 1
 
+    # Repo whose state/goals + state/week-changelog we operate on: the caller's
+    # cwd-derived git root (matches the bash script's "never rely on cwd for
     # SCRIPT_DIR, but REPO_ROOT for state/ IS the repo the user is standing in"
+    # split — bin_dir below is this script's OWN location; signal_repo_root is
+    # the working repo).
     cwd_repo_root = _find_repo_root(os.getcwd())
 
     if not goals_dir:

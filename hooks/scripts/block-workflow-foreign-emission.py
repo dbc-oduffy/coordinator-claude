@@ -121,6 +121,11 @@ def _emitter_invocation() -> tuple[str, str]:
 
 
 def _quote_arg_for_shell(arg: str, shell: str) -> str:
+    """`shlex.quote` (POSIX single-quoting) is correct for `posix` and `ps1`
+    but is not quoting syntax to cmd.exe at all. cmd.exe quotes with a
+    doubled double-quote; there is no escape for a literal trailing
+    backslash immediately before the closing quote, so that case is named
+    rather than fabricated."""
     if shell != "cmd":
         return shlex.quote(arg)
     if not arg or any(ch.isspace() for ch in arg) or '"' in arg:
@@ -131,6 +136,9 @@ def _quote_arg_for_shell(arg: str, shell: str) -> str:
 
 
 def _reemit_command(receipt: dict) -> str:
+    """A queue-emitted receipt carries its own `reemit` argv; `--plan
+    <plan-path>` is wrong advice there since it has no plan to name. A
+    receipt predating the `reemit` key still gets the `--plan` line."""
     invocation, shell = _emitter_invocation()
     reemit = receipt.get("reemit")
     if isinstance(reemit, list) and reemit:

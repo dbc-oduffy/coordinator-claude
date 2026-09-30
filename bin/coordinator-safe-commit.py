@@ -67,7 +67,10 @@ THIS CHUNK (C2c-build) additionally implements, as real working logic:
     Intercepts default mode only. Staging is conditional (fixed 2026-07-25,
     see do_override docstring): commits a pre-staged explicit-path index
     as-is when one exists, falling back to `git add -A` only when the index
-    is empty at entry.
+    is empty at entry (and then refuses while other sessions are live). The
+    commit carries the entry snapshot of the index (`git write-tree`, committed
+    from a private index file), so a peer staging into the shared index
+    mid-flight is never swept in and partially-staged content is honoured.
   - `--dry-run`: an ORTHOGONAL boolean (`args.dry_run`), not a mode value —
     combinable with `--blanket`, `--scope-from`, or the plain default path,
     in any flag order. Prints what would be staged/committed without
@@ -653,7 +656,18 @@ def do_pathspec(args: "Args") -> None:
 
     _refuse_contested_pathspec(args.paths, worktree_root)
 
-    present_paths, deleted_paths = _split_paths_for_commit_v2(worktree_root, args.paths)
+    present_paths, deleted_paths, untracked_paths = _classify_paths_for_commit_v2(
+        worktree_root, args.paths
+    )
+    if untracked_paths:
+        print(
+            "WARNING: untracking, file kept on disk: "
+            + ", ".join(untracked_paths)
+            + " -- staged as deleted in the index (`git rm --cached`), so this "
+            "commit removes them from HEAD. If you did not untrack them, the "
+            "shared index is stale: drop them from `-- <paths>`.",
+            file=sys.stderr,
+        )
     # Body BEFORE the trailer: `Attempt-Id:` is a trailer, and git's own
     # trailer parsing reads the LAST paragraph. Composing them the other way
     # round would push the trailer into the middle of the message, where
@@ -671,6 +685,8 @@ def do_pathspec(args: "Args") -> None:
         "deleted_paths": deleted_paths,
         "message": message,
     }
+    if untracked_paths:
+        params["untracked_paths"] = untracked_paths
     # Only sent when non-empty. `commit_v2` treats the key's absence and an
     # empty list identically, but an always-present key would put a
     # rollback-declaring field in the payload of every ordinary commit, where
@@ -1280,6 +1296,57 @@ def _split_paths_for_commit_v2(worktree_root: str, paths: Sequence[str]) -> "tup
     return present, deleted
 
 
+def _classify_paths_for_commit_v2(
+    worktree_root: str, paths: Sequence[str]
+) -> "tuple[List[str], List[str], List[str]]":
+    """`(present, deleted, untracked)`: `_split_paths_for_commit_v2`'s split,
+    with the present paths the index has staged for deletion moved out of
+    `present` into `untracked`.
+
+    Absence from the worktree alone cannot express `git rm --cached`: the file
+    is still on disk and matches HEAD, so the commit answered NOTHING TO COMMIT
+    and left the staged deletion in the index for the next unrelated commit to
+    sweep up. The index is the only witness of that intent, so it is read here.
+    It cannot tell a deliberate untrack from a stale shared index (both are
+    `D ` plus a present file), which is why the caller prints what it did.
+
+    One spawn, and only when a path is present. A probe that fails answers "no
+    untrack": that leaves the pre-existing behaviour, never a guessed removal.
+    """
+    present, deleted = _split_paths_for_commit_v2(worktree_root, paths)
+    if not present:
+        return present, deleted, []
+    try:
+        result = subprocess.run(
+            [
+                "git",
+                "-C",
+                worktree_root,
+                "diff",
+                "--cached",
+                "--no-renames",
+                "--name-only",
+                "--diff-filter=D",
+                "-z",
+                "--",
+                *(f":(literal){p}" for p in present),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return present, deleted, []
+    if result.returncode != 0:
+        return present, deleted, []
+    staged_deleted = {_norm(line) for line in result.stdout.split("\0") if line}
+    untracked = [p for p in present if _norm(p) in staged_deleted]
+    kept = [p for p in present if _norm(p) not in staged_deleted]
+    return kept, deleted, untracked
+
+
 def _paths_tracked_at_head(worktree_root: str, paths: Sequence[str]) -> "set[str]":
     """Which of `paths` HEAD carries, in one spawn.
 
@@ -1738,6 +1805,71 @@ def _git_diff_cached_names() -> List[str]:
 
 def _git_diff_cached_numstat() -> List[str]:
     return _git_output_lines(["diff", "--cached", "--numstat"])
+
+
+def _git_write_index_tree() -> Optional[str]:
+    """Snapshot the shared index as a tree object (`git write-tree`). The one
+    read that pins what an override commit carries; None when git refuses
+    (unmerged entries, unwritable object store)."""
+    try:
+        result = subprocess.run(
+            ["git", "write-tree"], capture_output=True, text=True, check=False
+        )
+    except OSError:
+        return None
+    tree = result.stdout.strip()
+    return tree if result.returncode == 0 and tree else None
+
+
+def _git_diff_cached_paths_nul(env: Optional[dict] = None) -> List[str]:
+    """Staged paths, NUL-delimited and rename-split (`--no-renames`) so the
+    commit log names both halves of a rename and quoted non-ASCII names
+    survive. `env` selects an alternate index (`GIT_INDEX_FILE`)."""
+    try:
+        result = subprocess.run(
+            ["git", "diff", "--cached", "--name-only", "--no-renames", "-z"],
+            capture_output=True,
+            check=False,
+            env=env,
+        )
+    except OSError:
+        return []
+    if result.returncode != 0:
+        return []
+    return [p.decode("utf-8", "surrogateescape") for p in result.stdout.split(b"\0") if p]
+
+
+def _override_blanket_peers(session_id: str, cs_liveness) -> List[str]:
+    """Live sessions other than `session_id`. Fail-closed: an unreadable
+    liveness probe refuses the blanket fallback rather than reading as
+    "no peers"."""
+    try:
+        live = set(cs_liveness.live_session_ids())
+    except Exception as exc:
+        print(
+            f"ERROR: cannot verify session liveness ({exc}); refusing the "
+            "COORDINATOR_OVERRIDE_SCOPE=1 blanket fallback (git add -A).",
+            file=sys.stderr,
+        )
+        print("Stage explicit paths first: git add -- <your-paths>", file=sys.stderr)
+        sys.exit(1)
+    live.discard(session_id)
+    return sorted(live)
+
+
+def _refuse_override_blanket(peers: Sequence[str]) -> None:
+    print(
+        f"ERROR: COORDINATOR_OVERRIDE_SCOPE=1 with nothing staged would run 'git add -A' "
+        f"while {len(peers)} other live session(s) share this checkout "
+        f"({' '.join(peers)}) and sweep their in-flight work.",
+        file=sys.stderr,
+    )
+    print(
+        "Use --scope-from <handoff> or --include-orphans <pathspec>..., or stage "
+        "explicit paths first: git add -- <your-paths>",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
 
 def _git_reset_unstage(path: str) -> None:
@@ -2549,7 +2681,7 @@ def do_blanket(session_id: str, args: "Args", cs_core, cs_liveness, cs_claims) -
 # OVERRIDE MODE helper
 # ---------------------------------------------------------------------------
 
-def do_override(session_id: str, args: "Args", cs_core) -> None:
+def do_override(session_id: str, args: "Args", cs_core, cs_liveness) -> None:
     """Port of `do_override`: COORDINATOR_OVERRIDE_SCOPE=1 emergency escape
     hatch — audit-trail-degraded, logs to overrides.log, then
     Sentinel-1/Sentinel-2 commit.
@@ -2580,7 +2712,27 @@ def do_override(session_id: str, args: "Args", cs_core) -> None:
     in `do_scoped`/`do_blanket`/`do_scope_from` and not here reintroduces
     this exact defect — `do_override` is reached from `main()` BEFORE mode
     dispatch, so it needs its own dry-run gate; it does not inherit one from
-    any other `do_*` function."""
+    any other `do_*` function.
+
+    Third fix (real incident #3, project-rag 8 live sessions: a 10-file
+    staged index produced an ~83-file commit), two parts:
+
+    (a) The commit carries exactly the index as snapshotted by `git
+    write-tree` at entry -- staged CONTENT, not working-tree content, so a
+    partial `git add -p` is honoured and an unstaged edit never rides in.
+    `.git/index` is shared by every session in the checkout, so a bare
+    `git commit` would sweep whatever a peer stages between the caller's
+    `git add` and the commit; the snapshot is loaded into a private
+    `GIT_INDEX_FILE` and committed from there (hooks still run). Paths a
+    peer stages after the snapshot stay staged in the shared index,
+    uncommitted. Negative-spec: a pathspec-less commit against the shared
+    index, or a pathspec-scoped commit (`--only` semantics read the
+    working tree), reopens the sweep.
+
+    (b) The empty-index `git add -A` fallback refuses (exit 1) when any
+    other live session exists: it would sweep that peer's dirty work. The
+    caller is pointed to --scope-from / --include-orphans or explicit
+    pre-staging."""
     # Sentinel 1: capture HEAD before commit to detect silent no-ops. Must be
     # captured before either staging path below (pre_head is HEAD-before-
     # commit regardless of which staging branch runs). Also used by the
@@ -2602,6 +2754,15 @@ def do_override(session_id: str, args: "Args", cs_core) -> None:
             for f in staged_files:
                 print(f"  {f}", file=sys.stderr)
         else:
+            peers = _override_blanket_peers(session_id, cs_liveness)
+            if peers:
+                print(
+                    f"DRY RUN — override: nothing staged and {len(peers)} other live "
+                    "session(s) exist; the real run would REFUSE the 'git add -A' fallback.",
+                    file=sys.stderr,
+                )
+                print("(no git add or commit executed; staged index left untouched)", file=sys.stderr)
+                sys.exit(0)
             dirty = _current_dirty_files()
             print(
                 f"DRY RUN — override: nothing staged; would stage ALL {len(dirty)} "
@@ -2622,6 +2783,9 @@ def do_override(session_id: str, args: "Args", cs_core) -> None:
             file=sys.stderr,
         )
     else:
+        peers = _override_blanket_peers(session_id, cs_liveness)
+        if peers:
+            _refuse_override_blanket(peers)
         print("WARNING: COORDINATOR_OVERRIDE_SCOPE=1 is set — audit-trail-degraded path.", file=sys.stderr)
         print(
             "         Nothing was staged — staging ALL dirty files (git add -A). This may "
@@ -2630,32 +2794,47 @@ def do_override(session_id: str, args: "Args", cs_core) -> None:
         )
         _git_add_all_blanket()
 
-    staged_files = _git_diff_cached_names()
+    tree = _git_write_index_tree()
+    if tree is None:
+        print("FAIL: git write-tree could not snapshot the index in do_override", file=sys.stderr)
+        sys.exit(2)
+    scratch = tempfile.mkdtemp(prefix="coordinator-safe-commit-")
+    snap_env = {**os.environ, "GIT_INDEX_FILE": os.path.join(scratch, "index")}
+    try:
+        subprocess.run(["git", "read-tree", tree], env=snap_env, check=True)
+        staged_files = _git_diff_cached_paths_nul(snap_env)
 
-    base = cs_core.sessions_dir()
-    if base and session_id:
-        # `ensure_session`, not `os.makedirs`: `<base>/<session_id>` IS a
-        # session directory, and creating it without a `meta.json` record is
-        # what left sessions invisible to `liveness.live_session_ids` and
-        # unreapable by `ops/session/reap.py`. The ceremony runs in a real
-        # session, so the record belongs here -- unlike a guard's audit log,
-        # which takes `_override_log_path`'s `no-session` bucket instead.
-        sdir = cs_core.ensure_session(session_id, sessions_base=base)
-        log_file = os.path.join(sdir, "overrides.log")
-        try:
-            with open(log_file, "a", encoding="utf-8", newline="\n") as fh:
-                fh.write(f"=== Override at {cs_core.now_iso()} ===\n")
-                fh.write(f"Subject: {args.subject}\n")
-                fh.write(f"Mode: {'pre-staged-index' if pre_staged else 'blanket (git add -A)'}\n")
-                fh.write("Files staged:\n")
-                for f in staged_files:
-                    fh.write(f"  {f}\n")
-                fh.write("\n")
-        except OSError:
-            pass
+        base = cs_core.sessions_dir()
+        if base and session_id:
+            # `ensure_session`, not `os.makedirs`: `<base>/<session_id>` IS a
+            # session directory, and creating it without a `meta.json` record is
+            # what left sessions invisible to `liveness.live_session_ids` and
+            # unreapable by `ops/session/reap.py`. The ceremony runs in a real
+            # session, so the record belongs here -- unlike a guard's audit log,
+            # which takes `_override_log_path`'s `no-session` bucket instead.
+            sdir = cs_core.ensure_session(session_id, sessions_base=base)
+            log_file = os.path.join(sdir, "overrides.log")
+            try:
+                with open(log_file, "a", encoding="utf-8", newline="\n") as fh:
+                    fh.write(f"=== Override at {cs_core.now_iso()} ===\n")
+                    fh.write(f"Subject: {args.subject}\n")
+                    fh.write(f"Mode: {'pre-staged-index' if pre_staged else 'blanket (git add -A)'}\n")
+                    fh.write("Files staged:\n")
+                    for f in staged_files:
+                        fh.write(f"  {f}\n")
+                    fh.write("\n")
+            except OSError:
+                pass
 
-    # Sentinel 2: wrap commit call so mid-call failures surface as a FAIL line.
-    result = subprocess.run(["git", "commit", *_commit_message_argv(args.subject, args.body)])
+        # Sentinel 2: wrap commit call so mid-call failures surface as a FAIL line.
+        # Commits the private snapshot index, never the shared one (see the
+        # third-fix note in the docstring).
+        result = subprocess.run(
+            ["git", "commit", *_commit_message_argv(args.subject, args.body)],
+            env=snap_env,
+        )
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
     if result.returncode != 0:
         print(f"FAIL: git commit returned {result.returncode} in do_override", file=sys.stderr)
         sys.exit(2)
@@ -3384,18 +3563,21 @@ def main(argv: Sequence[str]) -> None:
         # `ceremony.commit_v2`, so there is no later chokepoint inside it
         # where a preview could still intercept.
         if args.dry_run:
-            present, deleted = _split_paths_for_commit_v2(
+            present, deleted, untracked = _classify_paths_for_commit_v2(
                 _worktree_root_from_cwd(), args.paths
             )
             print(
                 f"DRY RUN — pathspec: would commit {len(present)} path(s) "
-                f"and {len(deleted)} deletion(s) via ceremony.commit_v2:",
+                f"and {len(deleted) + len(untracked)} deletion(s) via "
+                "ceremony.commit_v2:",
                 file=sys.stderr,
             )
             for path in present:
                 print(f"  {path}", file=sys.stderr)
             for path in deleted:
                 print(f"  {path} [deleted]", file=sys.stderr)
+            for path in untracked:
+                print(f"  {path} [untracked, file kept]", file=sys.stderr)
             return
         do_pathspec(args)
         return
@@ -3480,7 +3662,7 @@ def main(argv: Sequence[str]) -> None:
 
     # COORDINATOR_OVERRIDE_SCOPE=1 intercepts default mode only.
     if os.environ.get("COORDINATOR_OVERRIDE_SCOPE") == "1" and args.mode == "default":
-        do_override(session_id, args, cs_core)
+        do_override(session_id, args, cs_core, cs_liveness)
         return
 
     if args.mode == "blanket":

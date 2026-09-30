@@ -192,6 +192,9 @@ DOCTRINE_MD_DIRS = (
     REPO_ROOT / "coordinator" / "docs" / "wiki",
 )
 
+#: Direct children only, matching the governing glob literally --
+#: `coordinator/schemas/fixtures/` is excluded by this non-recursion, same as
+#: the `*.md` trees' explicit tests/fixtures skip.
 DOCTRINE_SCHEMAS_DIR = REPO_ROOT / "coordinator" / "schemas"
 
 _EXEMPT_PATH_SEGMENTS = frozenset({"tests", "fixtures"})
@@ -213,6 +216,9 @@ _EXEMPT_PATH_SEGMENTS = frozenset({"tests", "fixtures"})
 #: genuine prose finding.
 _EXEMPT_BASENAMES = frozenset({"changelog-history.md"})
 
+#: JSON object keys whose string values are in scope inside a `*.schema.json`
+#: file. `x-bump-note`/`x-bump-class` are deliberately absent -- see module
+#: docstring.
 _SCHEMA_PROSE_KEYS = frozenset({"description", "$comment"})
 
 
@@ -233,6 +239,9 @@ class Violation:
 #: reach a sibling repo's config).
 _CONFIG_FILE_BASENAME = "coordinator.local.md"
 
+#: Bound on the upward walk `_find_repo_root` performs -- runs on the hook hot
+#: path, so the walk must terminate even against a pathological input (a
+#: target with no `.git` ancestor within any plausible repo depth).
 _REPO_ROOT_WALK_MAX_DEPTH = 32
 
 
@@ -304,6 +313,10 @@ def surface_of(path: Path) -> "str | None":
 
 
 def scope_class(path: Path) -> "str | None":
+    """Which governed class `path` belongs to -- `"doctrine"`, `"config"`,
+    or `None` (out of scope). `is_in_scope()` is this function's boolean
+    projection; callers that need to treat the two classes differently
+    (the guard, the ratchet) call this directly instead."""
     try:
         resolved = path.resolve()
     except Exception:
@@ -313,6 +326,8 @@ def scope_class(path: Path) -> "str | None":
         repo_root = _find_repo_root(resolved)
         if repo_root is not None and resolved.parent == repo_root:
             return "config"
+        # No `.git` ancestor, or the file isn't directly at that root --
+        # degrade to out-of-scope, never a false in-scope.
         return None
 
     if resolved.suffix == ".md":
@@ -372,6 +387,8 @@ def iter_doctrine_surface_files() -> Iterable[Path]:
 
 _FENCE = re.compile(r"^\s*```")
 
+#: Lines never scanned, regardless of content -- required doctrine machinery,
+#: not prose.
 _EXEMPT_LINE_PATTERNS = (
     re.compile(r"^\s*<!--\s*spec-backlink:", re.IGNORECASE),
     re.compile(r"^\s*<!--\s*Spec backlink:", re.IGNORECASE),
@@ -389,6 +406,8 @@ def _dequote_leading(line: str) -> str:
     return stripped
 
 
+#: Inline code spans and quoted runs, anywhere in a line -- the spans in which
+#: a forbidden phrase is being NAMED rather than used.
 _MENTION_SPAN = re.compile(
     r"`[^`]*`"
     r'|"[^"]*"'
@@ -397,9 +416,15 @@ _MENTION_SPAN = re.compile(
 
 
 def _strip_mentions(line: str) -> str:
+    """Blank out code spans and quotations so a MENTION of a forbidden phrase
+    does not read as a USE of it. Replaces each span with spaces rather than
+    deleting it, so downstream offsets into the returned string still line up
+    with the original."""
     return _MENTION_SPAN.sub(lambda m: " " * len(m.group()), line)
 
 
+#: `*` included so an italic-wrapped bare date token (`*2026-07-09.*`) strips
+#: down to a recognizable ISO date token boundary.
 _ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _TOKEN = re.compile(r"\S+")
 _TOKEN_STRIP = ".,;:()[]\"'*"

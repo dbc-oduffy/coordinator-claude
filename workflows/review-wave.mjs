@@ -79,6 +79,7 @@ export const meta = {
 }
 
 
+// Validated against agents/parallel-review-synthesizer.md § Output Schema.
 const VERDICT_SCHEMA = {
   type: 'object',
   required: ['verdict', 'verdict_rationale', 'head_drift', 'convergent_findings', 'arch_tier_candidates', 'per_reviewer_findings', 'requires_em_resolution', 'lens_coverage'],
@@ -161,8 +162,10 @@ function chunkPrompt(chunk, diffPatchPath, findingsDir) {
 
 
 function mechanicalPrompt(worker, inputPath, inputDescription, findingsDir, outFile) {
-  
-  
+  // test-evidence-parser carries no Bash -- it persists via a single Edit on an
+  // EM-pre-scaffolded sentinel, and Edit's fail-loud-if-absent behavior is the
+  // verification; there is no `ls -la` for it to run. The other two workers keep
+  // Bash and the disk-verify line.
   const canVerifyOnDisk = worker !== 'test-evidence-parser'
   return [
     'You are the ' + worker + ' dispatched as part of a review-wave Workflow, per',

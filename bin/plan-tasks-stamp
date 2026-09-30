@@ -192,7 +192,7 @@ def main(argv: list[str] | None = None) -> int:
         raise RuntimeError(
             "plan-tasks-stamp: coordinator_core.invoke seam absent — no legacy "
             "path exists for plan.tasks.mutate. Verify COORDINATOR_ENGINE_ROOT "
-            "(or CLAUDE_KLABAUTER_ROOT) and the claude-klabauter coordinator_core install."
+            "and the claude-klabauter coordinator_core install."
         )
 
     try:

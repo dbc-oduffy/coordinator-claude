@@ -136,7 +136,15 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"prune-closed-bugs.py: {len(ids)} closed bug(s) selected for prune")
 
+    # route() + manual exit_code inspection, NOT
+    # route_mutation(), on the ACT call. fleet.prune_closed_bugs's act response is a
     # DETERMINATE-PARTIAL shape (build_act_result): exit_code=2 means some candidates
+    # failed, but acted[] still lists the ones that succeeded -- and those were already
+    # git-mv'd and committed. route_mutation() treats ANY non-zero exit_code (including
+    # this legitimate partial-success shape) as a hard refusal and raises before the
+    # per-item acted[] detail can be inspected, mischaracterizing a real partial success
+    # as "not archived (transport error)" for every requested id. Mirrors
+    # sweep-terminal-plans.py's ACT-call pattern (route() + acted/exit_code inspection).
     act_params = {"mode": "already-terminal", "dry_run": False, "candidate_ids": ids}
     try:
         act_result = cc_invoke.route("fleet.prune_closed_bugs", act_params, repo_root, _no_fallback)

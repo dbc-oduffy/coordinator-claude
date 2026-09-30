@@ -49,6 +49,7 @@ def _heading(path: str) -> str:
 def main(argv: "list[str] | None" = None) -> int:
     del argv
     # Resolve repo root via the checked resolver. READER (AC10): a MISMATCH
+    # verdict is warned to stderr and the resolved root used anyway (DR-277);
     # UNRESOLVED never refuses either (AC4).
     lib_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
     if lib_dir not in sys.path:

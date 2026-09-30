@@ -28,7 +28,16 @@ def _bootstrap_engine() -> None:
         sys.path.insert(0, str(_REPO_ROOT))
     _BOOTSTRAP_DONE = True
 
+# `claimed_by` is DR-084's new vocabulary, renamed from `consumed_by`. The
 # fails-open shape DR084-SINGLE-ACCESSOR exists to catch is a MIXED corpus: a
+# new-vocabulary-only scan silently skipping artifacts still carrying the old
+# key. Measured 2026-08-26 across every `state/**` and `cross-repo/**` markdown
+# frontmatter block: ZERO artifacts carry `consumed_by` as a field (the 211
+# textual hits are prose in audits and handoff bodies). The corpus has fully
+# cut over, so there is nothing for a dual read to find, and adding the dead key
+# here would make the guard green by widening a scan over a vocabulary no
+# artifact uses -- satisfying the check rather than the property it stands for.
+# Re-open this if a `consumed_by`-writing producer ever lands.
 _CLAIM_KEYS = ("claimed_by", "held_by", "authoring_session", "origin_session")
 
 

@@ -173,6 +173,7 @@ from dataclasses import dataclass, field
 from pathlib import PureWindowsPath
 from typing import FrozenSet, Optional, Tuple
 
+#: Grep this exact token to find the tripwire registry entry.
 TRIPWIRE_TOKEN = "GUARD-ON-RUNNER-CONTRACT"
 
 #: The channel names a guard's verdict is expressed in, mirrored from
@@ -194,6 +195,9 @@ CHANNEL_DENY = "deny"
 #: this variable: measurement mode is standalone-invocation-only.
 MEASURE_ENV_VAR = "COORDINATOR_HOOK_MESSAGE_MEASURE"
 
+#: Plain substring/regex fragments, not compiled patterns -- kept as
+#: strings so this module stays import-free beyond stdlib; the
+#: conformance test compiles them itself.
 FORBIDDEN_OS_EXIT = r"os\._exit"
 FORBIDDEN_ATEXIT = r"atexit\."
 FORBIDDEN_CHDIR = r"os\.chdir"
@@ -244,6 +248,23 @@ class GuardScopeDescriptor:
     basenames: FrozenSet[str] = field(default_factory=frozenset)
 
     def matches(self, target_path: Optional[str]) -> bool:
+        """Pure, import-free scope check; no filesystem I/O.
+
+        `directory_substrings` are declared forward-slash-only, but
+        `target_path` is a raw payload string that on Windows is
+        backslash-separated -- normalized to forward slashes for the
+        directory-substring check (a no-op on POSIX). `path_suffixes`
+        needs no such normalization.
+
+        `basenames`, when declared, is checked first and independently: a
+        match there returns `True` regardless of `path_suffixes`/
+        `directory_substrings` -- an OR, not an AND, with the suffix+
+        directory pair.
+
+        Residual gap: `PureWindowsPath` parses `\\` as a separator on every
+        host, so a POSIX path whose leaf genuinely contains a literal
+        backslash is still mangled here.
+        """
         if not target_path:
             return False
         if not self.path_suffixes and not self.directory_substrings and not self.basenames:
@@ -268,6 +289,9 @@ class GuardScopeDescriptor:
         return True
 
 
+#: Filenames only (no directory prefix), each a sibling of this module
+#: under coordinator/hooks/scripts/. The conformance test sources its
+#: guard corpus from exactly this set.
 ENROLLED_GUARD_MODULES: Tuple[str, ...] = (
     "guard-oss-payload-locality.py",
     "nudge-plan-test-surface-tier.py",

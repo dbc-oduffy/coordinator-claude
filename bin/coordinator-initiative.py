@@ -1,4 +1,39 @@
+# coordinator-initiative — mint, attach, and list unattached initiatives.
+#
+# Spec backlink: docs/plans/2026-07-04-initiative-govern-sweep-prioritize-doe-d.md § C2 (AC3)
+#
+# Purpose: authoring-side CLI for the initiative governing discipline.
+#   create          Mint state/initiatives/<id>.yaml. Fail-loud on existing id; atomic write.
+#   attach          Write initiative: <id> FK to an artifact's YAML frontmatter. Also
+#                   accepts `attach --pairs-file <path>`: N (artifact-path,
+#                   initiative-id) pairs in ONE process invocation instead of N —
+#                   the batch form callers like coordinator_core.ops.backfill_initiative_fk
+#                   use to collapse a per-pair subprocess spawn loop into one spawn.
+#                   Pairs-file is TSV (`artifact_path<TAB>initiative_id` per line,
+#                   blank/`#`-comment lines skipped); output is one JSON line per
+#                   pair on stdout for per-pair attribution, in pairs-file line order.
+#   list-unattached Narrow CLI (--format/--limit only) over the native
+#                   records_query.query_records(unattached=True) union lens
+#                   (in-process call, no node/query-records.js spawn).
+#
+# Central-seam resolution: state/initiatives/ is resolved via
+# coordinator_core.state_root.coordinator_state_root(central=True), imported
+# in-process (P055-C1: was a spawn of lib/coordinator-state-root.py, itself a
+# thin bridge over the same native call). NOT coordinator-session.sh.
+# Spec backlink: docs/plans/2026-07-04-initiative-govern-sweep-prioritize-doe-d.md § C2
+#
+# Port: de-bash campaign, extensionless entrypoint keeps its exact
+# name (callers depend on it) and becomes a python3-shebang script. No bash
+# version guard is needed any more (CPython, not bash 3.2/4 discrimination).
+#
 # Test override: COORDINATOR_INITIATIVE_ROOT bypasses coordinator_state_root
+# resolution (for unit tests that do not have a configured claude-klabauter/central
+# state root).
+#
+# Negative-spec: does NOT auto-create initiatives from detector output (surface-and-confirm only).
+# Negative-spec: does NOT build the interactive attach UI.
+# Negative-spec: does NOT use coordinator-session.sh for state root resolution.
+# Negative-spec: does NOT write any file outside state/initiatives/<id>.yaml or the named artifact.
 
 from __future__ import annotations
 
@@ -23,7 +58,10 @@ def _bootstrap_imports() -> None:
     cc_invoke.ensure_engine_on_path(__file__)
 
 
+# ── Central-seam resolution ────────────────────────────────────────────────────
+# Resolves state/initiatives/ via coordinator_state_root --central.
 # Respects COORDINATOR_INITIATIVE_ROOT env override for test isolation.
+# Negative-spec: does NOT fall back silently if the seam fails — returns None (fail-loud).
 #
 # central=False (not True) is deliberate: coordinator_state_root(central=True)
 # is Rule 4, a hardcoded backward-compat default that always resolves to
@@ -368,7 +406,32 @@ def _cmd_attach(args: list[str]) -> int:
     return 0 if ok else 1
 
 
+# ── attach --pairs-file ──────────────────────────────────────────────────────────
+# Batch form of attach: N (artifact-path, initiative-id) pairs processed in ONE
+# process invocation instead of N. Exists to let a caller looping over a mapping
+# (coordinator_core.ops.backfill_initiative_fk) collapse a per-pair subprocess
+# spawn into a single spawn — the amplification-gate fix this flag was added for.
+#
+# Pairs-file format mirrors backfill_initiative_fk's own TSV mapping file:
+# `artifact_path<TAB>initiative_id` per line; blank lines and `#`-prefixed comment
+# lines are skipped (never counted, never emitted as a result line) — the caller is
+# expected to have already applied its own comment/blank/malformed-row filtering,
+# same as it would for the single-pair path.
+#
+# initiatives_dir is resolved ONCE for the whole batch (collapsing the single-pair
+# path's per-call coordinator_state_root subprocess spawn too), then each pair is
+# attached via the shared `_attach_one` core, in pairs-file line order.
+#
+# Emits exactly one JSON line per non-blank/non-comment pairs-file line, in that
+# same order, to stdout — {"artifact_path", "initiative_id", "ok": true, "message"}
+# on success, {"artifact_path", "initiative_id", "ok": false, "error"} on failure.
+# A caller needing per-pair attribution matches its own pair list against these
 # JSON lines POSITIONALLY (one result per input line, same order) rather than by
+# re-parsing message text.
+#
+# Exit code: 0 only if every pair succeeded (matches the single-pair path's
+# fail-loud contract); 1 if any pair failed. The exit code alone does not say WHICH
+# pair failed — that is what the JSON lines are for.
 def _cmd_attach_batch(pairs_file: str) -> int:
     if not os.path.isfile(pairs_file):
         print(
@@ -427,7 +490,37 @@ def _cmd_attach_batch(pairs_file: str) -> int:
     return 1 if any_failed else 0
 
 
+# ── list-unattached ────────────────────────────────────────────────────────────
+# In-process call into the native `unattached` union lens (coordinator/bin/lib/
+# records_query.py -> coordinator_core records.query op, claude-klabauter commit 5709969b).
+# De-bash/de-node campaign: this was the last live `node` spawn on the initiative
+# surface (execvp into the now-retired query-records.js CLI); repointed to call
+# records_query.query_records() directly instead of shelling out.
+#
+# Flag surface is intentionally NARROW, not a passthrough: the retired wrapper
+# forwarded arbitrary query-records.js flags via `*args` to `exec`, but an
+# in-process function call cannot honor an open-ended flag list. Caller-set
+# verification (grepped every commands/skills/docs/test caller of
+# `list-unattached` in this repo, 2026-07-22) found NO production caller passes
+# ANY flag to this subcommand — only --format and --limit are supported here,
+# matching the retired CLI's own two most load-bearing options and the two
+# params query_records() exposes without ambiguity. Any other flag (--root,
+# --type, --where, --sort, --since, --older-than, or an unrecognized flag)
+# FAILS LOUD rather than being silently dropped or silently mis-mapped — a
+# silently-dropped --format would hand a caller `markdown-list` while it
+# parses the output as JSON; a silently-dropped filter is worse. See
 # records_query.py's own "SILENT-DROP TRAP" docstring section for the exact
+# failure mode this guards against.
+#
+# Defaults (--format markdown-list, --limit 50) are chosen to byte-match the
+# retired `node query-records.js --unattached` CLI's own defaults (EM-verified
+# 2026-07-22: stdout identical across default/--limit N/--format json/--format
+# paths --limit 0 invocations, back-to-back against the same corpus).
+#
+# Negative-spec: does NOT filter, transform, or re-implement the lens logic —
+# the engine (claude-klabauter's records.query op, reached via records_query.py) still
+# owns the union/lens computation; this function only shapes the CLI surface
+# around a single in-process call.
 _LIST_UNATTACHED_FORMATS = ("paths", "json", "markdown-list")
 
 

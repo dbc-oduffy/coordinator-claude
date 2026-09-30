@@ -88,16 +88,29 @@ os.environ['COORDINATOR_WARM_BOOT_WAIT_SECS'] = '0'
 
 
 def _detect_hook_seam_drift():
+    """Banners once per session if this process's snapshotted `-c` payload no longer
+    matches the current on-disk `fail_open_launcher.LOADER`.
+
+    NEVER RAISES. NEVER TOUCHES `sys.argv`. NEVER CHANGES THE TARGET HOOK'S EXIT CODE OR
+    OUTPUT. The whole body is one try/except Exception: return for exactly that reason --
+    an unreadable launcher file, an unexpected sys.orig_argv shape, or a permission error
+    on the sentinel must degrade to "did not check", not to a broken hook fire.
+    """
     try:
         orig_argv = getattr(sys, 'orig_argv', None)
         if not orig_argv or len(orig_argv) < 4:
-            return
+            return  # too old for sys.orig_argv (< 3.10), or a shape we don't recognize
         snapshotted_loader = orig_argv[2]
         script_arg = orig_argv[3]
         if not isinstance(snapshotted_loader, str) or not isinstance(script_arg, str):
             return
         if '${' in script_arg:
-            return
+            return  # an unexpanded PATH token means "cannot determine", not drift.
+        # NOT applied to `snapshotted_loader`: that text is the `-c` payload's own source,
+        # not a path -- an older generation's real payload legitimately contains the
+        # literal substring '${' as part of its own inline unexpanded-token check.
+        # Guarding on it here made the detector bail before the comparison ever ran; do
+        # not re-broaden it.
 
         # `script_arg` is always `<plugin_root>/hooks/scripts/<script>.py` -- the one argv
         # position with production evidence of `${CLAUDE_PLUGIN_ROOT}` expansion across every
@@ -116,12 +129,17 @@ def _detect_hook_seam_drift():
         spec.loader.exec_module(mod)
         current_loader = getattr(mod, 'LOADER', None)
         if not isinstance(current_loader, str) or current_loader == snapshotted_loader:
-            return
+            return  # current, or the source doesn't define LOADER at all -- not our call
 
         session_id = os.environ.get('CLAUDE_CODE_SESSION_ID')
         if not session_id:
-            return
+            return  # no session key to suppress on -- skip rather than risk repeating
 
+        # Path.home() as the terminal rung, never a bare expanduser('~'): this ladder
+        # feeds a sentinel-file write, so a rung that silently yields the literal '~'
+        # would create a stray '~' tree wherever the hook happens to be cwd'd.
+        # Path.home() raises instead, and the enclosing try/except degrades that to
+        # "no banner this session".
         settings_home = os.environ.get('COORDINATOR_SETTINGS_HOME')
         if settings_home:
             home = settings_home

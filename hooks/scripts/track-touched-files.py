@@ -94,6 +94,13 @@ from pathlib import Path
 
 
 def _read_stdin(timeout: float = 2.0) -> str:
+    """Bounded stdin read (Windows hang guard).
+
+    A bare sys.stdin.read() blocks forever if the harness never closes
+    stdin's write end (observed Windows failure mode), backstopped with a 2s
+    threaded-join timeout, returning "" (the same fail-open value a
+    JSON-decode failure already produces) instead of hanging the hook
+    chain."""
     box = {"data": ""}
 
     def _read() -> None:
@@ -114,6 +121,8 @@ if _HOOKS_DIR not in sys.path:
 try:
     from _engine_root import resolve_claude_klabauter_root as _resolve_claude_klabauter_root  # noqa: E402
 except Exception:
+    # Defensive fallback -- a deploy missing its sibling _engine_root.py
+    # must still fail-open rather than crash on import.
     def _resolve_claude_klabauter_root() -> str | None:
         return None
 
@@ -123,16 +132,20 @@ def main() -> int:
 
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0
+        return 0  # fail-open -- engine repo unresolvable on this machine
 
     from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
     _place_engine_root_on_path(root)
 
     try:
+        # Importing coordinator_core.hooks registers every op in the package
+        # (not just this one) via its __init__ side-effects -- a one-time,
+        # in-process cost, no subprocess spawn, but each hook fire is a
+        # fresh process so it recurs every fire, not just once per session.
         from coordinator_core.hooks import track_touched_files as _op  # noqa: F401
         from coordinator_core.ipc import HookDispatchError, dispatch_from_hook
     except Exception:
-        return 0
+        return 0  # engine unimportable -> fail-open
 
     try:
         payload = json.loads(raw)
@@ -166,7 +179,7 @@ def main() -> int:
             origin_worktree=payload.get("cwd", ""),
         )
     except HookDispatchError:
-        return 0
+        return 0  # any engine failure -> fail-open (never brick an edit)
 
     # No stdout relay: this op is MUTATING bookkeeping (dedup-append into
     # touched.txt), never advisory -- it always returns no_advisory() == {}.

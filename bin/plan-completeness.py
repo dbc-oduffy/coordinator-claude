@@ -136,7 +136,7 @@ def cmd_generate(args: argparse.Namespace) -> int:
     out_dir = Path(plan_sidecars_dir(repo_root))
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{plan_stem}.completeness.md"
-    out_path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+    out_path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8", newline="\n")
 
     print(f"plan-completeness: wrote {out_path}", file=sys.stderr)
     return EXIT_OK

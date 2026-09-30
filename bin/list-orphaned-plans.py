@@ -122,7 +122,11 @@ def __getattr__(name: str):
 
 _USAGE_FAIL = 2
 
+#: Cap on `unrecognized_status` lines printed — mirrors
 #: `readers_handoff_triage._UNRECOGNIZED_STATUS_LINE_CAP`; this diagnostic
+#: bucket is not spec'd "loud, one line per plan" the way P1
+#: `authorized_orphan` is, and grows with disk contents (Review:
+#: code-reviewer — Finding 3).
 _UNRECOGNIZED_STATUS_LINE_CAP = 10
 
 

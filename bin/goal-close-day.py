@@ -16,7 +16,7 @@ of the close-out write algorithm exists in the repo:
 `coordinator_core.ops.goal_close_day.close_day_goals`.
 
 Usage:
-    goal-close-day.py --decisions <json>
+    goal-close-day.py [--decisions <json> | --decisions-file <path>]
 
 Options:
     --decisions <json>  A JSON object `{goal_id: "done"|"dropped"|...}`
@@ -26,6 +26,10 @@ Options:
                          writes NOTHING (DEC-2) — the op returns
                          `{"closed": []}` before touching disk rather than
                          this door special-casing the empty case itself.
+    --decisions-file <path>
+                         Same object, read from a file (transport-safe through
+                         Windows `.cmd` forwarders). Mutually exclusive with
+                         --decisions.
 
 Exit codes:
     0 — success; the op's bare result (`{"closed": [...]}`) printed to
@@ -51,36 +55,37 @@ import os
 import sys
 
 def _parse_args(argv: list[str]) -> dict:
-    decisions_raw = ""
+    from coordinator_core.ceremony_common.json_payload_flag import (
+        detect_conflicting_payload_channels,
+        resolve_json_payload_flag,
+    )
+
+    conflict = detect_conflicting_payload_channels(argv)
+    if conflict is not None:
+        print(f"ERROR: {conflict}", file=sys.stderr)
+        sys.exit(1)
+
+    decisions: dict = {}
 
     i = 0
     n = len(argv)
     while i < n:
         arg = argv[i]
-        if arg == "--decisions":
-            if i + 1 >= n:
-                print("ERROR: --decisions requires an argument", file=sys.stderr)
+        if (payload := resolve_json_payload_flag(argv, i)).consumed:
+            if payload.error is not None:
+                print(f"ERROR: {payload.error}", file=sys.stderr)
                 sys.exit(1)
-            decisions_raw = argv[i + 1]
-            i += 2
+            if not isinstance(payload.value, dict):
+                print("ERROR: --decisions must be a JSON object", file=sys.stderr)
+                sys.exit(1)
+            decisions = payload.value
+            i += payload.consumed
         elif arg in ("--help", "-h"):
             sys.stdout.write(__doc__ or "")
             sys.exit(0)
         else:
             print(f"ERROR: Unknown argument: {arg}", file=sys.stderr)
             sys.exit(1)
-
-    decisions: dict = {}
-    if decisions_raw:
-        try:
-            parsed = json.loads(decisions_raw)
-        except json.JSONDecodeError as exc:
-            print(f"ERROR: --decisions is not valid JSON: {exc}", file=sys.stderr)
-            sys.exit(1)
-        if not isinstance(parsed, dict):
-            print("ERROR: --decisions must be a JSON object", file=sys.stderr)
-            sys.exit(1)
-        decisions = parsed
 
     return {"decisions": decisions}
 
@@ -146,11 +151,17 @@ def main(argv: list[str]) -> int:
 
     cwd_repo_root, verdict = resolve_checked_repo_root(explicit_root=None)
     if cwd_repo_root is None:
+        # No git root resolved from cwd at all -- distinct from the
         # MISMATCH identity gate below (positive evidence of a DIFFERENT
+        # real repo). This is "nowhere to write"; refusing here is not the
         # AC4 "UNRESOLVED never refuses" carve-out being violated.
         print(f"goal-close-day: cannot resolve git repo root from {os.getcwd()}", file=sys.stderr)
         return 2
     if verdict["verdict"] == "MISMATCH":
+        # DR-277 named carve-out: this door dispatches goal.close_day_apply,
+        # which writes closed-goal rows into cwd_repo_root's state tree
+        # (coordinator_core/ops/goal_close_day.py::close_day_goals) -- a
+        # genuine WRITER, not a diagnostic read. Refuse rather than write
         # into a foreign tree. UNRESOLVED never refuses (AC4).
         print(verdict["message"], file=sys.stderr)
         return 2

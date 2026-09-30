@@ -199,7 +199,21 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
+# ---------------------------------------------------------------------------
+# Native coordinator_core bootstrap — replaces the bash oracle's
+# `source coordinator-claude-klabauter-root.sh` / `source coordinator-watchdog.sh` /
+# the resolve-coordinator-clone.py subprocess call with direct in-process
+# imports of the already-native, tested claude-klabauter peers. Retires all three
+# sourced/subprocess bash dependencies this script previously carried.
+# ---------------------------------------------------------------------------
+# coordinator/lib/ (distinct from coordinator/bin/lib/ above — the two lib
+# dirs are NOT the same tree, see the module header's chunk-boundary notes)
+# carries settings_home.py, the native settings-home resolver the bash oracle
 # shells out to via `${_CSR_LIB_DIR}/settings_home.py --print-home`. Imported
+# in-process here (chunk C's Phase C parent-whitelist + install-baton
+# rendezvous hard-exclude) rather than subprocess'd, per this module's
+# zero-subprocess-hot-path goal.
+# ---------------------------------------------------------------------------
 _COORDINATOR_LIB_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lib"
 )
@@ -223,6 +237,14 @@ def _bootstrap_engine() -> None:
 
 
 # Phases A-D (2026-07-28 collapse — see CHUNK BOUNDARY addendum below) now
+# import their sweep logic directly from coordinator_core.ops.cruft_sweep,
+# the same way Phase E already did — this file no longer carries private
+# duplicates of the four ported phases. Only CLI/argparse, machine-local +
+# registry resolution, the coordinator_state_root seam, --parent-root
+# default derivation, the parent_whitelist TOML/grep read, CLASS dispatch,
+# the grand-total banner, and the run-marker log row remain trampoline-owned
+# (see that module's own docstring negative-spec for the authoritative list
+# of what it does NOT own).
 
 SELF_NAME = "cruft-sweep"
 
@@ -397,8 +419,12 @@ class SweepConfig:
     json_mode: bool = False
     quiet: bool = False
     # Deliberately shorter ladder (HOME -> USERPROFILE, no CLAUDE_HOME rung), per the
+    # home-resolution family's written-justification carve-out: both roots address the
+    # HARNESS's own scratch under the real OS home -- Claude Code writes
     # ~/.claude/projects and ~/.claude/file-history there regardless of CLAUDE_HOME,
+    # which relocates the coordinator meta-repo, not the harness's session store. A
     # CLAUDE_HOME rung here would point the sweep at a directory the harness never
+    # writes to, and the sweep would silently reclaim nothing.
     projects_root: str = field(default_factory=lambda: os.path.join(
         os.environ.get("HOME") or os.environ.get("USERPROFILE") or "",
         ".claude", "projects",
@@ -431,7 +457,9 @@ class Totals:
     scratch_items: int = 0
     orphans_bytes: int = 0
     orphans_items: int = 0
+    # NOT folded into the grand-total banner — see module docstring's
     # "DELIBERATE PARITY" note (chunk C+D): the bash oracle's own grand-total
+    # sum omits these, and this port reproduces that faithfully.
     subagent_sandbox_bytes: int = 0
     subagent_sandbox_items: int = 0
     empty_dirs_bytes: int = 0
@@ -618,7 +646,14 @@ def _release_lock(lock_dir: str) -> None:
         pass
 
 
+# ---------------------------------------------------------------------------
 # Phase A-D thin wrappers (2026-07-28 collapse — see CHUNK BOUNDARY addendum
+# in the module docstring and docs/research/2026-07-28-cruft-sweep-duplicate-
+# port-drift-audit.md). Each wrapper resolves ONLY the CLI-owned inputs
+# (repo root override, blocklist directory, parent roots, whitelist,
+# settings-home) and delegates the sweep logic itself to
+# coordinator_core.ops.cruft_sweep — the same shape Phase E already used.
+# ---------------------------------------------------------------------------
 
 
 def _resolve_repo_root(cfg: "SweepConfig") -> str:
@@ -836,7 +871,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         with recording_declared_writes():
             totals = Totals()
 
+            # Mirrors the bash oracle's `case "$CLASS" in ... esac` main dispatch
             # (L1580-1600) exactly — including "scratch" dispatching BOTH
+            # _sweep_scratch and _sweep_subagent_sandbox_files back-to-back.
             if cfg.class_ == "harness":
                 _sweep_harness(cfg, totals)
             elif cfg.class_ == "scratch":
@@ -855,7 +892,9 @@ def main(argv: Optional[List[str]] = None) -> int:
 
             total_bytes = _emit_grand_total_banner(totals, cfg.json_mode)
 
+            # Run-marker log row — written unconditionally on --apply (non-JSON)
             # runs. Mirrors the bash oracle's `if [[ "$APPLY" -eq 1 && "$JSON_MODE"
+            # -eq 0 ]]` gate (L1624) exactly.
             if cfg.apply and not cfg.json_mode:
                 _write_run_marker(cfg, totals, total_bytes)
 

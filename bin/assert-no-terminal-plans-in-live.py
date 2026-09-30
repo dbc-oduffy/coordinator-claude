@@ -135,7 +135,16 @@ def main(argv: list[str]) -> int:
     if state_root:
         handoffs_dir = os.path.join(state_root, "handoffs")
         if os.path.isdir(handoffs_dir):
+            # DR-084: status: consumed -> status: claimed. P0 additive widen —
+            # accept both vocabularies while the on-disk corpus is mixed, so a
+            # handoff already migrated to `claimed` isn't misread as active and
+            # spuriously counted as a live-ref hold. Sourced from the shared
             # coordinator/bin/lib/handoff_lifecycle.py TERMINAL_STATUS constant
+            # (mirrors coordinator/bin/lib/consumed-marker.js's set of the same
+            # name on the JS side) rather than a locally re-declared literal —
+            # this file previously carried its own hardcoded tuple here, which
+            # is exactly the per-caller-drift shape the shared accessor exists
+            # to close.
             from handoff_lifecycle import TERMINAL_STATUS  # noqa: E402  (sys.path-dependent)
 
             for name in sorted(os.listdir(handoffs_dir)):

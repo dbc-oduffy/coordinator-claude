@@ -70,6 +70,8 @@ def _bootstrap_engine() -> None:
 
 
 #: Step 3's sensitive-path predicate (L214-219 / Step 2's L102-106) — same
+#: four categories in both places, kept as one constant so the two checks
+#: can't drift apart.
 _SENSITIVE_MARKERS = ("CLAUDE.md", "settings.json", "hooks/", "agents/")
 
 _GATE_FILE_COUNT_THRESHOLD = 10

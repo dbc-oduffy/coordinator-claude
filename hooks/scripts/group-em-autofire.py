@@ -76,11 +76,20 @@ _PM_CALL_DEFAULT = "resolving this is the PM's call"
 
 
 def _normalize_command_name(name: str | None) -> str:
+    """Normalize a raw `command_name` to its bare verb. Identical shape to
+    `pickup-autofire.py::_normalize_command_name` -- strips any `<namespace>:` prefix by taking
+    the segment after the LAST `:`, so both `"coordinator:group-em"` and a bare typed verb
+    normalize to the same string. Also strips a leading `/` -- a literally-typed slash-command
+    value is otherwise a distinct string from the same bare verb and would silently miss the
+    membership test below."""
     if not isinstance(name, str):
         return ""
     return name.lstrip("/").rsplit(":", 1)[-1]
 
 
+# _resolve_watch_module/render_watch_line live in the shared _watch_module.py beside the other
+# _-prefixed modules in this directory; see that module's docstring for why the per-hook-
+# independence posture does not cover this case.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _watch_module  # noqa: E402
 
@@ -88,6 +97,9 @@ render_watch_line = _watch_module.render_watch_line
 
 
 def resolve_enter_cli() -> Path | None:
+    """Locate `group-em-enter.py` from this hook's own position in the plugin tree. Resolved
+    from `__file__`, never cwd: the hook fires from whatever directory the invoking session
+    happens to be in, and `--plugin-dir` can root this tree anywhere."""
     candidate = Path(__file__).resolve().parents[2] / "bin" / "group-em-enter.py"
     return candidate if candidate.is_file() else None
 
@@ -115,6 +127,11 @@ def _run_enter(script: Path, repo_root: str, session_id: str):
 
 
 def render_additional_context(payload: dict, exit_code: int, stderr: str) -> str:
+    """Render the injected turn context. A refusal renders as loudly as a success -- see the
+    module docstring's refusal clause. Truncated from the tail to stay inside the budget; the
+    standing verdict and the gate reminder are never dropped, because a session that loses the
+    Group EM line believes it holds one, and a session that loses the gate line is the one the
+    send gate exists to stop."""
     if exit_code in (6, 7):
         detail = (stderr or "").strip().splitlines()
         reason = detail[-1] if detail else "no detail reported"
@@ -159,6 +176,8 @@ def render_additional_context(payload: dict, exit_code: int, stderr: str) -> str
             f"{candidates} candidate(s)"
         )
     else:
+        # Never fabricate the denominator, and never print a bare count in its place -- that is
+        # the exact ambiguity this branch exists to avoid. Say the denominator is missing.
         roster_line = (
             f"Roster: {len(roster)} shortlisted, {candidates} candidate(s) — "
             f"ENUMERATED COUNT UNAVAILABLE (`roster_considered` absent from the payload), so "
@@ -172,6 +191,10 @@ def render_additional_context(payload: dict, exit_code: int, stderr: str) -> str
         roster_line,
     ]
     if standing.get("displaced_holder"):
+        # The one message this mode owes rather than offers. A displaced holder that is still
+        # running believes it is this repo's Group EM and will act on that; the ordinary send
+        # gates ask whether an interrupt is worth its cost to the receiver, and a peer acting
+        # under a role it no longer holds is the case where the answer is not in doubt.
         lines.append(
             f"DISPLACED: {standing['displaced_holder']} — "
             + (
@@ -226,6 +249,8 @@ def render_additional_context(payload: dict, exit_code: int, stderr: str) -> str
         "GATES UNRESOLVED. `gate1`/`gate2` are unset and nothing here resolves them. "
         "Declare both in prose per send, and never loop over `entries` sending."
     )
+    # No hook can arm the clocks itself -- each fires on a session event and cannot outlive it.
+    # Whether arming happened is reported by the watch verdict, never acted on here.
     arm_line = (
         "ARM BOTH CLOCKS, NOW, AS YOUR FIRST ACT: `CronCreate` a ~23-minute recurring "
         "re-entry (off the :00/:30 marks) AND hold a `Monitor` poller over the session "
@@ -235,6 +260,9 @@ def render_additional_context(payload: dict, exit_code: int, stderr: str) -> str
 
     text = "\n".join(lines)
     if len(text) > _CONTEXT_BUDGET_CHARS:
+        # Truncation drops roster rows, never the tail: a session that loses the gate line is
+        # the one the send gate exists to stop, and a session that loses the arm line stops
+        # watching without noticing. Both are obligations, not listings.
         tail = f"{arm_line}\n\n{gate_line}"
         keep = max(0, _CONTEXT_BUDGET_CHARS - len(tail) - 24)
         text = text[:keep] + "\n... (truncated)\n\n" + tail
@@ -245,7 +273,7 @@ def main() -> int:
     try:
         raw = sys.stdin.read()
     except Exception:  # noqa: BLE001
-        return 0
+        return 0  # fail-open -- stdin unreadable
 
     try:
         payload = json.loads(raw) if raw else {}
@@ -255,10 +283,13 @@ def main() -> int:
         payload = {}
 
     if _normalize_command_name(payload.get("command_name")) not in _GROUP_EM_COMMAND_NAMES:
-        return 0
+        return 0  # not a group-em invocation -- silent pass
 
     cwd = payload.get("cwd")
     repo_root = cwd if isinstance(cwd, str) and cwd else os.getcwd()
+    # Read independently of everything below, so an unreachable engine cannot silence it.
+    # Computed only once the command is confirmed as a group-em invocation, so an unrelated
+    # command still stays silent.
     watch_line = render_watch_line(repo_root)
 
     def _emit(context: str | None) -> int:
@@ -281,15 +312,15 @@ def main() -> int:
 
     session_id = payload.get("session_id")
     if not isinstance(session_id, str) or not session_id:
-        return _emit(watch_line)
+        return _emit(watch_line)  # no id to claim under; still report the watch verdict
 
     script = resolve_enter_cli()
     if script is None:
-        return _emit(watch_line)
+        return _emit(watch_line)  # transport failure -- CLI unresolvable, fail open
 
     result = _run_enter(script, repo_root, session_id)
     if result is None:
-        return _emit(watch_line)
+        return _emit(watch_line)  # timeout or spawn failure -- fail open
 
     try:
         entered = json.loads(result.stdout) if result.stdout.strip() else {}
@@ -299,7 +330,7 @@ def main() -> int:
         entered = {}
 
     if not entered and result.returncode not in (6, 7):
-        return _emit(watch_line)
+        return _emit(watch_line)  # nothing else to report -- still fail open on the watch line
 
     context = render_additional_context(entered, result.returncode, result.stderr or "")
     if watch_line and context:

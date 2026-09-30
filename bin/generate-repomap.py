@@ -5,7 +5,21 @@ from __future__ import annotations
 import os
 import sys
 
+# Generator-provenance declaration (C2, generator_provenance.py's AST reader).
+# THIS file is a thin CLI trampoline (see module docstring) -- `sources` names
+# the real implementation locus, `coordinator/bin/repomap/generate-repomap.py`
+# (the vendored repomap tool this trampoline shells out to via
+# coordinator_core.ops.generate_repomap.main), never this shim's own path;
+# a `sources` pointing here would yield a since-range that is empty
+# essentially forever (§ Mechanism correction,
+# docs/plans/2026-08-13-generator-output-staleness-detector.md).
+# `stamp_key` names the intended field, not one on disk today -- the
+# repomap's only current stamp is a prose "Generated: <ts>" line, not a
+# usable key (see plan C2 body); adding the artifact-side key requires
+# editing `coordinator/bin/repomap/generate-repomap.py`, which is outside
+# this chunk's write set (that module is a vendored DoE-resident tool, not
 # owned by this trampoline) -- until that lands, this pair reads UNSTAMPED,
+# which is the honest state, not FRESH.
 GENERATES = [
     {
         "artifact": ".claude/repomap.md",
@@ -38,7 +52,10 @@ def main(argv: "list[str] | None" = None) -> int:
         )
         return 1
 
+    # plugin_root mirrors the original .sh's own resolution:
     # ${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)} —
+    # env override first, else this file's own grandparent directory
+    # (coordinator/bin/generate-repomap.py -> coordinator/).
     plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT") or os.path.dirname(
         os.path.dirname(os.path.abspath(__file__))
     )

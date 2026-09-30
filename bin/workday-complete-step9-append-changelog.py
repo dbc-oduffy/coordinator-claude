@@ -1,4 +1,5 @@
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+# Spec backlink: coordinator-content-repo:pln-wire-claude-klabauter-fleet-archive-prun-8fd552 § strang-10
 """
 workday-complete-step9-append-changelog.py -- Step 9 of /workday-complete: append the
 daily block to the week-changelog.
@@ -399,6 +400,7 @@ def _resolve_coordinator_root():
     if override:
         # Explicit root (AC3): resolve_checked_repo_root returns EXPLICIT
         # and gates nothing on it -- the cwd-derived identity MISMATCH gate
+        # below is precisely what this override exists to sidestep.
         coordinator_root, _verdict = resolve_checked_repo_root(explicit_root=override)
         if not warn_suppress:
             cwd_root, _cwd_verdict = resolve_checked_repo_root(explicit_root=None)
@@ -439,7 +441,9 @@ def _resolve_coordinator_root():
     if not coordinator_root:
         # No git root resolved from cwd at all -- distinct from the MISMATCH
         # identity gate above (which fires on POSITIVE evidence of a
+        # different real repo). This is "nowhere to write", not an identity
         # mismatch; UNRESOLVED-with-no-root refusing here is not the AC4
+        # carve-out being violated (see repo_identity.py's own no-root leg).
         print("ERROR: cwd is not a git repo and COORDINATOR_ROOT is not set", file=sys.stderr)
         sys.exit(1)
     return coordinator_root
@@ -463,7 +467,14 @@ def _get_branch(coordinator_root):
             if out:
                 return out
     except (OSError, subprocess.TimeoutExpired, RuntimeError):
+        # subprocess.run(timeout=...) raises
+        # TimeoutExpired (a SubprocessError, not an OSError); the bare
+        # OSError clause left a hang uncaught and crashed the ceremony.
+        # RuntimeError added (P3) — _resolve_claude_klabauter_root() inside the
+        # _no_console_kw() call can raise RuntimeError, uncovered by the
+        # prior tuple; low risk in practice since main() already resolves
         # and exits(2) on CLAUDE_KLABAUTER_ROOT failure before _get_branch is reached,
+        # but this is the same unguarded-re-resolution shape worth covering.
         pass
     try:
         r = subprocess.run(
@@ -500,7 +511,11 @@ def main(argv):
 
     pre_staged_paths = _get_staged_paths(coordinator_root)
 
+    # ---------------------------------------------------------------------
     # Dependency resolution: CLAUDE_KLABAUTER_ROOT + coordinator_core (Call 1/Call 2's
+    # engine home). Exit 1 mirrors the bash oracle's lib-sourcing/`_cc_resolve_deps`
+    # failure class (dependency resolution), distinct from an op-level failure (exit 2).
+    # ---------------------------------------------------------------------
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import _resolve_claude_klabauter_root
 
@@ -534,6 +549,7 @@ def main(argv):
 
     # LOCAL_TODAY: the actual local day at ceremony time, regardless of --for-date.
     # _LOCAL_TODAY_ANCHOR_LINE (retargeted structural-grep proof, replaces the bash
+    # oracle's literal `coordinator_local_day` shell-assignment text):
     local_today = coordinator_local_day()  # noqa: F841 (kept as its own statement for the grep proof)
     today = for_date or local_today
     is_backfill = bool(for_date) and for_date != local_today
@@ -541,7 +557,13 @@ def main(argv):
     changelog_file = os.path.join(repo_state_root, "week-changelog", f"{today}.md")
     daily_summary = os.path.join(coordinator_root, "archive", "daily-summaries", f"{today}-{machine}.md")
 
+    # -----------------------------------------------------------------------
+    # Call 1 — changelog.compute_day_fields (native, read-only). Direct
     # in-process call (no cc_invoke/JSON-RPC hop) — matches the
+    # backfill-week-changelog-gaps.py direct-import precedent for this same
+    # op family. repo_root = coordinator_root (the already-resolved,
+    # already-warned-about repo root this whole ceremony targets).
+    # -----------------------------------------------------------------------
     try:
         fields = changelog_ops.compute_day_fields(
             worktree=Path(coordinator_root),
@@ -646,7 +668,15 @@ def main(argv):
         capture_output=True, text=True,
     )
 
+    # Second guard: refuse to commit at all when this ceremony's OWN output
+    # (the changelog block, plus the daily summary if present) has no actual
+    # staged diff of its own -- e.g. an idempotent re-run against an already-
     # up-to-date changelog. Without this check, a non-empty PRE-STAGED set
+    # (this session's or a filtered-in peer path) would still make
+    # `_commit_frozen_paths`'s own union-scoped diff check pass, producing a
+    # commit whose subject claims a "daily block" it does not itself contain
+    # -- the exact shape seen in d721e7b3e / 9822a595f (a peer's file
+    # committed alone, under this ceremony's own commit message).
     own_rel = [_to_repo_relative(coordinator_root, f) for f in files_to_commit]
     own_diff = subprocess.run(
         ["git", "-C", coordinator_root, "diff", "--cached", "--name-only", "--", *own_rel],
@@ -661,7 +691,12 @@ def main(argv):
         print("[step9] block unchanged (idempotent no-op)")
         return 0
 
+    # Frozen intended set: step9's own outputs, UNIONED with whatever was already
+    # staged BEFORE step9 ran and this session may safely fold in -- filtered by
     # ownership (see `_filter_pre_staged_by_ownership`) so a DIFFERENT live
+    # session's in-flight staged work is never swept into this commit. Never
+    # "whatever happens to be in the index right now", which would also absorb
+    # anything a concurrent peer staged mid-run in this shared working tree.
     filtered_pre_staged = _filter_pre_staged_by_ownership(coordinator_root, pre_staged_paths)
     commit_paths = sorted(set(filtered_pre_staged) | set(own_rel))
 

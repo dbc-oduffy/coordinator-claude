@@ -105,7 +105,7 @@ applied.
 **Verify once and trust it:** a close-time suite or oracle check runs once, foreground — no rerun loops, no background waiters (`coordinator/docs/wiki/test-design-discipline.md` § Verify once and trust it).
 
 **L+ code-quality trigger — a separate derivation, not a parameter on Scale's measurement.** Scale
-keys off *measured* `gross_loc`/`commit_count`/`surface_count`; L+ answers *how big was this meant
+keys off *measured* `gross_loc`/`commit_count`/`surface_count` (`commit_count` excludes zero-diff bookkeeping commits; `surface_count` counts all); L+ answers *how big was this meant
 to be* and keys off the **cited sizing-object's `estimate.tshirt`** — resolve the closing plan's
 `sizing_object:` frontmatter citation and read `estimate.tshirt` off the artifact it names. The
 only keying surface: `plan.schema.json` carries no t-shirt field of its own and none is added here

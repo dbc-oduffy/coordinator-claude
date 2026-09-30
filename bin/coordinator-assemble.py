@@ -1,4 +1,36 @@
+# coordinator-assemble.py — one dispatcher, a subcommand per current
+# `-assemble` entry point, batching multiple subcommands into ONE
+# interpreter invocation.
+#
+# Why this file exists (docs/plans/2026-08-16-a-process-per-predicate.md,
+# chunk C8): the win here is fan-in, not the shim (see
+# coordinator/bin/lib/entry_point_shim.py's docstring for the shim-mechanism
+# measurement). C7 measured 8 predicates run as 8 separate processes at p90
+# 6337.80ms against the same 8 predicates run in ONE process at 883.83ms — a
+# 7.17x reduction, the seven interpreter cold-starts the batched shape
+# removes. A dispatcher that can only run one subcommand per invocation
+# reproduces today's per-process cost exactly while adding indirection —
+# that is a fail against this chunk's AC7, not a partial credit. Usage:
+#
+#   coordinator-assemble.py <name> [-- <args for name>] [<name2> [-- <args>] ...]
+#
 # Each `<name>` must be one of entry_point_shim.ASSEMBLE_TARGETS. Args for a
+# given subcommand run from the token after its name up to (but not
+# including) the next recognized subcommand name, OR up to a literal `--`
+# token immediately following the name (the `--` itself is consumed, not
+# forwarded) — the `--` form disambiguates an argument that happens to
+# collide with another target's bare name. All subcommands run in this
+# same process, in argv order, each via `entry_point_shim.run_target`.
+#
+# Exit code: 0 iff every subcommand returned 0. Otherwise the exit code of
+# the FIRST subcommand that returned non-zero (matches shell `&&`-chained
+# semantics of running the same names as separate processes, one failure
+# stopping the story at that point being visible via this process's own
+# exit code) — every subcommand still runs; this dispatcher does not abort
+# early on a mid-batch failure, since the 13 targets are independent reads/
+# writes over disjoint artifacts, not a pipeline.
+#
+# Spec backlink: docs/plans/2026-08-16-a-process-per-predicate.md, chunk C8
 from __future__ import annotations
 
 import os

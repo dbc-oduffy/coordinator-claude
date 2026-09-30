@@ -17,6 +17,7 @@ def _import_runner():
 
 
 def main(argv: "list[str] | None" = None) -> int:
+    # Point the ported module at THIS script's own directory for
     # query-records.js -- mirrors the bash oracle's `$SCRIPT_DIR` exactly.
     os.environ.setdefault(
         "BLOCKED_QUERY_RECORDS_DIR", os.path.dirname(os.path.abspath(__file__))

@@ -142,7 +142,23 @@ def _fail_on_ambiguous_shell_syntax(cmd: str) -> None:
     raise AmbiguousShellSyntax(cmd)
 
 
+# --------------------------------------------------------------------------
+# Process-group teardown on abort (docs/plans/2026-08-13-reap-orphaned-
+# execnet-gateways.md, chunk C1) -- when the resolved fast-test command
+# spawns `pytest -n auto`, execnet's worker pool are grandchildren of this
+# process. subprocess.run's own KeyboardInterrupt path (and a bare SIGTERM
+# with no handler) reaps only the direct child, orphaning the pool; execnet
+# does register an atexit cleanup (execnet/multi.py:62) but atexit never
+# runs on an uncatchable abort. Proven on this host (docs/research/
+# spike-verdicts/2026-08-13-execnet-gateway-reap-on-abort.md): putting the
+# child in its own process group and killpg-ing that group on a catchable
+# signal reaps 2 of 2 orphaned gateways (spike scenarios 2 and 3a). Mirrors
+# validate-fast-and-packageability.py's copy of this same mechanism --
+# the two ceremony spawn sites are independent CLIs, no shared import
+# between them, so the mechanism is duplicated rather than factored out
+# (matches this file's existing duplication of _fail_on_ambiguous_shell_
 # syntax and _SHELL_METACHAR_RE against that sibling file).
+# --------------------------------------------------------------------------
 
 
 def _add_process_group_spawn_kwargs(spawn_kwargs: dict) -> None:
@@ -327,7 +343,12 @@ def _run_fast_test_cmd(cmd: str, env: dict) -> tuple[int, str]:
     try:
         proc = subprocess.Popen(argv, **spawn_kwargs)
     except OSError as exc:
+        # `bash -c` used to report an unresolvable first token as rc=127 with
+        # "command not found" on stdout/stderr; direct exec instead raises
+        # (FileNotFoundError on both POSIX and Windows for CreateProcess
         # ERROR_FILE_NOT_FOUND). Preserve the rc=127 contract
+        # _classify_fast_test_output already keys off of, rather than letting
+        # this escape as an uncaught traceback.
         ft_content = f"[workday-complete-step1] fast-test: command not found: {argv[0]!r} ({exc})\n"
         ft_rc = 127
         sys.stderr.write(ft_content)
@@ -455,7 +476,18 @@ def main() -> int:
         _emit(rc_ubt, "tier-u-refused")
         return 5
 
+    # `import-path-costs-nothing` sprint (C8): this used to strip
     # COORDINATOR_CORE_LAZY_OPS before spawning, defending against cc_invoke's
+    # former module-top `os.environ.setdefault(...)` (see
+    # coordinator/bin/lib/cc_invoke.py) mutating THIS process's environment as
+    # a side effect of the earlier `from cc_invoke import
+    # resolve_colocated_claude_klabauter_root` import above. cc_invoke.py no longer
+    # writes that var at all, and lazy op registration is unconditional now
+    # (nothing reads it either — see coordinator_core/ops/__init__.py), so an
+    # inherited value would have zero effect on the fast-test subprocess's
+    # own collection. `.copy()` is kept: the fast-test subprocess still gets
+    # its own env object rather than sharing this process's, for the usual
+    # reason a spawn shouldn't hand a child a live-mutable dict.
     _ft_env = os.environ.copy()
 
     owner = mutex_owner("suite-mutex")
@@ -470,7 +502,13 @@ def main() -> int:
         ft_rc, ft_content = _run_fast_test_cmd(scoped_cmd, _ft_env)
 
     if diff_paths and ft_rc == PYTEST_NO_TESTS_COLLECTED:
+        # The diff-scoped run named a changed test file the `-m` marker
+        # filter then deselected entirely (e.g. it carries only
+        # designed_red-marked tests) -- pytest's own "no tests collected"
+        # exit code. That is neither a pass nor a failure; fall back to
         # the full configured fast tier so the gate still runs SOMETHING
+        # (fail-safe: always toward more testing, never toward silently
+        # running zero tests).
         diag(
             "diff-scoped run collected zero tests (pytest rc="
             f"{PYTEST_NO_TESTS_COLLECTED}) -- falling back to the full "

@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib"))
@@ -68,10 +69,23 @@ def context_tokens(transcript: Path) -> tuple[int | None, str | None]:
     return None, None
 
 
-def _window(model: str | None) -> int:
-    if model and "1m" in model.lower():
+def _window(model: str | None, tokens: int = 0) -> int:
+    """Transcript model ids rarely say "1m", so a context already past the default window proves
+    the larger one; otherwise assume the default."""
+    if (model and "1m" in model.lower()) or tokens > _WINDOW_DEFAULT:
         return _WINDOW_1M
     return _WINDOW_DEFAULT
+
+
+def _reap_old_markers(directory: Path, max_age_s: float = 86400.0) -> None:
+    """Drop markers a day old; an agent's bands never outlive its session."""
+    cutoff = time.time() - max_age_s
+    for entry in directory.iterdir():
+        try:
+            if entry.stat().st_mtime < cutoff:
+                entry.unlink()
+        except OSError:
+            continue
 
 
 def evaluate(payload: dict) -> str | None:
@@ -83,7 +97,7 @@ def evaluate(payload: dict) -> str | None:
     tokens, model = context_tokens(Path(transcript))
     if tokens is None:
         return None
-    threshold, _why = compaction_defaults.threshold_tokens(_window(model))
+    threshold, _why = compaction_defaults.threshold_tokens(_window(model, tokens))
     if not threshold:
         return None
     ratio = tokens / threshold
@@ -95,6 +109,7 @@ def evaluate(payload: dict) -> str | None:
         return None
     try:
         marker.parent.mkdir(parents=True, exist_ok=True)
+        _reap_old_markers(marker.parent)
         marker.write_text("1", encoding="utf-8")
     except OSError:
         return None

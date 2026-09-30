@@ -151,9 +151,21 @@ _ROUTE_TERMINAL = {
 }
 
 _REVIEW_NEXT_ACTION = "Agent(<named Opus reviewer>)"
+# execute->wave discharges on the Workflow vehicle as well as a direct Agent dispatch, and
+# the Workflow leg is the DEFAULT path, not the exotic one: /execute-plan emits a script and
+# fires it via Workflow, so the executor dispatches happen INSIDE the fired run, in a
+# separate process this hook's PostToolUse leg never sees. Keyed on Agent alone, the
+# obligation could not be discharged by the very call that discharges it in practice. The
+# seam is "did this turn hand the work to an executor", and firing the emitted script is
+# exactly that.
 _EXECUTE_NEXT_ACTION = "Agent|Workflow(coordinator:executor or the emitted plan script)"
 _REVIEW_TERMINAL = "Skill(coordinator:review)"
 
+# The pickup lane's terminal is heterogeneous by construction (apply a handoff, dispatch an
+# executor, mint a successor), so its obligation carries the wildcard call kind below rather
+# than one fixed identity -- the same "no verifiable identity to match against" reasoning
+# that makes the review terminal discharge on any Agent call, widened one step to cover
+# Skill as well.
 _ANY_CALL_KIND = "Skill|Agent"
 _PICKUP_NEXT_ACTION = "Skill|Agent(the narrated next move)"
 
@@ -162,7 +174,14 @@ _APPETITE_DIVERGENCE_DETENT = "appetite_exceeded"
 _POST_SIZE_PROMPT_DETENT = "post_size_prompt_pending"
 
 
+# Self-contained sizing-object resolution -- reads the session's git touched.txt to find
+# "the sizing object THIS session routed", since this module has no sibling engine op to
+# delegate to.
 def _record_fire(repo_root: str, session_id: str, guard: str, reason: str) -> str | None:
+    """Mint a block-discharge nonce through the engine's ledger writer
+    (coordinator_core.block_discharge.record_fire). None when the engine is unresolvable or
+    the write fails; the caller reports that as an unrecorded fire, never as a clean check.
+    """
     try:
         from _engine_root import place_engine_root_on_path, resolve_claude_klabauter_root
 
@@ -251,6 +270,18 @@ def _is_null_scalar(value):
 
 
 def _newest_touched_sizing_path(repo_root: str, session_id: str):
+    """Return the most-recently-touched state/sizings/*.yaml path this session wrote, or
+    None.
+
+    Source-then-recency, NOT the touch-lines' concatenated list order: a partially-migrated
+    session can carry a state/sizings/ match in BOTH the new journal and the legacy touched
+    file. Every new-file row postdates every legacy-file row for a given session -- the
+    legacy writer stopped before the new writer started, never interleaved -- so the correct
+    newest match is the LAST matching row in the new file if it has any match at all,
+    falling back to the legacy file's last matching row only when the new file has none.
+    Taking the last match of the naive new+legacy concatenation instead lets a legacy row
+    that merely sorts later in the list mask a genuinely newer new-file row.
+    """
     git_dir = _resolve_git_dir(os.path.join(repo_root, ".git"))
     if not git_dir:
         return None
@@ -270,6 +301,8 @@ def _newest_touched_sizing_path(repo_root: str, session_id: str):
 
 
 def _sizing_route_and_exemption(repo_root: str, rel_path: str):
+    """Return (route, exempt) for the sizing object at rel_path. Any read failure returns
+    (None, True) -- "cannot prove the exemption doesn't apply" fails toward silence."""
     try:
         with open(os.path.join(repo_root, rel_path), "r", encoding="utf-8") as fh:
             lines = fh.readlines()
@@ -289,6 +322,7 @@ def _sizing_route_and_exemption(repo_root: str, rel_path: str):
 
 
 def _split_call(next_action: str):
+    """"Skill(coordinator:review)" -> ("Skill", "coordinator:review")."""
     if not next_action or "(" not in next_action or not next_action.endswith(")"):
         return None, None
     kind, _, rest = next_action.partition("(")
@@ -300,6 +334,9 @@ def _matches_next_action(next_action: str, tool_name, tool_input) -> bool:
     if kind is None:
         return False
     if "|" in kind:
+        # A pipe-joined kind is a set of accepted tool names, not one name: both members
+        # discharge on ANY match. Matching the set rather than special-casing one literal
+        # keeps a third vehicle from needing another branch here.
         return tool_name in tuple(part for part in kind.split("|") if part)
     if kind == "Skill":
         if tool_name != "Skill" or not isinstance(tool_input, dict):
@@ -309,11 +346,18 @@ def _matches_next_action(next_action: str, tool_name, tool_input) -> bool:
             skill = tool_input.get("command")
         return skill == ident
     if kind == "Agent":
+        # The reviewer/executor persona is not a fixed subagent_type this module can verify
+        # -- any Agent dispatch discharges an "Agent(...)" obligation.
         return tool_name == "Agent"
     return False
 
 
 def _discharge_matching(session_id: str, tool_name, tool_input) -> None:
+    # kind "Agent" matches on tool name alone (no persona/identity is verifiable), so two
+    # open Agent-terminal obligations can both match one Agent call. Cap discharge at the
+    # single OLDEST matching open record per call -- read_records returns oldest first --
+    # rather than closing every matching obligation, so one ambiguous terminal call never
+    # silently discharges an obligation it didn't actually satisfy.
     for record in _ledger.read_records(session_id):
         if record.get("discharged_at") is not None:
             continue
@@ -328,7 +372,7 @@ def _discharge_matching(session_id: str, tool_name, tool_input) -> None:
 
 def _handle_post_tool_use(payload: dict) -> None:
     if payload.get("agent_id"):
-        return
+        return  # a subagent's own tool call, not the EM's
 
     session_id = payload.get("session_id")
     if not isinstance(session_id, str) or not session_id:
@@ -339,6 +383,8 @@ def _handle_post_tool_use(payload: dict) -> None:
     if not isinstance(tool_input, dict):
         tool_input = {}
 
+    # Discharge first -- this same call may close an obligation opened by an earlier turn,
+    # independent of anything it opens below.
     _discharge_matching(session_id, tool_name, tool_input)
 
     if tool_name != "Skill":
@@ -389,6 +435,8 @@ def _handle_post_tool_use(payload: dict) -> None:
             )
         return
 
+    # route == "plan" -- only the FULL "plan" terminal opens this obligation; "spec-dispatch"
+    # (or any other route) does not.
     if route == "plan":
         _ledger.open_obligation(
             session_id, _SEAM_PLAN_REVIEW, _SEAM_PLAN_REVIEW, _REVIEW_TERMINAL
@@ -399,12 +447,16 @@ def _handle_stop(payload: dict) -> int:
     if payload.get("agent_id"):
         return 0
     if payload.get("stop_hook_active"):
-        return 0
+        return 0  # avoid re-entering on our own already-fired Stop
 
     session_id = payload.get("session_id")
     if not isinstance(session_id, str) or not session_id:
         return 0
 
+    # Fold the engine plane's obligations-inbound rows BEFORE the read. The intake exists so
+    # that only one plane ever rewrites this ledger; folding here is what makes an
+    # engine-resolved obligation reachable by this Stop read at all. It never raises and a
+    # deferred drain simply leaves the rows for the next one.
     try:
         _ledger.drain_intake(session_id)
     except Exception:  # noqa: BLE001
@@ -425,6 +477,8 @@ def _handle_stop(payload: dict) -> int:
         f"{next_action}\n"
     )
 
+    # A failed latch write must degrade to a silent miss, never a repeat fire; a repeat is
+    # worse than a miss.
     if not _ledger.mark_fired(session_id, obligation_id):
         return 0
 

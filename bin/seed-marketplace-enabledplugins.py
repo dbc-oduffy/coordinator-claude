@@ -674,6 +674,16 @@ def _directory_source_entry(manifest_dir: pathlib.Path) -> dict:
 # ---------------------------------------------------------------------------
 
 
+def _is_author_machine() -> bool:
+    """Sibling seeding is author-fleet behaviour; an unresolvable engine reads as consumer."""
+    _bootstrap_engine()
+    try:
+        from coordinator_core.machine_profile import machine_profile
+    except ImportError:
+        return False
+    return machine_profile() == "author"
+
+
 def _run(
     *,
     registry_dir: pathlib.Path,
@@ -682,7 +692,7 @@ def _run(
     known_marketplaces_path: pathlib.Path,
     check_only: bool,
 ) -> int:
-    repos = _read_repos_registry(registry_dir)
+    repos = _read_repos_registry(registry_dir) if _is_author_machine() else {}
     present_keys, present_marketplaces, warnings = _enumerate_present_plugin_keys(repos)
     for warning in warnings:
         print(f"seed-marketplace-enabledplugins: {warning}", file=sys.stderr)

@@ -70,13 +70,26 @@ import ast
 import json
 import sys
 from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BIN_DIR = REPO_ROOT / "coordinator" / "bin"
 COUNTS_PATH = REPO_ROOT / "state" / "engine-provenance-counts.jsonl"
 
+#: The four `*_on_path` wrappers `_front_insert_on_path` funnels through.
+#: `_seam_present` deliberately excluded here -- the spike's static
+#: order-hazard shape is specific to these four (its own bootstrap call is
+#: what the "runs from inside a function" check below looks for);
+#: `_seam_present` is a fifth, separately-reported call site (see the
+#: spike's Addendum) that this script's runtime aggregation still counts
+#: by wrapper name via C6's counter records. A file whose ONLY
+#: bootstrap-shaped call is `_seam_present()` is therefore invisible to
 #: `classify_carrier` (no match in `BOOTSTRAP_WRAPPER_NAMES` -> no
+#: bootstrap_calls -> returns None, out of `static`'s population) even
+#: though C6 still counts its calls at runtime -- see NOTE below, which
+#: discloses this so `static.total_carriers` is not read as comparable to
+#: the spike's 201 without this caveat.
 BOOTSTRAP_WRAPPER_NAMES = (
     "ensure_engine_on_path",
     "require_engine_on_path",
@@ -173,7 +186,15 @@ def _bootstrap_calls(tree: ast.Module) -> list[tuple[int, bool]]:
                 calls.append((node.lineno, self.depth > 0))
             self.generic_visit(node)
 
+    # Negative spec: a bootstrap call reached only via a *function-level*
+    # alias (`from cc_invoke import require_dispatch_engine_on_path as
+    # bootstrap; bootstrap()`) is invisible here -- `func.id` resolves to
     # the aliased name, not a `BOOTSTRAP_WRAPPER_NAMES` member, and this
+    # scan does not resolve `ast.alias.asname` bindings back to their
+    # original name. Accepted limitation, same class as the
+    # `importlib.import_module(...)` gap: a candidate scan over the static
+    # shapes the spike named, not an exhaustive resolver of every runtime
+    # binding.
 
     _Visitor().visit(tree)
     return calls
@@ -213,15 +234,24 @@ def classify_carrier(path: Path) -> dict | None:
     }
 
 
-def static_scan(bin_dir: Path = BIN_DIR) -> dict:
+def static_scan(bin_dir: Path = BIN_DIR, paths: list[Path] | None = None) -> dict:
+    """Classify carriers under `bin_dir`, or only `paths` when given.
+
+    A full-tree scan is ~390ms process time, over the 200ms per-process rule;
+    a caller that only needs the files a change touches passes `paths` and
+    pays O(len(paths)). `total_carriers` then counts the scoped set, not the
+    tree -- `scoped` says which denominator the figure is.
+    """
+    candidates = sorted(bin_dir.glob("*.py")) if paths is None else sorted(paths)
     carriers = []
-    for path in sorted(bin_dir.glob("*.py")):
+    for path in candidates:
         result = classify_carrier(path)
         if result is not None:
             carriers.append(result)
 
     hazard_candidates = [c for c in carriers if c["order_hazard_candidate"]]
     return {
+        "scoped": paths is not None,
         "total_carriers": len(carriers),
         "order_hazard_candidates": hazard_candidates,
         "order_hazard_candidate_count": len(hazard_candidates),
@@ -244,6 +274,23 @@ def _read_counter_records(counts_path: Path = COUNTS_PATH) -> list[dict]:
             except json.JSONDecodeError:
                 continue
     return records
+
+
+def _last_written_utc(counts_path: Path) -> str | None:
+    """ISO-8601 UTC mtime of the counter file, or None when it does not exist.
+
+    The sink is append-only, so the mtime is the last successful write. A
+    healthy carrier runs its bootstrap before `coordinator_core` binds and
+    writes nothing, so an empty or old counter is also what a dead sink looks
+    like; only "the file was never created" and "the file was last touched
+    long ago" are visible here, and the reader must weigh them against how
+    recently any carrier is known to have run.
+    """
+    try:
+        mtime = counts_path.stat().st_mtime
+    except OSError:
+        return None
+    return datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat(timespec="seconds")
 
 
 def runtime_aggregate(counts_path: Path = COUNTS_PATH) -> dict:
@@ -271,8 +318,11 @@ def runtime_aggregate(counts_path: Path = COUNTS_PATH) -> dict:
     except ValueError:
         counts_display = str(counts_path)
 
+    last_written_utc = _last_written_utc(counts_path)
     return {
         "counts_path": counts_display,
+        "counts_file_exists": last_written_utc is not None,
+        "last_written_utc": last_written_utc,
         "total_records": len(records),
         "divergent_record_total": divergent_total,
         "by_wrapper_axis_verdict": by_wrapper_axis_verdict,
@@ -289,7 +339,12 @@ NOTE = (
     "nothing when actually invoked. Treat a row as a candidate to inspect, "
     "never as evidence a carrier is broken; the runtime counter is the only "
     "ground truth, and an empty runtime view means nothing has been observed "
-    "yet, not that nothing diverges. The field is named "
+    "yet, not that nothing diverges -- and it is byte-identical to the view a "
+    "dead sink produces, because a correctly-ordered carrier writes nothing. "
+    "`runtime.counts_file_exists` and `runtime.last_written_utc` are the only "
+    "liveness evidence this view carries: a counter file that was never "
+    "created, or whose last write predates the sink's wiring, is a sink to "
+    "suspect, not reassurance. The field is named "
     "`order_hazard_candidate` for exactly this reason -- it names the "
     "static shape detected, not a confirmed runtime fact. "
     "`static.total_carriers` also excludes any file whose ONLY "
@@ -315,9 +370,13 @@ NOTE = (
 )
 
 
-def build_report(bin_dir: Path = BIN_DIR, counts_path: Path = COUNTS_PATH) -> dict:
+def build_report(
+    bin_dir: Path = BIN_DIR,
+    counts_path: Path = COUNTS_PATH,
+    paths: list[Path] | None = None,
+) -> dict:
     return {
-        "static": static_scan(bin_dir),
+        "static": static_scan(bin_dir, paths),
         "runtime": runtime_aggregate(counts_path),
         "note": NOTE,
     }
@@ -332,8 +391,24 @@ def human_summary_line(report: dict) -> str:
         f"(spike measured {static['spike_measured_divergent_carriers']} / "
         f"{static['spike_measured_total_carriers']}) -- "
         f"runtime: {runtime['divergent_record_total']} divergent record(s) of "
-        f"{runtime['total_records']} total in {runtime['counts_path']}"
+        f"{runtime['total_records']} total in {runtime['counts_path']} "
+        f"({_liveness_phrase(runtime)})"
     )
+
+
+def _liveness_phrase(runtime: dict) -> str:
+    if not runtime["counts_file_exists"]:
+        return (
+            "WARNING: counter file absent, the sink has never written; "
+            "a quiet detector and a dead sink both look empty"
+        )
+    written = f"counter last written {runtime['last_written_utc']}"
+    if runtime["total_records"] == 0:
+        return (
+            f"WARNING: counter empty, {written}; "
+            "a quiet detector and a dead sink both look empty"
+        )
+    return written
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -358,12 +433,22 @@ def build_parser() -> argparse.ArgumentParser:
         default=COUNTS_PATH,
         help="C6's counter file (default: state/engine-provenance-counts.jsonl)",
     )
+    p.add_argument(
+        "--paths",
+        type=Path,
+        nargs="+",
+        default=None,
+        help=(
+            "classify only these files (diff-scoped, O(len(paths))) instead of "
+            "the whole --bin-dir; total_carriers then counts this set"
+        ),
+    )
     return p
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    report = build_report(args.bin_dir, args.counts_path)
+    report = build_report(args.bin_dir, args.counts_path, args.paths)
     print(json.dumps(report, indent=2))
     print(human_summary_line(report), file=sys.stderr)
     return 0

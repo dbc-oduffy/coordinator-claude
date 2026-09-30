@@ -113,7 +113,17 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: not a file: {candidate_path}", file=sys.stderr)
             return 1
 
+    # Batch-warm the git-object-existence prefetch: one `git cat-file --batch-check`
+    # spawn (C29's `_git_objects_exist`) for the SHA-shaped `realized_by:` subset
+    # across ALL candidates, instead of one `_git_object_exists` spawn per
+    # candidate inside `resolve_realized_by`. Inline sentinels and path-shaped
+    # values never spawn git either way (see the docstring on
+    # `_sha_shaped_realized_by_values`) — this only reduces the SHA-shaped
+    # subset, conditionally, per candidate corpus composition. Passed down as
     # `existence_map` (an OPTIONAL parameter on `resolve_realized_by` and its
+    # callers, C31) — a miss in the map still falls through to the scalar
+    # `_git_object_exists`, never treated as "does not exist" (see that
+    # function's docstring for the fail-closed-on-miss contract).
     shas = _sha_shaped_realized_by_values(candidate_paths)
     existence_map = _delete_guard._git_objects_exist(list(shas), repo_root)
 

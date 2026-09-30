@@ -83,6 +83,8 @@ try:
         resolve_claude_klabauter_root as _resolve_claude_klabauter_root,
     )
 except Exception:
+    # Defensive fallback -- a deploy missing its sibling _engine_root.py must
+    # still fail-open rather than crash on import.
     def _resolve_claude_klabauter_root() -> str | None:
         return None
 
@@ -98,7 +100,7 @@ def main() -> int:
 
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0
+        return 0  # fail-open -- engine repo unresolvable on this machine
 
     from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
     _place_engine_root_on_path(root)
@@ -112,7 +114,7 @@ def main() -> int:
             evaluate_hooks_kill_switch_announcement,
         )
     except Exception:
-        return 0
+        return 0  # engine unimportable -> fail-open (never block SessionStart)
 
     # Path.home() (not os.path.expanduser) fails loud -- RuntimeError, not a
     # silent literal "~" -- when every home rung (USERPROFILE, HOME) is
@@ -122,32 +124,34 @@ def main() -> int:
     try:
         home = str(Path.home())
     except RuntimeError:
-        return 0
+        return 0  # fail-open -- home unresolvable on this machine
     config_dir_raw = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(home, ".claude")
     config_dir = Path(config_dir_raw)
 
     parts: list[str] = []
 
+    # Each check runs and degrades independently -- one raising must never
+    # suppress a healthy sibling's banner.
     try:
         text = evaluate_settings_integrity(config_dir)
         if text:
             parts.append(text)
     except Exception:
-        pass
+        pass  # fail-open for this check only -- others still run
 
     try:
         text = evaluate_hook_delivery_duplication(config_dir)
         if text:
             parts.append(text)
     except Exception:
-        pass
+        pass  # fail-open for this check only -- others still run
 
     try:
         text = evaluate_hooks_kill_switch_announcement(config_dir)
         if text:
             parts.append(text)
     except Exception:
-        pass
+        pass  # fail-open for this check only -- others still run
 
     if parts:
         sys.stdout.write("".join(parts))

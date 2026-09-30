@@ -139,14 +139,25 @@ def _bootstrap_engine() -> None:
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import _front_insert_on_path, require_colocated_engine_on_path
 
+    # Rung 1 is the LOCATOR variable itself, ahead of `require_colocated_
+    # engine_on_path`'s own ladder, because that helper does not read it: its
     # rung 2 falls through to `_resolve_claude_klabauter_root()`, the DISPATCH ladder,
+    # which on a conformant box answers with the published mirror. Consulting
+    # the locator variable here is what makes the remediation this module
     # prints ("set COORDINATOR_ENGINE_SOURCE_ROOT") true rather than advice
+    # nothing honours.
     source_override = (os.environ.get("COORDINATOR_ENGINE_SOURCE_ROOT") or "").strip()
     if source_override and os.path.isdir(source_override):
         root = _front_insert_on_path(source_override)
     else:
         root = require_colocated_engine_on_path(__file__)
     # LOAD-BEARING, NOT DEAD. Do not delete on an unused-import sweep: this line is
+    # what BINDS coordinator_core, and binding it HERE is what makes the LOCATOR
+    # answer win. `require_colocated_engine_on_path` above only mutates sys.path --
+    # it imports nothing -- and `_load_round_module()` below binds coordinator_core
+    # off ITS own bare self-location insert, so whichever runs first wins for the
+    # life of the process and no later insert can rebind an already-imported
+    # package.
     import coordinator_core  # noqa: F401
 
     _require_percolate_engine(root)
@@ -266,8 +277,15 @@ def _run_gate_legs(
 
     row_paths = _row_paths(percolate_root, ",".join(targets))
     for target in targets:
+        # Source/dest come from the resolved targets table, NOT `_branch0_gate`.
         # Branch 0 is a per-target FIRST-RUN SETUP check (it fails
         # MISSING_IGNORE on a row with no `.percolate-ignore` of its own).
+        # `percolate-round` runs it once, for the single target its caller
+        # named and therefore set up. Running it across every row of a mirror
+        # fails on rows that are only ever published as part of the set —
+        # observed live 2026-08-18 on `claude-klabauter-toplevel-reference`,
+        # which aborted the gate legs AFTER a clean 9/9 publish and left the
+        # dest synced but uncommitted.
         paths = row_paths.get(target)
         if paths is None:
             print(
@@ -574,7 +592,16 @@ def main(argv: Optional[List[str]] = None) -> int:
                 return _round._EXIT_CONFIRM_REQUIRED
 
             print(f"=== percolate-mirror {mirror_root} — commit ({len(pathspec)} file(s)) ===")
+            # `ceremony.scoped_git_commit` was KILLED 2026-08-23 (DR-344) and
             # `_round._SCOPED_GIT_COMMIT` went with it, so this leg raised
+            # AttributeError the moment it was reached -- dead from the day of the
+            # kill, and invisible because the tests above it never got past
+            # "nothing to commit". Routed onto the same in-process seam
+            # percolate-round's own commit leg uses (§ C6, 2026-08-25).
+            # C3 (docs/plans/2026-08-29-the-push-subsystem-leaves-and-then-the-
+            # pipeline-can-go.md): repointed off the killed
+            # `commit_pipeline.run_commit_pipeline` onto the sanctioned
+            # zero-spawn shape, `coordinator_core.git.commit.commit_paths`.
             from functools import partial  # noqa: PLC0415
 
             from coordinator_core.git.commit import (  # noqa: PLC0415

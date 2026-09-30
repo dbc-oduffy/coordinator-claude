@@ -144,13 +144,14 @@ is no per-CLI exception to look up:
 
     `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" push.outstanding '{}' --repo "<repo-root>"`
 
-**Do not reach for a `.cmd` sibling.** Only six pre-engine bootstrap resolvers carry one
+**Do not reach for a `.cmd` sibling.** Only six names carry one
 (`claude-home`, `coordinator-settings-home`, `example-game-repo-control`, `machine-local`,
-`platform-localize`, `resolve-coordinator-clone`) — they run before a launcher is usable. Elsewhere
+`platform-localize`, `resolve-coordinator-clone`) — the door serves only names with an engine
+entrypoint, and `example-game-repo-control` is a Node launcher the example-game-repo plugin writes. Elsewhere
 `.cmd` is absent, and naming it fails command-not-found, reading as "this CLI does not exist."
 
 The named entrypoint is `coordinator-settings-home` (pure-stdlib Python; one of the six, so its
-`.cmd` is real) — a pre-engine resolver for callers that already hold a settings home, never the
+`.cmd` is real) — a resolver for callers that already hold a settings home, never the
 bootstrap for one that doesn't. **Inventing a formula is the ban, not spelling the prescribed one**:
 reaching for `$env:USERPROFILE` (which skips `CLAUDE_HOME`), inlining some other default, or running
 the co-installed forwarder under an interpreter you picked yourself are each a second resolution

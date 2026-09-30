@@ -1,7 +1,8 @@
 """doctor-catalog-gen.py — SSOT metadata block generator for coordinator-doctor.md.
 
 Purpose: read bin/doctor-probes.toml and emit a compact markdown metadata
-table (id | cluster | weight | triage | severity_if_fail). The wiki keeps its
+table (id | cluster | weight | triage | severity_if_fail; advisory_only probes render
+"advisory"). The wiki keeps its
 hand-authored prose catalog (Command/Pass/Fail columns — not in the manifest);
 this generator adds a MACHINE-READABLE metadata block that is the single source
 of truth for the structured fields the manifest carries.
@@ -149,6 +150,12 @@ def load_probes() -> list[dict]:
 # Block generation
 # ---------------------------------------------------------------------------
 
+def displayed_severity(probe: dict) -> str:
+    """Catalog severity cell. An `advisory_only` probe never drives a verdict, so
+    its raw severity_if_fail ("degraded") would read as "drives AMBER"."""
+    return "advisory" if probe.get("advisory_only") else probe["severity_if_fail"]
+
+
 def generate_block(probes: list[dict]) -> str:
     """Return the full generated block (markers + table) as a string."""
     lines: list[str] = []
@@ -159,7 +166,7 @@ def generate_block(probes: list[dict]) -> str:
     for p in probes:
         triage = "yes" if p.get("triage") else "no"
         lines.append(
-            f"| **{p['id']}** | {p['cluster']} | {p['weight']} | {triage} | {p['severity_if_fail']} |"
+            f"| **{p['id']}** | {p['cluster']} | {p['weight']} | {triage} | {displayed_severity(p)} |"
         )
     lines.append("")
     lines.append(END_MARKER)

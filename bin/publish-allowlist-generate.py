@@ -157,7 +157,11 @@ class GeneratorError(Exception):
     warning (AC15's "deny-by-default... not opt-out")."""
 
 
-def _git_ls_files(subdir: str) -> List[str]:
+def _git_ls_files(subdir: str, pending: Tuple[str, ...] = ()) -> List[str]:
+    """Tracked paths under `subdir`, plus any `pending` repo-relative paths that
+    live under it. `pending` names files the caller has just written and is about
+    to track — the only way an untracked file can reach a derivation, and only by
+    being named explicitly (never by enumerating the filesystem)."""
     import subprocess
 
     no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -169,15 +173,17 @@ def _git_ls_files(subdir: str) -> List[str]:
         check=True,
         creationflags=no_window,
     )
-    return [line for line in result.stdout.splitlines() if line]
+    tracked = [line for line in result.stdout.splitlines() if line]
+    prefix = subdir.rstrip("/") + "/"
+    return tracked + [p for p in pending if p.startswith(prefix) and p not in tracked]
 
 
-def _tracked_top_level_names(source_subdir: str) -> List[str]:
+def _tracked_top_level_names(source_subdir: str, pending: Tuple[str, ...] = ()) -> List[str]:
     """Distinct top-level names directly under `source_subdir`, from
     `git ls-files` only (never the filesystem — see module docstring)."""
     prefix_depth = len(Path(source_subdir).parts)
     names = set()
-    for rel_posix in _git_ls_files(source_subdir):
+    for rel_posix in _git_ls_files(source_subdir, pending):
         parts = Path(rel_posix).parts
         if len(parts) <= prefix_depth:
             continue
@@ -551,8 +557,14 @@ def _assert_bin_deny_covers_derived(rows: Dict) -> List[str]:
     return derived
 
 
-def _derive_row(rows: Dict, row_name: str, source_subdir: str, portable_text: str) -> Dict:
-    tracked = _tracked_top_level_names(source_subdir)
+def _derive_row(
+    rows: Dict,
+    row_name: str,
+    source_subdir: str,
+    portable_text: str,
+    pending: Tuple[str, ...] = (),
+) -> Dict:
+    tracked = _tracked_top_level_names(source_subdir, pending)
     deny_names = _row_declarations(rows, row_name)
 
     # THE INVERSION (PM ruling, 2026-09-01). Admission is `tracked - deny`, not
@@ -612,7 +624,8 @@ def _derive_row(rows: Dict, row_name: str, source_subdir: str, portable_text: st
     # An exclusion naming nothing tracked is dead: the publish refuses an
     # exclusion that narrows no admitted path, so a deleted file must drop out.
     tracked_rel = {
-        Path(rel).relative_to(source_subdir).as_posix() for rel in _git_ls_files(source_subdir)
+        Path(rel).relative_to(source_subdir).as_posix()
+        for rel in _git_ls_files(source_subdir, pending)
     }
     exclusions = [
         e for e in _existing_exclusions(row_line)
@@ -658,7 +671,19 @@ def main(argv=None) -> int:
             "nothing about field 7, writes nothing."
         ),
     )
+    parser.add_argument(
+        "--pending",
+        action="append",
+        default=[],
+        metavar="REPO_REL_PATH",
+        help=(
+            "repo-relative path just written and about to be tracked; counted as "
+            "tracked for this derivation. Lets a generator that writes bin files "
+            "(gen-launcher-shim) regenerate field 7 before the files are staged."
+        ),
+    )
     args = parser.parse_args(argv)
+    pending = tuple(p.replace("\\", "/") for p in args.pending)
 
     if args.verify_bin_deny:
         rows = _load_declarations()
@@ -692,7 +717,7 @@ def main(argv=None) -> int:
 
     try:
         derivations = [
-            _derive_row(rows, row_name, source_subdir, portable_text)
+            _derive_row(rows, row_name, source_subdir, portable_text, pending)
             for row_name, source_subdir in _ROWS
         ]
     except GeneratorError as exc:

@@ -67,16 +67,30 @@ def _python_argv(script: str, *args: str) -> list:
     resolved = python_argv(script, *args)
     if resolved is not None:
         return resolved
-    for cand in ("python3", "python", "py"):
-        if shutil.which(cand):
-            return [cand, script, *args]
-    return [sys.executable, script, *args]
+    # python_argv already probed python3/python on PATH; only the Windows
+    # `py` launcher is left. Raising OSError lands in the caller's Tier-1
+    # fallback rather than handing a forwarder exe a script path.
+    if shutil.which("py"):
+        return ["py", script, *args]
+    raise OSError("no console Python interpreter resolvable")
 
 
 def _claude_home_argv(*args: str) -> list:
     if os.name == "nt":
+        # EM-verified disposition:
         # `CLAUDE_HOME` means "the home directory *containing* `.claude`", not
+        # `~/.claude` itself. 889 call sites across this codebase join
         # `CLAUDE_HOME` with `/.claude` (the `${CLAUDE_HOME:-$HOME}/.claude/...`
+        # idiom) vs. 5 that use it bare, and those 5 are docs/tests, not
+        # runtime resolvers. The `.claude`-suffix join below is correct and
+        # consistent with that convention — do not "fix" it to drop the join.
+        # Settings-home first (DR-210 Amendment 2026-07-24: "resolves nothing
+        # through ~/.claude/bin") — this Windows-only probe previously tried
+        # the retired compat mirror's `.cmd` BEFORE settings-home's, an
+        # inverted precedence on the platform that matters most (Windows is
+        # the primary machine per coordinator-content-repo CLAUDE.md § Runtime conventions).
+        # Swapped so settings-home wins whenever both candidates exist; the
+        # mirror candidate is retained, tried last.
         home = (
             os.environ.get("CLAUDE_HOME")
             or os.environ.get("HOME")
