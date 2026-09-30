@@ -38,11 +38,10 @@ Negative-spec (do not restore any of this as a "fix"):
     this docstring claimed the old check ran "before any other work,
     root/target resolution included", which was never true of the code;
     this rewrite does not carry that mismatch forward.
-  - Does NOT push if the dest working tree is dirty (`_check_dest_state`)
-    — this is now a refusal, not a WARN, because a dirty dest means an
-    in-flight round did not finish rather than unrelated residue. Fails
-    closed: a non-zero `git status` return code refuses too, and surfaces
-    git's stderr, rather than being treated as a clean tree.
+  - Uncommitted files in the dest never block a push (PM ruling): a push
+    carries commits, not the worktree, and an unfinished round is caught
+    by the round-failure marker below. An unreadable `git status` still
+    refuses (`_check_dest_state`), surfacing git's stderr.
   - Does NOT push if a round-failure marker is present at
     `setup/percolate-state/<target>.round-failed.json`
     (percolate_root-relative, C3's marker — this module only reads it,
@@ -270,8 +269,8 @@ def _check_dest_state(dest: str) -> Tuple[Optional[str], bool, Optional[str]]:
     upstream configured.
 
     Returns `(refusal_message, has_commits_to_push, branch_head)`.
-    `refusal_message` is `None` only when the dest is clean and has an
-    upstream; `has_commits_to_push` and `branch_head` are only meaningful
+    `refusal_message` is `None` only when the dest's status is readable and
+    it has an upstream; `has_commits_to_push` and `branch_head` are only meaningful
     then.
 
     Fails CLOSED: a non-zero `git status` return code refuses (with git's
@@ -304,13 +303,6 @@ def _check_dest_state(dest: str) -> Tuple[Optional[str], bool, Optional[str]]:
             None,
         )
     lines = result.stdout.splitlines()
-    dirty_lines = [ln for ln in lines if ln and not ln.startswith("#")]
-    if dirty_lines:
-        return (
-            f"percolate-push: {dest} has {len(dirty_lines)} uncommitted path(s) — refusing to push.",
-            False,
-            None,
-        )
     branch_head: Optional[str] = None
     has_upstream = False
     ahead = 0
@@ -738,7 +730,7 @@ def _cmd_push(args: argparse.Namespace) -> int:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="percolate-push",
-        description="Push a percolate publish mirror's committed round. Refuses on a dirty dest or a round-failure marker (DR-301).",
+        description="Push a percolate publish mirror's committed round. Refuses on a round-failure marker (DR-301).",
     )
     parser.add_argument("target", help="Single registered percolate target name.")
     parser.add_argument(

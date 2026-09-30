@@ -38,7 +38,7 @@ def _bootstrap_engine() -> None:
 # here would make the guard green by widening a scan over a vocabulary no
 # artifact uses -- satisfying the check rather than the property it stands for.
 # Re-open this if a `consumed_by`-writing producer ever lands.
-_CLAIM_KEYS = ("claimed_by", "held_by", "authoring_session", "origin_session")
+_CLAIM_KEYS = ("claimed_by", "held_by", "authoring_session", "origin_session")  # dr084: corpus fully cut over, measured 2026-08-26 -- no mixed-vocabulary read to make
 
 
 def _sid_from_artifact(path: Path) -> tuple[str | None, str | None]:

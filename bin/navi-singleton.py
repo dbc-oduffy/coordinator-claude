@@ -156,7 +156,7 @@ def claim(
             "version": SCHEMA_VERSION,
             "session_id": session_id,
             "peer_name": peer_name,
-            "claimed_at": _now(),
+            "claimed_at": _now(),  # dr084: write-not-read, output record key
             "note": note,
             "displaced_from": displaced_from,
         }

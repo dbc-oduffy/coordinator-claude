@@ -130,6 +130,9 @@ def _load_baton(path: Path) -> Optional[Baton]:
     fm, _body = _split_frontmatter(text)
     if fm is None:
         return None
+    sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+    from handoff_lifecycle import claim_holder
+
     predecessor = fm.get("predecessor")
     predecessor = None if predecessor in (None, "none") else str(predecessor)
     plan_ids = fm.get("plan_ids") or []
@@ -143,7 +146,7 @@ def _load_baton(path: Path) -> Optional[Baton]:
         predecessor_id=fm.get("predecessor_id"),
         deployment_state=fm.get("deployment_state"),
         status=fm.get("status"),
-        claimed_by=fm.get("claimed_by"),
+        claimed_by=claim_holder(fm) or None,
         continued_into=fm.get("continued_into"),
         plan_ids=list(plan_ids),
         blocks=list(fm.get("blocks") or []),

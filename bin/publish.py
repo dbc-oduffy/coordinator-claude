@@ -11093,47 +11093,6 @@ def _restore_dest_subtree_to_head(repo_root: Path, dest_dir: Path) -> None:
             continue
 
 
-def _dirty_round_roots(roots: "List[Path]") -> "List[Tuple[Path, str]]":
-    """Every repo root in `roots` whose working tree or index differs from
-    HEAD, with its porcelain status. A directory outside any git repo has no
-    HEAD to differ from and is skipped; any other unreadable status counts as
-    dirty."""
-    from coordinator_core.git.run import run_git  # noqa: PLC0415
-
-    dirty: "List[Tuple[Path, str]]" = []
-    seen: "set[str]" = set()
-    for root in roots:
-        key = os.path.realpath(str(root))
-        if key in seen:
-            continue
-        seen.add(key)
-        if not root.is_dir():
-            # A path that does not exist at all has no HEAD to differ from
-            # either — same "skip, not dirty" disposition as the "not a git
-            # repository" branch below, per this function's own docstring.
-            # Without this, `run_git`'s `cwd=str(root)` failure ("cannot
-            # change to ... No such file or directory") fell through to the
-            # generic `dirty.append` below and this function's own
-            # round-start caller printed a confusing "has uncommitted
-            # changes -- commit or discard them first" for a directory that
-            # was never there — a missing source/dest is a distinct,
-            # clearer refusal `process_target`'s own per-row gates already
-            # report, not this round-start dirty check's to name.
-            continue
-        try:
-            status = run_git(["status", "--porcelain"], cwd=str(root))
-        except (OSError, subprocess.SubprocessError) as exc:
-            dirty.append((root, f"git status failed: {exc}"))
-            continue
-        if not status.ok:
-            if "not a git repository" in status.stderr:
-                continue
-            dirty.append((root, f"git status failed: {status.stderr.strip()}"))
-        elif status.stdout.strip():
-            dirty.append((root, status.stdout.strip()))
-    return dirty
-
-
 def _assert_dest_subtree_clean(repo_root: Path, dest_dir: Path, *, context: str) -> None:
     """Final loud assertion (§ `PublishDestNotCleanError`): raises unless
     `dest_dir` is byte-identical with `repo_root`'s HEAD. Called after
@@ -12570,11 +12529,9 @@ def _commit_throwaway_and_merge_into_dest(
     `--ff-only` is the backstop: it refuses outright, touching neither
     `repo_root`'s index nor its worktree, unless `repo_root`'s HEAD is still
     exactly the commit the throwaway was cloned from — i.e. unless nothing
-    else advanced `repo_root` since this round's throwaway was built. The
-    start-of-round dirty check (`_dirty_round_roots`) is what is supposed to
-    make that always true; a refusal here means that precondition was
-    violated mid-round, not a normal outcome, and is reported as a refusal
-    rather than papered over."""
+    else advanced `repo_root` since this round's throwaway was built — and
+    git refuses it too when a dirty dest file lies on the delta. Either is
+    reported as a refusal rather than papered over."""
     from functools import partial  # noqa: PLC0415 - lazy, matches this module's other cheap-import calls
 
     from coordinator_core.git.commit import commit_paths, hash_worktree_blobs_via_spawn  # noqa: PLC0415
@@ -13957,26 +13914,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         # with "another publish is running against it" when neither actually
         # is stuck).
         lock_repo_roots.sort(key=lambda p: os.path.realpath(str(p)))
-        # A round never starts on a dirty tree: residue in a destination would
-        # be swept into the round commit, and a dirty source means the operator
-        # is publishing something other than what they are looking at.
-        dirty = _dirty_round_roots(
-            lock_repo_roots
-            + [
-                root
-                for row in rows
-                if not requested_names or parsed_rows[row].name in requested_names
-                for root in _contributing_roots(parsed_rows[row])
-            ]
-        )
-        if dirty:
-            for root, porcelain in dirty:
-                print(
-                    f"[publish.py] REFUSED: {root} has uncommitted changes -- commit or "
-                    f"discard them first:\n{porcelain[:2000]}",
-                    file=sys.stderr,
-                )
-            return 1
+        # Uncommitted files never block a round (PM ruling): sources publish
+        # from the pinned committed ref, and the destination write is the
+        # round's own delta -- an ff-only merge that git itself refuses only
+        # if it would overwrite a dirty file it touches.
 
     # No anchor is passed: `held_lock` derives the sidecar directory from its
     # per-user, per-machine rendezvous (`_machine_lock_dir`), which is what

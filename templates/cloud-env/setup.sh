@@ -27,11 +27,10 @@
 # session to the manual test-and-execute rung rather than the published engine. This script writes
 # the published pointer file instead.
 #
-# Every finding is a FAIL line in the setup checklist, and the script exits 0 -- a non-zero exit
-# fails the whole session -- with ONE exception: a missing review payload (roster fragment or
-# bin/ under the engine-resolved content root) exits 1. A session booted without it runs every
-# execute workflow with no review stage, which is worse than not booting. SCOPE and the
-# verification record: README.md beside this file.
+# It always exits 0 -- a non-zero exit fails the whole session, so every finding is a FAIL line in
+# the setup checklist, never a boot abort. A missing review payload is one such FAIL line; the
+# execute path fails closed on it (emit-dispatch-workflow refuses to emit with no review stage).
+# SCOPE and the verification record: README.md beside this file.
 
 set -u
 
@@ -42,9 +41,6 @@ LOG="$HOME/.coordinator-cloud-setup.log"
 # Everything runs inside main() so the whole run can be tee'd to a file -- the platform does not
 # persist this script's stdout anywhere else the session can reach, so the log file is the only
 # durable channel for "which route did a phase take?" after the fact.
-FATAL_MARK="$HOME/.coordinator-cloud-setup.fatal"
-rm -f "$FATAL_MARK"
-
 main() {
 
 echo "=== phase 0: probe (facts unestablishable from a developer host) ==="
@@ -262,10 +258,9 @@ if [ "$HAVE_ENGINE" -eq 0 ]; then
   python3 -c "import pydantic, psutil, jsonschema, yaml; print('deps import: OK')" 2>&1 | tail -1
 fi
 # The review payload, located the way the engine locates it (content_root_for: `<clone>/coordinator`
-# for a source-shaped tree, the clone itself for the flat mirror). Fatal: see the header.
-REVIEW_PAYLOAD_FAIL=0
+# for a source-shaped tree, the clone itself for the flat mirror).
 if [ "$HAVE_PLUGIN" -eq 0 ]; then
-  python3 - "$ROOT/claude-klabauter" "$ROOT/coordinator-claude" <<'PYCHECK' 2>&1 || REVIEW_PAYLOAD_FAIL=1
+  python3 - "$ROOT/claude-klabauter" "$ROOT/coordinator-claude" <<'PYCHECK' 2>&1
 import sys
 sys.path.insert(0, sys.argv[1])
 try:
@@ -287,9 +282,7 @@ print(f"review payload: OK ({root})")
 PYCHECK
 else
   echo "review payload: FAIL -- no plugin clone"
-  REVIEW_PAYLOAD_FAIL=1
 fi
-[ "$REVIEW_PAYLOAD_FAIL" -eq 0 ] || : > "$FATAL_MARK"
 # The PUBLISHED-engine pointer, written here so the env block never has to carry an override to
 # do this job. The published arm admits a root only if <root>/coordinator_core/_engine_stamp
 # exists, and the stamp is tracked, so a fresh clone of the mirror satisfies it. The name is
@@ -319,10 +312,4 @@ echo "=== setup complete ==="
 
 main 2>&1 | tee -a "$LOG"
 echo "full log: $LOG"
-# main runs in a pipeline subshell, so its verdict crosses back as a marker file.
-if [ -f "$FATAL_MARK" ]; then
-  rm -f "$FATAL_MARK"
-  echo "setup: FAIL -- review payload missing; see 'review payload:' above"
-  exit 1
-fi
 exit 0
