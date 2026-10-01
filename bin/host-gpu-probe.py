@@ -55,7 +55,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-_NO_CONSOLE_WINDOW = (
+_no_console_kw = (
     {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
 )
 
@@ -124,7 +124,7 @@ def _sysctl_str(key: str) -> str | None:
             capture_output=True,
             text=True,
             timeout=5,
-            **_NO_CONSOLE_WINDOW,
+            **_no_console_kw,
         )
         if r.returncode == 0:
             val = r.stdout.strip()
@@ -151,7 +151,7 @@ def _probe_gpu() -> dict[str, Any]:
                 capture_output=True,
                 text=True,
                 timeout=5,
-                **_NO_CONSOLE_WINDOW,
+                **_no_console_kw,
             )
             if result.returncode == 0:
                 lines = [line.strip() for line in result.stdout.strip().splitlines() if line.strip()]

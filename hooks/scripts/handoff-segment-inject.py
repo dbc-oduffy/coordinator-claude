@@ -60,7 +60,8 @@ Safety envelope, each clause load-bearing:
       no artifact-path argument (SKILL.md's own documented "pass nothing --
       self-resolves to the held handoff" form) -- `apply` is NEVER invoked
       from this module, and there is no code path anywhere in this file
-      that could reach it. Unlike `pickup-autofire.py`'s twin surface (which
+      that could reach it. The module RENDERS the `apply` argv for the EM to
+      run (`render_apply_command`) and never executes it. Unlike `pickup-autofire.py`'s twin surface (which
       auto-fires a mutating `apply` half on a clear coast), this hook has NO
       mutating half and must never grow one -- the same discipline
       `mise-autofire.py` documents for its own `mint-run-id`/`brief` pair.
@@ -112,6 +113,20 @@ Safety envelope, each clause load-bearing:
       something different -- is not. The marker list is bounded by the
       segment count, so it cannot overrun anything on its own.
 
+Brief block: when the decoded brief, a safe session id, the repo root and
+the forwarder are all available, `render_brief_block` prepends one block to
+the injected context -- resolved lineage, each open judgment point, each
+single-option confirmation, the decisions-file path under
+`<repo>/.coordinator-local/subagent-share/<session_id>/`, a decisions
+template (single-option points pre-written; multi-option points left as
+unparseable `<CHOOSE: ...>` placeholders so `apply` refuses a guess), and the
+literal host-correct `apply handoff --decisions-file <path>` line. The line
+carries no artifact-path and no `--session-id`: `brief` (as spawned here) and
+`apply` resolve the held handoff and the session through the same
+engine-side ladder, so the two cannot disagree. The block counts against the
+budget but is never dropped by the ladder in (e); a missing or malformed
+brief renders no block and the segments render exactly as before, per (b).
+
 Install-surface note (recorded, not re-discovered): this hook type
 (`UserPromptExpansion`) required `/reload-plugins` before it started firing
 in the spike that proved the mechanism -- see pickup-autofire.py's own
@@ -130,6 +145,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -244,7 +261,7 @@ except Exception:
         return candidate if candidate.is_file() else None
 
     def _forwarder_argv(script_path, tail=()):  # type: ignore[misc]
-        # Review: overengineering-reviewer F3 -- see _forwarder_resolve's
+        # See _forwarder_resolve's
         # "Import-fallback contract" docstring section for the rationale.
         raise OSError("forwarder resolution unavailable -- import fallback declined to guess a launch decision")
 
@@ -332,7 +349,7 @@ def _run_baton_assemble_brief(script_path: Path) -> "subprocess.CompletedProcess
     (spawn error, timeout) -- never lets a raw OSError/TimeoutExpired
     escape."""
     try:
-        # Review: overengineering-reviewer F3 -- argv computation moved inside
+        # argv computation sits inside
         # the try so a fallback-leg OSError (see _forwarder_resolve) is
         # absorbed by the handler below rather than needing its own guard.
         argv = _baton_assemble_argv(script_path, ["brief", "handoff"])
@@ -653,6 +670,193 @@ def load_all_segments(residue_dir: Path) -> "list[dict]":
     return segments
 
 
+# --- Brief rendering (read-only: composes text, never runs `apply`) -----------
+
+_SAFE_SESSION_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+_PS_BARE_TOKEN_RE = re.compile(r"^[A-Za-z0-9_./:\\=+-]+$")
+_DECISIONS_FILENAME = "handoff-decisions.json"
+
+
+def decisions_file_path(repo_root: "Path | str", session_id: str) -> "Path | None":
+    """`<repo_root>/.coordinator-local/subagent-share/<session_id>/handoff-decisions.json`
+    -- the gitignored, session-scoped machinery location. None when
+    `session_id` is empty or not a single safe path segment."""
+    if not isinstance(session_id, str) or session_id in ("", ".", ".."):
+        return None
+    if not _SAFE_SESSION_ID_RE.match(session_id):
+        return None
+    return Path(repo_root) / ".coordinator-local" / "subagent-share" / session_id / _DECISIONS_FILENAME
+
+
+def _powershell_quote(token: str) -> str:
+    return '"' + re.sub(r'([`"$])', r"`\1", token) + '"'
+
+
+def render_apply_command(argv: "list[str]", host: str) -> str:
+    """One host-correct line that runs `argv`. `host` is `os.name`: `nt`
+    renders PowerShell (call operator, `"`-quoting only where a token needs
+    it); anything else renders a POSIX shell line via `shlex.join`. Pure."""
+    if host == "nt":
+        head, *rest = argv
+        tokens = [_powershell_quote(head)]
+        tokens.extend(t if _PS_BARE_TOKEN_RE.match(t) else _powershell_quote(t) for t in rest)
+        return "& " + " ".join(tokens)
+    return shlex.join(argv)
+
+
+def _valid_dispositions(point: dict) -> "list[dict]":
+    raw = point.get("dispositions")
+    if not isinstance(raw, list):
+        return []
+    return [d for d in raw if isinstance(d, dict) and isinstance(d.get("value"), str) and d["value"]]
+
+
+def _depends_on_ids(directive: dict) -> "list[str]":
+    value = directive.get("depends_on")
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        return [v for v in value if isinstance(v, str)]
+    return []
+
+
+def _partition_points(brief: dict) -> "tuple[list[dict], list[dict]]":
+    """`(asked, reported)` over `brief["judgment_points"]`. A point is
+    reported (narrated, not asked) only when it is `reportable: true` AND
+    gates nothing -- no disposition resolves a directive and no directive
+    depends on it -- the same predicate as the engine's
+    `partition_reportable`. A reportable point that does gate stays asked,
+    because leaving it out of the decisions file would halt `apply`."""
+    raw_points = brief.get("judgment_points")
+    raw_directives = brief.get("directives")
+    points = [p for p in raw_points if isinstance(p, dict) and isinstance(p.get("id"), str) and p["id"]] \
+        if isinstance(raw_points, list) else []
+    directives = [d for d in raw_directives if isinstance(d, dict)] if isinstance(raw_directives, list) else []
+    directive_ids = {d.get("id") for d in directives}
+    depended_on = {dep for d in directives for dep in _depends_on_ids(d)}
+    asked: "list[dict]" = []
+    reported: "list[dict]" = []
+    for point in points:
+        gates = point["id"] in depended_on or any(
+            r in directive_ids
+            for d in _valid_dispositions(point)
+            for r in (d.get("resolves") if isinstance(d.get("resolves"), list) else [])
+        )
+        (reported if point.get("reportable") is True and not gates else asked).append(point)
+    return asked, reported
+
+
+def decisions_template(points: "list[dict]") -> str:
+    """The decisions-file text for `points` (the asked set). A point with
+    exactly one disposition is pre-written; a point with two or more gets a
+    bare `<CHOOSE: a | b>` and `<NOTE: ...>` placeholder, which is not JSON,
+    so the file fails to parse until the EM answers it."""
+    if not points:
+        return "{}"
+    lines = []
+    for point in points:
+        values = [d["value"] for d in _valid_dispositions(point)]
+        key = json.dumps(point["id"])
+        if len(values) == 1:
+            entry = json.dumps({"disposition": values[0]})
+        else:
+            choose = " | ".join(values) if values else "one of the point's dispositions"
+            entry = '{"disposition": <CHOOSE: %s>, "decision_note": <NOTE: why>}' % choose
+        lines.append(f"  {key}: {entry}")
+    return "{\n" + ",\n".join(lines) + "\n}"
+
+
+def _lineage_lines(brief: dict) -> "list[str]":
+    artifact = brief.get("artifact") if isinstance(brief.get("artifact"), dict) else {}
+    lineage = artifact.get("lineage") if isinstance(artifact.get("lineage"), dict) else {}
+    discovery = lineage.get("discovery")
+    deliverable_id = lineage.get("deliverable_id")
+    predecessor = predecessor_path_from_brief(brief)
+    return [
+        f"- resolved from: `{discovery if isinstance(discovery, str) and discovery else 'unknown'}`",
+        f"- deliverable_id: `{deliverable_id if isinstance(deliverable_id, str) and deliverable_id else 'none'}`",
+        f"- predecessor: `{predecessor or 'none'}`",
+    ]
+
+
+def _point_head(point: dict) -> str:
+    question = point.get("question")
+    return f"- `{point['id']}` -- {question}" if isinstance(question, str) and question else f"- `{point['id']}`"
+
+
+def _point_lines(point: dict) -> "list[str]":
+    lines = [_point_head(point)]
+    for disposition in _valid_dispositions(point):
+        guidance = disposition.get("guidance")
+        suffix = f": {guidance}" if isinstance(guidance, str) and guidance else ""
+        lines.append(f"  - `{disposition['value']}`{suffix}")
+    return lines
+
+
+def render_brief_block(
+    brief: object,
+    session_id: str,
+    repo_root: "Path | None",
+    script_path: "Path | None",
+    host: str,
+) -> str:
+    """The entry brief the EM would otherwise have fetched by hand, rendered
+    from the decoded `baton-assemble brief handoff` object this hook already
+    holds: resolved lineage, each open judgment point with its dispositions,
+    each single-option confirmation, the decisions-file path and template, and
+    the literal `apply` line (no artifact-path; the apply verb self-resolves
+    the held handoff exactly as `brief` did). Returns `""` -- render nothing --
+    when the brief is not a dict or the session id, repo root or forwarder is
+    unavailable. Never executes anything."""
+    if not isinstance(brief, dict) or repo_root is None or script_path is None:
+        return ""
+    decisions_path = decisions_file_path(repo_root, session_id)
+    if decisions_path is None:
+        return ""
+    asked, reported = _partition_points(brief)
+    open_points = [p for p in asked if len(_valid_dispositions(p)) != 1]
+    confirmations = [p for p in asked if len(_valid_dispositions(p)) == 1]
+    apply_line = render_apply_command(
+        _baton_assemble_argv(script_path, ["apply", "handoff", "--decisions-file", str(decisions_path)]),
+        host,
+    )
+    out = ["## Handoff entry brief (rendered at entry from `baton-assemble brief handoff`)", "", "Lineage:"]
+    out.extend(_lineage_lines(brief))
+    out.append(
+        "If the rung named above is not the artifact this handoff is written from, that is the "
+        "mis-link: stop and resolve it before running apply."
+    )
+    if open_points:
+        out.extend(["", "Open decisions -- answer each in the decisions file:"])
+        for point in open_points:
+            out.extend(_point_lines(point))
+    if confirmations:
+        out.extend(["", "Running the apply line confirms:"])
+        for point in confirmations:
+            out.extend(_point_lines(point))
+    if reported:
+        out.extend(["", "Reported, not asked:"])
+        for point in reported:
+            out.append(_point_head(point))
+    out.extend(
+        [
+            "",
+            f"Decisions file: `{decisions_path}`",
+            "Write this template there with the Write tool. Replace every `<CHOOSE: ...>` and "
+            "`<NOTE: ...>`; until then the file is not valid JSON and apply refuses it.",
+            "```json",
+            decisions_template(asked),
+            "```",
+            "",
+            "Then run, as rendered (apply is EM-invoked, never run by this hook):",
+            "```",
+            apply_line,
+            "```",
+        ]
+    )
+    return "\n".join(out)
+
+
 # --- Selection + budget-degraded rendering ----------------------------------
 
 
@@ -663,10 +867,16 @@ def select_segments(segments: "list[dict]", active_cases: "set[str]") -> "list[d
     return selected
 
 
-def render_additional_context(segments: "list[dict]", active_cases: "set[str]") -> str:
+def render_additional_context(
+    segments: "list[dict]", active_cases: "set[str]", preamble: str = ""
+) -> str:
     """Render the selected, order-sorted segment bodies (joined by a blank
     line) as the `additionalContext` string, hard-capped at
     `_CONTEXT_BUDGET_CHARS`.
+
+    `preamble` (the rendered brief block) leads the output, counts against
+    the budget, and is never a drop candidate: the ladder below operates on
+    segments only.
 
     Degrade ladder, cheapest (least load-bearing) first: whole `class:
     droppable` segments are dropped from the TAIL (reverse `order`) one at a
@@ -686,15 +896,17 @@ def render_additional_context(segments: "list[dict]", active_cases: "set[str]") 
          not at all -- a truncated rule reads as a complete rule that says
          something different, which is worse than an absent one that says so.
 
-    Returns `""` when no segment is selected -- the caller reads that as
-    "nothing to inject" and produces no `additionalContext` at all.
+    Returns `preamble` (`""` when none) when no segment is selected -- the
+    caller reads `""` as "nothing to inject" and produces no
+    `additionalContext` at all.
     """
     selected = select_segments(segments, active_cases)
     if not selected:
-        return ""
+        return preamble
 
     def _render(kept: "list[dict]", dropped: "list[dict]") -> str:
-        parts = [s["body"] for s in kept]
+        parts = [preamble] if preamble else []
+        parts.extend(s["body"] for s in kept)
         parts.extend(
             _OMISSION_MARKER.format(
                 segment_id=s.get("segment_id", "?"),
@@ -771,7 +983,17 @@ def compute_context(stdin_text: str) -> "str | None":
         active_cases, brief = _compute_active_cases_and_brief(repo_root, settings_home)
         engine_segments = segments_from_engine_brief(brief)
         segments = engine_segments if engine_segments is not None else load_all_segments(_RESIDUE_DIR)
-        additional_context = render_additional_context(segments, active_cases)
+        try:
+            preamble = render_brief_block(
+                brief,
+                invocation.session_id,
+                repo_root,
+                resolve_baton_assemble_bin(settings_home),
+                os.name,
+            )
+        except Exception:
+            preamble = ""
+        additional_context = render_additional_context(segments, active_cases, preamble)
     except Exception:
         # Total-function guard: an unanticipated defect anywhere in the
         # compute-and-render path must never surface as a raised exception

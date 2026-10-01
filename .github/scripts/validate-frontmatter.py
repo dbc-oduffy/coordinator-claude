@@ -93,12 +93,9 @@ def main():
             for path in sorted(plugin_dir.glob(pattern)):
                 validate_file(path, required, errors)
 
-    # Review: code-reviewer — validate_memory_file() previously had no call site (dead
-    # code next to a comment excusing it). Wired in behind a glob guard mirroring
-    # health-check.py's check_memory_consistency(): coordinator-claude itself ships no
-    # memory files, but a consumer project layered on top of this repo may add
-    # `projects/*/memory/*.md`, and this makes that case validated rather than silently
-    # unchecked.
+    # Behind a glob guard mirroring health-check.py's check_memory_consistency():
+    # coordinator-claude itself ships no memory files, but a consumer project layered on
+    # top of this repo may add `projects/*/memory/*.md`, which are validated here.
     for memory_file in sorted(pathlib.Path("projects").glob("*/memory/*.md")):
         validate_memory_file(memory_file, errors)
 

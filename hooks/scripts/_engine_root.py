@@ -1,4 +1,4 @@
-"""Shared claude-klabauter-root resolution seam for coordinator/hooks/scripts/*.py hooks.
+"""Shared engine-root resolution seam for coordinator/hooks/scripts/*.py hooks.
 
 Purpose: every hook that needs to import `coordinator_core` from the sibling
 engine checkout previously carried its own copy-pasted
@@ -92,8 +92,6 @@ def _settings_home() -> Path:
 # `resolve_claude_klabauter_root_with_class`. RESOLVED_ENGINE means a published engine
 # mirror; LIVE_WORKING_TREE means a checkout whose contents are whatever a
 # concurrent session has in it at this instant.
-# Review: code-reviewer — top-of-file comment described the deleted
-# rung-0 snapshot semantics, contradicting the docstring below.
 #
 # RESOLUTION_RESOLVED_ENGINE now has a producer: `_resolve_published_engine`
 # reads `repos.claude_klabauter`, written at install time by the engine
@@ -283,17 +281,15 @@ def _session_repo_root() -> Path | None:
     liveness/failure logs, etc.) into that backup tree instead of the actual
     working repo, or `None` if there genuinely is none.
 
-    # Review: code-reviewer — this docstring previously claimed the walk
-    # "fails closed to None" once it passes `~/.claude`. It does not: the
-    # walk continues PAST `~/.claude` and MAY return an ANCESTOR of it (e.g.
-    # `Path.home()` itself, if that directory has its own unrelated `.git`)
-    # rather than stopping at `None`. `test_cwd_walk_skips_claude_home_but_
-    # finds_real_repo_above_it` (added in this same commit) pins exactly
-    # that. This is deliberate: continuing the walk lets a real repo
-    # genuinely above `~/.claude` resolve correctly instead of always
-    # failing closed, at the cost of accepting that ancestor if it happens
-    # to carry an unrelated `.git` of its own — a narrower, accepted risk,
-    # not a "fails closed" guarantee.
+    The walk does not fail closed to None once it passes `~/.claude`: it
+    continues PAST `~/.claude` and MAY return an ANCESTOR of it (e.g.
+    `Path.home()` itself, if that directory has its own unrelated `.git`)
+    rather than stopping at `None`. `test_cwd_walk_skips_claude_home_but_
+    finds_real_repo_above_it` pins exactly that. This is deliberate:
+    continuing the walk lets a real repo genuinely above `~/.claude` resolve
+    correctly instead of always failing closed, at the cost of accepting
+    that ancestor if it happens to carry an unrelated `.git` of its own — a
+    narrower, accepted risk, not a "fails closed" guarantee.
 
     Zero-spawn (no `git rev-parse`), never raises. Returns None if
     undeterminable.
@@ -305,7 +301,7 @@ def _session_repo_root() -> Path | None:
         try:
             p = Path(env_root)
             if p.is_dir():
-                # Review: code-reviewer (Finding 4) — this rung resolves `p`
+                # This rung resolves `p`
                 # itself rather than delegating to `_is_harness_home`
                 # (which fails toward False, i.e. "not harness home", on a
                 # resolve() exception). That fail-open direction is safe at
@@ -346,10 +342,8 @@ def _session_repo_root() -> Path | None:
     return None
 
 
-# Review: code-reviewer — the docstring below previously opened by claiming
-# reuse of `_registry_value`'s precedence pattern; this function deliberately
-# unions across both registry files rather than first-hit-wins, per its own
-# body comments, so that framing was dropped.
+# Unions across both registry files rather than first-hit-wins, per its own
+# body comments.
 def _engine_working_repo_roots(reg_dir: Path) -> list[str]:
     """Every non-empty registered `engine.working_repos.*` value.
 
@@ -595,11 +589,10 @@ def _same_repo_path(a: str, b: str) -> bool:
     divergence; the engine plane ships such a change as a cross-plane memo.
     The reciprocal holds: a semantics change here ships one back.
     """
-    # Review: code-reviewer — was `except OSError`, which let an unusual
-    # filesystem/encoding edge case propagate out of this function despite
-    # the "Never raises" contract above, letting the outer tri-state
-    # collapse None (undeterminable) into False. Catch Exception here so
-    # "Never raises" holds by construction rather than by convention.
+    # Catch Exception, not just OSError: an unusual filesystem/encoding edge
+    # case must not propagate out of this function, or the outer tri-state
+    # collapses None (undeterminable) into False. "Never raises" holds by
+    # construction rather than by convention.
     try:
         return os.path.samefile(a, b)
     except Exception:
@@ -658,11 +651,10 @@ def _is_engine_working_repo() -> bool | None:
         return None
 
     session_str = str(session_root)
-    # Review: code-reviewer — `_same_repo_path` is now fixed to genuinely
-    # never raise, but this loop tracks raised-vs-not defensively too:
-    # returning False (CONFIRMED non-working) after every comparison raised
-    # would still collapse "couldn't determine" into "not a match" if a
-    # future edit to `_same_repo_path` reintroduced a raising path.
+    # `_same_repo_path` never raises, but this loop tracks raised-vs-not
+    # defensively too: returning False (CONFIRMED non-working) after every
+    # comparison raised would collapse "couldn't determine" into "not a
+    # match" if `_same_repo_path` ever gained a raising path.
     any_determined = False
     for root in working_roots:
         try:

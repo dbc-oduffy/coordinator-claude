@@ -189,7 +189,11 @@ def main(argv: list[str] | None = None) -> int:
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_dispatch_engine_on_path
 
-    require_dispatch_engine_on_path()
+    try:
+        require_dispatch_engine_on_path()
+    except RuntimeError as exc:
+        print(f"query-records: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
+        return 3
     # LOAD-BEARING, NOT DEAD. Do not delete on an unused-import sweep: this line is
     # what BINDS coordinator_core, and binding it HERE is the whole fix.
     # require_dispatch_engine_on_path() above only mutates sys.path -- it imports

@@ -185,7 +185,7 @@ def main() -> int:
     try:
         result = assert_day_branch(str(repo_root), compute_machine(), local_day())
     except Exception:
-        # Review: coordinator:code-reviewer -- an exception raised by the
+        # An exception raised by the
         # engine's cut/warn logic (lock contention, a git subprocess failure)
         # must not collapse to the same silent "nothing happened" signature
         # as a clean no-op result; that is the identical-silence collapse

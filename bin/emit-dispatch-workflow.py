@@ -42,7 +42,7 @@ def main(argv: "list[str] | None" = None) -> int:
         import cc_invoke
 
         cc_invoke.require_engine_on_path(__file__)
-        from coordinator_core.ops.dispatch_emit.cli import main as emit_main
+        from coordinator_core.cli_entry import run_op_main
     except Exception as exc:
         print(
             f"emit-dispatch-workflow.py: ERROR — coordinator_core unresolvable: {exc}",
@@ -50,7 +50,7 @@ def main(argv: "list[str] | None" = None) -> int:
         )
         return 2
 
-    return emit_main(args)
+    return run_op_main("coordinator_core.ops.dispatch_emit.cli", args)
 
 
 if __name__ == "__main__":

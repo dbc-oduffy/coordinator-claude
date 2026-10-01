@@ -100,9 +100,6 @@ EXCLUDED_PREFIXES = (
     "docs/decisions/",
     "docs/specs/",
     ".github/scripts/check-persona-names.py",  # this file itself carries the digest table
-    # Review: code-reviewer — the depersonalize-for-publish.sh entry that lived here
-    # named a script retired in favour of percolate-store.yaml's config-driven
-    # depersonalize hook; it does not exist in current source. Removed as stale.
 )
 
 ALLOWLIST_PATH = pathlib.Path(".github/.persona-names-allowlist")
@@ -145,6 +142,7 @@ def get_tracked_files() -> list[pathlib.Path]:
         result = subprocess.run(
             ["git", "ls-files", "--cached"],
             capture_output=True, text=True, check=True,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except (subprocess.CalledProcessError, FileNotFoundError):
         return [

@@ -58,7 +58,8 @@ def get_tracked_files() -> list[pathlib.Path]:
     try:
         result = subprocess.run(
             ["git", "ls-files", "--cached"],
-            capture_output=True, text=True, check=True
+            capture_output=True, text=True, check=True,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except (subprocess.CalledProcessError, FileNotFoundError) as e:
         print(f"error: cannot list tracked files: {e}", file=sys.stderr)

@@ -39,6 +39,14 @@ import os
 import subprocess
 import sys
 
+
+def _no_console_kw() -> dict:
+    """Console-suppression kwargs for a captured spawn; empty off Windows."""
+    if os.name != "nt":
+        return {}
+    return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+
+
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _LIB_DIR = os.path.join(_SCRIPT_DIR, "lib")
 
@@ -72,6 +80,7 @@ def _git(repo_root: str, *args: str) -> str:
         capture_output=True,
         text=True,
         check=False,
+        **_no_console_kw(),
     )
     if proc.returncode != 0:
         return ""

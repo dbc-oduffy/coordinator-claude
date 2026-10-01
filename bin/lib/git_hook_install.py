@@ -96,7 +96,7 @@ from coordinator_core.machine_resolver import merged_flat_registry as _merged_fl
 
 GENERATES = []
 
-_MARKETPLACE_SUFFIX = ".claude/plugins/coordinator/bin"
+_MARKETPLACE_SUFFIX = ".claude/plugins/coordinator-claude/coordinator/bin"
 
 _CONTENT_ROOT_DURABLE_SH = '${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/machine-local/.content-root'
 _CONTENT_ROOT_LEGACY_SH = '$HOME/.claude/.content-root'
@@ -236,7 +236,7 @@ def _resolve_coord_bin(bin_dir: str, script_name: str) -> str:
             which defaults to the published mirror by ruling — see this
             function's own docstring, DR-326 axis note, below.
     Rung 5: marketplace path
-            `$HOME/.claude/plugins/coordinator/bin` —
+            `$HOME/.claude/plugins/coordinator-claude/coordinator/bin` —
             unconditional backstop, no isfile probe (matches prior behavior;
             this is the last resort, not a candidate to skip past).
 
@@ -445,7 +445,14 @@ def _resolve_klabauter_bin_sh(script_name: str) -> Optional[str]:
 # on this box died with `SyntaxError: Non-UTF-8 code starting with '\xcf'` from
 # 01:57 on 2026-09-02, the moment the bin cutover landed under running
 # sessions. `_NATIVE_PROBE_DEF` closes the POSIX half; the bump forces
-_HOOK_GEN_STAMP = 14
+# every installed body to be rewritten.
+#
+# Bumped to 15 (2026-10-01): a hook resolving past rung 1 (settings-home) now
+# prints a one-line stderr NOTICE naming the winning path. Before this, only a
+# total miss warned, so a hook running off rung 2-6 was indistinguishable from a
+# healthy one until the last fallback also died and it failed open. Installed
+# bodies carry no notice and must be rewritten to gain it.
+_HOOK_GEN_STAMP = 15
 
 
 def _hook_gen_stamp_line() -> str:
@@ -674,6 +681,7 @@ def _shim_body(
         + f'_fwd="{settings_home_script}"\n'
         '_native "$_fwd" && exec "$_fwd" "$@"\n'
         f'SCRIPT="{settings_home_script}"\n'
+        '_s0="$SCRIPT"\n'
         + _CACHE_ROOT_PROBE
         + f'_have_py "$SCRIPT" || SCRIPT="$_cb/{script_name}"\n'
         f'_have_py "$SCRIPT" || SCRIPT="$_cb/{script_name}.py"\n'
@@ -692,6 +700,15 @@ def _shim_body(
         f'{script_name} not found (looked in settings-home forwarder, baked path, '
         '.content-root, machine-local repos.claude_klabauter, and marketplace) — commits '
         'are NOT being auto-pushed / annotated by this hook" 1>&2; exit 0; }\n'
+        # A hook that resolved past rung 1 works today and is one rename from
+        # silence: the only terminal signal is the not-found WARNING above, after
+        # every fallback is already dead. Name the winner instead, while it still
+        # works. `echo` is a builtin -- no spawn on the commit path (DR-344).
+        # Compared against the value rung 1 assigned, never against a re-expanded
+        # copy of its text, so the test cannot drift from the rung it audits.
+        f'[ "$SCRIPT" = "$_s0" ] || echo "[coordinator] NOTICE: {script_name} hook '
+        'resolved via fallback $SCRIPT, not settings-home — install has drifted; '
+        'run scripts/setup.py" 1>&2\n'
         # Every rung above tests $SCRIPT with `[ -f ]` under git's MSYS `sh`,
         # which resolves a POSIX-absolute path like /c/Users/... happily. The
         # invoke line then hands that same string to a NATIVE python.exe, which
@@ -767,6 +784,7 @@ def _append_block(
         'if [ -f "$_fwd" ]; then "$_fwd" "$@"; else\n'
         + baked_python_lines("_PY") + "\n"
         f'_T="{settings_home_script}"\n'
+        '_t0="$_T"\n'
         + _CACHE_ROOT_PROBE
         + f'_have_py "$_T" || _T="$_cb/{script_name}"; '
         f'_have_py "$_T" || _T="$_cb/{script_name}.py"; '
@@ -788,6 +806,11 @@ def _append_block(
         '[ -n "$_PY" ] || echo "[coordinator] WARNING: hook installed but no '
         'python3/python/py interpreter found on PATH — commits are NOT being '
         'auto-pushed / annotated by this hook" 1>&2; '
+        # Same fallback notice as `_shim_body`; see the comment there. Gated on
+        # `_have_py` so a total miss emits only the WARNING above, never both.
+        f'_have_py "$_T" && [ "$_T" != "$_t0" ] && echo "[coordinator] NOTICE: '
+        f'{script_name} hook resolved via fallback $_T, not settings-home — install '
+        'has drifted; run scripts/setup.py" 1>&2; '
         'case "$_T" in /?/*) _td="${_T#/}"; '
         '_T="${_td%%/*}:/${_td#*/}" ;; esac; '
         f'[ -n "$_PY" ] && _have_py "$_T" && {invoke_expr}; fi; }}'
@@ -1140,9 +1163,11 @@ def _ensure_hook(
 # is retired by `install.substrate._KILLED_OP_ORPHAN_NAMES` (see that set's
 # own note); the 13 installed hook bodies are UNFIXED here — they are each
 # repo's own local `.git/` state, not this repo's, and rewriting a peer's hooks
-# mid-commit on a box running ~50 concurrent sessions is not a change this
-# module may make unasked. Do not re-derive "the horizon is zero" from this
-# gravestone: measure the fleet first.
+# mid-commit on a box running ~50 concurrent sessions is not a change to make
+# from a commit path. The rule: identified bodies are removed (with a backup)
+# by `ensure_hooks_fleet`'s repairing walk via `hook_dispositions`, and never
+# from a commit-path hook or an install self-heal. Do not re-derive "the
+# horizon is zero" from this gravestone: measure the fleet first.
 
 
 def ensure_prepare_commit_msg_hook(
@@ -1358,6 +1383,34 @@ def _unregistered_hooked_repos(registered: "set[str]") -> List[tuple]:
     return found
 
 
+def _apply_dispositions(
+    key: str,
+    root: str,
+    check_only: bool,
+    stale: List[str],
+    healed: List[str],
+    errored: List[str],
+) -> None:
+    """Run the hook disposition table over one clone. Repairing-walk only
+    (`check_only=False`) ever mutates; one bad clone never aborts the walk."""
+    try:
+        from coordinator_core.git import hook_dispositions  # noqa: PLC0415
+
+        verdicts = hook_dispositions.apply_repo(root, check_only=check_only)
+    except Exception as exc:  # noqa: BLE001
+        errored.append(f"{key} hook-disposition: {type(exc).__name__}: {exc}")
+        return
+    for entry_id, hook_name, verdict in verdicts:
+        if verdict == "stale":
+            stale.append(
+                f"coordinator-hook-disposition: stale {key} {hook_name} {entry_id}"
+            )
+        elif verdict in ("removed", "block-excised", "replaced"):
+            healed.append(f"{key} {hook_name}: {verdict} ({entry_id})")
+        elif verdict in ("busy", "refused-no-backup"):
+            errored.append(f"{key} {hook_name}: {verdict} ({entry_id})")
+
+
 def ensure_hooks_fleet(
     bin_dir: str, *, check_only: bool = False, strict: bool = False
 ) -> int:
@@ -1374,12 +1427,14 @@ def ensure_hooks_fleet(
         return 0
 
     healed, missing, errored = [], [], []
+    stale: list[str] = []
     owned_missing: list[str] = []
     for key, root in sorted(roots):
         kind = _classify_target(root)
         if kind == "missing":
             missing.append(f"{key} -> {root}")
             continue
+        _apply_dispositions(key, root, check_only, stale, healed, errored)
         if kind == "mirror" and not _hook_points_at_coordinator(root, "prepare-commit-msg"):
             continue
         for label, fn in (
@@ -1410,6 +1465,8 @@ def ensure_hooks_fleet(
                 if not landed:
                     owned_missing.append(f"{key} {label}: not present/executable after install")
 
+    for line in stale:
+        print(line, file=sys.stderr)
     if healed:
         print(
             f"[git_hook_install] fleet heal repaired or flagged "

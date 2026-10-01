@@ -50,7 +50,7 @@ leg is gated off engine-side pending the engine-side CPU-discrimination spike.
 `delegation_evidence` IS PASSED FALSE, NOT DERIVED. The op accepts it as
 caller-supplied and explicitly declines to derive it (correlated-not-independent;
 see its own negative spec). An ask to widen the op is out to the engine team. Until it
-lands this ships the decline branch as one line: do NOT build a DoE-side
+lands this ships the decline branch as one line: do NOT build a plugin-side
 deriver against an unpublished recency threshold.
 
 `_origin_worktree` IS REQUIRED. The op is `common_dir`-scoped, so without it

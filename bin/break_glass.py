@@ -655,6 +655,7 @@ def check_claude_sync(config_dir: Path, timeout: float = 5.0) -> Finding:
             proc = subprocess.run(
                 ["git", "-C", str(config_dir), *args],
                 capture_output=True, text=True, timeout=timeout,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
         except (subprocess.TimeoutExpired, OSError):
             return None

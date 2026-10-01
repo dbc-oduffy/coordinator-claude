@@ -191,7 +191,7 @@ def _ml_dir() -> Path:
     return Path(override) if override else (_settings_home() / "machine-local")
 
 
-def _resolve_claude_klabauter_root(ml_dir: Path) -> str:
+def _resolve_claude_klabauter_root(ml_dir: Path, *, allow_self_location: bool = True) -> str:
     """Resolve the claude-klabauter root path via the env-then-registry
     ladder, validating it before return.
 
@@ -216,6 +216,10 @@ def _resolve_claude_klabauter_root(ml_dir: Path) -> str:
     fresh box with no machine-local registry at all (env absent, no
     registry.toml/registry.local.toml): the running code still knows where
     it lives, and requires no operator config to say so.
+
+    ``allow_self_location=False`` drops rung 2: a caller that needs the LIVE
+    checkout specifically (``_resolve_publisher_root``) must not be answered
+    with the published mirror this copy may itself live in.
 
     No sentinel-file fallback rung beyond that: absence fails loudly (PM
     ruling — claude-klabauter carries no live-lookup fallback).
@@ -248,7 +252,7 @@ def _resolve_claude_klabauter_root(ml_dir: Path) -> str:
 
     claude_klabauter_root = claude_klabauter_root.rstrip("\r\n").rstrip("/")
 
-    if not claude_klabauter_root:
+    if not claude_klabauter_root and allow_self_location:
         claude_klabauter_root = _self_located_root() or ""
 
     if not claude_klabauter_root:
@@ -1299,7 +1303,7 @@ def _resolve_publisher_root() -> str:
 
     ml_dir = _ml_dir()
     try:
-        return _resolve_claude_klabauter_root(ml_dir)
+        return _resolve_claude_klabauter_root(ml_dir, allow_self_location=False)
     except ClaudeKlabauterResolutionError as exc:
         raise ClaudeKlabauterResolutionError(
             str(exc).rstrip("\n")

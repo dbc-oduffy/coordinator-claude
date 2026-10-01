@@ -30,10 +30,6 @@ the first arm for the whole freshness window. Every reader (the SessionStart pre
 hook, `group-em-watch-cli.py`, `read_watch` below) is this copy, not the
 engine's.
 
-Review: coordinatoroverengineering-reviewer finding #3: the paragraph that
-lived here re-derived the module header's own claim above; it now lives once,
-at TWO_MODULES_ONE_RECORD_ARE_TWO_SIGNATURES, not here.
-
 NO TIMING PREDICATE. `next_expected_by` is a recorded EXPECTATION -- what
 this tick believes the next one will land by -- never a threshold this module
 acts on. `stamp()` never reads the clock to decide whether to fire; `read_watch`
@@ -199,9 +195,8 @@ def stamp(
     `source` must be one of `cron` | `monitor` | `entry` (P2b/P3's `tick_source`
     vocabulary) -- `entry` in practice for this module's own callers; the other
     two are accepted to mirror the engine's declared vocabulary, not because a
-    reader downstream inspects the argument (Review: coordinatoroverengineering-reviewer
-    finding #5: the prior wording attributed the width to `read_watch`, which
-    never sees this argument). `declinations` is
+    reader downstream inspects the argument (`read_watch` never sees it).
+    `declinations` is
     THIS tick's rows only -- each
     `{session_id, gate, reason}` -- never an accumulating history; a
     tick that messaged nobody and declined nobody passes `[]`, which is what

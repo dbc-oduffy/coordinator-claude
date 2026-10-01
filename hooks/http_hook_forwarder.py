@@ -1210,11 +1210,8 @@ def _ladder_response(
     actual `CAUSE_*` token mid-string in `detail` was the defect this signature replaces --
     a site with no token yet stays honest about carrying none, rather than faking one.
     #
-    # Review: coordinator:code-reviewer (a4d565927c67359bc) -- the unreachable call site
-    # gained a real `CAUSE_*` token in this same diff, so today only the refused-backend call
-    # site (no finer-grained token exists there yet) falls back to `reason`. The prior wording
-    # both overclaimed ("cause is NEVER prose", contradicted by that same fallback) and was
-    # stale (still listing "unreachable" among the sites with no token).
+    # Only the refused-backend call site (no finer-grained token exists there yet) falls back
+    # to `reason`; every other site passes a `CAUSE_*` token.
     """
     recorded_cause = cause if cause is not None else reason
     # AN OP-ROUTED REQUEST SKIPS RUNG 2. `evaluate_cold` routes BY EVENT and serves PreToolUse
@@ -2262,7 +2259,7 @@ def publish_door_discovery(port: int) -> bool:
     THROUGH THE ENGINE'S OWN WRITER, never by hand-writing the JSON.
     `front_door.write_discovery` is the sole publisher and stamps `health_path` and
     `door_protocol_version` from the same constants `probe_existing_holder` reads, so the
-    two surfaces cannot drift. Confirmed as the sanctioned route by claude-klabauter-em,
+    two surfaces cannot drift. Confirmed as the sanctioned route by the engine's maintainers,
     2026-08-30, along with every field below.
 
     `engine_sha=None` DELIBERATELY. It is `Optional[str]`, no consumer reads it today, and

@@ -89,6 +89,7 @@ from coordinator_core.diff_scoped_tests import (  # noqa: E402
     compute_diff_scoped_paths,
     diag,
 )
+from coordinator_core.ops import fast_red_registry  # noqa: E402
 from coordinator_core.ops.test_red_record import (  # noqa: E402
     parse_failing_nodeids,
     write_test_red_record,
@@ -404,15 +405,15 @@ def _git_head_sha() -> str:
     return "unknown"
 
 
-def _emit_test_red_record(ft_rc: int, ft_content: str, classify_rc: int) -> None:
+def _emit_test_red_record(ft_rc: int, ft_content: str, classify_rc: int, parsed=None) -> None:
     try:
         from coordinator_core.cli_entry import recording_declared_writes
         from coordinator_core.machine_resolver import compute_machine
         from coordinator_core.session.declared_writes import declare_write
 
         outcome = "green" if ft_rc == 0 else ("build-failure" if classify_rc == 2 else "test-failures")
-        runner, failing = parse_failing_nodeids(ft_content)
-        repo_root = os.getcwd()
+        runner, failing = parsed if parsed is not None else parse_failing_nodeids(ft_content)
+        repo_root = str(_REPO_ROOT)
         with recording_declared_writes(cwd=repo_root):
             write_test_red_record(
                 repo_root=Path(repo_root),
@@ -427,6 +428,43 @@ def _emit_test_red_record(ft_rc: int, ft_content: str, classify_rc: int) -> None
             declare_write(record_path)
     except Exception as exc:  # noqa: BLE001 -- must never affect the validate verdict/exit code
         _err(f"[workday-complete-step1] test-red record: write failed ({exc!r}) — continuing.")
+
+
+_DELTA_NEW_CAP = 50
+
+
+def _report_fast_red_delta(runner, failing, scope) -> None:
+    """Stderr-only new-vs-standing red report; never alters stdout or the exit code."""
+    try:
+        if runner != "pytest" or failing is None:
+            reason = "no failing set" if failing is None else f"runner {runner!r} is not pytest"
+            _err(f"[workday-complete-step1] fast-red delta: unavailable ({reason})")
+            return
+        delta = fast_red_registry.compute_delta(
+            failing, fast_red_registry.load_registry(), platform=sys.platform, scope=scope
+        )
+        fixed = "n/a" if scope is not None else str(len(delta.fixed))
+        _err(
+            f"[workday-complete-step1] fast-red delta: new={len(delta.new)} "
+            f"standing={len(delta.standing)} fixed={fixed}"
+        )
+        for nodeid in delta.new[:_DELTA_NEW_CAP]:
+            _err(f"  {nodeid}")
+        if len(delta.new) > _DELTA_NEW_CAP:
+            _err(f"  ... and {len(delta.new) - _DELTA_NEW_CAP} more new")
+    except Exception as exc:  # noqa: BLE001 -- must never affect the validate verdict/exit code
+        _err(f"[workday-complete-step1] fast-red delta: report failed ({exc!r}) — continuing.")
+
+
+def _record_and_report(ft_rc: int, ft_content: str, classify_rc: int, scope) -> None:
+    try:
+        parsed = parse_failing_nodeids(ft_content)
+    except Exception as exc:  # noqa: BLE001
+        _err(f"[workday-complete-step1] fast-red delta: parse failed ({exc!r}) — continuing.")
+        parsed = None
+    _emit_test_red_record(ft_rc, ft_content, classify_rc, parsed)
+    if parsed is not None and ft_rc != 0:
+        _report_fast_red_delta(parsed[0], parsed[1], scope)
 
 
 def main() -> int:
@@ -528,16 +566,17 @@ def main() -> int:
                     % (current.get("owner", "<unknown>"), int(MUTEX_WAIT_SECS))
                 )
             ft_rc, ft_content = _run_fast_test_cmd(cmd, _ft_env)
+        diff_paths = []
 
     rc_validate = ft_rc
 
     if ft_rc == 0:
-        _emit_test_red_record(ft_rc, ft_content, 0)
+        _record_and_report(ft_rc, ft_content, 0, None)
         _emit(rc_ubt, rc_validate)
         return 0
 
     classify_rc = _classify_fast_test_output(ft_content, ft_rc)
-    _emit_test_red_record(ft_rc, ft_content, classify_rc)
+    _record_and_report(ft_rc, ft_content, classify_rc, diff_paths or None)
     _emit(rc_ubt, rc_validate)
     return classify_rc
 

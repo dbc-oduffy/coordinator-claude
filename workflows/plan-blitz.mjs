@@ -1612,13 +1612,10 @@ function premiseAsReview(baton, premise) {
     verdict: findings.length ? 'BLOCKED' : 'OK',
     sidecarPath: premise.sidecarPath,
     findingCount: findings.length,
-    // Review: code-reviewer (premise-check.md Finding 3, MAJOR, routed here — same artifact) —
     // `rows: []` (zero citations examined) and a fully-checked, all-RESOLVES `rows` both produce
-    // bare `verdict: 'OK'` with no way to tell them apart downstream. `premiseLines`/`classCoverage`
-    // already render an empty class correctly ("c{n}:none — UNATTEMPTED, never clean"), but that
-    // distinction was lost the moment it collapsed to this machine-legible verdict. Carried as an
-    // explicit count rather than folded into `premiseFailure` — that field is a class-5 PIVOT
-    // candidate signal, and reusing it for "nothing was checked" would misread as one.
+    // bare `verdict: 'OK'`; the explicit count tells them apart downstream. Kept separate from
+    // `premiseFailure` — that field is a class-5 PIVOT candidate signal, and reusing it for
+    // "nothing was checked" would misread as one.
     citationsChecked: rows.length,
     premiseFailure: unwritable.length
       ? `class-5 rows with no fix writable from the finding alone — PIVOT candidates for a `
@@ -2711,13 +2708,10 @@ const trailLines = chains
     // Every reviewer is named with their OWN resolved verdict. A collapsed
     // "the review said X" is how a wave loses the review that disagreed.
     const verdicts = reviews.map((r) => `${r.reviewer}=${r.verdict}`).join(', ') || 'none ran'
-    // Review: coordinator:code-reviewer — explicit row so "premise check ran and found
-    // nothing" and "premise check did not run" (null/malformed return, dropped upstream)
-    // render as visibly different states, never as the same silence.
-    // Review: code-reviewer (premise-check.md Finding 3, routed via resolve-escalations.md) — an
-    // `OK` reached with zero citations examined must not render like an `OK` that checked
-    // everything and found nothing; `citationsChecked` is the count `premiseAsReview` now carries
-    // for exactly this.
+    // Explicit row so "premise check ran and found nothing" and "premise check did not run"
+    // (null/malformed return, dropped upstream) render as visibly different states, never as the
+    // same silence. An `OK` with zero citations examined must not render like an `OK` that checked
+    // everything; `citationsChecked` carries that count.
     const premiseCheckLine = premiseCheckVerdict
       ? `${premiseCheckVerdict.verdict}${premiseCheckVerdict.citationsChecked === 0 ? ' (0 citations examined — UNATTEMPTED, not a clean pass)' : ''}${premiseCheckVerdict.premiseFailure ? ` premise-failure: ${premiseCheckVerdict.premiseFailure}` : ''}`
       : 'DID NOT RUN — no premise-check verdict reached the trail for this baton'

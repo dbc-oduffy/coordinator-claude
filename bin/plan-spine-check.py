@@ -1,4 +1,4 @@
-"""plan-spine-check — validate a plan's `## Tasks` spine against plan-tasks.schema.json.
+r"""plan-spine-check — validate a plan's `## Tasks` spine against plan-tasks.schema.json.
 
 WHY THIS EXISTS. The schema has been the authoring contract for the task spine since 1.4.0, and
 until now nothing ran it. Every consumer validates late and from inside its own job: the dispatch
@@ -92,6 +92,11 @@ def _message_for(error) -> str:
     """
     if error.validator == "not":
         return f"row must NOT satisfy {error.validator_value} here (a conditional branch forbids it)"
+    if error.validator == "pattern" and list(error.path)[:1] == ["writes"]:
+        return (
+            f"writes: {error.instance!r} is a directory; entries are files, one per path "
+            "(directories go in `writes_under:`)"
+        )
     return error.message
 
 

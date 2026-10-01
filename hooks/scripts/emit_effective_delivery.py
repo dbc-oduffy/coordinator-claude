@@ -684,7 +684,7 @@ def _door_matchers_for_op(doc: Dict[str, Any], op: str) -> Set[str]:
                 if not _fol.is_native_door(hook):
                     continue
                 command = hook.get("command") or ""
-                # Review: coordinator-code-reviewer -- shlex.split for quote-aware
+                # shlex.split for quote-aware
                 # tokenization, matching hook_latency_harness.py's equivalent check
                 # rather than a bare whitespace .split().
                 if op in shlex.split(command):

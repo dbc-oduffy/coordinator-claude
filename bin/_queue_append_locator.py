@@ -28,6 +28,13 @@ from python_interp import (  # noqa: E402
 )
 
 
+def _no_console_kw() -> dict:
+    """CREATE_NO_WINDOW kwargs for a captured child on Windows; empty elsewhere."""
+    if os.name != "nt":
+        return {}
+    return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+
+
 def find_cli_cmd(
     caller_dir: str, cli_name: str, *, sibling_only: bool = False
 ) -> list[str] | None:
@@ -93,6 +100,7 @@ def find_cli_cmd(
                     [candidate, "--help"],
                     capture_output=True,
                     text=True,
+                    **_no_console_kw(),
                 )
             except OSError:
                 continue
@@ -112,6 +120,7 @@ def find_cli_cmd(
                 [interpreter, sibling, "--help"],
                 capture_output=True,
                 text=True,
+                **_no_console_kw(),
             )
             if result.returncode == 0:
                 return [interpreter, sibling]

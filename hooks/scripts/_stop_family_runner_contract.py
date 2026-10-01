@@ -34,6 +34,15 @@ matching, with zero knowledge of DENY/ADDITIONAL_CONTEXT/STOP or any other
 channel concept. Reusing it here is the same kind of reuse `str`/`Path`
 would be; it is not sharing this contract's own vocabulary.
 
+SPLIT-PERMANENCE: the two contracts stay two files. Clauses 1-5 and 7 of
+`_guard_runner_contract.py` are protocol-independent, but their executable
+enforcement (`FORBIDDEN_OS_EXIT` / `FORBIDDEN_ATEXIT` / `FORBIDDEN_CHDIR` /
+`FORBIDDEN_LATE_PATH_INSERT`, `GuardScopeDescriptor`) is already shared by
+import; only prose is duplicated, so a base module would carry no code.
+Registered at
+`coordinator/docs/wiki/coordinator-tripwires/stop-family-runner-contract.md`
+under `STOP-FAMILY-RUNNER-CONTRACT`.
+
 Spec: docs/plans/2026-08-06-hook-spawn-fan-in-finish-and-extend.md § C4b
 (the PostToolUse Stop-family collapse, split from C4's PreToolUse phase 1
 because this is CONSTRUCTION -- a genuinely new aggregation mechanism -- not

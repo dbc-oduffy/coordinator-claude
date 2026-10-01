@@ -97,9 +97,10 @@ StructuralPinError = None  # type: ignore  # bound by _bootstrap_imports()
 cc_invoke_bare = None  # type: ignore  # bound by _bootstrap_imports()
 is_timeout_error = None  # type: ignore  # bound by _bootstrap_imports()
 none_scoped_repo_refusal = None  # type: ignore  # bound by _bootstrap_imports()
+require_dispatch_engine_on_path = None  # type: ignore  # bound by _bootstrap_imports()
 
 def _bootstrap_imports() -> None:
-    global StructuralPinError, cc_invoke_bare, is_timeout_error, none_scoped_repo_refusal
+    global StructuralPinError, cc_invoke_bare, is_timeout_error, none_scoped_repo_refusal, require_dispatch_engine_on_path
 
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     import cc_invoke as _cc_invoke_mod
@@ -107,6 +108,7 @@ def _bootstrap_imports() -> None:
     StructuralPinError = _cc_invoke_mod.StructuralPinError
     is_timeout_error = _cc_invoke_mod.is_timeout_error
     none_scoped_repo_refusal = _cc_invoke_mod.none_scoped_repo_refusal
+    require_dispatch_engine_on_path = _cc_invoke_mod.require_dispatch_engine_on_path
     if cc_invoke_bare is None:
         cc_invoke_bare = _cc_invoke_mod.cc_invoke_bare
 
@@ -207,6 +209,12 @@ def main(argv: list[str]) -> int:
             print(f"{_PROG}: unknown arg: {arg}", file=sys.stderr)
             print(_usage(), file=sys.stderr)
             return 1
+
+    try:
+        require_dispatch_engine_on_path()
+    except RuntimeError as exc:
+        print(f"{_PROG}: engine-root resolution failed: {exc}", file=sys.stderr)
+        return 3
 
     from coordinator_core.argv_fidelity import ArgvFidelityError, resolve_optional_prose
 

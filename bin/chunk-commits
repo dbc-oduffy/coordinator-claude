@@ -48,9 +48,6 @@ import sys
 from pathlib import Path
 
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import route  # noqa: E402
 
 _OP = "ceremony.chunk_commits"
 
@@ -153,6 +150,12 @@ def main(argv: list[str]) -> int:
     repo_root = os.getcwd()
     plan_path = str(Path(plan_path).resolve())
     params = {"plan_path": plan_path, "chunk_id": chunk_id}
+    # Trap: imported only after argv parses — a usage exit must not reach the
+    # engine-resolution ladder (the publish entrypoint gate judges that depth).
+    if _LIB_DIR not in sys.path:
+        sys.path.insert(0, _LIB_DIR)
+    from cc_invoke import route
+
     try:
         result = route(_OP, params, repo_root, _legacy_absent)
     except RuntimeError as exc:

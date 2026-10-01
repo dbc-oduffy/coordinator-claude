@@ -6,8 +6,8 @@ call sites is indistinguishable from a session that touched nothing. This
 module is the one reader, so a third consumer inherits the cutover rather
 than repeating the miss.
 
-SHARED, NOT DUPLICATED, DELIBERATELY. Per-hook independence (DR-047/DR-118)
-governs hooks that merely resemble each other; it does not cover a helper
+SHARED, NOT DUPLICATED, DELIBERATELY. Per-hook independence
+(docs/decisions/DR-must-agree-helpers-have-one-home.md) governs hooks that merely resemble each other; it does not cover a helper
 whose copies must agree to be CORRECT. These must: `_touch_lines` places every
 new-file row before every legacy row regardless of which was written more
 recently, and a caller reading list position as recency is wrong against it.

@@ -52,9 +52,6 @@ import os
 import sys
 
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
 
 _EXIT_OK = 0
 _EXIT_USAGE = 2
@@ -89,6 +86,12 @@ def _parse_args(argv: list) -> list:
 
 
 def _import_modules():
+    # Trap: the ladder is imported only after argv parses — a usage exit must
+    # not reach it (the publish entrypoint gate judges that depth).
+    if _LIB_DIR not in sys.path:
+        sys.path.insert(0, _LIB_DIR)
+    from cc_invoke import _resolve_claude_klabauter_root
+
     claude_klabauter_root = _resolve_claude_klabauter_root()
     if claude_klabauter_root not in sys.path:
         sys.path.insert(0, claude_klabauter_root)

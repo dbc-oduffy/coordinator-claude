@@ -2,7 +2,7 @@
 """PreToolUse hook (matchers: Agent, Workflow) -- Layer 2 of the DR-088
 ladder (docs/plans/2026-07-23-dr-088-ladder-enforcement-layers.md § C8):
 closes the "EM typed a suite command into a dispatch brief" gap that
-layer 3 (PreToolUse(Bash), claude-klabauter-owned, c66e559d) cannot reach, because
+layer 3 (PreToolUse(Bash), engine-owned, c66e559d) cannot reach, because
 layer 3 fires on the dispatched subagent's OWN Bash call, not on the
 dispatching EM's Agent()/Workflow() call that hands the subagent its
 prompt in the first place.

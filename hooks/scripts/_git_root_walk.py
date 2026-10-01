@@ -19,6 +19,11 @@ re-deriving it a seventh and eighth time.
 directly. Stdlib-only (`pathlib` only) -- satisfies `test_hook_stdlib_only_contract.py`'s
 distribution-resolution invariant trivially, since it imports no third-party distribution at all.
 
+Start-anchored form: `git_root_walk(start)` walks from `start` instead of cwd, for callers that
+resolve a root from a payload path rather than the process cwd. The nine payload-anchored
+callers are named by the plan's Batch A/B rows (`per-hook-independence-agree-to-be-correct`
+C3 onward); niladic callers are unchanged.
+
 Negative spec: do NOT reintroduce a `git rev-parse --show-toplevel` spawn here as a routine
 path, and do NOT fold a subprocess fallback into this module. Each caller already carries its
 own subprocess-fallback rung (this module intentionally leaves those in place unchanged --
@@ -33,10 +38,11 @@ from __future__ import annotations
 from pathlib import Path
 
 
-def git_root_walk() -> str | None:
+def git_root_walk(start: str | None = None) -> str | None:
+    """Return the nearest ancestor of `start` (default: cwd) holding a `.git` entry, else None."""
     try:
-        start = Path.cwd().resolve()
-        for candidate in (start, *start.parents):
+        origin = Path(start).resolve() if start else Path.cwd().resolve()
+        for candidate in (origin, *origin.parents):
             if (candidate / ".git").exists():
                 return str(candidate)
     except Exception:

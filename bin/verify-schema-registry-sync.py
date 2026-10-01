@@ -38,7 +38,7 @@ from __future__ import annotations
 #
 # Usage:
 #   verify-schema-registry-sync.sh
-#   bash plugins/coordinator/bin/verify-schema-registry-sync.sh
+#   bash plugins/coordinator-claude/coordinator/bin/verify-schema-registry-sync.sh
 #
 # Spec backlink: docs/plans/2026-06-23-deliverable-type-schema-taxonomy.md § Decision 3 + C4
 

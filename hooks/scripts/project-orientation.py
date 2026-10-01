@@ -104,6 +104,7 @@ Any resolution/import error along non-essential paths degrades gracefully
 from __future__ import annotations
 
 import glob
+import importlib
 import json
 import os
 import shutil
@@ -113,6 +114,7 @@ import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Optional
 
 # ---------------------------------------------------------------------------
@@ -181,7 +183,7 @@ def _w(text: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# claude-klabauter-root / state-root resolution (AC8: fast local path, no probe chain)
+# engine-root / state-root resolution (AC8: fast local path, no probe chain)
 # Mirrors session-init.py lines ~122-130, 419-427 verbatim (same shape).
 # ---------------------------------------------------------------------------
 
@@ -203,7 +205,7 @@ def _claude_home() -> Path:
     raising or blocking boot. The local ladder is retained deliberately as
     that documented degradation path, not as leftover duplication.
 
-    Review: coordinator:code-reviewer — Path.home() (not os.path.expanduser)
+    Path.home() (not os.path.expanduser)
     fails loud (RuntimeError) instead of silently returning the literal "~"
     when every home rung is unset. Both call sites below degrade per this
     hook's fail-open contract rather than letting the RuntimeError escape.
@@ -264,7 +266,7 @@ def _resolve_claude_klabauter_root_native() -> Optional[str]:
 
 
 def _resolve_claude_klabauter_root_fast() -> Optional[str]:
-    """Cheap claude-klabauter-root resolution — a pointer-FILE read only.
+    """Cheap engine-root resolution — a pointer-FILE read only.
 
     Mirrors `session-init.py::_resolve_claude_klabauter_root_fast()` and
     `preuse-write-dispatch.py::_resolve_claude_klabauter_root()` rung 1.5 — deliberately
@@ -361,7 +363,7 @@ def resolve_state_root(repo_root: Optional[str], boot: bool = False) -> str:
     `coordinator_core.state_root.coordinator_state_root()` NATIVELY
     in-process instead — no bash, no `python3 -m` re-spawn — mirroring the
     Rung-1.5 pattern `preuse-write-dispatch.py::_resolve_claude_klabauter_root()` /
-    `cc_invoke.py` already establish for claude-klabauter-root resolution. That native
+    `cc_invoke.py` already establish for engine-root resolution. That native
     call is preserved here ONLY on the rare meta-repo branch, as a safety
     net if the fast pointer read comes up empty (e.g. genuinely first-ever
     boot before session-init's self-heal has run — should not happen given
@@ -558,7 +560,7 @@ def _staleness_banner(
 
     generator_path: Optional[str] = None
     if generator_name is not None:
-        # Review: code-reviewer — _resolve_generator() is only worth its
+        # _resolve_generator() is only worth its
         # is_file()/PATH/registry-read cost when a banner is actually owed;
         # gate it behind the cheap age/existence check above rather than
         # paying it unconditionally on every --lightweight boot.
@@ -1283,7 +1285,7 @@ def corpus_currency_banner(repo_root: Optional[str]) -> None:
         )
         return
 
-    # Review: code-reviewer — `.get()` collapses "key absent" and "key present but null"
+    # `.get()` collapses "key absent" and "key present but null"
     # into the same `None`; test presence explicitly so an explicit `"bands": null` renders
     # `stale-unknown` (malformed) rather than falling through to the absent-key silent branch.
     bands_present = "bands" in parsed
@@ -1454,6 +1456,301 @@ def tier_currency_banner(repo_root: Optional[str]) -> None:
         _w(f"── {name}: last ran {human_age} ──\n")
 
 
+# ---------------------------------------------------------------------------
+# Copies line: engine mirror, plugin mirror, capability index.
+# The boot path only READS <settings_home>/machine-local/copy-currency.json; the git-derived
+# answers it holds are written off-boot by coordinator/bin/copy-currency-refresh.py.
+# ---------------------------------------------------------------------------
+_COPIES_CACHE_SCHEMA = 1
+_COPIES_ENGINE_FIELDS = {
+    "stamp": "engine stamp",
+    "claude_klabauter_head": "claude-klabauter HEAD",
+    "engine_head": "engine mirror HEAD",
+}
+_COPIES_PLUGIN_FIELDS = {"source_head": "DoE source HEAD", "mirror_head": "plugin mirror HEAD"}
+_COPIES_REFRESH_SCRIPT = "copy-currency-refresh.py"
+
+
+def _copies_mod(name: str):
+    """Import a sibling copy module by name.
+
+    Trap: importlib, never an import statement. The static spawn-budget walk follows import
+    statements, and `_copy_leg_plugin_mirror` carries the refresh-only git provider; the boot
+    path never calls it.
+    """
+    if str(_SCRIPTS_DIR) not in sys.path:
+        sys.path.insert(0, str(_SCRIPTS_DIR))
+    return importlib.import_module(name)
+
+
+class CopiesContext:
+    """The roots the three copy legs resolve against; every field is zero-spawn to obtain.
+
+    A plain class, not a dataclass: tests load this file by path without registering it in
+    `sys.modules`, which `dataclass` needs under `from __future__ import annotations`.
+    """
+
+    def __init__(
+        self,
+        source_root: Optional[Path] = None,
+        mirror_plugin_root: Optional[Path] = None,
+        publish_mirror: Optional[Path] = None,
+        claude_klabauter_root: Optional[str] = None,
+        engine_root: Optional[str] = None,
+        live_tree: bool = False,
+    ):
+        self.source_root = source_root
+        self.mirror_plugin_root = mirror_plugin_root
+        self.publish_mirror = publish_mirror
+        self.claude_klabauter_root = claude_klabauter_root
+        self.engine_root = engine_root
+        self.live_tree = live_tree
+
+
+def default_copies_context() -> CopiesContext:
+    """Resolve every root from this box's registry and pointers; an unresolvable one is None."""
+    pml = _copies_mod("_copy_leg_plugin_mirror")
+    eml = _copies_mod("_copy_leg_engine_mirror")
+
+    def safe(fn):
+        try:
+            return fn()
+        except Exception:
+            return None
+
+    def publish_mirror():
+        er = _copies_mod("_engine_root")
+        value = er._registry_value(
+            er._settings_home_registry_dir(), "publish.mirrors.coordinator_claude.path"
+        )
+        return Path(value) if value else None
+
+    return CopiesContext(
+        source_root=safe(pml._default_source_root),
+        mirror_plugin_root=safe(pml._default_mirror_plugin_root),
+        publish_mirror=safe(publish_mirror),
+        claude_klabauter_root=safe(eml._default_claude_klabauter_root),
+        engine_root=safe(eml._default_engine_root),
+        live_tree=bool(safe(eml._default_live_tree)),
+    )
+
+
+def copies_cache_path() -> Path:
+    return _settings_home() / "machine-local" / "copy-currency.json"
+
+
+def read_copies_cache(path: Path) -> Optional[dict]:
+    """The cache dict, or None for an absent, unreadable or foreign-schema file."""
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if isinstance(data, dict) and data.get("schema") == _COPIES_CACHE_SCHEMA:
+        return data
+    return None
+
+
+def _head_of(path) -> str:
+    """HEAD sha of the repo containing `path`, read in-process; "" on any failure."""
+    if not path:
+        return ""
+    try:
+        root = _copies_mod("_git_root_walk").git_root_walk(str(path))
+    except Exception:
+        return ""
+    return _read_current_full_sha_boot(root)
+
+
+def copies_engine_key(ctx: CopiesContext) -> dict:
+    """Engine-mirror cache key: the stamp plus the claude-klabauter and engine-mirror HEADs. Never the DoE HEAD."""
+    stamp = ""
+    if ctx.engine_root:
+        try:
+            stamp = (
+                (Path(ctx.engine_root) / _copies_mod("_copy_leg_engine_mirror").STAMP_RELPATH)
+                .read_text(encoding="utf-8")
+                .strip()
+            )
+        except Exception:
+            stamp = ""
+    return {
+        "stamp": stamp,
+        "claude_klabauter_head": _head_of(ctx.claude_klabauter_root),
+        "engine_head": _head_of(ctx.engine_root),
+    }
+
+
+def resolve_plugin_pair(ctx: CopiesContext) -> tuple:
+    """(source, mirror, "") or (None, None, reason): the mirror is the live plugin root unless
+    that is the source's own plugin root, then the registry's publish mirror."""
+    pml = _copies_mod("_copy_leg_plugin_mirror")
+    if ctx.source_root is None or not (Path(ctx.source_root) / pml.SENTINEL).is_file():
+        return None, None, "no DoE source reachable via .content-root"
+    source = Path(ctx.source_root)
+    src_plugin = pml.source_plugin_root(source).resolve()
+    mirror = ctx.mirror_plugin_root
+    if mirror is None or Path(mirror).resolve() == src_plugin:
+        mirror = ctx.publish_mirror
+    if (
+        mirror is None
+        or Path(mirror).resolve() == src_plugin
+        or Path(mirror).resolve() == source.resolve()
+    ):
+        return None, None, "no mirror distinct from source"
+    return source, Path(mirror), ""
+
+
+def copies_plugin_key(source: Path, mirror: Path) -> dict:
+    """Plugin-mirror cache key: the DoE source HEAD and the mirror HEAD."""
+    return {"source_head": _head_of(source), "mirror_head": _head_of(mirror)}
+
+
+def _copies_key_moved(entry, key: dict, fields: dict) -> str:
+    """"" when the cached entry answers `key`, else which input moved. Any unreadable HEAD is a miss."""
+    if not isinstance(entry, dict) or not isinstance(entry.get("key"), dict):
+        return "no cached answer"
+    unreadable = [label for f, label in fields.items() if f != "stamp" and not key.get(f)]
+    if unreadable:
+        return "unreadable: " + ", ".join(unreadable)
+    moved = [label for f, label in fields.items() if entry["key"].get(f) != key.get(f)]
+    return ", ".join(f"{label} moved" for label in moved)
+
+
+def _copies_refresh_remedy() -> str:
+    script = _BIN_DIR / _COPIES_REFRESH_SCRIPT
+    if script.is_file():
+        return f'{"python" if os.name == "nt" else "python3"} "{script}"'
+    return "no local remedy — coordinator plugin publish"
+
+
+def _copies_age(seconds: float) -> str:
+    seconds = max(0, int(seconds))
+    if seconds >= 86400:
+        return f"{seconds // 86400}d"
+    if seconds >= 3600:
+        return f"{seconds // 3600}h"
+    return f"{seconds // 60}m"
+
+
+class _CopiesUnavailable(Exception):
+    def __init__(self, reason: str, remedy: str = ""):
+        super().__init__(reason)
+        self.reason = reason
+        self.remedy = remedy
+
+
+def _copies_per_axis(cc, copy: str, compute) -> list:
+    """[currency, completeness], each axis through run_leg so nothing raises or renders unrun-as-current."""
+    box: dict = {}
+
+    def pick(i: int):
+        if "v" not in box:
+            box["v"] = compute()
+        return box["v"][i]
+
+    return [cc.run_leg(copy, ax, lambda i=i: pick(i)) for i, ax in enumerate((cc.CURRENCY, cc.COMPLETENESS))]
+
+
+def _copies_engine_verdicts(cc, ctx: CopiesContext, cache: Optional[dict]) -> list:
+    eml = _copies_mod("_copy_leg_engine_mirror")
+    entry = (cache or {}).get(eml.COPY)
+    moved = _copies_key_moved(entry, copies_engine_key(ctx), _COPIES_ENGINE_FIELDS)
+
+    def lag(_engine, _claude_klabauter):
+        if moved:
+            raise _CopiesUnavailable(f"cache stale: {moved}", _copies_refresh_remedy())
+        if entry.get("error"):
+            raise _CopiesUnavailable(str(entry["error"]))
+        data = entry.get("lag")
+        if not isinstance(data, dict):
+            return None
+        return SimpleNamespace(
+            engine_commits_behind=data.get("engine_commits_behind"),
+            stamp_sha=data.get("stamp_sha") or "",
+        )
+
+    def compute():
+        try:
+            return eml.check_engine_mirror(
+                lambda: ctx.engine_root, lambda: ctx.claude_klabauter_root, lag, ctx.live_tree
+            )
+        except _CopiesUnavailable as exc:
+            return [cc.could_not_check(eml.COPY, cc.CURRENCY, exc.reason, exc.remedy), eml._completeness()]
+
+    return _copies_per_axis(cc, eml.COPY, compute)
+
+
+def _copies_plugin_verdicts(cc, ctx: CopiesContext, cache: Optional[dict], now_epoch: float) -> list:
+    pml = _copies_mod("_copy_leg_plugin_mirror")
+
+    def compute():
+        source, mirror, reason = resolve_plugin_pair(ctx)
+        if reason:
+            return [cc.could_not_check(pml.COPY, ax, reason) for ax in (cc.CURRENCY, cc.COMPLETENESS)]
+        entry = (cache or {}).get(pml.COPY)
+        moved = _copies_key_moved(entry, copies_plugin_key(source, mirror), _COPIES_PLUGIN_FIELDS)
+        refresh = _copies_refresh_remedy()
+        times = entry.get("times") if isinstance(entry, dict) else None
+        if isinstance(times, list) and len(times) == 2:
+            currency = pml._currency(source, mirror, lambda _s, _m: (times[0], times[1]))
+            if moved:
+                sha = str((entry.get("key") or {}).get("mirror_head") or "")[:10]
+                note = f"{currency.state} as of {sha} ({moved}; cached {_copies_age(now_epoch - float(entry.get('computed_at') or 0))} ago)"
+                if currency.state == cc.DRIFT:
+                    currency = cc.CopyVerdict(pml.COPY, cc.CURRENCY, cc.DRIFT, detail=f"{note}: {currency.detail}", remedy=currency.remedy)
+                elif currency.state == cc.CURRENT:
+                    currency = cc.CopyVerdict(pml.COPY, cc.CURRENCY, cc.CURRENT, evidence=f"{note}: {currency.evidence}")
+        elif moved:
+            currency = cc.could_not_check(pml.COPY, cc.CURRENCY, f"cache stale: {moved}", refresh)
+        else:
+            currency = cc.could_not_check(
+                pml.COPY, cc.CURRENCY, str(entry.get("times_error") or "commit times unavailable"), refresh
+            )
+        if moved:
+            completeness = cc.could_not_check(pml.COPY, cc.COMPLETENESS, f"cache stale: {moved}", refresh)
+        elif isinstance(entry.get("parity"), dict):
+            p = entry["parity"]
+            completeness = pml._completeness(
+                pml.ParityResult(
+                    tuple(p.get("dropped") or ()), tuple(p.get("missing") or ()), tuple(p.get("unverifiable") or ())
+                )
+            )
+        else:
+            completeness = cc.could_not_check(
+                pml.COPY, cc.COMPLETENESS, str(entry.get("parity_error") or "registration parity not computed"), refresh
+            )
+        return [currency, completeness]
+
+    return _copies_per_axis(cc, pml.COPY, compute)
+
+
+def copies_banner(
+    repo_root: Optional[str],
+    ctx: Optional[CopiesContext] = None,
+    cache_path: Optional[Path] = None,
+    now: Optional[datetime] = None,
+) -> None:
+    """Print the pinned `Copies:` line on every dev-install boot; nothing on an OSS install.
+
+    Zero spawns on a cache hit and on a miss: git-derived answers come from the cache or render
+    could-not-check naming the HEAD that moved. The capability-index age and the plugin-mirror
+    time anchor are re-derived against now on every boot. No disable env var.
+    """
+    cc = _copies_mod("_copy_currency")
+    cil = _copies_mod("_copy_leg_capability_index")
+    ctx = ctx or default_copies_context()
+    if ctx.source_root is None or not (Path(ctx.source_root) / _copies_mod("_copy_leg_plugin_mirror").SENTINEL).is_file():
+        return
+    now = now or datetime.now(timezone.utc)
+    cache = read_copies_cache(cache_path or copies_cache_path())
+    verdicts = [
+        *_copies_engine_verdicts(cc, ctx, cache),
+        *_copies_plugin_verdicts(cc, ctx, cache, now.timestamp()),
+        cil.leg(claude_klabauter_root=lambda: ctx.claude_klabauter_root, now=now),
+    ]
+    _w("\n".join(cc.render_copies_lines(verdicts)) + "\n")
+
+
 def engine_resolution_banner() -> None:
     """One line naming WHICH engine this session's hooks will execute.
 
@@ -1537,10 +1834,10 @@ def engine_resolution_banner() -> None:
     linked worktree, a submodule, or a `--separate-git-dir` engine root (where
     `.git` is a *file* holding `gitdir: …`) resolves neither branch nor sha and
     renders with no suffix at all — byte-identical to the pre-branch-leg line
-    this exists to replace. `claude-klabauter-em` holds the published klabauter
-    mirror to an ordinary clone as a named precondition rather than an
-    assumption; a gitdir-indirection rung is deliberately NOT built here on
-    speculation, and wants a live consumer before it is.
+    this exists to replace. The published klabauter mirror is held to an
+    ordinary clone as a named precondition rather than an assumption; a
+    gitdir-indirection rung is deliberately NOT built here on speculation,
+    and wants a live consumer before it is.
     """
     try:
         _hooks_dir = str(Path(__file__).resolve().parent)
@@ -1789,6 +2086,34 @@ def _paths_differ(declared: str, observed: str) -> bool:
         return True
 
 
+def _git_dirs_boot(repo_root: str) -> Optional[tuple]:
+    """(git_dir, common_dir) for a repo root, zero-spawn; None when `.git` is unreadable.
+
+    A `.git` directory is both. A `.git` file is a `gitdir:` pointer whose `commondir` file,
+    when present, names where refs and `packed-refs` live.
+    """
+    dot_git = Path(repo_root) / ".git"
+    try:
+        if dot_git.is_dir():
+            return dot_git, dot_git
+        text = dot_git.read_text(encoding="utf-8", errors="replace").strip()
+    except Exception:
+        return None
+    if not text.startswith("gitdir:"):
+        return None
+    git_dir = Path(text.split(":", 1)[1].strip())
+    if not git_dir.is_absolute():
+        git_dir = Path(repo_root) / git_dir
+    common = git_dir
+    try:
+        pointer = (git_dir / "commondir").read_text(encoding="utf-8", errors="replace").strip()
+        if pointer:
+            common = Path(pointer) if Path(pointer).is_absolute() else git_dir / pointer
+    except Exception:
+        pass
+    return git_dir, common
+
+
 def _read_current_full_sha_boot(repo_root: Optional[str]) -> str:
     """Zero-subprocess full-HEAD-SHA resolution for the boot/`--lightweight` fast-path.
 
@@ -1805,15 +2130,20 @@ def _read_current_full_sha_boot(repo_root: Optional[str]) -> str:
     3. Loose ref file absent (ref has been packed) → scan `<repo_root>/.git/packed-refs` for a
        line ending in that ref name and take its leading SHA.
 
+    A `.git` FILE (worktree or submodule gitdir pointer) is followed: HEAD comes from the
+    pointed-at git dir, refs and `packed-refs` from its `commondir` when it has one.
+
     Returns "" (never raises) on any resolution failure — callers fall back to the ONE-spawn
     `git rev-parse HEAD` in `orientation_cache_staleness_banner()`, never to `git status`.
     """
     if not repo_root:
         return ""
+    dirs = _git_dirs_boot(repo_root)
+    if dirs is None:
+        return ""
+    git_dir, common_dir = dirs
     try:
-        head_text = (Path(repo_root) / ".git" / "HEAD").read_text(
-            encoding="utf-8", errors="replace"
-        ).strip()
+        head_text = (git_dir / "HEAD").read_text(encoding="utf-8", errors="replace").strip()
     except Exception:
         return ""
     if not head_text:
@@ -1833,7 +2163,7 @@ def _read_current_full_sha_boot(repo_root: Optional[str]) -> str:
         return ""
 
     try:
-        loose = (Path(repo_root) / ".git" / ref).read_text(
+        loose = (common_dir / ref).read_text(
             encoding="utf-8", errors="replace"
         ).strip()
         if loose:
@@ -1844,7 +2174,7 @@ def _read_current_full_sha_boot(repo_root: Optional[str]) -> str:
     # Loose ref file absent -- the ref has been packed (`git pack-refs`). Scan packed-refs for
     # a "<sha> <ref>" line naming this exact ref.
     try:
-        packed_text = (Path(repo_root) / ".git" / "packed-refs").read_text(
+        packed_text = (common_dir / "packed-refs").read_text(
             encoding="utf-8", errors="replace"
         )
     except Exception:
@@ -2371,7 +2701,7 @@ def _read_current_branch_boot(repo_root: Optional[str]) -> str:
             # and because the engine-class banner names a release channel with
             # it, where a truncated name would confidently name the wrong one.
             return ref[len("refs/heads/"):]
-        # Review: code-reviewer — deliberate residual, not overlooked. This
+        # Deliberate residual. This
         # last-segment truncation is unreachable on an ordinary clone (HEAD
         # is always `refs/heads/<branch>`); kept rather than narrowed to ""
         # because no live consumer exercises a non-`refs/heads/` HEAD today.
@@ -2614,6 +2944,10 @@ def main(argv: list) -> int:
         except Exception:
             pass
         try:
+            copies_banner(repo_root)
+        except Exception:
+            pass
+        try:
             orientation_cache_staleness_banner(repo_root, cache_text)
         except Exception:
             pass
@@ -2674,6 +3008,10 @@ def main(argv: list) -> int:
         pass
     try:
         harness_version_drift_banner(repo_root)
+    except Exception:
+        pass
+    try:
+        copies_banner(repo_root)
     except Exception:
         pass
     try:

@@ -80,7 +80,7 @@ def _read_full(path: str) -> str:
 
 
 def main(argv: list[str]) -> int:
-    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path (same
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
 
     root = ""
     i = 0

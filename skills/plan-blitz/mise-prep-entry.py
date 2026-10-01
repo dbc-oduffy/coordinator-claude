@@ -11,8 +11,7 @@ each of those plans' certification state is, so the next ceremony's entry is a q
 an EM assembly step. Tripwire: `A-HANDOFF-AN-EM-RETYPES-IS-NOT-A-SEAM`.
 
 Measured against this repo's real corpus (process time, not wall clock — `resource.getrusage`
-user+sys; re-measured 2026-09-08, Review: code-reviewer, 2026-09-08-hoexec-close/mise-prep-entry
-Finding 4 — the prior 7-baton/0.28s figures had drifted): `assemble_plan_gate` reports **9** batons
+user+sys; measured 2026-09-08): `assemble_plan_gate` reports **9** batons
 whose linked plan is at `status: approved`, in 0.07s process time; the four-state attest read over
 those 9 costs a further 0.02s; and `aggregate_execution` — the payload the run's Phase 0a consumes,
 schema-valid and required-keys since it shipped — exists **zero** times on disk. A shape no surface
@@ -154,10 +153,10 @@ _REPAIR = {
 }
 
 #: The authoring bar every repair above routes to. Served from the settings-home launcher (no
-#: DoE-local copy as of the slice-1 fence-switch, coordinator-claude#47) — resolved the same way
-#: every coordinator CLI is, per `snippets/resolve-coordinator-bin.md`, rather than through the
+#: source-repo copy as of the slice-1 fence-switch, coordinator-claude#47) — resolved the same way
+#: every coordinator CLI is, per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`, rather than through the
 #: engine seam the bar itself uses for ITS forward reference. Absolute by construction, because
-#: this read's whole purpose is running over a CONSUMER repo (`--repo-root`), and the DoE-relative
+#: this read's whole purpose is running over a CONSUMER repo (`--repo-root`), and the source-repo-relative
 #: literal `coordinator/bin/mise-prep-gate.py` these repairs used to print resolved nowhere there.
 #: Measured on project-rag-ue-addon: 4 of 4 excluded plans routed to a path absent both in that
 #: repo and in the `~/.claude` plugin mirror. Same defect, same repair, one surface over from
@@ -208,12 +207,10 @@ def _load_module(path: Path, name: str):
         raise SeamError(f"unimportable: {path}")
     module = importlib.util.module_from_spec(spec)
     try:
-        # Review: code-reviewer (2026-09-08-hoexec-close/mise-prep-entry, Finding 1 site 3) —
-        # exec_module was unguarded: `spec_from_file_location` returns a non-None spec/loader
-        # even for a path that does not exist, so a missing/renamed sibling (e.g.
-        # aggregate-rollup.py) raised a bare FileNotFoundError here, escaping main()'s
-        # `except SeamError` and exiting 1 via Python's default handler — indistinguishable
-        # from a legitimate PARTIAL-FIRE.
+        # `spec_from_file_location` returns a non-None spec/loader even for a path that does
+        # not exist, so a missing/renamed sibling (e.g. aggregate-rollup.py) would raise a bare
+        # FileNotFoundError here, escaping main()'s `except SeamError` and exiting 1 —
+        # indistinguishable from a legitimate PARTIAL-FIRE.
         spec.loader.exec_module(module)
     except Exception as exc:
         raise SeamError(f"unimportable: {path} ({exc})") from exc
@@ -275,11 +272,9 @@ def approved_plans(repo_root: Path, roadmap_id: Optional[str] = None,
     is not a composition, it is a double dispatch."""
     assemble = _engine_plan_gate()
     try:
-        # Review: code-reviewer (2026-09-08-hoexec-close/mise-prep-entry, Finding 1 site 2) —
-        # only `_engine_plan_gate()`'s two IMPORT-time failures were wrapped in `SeamError`; a
-        # runtime exception raised while `assemble_plan_gate` walks a malformed corpus record
-        # was not, and escaped uncaught to exit 1 (== EXIT_PARTIAL_FIRE). Wrapped for
-        # consistency with `_engine_plan_gate()`'s own two guarded failure points.
+        # A runtime exception raised while `assemble_plan_gate` walks a malformed corpus record
+        # must be wrapped in `SeamError`, like `_engine_plan_gate()`'s two import-time failures;
+        # uncaught it would exit 1 (== EXIT_PARTIAL_FIRE).
         report = assemble(repo_root, roadmap_id=roadmap_id)
     except SeamError:
         raise
@@ -322,12 +317,10 @@ def certify(repo_root: Path, rows: list) -> dict:
         target = repo_root / row["plan"]
         try:
             text = target.read_text(encoding="utf-8")
-        # Review: code-reviewer (2026-09-08-hoexec-close/mise-prep-entry, Finding 1 site 1) —
-        # a non-UTF-8 plan body raises `UnicodeDecodeError`, a `ValueError` subclass, not an
-        # `OSError`; it escaped this guard uncaught even though the docstring above promises
-        # "reported UNSTAMPED rather than raising" for exactly this case. Widened to match the
-        # promise, not converted to `SeamError`: a corrupted plan body is the same class of
-        # per-plan exclusion as a missing one, not a precondition failure of the whole read.
+        # A non-UTF-8 plan body raises `UnicodeDecodeError`, a `ValueError` subclass, not an
+        # `OSError`; the docstring above promises "reported UNSTAMPED rather than raising" for
+        # it. Not a `SeamError`: a corrupted plan body is the same class of per-plan exclusion
+        # as a missing one, not a precondition failure of the whole read.
         except (OSError, UnicodeDecodeError):
             uncertified.append({"plan": row["plan"], "state": rollup.UNSTAMPED})
             continue
@@ -338,7 +331,7 @@ def certify(repo_root: Path, rows: list) -> dict:
         fires.append(row)
         if rows_held:
             withheld.append({"plan": row["plan"], "rows": rows_held})
-    # Review: overengineering-reviewer — the FIRE/PARTIAL-FIRE/NO-FIRE derivation is
+    # The FIRE/PARTIAL-FIRE/NO-FIRE derivation is
     # aggregate-rollup's, imported rather than restated (its own docstring: "a third copy is how
     # one of them drifts").
     verdict = rollup.fire_verdict(fires, uncertified, withheld)
@@ -420,13 +413,11 @@ def emit_block(report: dict) -> str:
             out.append(f"    - workstream: {entry['workstream']}")
             out.append(f"      plan: {entry['plan']}")
     else:
-        # Review: code-reviewer (2026-09-08-hoexec-close/mise-prep-entry, Finding 2) — a bare
-        # `constituents:` key with no items followed was YAML `null` when parsed back, not `[]`;
-        # `type: array` (the schema's own requirement) failed outright, before `minItems: 1` was
-        # even reached. Declared `[]` explicitly, matching `uncertified`/`withheld_rows` below.
-        # `minItems: 1` still (correctly) rejects a zero-constituent aggregate — the schema's own
-        # comment: "an aggregate of nothing would validate as an execute-me baton with nothing to
-        # execute" — this fix only makes the TYPE honest, never makes that case validate.
+        # A bare `constituents:` key parses back as YAML `null`, not `[]`, and fails
+        # `type: array` before `minItems: 1` is reached; declare `[]` explicitly, matching
+        # `uncertified`/`withheld_rows` below. `minItems: 1` still rejects a zero-constituent
+        # aggregate: "an aggregate of nothing would validate as an execute-me baton with nothing
+        # to execute".
         out.append("  constituents: []")
     if report["uncertified"]:
         out.append("  uncertified:")

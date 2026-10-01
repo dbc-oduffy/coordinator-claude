@@ -560,6 +560,11 @@ def main(argv: list) -> int:
         if root == _ROOT_REPO and len(snippet_text.encode("utf-8")) > _REPO_SNIPPET_SOFT_CAP_BYTES:
             _w(_compose_oversize_repo_banner(rel_path, len(snippet_text.encode("utf-8"))))
 
+        if root == _ROOT_PLUGIN:
+            # A bare `snippets/...` pointer is unresolvable from a consumer repo: the
+            # reader does not know which install tree this hook ran from.
+            snippet_text = snippet_text.replace("`snippets/", f"`{_SNIPPETS_DIR.as_posix()}/")
+
         _w(snippet_text)
         _w("\n")
 

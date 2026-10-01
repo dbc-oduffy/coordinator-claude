@@ -1,6 +1,6 @@
 """async_hook_status.py — single shared failure-surfacing convention for LOAD-BEARING async hooks.
 
-Spec: plugins/coordinator/docs/plans/2026-06-30-async-hook-failure-surfacing.md § Design
+Spec: plugins/coordinator-claude/coordinator/docs/plans/2026-06-30-async-hook-failure-surfacing.md § Design
 
 Producers (bootstrap-substrate.sh, platform-localize.sh) record failures via
 record_failure; session-init.sh surfaces+clears them via surface_and_clear.

@@ -14,9 +14,36 @@ baseline roster, and the test module by name), not because a run is
 required to fire.
 
 Nudges the EM away from AskUserQuestion for break-class / engineering-approach
-decisions at those firing postures. Advisory only -- "allow" always; never
-blocks. The nudge redirects, it does not gate, matching the design-as-offers
-doctrine (a hard deny would wedge a legitimate irreversible-external ask).
+decisions at those firing postures. Advisory ("allow" plus context) everywhere
+EXCEPT under a verified fleet posture, where it refuses.
+
+REFUSAL UNDER A VERIFIED FLEET POSTURE: when `_fleet_posture.resolve_posture`
+reports `applies` (which only happens when `_fleet_grant.verify_grant` returned
+`granted` for the posture's grant), AskUserQuestion returns
+`permissionDecision: deny` with the text-turn alternative in the reason. Every
+session class is refused, the human-channel holder included (design doc
+`docs/research/2026-09-11-fleet-control-plane-design.md`, R5 and the
+channel-holder ruling). The refusal is never conditioned on the per-session
+autonomous sentinel or on posture "default"/"substrate-free" alone: those
+signals are agent-mintable, and widening a block to them is a product-direction
+call left to the PM. Today the verifier never returns `granted`, so the deny
+branch is exercised only against a stub verifier and does not fire in
+production.
+
+The old rationale for never blocking -- "a hard deny would wedge a legitimate
+irreversible-external ask" -- is re-argued, not inherited. It predates a
+measured four-hour block: a session that held the channel sat behind an
+AskUserQuestion modal with the human away while three peers' messages went
+undelivered. A modal blocks the session, and a blocked process runs no hooks
+and reads no files, so no guard can rescue it. The wedge the old rationale
+feared (a needed ask that cannot be made) does not occur: the
+irreversible-external ask is still carried by a text-turn ask, the ask as the
+end of the turn, which keeps the session reachable, hooks firing and peer
+messages delivering. The deny removes the ability to block the session while
+asking, not the ability to ask. What protects the irreversible-external ask now
+is that text-turn route plus the COORDINATOR_AUTONOMOUS_ASK_OK pre-flight
+bypass for a caller that knows in advance. Not demonstrated: a live session
+under refusal making a real irreversible-external ask via text turn.
 
 UNCONDITIONAL ADVISORY (measured retirement of the C2 content classifier):
 a prior version read `tool_input.questions[].question` and classified each
@@ -81,8 +108,9 @@ Contract (mirrors the bash hook it replaces):
              firing posture with no bypass applies; NOTHING otherwise
              (silent pass -- bypasses 1-4 or a non-firing posture with no
              sentinel)
-  exit 0  -- always (advisory conveyed via stdout, never exit code; this hook
-             is advisory-only and never blocks)
+  exit 0  -- always (advisory or refusal conveyed via stdout, never exit code)
+  stdout under a verified fleet posture -- permissionDecision:deny plus the
+             text-turn alternative as permissionDecisionReason
 
 Graceful degradation -- any failure to parse stdin, or any unexpected
 exception, falls through to fail-open (exit 0, no stdout). This hook has no
@@ -103,6 +131,7 @@ import tempfile
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _message_envelope import compose, render  # noqa: E402
 from _posture import resolve_posture  # noqa: E402
+import _fleet_posture  # noqa: E402
 
 _NUDGE_ANCHOR = (
     "coordinator/docs/wiki/coordinator-tripwires/"
@@ -121,6 +150,29 @@ def _compose_advisory(posture: str):
         "actions: ask. No verdict here."
     )
     return compose(prose, anchor=_NUDGE_ANCHOR)
+
+
+def _compose_refusal(fleet_posture: str):
+    """Refusal text for a verified fleet posture: names the text-turn route."""
+    prose = (
+        f"[fleet posture: {fleet_posture}] AskUserQuestion is refused: a modal "
+        "blocks this session while the human may be away.\n"
+        "Ask as a text turn (end the turn with the question), or decide and report."
+    )
+    return compose(prose, anchor=_NUDGE_ANCHOR)
+
+
+def _fleet_refusal(session_id: str, payload: dict):
+    """Fleet posture name when a verified posture applies to this session, else None.
+    Fails to None: any reader error leaves the advisory path in charge."""
+    try:
+        cwd = payload.get("cwd")
+        res = _fleet_posture.resolve_posture(
+            session_id, cwd if isinstance(cwd, str) and cwd else None
+        )
+        return res.posture if res.applies else None
+    except Exception:
+        return None
 
 
 def main() -> int:
@@ -152,6 +204,25 @@ def main() -> int:
 
     # Bypass 3: fail-open -- no session_id extracted
     if not session_id:
+        return 0
+
+    # Refusal: only a verified fleet posture; never the sentinel or default posture.
+    fleet_posture = _fleet_refusal(session_id, payload)
+    if fleet_posture:
+        sys.stdout.write(
+            json.dumps(
+                {
+                    "hookSpecificOutput": {
+                        "hookEventName": "PreToolUse",
+                        "permissionDecision": "deny",
+                        "permissionDecisionReason": render(
+                            _compose_refusal(fleet_posture)
+                        ),
+                    }
+                }
+            )
+        )
+        sys.stdout.write("\n")
         return 0
 
     # Bypass 4: sentinel gate OR standing posture -- fire inside an active

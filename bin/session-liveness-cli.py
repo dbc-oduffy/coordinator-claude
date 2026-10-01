@@ -28,6 +28,15 @@
 #                                                 (mirrors js_bridge_cli's live-session-ids
 #                                                 sort rationale — directory-enumeration
 #                                                 order was never a contract), exit 0
+#   incident-claim <key> [--note TEXT] [--repo PATH] [--release]
+#                                             -> incident_claims.set_claim / release_claim:
+#                                                 prints one line per OTHER live holder of the
+#                                                 key, exit 0 whether or not peers exist
+#   incident-peers [<key>] [--repo PATH]      -> incident_claims.list_peers: prints one line per
+#                                                 live holder (self included)
+#   Peer line: "<session_id> <address|unreachable> <claimed_at> <key> -- <note>". --repo defaults
+#   to core.git_root() of the cwd. A key refusal or unresolvable session id exits 2; a
+#   peer never changes the exit code.
 #
 # Exit codes: the mapped bool-returning functions map True->0, False->1 (matches
 # session-claim-cli's convention). The two print-returning subcommands
@@ -70,10 +79,86 @@ def _import_module():
 
 _SUBCOMMANDS = (
     "subcommands: is-session-live | session-live | claim-holder-live | "
-    "claim-held-by-me | active-sessions | live-session-ids"
+    "claim-held-by-me | active-sessions | live-session-ids | incident-claim | "
+    "incident-peers"
 )
 
 _HELP_FLAGS = ("--help", "-h", "help")
+
+
+def _import_incident():
+    import coordinator_core.session.core as _core
+    import coordinator_core.session.incident_claims as _ic
+
+    return _core, _ic
+
+
+def _parse_incident_args(rest: list[str], *, positional_max: int, flags: dict[str, bool]):
+    """Returns (positionals, options) or None on a usage error. flags maps option -> takes_value."""
+    pos: list[str] = []
+    opts: dict[str, object] = {}
+    i = 0
+    while i < len(rest):
+        arg = rest[i]
+        if arg in flags:
+            if flags[arg]:
+                if i + 1 >= len(rest):
+                    return None
+                opts[arg] = rest[i + 1]
+                i += 2
+                continue
+            opts[arg] = True
+        elif arg.startswith("--"):
+            return None
+        else:
+            pos.append(arg)
+        i += 1
+    if len(pos) > positional_max:
+        return None
+    return pos, opts
+
+
+def _peer_line(h) -> str:
+    return f"{h.session_id} {h.address or 'unreachable'} {h.claimed_at} {h.key} -- {h.note}"
+
+
+def _run_incident(subcmd: str, rest: list[str]) -> int:
+    prog = f"session-liveness-cli {subcmd}"
+    if subcmd == "incident-claim":
+        parsed = _parse_incident_args(
+            rest, positional_max=1, flags={"--note": True, "--repo": True, "--release": False}
+        )
+        if parsed is None or len(parsed[0]) != 1:
+            return _usage(f"{prog} <key> [--note TEXT] [--repo PATH] [--release]")
+    else:
+        parsed = _parse_incident_args(rest, positional_max=1, flags={"--repo": True})
+        if parsed is None:
+            return _usage(f"{prog} [<key>] [--repo PATH]")
+    pos, opts = parsed
+    try:
+        core, ic = _import_incident()
+    except (RuntimeError, ImportError) as exc:
+        print(f"session-liveness-cli: incident_claims not importable: {exc}", file=sys.stderr)
+        return _TRANSPORT_FAIL
+    repo = opts.get("--repo") or core.git_root()
+    if not repo:
+        print(f"session-liveness-cli: {subcmd}: not in a git repo; pass --repo", file=sys.stderr)
+        return 2
+    try:
+        if subcmd == "incident-claim":
+            if opts.get("--release"):
+                ic.release_claim(repo, pos[0])
+                return 0
+            result = ic.set_claim(repo, pos[0], opts.get("--note"))
+            holders = result.peers
+        else:
+            holders = ic.list_peers(repo, pos[0] if pos else None)
+    except ValueError as exc:
+        print(f"session-liveness-cli: {subcmd}: {exc}", file=sys.stderr)
+        return 2
+    for h in holders:
+        print(_peer_line(h))
+    return 0
 
 
 def _usage(prog: str) -> int:
@@ -161,6 +246,9 @@ def main(argv: list[str]) -> int:
         for sid in sorted(mod.live_session_ids()):
             print(sid)
         return 0
+
+    if subcmd in ("incident-claim", "incident-peers"):
+        return _run_incident(subcmd, rest)
 
     print(f"session-liveness-cli: unknown subcommand {subcmd!r}", file=sys.stderr)
     return _usage("session-liveness-cli")

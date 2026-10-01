@@ -137,20 +137,6 @@ def _peer_row_to_dict(row) -> dict:
     }
 
 
-def _owner_resolution_to_dict(resolution) -> dict:
-    result = resolution.result
-    return {
-        "session_id": resolution.owner.session_id,
-        "source_field": resolution.owner.source_field,
-        "outcome": result.outcome,
-        "resolved_session_id": result.session_id,
-        "address": result.address,
-        "claim_live": resolution.owner.claim_live,
-        "claim_stage": resolution.owner.claim_stage,
-        "candidates": [_candidate_to_dict(c) for c in result.candidates],
-    }
-
-
 def main(argv: list[str]) -> int:
     if not argv:
         return _usage("session-reachability-cli")
@@ -210,13 +196,11 @@ def main(argv: list[str]) -> int:
         except Exception as exc:
             print(f"session-reachability-cli: artifact-owner: {exc}", file=sys.stderr)
             return _TRANSPORT_FAIL
-        return _emit(
-            {
-                "artifact_path": result.artifact_path,
-                "owners": [_owner_resolution_to_dict(o) for o in result.owners],
-                "file_error": result.file_error,
-            }
-        )
+        # Imported by name, not via artifact_owner_mod: the serializer is the
+        # one shared with the op veneer, so a module stand-in must not shadow it.
+        from coordinator_core.session.artifact_owner import to_dict as owner_result_to_dict
+
+        return _emit(owner_result_to_dict(result))
 
     print(f"session-reachability-cli: unknown subcommand {subcmd!r}", file=sys.stderr)
     return _usage("session-reachability-cli")

@@ -590,9 +590,8 @@ test('clusterNuggets/verdict: keep with canonical_slug present keys under canoni
   assert.deepEqual(drops, []);
 });
 
-// Review: code-reviewer (pipeline-code slice, Finding 1) — a `keep` verdict with no
-// canonical_slug now fails loud (AC7 no-silent-degradation), same contract normalize/merge
-// already enforce below. This test used to assert the overturned lenient fallback.
+// A `keep` verdict with no canonical_slug fails loud (AC7 no-silent-degradation), same contract
+// normalize/merge already enforce below.
 test('clusterNuggets/fail-loud: keep entry with canonical_slug null throws', () => {
   const curatedMap = { 'raw-tag-keep-bare': { verdict: 'keep', canonical_slug: null, merge_target: null, reason: null } };
   const results = [makeResult('b1', [makeNugget('n1', 'raw-tag-keep-bare')])];
@@ -1105,7 +1104,7 @@ test('drop-with-null-slug: a drop with NO wiki home is left a drop — the overr
   assert.equal(resolvedMap['some_tag_with_no_home'].canonical_slug, null);
 });
 
-// Review: code-reviewer (tests slice, Finding 1) — combines the two scenarios above (colliding
+// Combines the two scenarios above (colliding
 // shape-variant collapse + a stale merge_target that differs from the shared canonical_slug)
 // into ONE fixture, chained through clusterNuggets. Defense-in-depth, not a live gap:
 // applyHomingOverride unconditionally nulls merge_target on every override, so the "merge_target
@@ -1113,8 +1112,7 @@ test('drop-with-null-slug: a drop with NO wiki home is left a drop — the overr
 // catch a FUTURE change that stops unconditionally nulling it. Do not delete as redundant with
 // the two tests above; this is the only place all three conditions land in one fixture.
 // ---------------------------------------------------------------------------------------------
-// dropSummary.by_reason / by_cause grouping (Review: code-reviewer, pipeline-code slice,
-// Finding 4) — four parallel accumulation blocks (by-tag, by-reason, by-cause, top-10) with no
+// dropSummary.by_reason / by_cause grouping — four parallel accumulation blocks (by-tag, by-reason, by-cause, top-10) with no
 // prior targeted test. Extracted the same inline-module-scope way emptyContentBlockSrc/
 // malformedTagBlockSrc above are, since the grouping runs at top level, not inside a named
 // function. Asserts tag_count dedupes (a tag with multiple drops still counts once) while
@@ -1314,7 +1312,7 @@ test('C3: the manifest -> log disposition mapping never lets SEND_BACK or BLOCKE
     /Neither `SEND_BACK` nor `BLOCKED` may ever appear as a `<disposition>` log token\./,
     'schema must state the negative spec forbidding SEND_BACK/BLOCKED as a log <disposition> token'
   );
-  // Review: code-reviewer (tests slice, Finding 5) — parse the actual enum declaration line
+  // Parse the actual enum declaration line
   // (`**\`<disposition>\`** — enum, one of: ...`) instead of a phrase-shape heuristic
   // ("disposition" near "one of"), so a schema reformat that drops the words "one of" (a table
   // row, a bulleted list, `Allowed values:`) can't silently stop this half of the test from
@@ -1383,7 +1381,7 @@ test('2.5: MIN_CONVERGENCE reads null-tolerant (??) so an explicit 0 is honoured
 // 3a/3-Esc: Opus escalation stays conditional — zero unresolvable contradictions AND zero
 // cross-cluster candidates means the escalation branch never constructs an agent.
 //
-// Review: code-reviewer (tests slice, Finding 1) — the guard's condition alone doesn't prove
+// The guard's condition alone doesn't prove
 // anything about the real `opusEscalation` reassignment further down the branch (dispatches an
 // Opus agent, a fidelity-check agent, then conditionally rebuilds `opusEscalation`). Extract the
 // ACTUAL if-block by anchor (same brace-free technique the other inline blocks in this file use)
@@ -1494,7 +1492,7 @@ test('3-Esc: opusEscalation.triggered defaults to false ahead of the guard, so a
 // ---------------------------------------------------------------------------
 
 test('sequencing: the coverage-gate gap-synth merge-back precedes phase(\'judgment-mining\') in source order', () => {
-  // Review: code-reviewer (tests slice, Finding 2) — anchor on the code identifier the
+  // Anchor on the code identifier the
   // merge-back loop actually declares, not the prose comment above it; a copy-edit to that
   // comment must not be able to break this test.
   const mergeBackAnchor = 'const synthResultsByTopic = new Map(synthResults.map((r) => [r.topic_key, r]))';

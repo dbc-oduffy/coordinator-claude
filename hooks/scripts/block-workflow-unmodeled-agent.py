@@ -438,7 +438,7 @@ def _walk_agent_calls(buf: str, mask: "bytearray") -> "list[tuple[bool, str | No
                 if not _UNDEFINED_NULL_RE.search(masked_value):
                     has_direct_model = True
             elif ch == "m" and depth == 1 and brace_depth == 1:
-                # Review: code-reviewer -- Finding 2: identifier-boundary guard,
+                # Identifier-boundary guard,
                 # symmetric with the `agent(` match above (line 277), so a key
                 # ending in the literal substring "model:" (base_model:,
                 # submodel:, usemodel:) is not miscredited as a real `model:`
@@ -449,7 +449,7 @@ def _walk_agent_calls(buf: str, mask: "bytearray") -> "list[tuple[bool, str | No
                     and not (j > 0 and not mask[j - 1] and buf[j - 1] in _IDENTIFIER_CHARS)
                 ):
                     value = _extract_model_value(buf, mask, j + 6, n)
-                    # Review: code-reviewer -- Finding 3: blank out masked
+                    # Blank out masked
                     # (string-literal) characters before matching, so a
                     # literal string value containing the standalone word
                     # "undefined"/"null" (e.g. model: 'undefined-mode') is

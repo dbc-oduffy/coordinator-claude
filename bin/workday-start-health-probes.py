@@ -623,7 +623,8 @@ def cmd_working_repo_registration(argv: list[str]) -> int:
     identity = _resolve_repo_identity()
     expected = _REPO_ROOT
 
-    if identity != "claude-klabauter":
+    # setup.py's IDENTITY_AUTHORING; a repo-name literal here flips in the mirror.
+    if identity != "engine-authoring":
         # foreign-identity: NOT-REACHABLE — basis: DELIBERATE INVOCATION, not true
         # unreachability. The session-start hot path calls only the bare (fix=False)
         # form via readers_health_reaper.py; this fix-branch print only fires when an

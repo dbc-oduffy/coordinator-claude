@@ -96,7 +96,10 @@ from cc_invoke import require_colocated_engine_on_path  # noqa: E402
 require_colocated_engine_on_path(__file__)
 
 from coordinator_core.testing import tier_t_slots  # noqa: E402
-from coordinator_core.win_portability import is_executable  # noqa: E402
+from coordinator_core.win_portability import (  # noqa: E402
+    is_executable,
+    no_console_passthrough_kwargs,
+)
 
 _DEFAULT_OWNER_PREFIX = "with-tier-t-slot"
 
@@ -343,7 +346,7 @@ def main(argv: List[str]) -> int:
     proc: Optional[subprocess.Popen] = None
     slot = None
     try:
-        proc = subprocess.Popen(launch_command)
+        proc = subprocess.Popen(launch_command, **no_console_passthrough_kwargs())
         slot = tier_t_slots.acquire_slot(owner, cmd_text, wait, pid=proc.pid)
         if slot is None:
             taken, cap, _ = tier_t_slots.occupancy()

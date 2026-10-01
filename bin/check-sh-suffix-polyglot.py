@@ -100,6 +100,14 @@ import os
 import subprocess
 import sys
 
+
+def _no_console_kw() -> dict:
+    """Console-suppression kwargs for a captured spawn; empty off Windows."""
+    if os.name != "nt":
+        return {}
+    return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+
+
 PROG = "check-sh-suffix-polyglot.py"
 
 # The verbatim trampoline every polyglot-class member contains within its
@@ -152,6 +160,7 @@ def _git(args, cwd=None):
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             text=True,
+            **_no_console_kw(),
         )
         return proc.returncode, proc.stdout
     except (OSError, ValueError):

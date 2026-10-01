@@ -908,6 +908,13 @@ def _unlink_body_file(body_file: "str | None") -> None:
             pass
 
 
+def _no_console_kw() -> dict:
+    """CREATE_NO_WINDOW kwargs for a captured child on Windows; empty elsewhere."""
+    if os.name != "nt":
+        return {}
+    return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+
+
 def _run_queue_append(row: dict, key: str, dry_run: bool) -> bool:
     queue_scope = row.get("queue_scope") or "project"
     if queue_scope not in _VALID_QUEUE_SCOPES:
@@ -968,6 +975,7 @@ def _run_queue_append(row: dict, key: str, dry_run: bool) -> bool:
             text=True,
             timeout=_SUBPROCESS_TIMEOUT_SECS,
             env=_child_identity_env(),
+            **_no_console_kw(),
         )
     except subprocess.TimeoutExpired:
         print(
@@ -1029,6 +1037,7 @@ def _run_lesson_promote(row: dict, key: str, dry_run: bool) -> bool:
             text=True,
             timeout=_SUBPROCESS_TIMEOUT_SECS,
             env=_child_identity_env(),
+            **_no_console_kw(),
         )
     except subprocess.TimeoutExpired:
         print(

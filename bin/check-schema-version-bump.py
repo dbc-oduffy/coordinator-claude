@@ -44,6 +44,14 @@ import os
 import subprocess
 import sys
 
+
+def _no_console_kw() -> dict:
+    """Console-suppression kwargs for a captured spawn; empty off Windows."""
+    if os.name != "nt":
+        return {}
+    return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+
+
 CANONICAL_FILE = "canonical-structure.yaml"
 VERSION_FILE = "coordinator-schema-version"
 
@@ -54,6 +62,7 @@ def _run_git(cwd: str, *args: str) -> subprocess.CompletedProcess:
         capture_output=True,
         text=True,
         check=False,
+        **_no_console_kw(),
     )
 
 

@@ -2853,6 +2853,10 @@ def _state1_remediation_message(
     own text instead of sharing the generic one.
     """
     if registry_read_timed_out:
+        # foreign-identity: SUBJECT — same function/reader as the unconditional remediation
+        # below; the reader must resolve claude-klabauter to act on either branch, so naming
+        # it here (to distinguish a transient timeout from genuine non-registration) is part
+        # of the same axis-3 subject-class remedy, not incidental noise.
         return (
             f"cc_invoke: native seam resolution unavailable for op={op!r} — "
             f"{_REGISTRY_READ_TIMEOUT_TOKEN} ({_MACHINE_LOCAL_READ_TIMEOUT_SECS}s bound) "
@@ -2869,6 +2873,8 @@ def _state1_remediation_message(
         if attempted_claude_klabauter_root
         else "  COORDINATOR_ENGINE_ROOT could not be resolved via any rung below.\n"
     )
+    # foreign-identity: SUBJECT — reader must clone/register claude-klabauter; the repo name
+    # and clone URL/registry key are the remedy itself, not incidental context (C3 ruling).
     return (
         f"cc_invoke: native seam unavailable for op={op!r} — claude-klabauter is a mandatory "
         "coordinator dependency in every environment (W0.5 Option B+C, 2026-07-19); there is "

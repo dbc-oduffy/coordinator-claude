@@ -59,6 +59,9 @@ Supported types:
                        outputs to .coordinator-local/subagent-share/<session-id>/YYYY-MM-DD-codereview-slice<ID>-<SLUG>.md
                        (the DR-091 home -- same session-scoped root provision_report uses; SLUG is
                        sanitized from --scope; the <!-- FINDINGS --> sentinel is the Edit anchor)
+  findings-sidecar   — findings sidecar for a plan-less, slice-less agent  requires --agent-type <type> --title <subject>
+                       delegates to provision_report._provision (no agent_id); prints the minted
+                       .coordinator-local/subagent-share/<session-id>/<agent-type>-<nonce>.md; --out refused
   subagent-sidecar   — agent-side decision-object container (schemas/decision-object.schema.json
                        subagent_sidecar schema definition) requires --plan, --chunk and --out
                        --out is REQUIRED (no default); the LIVE sidecar path is computed by
@@ -122,6 +125,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from typing import NamedTuple
 
 # ---------------------------------------------------------------------------
 # Shared memo composer — bin/lib/memo_compose.py (example-initiative tc-0 C4)
@@ -382,6 +386,11 @@ def _bootstrap_engine() -> None:
         #
         # Spec backlink: docs/plans/2026-07-13-subagent-run-report-subsume.md § C4, C8a
         _KNOWN_TYPES = _KNOWN_TYPES | frozenset({"run-report"})
+
+        # --type findings-sidecar — LOCAL shim, same shape as the run-report one above.
+        # DoE's manifest docTypes entry is requested; once it lands the union is
+        # idempotent (harmless to keep), not conflicting.
+        _KNOWN_TYPES = _KNOWN_TYPES | frozenset({"findings-sidecar"})
 
         # Canonical Session Ledger block, shared verbatim by every handoff-family scaffolder
         # (_scaffold_handoff/_scaffold_recovery/_scaffold_spinoff/_scaffold_roadmap_baton/
@@ -1450,6 +1459,7 @@ def _current_branch() -> str:
         result = subprocess.run(
             ["git", "rev-parse", "--abbrev-ref", "HEAD"],
             capture_output=True, text=True,
+            **_no_console_creationflags(),
         )
         if result.returncode == 0 and result.stdout.strip() not in ("", "HEAD"):
             return result.stdout.strip()
@@ -2908,27 +2918,34 @@ def _scaffold_recovery(
     return "\n".join(lines)
 
 
-def _resolve_spinoff_workstream() -> str | None:
-    """READ-ONLY resolve of a spinoff's `workstream` off the baton this
-    session currently holds.
+class SpinoffOrigin(NamedTuple):
+    """Ancestry facts for one spinoff mint, all None when nothing resolves."""
 
-    Locates the held baton via `coordinator_core.ops.handoff_author_fork.
-    _resolve_origin_handoff` -- the same ledger-first claim-holder scan that
-    op uses to populate `origin_handoff` on a fork -- then reads that
-    baton's own `workstream:` frontmatter scalar via
-    `coordinator_core.ops._fm_util.extract_frontmatter_scalar`. Read-only:
-    calls neither module's mutating surface, and does not import or touch
-    anything else in `handoff_author_fork` beyond this one resolver.
+    origin_handoff: str | None
+    origin_handoff_id: str | None
+    workstream: str | None
 
-    Degrades to None (never a hardcoded default) when: the engine is
-    unresolvable, no repo root resolves, no session id resolves
-    (`_resolve_session_id() == "em-unknown"`), no baton is currently held by
-    this session, or the held baton has no `workstream:` field -- matching
-    this file's graceful-skip convention for engine-touching seams
-    (`_ensure_engine_on_path`). The caller (`_scaffold_spinoff`) omits the
-    `workstream:` key entirely on None rather than emitting a placeholder --
-    per state/handoffs/2026-08-21-scaffold-knows-the-session.md ("either
-    derive it or stop pretending it is required").
+
+_NO_SPINOFF_ORIGIN = SpinoffOrigin(None, None, None)
+
+
+def _resolve_spinoff_origin() -> SpinoffOrigin:
+    """READ-ONLY resolve of a spinoff's origin baton and `workstream` off the
+    baton this session currently holds.
+
+    Locates the held baton with one call to `coordinator_core.ops.
+    handoff_author_fork._resolve_origin_handoff` -- the ledger-first
+    claim-holder scan `handoff.author_fork` uses to stamp `origin_handoff` --
+    and reads that baton's `workstream:` scalar via `coordinator_core.ops.
+    _fm_util.extract_frontmatter_scalar`. `origin_handoff` is the resolver's
+    repo-relative forward-slash string, passed through untouched.
+
+    Every unresolvable arm (engine absent, no repo root, `em-unknown`,
+    OSError, nothing held) returns `SpinoffOrigin(None, None, None)`. An
+    ambiguous claim (RuntimeError from the resolver) does the same after one
+    stderr line: `handoff.author_fork` is the fail-loud surface for that
+    case, a bulk mint is not. Caught as RuntimeError rather than the concrete
+    class because the engine seam is allowed to be absent.
     """
     _ensure_engine_on_path()
     try:
@@ -2937,44 +2954,42 @@ def _resolve_spinoff_workstream() -> str | None:
         )
         from coordinator_core.ops._fm_util import extract_frontmatter_scalar  # noqa: PLC0415
     except Exception:  # noqa: BLE001 -- best-effort; unresolvable engine degrades to None
-        return None
+        return _NO_SPINOFF_ORIGIN
     session_id = _resolve_session_id()
     if session_id == "em-unknown":
-        return None
+        return _NO_SPINOFF_ORIGIN
     repo_root_str = _current_repo_root()
     if not repo_root_str:
-        return None
+        return _NO_SPINOFF_ORIGIN
     from pathlib import Path as _Path  # noqa: PLC0415
 
     worktree_root = _Path(repo_root_str)
     handoffs_dir = worktree_root / "state" / "handoffs"
     try:
-        origin_handoff, _origin_handoff_id = _resolve_origin_handoff(
+        origin_handoff, origin_handoff_id = _resolve_origin_handoff(
             handoffs_dir, session_id, repo_root=worktree_root
         )
     except OSError:
-        return None
-    except RuntimeError:
-        # `_resolve_origin_handoff` refuses fail-loud (AmbiguousOriginHandoffError,
-        # a RuntimeError) when this session holds several live claims that claim
-        # recency cannot rank. That refusal is provenance-critical for
-        # `handoff.author_fork`, which STAMPS origin_handoff -- it is not critical
-        # here, where the only consequence is one derived, optional field.
-        #
-        # Negative-spec: does NOT re-raise and does NOT pick a candidate. The
-        # ambiguity is surfaced by the op that writes provenance; degrading to
-        # omit-the-key matches this helper's every other unresolvable arm rather
-        # than turning a scaffold into a traceback. Caught as RuntimeError, not by
-        # importing the concrete class -- this CLI reaches coordinator_core through
-        # a best-effort seam that is allowed to be absent.
-        return None
+        return _NO_SPINOFF_ORIGIN
+    except RuntimeError as exc:
+        # Negative-spec: does NOT re-raise and does NOT pick a candidate.
+        print(
+            "coordinator-doc-new: origin baton ambiguous (several live claims); "
+            f"origin_handoff left null ({exc}). Run /spinoff to stamp provenance.",
+            file=sys.stderr,
+        )
+        return _NO_SPINOFF_ORIGIN
     if not origin_handoff:
-        return None
+        return _NO_SPINOFF_ORIGIN
     try:
         text = (worktree_root / origin_handoff).read_text(encoding="utf-8", errors="replace")
     except OSError:
-        return None
-    return extract_frontmatter_scalar(text, "workstream") or None
+        return SpinoffOrigin(origin_handoff, origin_handoff_id or None, None)
+    return SpinoffOrigin(
+        origin_handoff,
+        origin_handoff_id or None,
+        extract_frontmatter_scalar(text, "workstream") or None,
+    )
 
 
 def _scaffold_spinoff(
@@ -2988,8 +3003,14 @@ def _scaffold_spinoff(
     category: str | None = None,
     gated_open: str | None = None,
     sizing_object: str | None = None,
+    summary: str | None = None,
+    what_this_covers: str | None = None,
 ) -> str:
     """Generate validator-clean spinoff frontmatter + canonical section skeleton.
+
+    summary / what_this_covers, when supplied, replace the placeholder
+    `summary:` line and the `## What this covers` comment; absent, the
+    placeholder skeleton is byte-identical to before.
 
     Produces a conformant spinoff (kind: spinoff) against the handoff schema.
     Spinoffs use the same schema as session-handoffs; kind discriminates the body dialect.
@@ -3002,10 +3023,13 @@ def _scaffold_spinoff(
     that let a since-fixed resolver regression go unnoticed for a full day
     (state/handoffs/2026-08-21-scaffold-knows-the-session.md).
 
-    workstream (2026-08-21) is resolved read-only off the baton this session
-    currently holds via `_resolve_spinoff_workstream` (see its docstring).
-    Omitted entirely (not a placeholder) when nothing resolves -- matching
-    `_scaffold_handoff`'s own omit-the-key convention for `authoring_session`.
+    origin_session, origin_handoff and origin_handoff_id are stamped after
+    authoring_session from one `_resolve_spinoff_origin` call (see its
+    docstring): origin_session repeats the authoring_session value;
+    origin_handoff/origin_handoff_id are the baton this session holds, or an
+    explicit null when it holds none. A supplied --origin-handoff-id wins over
+    the resolved id. `workstream` comes from the same call and is omitted
+    entirely (not a placeholder) when the held baton carries none.
 
     deliverable_id and initiative are D9 present-as-null: emitted as 'null' when
     not supplied. deliverable_id is auto-inherited from DELIVERABLE_ID env var or
@@ -3159,22 +3183,25 @@ def _scaffold_spinoff(
         "baton_role: work",
         f"deployment_state: {_deployment_state}",
         f"category: {_category}",
-        f"summary: {_yaml_quote(placeholder_summary)}",
+        f"summary: {_yaml_quote(summary if summary else placeholder_summary)}",
         f"pickup_ready: {_pickup_ready}",
         _authoring_session_line,
     ]
-    # 2026-08-21 extension (same baton as authoring_session above): 'workstream'
-    # used to hand-type a literal 'PLACEHOLDER' unconditionally. It is now
-    # resolved off the baton this session currently holds
-    # (_resolve_spinoff_workstream, read-only) when possible; when nothing
-    # resolves, the key is OMITTED entirely rather than re-emitting a
-    # placeholder -- "either derive it or stop pretending it is required"
-    # (state/handoffs/2026-08-21-scaffold-knows-the-session.md § 2), the same
-    # omit-the-key convention `_scaffold_handoff` already uses for its own
-    # `authoring_session` arm.
-    _resolved_workstream = _resolve_spinoff_workstream()
-    if _resolved_workstream:
-        lines.append(f"workstream: {_yaml_quote(_resolved_workstream)}")
+    _origin = _resolve_spinoff_origin()
+    _origin_handoff_id = origin_handoff_id or _origin.origin_handoff_id
+    lines.append(f"origin_session: {_yaml_quote(_authoring_session_value)}")
+    lines.append(
+        f"origin_handoff: {_yaml_quote(_origin.origin_handoff)}"
+        if _origin.origin_handoff
+        else "origin_handoff: null"
+    )
+    lines.append(
+        f"origin_handoff_id: {_yaml_quote(_origin_handoff_id)}"
+        if _origin_handoff_id
+        else "origin_handoff_id: null"
+    )
+    if _origin.workstream:
+        lines.append(f"workstream: {_yaml_quote(_origin.workstream)}")
     lines.extend([
         f"deliverable_id: {_dlv}",
         f"initiative: {_ini}  # FK to state/initiatives/<id>.yaml; null when no named initiative",
@@ -3183,8 +3210,6 @@ def _scaffold_spinoff(
         lines.append(_sizing_object_line(sizing_object))
     if handoff_id:
         lines.append(f"handoff_id: {_yaml_quote(handoff_id)}")
-    if origin_handoff_id:
-        lines.append(f"origin_handoff_id: {_yaml_quote(origin_handoff_id)}")
     if predecessor_id:
         lines.append(f"predecessor_id: {_yaml_quote(predecessor_id)}")
     if _blocked_by:
@@ -3197,7 +3222,9 @@ def _scaffold_spinoff(
         # skills/spinoff/SKILL.md; replaced orphan ## Context with the full addressable-section set.
         "## What this covers",
         "",
-        "<!-- One paragraph: origin context, what surface is in play, who's affected. -->",
+        what_this_covers
+        if what_this_covers
+        else "<!-- One paragraph: origin context, what surface is in play, who's affected. -->",
         "",
         "## Reference materials (read first)",
         "",
@@ -4234,7 +4261,7 @@ def _scaffold_plan(
         "  surface: path/to/primary/target  # single path or subsystem, not the full write-files set",
         "  writes: [path/to/file/this/chunk/writes.py]  # REQUIRED on a non-deferred row —",
         "              # dispatch.emit cannot fire without it. Replace with the real repo-relative",
-        "              # paths this chunk writes. An empty `writes: []` is a POSITIVE claim that",
+        "              # FILE paths this chunk writes (never a directory; use `writes_under`). An empty `writes: []` is a POSITIVE claim that",
         "              # it writes nothing — NOT 'not known yet'. If the surface is not knowable,",
         "              # omit this key entirely (UNDECLARED), which is legal only on a row gated",
         "              # epistemic-premise; see spine_read's AC2 for why they differ.",
@@ -4456,13 +4483,19 @@ def _mutate_sizing_reverse_edge(
     # text surgery blind — a `plan:` value the schema's
     # `^docs/plans/.+\.md$` pattern rejects must abort here, not land on
     # disk and be discovered by a later reader.
+    _validate_mutated_sizing(old_text, new_text)
+    return new_text
+
+
+def _validate_mutated_sizing(old_text: str, new_text: str) -> None:
+    """Raise MutateAbort unless ``new_text`` parses and satisfies the vendored sizing schema."""
     import yaml as _yaml  # noqa: PLC0415
     from pathlib import Path as _ValidatePath  # noqa: PLC0415
     import coordinator_core.frontmatter as _frontmatter_pkg  # noqa: PLC0415
     from coordinator_core.frontmatter.schema_validate import (  # noqa: PLC0415
-        format_validation_errors as _format_validation_errors,
         validate_frontmatter as _validate_frontmatter,
     )
+    from coordinator_core.locked_write import MutateAbort as _MutateAbort  # noqa: PLC0415
 
     try:
         _parsed = _yaml.safe_load(new_text) or {}
@@ -4477,7 +4510,6 @@ def _mutate_sizing_reverse_edge(
     _errors = _validate_frontmatter(_parsed, _schema_path)
     if _errors:
         raise _MutateAbort(_sizing_validation_abort(old_text, _schema_path, _errors))
-    return new_text
 
 
 def _sizing_validation_abort(old_text: str, schema_path, errors: list) -> str:
@@ -4616,6 +4648,172 @@ def _revert_sizing_reverse_edge(
         _locked_rmw(_Path(sizing_abs_path), lambda _old: old_text, repo_root=_Path(repo_root))
     except Exception:  # noqa: BLE001 -- best-effort revert; original error takes priority
         pass
+
+
+# ---------------------------------------------------------------------------
+# Baton mint from a sizing — `--type spinoff --from-sizing`
+# ---------------------------------------------------------------------------
+
+_FROM_SIZING_TSHIRTS = frozenset({"M", "L", "XL", "XXL"})
+_SUMMARY_LIMIT = 140
+
+
+class SizingMintRefused(Exception):
+    """A sizing cannot mint a baton; ``fields`` names every failing input at once."""
+
+    def __init__(self, fields: list[str], message: str):
+        super().__init__(message)
+        self.fields = fields
+
+
+def _mutate_sizing_baton_edge(old_text: str, baton_repo_rel_path: str) -> str:
+    """Return sizing YAML text with `baton:` set; touches no other key."""
+    _bootstrap_engine()
+    from coordinator_core.frontmatter.primitives import (  # noqa: PLC0415
+        insert_fm_field_raw,
+        read_fm_field_unquoted,
+        replace_fm_field_raw,
+    )
+
+    _raw = _yaml_quote(baton_repo_rel_path)
+    if read_fm_field_unquoted(old_text, "baton") is not None:
+        new_text = replace_fm_field_raw(old_text, "baton", _raw)
+    else:
+        _after = "plan" if read_fm_field_unquoted(old_text, "plan") is not None else "status"
+        new_text = insert_fm_field_raw(old_text, "baton", _raw, _after)
+    _validate_mutated_sizing(old_text, new_text)
+    return new_text
+
+
+def _write_sizing_baton_edge(
+    sizing_abs_path: str, baton_repo_rel_path: str, repo_root: str,
+) -> str:
+    """Write the sizing->baton edge under ``locked_rmw``; return the pre-mutation text."""
+    _ensure_engine_on_path()
+    from pathlib import Path as _Path  # noqa: PLC0415
+    from coordinator_core.locked_write import locked_rmw as _locked_rmw  # noqa: PLC0415
+
+    _captured: dict[str, str] = {}
+
+    def _mutate(old_text: str) -> str:
+        _captured["old_text"] = old_text
+        return _mutate_sizing_baton_edge(old_text, baton_repo_rel_path)
+
+    _locked_rmw(_Path(sizing_abs_path), _mutate, repo_root=_Path(repo_root))
+    return _captured.get("old_text", "")
+
+
+def _write_baton_file(out_abs: str, content: str) -> None:
+    """Create the baton exclusively; an existing file at the path is an error."""
+    os.makedirs(os.path.dirname(out_abs), exist_ok=True)
+    with open(out_abs, "x", encoding="utf-8", newline="\n") as fh:
+        fh.write(content)
+        if not content.endswith("\n"):
+            fh.write("\n")
+
+
+def mint_baton_from_sizing(sizing_rel: str, repo_root: str) -> dict:
+    """Mint the baton for an M+ sizing, or return the one its `baton:` edge already names.
+
+    Returns ``{"id", "path", "title", "created"}``; ``path`` is repo-relative POSIX.
+    Raises ``SizingMintRefused`` naming every failing field (`estimate.tshirt`,
+    `intent`, `baton`). Write order: sizing edge first, then the baton, with the
+    edge reverted when the baton write fails. ``repo_root`` is the caller's.
+    """
+    _bootstrap_engine()
+    _ensure_engine_on_path()
+    from coordinator_core.frontmatter.primitives import read_fm_field_unquoted  # noqa: PLC0415
+    from coordinator_core.ops.deliverable_cascade import _read_sizing_meta  # noqa: PLC0415
+
+    _parts = sizing_rel.replace("\\", "/").split("/")
+    if os.path.isabs(sizing_rel) or ".." in _parts or _parts[:2] != ["state", "sizings"]:
+        raise SizingMintRefused(
+            ["sizing"], f"--from-sizing refused: {sizing_rel} is not a repo-relative state/sizings/ path"
+        )
+    sizing_abs = os.path.join(repo_root, sizing_rel)
+    try:
+        meta = _read_sizing_meta(sizing_abs)
+    except Exception as exc:  # noqa: BLE001 -- unreadable sizing is a refusal, not a crash
+        raise SizingMintRefused(["sizing"], f"sizing {sizing_rel} is unreadable: {exc}") from exc
+
+    reasons: list[str] = []
+    fields: list[str] = []
+    estimate = meta.get("estimate")
+    tshirt = estimate.get("tshirt") if isinstance(estimate, dict) else None
+    if tshirt not in _FROM_SIZING_TSHIRTS:
+        fields.append("estimate.tshirt")
+        reasons.append(f"estimate.tshirt is {tshirt!r}; a baton is minted for M, L, XL or XXL only")
+    intent = meta.get("intent")
+    intent = intent.strip() if isinstance(intent, str) else ""
+    if not intent:
+        fields.append("intent")
+        reasons.append("intent is absent")
+    existing = meta.get("baton")
+    existing_abs = None
+    if isinstance(existing, str) and existing:
+        existing_abs = os.path.join(repo_root, existing)
+        if not os.path.isfile(existing_abs):
+            fields.append("baton")
+            reasons.append(f"baton edge {existing} resolves to no file")
+    if fields:
+        raise SizingMintRefused(
+            fields, f"--from-sizing refused for {sizing_rel}: " + "; ".join(reasons)
+        )
+
+    if existing_abs is not None:
+        text = open(existing_abs, encoding="utf-8").read()
+        return {
+            "id": read_fm_field_unquoted(text, "handoff_id"),
+            "path": existing,
+            "title": read_fm_field_unquoted(text, "title"),
+            "created": False,
+        }
+
+    title = " ".join(str(meta.get("name") or intent).split())
+    one_line = " ".join(intent.split())
+    summary = one_line if len(one_line) <= _SUMMARY_LIMIT else one_line[: _SUMMARY_LIMIT - 1] + "…"
+    dlv_source = meta.get("deliverable_id")
+    if dlv_source:
+        deliverable_id = _mint_deliverable_id(
+            deliverable_id=dlv_source, carry_source="cited sizing-object (--from-sizing)"
+        )
+    else:
+        deliverable_id = _mint_deliverable_id_from_title(title, "spinoff", repo_root)
+    handoff_id = _mint_artifact_id_from_title("hnd", title, "spinoff", "handoff_id")
+    out_rel = f"state/handoffs/{_today()}-{_slug_from_title(title)}.md"
+    out_abs = os.path.join(repo_root, out_rel)
+    if os.path.exists(out_abs):
+        raise SizingMintRefused(
+            ["baton"], f"--from-sizing refused for {sizing_rel}: {out_rel} already exists"
+        )
+    content = _scaffold_spinoff(
+        title=title,
+        branch=_current_branch(),
+        deliverable_id=deliverable_id,
+        handoff_id=handoff_id,
+        sizing_object=sizing_rel,
+        summary=summary,
+        what_this_covers=intent,
+    )
+    _assert_no_archived_handoff_twin(out_abs, handoff_id, repo_root)
+    _assert_scaffold_content_valid(content, out_abs, repo_root)
+
+    old_text = _write_sizing_baton_edge(sizing_abs, out_rel, repo_root)
+    try:
+        _write_baton_file(out_abs, content)
+    except Exception:
+        _revert_sizing_reverse_edge(sizing_abs, old_text, repo_root)
+        raise
+    try:
+        from coordinator_core.cli_entry import recording_declared_writes  # noqa: PLC0415
+        from coordinator_core.session.declared_writes import declare_write  # noqa: PLC0415
+
+        with recording_declared_writes(cwd=repo_root):
+            declare_write(out_abs)
+            declare_write(sizing_abs)
+    except Exception:  # noqa: BLE001 -- claim stamping must never undo a landed mint
+        pass
+    return {"id": handoff_id, "path": out_rel, "title": title, "created": True}
 
 
 def _scaffold_decision(title: str, dr_id: str) -> str:
@@ -5887,6 +6085,64 @@ def _assert_output_safe(out_path: str) -> None:
     sys.exit(1)
 
 
+def _provision_findings_sidecar(
+    agent_type: str,
+    title: str,
+    session_id: str,
+    *,
+    cwd: "str | None" = None,
+) -> "tuple[int, str]":
+    """Provision a findings sidecar for an agent that holds no plan, slice or agent_id.
+
+    Returns ``(rc, repo-relative path)``; the path is empty when ``rc`` is non-zero.
+
+    Invariant: no agent_id is read or accepted, because the agent cannot read one.
+    The leaf, nonce, frontmatter and template all belong to
+    ``provision_report._provision``, reached through ``provision-sidecar.py``'s
+    ``main`` so policy-path and eligibility resolution are never re-implemented
+    here. The title is written into the provisioned body with one in-place edit.
+
+    Trap: a findings file written as a handoff or completion pollutes pickup;
+    never point a persona at one of those types instead.
+    """
+    import importlib.util
+
+    script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "provision-sidecar.py")
+    spec = importlib.util.spec_from_file_location("_doc_new_provision_sidecar", script)
+    if spec is None or spec.loader is None:
+        print(f"error: could not load {script}.", file=sys.stderr)
+        return 2, ""
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    work_dir = cwd or os.getcwd()
+    captured = io.StringIO()
+    with contextlib.redirect_stdout(captured):
+        rc = mod.main(["--agent-type", agent_type, "--session-id", session_id, "--cwd", work_dir])
+    if rc != 0:
+        return rc, ""
+    rel_path = captured.getvalue().strip()
+
+    _ensure_engine_on_path()
+    from coordinator_core.subagent_sandbox.engine import resolve_git_root
+
+    git_root = resolve_git_root(work_dir)
+    abs_path = os.path.join(git_root, rel_path) if git_root else rel_path
+    with open(abs_path, encoding="utf-8", newline="") as fh:
+        text = fh.read()
+    subject = title.strip()
+    anchor = "## Rationale\n"
+    if anchor in text:
+        text = text.replace(anchor, f"{anchor}\n{subject}\n", 1)
+    else:
+        end = text.find("\n---\n", 3)
+        cut = end + len("\n---\n") if end != -1 else 0
+        text = f"{text[:cut]}\n# {subject}\n{text[cut:]}"
+    with open(abs_path, "w", encoding="utf-8", newline="") as fh:
+        fh.write(text)
+    return 0, rel_path
+
+
 # ---------------------------------------------------------------------------
 # Output path helpers
 # ---------------------------------------------------------------------------
@@ -6221,7 +6477,9 @@ Spec backlink (workflow): pln-workflow-skeleton-stamper-maki-adab0d
             "enricher). Optional — defaults to 'executor', the shape every "
             "flight-recorder-style /execute-plan chunk dispatch uses. "
             "(subagent-sidecar) Same usage as run-report above. Optional for --type "
-            "subagent-sidecar."
+            "subagent-sidecar. "
+            "(findings-sidecar) REQUIRED: the calling persona's own type "
+            "(e.g. coordinator:staff-eng); must be report_sidecar-eligible. No default."
         ),
     )
 
@@ -6360,6 +6618,20 @@ Spec backlink (workflow): pln-workflow-skeleton-stamper-maki-adab0d
             "never a hand-authored stub. "
             "Spec: docs/plans/2026-08-06-plan-sizing-citation-gate.md § AC2, AC3; "
             "docs/plans/2026-09-26-batons-carry-their-work-c7-c11.md § C8"
+        ),
+    )
+    parser.add_argument(
+        "--from-sizing",
+        dest="from_sizing",
+        default=None,
+        metavar="PATH",
+        help=(
+            "(spinoff only) Mint, or return the existing, baton for the M+ "
+            "state/sizings/<id>.yaml at PATH: inherits its deliverable_id, cites it as "
+            "sizing_object, writes the reverse `baton:` edge, and prints the baton path. "
+            "Refuses XS/S, an absent intent, or a dangling baton edge, naming every "
+            "failing field. Mutually exclusive with --title, --summary, "
+            "--deliverable-id and --sizing-object."
         ),
     )
     parser.add_argument(
@@ -6857,6 +7129,32 @@ def main(argv: "list[str] | None" = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
+    if args.from_sizing:
+        _conflicts = [
+            flag
+            for flag, value in (
+                ("--title", args.title),
+                ("--summary", args.summary),
+                ("--deliverable-id", args.deliverable_id),
+                ("--sizing-object", args.sizing_object),
+            )
+            if value
+        ]
+        if args.doc_type != "spinoff":
+            parser.error("--from-sizing is valid only with --type spinoff.")
+        if _conflicts:
+            parser.error(
+                f"--from-sizing derives its own title, summary, deliverable_id and "
+                f"sizing_object; drop {', '.join(_conflicts)}."
+            )
+        try:
+            _minted = mint_baton_from_sizing(args.from_sizing, _current_repo_root() or ".")
+        except SizingMintRefused as _refusal:
+            print(f"error: {_refusal} [fields: {', '.join(_refusal.fields)}]", file=sys.stderr)
+            return 1
+        print(_minted["path"])
+        return 0
+
     # Prose-flag argv fidelity (post-parse, ahead of any id mint below): a
     # newline-bearing --title/--summary reaching this CLI through its
     # generated .cmd forwarder has already been silently truncated by
@@ -6958,6 +7256,36 @@ def main(argv: "list[str] | None" = None) -> int:
             file=sys.stderr,
         )
         return 1
+
+    # findings-sidecar delegates wholesale to the provisioner: its path is minted by
+    # provision_report, so it never reaches _default_output_path or a content scaffolder.
+    if doc_type == "findings-sidecar":
+        if not args.agent_type:
+            print(
+                "error: --agent-type <persona type> is required for --type findings-sidecar.",
+                file=sys.stderr,
+            )
+            return 1
+        if not (args.title or "").strip():
+            print("error: --title <subject> is required for --type findings-sidecar.", file=sys.stderr)
+            return 1
+        if args.out:
+            print(
+                "error: --out is not accepted for --type findings-sidecar; the path is minted by the provisioner.",
+                file=sys.stderr,
+            )
+            return 1
+        _fs_session = _resolve_session_id()
+        if _fs_session == "em-unknown":
+            print(
+                "warning: no session id resolved (unset: " + ", ".join(_SESSION_ID_ENV_VARS)
+                + "); writing under subagent-share/em-unknown/.",
+                file=sys.stderr,
+            )
+        _fs_rc, _fs_path = _provision_findings_sidecar(args.agent_type, args.title, _fs_session)
+        if _fs_rc == 0:
+            print(_fs_path)
+        return _fs_rc
 
     # A sizing-object is the one scaffold with no useful untitled form: its title
     # IS the PM's ask, verbatim, and a placeholder one mints a durable record into

@@ -146,6 +146,7 @@ from cc_invoke import require_colocated_engine_on_path  # noqa: E402
 require_colocated_engine_on_path(__file__)
 
 from coordinator_core.testing import suite_mutex  # noqa: E402
+from coordinator_core.win_portability import no_console_passthrough_kwargs  # noqa: E402
 
 _DEFAULT_OWNER_PREFIX = "with-suite-mutex"
 
@@ -379,7 +380,8 @@ def main(argv: List[str]) -> int:
     owner = suite_mutex.mutex_owner(prefix)
     cmd_str = " ".join(command)
 
-    # Deliberately NO creationflags here (in particular, NOT CREATE_NO_WINDOW):
+    # Bare CREATE_NO_WINDOW is wrong here, hence no_console_passthrough_kwargs
+    # (flag plus the real stdout/stderr fds):
     # this wrapper's whole point is a live, streaming pass-through of the
     # child's stdout/stderr -- neither stream is redirected to a pipe, so
     # the child inherits the parent's real console handles. CREATE_NO_WINDOW
@@ -402,7 +404,7 @@ def main(argv: List[str]) -> int:
     if resolved is not None:
         command = [resolved, *command[1:]]
 
-    process = subprocess.Popen(command)
+    process = subprocess.Popen(command, **no_console_passthrough_kwargs())
     try:
         ps_process = psutil.Process(process.pid)
     except psutil.Error:

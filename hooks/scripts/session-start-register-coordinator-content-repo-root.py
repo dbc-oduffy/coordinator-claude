@@ -134,7 +134,6 @@ an installer] ... its key is operator-set and does not yet self-heal").
 from __future__ import annotations
 
 import json
-import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -158,6 +157,13 @@ except Exception:
         return None
 
 try:
+    from _author_root_paths import _content_root_pointer_paths
+except Exception:
+    # Partial-deploy defence: without the sibling there is no pointer to write.
+    def _content_root_pointer_paths() -> "list[Path]":  # type: ignore[no-redef]
+        return []
+
+try:
     from _registry_write import machine_local_set as _machine_local_set
 except Exception:
     # Partial-deploy defence, same shape as the _engine_root import above: a
@@ -176,12 +182,6 @@ _EXPECTED_SLUG = "coordinator-content-repo"
 #: (`~/.claude/projects/<slug>/memory/`) -- see `_ensure_memory_dir_exists`.
 _MEMORY_DIRNAME = "memory"
 
-
-#: Pointer files every no-launcher fence reads to find the doctrine clone
-#: (`snippets/resolve-coordinator-bin.md` § CLIs with no launcher). Both are
-#: read there; neither was written by anything before this hook.
-_CONTENT_ROOT_POINTER_BASENAME = ".coordinator-content-root"
-_CONTENT_ROOT_POINTER_BASENAME = ".content-root"  # compat-fallback: legacy pointer name
 
 #: Ceiling on directories stat'd by the rung-1 scan. The scan is a bounded
 #: probe of named positions, never a filesystem walk -- a walk that eventually
@@ -346,25 +346,6 @@ def _write_content_root_pointer(root_str: str) -> None:
             pointer.write_text(root_str + "\n", encoding="utf-8")
         except Exception:
             continue
-
-
-def _content_root_pointer_paths() -> "list[Path]":
-    """Every pointer file to keep current: the content-root name first, then
-    the legacy name, each at the two locations the fences try in order."""
-    paths: "list[Path]" = []
-    for basename in (_CONTENT_ROOT_POINTER_BASENAME, _CONTENT_ROOT_POINTER_BASENAME):
-        try:
-            reg_dir = _settings_home_registry_dir()
-            if reg_dir is not None:
-                paths.append(Path(reg_dir) / basename)
-        except Exception:
-            pass
-        try:
-            claude_home = os.environ.get("CLAUDE_HOME") or str(Path.home())
-            paths.append(Path(claude_home) / ".claude" / basename)
-        except Exception:
-            pass
-    return paths
 
 
 def _is_genuine_content_root_repo(root: Path) -> bool:

@@ -1,7 +1,7 @@
 """SessionEnd hook — DEREGISTERED. Kept on disk, unregistered, so re-arming is
 one hooks.json entry rather than a rewrite.
 
-DEREGISTERED 2026-08-27 per PM ruling relayed by claude-klabauter-em
+DEREGISTERED 2026-08-27 per PM ruling
 (`cross-repo/inbox/2026-08-27-claude-klabauter-em-retire-sessionend-auto-commit.md`):
 "commits are for EMs and when they choose to commit". This does NOT reverse the
 2026-07-31 auto-commit pivot wholesale — that ruling still governs the CEREMONY

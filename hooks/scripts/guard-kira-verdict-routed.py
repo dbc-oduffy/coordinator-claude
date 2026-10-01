@@ -146,6 +146,20 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+_LIB_DIR = os.path.normpath(
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, os.pardir, "lib")
+)
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+
+from frontmatter_scan import read_text, scan_frontmatter  # noqa: E402
+
+try:
+    from _git_root_walk import git_root_walk  # noqa: E402
+except Exception:  # import failure degrades to the "cannot evaluate" path
+    def git_root_walk(start=None):  # type: ignore[misc]
+        return None
+
 
 # docstring's CONTRACT_EPOCH section. Delete this constant and
 _CONTRACT_EPOCH_ISO = "2026-08-30T00:00:00Z"
@@ -173,20 +187,11 @@ def _repo_root(payload: dict) -> str | None:
     cwd = payload.get("cwd") or os.getcwd()
     if not isinstance(cwd, str):
         return None
-    probe = os.path.abspath(cwd)
-    while True:
-        if os.path.exists(os.path.join(probe, ".git")):
-            return probe
-        parent = os.path.dirname(probe)
-        if parent == probe:
-            return None
-        probe = parent
+    return git_root_walk(cwd)
 
 
 def _read_frontmatter(path: str) -> dict:
-    """Flat, stdlib-only top-level `key: value` line-scan of the YAML
-    frontmatter block, matching `_posture.py`'s / `guard-manufactured-
-    blocker.py`'s own line-scan convention -- no YAML dependency.
+    """Top-level frontmatter keys via the shared `frontmatter_scan` helper.
 
     Only COLUMN-ZERO keys are read (an indented key, e.g. one nested under
     `divergence:`, is never surfaced as a top-level fact -- the same
@@ -194,76 +199,7 @@ def _read_frontmatter(path: str) -> dict:
     the writer). Returns `{}` on any read/shape failure -- a guard that
     cannot prove a fact must never block on it.
     """
-    try:
-        with open(path, "r", encoding="utf-8", errors="replace") as fh:
-            lines = fh.readlines()
-    except OSError:
-        return {}
-    if not lines or lines[0].strip() != "---":
-        return {}
-    end = None
-    for i in range(1, len(lines)):
-        if lines[i].strip() == "---":
-            end = i
-            break
-    if end is None:
-        return {}
-
-    body = lines[1:end]
-    meta: dict = {}
-    i = 0
-    while i < len(body):
-        line = body[i]
-        if not line.strip() or line.lstrip().startswith("#"):
-            i += 1
-            continue
-        if line[0].isspace():
-            i += 1
-            continue
-        if ":" not in line:
-            i += 1
-            continue
-        key, _, rest = line.partition(":")
-        key = key.strip()
-        rest = rest.strip()
-        if "#" in rest:
-            rest = rest.split("#", 1)[0].strip()
-        if rest.startswith("[") and rest.endswith("]"):
-            inner = rest[1:-1]
-            meta[key] = [v.strip().strip("'\"") for v in inner.split(",") if v.strip()]
-            i += 1
-            continue
-        if rest in ("", "{}"):
-            # "{}" (explicit-empty-map YAML shorthand) is folded into the same
-            # branch as a blank scalar on purpose: this parser is a flat
-            # column-zero scan with no YAML dependency (module docstring), so
-            # it cannot distinguish an empty mapping from a blank/absent
-            # scalar or an empty list — all three read the same as "no value
-            # here, maybe a `- ` block follows". None of the keys this guard
-            # inspects are ever written as `{}`, so folding is safe today; a
-            # future key that legitimately uses `{}` would need this split
-            # out explicitly.
-            items: list[str] = []
-            j = i + 1
-            while j < len(body):
-                candidate = body[j]
-                if not candidate.strip() or candidate.lstrip().startswith("#"):
-                    j += 1
-                    continue
-                if not candidate.lstrip().startswith("- "):
-                    break
-                items.append(candidate.strip()[2:].strip().strip("'\""))
-                j += 1
-            if items:
-                meta[key] = items
-                i = j
-                continue
-            meta[key] = rest
-            i += 1
-            continue
-        meta[key] = rest.strip("'\"")
-        i += 1
-    return meta
+    return scan_frontmatter(read_text(path))
 
 
 def _handoff_field_values(meta: dict, key: str) -> list[str]:

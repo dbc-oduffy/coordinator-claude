@@ -66,6 +66,9 @@ from pathlib import Path
 _SCRIPTS_DIR = str(Path(__file__).resolve().parent)
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
+_LIB_DIR = str(Path(__file__).resolve().parents[2] / "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.append(_LIB_DIR)
 
 from _message_envelope import compose, render  # noqa: E402
 
@@ -277,39 +280,23 @@ def _derive_slug(plan_content: str) -> str:
 def _read_ceremony_day_anchor(repo_root: str | None) -> str:
     """Read `ceremony_day_anchor` from repo-root `coordinator.local.md`.
 
-    Self-contained flat `key: value` line-scan — no shared reader module
-    imported, per the plan's "self-contained, fast, dependency-light" hard
-    constraint (spec backlink:
-    docs/plans/2026-07-20-mcollab-ceremony-day-anchor-enum.md, C3). Fails
-    open to "local" on a missing repo_root, missing file, unreadable file,
-    or absent/out-of-enum key — never raises.
+    Reads through `coordinator/lib/frontmatter_scan.py` (a column-zero key
+    inside the frontmatter block only). Fails open to "local" on a missing
+    repo_root, missing file, unreadable file, unavailable scanner, or
+    absent/out-of-enum key — never raises.
     """
     if not repo_root:
         return "local"
-    local_md = os.path.join(repo_root, "coordinator.local.md")
     try:
-        with open(local_md, "r", encoding="utf-8") as handle:
-            lines = handle.readlines()
-    except OSError:
-        return "local"
-    except UnicodeDecodeError:
-        return "local"
+        from frontmatter_scan import read_text, scan_frontmatter
 
-    prefix = "ceremony_day_anchor:"
-    for line in lines:
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        if stripped.startswith(prefix):
-            value = stripped[len(prefix):].strip()
-            if "#" in value:
-                value = value.split("#", 1)[0].strip()
-            if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
-                value = value[1:-1]
-            value = value.lower()
-            if value == "utc":
-                return "utc"
-            return "local"
+        value = scan_frontmatter(
+            read_text(os.path.join(repo_root, "coordinator.local.md"))
+        ).get("ceremony_day_anchor")
+    except Exception:
+        return "local"
+    if isinstance(value, str) and value.lower() == "utc":
+        return "utc"
     return "local"
 
 

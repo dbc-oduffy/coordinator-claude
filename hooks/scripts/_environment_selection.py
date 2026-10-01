@@ -1,4 +1,4 @@
-"""DoE-side selection seam for the environment-switch mechanism.
+"""Plugin-side selection seam for the environment-switch mechanism.
 
 Spec backlink: docs/plans/2026-09-07-compose-the-environment-story-and-select.md
 (chunk C3, roadmap cloud-em-2026-09-06). This module is the SECOND splice

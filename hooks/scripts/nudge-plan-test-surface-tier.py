@@ -91,9 +91,9 @@ registration/hook prohibition inside `## Anti-scope` (e.g. "do not add a seventh
 PreToolUse:Agent registration") names no vehicle noun and stays silent, which is the plan's
 own worked fixture for the negative case.
 
-Review: coordinator:code-reviewer (finding 2) -- `chunk-at-a-time`/`hand-dispatch` can also
-fire on legitimate non-dispatch prose (e.g. a data-migration batching constraint); accepted
-residual risk of the narrow-vocabulary design, not tightened further.
+`chunk-at-a-time`/`hand-dispatch` can also fire on legitimate non-dispatch prose (e.g. a
+data-migration batching constraint); accepted residual risk of the narrow-vocabulary
+design, not tightened further.
 """
 
 from __future__ import annotations
@@ -158,7 +158,7 @@ def _extract_anti_scope_section(text: str) -> str:
     "" when no `## Anti-scope` heading exists -- the caller treats that as
     "nothing to match".
 
-    Review: coordinator:code-reviewer (finding 1) -- fence PARITY is carried
+    Fence PARITY is carried
     in from the top of the document, not reset to False at `start`. A fence
     opened before `## Anti-scope` and still open when the section begins
     (malformed markdown, but plans are long freeform documents) would
@@ -308,12 +308,10 @@ def _advisory_message(target: str, detected: str) -> Message:
 
 
 def main() -> int:
-    # Review: coordinator:code-reviewer (finding 2) -- outer backstop so the
-    # module docstring's closed "Fail-open guards" list is actually closed:
-    # `_reconstruct_after` and the final compose()/emit() call previously sat
-    # outside any guard. Not exploitable today, but a later template change
-    # (e.g. an empty `detected`) could reintroduce a hard crash on this
-    # advisory-only path without this wrapper.
+    # Outer backstop so the module docstring's closed "Fail-open guards" list
+    # is actually closed: `_reconstruct_after` and the final compose()/emit()
+    # call sit outside any inner guard. A later template change (e.g. an empty
+    # `detected`) could otherwise hard-crash this advisory-only path.
     try:
         return _main_impl()
     except Exception:

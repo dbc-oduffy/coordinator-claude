@@ -60,6 +60,8 @@ _SCRIPT = _LIB_DIR / "compute-update-delta.py"
 # coordinator/dist/publish-repo-setup/tests/test_install.py's REAL_WRITER block.
 _COORDINATOR_ROOT = Path(__file__).parents[5]
 
+_NO_CONSOLE = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+
 # The engine-root resolver script ships publicly at hooks/scripts/_engine_root.py
 # (unlike this trampoline's runtime, the test suite runs inside the dev repo and
 # may import it directly rather than delegating via subprocess).
@@ -114,42 +116,46 @@ def _install_resolver(install_root: Path) -> None:
 def _init_git_repo(path: Path) -> str:
     """Init a bare git repo at *path*, return the initial commit SHA."""
     path.mkdir(parents=True, exist_ok=True)
-    # Review: code-reviewer (F15) — git init -b main requires git ≥ 2.28; fall back to
+    # git init -b main requires git ≥ 2.28; fall back to
     # plain init + branch rename for older git (e.g. Apple Git on macOS ≤ 2.27).
     try:
-        subprocess.run(["git", "init", "-b", "main", str(path)], check=True, capture_output=True)
+        subprocess.run(["git", "init", "-b", "main", str(path)], check=True, capture_output=True, **_NO_CONSOLE)
     except subprocess.CalledProcessError:
-        subprocess.run(["git", "init", str(path)], check=True, capture_output=True)
-        subprocess.run(["git", "-C", str(path), "checkout", "-b", "main"], capture_output=True)
+        subprocess.run(["git", "init", str(path)], check=True, capture_output=True, **_NO_CONSOLE)
+        subprocess.run(["git", "-C", str(path), "checkout", "-b", "main"], capture_output=True, **_NO_CONSOLE)
     subprocess.run(
         ["git", "-C", str(path), "config", "user.email", "test@example.com"],
         check=True,
         capture_output=True,
+        **_NO_CONSOLE,
     )
     subprocess.run(
         ["git", "-C", str(path), "config", "user.name", "Test"],
         check=True,
         capture_output=True,
+        **_NO_CONSOLE,
     )
     return ""
 
 
 def _git_commit_all(repo: Path, message: str) -> str:
     """Stage all files in *repo* and commit; return the commit SHA."""
-    # Review: code-reviewer — git add -A is forbidden by the skill's Commit Safety Rule;
+    # git add -A is forbidden by the skill's Commit Safety Rule;
     # use scoped staging (`add -- .` within the repo) to keep the test suite consistent
     # with the rule it protects.
-    subprocess.run(["git", "-C", str(repo), "add", "--", "."], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(repo), "add", "--", "."], check=True, capture_output=True, **_NO_CONSOLE)
     subprocess.run(
         ["git", "-C", str(repo), "commit", "-m", message],
         check=True,
         capture_output=True,
+        **_NO_CONSOLE,
     )
     result = subprocess.run(
         ["git", "-C", str(repo), "rev-parse", "HEAD"],
         check=True,
         capture_output=True,
         text=True,
+        **_NO_CONSOLE,
     )
     return result.stdout.strip()
 
@@ -178,6 +184,7 @@ def _run_script(
         capture_output=True,
         text=True,
         cwd=str(tmp_path),
+        **_NO_CONSOLE,
     )
     try:
         data = json.loads(result.stdout)
@@ -220,7 +227,6 @@ def baseline_scenario(tmp_path: pytest.TempPathFactory):
         _init_git_repo(clone)
 
         # Write source files at the clone root (no plugins/ subdir — matches the OSS publish repo layout).
-        # Review: code-reviewer (A-F4) — corrected from "plugins/ subdir"; SOURCE_DIR is clone root.
         for relpath, content in source_files.items():
             _write(clone / relpath, content)
 
@@ -406,15 +412,10 @@ def test_marketplace_json_excluded_from_consumer_modified(baseline_scenario, tmp
 # ---------------------------------------------------------------------------
 
 
-# Review: code-reviewer — renamed from test_offline_invalid_clone_gives_offline_status.
-# The original test passed a non-git dir which trips the exit-4 pre-flight guard BEFORE
-# _emit_offline runs, so the offline JSON path (AC4) was never exercised — the
-# `if "update_status" in data` assertion vacuously passed. This test is retained to cover
-# the pre-flight guard specifically; the _emit_offline git-failure JSON path is covered
-# indirectly by test_invalid_clone_preflight_guard (non-git dir hits the guard that calls
-# _emit_offline) and is NOT separately unit-tested.
-# Review: code-reviewer (A-F3) — removed stale promise of "a separate test below"; the
-# clone-root regression test (test_clone_root_no_plugins_subdir_is_valid_not_offline) replaced it.
+# A non-git dir trips the exit-4 pre-flight guard BEFORE _emit_offline runs, so this test
+# covers the pre-flight guard specifically; the _emit_offline git-failure JSON path is NOT
+# separately unit-tested. The clone-root case is covered by
+# test_clone_root_no_plugins_subdir_is_valid_not_offline.
 def test_invalid_clone_preflight_guard(tmp_path):
     """Pre-flight guard: providing a non-git dir as --clone triggers the 'not a valid
     git repo' exit-4 guard BEFORE _emit_offline. Verifies non-zero exit and that
@@ -660,6 +661,7 @@ def test_hung_git_clone_does_not_wedge_forever(tmp_path, monkeypatch):
         cwd=str(tmp_path),
         env=env,
         timeout=25,  # pytest-level safety net — must never actually fire
+        **_NO_CONSOLE,
     )
     elapsed = time.monotonic() - start
 

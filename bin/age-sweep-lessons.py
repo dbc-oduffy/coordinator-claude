@@ -195,7 +195,7 @@ _GIT_MV_BATCH_BUDGET = 20000
 
 
 def _batched_git_mv_into_dir(
-    srcs: list, dst_dir, repo_root, creationflags_kwargs: dict
+    srcs: list, dst_dir, repo_root, no_console_kwargs: dict
 ) -> int | None:
     """`git mv` every `srcs` entry into `dst_dir` (same target for all, so
     basenames are preserved) using as few spawns as the argv-length budget
@@ -225,7 +225,7 @@ def _batched_git_mv_into_dir(
             ["git", "mv", *[str(s) for s in batch], str(dst_dir)],
             capture_output=True,
             cwd=str(repo_root),
-            **creationflags_kwargs,
+            **no_console_kwargs,
         )
         if result.returncode != 0:
             err = result.stderr.decode("utf-8", errors="replace").strip()

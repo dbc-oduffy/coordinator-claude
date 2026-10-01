@@ -119,8 +119,7 @@ const SCRATCH_DIR = `${REPO_ROOT}/state/scratch/deep-architecture-survey/${RUN_I
 // sub-batch's `parallel()` call to completion before starting the next — batches are NEVER
 // in flight concurrently. RAMP_SCHEDULE starts smaller than the steady-state cap and grows
 // only after a batch fully succeeds, so a cold-account first batch never risks the full cap.
-// Review: code-reviewer — RAMP_SCHEDULE is the one source of truth for the steady-state cap;
-// the formerly-separate BATCH_SIZE constant was unused and misleadingly named (finding #5).
+// RAMP_SCHEDULE is the one source of truth for the steady-state cap.
 const RAMP_SCHEDULE = [2, 3, 4] // first batch=2, second=3, steady-state=4 thereafter
 
 function rampSizeFor(batchIndex) {
@@ -176,9 +175,9 @@ function looksThrottled(result) {
 async function runBatchWithBackoff(thunks, label) {
   let lastResults = []
   for (let attempt = 0; attempt <= BACKOFF_SCHEDULE_MS.length; attempt += 1) {
-    // Review: code-reviewer — preserve raw (pre-.filter(Boolean)) results so we can discriminate
+    // Preserve raw (pre-.filter(Boolean)) results so we can discriminate
     // "every failure looks like a provider throttle" from "some agents crashed for unrelated
-    // reasons" before committing to a full ~11.5min backoff schedule (finding #4). Wiring
+    // reasons" before committing to a full ~11.5min backoff schedule. Wiring
     // looksThrottled here means a non-throttle failure (e.g. a schema violation) does not pay
     // the full backoff — only a sub-batch where EVERY settled result looks throttled does.
     const rawResults = await parallel(thunks)

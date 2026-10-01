@@ -216,12 +216,11 @@ _NONPERCOLATING_TREES = (
 #: (has a real extension) to count — a bare directory, a trailing placeholder
 #: (`<...>`), a glob (`*`), a template var (`{...}`/`$...`), or a trailing
 #: slash is a convention being described, not a citation being resolved.
-# Review: coordinator:code-reviewer -- F4: `\b` alone still matches
-# "foo.md-style" (word char "d" -> non-word "-" is a boundary), so an
-# adjectival citation ("our internal docs/plans/foo.md-style convention")
-# false-positived as a specific-file citation. The added negative lookahead
-# additionally excludes a trailing hyphen so the extension must be followed
-# by whitespace/punctuation/end-of-token, not more path-shaped text.
+# `\b` alone would match "foo.md-style" (word char "d" -> non-word "-" is a
+# boundary), so an adjectival citation ("our internal docs/plans/foo.md-style
+# convention") would read as a specific-file citation. The negative lookahead
+# excludes a trailing hyphen so the extension must be followed by
+# whitespace/punctuation/end-of-token, not more path-shaped text.
 _FILE_EXTENSION = re.compile(r"\.(md|ya?ml|py|json|jsonl|sh|txt)(?![\w-])")
 _PLACEHOLDER_CHARS = ("<", ">", "*", "{", "}", "$")
 _PATH_TOKEN = re.compile(r"[^\s`)\]\"'>]*")

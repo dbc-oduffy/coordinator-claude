@@ -225,7 +225,9 @@ def _locality_findings(text: str, candidate: Path) -> list:
     if candidate.suffix not in (".py", ".md"):
         return []
     try:
-        return _locality.iter_violations(text, path=candidate)
+        return _locality.iter_violations(
+            text, path=candidate, locator_lenses=_locality.SHIPPED_LOCATOR_LENSES
+        )
     except Exception:
         return []
 
@@ -296,14 +298,11 @@ def _posix_exec_findings(repo_root: Path, relpath_str: str, candidate: Path) -> 
 #: `_WIKI_ANCHOR`, per state/relocations/guard-message-cap/
 #: nudge-new-file-zero-budget-ratchets.py.md.
 #:
-#: Review: code-reviewer, Finding 3 -- these are noun-phrase remedy
+#: These are noun-phrase remedy
 #: descriptions, not runnable commands or paths, so they belong in the
 #: counted `prose`, not the char-cap-EXEMPT `alternative` slot (that slot
-#: is reserved for a copy-pasteable command/diff/path; some of these
-#: strings only dodged `validate_alternative_shape`'s cheap heuristic by
-#: accident -- see the sibling `_message_envelope.py` fix for the
-#: heuristic gap itself). Folded into prose here rather than reshaped into
-#: fake commands.
+#: is reserved for a copy-pasteable command/diff/path). Folded into prose
+#: here rather than reshaped into fake commands.
 _LOCALITY_SHORT_ALT = {
     "private sibling-repo-name attribution": "use IRREDUCIBLE_LITERALS in _oss_operative_strings.py",
     "drive-rooted windows path": "use pathlib.Path instead of a raw backslash path",

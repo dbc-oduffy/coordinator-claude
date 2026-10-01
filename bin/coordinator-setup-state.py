@@ -22,11 +22,13 @@ Carve-out (cross-repo — this wiki lives in the coordinator-content-repo repo, 
 here).
 
 Usage:
-  coordinator-setup-state.py record <milestone>   # set <milestone>_at if unset (atomic)
+  coordinator-setup-state.py record <milestone>   # set <milestone>_at if unset (atomic);
+                                                   # setup_concluded is a no-op: the installer
+                                                   # writes it at the end of a completed run
   coordinator-setup-state.py check  <milestone>    # exit 0 if recorded, 1 if not
   coordinator-setup-state.py status                # print the receipt (or note absence)
   coordinator-setup-state.py auto-record-if-source-is-live
-                                                    # silent self-heal, always exits 0
+                                                    # retired no-op, always exits 0
 
   milestone in { setup_concluded | orientation_started | orientation_completed }
 

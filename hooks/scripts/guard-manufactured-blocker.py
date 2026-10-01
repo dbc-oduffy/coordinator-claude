@@ -54,9 +54,8 @@ the whole message; see EXEMPTION SCOPE below for why):
     size fork (`fork: null` with the matching detent open) or an unresolved
     XL exit (`route: pm-decision`, `xl_exit: null`) -- predicate copied from
     the sibling engine's `nudge_unrouted_sizing` op (`_appetite_fork_open` /
-    `_post_size_prompt_open`), reimplemented here as a self-contained
-    line-scan (no YAML dependency, matching `_posture.py`'s own stdlib-only
-    convention) since this guard has no sibling engine op to delegate to.
+    `_post_size_prompt_open`), read through
+    `lib/frontmatter_scan.py` since this guard has no sibling engine op to delegate to.
     Conjunctive with the trigger window, like the other lexical exemptions:
     the on-disk fork must be open AND the C5 trigger sentence must itself be
     about the size of the ask. An open post-size prompt exempts the sentence
@@ -163,6 +162,20 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _touch_record import _touch_lines  # noqa: E402
 from _posture import resolve_posture  # noqa: E402
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "lib"))
+from frontmatter_scan import read_text, scan_mapping  # noqa: E402
+
+try:
+    from _git_root_walk import git_root_walk  # noqa: E402
+    from _git_common_dir import resolve_git_common_dir  # noqa: E402
+except Exception:  # import failure degrades to the "cannot evaluate" path
+    def git_root_walk(start=None):  # type: ignore[misc]
+        return None
+
+    def resolve_git_common_dir(git_root):  # type: ignore[misc]
+        return ""
+
 
 
 # The overt handoff-to-PM construct -- the EM directly hands an item to the
@@ -424,75 +437,7 @@ def _repo_root(payload: dict) -> str | None:
     cwd = payload.get("cwd") or os.getcwd()
     if not isinstance(cwd, str):
         return None
-    probe = os.path.abspath(cwd)
-    while True:
-        if os.path.exists(os.path.join(probe, ".git")):
-            return probe
-        parent = os.path.dirname(probe)
-        if parent == probe:
-            return None
-        probe = parent
-
-
-def _resolve_git_dir(dot_git: str) -> str | None:
-    if os.path.isdir(dot_git):
-        return dot_git
-    try:
-        with open(dot_git, "r", encoding="utf-8", errors="replace") as fh:
-            pointer = fh.read().strip()
-    except OSError:
-        return None
-    if not pointer.startswith("gitdir:"):
-        return None
-    target = pointer[len("gitdir:"):].strip()
-    if not target:
-        return None
-    if not os.path.isabs(target):
-        target = os.path.join(os.path.dirname(dot_git), target)
-    return os.path.normpath(target)
-
-
-def _extract_scalar(lines: list[str], key: str) -> str | None:
-    """Flat `key: value` line-scan, matching `_posture.py`'s own idiom."""
-    prefix = key + ":"
-    for line in lines:
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        if stripped.startswith(prefix):
-            value = stripped[len(prefix):].strip()
-            if "#" in value:
-                value = value.split("#", 1)[0].strip()
-            value = value.strip("'\"")
-            return value
-    return None
-
-
-def _extract_detents(lines: list[str]) -> list[str]:
-    """`detents` list values from a flat sizing-object line-scan. Handles
-    both the inline-list shape (`detents: [a, b]`) and the block-list shape
-    (`detents:` followed by `  - a` lines). No general YAML parsing --
-    stdlib-only."""
-    values: list[str] = []
-    collecting = False
-    for raw_line in lines:
-        stripped = raw_line.strip()
-        if not collecting:
-            if not stripped.startswith("detents:"):
-                continue
-            rest = stripped[len("detents:"):].strip()
-            if rest.startswith("[") and rest.endswith("]"):
-                inner = rest[1:-1]
-                return [item.strip().strip("'\"") for item in inner.split(",") if item.strip()]
-            collecting = True
-            continue
-        if stripped.startswith("- "):
-            values.append(stripped[2:].strip().strip("'\""))
-        elif stripped == "":
-            continue
-        else:
-            break
-    return values
+    return git_root_walk(cwd)
 
 
 def _is_null_scalar(value: str | None) -> bool:
@@ -533,21 +478,22 @@ def _sizing_object_exempts(repo_root: str, rel_path: str) -> bool:
     failure reads as "cannot prove the exemption doesn't apply" -> True ->
     silence, matching a fail-toward-silence posture on every hard-exemption
     read."""
-    try:
-        with open(os.path.join(repo_root, rel_path), "r", encoding="utf-8") as fh:
-            lines = fh.readlines()
-    except OSError:
+    text = read_text(os.path.join(repo_root, rel_path))
+    if text is None:
         return True
 
-    route = _extract_scalar(lines, "route")
-    fork = _extract_scalar(lines, "fork")
-    xl_exit = _extract_scalar(lines, "xl_exit")
-    detents = _extract_detents(lines)
+    m = scan_mapping(text)
+    route = m.get("route")
+    fork = m.get("fork")
+    xl_exit = m.get("xl_exit")
+    detents = m.get("detents")
+    if not isinstance(detents, list):
+        detents = []
 
     # A recorded `pm_resolution` block IS the answer to the post-size
     # prompt; `fork` alone cannot carry that signal since the engine emits
     # it null unless the PM's answer happens to be cut- or raise-shaped.
-    if any(line.strip().startswith("pm_resolution:") for line in lines):
+    if "pm_resolution" in m:
         return False
 
     fork_open = (
@@ -571,7 +517,7 @@ def _sizing_exemption_applies(payload: dict) -> bool:
     repo_root = _repo_root(payload)
     if repo_root is None:
         return False
-    git_dir = _resolve_git_dir(os.path.join(repo_root, ".git"))
+    git_dir = resolve_git_common_dir(repo_root) or None
     if not git_dir:
         return False
     sizing_paths = [

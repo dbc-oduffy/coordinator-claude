@@ -166,10 +166,10 @@ _TRANSPORT_DENY_MSG = (
     "in place until it returns. That is not merely slower — with one foreground dispatch "
     "outstanding the EM cannot issue the REST of its wave, reconcile plans, or answer the "
     "PM until the agent finishes or the PM manually backgrounds it (ctrl+b). "
-    "NOTE: the claude-klabauter engine was unreachable for this call, so this gate could not consult "
+    "NOTE: the coordinator engine was unreachable for this call, so this gate could not consult "
     "the session escape hatch (.foreground-ok) and could not auto-reroute you to background "
-    "as it normally would. Reissue with `run_in_background: true`. If you need the hatch, "
-    "the engine has to be repaired first — check that claude-klabauter resolves on this machine."
+    "as it normally would. Reissue with `run_in_background: true`. The hatch works again "
+    "once the engine is reachable."
 )
 
 

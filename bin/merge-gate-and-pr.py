@@ -108,7 +108,7 @@ import sys
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
-def _win_portability_flags() -> dict:
+def _no_console_flags() -> dict:
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_engine_on_path
 
@@ -125,7 +125,7 @@ def _commit_log(commit_range: str) -> str:
         capture_output=True,
         text=True,
         check=False,
-        **_win_portability_flags(),
+        **_no_console_flags(),
     )
     return proc.stdout.rstrip("\n")
 
@@ -183,7 +183,7 @@ def _changed_files(commit_range: str) -> list[str]:
         capture_output=True,
         text=True,
         check=False,
-        **_win_portability_flags(),
+        **_no_console_flags(),
     )
     return [line for line in proc.stdout.splitlines() if line]
 
@@ -335,6 +335,7 @@ def _gh_pr_view_json(pr: str, jq_field: str) -> tuple[int, str]:
         capture_output=True,
         text=True,
         check=False,
+        **_no_console_flags(),
     )
     return proc.returncode, proc.stdout.strip()
 

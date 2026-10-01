@@ -53,12 +53,8 @@ class Finding:
     disk_matches_head: bool
 
     def render(self) -> str:
-        agreement = (
-            "on-disk content is byte-identical to HEAD"
-            if self.disk_matches_head
-            else "on-disk content differs from HEAD"
-        )
-        return f"{self.path} -- staged for deletion, still on disk, {agreement}"
+        agreement = "disk = HEAD" if self.disk_matches_head else "disk differs from HEAD"
+        return f"{self.path} ({agreement})"
 
 
 def parse_name_status_z(raw: str) -> "list[tuple[str, str]]":
@@ -125,29 +121,17 @@ def classify(
     return findings
 
 
-def render_report(findings: "list[Finding]", override_env: str) -> str:
+def render_report(findings: "list[Finding]") -> str:
     """Says what will happen, not what is wrong -- a guard that only names a
-    rule gets overridden without being read."""
+    rule gets overridden without being read. The override lives in the wiki
+    page the last line points at, never in this text."""
     lines = [
-        "BLOCKED: this commit stages the deletion of "
-        f"{len(findings)} path(s) that are still in HEAD and still on disk.",
-        "",
-        "On a shared tree this is usually a stale `.git/index`: a peer loaded the",
-        "index before HEAD advanced and wrote it back after, so the index has",
-        "forgotten a file that was committed in between. Committing now erases a",
-        "live artifact inside a commit about something else.",
-        "",
+        f"BLOCKED: this commit deletes {len(findings)} path(s) still in HEAD and on disk"
+        " (stale shared index?):",
     ]
     lines += [f"  {f.render()}" for f in findings]
     lines += [
-        "",
-        "To fix rather than bypass -- refresh the index against HEAD:",
-        "    git reset -- <path>        # drop the phantom staged deletion",
-        "    git status -- <path>       # expect the path to go quiet",
-        "",
-        "Committing a narrower pathspec also avoids it: a `git commit -- <paths>`",
-        "that excludes these paths cannot carry them.",
-        "",
-        f"If the deletion is genuinely intended, set {override_env}=1 for this commit.",
+        "Fix: git reset -- <path>, then commit again.",
+        "Intended deletion: coordinator/docs/wiki/concurrent-em-git-operations/concurrent-em-hazards.md H2.",
     ]
     return "\n".join(lines)

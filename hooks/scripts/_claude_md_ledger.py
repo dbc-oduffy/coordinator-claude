@@ -75,7 +75,7 @@ _HEADING_RE = re.compile(r"^(#{2,3})\s+(.+?)\s*$")
 _DEMOTE_TARGET_RE = re.compile(r"`([^`]*(?:\.md|/)[^`]*)`")
 
 #: A fenced-code-block delimiter (``` or ~~~, three-or-more of either char,
-#: optionally indented). Review: code-reviewer — F3: `_HEADING_RE` has no
+#: optionally indented). `_HEADING_RE` has no
 #: fence awareness on its own, so a `## `/`### `-prefixed line inside a fence
 #: (a shell comment, a markdown-syntax illustration in an example) would
 #: otherwise parse as a real heading. `extract_headings`/`split_into_sections`
@@ -100,7 +100,7 @@ class LedgerError(Exception):
 
 class DuplicateHeadingError(LedgerError):
     """Raised when a CLAUDE.md-class file contains two `##`/`###` headings
-    with identical text. Review: code-reviewer — F2: `split_into_sections`
+    with identical text. `split_into_sections`
     keys its section-body dict on heading text; a duplicate would otherwise
     silently overwrite the first occurrence, which can mask real growth or
     manufacture a false one and let the admission gate validate against the
@@ -161,7 +161,7 @@ def parse_ledger(ledger_path: Path) -> List[LedgerRow]:
             continue
         cells = _split_table_cells(stripped)
         if len(cells) != 5:
-            # Review: code-reviewer — F4: a malformed row (e.g. a Reason
+            # A malformed row (e.g. a Reason
             # cell embedding an unescaped "|") must fail loud, not silently
             # drop the row -- a dropped row causes over-refusal ("no ledger
             # row") that is indistinguishable from an unclassified heading,

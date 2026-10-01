@@ -143,7 +143,7 @@ const BATCHES = (loadedInput && loadedInput.batches) || RAW_ARGS_INPUT.batches
 // topicKeys exist) is superseded by wikiDirs/wikiSlugs (disk-resolved, slug-keyed). Back-compat:
 // tolerate a caller still passing the legacy wikiInventory shape — don't crash, just derive an
 // empty slug index (no disk-resolved targeting, same behavior as a fresh repo with no wiki yet).
-// Review: code-reviewer (Finding 2) — `[]` is truthy, so `INPUT.wikiDirs: []` would leave
+// `[]` is truthy, so `INPUT.wikiDirs: []` would leave
 // WIKI_DIRS empty (WIKI_DIRS[0] === undefined -> broken "undefined/<slug>.md" paths downstream)
 // without this explicit length guard.
 const wikiDirsCandidate = (loadedInput && loadedInput.wikiDirs) || RAW_ARGS_INPUT.wikiDirs
@@ -265,7 +265,7 @@ const NUGGET_SCHEMA = {
     // AC3 / market-intel signal #1: the RETURNED nuggets_file path is authoritative in the
     // sense that the agent chooses it (may ignore the caller-suggested scratch path and
     // prefer its own session scratchpad) — but it is a debug/audit trail only, NOT consumed
-    // downstream. Review: code-reviewer (Finding 1) — clustering reads the schema-validated
+    // downstream. Clustering reads the schema-validated
     // `nuggets[]` array below directly; it never opens `nuggets_file`. Do not add a read of
     // this path — that would double-source the same data from two places.
     nuggets_file: { type: 'string' },
@@ -342,7 +342,7 @@ const NUGGET_SCHEMA = {
 phase('scan')
 // D2: real, disk-resolved slug names (not a topicKey-keyed guess) so Haiku can mark
 // ALREADY_CAPTURED against files that genuinely exist, not a Phase-0 guess.
-// Review: code-reviewer (Finding 4) — pass slug + path (not bare slugs) so the scan agent has
+// Pass slug + path (not bare slugs) so the scan agent has
 // a concrete path it could open and read the guide content against, rather than only being
 // able to string-match its own tag against an opaque slug label.
 const EXISTING_WIKI_SLUG_NAMES = Object.entries(WIKI_SLUGS)
@@ -2505,7 +2505,7 @@ Phase 5 (apply) are downstream of this Workflow.`
 // Cross-Repo Archive Specialist Branch merge — pre-converted crossRepoDispositions rows are
 // spliced into the Phase 3d deletion manifest here. Absent/empty input is a clean no-op, logged
 // the same way as the script's other covered/total lines rather than silently capped.
-// Review: code-reviewer (P1) — these rows originate from the Cross-Repo Archive Specialist
+// These rows originate from the Cross-Repo Archive Specialist
 // Branch, not from the Phase 3d deletion-manifest agent, so they must not be dropped merely
 // because phase3d itself is 'suppressed'/'skipped-empty'/'agent-failed'. Merged unconditionally;
 // when phase3d never actually ran, `cross_repo_merged_without_manifest` flags the manifest as
@@ -2576,12 +2576,12 @@ let reentryRoundsRun = 0
 let currentDeletions = phase3d.deletions || []
 const reentryLog = []
 
-// Review: code-reviewer (F3) / EM direction — a cross-repo-originated row never enters this
+// A cross-repo-originated row never enters this
 // repo's re-entry loop, regardless of phase3d.status: the loop's whole action is "re-open this
 // file and integrate it into docs/wiki," a same-repo harvest, and a cross-repo artifact is not
 // this run's to re-harvest. Resolved to BLOCKED here, before the loop, naming the actual external
 // condition — never the reentry cap, since it never ran a round. One rule, not one keyed on
-// phase3d.status (that dependency was the F1/F3 defect: same row, same repo, different terminus
+// phase3d.status (keying on it would give the same row, same repo, a different terminus
 // depending on whether the local Phase 3d agent happened to run).
 const crossRepoBlockedPaths = []
 currentDeletions = currentDeletions.map((d) => {
@@ -2701,9 +2701,8 @@ const artifactReentry = {
   rounds_run: reentryRoundsRun,
   cap: SEND_BACK_REENTRY_CAP,
   rounds: reentryLog,
-  // Review: code-reviewer (P2) — `final_send_back_count` was dead code: computed after the
-  // cap-conversion above already flips every remaining SEND_BACK to BLOCKED, so it could never
-  // read non-zero. `capped_to_blocked.length` already carries the equivalent signal.
+  // No final send-back count: the cap-conversion above flips every remaining SEND_BACK to
+  // BLOCKED, so it would always read zero. `capped_to_blocked.length` carries the signal.
   capped_to_blocked: cappedArtifactPaths,
 }
 

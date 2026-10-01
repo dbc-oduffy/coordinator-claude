@@ -53,6 +53,14 @@ from typing import Iterable, List, Optional, Tuple
 
 import yaml
 
+
+def _no_console_kw() -> dict:
+    """Console-suppression kwargs for a captured spawn; empty off Windows."""
+    if os.name != "nt":
+        return {}
+    return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+
+
 EXIT_CLEAN = 0
 EXIT_BROKEN = 1
 EXIT_USAGE = 2
@@ -146,6 +154,7 @@ def changed_paths(repo: Path, ref: str) -> List[Path]:
         ["git", "-C", str(repo), "diff", "--name-only", "--diff-filter=ACMR", ref],
         capture_output=True,
         text=True,
+        **_no_console_kw(),
     )
     if proc.returncode != 0:
         print(

@@ -78,6 +78,9 @@ except Exception:
         return None, "none"
 
 
+# foreign-identity: SUBJECT — the advisory fires only when the session's own cwd
+# crosses the sibling repo boundary, so naming that repo and coordinator-content-repo is the
+# report itself (census audit N2).
 _REMEDIATION = (
     "[cross-repo boundary] this session just crossed into or out of the claude-klabauter "
     "sibling repo. No standing cross-repo commit grant survives in either direction "

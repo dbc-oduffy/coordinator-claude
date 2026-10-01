@@ -8,27 +8,29 @@ def _import_main():
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_dispatch_engine_on_path
 
-    claude_klabauter_root = require_dispatch_engine_on_path()
-    from coordinator_core.ops.archive_auto_memory_rows import main as _op_main
+    require_dispatch_engine_on_path()
+    from coordinator_core.cli_entry import run_op_main
 
-    return _op_main
+    return run_op_main
 
 
 def main(argv: "list[str] | None" = None) -> int:
     try:
-        op_main = _import_main()
+        run_op_main = _import_main()
     except RuntimeError as exc:
         print(f"archive-auto-memory-rows: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
         return 1
     except ImportError as exc:
         print(
-            f"archive-auto-memory-rows: coordinator_core.ops.archive_auto_memory_rows "
-            f"not importable: {exc}",
+            f"archive-auto-memory-rows: coordinator_core.cli_entry not importable: {exc}",
             file=sys.stderr,
         )
         return 1
 
-    return op_main((sys.argv[1:] if argv is None else argv))
+    return run_op_main(
+        "coordinator_core.ops.archive_auto_memory_rows",
+        (sys.argv[1:] if argv is None else argv),
+    )
 
 
 if __name__ == "__main__":

@@ -101,7 +101,7 @@ _RESTRICTED_SUBAGENT_TYPES = ("Explore", "Plan")
 #: DELIVERY reason. These are the agent definitions that report by returning
 #: a pointer line -- naming one converts it into an Agent-teams teammate whose
 #: final text is never delivered to the dispatcher, so the report is silently
-#: voided (claude-klabauter-em, 2026-08-25, transcript-backed; filed at
+#: voided (engine-side report, 2026-08-25, transcript-backed; filed at
 #: state/improvement-queue/2026-08-25-named-dispatch-voids-a-reporting-agents-report.yaml).
 #: Stripping `name` restores ordinary tool-result delivery.
 #:
@@ -328,7 +328,7 @@ def compute_named_dispatch_result(tool_input: dict) -> Optional[tuple[str, Any, 
     naming a reporting agent discards nothing -- it costs a report that may
     be lost, which is exactly today's behaviour, so denying would trade a
     sometimes-lost report for a certainly-dead dispatch. Symmetry here would
-    be a defect: claude-klabauter-em measured 410 report-eligible named
+    be a defect: the engine's maintainers measured 410 report-eligible named
     dispatches in two weeks, peak 103/day, so a fail-closed delivery leg
     turns one unreconciled `tool_input` key into ~100 hard-denied dispatches
     in a day. Deny where confinement is at stake; pass where it is not.

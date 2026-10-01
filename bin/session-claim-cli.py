@@ -48,7 +48,7 @@
 #     0, same as before) — the note is additive output only, distinct in
 #     BOTH output and exit code from a live-holder refusal (which prints
 #     "refusing to clear claim ... holder is live" and exits 1).
-#   claim-plan <slug> [--for-execution] -> claims.claim_plan(slug, for_execution=...)
+#   claim-plan <slug> [--for-execution] [--plan-path <rel>] -> claims.claim_plan(slug, for_execution=..., plan_path=...)
 #     --for-execution is passed ONLY by /execute-plan Step 0 (DoE SKILL.md) —
 #     it gates claims.claim_plan's stamp-executing status flip (C4,
 #     docs/plans/2026-08-20-the-rungs-get-writers.md); the other two
@@ -63,7 +63,7 @@
 #                 empty result is success, not failure, same contract as
 #                 list-stale-claim-handoffs.
 #     exit 3   -> transport failure (the engine root unresolvable / ImportError).
-#   is-session-live <SID> [cwd] -> liveness.session_live(SID, cwd)
+#   is-session-live <SID> [cwd] -> liveness.session_live_with_basis(SID, cwd)
 #     stdout line 1: exactly one word — "live" | "live-elsewhere" | "dead" |
 #       "indeterminate". "live" | "dead" | "indeterminate" are UNCHANGED
 #       position/spelling from before liveness_basis was added (AC9) — an
@@ -75,22 +75,20 @@
 #       this plan's own Problem statement in this CLI.
 #     stdout line 2 (live/dead/live-elsewhere verdicts ONLY, i.e. exit 0 or
 #       exit 1 below):
-#       "liveness_basis:<value>", where <value> is holder_evidence.
-#       liveness_basis()'s vocabulary ("harness-registry" | "stable-pid" |
-#       "stable-pid-shared" | "recency-window" | "recency-window-mtime" |
-#       "no-record" | "harness-registry-elsewhere" | "unknown") — additive
-#       output (AC7/AC8), never emitted
-#       on the malformed-SID or transport-failure paths since those carry no
-#       decided verdict to attach a basis to. A basis-derivation failure
-#       degrades to "unknown" on this line; it never changes the line-1
-#       token or the exit code.
+#       "liveness_basis:<value>", the arm that concluded THIS verdict, taken
+#       from the same single read as line 1 (liveness.session_live_with_basis):
+#       "harness-registry" | "stable-pid" | "stable-pid-shared" |
+#       "recency-window" | "recency-window-mtime" |
+#       "harness-registry-elsewhere" | "unknown". Never emitted on the
+#       malformed-SID or transport-failure paths since those carry no decided
+#       verdict to attach a basis to.
 #     exit 0   -> live.
 #     exit 1   -> NOT live in THIS repo (dead, or live-elsewhere) — see line
 #                 1 to distinguish; exit code is UNCHANGED for compat.
 #     exit 2   -> usage error (missing SID arg).
 #     exit 3   -> transport failure (the engine root unresolvable / ImportError),
-#                 OR liveness.session_live itself raised unexpectedly (e.g.
-#                 MissingPsutilError propagating past a Layer-1 arm) — reused
+#                 OR liveness.session_live_with_basis itself raised unexpectedly
+#                 (or the mirrored liveness module predates it) — reused
 #                 rather than a new code (Review: staff-eng-review A): 3
 #                 already means "the claude-klabauter engine could not be reached,
 #                 never silently degraded", and an uncaught raise here is
@@ -132,6 +130,8 @@
 #     Reads never block a peer commit, but they ARE listed here: this is the
 #     inspection instrument, and "nobody is reading this" and "somebody is
 #     reading this and it does not block you" are different answers.
+#     The FIFTH column is `blocks` (yes when the holder reads live, else no),
+#     derived from the same liveness read; the footer goes to stderr.
 #     The third column (C2, docs/plans/2026-09-01-the-claim-record-carries-
 #     the-name.md) is PROVENANCE, not an address ready for SendMessage --
 #     see _render_claimant_name's docstring for the three-rung resolution
@@ -242,13 +242,13 @@ def _dispatch_import(dotted_name: str):
     import path" remedy) instead of a raw one.
 
     Not every bare import in this file routes through here.
-    ``_import_harness_registry_module`` and ``_import_holder_evidence_module``
-    stay on the plain ``_bootstrap_engine`` + bare-import shape deliberately:
-    each of their call sites already wraps the call in a broad ``except Exception`` that
+    ``_import_harness_registry_module`` stays on the plain
+    ``_bootstrap_engine`` + bare-import shape deliberately: its call site
+    already wraps the call in a broad ``except Exception`` that
     degrades to ``None``/``"unknown"``/a marker (best-effort diagnostics,
     never a verdict), so an ``ImportError`` there was never a raw traceback
     to begin with — there is nothing for the diagnosis to improve, and
-    routing them through here would only widen this seam's surface for no
+    routing it through here would only widen this seam's surface for no
     behaviour change.
     """
     return _cc_invoke().require_dispatch_module(dotted_name)
@@ -288,30 +288,6 @@ def _import_harness_registry_module():
     import coordinator_core.session.harness_registry as _mod
 
     return _mod
-
-
-def _import_holder_evidence_module():
-    """Separate seam from ``_import_liveness_module`` so ``is-session-live``'s
-    AC7 basis line can be stubbed independently of the live/dead verdict in
-    tests, mirroring the claims/liveness/stale_claims seam split above."""
-    claude_klabauter_root = _bootstrap_engine()
-    import coordinator_core.session.holder_evidence as _mod
-
-    return _mod
-
-
-def _liveness_basis_for(sid: str, cwd) -> str:
-    """AC7/AC8: report the SAME basis ``holder_evidence.liveness_basis``
-    already derives, never a second computation. Fail-soft by construction
-    (mirrors that module's own contract): any import or lookup failure here
-    degrades to ``"unknown"`` rather than raising — the basis line is
-    additive output (AC9) and must never take down the live/dead verdict
-    this subcommand already resolved before calling this helper."""
-    try:
-        mod = _import_holder_evidence_module()
-        return mod.liveness_basis(sid, cwd)
-    except Exception:  # noqa: BLE001 - fail-soft additive output, see docstring
-        return "unknown"
 
 
 _UNNAMED_MARKER = "<unnamed>"
@@ -747,13 +723,22 @@ def _dispatch(argv: list[str]) -> int:
         return _call_claim_bool("clear-claim-if-dead", mod.clear_claim_if_dead, class_, basename, baton_repo_root)
 
     if subcmd == "claim-plan":
-        if not rest:
-            return _usage("session-claim-cli claim-plan <slug> [--for-execution]")
-        for_execution = "--for-execution" in rest
-        positional = [a for a in rest if a != "--for-execution"]
-        if not positional:
-            return _usage("session-claim-cli claim-plan <slug> [--for-execution]")
-        return _bool_to_exit(mod.claim_plan(positional[0], for_execution=for_execution))
+        usage = "session-claim-cli claim-plan <slug> [--for-execution] [--plan-path <repo-relative path>]"
+        args = list(rest)
+        plan_path = None
+        if "--plan-path" in args:
+            i = args.index("--plan-path")
+            if i + 1 >= len(args):
+                return _usage(usage)
+            plan_path = args[i + 1]
+            del args[i : i + 2]
+        for_execution = "--for-execution" in args
+        positional = [a for a in args if a != "--for-execution"]
+        if len(positional) != 1 or positional[0].startswith("--"):
+            return _usage(usage)
+        return _bool_to_exit(
+            mod.claim_plan(positional[0], for_execution=for_execution, plan_path=plan_path)
+        )
 
     if subcmd == "take-over-claim":
         _usage_line = (
@@ -862,17 +847,16 @@ def _dispatch(argv: list[str]) -> int:
             )
             return _TRANSPORT_FAIL
         try:
-            live = liveness_mod.session_live(sid, cwd)
+            live, basis = liveness_mod.session_live_with_basis(sid, cwd)
         except Exception as exc:  # noqa: BLE001 - see docstring below
             print("indeterminate")
             print(
-                f"session-claim-cli: is-session-live: session_live raised "
+                f"session-claim-cli: is-session-live: session_live_with_basis raised "
                 f"{type(exc).__name__}: {exc} — could not determine liveness "
                 f"(exit {_TRANSPORT_FAIL}), NOT a not-live verdict (exit {_NOT_LIVE})",
                 file=sys.stderr,
             )
             return _TRANSPORT_FAIL
-        basis = _liveness_basis_for(sid, cwd)
         if live:
             print("live")
         elif basis == "harness-registry-elsewhere":
@@ -952,7 +936,10 @@ def _dispatch(argv: list[str]) -> int:
                 return _TRANSPORT_FAIL
             name_col = _render_claimant_name(sid, path, lookup_result)
             kind_col = _render_claimant_kind(sid, path, lookup_result)
-            rows.append(f"{sid}\t{'live' if live else 'dead'}\t{name_col}\t{kind_col}")
+            rows.append(
+                f"{sid}\t{'live' if live else 'dead'}\t{name_col}\t{kind_col}"
+                f"\t{'yes' if live else 'no'}"
+            )
         if not rows:
             # A5/DD4 -- SC-DR-023's own caveat, cited verbatim rather than
             # paraphrased (Review: coordinator:staff-eng -- register is one
@@ -967,6 +954,12 @@ def _dispatch(argv: list[str]) -> int:
             )
         for row in rows:
             print(row)
+        if rows:
+            print(
+                "Only rows with blocks=yes can refuse a commit; "
+                "a dead holder's touch is inert.",
+                file=sys.stderr,
+            )
         return 0
 
     if subcmd == "list-stale-claim-handoffs":

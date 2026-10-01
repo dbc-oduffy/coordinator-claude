@@ -161,10 +161,10 @@ _TRACK_REF_KEY = "publish.mirrors.claude_klabauter.track_ref"
 
 
 def _run(cmd, **kwargs) -> subprocess.CompletedProcess:
-    kwargs.setdefault("creationflags", getattr(subprocess, "CREATE_NO_WINDOW", 0))
     kwargs.setdefault("capture_output", True)
     kwargs.setdefault("text", True)
-    return subprocess.run(cmd, **kwargs)
+    no_console_kwargs = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0), **kwargs}
+    return subprocess.run(cmd, **no_console_kwargs)
 
 
 def _resolve_tree() -> Optional[str]:

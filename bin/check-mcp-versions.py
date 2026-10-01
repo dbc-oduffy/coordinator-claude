@@ -9,6 +9,14 @@ import shutil
 import subprocess
 import sys
 
+
+def _no_console_kw() -> dict:
+    """Console-suppression kwargs for a captured spawn; empty off Windows."""
+    if os.name != "nt":
+        return {}
+    return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+
+
 GENERATES = []
 
 COOLDOWN_DAYS = 7
@@ -104,6 +112,7 @@ def _npm_latest(pkg: str) -> str | None:
             text=True,
             timeout=30,
             check=False,
+            **_no_console_kw(),
         )
     except (OSError, subprocess.TimeoutExpired):
         return None

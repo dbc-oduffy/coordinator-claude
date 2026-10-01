@@ -95,7 +95,7 @@ _CLAUDE_KLABAUTER_ROOT_REMEDIATION = (
     "    python3 <claude-klabauter>/scripts/setup.py   (installs and registers the engine)\n"
     "    On a cloud/container box with no prior install: "
     "python3 <claude-klabauter>/scripts/cloud_setup.py\n"
-    "  Reference: plugins/coordinator/docs/wiki/machine-local-registry.md §4c"
+    "  Reference: plugins/coordinator-claude/coordinator/docs/wiki/machine-local-registry.md §4c"
 )
 
 # Back-compat alias, same shape as `cc_invoke._resolve_claude_klabauter_root`
@@ -328,6 +328,8 @@ def _claude_klabauter_root_gate_empty_remediation(candidate: str, *, source: str
     """
     if source == "machine-local repos.claude_klabauter":
         return _CLAUDE_KLABAUTER_ROOT_REMEDIATION
+    # foreign-identity: SUBJECT — remedy names the candidate/checkout the reader must
+    # confirm or register (machine-local set repos.claude_klabauter); the name is the fix.
     return (
         f"cc_invoke: cannot resolve the engine root — candidate {candidate!r} (from {source}) "
         "imported coordinator_core.engine_root but the gated ladder returned no root.\n"
@@ -335,7 +337,7 @@ def _claude_klabauter_root_gate_empty_remediation(candidate: str, *, source: str
         f"    Confirm {candidate!r} is a genuine, stamped claude-klabauter checkout.\n"
         "    machine-local set repos.claude_klabauter /path/to/claude-klabauter\n"
         "    python3 <claude-klabauter>/scripts/setup.py   (installs and registers the engine)\n"
-        "  Reference: plugins/coordinator/docs/wiki/machine-local-registry.md §4c"
+        "  Reference: plugins/coordinator-claude/coordinator/docs/wiki/machine-local-registry.md §4c"
     )
 
 

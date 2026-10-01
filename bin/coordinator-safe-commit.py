@@ -99,7 +99,7 @@ governing whether a caller may run this script's underlying `git commit` —
 the guard, not a flag this script parses.
 
 Canonical invocation:
-  ~/.claude/plugins/coordinator/bin/coordinator-safe-commit "<subject>"
+  ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "<subject>"
 
 Usage forms:
   coordinator-safe-commit "<subject>"                      # default — scoped staging
@@ -1381,6 +1381,7 @@ def _paths_tracked_at_head(worktree_root: str, paths: Sequence[str]) -> "set[str
         capture_output=True,
         text=True,
         check=False,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     if result.returncode != 0:
         detail = (result.stderr or "").strip() or "git ls-tree failed"
@@ -1616,7 +1617,13 @@ def _commit_message_argv(subject: str, body: str) -> List[str]:
 
 def _git_output_lines(git_args: Sequence[str]) -> List[str]:
     try:
-        result = subprocess.run(["git", *git_args], capture_output=True, text=True, check=False)
+        result = subprocess.run(
+            ["git", *git_args],
+            capture_output=True,
+            text=True,
+            check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
     except OSError:
         return []
     if result.returncode != 0:
@@ -1627,7 +1634,11 @@ def _git_output_lines(git_args: Sequence[str]) -> List[str]:
 def _git_rev_parse_head() -> str:
     try:
         result = subprocess.run(
-            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=False
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except OSError:
         return "INITIAL"
@@ -1780,11 +1791,18 @@ def _scoped_commit_suggestion(subject: str) -> str:
     return "\n".join(lines)
 
 
+def _no_console_passthrough_kw() -> dict:
+    """Uncaptured child on Windows: hide the console window without
+    redirecting stdio (stdlib-only; this file is the commit hot path)."""
+    flag = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    return {"creationflags": flag} if flag else {}
+
+
 def _git_add(paths: Iterable[str]) -> None:
     paths = [p for p in paths if p]
     if not paths:
         return
-    subprocess.run(["git", "add", "--", *paths], check=True)
+    subprocess.run(["git", "add", "--", *paths], check=True, **_no_console_passthrough_kw())
 
 
 def _git_add_all_blanket() -> None:
@@ -1796,7 +1814,7 @@ def _git_add_all_blanket() -> None:
     subprocess dies with the call on any exit, same guarantee)."""
     env = dict(os.environ)
     env["_COORDINATOR_SAFE_COMMIT_INTERNAL_BLANKET"] = "1"
-    subprocess.run(["git", "add", "-A"], check=True, env=env)
+    subprocess.run(["git", "add", "-A"], check=True, env=env, **_no_console_passthrough_kw())
 
 
 def _git_diff_cached_names() -> List[str]:
@@ -1813,7 +1831,11 @@ def _git_write_index_tree() -> Optional[str]:
     (unmerged entries, unwritable object store)."""
     try:
         result = subprocess.run(
-            ["git", "write-tree"], capture_output=True, text=True, check=False
+            ["git", "write-tree"],
+            capture_output=True,
+            text=True,
+            check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except OSError:
         return None
@@ -1831,6 +1853,7 @@ def _git_diff_cached_paths_nul(env: Optional[dict] = None) -> List[str]:
             capture_output=True,
             check=False,
             env=env,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except OSError:
         return []
@@ -1873,7 +1896,9 @@ def _refuse_override_blanket(peers: Sequence[str]) -> None:
 
 
 def _git_reset_unstage(path: str) -> None:
-    subprocess.run(["git", "reset", "-q", "HEAD", "--", path], check=False)
+    subprocess.run(
+        ["git", "reset", "-q", "HEAD", "--", path], check=False, **_no_console_passthrough_kw()
+    )
 
 
 def _git_reset_unstage_many(paths: List[str]) -> None:
@@ -1884,12 +1909,17 @@ def _git_reset_unstage_many(paths: List[str]) -> None:
     per-call before."""
     if not paths:
         return
-    subprocess.run(["git", "reset", "-q", "HEAD", "--", *paths], check=False)
+    subprocess.run(
+        ["git", "reset", "-q", "HEAD", "--", *paths], check=False, **_no_console_passthrough_kw()
+    )
 
 
 def _git_diff_cached_is_empty() -> bool:
     result = subprocess.run(
-        ["git", "diff", "--cached", "--quiet"], capture_output=True, check=False
+        ["git", "diff", "--cached", "--quiet"],
+        capture_output=True,
+        check=False,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     return result.returncode == 0
 
@@ -1930,6 +1960,7 @@ def _validate_pathspec(pathspec: str) -> bool:
             capture_output=True,
             text=True,
             check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except OSError:
         return False
@@ -1954,6 +1985,7 @@ def _first_invalid_pathspec(pathspecs: List[str]) -> Optional[str]:
             capture_output=True,
             text=True,
             check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except OSError:
         batch_result = None
@@ -2346,6 +2378,7 @@ def _blanket_invoking_command_allowed() -> bool:
                     capture_output=True,
                     text=True,
                     check=False,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                 )
                 ppid_cmd = result.stdout if result.returncode == 0 else ""
             except OSError:
@@ -2664,7 +2697,10 @@ def do_blanket(session_id: str, args: "Args", cs_core, cs_liveness, cs_claims) -
     _blanket_check_destructive_shape(args.subject)
 
     # Sentinel 2: wrap commit call so mid-call failures surface as a FAIL line.
-    result = subprocess.run(["git", "commit", *_commit_message_argv(args.subject, args.body)])
+    result = subprocess.run(
+        ["git", "commit", *_commit_message_argv(args.subject, args.body)],
+        **_no_console_passthrough_kw(),
+    )
     if result.returncode != 0:
         print(f"FAIL: git commit returned {result.returncode} in do_blanket", file=sys.stderr)
         sys.exit(2)
@@ -2801,7 +2837,9 @@ def do_override(session_id: str, args: "Args", cs_core, cs_liveness) -> None:
     scratch = tempfile.mkdtemp(prefix="coordinator-safe-commit-")
     snap_env = {**os.environ, "GIT_INDEX_FILE": os.path.join(scratch, "index")}
     try:
-        subprocess.run(["git", "read-tree", tree], env=snap_env, check=True)
+        subprocess.run(
+            ["git", "read-tree", tree], env=snap_env, check=True, **_no_console_passthrough_kw()
+        )
         staged_files = _git_diff_cached_paths_nul(snap_env)
 
         base = cs_core.sessions_dir()
@@ -2832,6 +2870,7 @@ def do_override(session_id: str, args: "Args", cs_core, cs_liveness) -> None:
         result = subprocess.run(
             ["git", "commit", *_commit_message_argv(args.subject, args.body)],
             env=snap_env,
+            **_no_console_passthrough_kw(),
         )
     finally:
         shutil.rmtree(scratch, ignore_errors=True)

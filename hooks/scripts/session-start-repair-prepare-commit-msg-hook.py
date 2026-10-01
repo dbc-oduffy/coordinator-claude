@@ -96,6 +96,13 @@ except Exception:
     def _resolve_claude_klabauter_root():  # type: ignore[no-redef]
         return None
 
+try:
+    from _author_root_paths import _content_root_pointer_paths
+except Exception:
+    # Import failure skips the content-root rung; never rebuild the list inline.
+    def _content_root_pointer_paths() -> "list[Path]":  # type: ignore[no-redef]
+        return []
+
 
 _SHIM_MARKER = "coordinator coordinator-prepare-commit-msg hook"
 _SCRIPT_RELATIVE = "coordinator/bin/coordinator-prepare-commit-msg"
@@ -145,16 +152,13 @@ def _candidate_script_paths(repo_root: str) -> list[str]:
     """
     candidates = [str(Path(repo_root) / _SCRIPT_RELATIVE)]
 
-    content_root = ""
-    for pointer_name in (".coordinator-content-root", ".content-root"):  # .content-root: compat-fallback
+    for pointer in _content_root_pointer_paths():
         try:
-            content_root = (Path.home() / ".claude" / pointer_name).read_text(encoding="utf-8").strip()
+            content_root = pointer.read_text(encoding="utf-8").strip()
         except Exception:
-            content_root = ""
+            continue
         if content_root:
-            break
-    if content_root:
-        candidates.append(str(Path(content_root) / _SCRIPT_RELATIVE))
+            candidates.append(str(Path(content_root) / _SCRIPT_RELATIVE))
 
     claude_klabauter_root = None
     try:

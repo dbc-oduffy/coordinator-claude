@@ -197,44 +197,44 @@ def _cdr_content_root_pointer_rung() -> str:
 
 def _cdr_repo_root_from_plugin_root_candidate(candidate: str) -> str:
     """Normalize a CLAUDE_PLUGIN_ROOT-shaped value to the coordinator REPO
-    root this ladder must return (ported from
-    coordinator_registry.py::_mp_repo_root_from_plugin_root_candidate(); do
-    NOT edit that module, see chunk C1E task notes).
+    root this ladder must return.
+
+    Single-sourced (state/debt-backlog/2026-08-08-three-divergent-copies-of-
+    the-plugin-roo-8d584d3b90d3.yaml): delegates to coordinator_core.ops.
+    coordinator_content_root.repo_root_from_plugin_root_candidate(), the same
+    engine helper coordinator_registry.py's wrapper delegates to. This
+    copy's historical shape is reproduced via keyword args so behaviour is
+    unchanged: drive_root_guard="normpath", basename_compare="casefold",
+    manifest_relpath_fallback=False. allow_unchanged_fallback stays True:
+    every candidate here passes through `_cdr_manifest_present` afterward,
+    unlike `coordinator_registry.content_root()`'s rungs (which pass False).
+
+    The normpath/casefold/no-manifest-fallback divergences from the engine's
+    own defaults are inherited from the registry wrapper and are flagged in
+    the engine helper's "KNOWN CROSS-COPY DIVERGENCES" note; do not resolve
+    them here.
 
     CLAUDE_PLUGIN_ROOT is a *content* root: in the private/dev DoE layout
-    this is `<repo_root>/coordinator`, one level below the repo root
-    `data_root()` needs (it appends `"coordinator" / dir_name` itself below
-    — feeding it a content root double-nests to
-    `<repo_root>/coordinator/coordinator/<dir_name>`, which exists nowhere).
-    In the OSS flat layout the content root and repo root coincide.
-    Disambiguate via the `.claude-plugin/plugin.json` marketplace marker:
-    if it sits directly under `candidate`, candidate already IS the repo
-    root; if it sits one level up (candidate's basename is "coordinator"),
-    the repo root is the parent. Otherwise return candidate unchanged as a
-    best-effort fallback — callers still gate on os.path.isdir() /
-    manifest-presence before trusting the result (this ladder's candidates
-    all pass through `_cdr_manifest_present` afterward, unlike
-    `coordinator_registry.content_root()`'s rungs, so the unchanged-fallback
-    here stays safe — see that module's BLOCKER-2 fix for why its call site
-    needed a stricter `allow_unchanged_fallback=False`).
+    `<repo_root>/coordinator`, one level below the repo root `data_root()`
+    needs (it appends "coordinator" / dir_name itself — feeding it a content
+    root double-nests). In the OSS flat layout the two coincide.
 
-    Normalizes via os.path.normpath before
-    stripping trailing separators (a bare rstrip strips a trailing separator
-    off a bare drive-letter root, leaving a form Windows resolves as
-    CWD-relative rather than the drive root) and casefolds the "coordinator"
-    basename compare (a
-    case-insensitive filesystem can hand back "...\\Coordinator", which a
-    case-sensitive == would miss).
+    The engine import is lazy and inside this function (module docstring
+    "Import-time purity"): `cc_invoke.ensure_engine_on_path` is best-effort,
+    so an engine-less environment raises ImportError here, the same as the
+    registry wrapper.
     """
-    stripped = os.path.normpath(candidate).rstrip("/\\")
-    if os.path.isfile(os.path.join(stripped, ".claude-plugin", "plugin.json")):
-        return stripped
-    parent = os.path.dirname(stripped)
-    if os.path.basename(stripped).casefold() == "coordinator" and os.path.isfile(
-        os.path.join(parent, ".claude-plugin", "plugin.json")
-    ):
-        return parent
-    return candidate
+    import cc_invoke
+
+    cc_invoke.ensure_engine_on_path(__file__)
+    from coordinator_core.ops.coordinator_content_root import repo_root_from_plugin_root_candidate
+
+    return repo_root_from_plugin_root_candidate(
+        candidate,
+        drive_root_guard="normpath",
+        basename_compare="casefold",
+        manifest_relpath_fallback=False,
+    )
 
 
 def _cdr_flat_layout_probe_rung() -> str:

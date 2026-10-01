@@ -1114,8 +1114,16 @@ def _resolve_deliverable_id_join(
     scope-path matching" for every non-match shape (no trailer resolved,
     ambiguous session-side, ambiguous baton-side, no baton carries a
     matching id) — the diagnostics list is where those shapes are told
-    apart, not the return value. Returns a populated `CrashRecoveryOutcome`
-    (status "crash-recovery") only on the single unambiguous match."""
+    apart, not the return value.
+
+    A trailer-only match never resolves a disposition: a Deliverable-Id on
+    this session's commit proves only that the commit named the deliverable,
+    not that this session continued the baton. The single match therefore
+    returns `CrashRecoveryOutcome(None, "ambiguous", None)` with a
+    provenance NOTE carrying the confirm route, and the scope-path leg does
+    not run. The claimer is never compared against `sid`: the stale
+    enumerator only yields batons whose claimers are not live, so a
+    comparison could not discriminate."""
     result = session_deliverable_ids(repo_root, sid)
     if not result.ok or not result.deliverable_ids:
         return None
@@ -1155,11 +1163,13 @@ def _resolve_deliverable_id_join(
         # own return above (primary_consumed_handoff_paths).
         rel_path = Path(path).relative_to(repo_root).as_posix()
     diagnostics.append(
-        f"NOTE: chain-terminal resolved by the deliverable_id join (preferred over Detector "
-        f"C's scope-path heuristic): this session's commits carry Deliverable-Id="
-        f"{session_deliverable_id}, matching {rel_path} (claimer {dead_sid}, not live)."
+        f"NOTE: trailer provenance unconfirmed — this session's commits carry "
+        f"Deliverable-Id={session_deliverable_id}, matching {rel_path} (claimer "
+        f"{dead_sid}), but a Deliverable-Id trailer alone does not show this session "
+        f"continued that baton. If it did, export WSC_DISPOSITION=predecessor-consumed "
+        f"and WSC_CONSUMED_HANDOFF={rel_path} before continuing."
     )
-    return CrashRecoveryOutcome(rel_path, "crash-recovery", {"deliverable_id_join": True})
+    return CrashRecoveryOutcome(None, "ambiguous", None)
 
 
 def detector_c(
@@ -2014,9 +2024,10 @@ def resolve_disposition(repo_root: Path, sid: str) -> "DispositionResolution":
         )
     if c_status == "ambiguous":
         diagnostics.append(
-            "WARN: disposition resolved single-session despite Detector C finding multiple "
-            "candidate stale batons — Step 2.9's chain-end coverage gate will be SKIPPED and "
-            "that skip may be wrong. Export WSC_DISPOSITION=predecessor-consumed "
+            "WARN: disposition resolved single-session because Detector C could not settle "
+            "attribution of a stale baton to this session (see the NOTE above) — Step 2.9's "
+            "chain-end coverage gate will be SKIPPED and that skip may be wrong. If you are "
+            "continuing a stale baton, export WSC_DISPOSITION=predecessor-consumed "
             "(chain-terminal legacy alias also accepted) and "
             "WSC_CONSUMED_HANDOFF=<the one you are continuing> before continuing."
         )

@@ -304,7 +304,7 @@ def main() -> int:
     token_note = f", ~{tokens} tokens (estimate)" if tokens is not None else ""
 
     if admission_surface is not None:
-        # Review: code-reviewer — F1: a read failure on an EXISTING target
+        # A read failure on an EXISTING target
         # (permission error, transient encoding problem, symlink race, a
         # locked file on Windows) must fail loud, never silently skip the
         # whole admission-check block below. A genuinely missing file (not

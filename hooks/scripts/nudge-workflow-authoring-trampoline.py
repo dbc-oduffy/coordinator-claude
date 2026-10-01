@@ -81,7 +81,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import subprocess
 import sys
 from pathlib import Path
 
@@ -90,7 +89,6 @@ if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
 import _message_envelope as _envelope  # noqa: E402
 
-from _win_portability import no_console_creationflags  # noqa: E402
 try:
     from _git_common_dir import resolve_git_common_dir as _resolve_git_common_dir  # noqa: E402
 except Exception:
@@ -128,24 +126,8 @@ _TARGET_SKILL_NAMES = {"workflow-authoring", "coordinator:workflow-authoring"}
 
 
 def _git_root() -> str | None:
-    """Repo root, fail-open to None. In-process parent walk first, subprocess fallback."""
-    walked = _git_root_walk()
-    if walked:
-        return walked
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            timeout=1,
-            **no_console_creationflags(),
-        )
-    except Exception:
-        return None
-    if result.returncode != 0:
-        return None
-    root = result.stdout.strip()
-    return root or None
+    """Repo root via the in-process parent walk; None when no `.git` entry is found. Spawns nothing."""
+    return _git_root_walk()
 
 
 def _compose_skill_offer() -> "_envelope.Message":

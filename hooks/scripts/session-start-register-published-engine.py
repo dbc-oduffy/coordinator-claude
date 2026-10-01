@@ -69,7 +69,7 @@ spec against inferring it from what the mirror has checked out, precisely so the
 probe can detect a disagreement instead of agreeing with itself. A self-heal
 that invented a value would destroy that instrument and would then be found
 present — and skipped — by the real install that should have written it. So a
-Coordinator-content-repo-rooted session on an uninstalled box still resolves the unstamped
+source-repo-rooted session on an uninstalled box still resolves the unstamped
 live tree; `coordinator/bin/emit-dispatch-workflow.py` names that state and its
 remedy at the point of refusal rather than this hook guessing.
 

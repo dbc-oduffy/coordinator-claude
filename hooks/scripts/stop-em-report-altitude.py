@@ -13,7 +13,7 @@ checkout, NOT built here.
 
 DIVERGENCE FROM THE BRIEF'S LITERAL "dispatch_ops_from_hook" PHRASING: that
 engine module's own docstring states plainly it "carries no `@register_op`-
-decorated async handler ... Transport here is the DoE-resident stdin/stderr
+decorated async handler ... Transport here is the plugin-resident stdin/stderr
 shim calling `op(payload)` directly" -- it is never entered into
 `OP_MODULE_MAP`/the op registry `dispatch_ops_from_hook` resolves against,
 so routing through that seam would resolve to a returned

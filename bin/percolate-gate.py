@@ -142,8 +142,10 @@ Step 2a, Step 2c, Step 2d. Port chunk: M3 C-PERCOLATE, W1.7/C4.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import difflib
 import importlib.util
+import io
 import json
 import os
 import re
@@ -544,11 +546,10 @@ def _medium_line_gates(line: str) -> bool:
 _TIER_LOW = re.compile(r"(\b[0-9a-f]{40}\b|First Officer Doctrine)")
 
 # Stable, non-prose panel markers for the MEDIUM tier's two-panel render
-# (see `_cmd_scan_secrets`). `percolate-round.py::_count_medium_hits`
-# reads these to find the Panel A/B boundary without pattern-matching on
-# the human-facing header text, which is free to reword. Panel A
-# (informational, pre-transform peer-repo-name reads) is never gate
-# input; Panel B (gating) is what Step 3's medium-hit count consumes.
+# (see `_cmd_scan_secrets`). They are part of the byte-stable render; the
+# gating count travels in the `--json` payload's `counts.medium_gating`,
+# so no caller scrapes them. Panel A (informational, pre-transform
+# peer-repo-name reads) is never gate input.
 _MEDIUM_PANEL_INFORMATIONAL_MARKER = "##SCAN-PANEL:INFORMATIONAL##"
 _MEDIUM_PANEL_GATING_MARKER = "##SCAN-PANEL:GATING##"
 
@@ -657,6 +658,25 @@ def _cmd_scan_secrets(args: argparse.Namespace) -> int:
         )
         return 1
 
+    if not getattr(args, "json", False):
+        rc, _counts = _scan_secrets_render(args, files)
+        return rc
+
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc, counts = _scan_secrets_render(args, files)
+    print(
+        json.dumps(
+            {"schema": "scan-secrets.v1", "counts": counts, "render": buf.getvalue()}
+        )
+    )
+    return rc
+
+
+def _scan_secrets_render(
+    args: argparse.Namespace, files: List[Path]
+) -> Tuple[int, dict]:
+    """Print the scan render; return (exit code, per-tier hit counts)."""
     high_hits: List[Tuple[Path, int, str]] = []
     medium_hits: List[Tuple[Path, int, str]] = []
     medium_covered_hits: List[Tuple[Path, int, str]] = []
@@ -775,7 +795,13 @@ def _cmd_scan_secrets(args: argparse.Namespace) -> int:
     else:
         print("    (none)")
 
-    return 2 if high_hits else 0
+    counts = {
+        "high": len(high_hits),
+        "medium_informational": len(medium_covered_hits),
+        "medium_gating": len(medium_hits),
+        "low": len(low_hits),
+    }
+    return (2 if high_hits else 0), counts
 
 
 # ---------------------------------------------------------------------------
@@ -1697,6 +1723,11 @@ def _build_parser() -> argparse.ArgumentParser:
             "MEDIUM leg can be split by declared transform coverage (§ AC1/AC2). Omitted: "
             "the panel renders exactly as before this coverage split existed."
         ),
+    )
+    p_scan.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit one scan-secrets.v1 JSON object: the unchanged render plus per-tier counts.",
     )
     p_scan.set_defaults(func=_cmd_scan_secrets)
 

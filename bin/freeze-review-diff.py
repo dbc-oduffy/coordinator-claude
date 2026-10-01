@@ -33,6 +33,7 @@ caller. The caller owns range resolution; this tool only owns freezing it.
 Usage:
     freeze-review-diff.py --range <RANGE> --slice-id <ID>
                            [--paths <pathspec> ...] [--repo-root <path>]
+                           [--worktree]
 
 No open-loop trail record (RETIRED 2026-09-01)
 ---------------------------------------------
@@ -199,6 +200,10 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--slice-id", dest="slice_id", default="")
     parser.add_argument("--paths", dest="paths", nargs="*", default=[])
     parser.add_argument("--repo-root", dest="repo_root", default="")
+    # --range is then the base commit and the diff runs base -> worktree,
+    # untracked declared files included: an execute run's rows land
+    # uncommitted, so base..HEAD is never the run's diff.
+    parser.add_argument("--worktree", dest="worktree", action="store_true")
     args = parser.parse_args(argv)
 
     # OUTLIVED the retired trail record rather than depending on it: a range
@@ -225,7 +230,9 @@ def main(argv: list[str]) -> int:
         return 1
 
     with recording_declared_writes(cwd=str(repo_root)):
-        result = freeze_diff(repo_root, args.range_, args.slice_id, args.paths or None)
+        result = freeze_diff(
+            repo_root, args.range_, args.slice_id, args.paths or None, worktree=args.worktree
+        )
     if result["error"] is not None:
         if result["uncovered_paths"]:
             print(

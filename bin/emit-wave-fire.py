@@ -1072,6 +1072,104 @@ def _refuse_from_sizing(msg: str) -> int:
     return EXIT_REFUSED
 
 
+_MINT_TSHIRTS = frozenset({"M", "L", "XL", "XXL"})
+
+
+def _collect_sizing_refusals(sizing: dict) -> list[str]:
+    """Every failing fire-or-mint input of a sizing, one message each; empty when fireable."""
+    out: list[str] = []
+    ec = sizing.get("exit_criterion")
+    ec = ec if isinstance(ec, dict) else {}
+    if not ec.get("statement"):
+        out.append("`exit_criterion.statement` is absent — nothing to hand off as the prime exit criterion")
+    if ec.get("accepted") is None:
+        out.append("`exit_criterion.accepted` is null — the exit criterion is not accepted yet")
+    if not sizing.get("interaction_mode"):
+        out.append("`interaction_mode` is absent")
+    route = sizing.get("route")
+    if route != "plan":
+        out.append(f"`route` is {route!r}, not 'plan' — --from-sizing only fires the single-plan Workflow")
+    tshirt = (sizing.get("estimate") or {}).get("tshirt") if isinstance(sizing.get("estimate"), dict) else None
+    if tshirt not in _MINT_TSHIRTS:
+        out.append(
+            f"`estimate.tshirt` is {tshirt!r} — only an M+ sizing mints a baton to plan; "
+            "an XS or S routes to dispatch or spec-dispatch, never this Workflow"
+        )
+    else:
+        intent = sizing.get("intent")
+        if not (isinstance(intent, str) and intent.strip()):
+            out.append("`intent` is absent — the minted baton has nothing to cover")
+    return out
+
+
+def _load_mint():
+    """`mint_baton_from_sizing` from the sibling coordinator-doc-new.py, loaded in-process."""
+    import importlib.util
+
+    path = Path(__file__).resolve().with_name("coordinator-doc-new.py")
+    spec = importlib.util.spec_from_file_location("coordinator_doc_new_for_fire", path)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod
+    spec.loader.exec_module(mod)
+    return mod.mint_baton_from_sizing
+
+
+_HOLD_KEYS = ("plan_blitz_hold_reason", "plan_blitz_hold_cite", "plan_blitz_hold_until")
+
+
+def _engine_for_hold():
+    import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_colocated_engine_on_path
+
+    require_colocated_engine_on_path(__file__)
+
+
+def _foreign_hold_reason(baton_path: Path) -> str | None:
+    """The baton's `plan_blitz_hold_reason` when it is not the fire's own, else None."""
+    _engine_for_hold()
+    from coordinator_core.frontmatter.primitives import read_fm_field_unquoted
+    from coordinator_core.roadmap.blitz_land import FIRE_IN_FLIGHT_HOLD_REASON, _frontmatter_span
+
+    text = baton_path.read_text(encoding="utf-8")
+    span = _frontmatter_span(text)
+    if span is None:
+        return None
+    reason = read_fm_field_unquoted(text[span[0]:span[1]], "plan_blitz_hold_reason")
+    if reason in (None, "", "null", "~") or reason == FIRE_IN_FLIGHT_HOLD_REASON:
+        return None
+    return reason
+
+
+def _stamp_fire_hold(baton_path: Path, repo_root: Path, fire_script: Path) -> None:
+    """Stamp the fire-in-flight hold on the baton under `locked_rmw`; never fails the emit."""
+    try:
+        _engine_for_hold()
+        from coordinator_core.frontmatter.primitives import insert_fm_field_raw, remove_fm_field
+        from coordinator_core.locked_write import locked_rmw
+        from coordinator_core.roadmap.blitz_land import FIRE_IN_FLIGHT_HOLD_REASON, _frontmatter_span
+
+        receipt = fire_script.with_name(fire_script.name + ".emitted.json")
+        try:
+            cite = json.dumps(receipt.resolve().relative_to(repo_root.resolve()).as_posix())
+        except ValueError:
+            cite = "null"
+
+        def _mutate(old: str) -> str:
+            span = _frontmatter_span(old)
+            if span is None:
+                raise ValueError("baton has no frontmatter block")
+            fm = old[span[0]:span[1]]
+            for key in _HOLD_KEYS:
+                fm = remove_fm_field(fm, key)
+            fm = insert_fm_field_raw(fm, "plan_blitz_hold_reason", json.dumps(FIRE_IN_FLIGHT_HOLD_REASON))
+            fm = insert_fm_field_raw(fm, "plan_blitz_hold_cite", cite, "plan_blitz_hold_reason")
+            return old[: span[0]] + fm + old[span[1]:]
+
+        locked_rmw(baton_path, _mutate, repo_root=repo_root)
+    except Exception as exc:  # noqa: BLE001 -- the hold is evidence; the fire script is the deliverable
+        print(f"  WARNING: could not stamp the fire hold on {baton_path.name}: {exc}", file=sys.stderr)
+
+
 def _emit_single_from_sizing(
     args,
     repo_root: Path,
@@ -1111,36 +1209,39 @@ def _emit_single_from_sizing(
     if not isinstance(sizing, dict):
         return _refuse_from_sizing(f"{sizing_path} does not parse to a mapping")
 
-    exit_criterion = sizing.get("exit_criterion")
-    if not isinstance(exit_criterion, dict) or not exit_criterion.get("statement"):
+    refusals = _collect_sizing_refusals(sizing)
+    if refusals:
         return _refuse_from_sizing(
-            f"{sizing_rel} carries no `exit_criterion.statement` — nothing to hand off as this "
-            "plan's prime exit criterion."
+            f"{sizing_rel} cannot be fired: " + "; ".join(refusals)
         )
-    if exit_criterion.get("accepted") is None:
-        return _refuse_from_sizing(
-            f"{sizing_rel} carries a null `exit_criterion.accepted` — every mode's touchpoint "
-            "includes accepting the exit criterion (M3 § touchpoints), and this sizing has not "
-            "been accepted yet."
-        )
-    interaction_mode = sizing.get("interaction_mode")
-    if not interaction_mode:
-        return _refuse_from_sizing(f"{sizing_rel} carries no `interaction_mode`")
-    route = sizing.get("route")
-    if route != "plan":
-        return _refuse_from_sizing(
-            f"{sizing_rel}'s route is {route!r}, not 'plan' — --from-sizing only fires the "
-            "single-plan Workflow"
-        )
+    exit_criterion = sizing["exit_criterion"]
+    interaction_mode = sizing["interaction_mode"]
+    route = sizing["route"]
+    tshirt = (sizing.get("estimate") or {}).get("tshirt")
 
+    try:
+        minted = _load_mint()(sizing_rel, str(repo_root))
+    except Exception as exc:  # noqa: BLE001 -- SizingMintRefused lives in the sibling module
+        fields = getattr(exc, "fields", None)
+        if fields is None:
+            raise
+        return _refuse_from_sizing(f"{exc} (fields: {', '.join(fields)})")
+    baton_path = repo_root / minted["path"]
+    held = _foreign_hold_reason(baton_path)
+    if held:
+        return _refuse_from_sizing(
+            f"baton {minted['path']} carries `plan_blitz_hold_reason: {held}` — a held baton "
+            "must not fire. Clear the hold first."
+        )
     baton = {
-        "id": sizing_path.stem,
-        "path": sizing_rel,
+        "id": minted["id"],
+        "path": minted["path"],
+        "title": str(minted["title"]),
         "sized": True,
         "sizingObject": sizing_rel,
-        "tshirt": (sizing.get("estimate") or {}).get("tshirt"),
+        "tshirt": tshirt,
         "route": route,
-        "exitCriterion": exit_criterion,
+        "exitCriterion": str(exit_criterion["statement"]),
         "interactionMode": interaction_mode,
         "executionOpen": False,
     }
@@ -1182,12 +1283,14 @@ def _emit_single_from_sizing(
     out = trail_dir / f"fire-{wave_number}-1.mjs"
     out.write_text(text, encoding="utf-8", newline="\n")
     _write_fire_receipt(out)
+    _stamp_fire_hold(baton_path, repo_root, out)
     if args.json:
         print(json.dumps({"waveIndex": wave_number, "fires": [
             {"fire": 1, "scriptPath": str(out), "batons": [baton["id"]]}
         ]}, indent=2))
         return EXIT_OK
     print(f"emit-wave-fire: single-plan fire for {baton['id']} (mode=single).")
+    print(f"  uncommitted pair for the EM: {baton['path']}  {sizing_rel}")
     print(f'\n  Workflow({{ scriptPath: "{out}" }})   # no args — they are bound')
     return EXIT_OK
 

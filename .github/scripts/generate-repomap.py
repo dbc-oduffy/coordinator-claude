@@ -26,6 +26,8 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+_NO_CONSOLE = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+
 # tree-sitter (optional — graceful fallback to stdlib parsers)
 _TS_AVAILABLE = False
 try:
@@ -209,6 +211,7 @@ def get_git_tracked_files(project_root: Path) -> list[str] | None:
             capture_output=True,
             text=True,
             timeout=30,
+            **_NO_CONSOLE,
         )
         if result.returncode != 0:
             return None
@@ -802,6 +805,7 @@ def get_git_log_data(
             capture_output=True,
             text=True,
             timeout=60,
+            **_NO_CONSOLE,
         )
         if log_output.returncode != 0:
             return result
@@ -1761,6 +1765,7 @@ def find_git_root(start: Path) -> Path | None:
             capture_output=True,
             text=True,
             timeout=10,
+            **_NO_CONSOLE,
         )
         if result.returncode == 0:
             return Path(result.stdout.strip())

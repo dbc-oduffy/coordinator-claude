@@ -108,11 +108,14 @@ def _require_engine_on_path() -> None:
     require_engine_on_path(__file__)
 
 
-def _win_portability_flags() -> dict:
+def _no_console_flags() -> dict:
     _require_engine_on_path()
     from coordinator_core.win_portability import no_console_creationflags
 
     return no_console_creationflags()
+
+
+_win_portability_flags = _no_console_flags
 
 
 def _win_portability_passthrough_kwargs() -> dict:
@@ -135,7 +138,7 @@ def _run(
         capture_output=True,
         text=True,
         check=check,
-        **_win_portability_flags(),
+        **_no_console_flags(),
     )
 
 
@@ -420,7 +423,7 @@ def publish_gh_release(tag: str, repo: str, notes_file: Path) -> None:
         ],
         capture_output=True,
         text=True,
-        **_win_portability_flags(),
+        **_no_console_flags(),
     )
     if edit.returncode == 0:
         return
@@ -434,7 +437,7 @@ def publish_gh_release(tag: str, repo: str, notes_file: Path) -> None:
         ],
         capture_output=True,
         text=True,
-        **_win_portability_flags(),
+        **_no_console_flags(),
     )
     if create.returncode != 0:
         _die(

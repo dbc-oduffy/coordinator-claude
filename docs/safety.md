@@ -133,7 +133,7 @@ Specifically:
   it is PII-derived and this document previously omitted it.
 - **Start a background daemon** — no persistent process, service, or cron job is created. Install
   does, however, write sentinel-guarded blocks into your interactive shell rc file
-  (`~/.bashrc`/`~/.zshrc`): the `claude()` shim (the shim-install leg, dev-clone install mode
+  (`~/.bashrc`/`~/.zshrc`): the `coordinator` shim (the shim-install leg, dev-clone install mode
   only — see row 4 above), the interactive resource-cap guard seam (§ "3.5b.1 — Install interactive-shell
   resource-cap guard (idempotent, graceful-absent)"), and the `~/.local/bin` PATH block (§ "Step
   3e — `claude` CLI on PATH (cross-platform, idempotent)"). None of these are a daemon — nothing runs
@@ -286,7 +286,7 @@ already-filed work, not something this document attempts to paper over:
   globally per § "1a.1", not just per-repo) and the `git lfs install` filter wiring (§ "1a.3",
   un-prompted per the network-touch note in § 2 above).
 - **The two extra shell-rc sentinel blocks** named above (resource-cap guard, PATH block) — the
-  `claude()` shim block is reversed by uninstall per surface #4/#10 in § 1's table, but the other
+  `coordinator` shim block is reversed by uninstall per surface #4/#10 in § 1's table, but the other
   two are not currently in that reversal list.
 - **The four project-repo files** listed in § 1 under "Modify project files without being asked"
   (`.claude/em-context.md`, the `.gitignore` append, `coordinator.local.md`, the currency stamp) —

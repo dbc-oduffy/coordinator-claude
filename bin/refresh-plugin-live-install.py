@@ -168,6 +168,25 @@ def _no_console_kwargs() -> dict:
     except Exception:  # noqa: BLE001 -- fail-open, matches this module's bootstrap posture
         return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
 
+
+def _no_console_passthrough_kwargs() -> dict:
+    """Like ``_no_console_kwargs`` for spawns whose output the operator watches
+    live: also hands the real stdout/stderr fds over so the child's output is
+    not lost into the window-less console. On failure, returns no kwargs --
+    a visible console beats a silent child.
+    """
+    try:
+        _bootstrap_lib()
+        from cc_invoke import require_dispatch_engine_on_path
+
+        require_dispatch_engine_on_path()
+        from coordinator_core.win_portability import no_console_passthrough_kwargs
+
+        return no_console_passthrough_kwargs()
+    except Exception:  # noqa: BLE001 -- fail-open, matches this module's bootstrap posture
+        return {}
+
+
 _HELP_TEXT = """\
 Usage: refresh-plugin-live-install.py <plugin> [--force] [--interactive]
 
@@ -1216,7 +1235,7 @@ def _handle_source_is_live_venv(plugin: str, sil_source: str, sil_dist: str, ref
         env = child_env({"SIL_SOURCE": str(sil_source_path), "SIL_VENV_PY": str(venv_py)})
         # Inherited stdio, no creationflags: this is a network-bound editable install
         # the operator watches live. CREATE_NO_WINDOW + inherited stdio silently kills
-        # the child on Windows (rc=1, no output) — a console flash beats that.
+        # the child on Windows (rc=1, no output) — passthrough kwargs hand the fds over.
         # Argv-only contract: COORDINATOR_REFRESH_VENV_INSTALL_CMD is shlex.split
         # and exec'd directly as argv — no host shell is dispatched. Pipes,
         # &&/||, redirects, globs, and VAR=value prefixes are not supported;
@@ -1233,7 +1252,7 @@ def _handle_source_is_live_venv(plugin: str, sil_source: str, sil_dist: str, ref
         # -format file still raises here. Loud, actionable WARN instead of a bare
         # traceback, matching coordinator-ceremony-hook.py's OSError handling.
         try:
-            result = subprocess.run(override_argv, env=env)
+            result = subprocess.run(override_argv, env=env, **_no_console_passthrough_kwargs())
         except OSError as exc:
             eprint(
                 f"{PROG}: COORDINATOR_REFRESH_VENV_INSTALL_CMD failed to launch: "
@@ -1249,6 +1268,7 @@ def _handle_source_is_live_venv(plugin: str, sil_source: str, sil_dist: str, ref
         result = subprocess.run(
             [_resolved_uv(), "pip", "install", "-e", str(sil_source_path), "--python", str(venv_py)],
             env=child_env(),
+            **_no_console_passthrough_kwargs(),
         )
         rc = result.returncode
     elif venv_py.exists():
@@ -1259,6 +1279,7 @@ def _handle_source_is_live_venv(plugin: str, sil_source: str, sil_dist: str, ref
         result = subprocess.run(
             [str(venv_py), "-m", "pip", "install", "-e", str(sil_source_path), "--quiet"],
             env=child_env(),
+            **_no_console_passthrough_kwargs(),
         )
         rc = result.returncode
     else:
@@ -1743,10 +1764,11 @@ def _handle_editable_sibling_venv(
 
             # Inherited stdio, no creationflags: network-bound bootstrap the operator
             # watches live. CREATE_NO_WINDOW + inherited stdio silently kills the
-            # child on Windows (rc=1, no output) — a console flash beats that.
+            # child on Windows (rc=1, no output) — passthrough kwargs hand the fds over.
             boot = subprocess.run(
                 [sys.executable, "-m", "pip", "install", "uv", "--timeout", "180", "--quiet"],
                 env=child_env(),
+                **_no_console_passthrough_kwargs(),
             )
             if boot.returncode == 0:
                 install_tool = "uv"
@@ -1768,6 +1790,7 @@ def _handle_editable_sibling_venv(
             r = subprocess.run(
                 [_uv_or_die(), "pip", "install", "-e", str(source_path), "--python", str(venv_python)],
                 env=child_env(),
+                **_no_console_passthrough_kwargs(),
             )
             if r.returncode != 0:
                 eprint(f"{PROG}: [editable_sibling_venv] uv pip install -e failed.")
@@ -1777,6 +1800,7 @@ def _handle_editable_sibling_venv(
             r = subprocess.run(
                 [str(venv_python), "-m", "pip", "install", "-e", str(source_path), "--quiet"],
                 env=child_env(),
+                **_no_console_passthrough_kwargs(),
             )
             if r.returncode != 0:
                 eprint(f"{PROG}: [editable_sibling_venv] pip install -e failed.")
@@ -2006,10 +2030,11 @@ def _handle_default(
 
             # Inherited stdio, no creationflags: network-bound bootstrap the operator
             # watches live. CREATE_NO_WINDOW + inherited stdio silently kills the
-            # child on Windows (rc=1, no output) — a console flash beats that.
+            # child on Windows (rc=1, no output) — passthrough kwargs hand the fds over.
             boot = subprocess.run(
                 [sys.executable, "-m", "pip", "install", "uv", "--timeout", "180", "--quiet"],
                 env=child_env(),
+                **_no_console_passthrough_kwargs(),
             )
             if boot.returncode == 0:
                 install_tool = "uv"
@@ -2030,6 +2055,7 @@ def _handle_default(
                 [_uv_or_die(), "pip", "install", "-e", ".", "--python", str(venv_python)],
                 cwd=str(live_path),
                 env=child_env(),
+                **_no_console_passthrough_kwargs(),
             )
             if r.returncode != 0:
                 eprint(f"{PROG}: uv pip install -e . failed.")
@@ -2039,6 +2065,7 @@ def _handle_default(
                 [str(venv_python), "-m", "pip", "install", "-e", ".", "--quiet"],
                 cwd=str(live_path),
                 env=child_env(),
+                **_no_console_passthrough_kwargs(),
             )
             if r.returncode != 0:
                 eprint(f"{PROG}: pip install -e . failed.")

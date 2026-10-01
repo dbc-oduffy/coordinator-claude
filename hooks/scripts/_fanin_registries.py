@@ -1,12 +1,11 @@
 """The fan-in layer, enumerated once.
 
-Seven dispatchers carry other hooks' handlers in a `REGISTRY`-shaped tuple
+Six dispatchers carry other hooks' handlers in a `REGISTRY`-shaped tuple
 rather than each handler holding its own `hooks.json` entry
 (`state/audits/2026-08-16-doe-spawn-totality-kill-list.md` -- one interpreter for
 N guards, the whole point of the fan-in): `sessionstart-dispatch.py`,
 `sessionstart-async-dispatch.py`, `stop-dispatch.py`, `preuse-write-dispatch.py`,
-`postuse-stop-family-dispatch.py`, `preuse-bash-dispatch.py`, and
-`preuse-agent-dispatch.py`. A reader that only walks `hooks.json` therefore sees
+`postuse-stop-family-dispatch.py`, and `preuse-agent-dispatch.py`. A reader that only walks `hooks.json` therefore sees
 the DISPATCHER and none of the guards behind it, and cannot tell a folded guard
 from a deleted one.
 
@@ -39,16 +38,8 @@ truth for what it carries, and its registry is already public where it is
 actually defined. Their guard rows carry `module_path`, not `filename`; this
 module derives `filename` as `Path(module_path).name`.
 
-`preuse-bash-dispatch.py` has no separate runner module -- `_BASH_GUARD_REGISTRY`
-is defined, and is underscore-private, directly inside the dispatcher file. The
-enrolling chunk's own brief calls for a public accessor there instead of
-reaching through that underscore, but that brief's declared `writes:` scope
-names only THIS file -- adding one to `preuse-bash-dispatch.py` is out of
-scope for the chunk that landed this enrollment. Recorded as a deviation, not
-silently resolved: this module reads `_BASH_GUARD_REGISTRY` directly via
-`getattr` (same mechanism `carried_guards()` already uses for every other
-carrier's registry attribute) until a chunk whose scope covers
-`preuse-bash-dispatch.py` adds the sanctioned public accessor.
+`preuse-bash-dispatch.py` is not a carrier: its guards live in the control-plane
+engine's chain and the dispatcher is a pure relay (see `_CARRIER_SOURCES`).
 """
 from __future__ import annotations
 
@@ -101,10 +92,7 @@ def load_dispatcher(filename: str):
 def _rows_direct(rows) -> "list[tuple[str, str]]":
     """Row shape already carrying `.module_key`/`.filename` directly --
     `sessionstart-dispatch.py`, `sessionstart-async-dispatch.py`,
-    `stop-dispatch.py`, `preuse-agent-dispatch.py`'s `REGISTRY`, and
-    `preuse-bash-dispatch.py`'s `_BASH_GUARD_REGISTRY` (read directly, not
-    through a public accessor -- see the module docstring's "out of scope
-    for this chunk" note)."""
+    `stop-dispatch.py`, and `preuse-agent-dispatch.py`'s `REGISTRY`."""
     return [(row.module_key, row.filename) for row in rows]
 
 

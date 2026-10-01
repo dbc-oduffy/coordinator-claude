@@ -2160,8 +2160,8 @@ def _synthetic_registry_manifest_overrides():
     -- enough for `snippet-registry` to resolve its data dir and parse the
     registry without crashing; it still exits 1 on `--help` (an
     unrecognized subcommand, printed via its own usage block) exactly like
-    the six other CLIs the 2026-08-10 C6 sweep already classified this way,
-    which is `_USAGE_NONZERO_ENTRYPOINTS`' concern, not this fixture's.
+    the six other CLIs that behave this way; a non-zero exit there passes
+    the gate by observed depth, which is not this fixture's concern.
     """
     with tempfile.TemporaryDirectory(prefix="oss-gate-registry-fixture-") as fixture_root:
         fixture_root_path = Path(fixture_root)
@@ -2932,8 +2932,9 @@ def dispatch_end_of_run_entrypoint_gate(
     accepted for call-site symmetry only and does not change severity here.
 
     Returns True iff every repo root's gated entrypoints all started cleanly
-    (or were on the waiver/usage-nonzero lists, § `run_entrypoint_gate`'s own
-    three-way classification); False iff any failed to start, or the gate
+    (or exited non-zero having reached at least the depth the target's
+    manifest expects, § `run_entrypoint_gate`'s observed-vs-expected depth
+    rule); False iff any failed to start, or the gate
     itself could not run. Never raises -- same reporting contract as the
     other end-of-run legs. Never called under `--dry-run`.
 
@@ -10259,7 +10260,7 @@ class _StagingProgress:
         }
         try:
             tmp_path = self._sink.with_name(self._sink.name + ".tmp")
-            tmp_path.write_text(json.dumps(payload), encoding="utf-8")
+            tmp_path.write_text(json.dumps(payload), encoding="utf-8", newline="\n")
             os.replace(tmp_path, self._sink)
         except OSError:
             pass
@@ -11056,29 +11057,44 @@ def _restore_dest_subtree_to_head(repo_root: Path, dest_dir: Path) -> None:
     from coordinator_core.git.run import run_git  # noqa: PLC0415 - lazy, matches this module's other git imports
 
     try:
-        status = run_git(["status", "--porcelain", "--", str(dest_dir)], cwd=str(repo_root))
+        status = run_git(
+            ["status", "--porcelain", "-z", "--", str(dest_dir)], cwd=str(repo_root), binary=True
+        )
     except (OSError, subprocess.SubprocessError):
         return
-    if not status.ok or not status.stdout.strip():
+    if not status.ok or not status.stdout_bytes.strip(b"\0"):
         return
 
-    tracked: "list[str]" = []
+    tracked: "list[bytes]" = []
     untracked: "list[str]" = []
-    for line in status.stdout.splitlines():
-        if not line.strip():
+    entries = iter(status.stdout_bytes.split(b"\0"))
+    for entry in entries:
+        if len(entry) < 4:
             continue
-        code, _, rel = line.partition(" ")
-        rel = line[3:].strip() if len(line) > 3 else rel.strip()
-        if " -> " in rel:
-            rel = rel.split(" -> ", 1)[1]
-        if line[:2].strip() == "??":
-            untracked.append(rel)
+        code, rel = entry[:2], entry[3:]
+        if b"R" in code or b"C" in code:
+            next(entries, None)  # -z puts the rename/copy ORIGIN in its own record
+        if code == b"??":
+            untracked.append(rel.decode("utf-8", errors="surrogateescape"))
         else:
             tracked.append(rel)
 
+    # Paths ride stdin, never argv: a round that wrote ~1000 paths overflowed
+    # the Windows 32K command line, `git checkout` never ran, and the swallow
+    # below turned that into a stat-dirty tree the assertion then rejected.
     if tracked:
         try:
-            run_git(["checkout", "HEAD", "--"] + tracked, cwd=str(repo_root))
+            run_git(
+                [
+                    "--literal-pathspecs",
+                    "checkout",
+                    "HEAD",
+                    "--pathspec-from-file=-",
+                    "--pathspec-file-nul",
+                ],
+                cwd=str(repo_root),
+                input=b"\0".join(tracked) + b"\0",
+            )
         except (OSError, subprocess.SubprocessError):
             pass
 
@@ -12589,6 +12605,7 @@ def _apply_throwaway_delta_to_dest(
     this repo root's dirty state must be excluded from a LATER separate
     commit rather than trusted as clean."""
     applied_any = False
+    rel = None
     try:
         for rel in present_paths:
             src = throwaway_root / rel
@@ -12600,7 +12617,17 @@ def _apply_throwaway_delta_to_dest(
                 with os.fdopen(fd, "wb") as tmp_f, open(src, "rb") as src_f:
                     shutil.copyfileobj(src_f, tmp_f)
                 os.chmod(tmp_name, mode)
-                os.replace(tmp_name, dst)
+                try:
+                    os.replace(tmp_name, dst)
+                except PermissionError:
+                    if not dst.exists():
+                        raise
+                    from coordinator_core.install.door_install import (  # noqa: PLC0415
+                        _replace_possibly_running_image,
+                    )
+
+                    _replace_possibly_running_image(Path(tmp_name), dst)
+                    os.unlink(tmp_name)
             except BaseException:
                 try:
                     os.unlink(tmp_name)
@@ -12622,7 +12649,7 @@ def _apply_throwaway_delta_to_dest(
     except BaseException as exc:
         raise PublishSwapPartial(
             f"{repo_root}: delta apply from throwaway {throwaway_root} failed "
-            f"partway ({exc!r}) — {'some bytes already landed' if applied_any else 'nothing landed'}",
+            f"partway at {rel} ({exc!r}) — {'some bytes already landed' if applied_any else 'nothing landed'}",
             prior_backup=repo_root,
             content_swapped=applied_any,
         ) from exc
@@ -12701,6 +12728,25 @@ def _swap_all_rows_into_dest(
             for name in row_names:
                 outcomes[name] = None
     return outcomes
+
+
+def _rebuild_mirror_doors(throwaway_by_repo_root: "dict[Path, Path]") -> bool:
+    """Post-rewrite step: rebuild each assembled mirror's `door.exe` from the
+    mirror's transformed door sources, baking the published repo root.
+    False (the round fails closed) when any rebuild raises."""
+    from coordinator_core.install.door_install import (  # noqa: PLC0415 - lazy, mirror-only step
+        DoorInstallError,
+        rebuild_door_for_mirror,
+    )
+
+    ok = True
+    for repo_root, throwaway_root in throwaway_by_repo_root.items():
+        try:
+            rebuild_door_for_mirror(throwaway_root, repo_root)
+        except DoorInstallError as exc:
+            print(f"publish.py: FATAL — door rebuild for {repo_root}: {exc}", file=sys.stderr)
+            ok = False
+    return ok
 
 
 @dataclass
@@ -12969,6 +13015,8 @@ def _run_round_dr445(
                 ]
                 throwaway_by_repo_root[repo_root] = build_throwaway_tree(repo_root, overlays, deletions)
 
+        door_rebuild_ok = _rebuild_mirror_doors(throwaway_by_repo_root)
+
         # DR-445 Phase 3 (coordinator ruling, 2026-09-29: Peer T's throwaway
         # is now a real local clone, HEAD == dest HEAD, working tree == the
         # candidate, so `git status` inside it shows exactly this round's
@@ -13073,7 +13121,7 @@ def _run_round_dr445(
                 changed_files_by_repo_root=_gate_changed_files_by_repo_root,
                 changed_only=bool(args.changed_only) and not bool(args.full_sweep),
             )
-        drift_check_ok = True
+        drift_check_ok = door_rebuild_ok
         with _time_phase(round_timings, "<round>", "dispatch_end_of_run_argv_parity_gate"):
             argv_parity_ok = dispatch_end_of_run_argv_parity_gate(
                 gate_roots,
@@ -13236,6 +13284,10 @@ def _run_round_dr445(
             from coordinator_core.wire_paths import rel_id as _rel_id
 
             _manifest_round_id = f"publish-{_uuid.uuid4().hex}"
+            try:
+                _manifest_source_sha = _round_pin_source_sha(_REPO_ROOT, round_pinned_shas, late=True)
+            except GitMaterializeError:
+                _manifest_source_sha = ""
             for _manifest_root in dict.fromkeys(end_of_run_check_roots):
                 _token_index_action = _token_index_action_for_root(
                     _manifest_root,
@@ -13270,6 +13322,7 @@ def _run_round_dr445(
                     published_dest_dirs=frozenset(
                         _rel_id(p, _manifest_root) for p in _root_published_dest_dirs
                     ),
+                    source_sha=_manifest_source_sha,
                 )
                 _write_manifest(
                     _round_manifest,

@@ -173,15 +173,14 @@ def _git_root(start: str) -> str:
     entry (dir or file), without spawning a subprocess. Fail-open to "" on
     any error.
 
-    Review: code-reviewer -- Findings 1+2. This replaces a prior
-    `git rev-parse --show-toplevel` subprocess spawn, which (a) paid a
+    A `git rev-parse --show-toplevel` subprocess spawn would (a) pay a
     per-`SubagentStop`-fire `git`/`git.exe` fork on the Windows-primary
-    fleet, uncredited against this module's own "correctness/performance
-    defect" framing for exactly that class of cost (see the module
-    docstring's `_resolve_git_common_dir` paragraph), and (b) trusted the
-    hook process's ambient OS cwd rather than the payload's own `cwd` field
-    -- an assumption this worktree-correctness-focused file otherwise
-    refuses to make silently elsewhere. Walking up from `start` (the
+    fleet, a "correctness/performance defect" by this module's own framing
+    for that class of cost (see the module docstring's
+    `_resolve_git_common_dir` paragraph), and (b) trust the hook process's
+    ambient OS cwd rather than the payload's own `cwd` field -- an
+    assumption this worktree-correctness-focused file otherwise refuses to
+    make silently elsewhere. Walking up from `start` (the
     payload's own `cwd`) mirrors `git rev-parse --show-toplevel`'s
     directory-walk algorithm closely enough for this hook's purposes (no
     `GIT_CEILING_DIRECTORIES`/submodule-boundary handling needed here) while

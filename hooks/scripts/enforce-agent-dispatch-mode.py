@@ -315,10 +315,10 @@ def main() -> int:
     # COORDINATOR_AGENT_MODE_OK escape hatch. Pure computation; None when
     # there is nothing to strip (isolation absent, any non-"worktree" value,
     # or the override sentinel is active).
-    # Review: code-reviewer -- the three _compute_* call sites relied entirely
-    # on callee-internal fail-open discipline with no defensive try/except at
-    # the call site; an uncaught exception here would produce no valid JSON
-    # on stdout (fail-CLOSED on a hook whose whole design is fail-open).
+    # The three _compute_* call sites need a defensive try/except: callee-internal
+    # fail-open discipline alone is not enough, since an uncaught exception here
+    # would produce no valid JSON on stdout (fail-CLOSED on a hook whose whole
+    # design is fail-open).
     # Degrade to None on any exception, matching the ImportError fallback's
     # own contract.
     try:

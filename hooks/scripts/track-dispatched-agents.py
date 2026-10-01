@@ -135,7 +135,7 @@ same field preuse-write-dispatch.py already extracts for its own (non-scoped)
 purposes. The op handler resolves this into the shared .git common directory
 via coordinator_core.lifecycle.git_common_dir (a `git rev-parse
 --path-format=absolute --git-common-dir` subprocess call with cwd=repo_root)
--- claude-klabauter-owned, not this stub's concern; mirrors the same "not the stub's
+-- engine-owned, not this stub's concern; mirrors the same "not the stub's
 subprocess" caveat postuse-advisory-dispatch.py's reference contract already
 names for the runtime-tripwire's git call. If cwd is absent, dispatch_message
 returns an INVALID_PARAMS error response (not a raised exception) -- result is
@@ -392,7 +392,7 @@ def _read_backpointer_subagent_type(git_root: str, agent_id: str) -> str:
     (lookup-fail) rather than raising -- the caller's unconditional
     fallback-to-payload-`agent_type` contract depends on this never raising.
     """
-    # Review: code-reviewer -- agent_id comes from the same payload trust
+    # agent_id comes from the same payload trust
     # boundary as em_sid and is interpolated into a filesystem path below.
     # Unlike em_sid, real agent_id values are `name@session-<sid6>` (contains
     # `@`), so _SESSION_ID_FORMAT_RE cannot be reused verbatim; instead reject

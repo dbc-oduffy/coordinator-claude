@@ -184,9 +184,9 @@ def _bootstrap_engine() -> None:
         # in-process, per this module's existing negative-spec above
         # (dual-identity anti-pattern).
         import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-        from cc_invoke import require_colocated_engine_on_path as _require
+        import cc_invoke as _cc_invoke
 
-        _claude_klabauter_root = _require(__file__)
+        _claude_klabauter_root = _cc_invoke.require_colocated_engine_on_path(__file__)
         from coordinator_core.install.write_surface import (
             ShapedClause as _ShapedClause,
             WriteSurfaceDeclaration as _WriteSurfaceDeclaration,
@@ -253,7 +253,7 @@ def _bootstrap_engine() -> None:
         siblings."""
 
         tomllib = _tomllib
-        require_colocated_engine_on_path = _require
+        require_colocated_engine_on_path = _cc_invoke.require_colocated_engine_on_path
         _CLAUDE_KLABAUTER_ROOT = _claude_klabauter_root
         ShapedClause = _ShapedClause
         WriteSurfaceDeclaration = _WriteSurfaceDeclaration

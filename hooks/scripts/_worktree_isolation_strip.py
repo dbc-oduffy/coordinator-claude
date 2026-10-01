@@ -39,11 +39,9 @@ Override: a repo-root sentinel file only, `.coordinator-override-worktree-
 guard` -- deliberately NOT an env-var leg. An env var is process-inheritable
 by a dispatched subagent (it can set its own env before its own tool calls
 run under this same hook), which would let a subagent silently defeat a
-guard that exists specifically to bind subagents. `_git_root()` and
-`sentinel_override_active()` are copied in shape (not behavior-modified)
-from `block-workflow-unmodeled-agent.py` lines 487-533: 1s subprocess
-timeout on `git rev-parse --show-toplevel`, fails toward NO override on any
-resolution failure (not a repo, git missing, timeout, unreadable sentinel).
+guard that exists specifically to bind subagents. `_git_root()` resolves the
+root through `_git_root_walk` only -- no subprocess -- and fails toward NO
+override on any resolution failure (not a repo, unreadable sentinel).
 
 Fail-open on every detection-failure leg: `compute_strip` returns `None`
 (nothing to strip) on any git-root-resolution failure -- it never raises.
@@ -55,7 +53,6 @@ has already established `tool_input` is a dict.
 from __future__ import annotations
 
 import os
-import subprocess
 from typing import Optional
 
 try:
@@ -75,25 +72,7 @@ _STRIP_NOTE = (
 
 
 def _git_root() -> "str | None":
-    # In-process parent walk first, subprocess only as fallback; any failure returns None
-    # rather than raising, so callers fail toward "no override".
-    walked = _git_root_walk()
-    if walked:
-        return walked
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            timeout=1,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-    except Exception:
-        return None
-    if result.returncode != 0:
-        return None
-    root = result.stdout.strip()
-    return root or None
+    return _git_root_walk() or None
 
 
 def sentinel_override_active() -> bool:

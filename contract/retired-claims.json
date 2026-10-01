@@ -1,0 +1,38 @@
+{
+  "schema": "retired-claims",
+  "schema_version": 1,
+  "entries": [
+    {
+      "id": "claude-bin-resolver-family-live",
+      "claim": "The claude_machine_local.py / claude-machine-local.sh / .ps1 resolver family is installed at ~/.claude/bin/, and callers import, source, or probe it there.",
+      "retired_by": "docs/plans/2026-07-24-coordinator-owns-zero-claude-bin.md",
+      "signatures": [
+        "\\b(?:import|source|dot-source|probe\\s+at)\\s+[`'\"]?~/\\.claude/bin/(?:claude_machine_local\\.py|claude-machine-local\\.(?:sh|ps1)|machine-local)\\b"
+      ],
+      "witness": "import `~/.claude/bin/claude_machine_local.py` and source `~/.claude/bin/claude-machine-local.sh`",
+      "legacy_sites": []
+    },
+    {
+      "id": "jp-session-shape-sole-untrusted-gate",
+      "claim": "jp-session-shape is the only untrusted-gate judgment point the workstream-complete ceremony carries.",
+      "retired_by": "state/cross-repo/archive/2026-08-10-claude-klabauter-em-wsc-skill-untrusted-gate-count-is-stale.md",
+      "signatures": [
+        "jp-session-shape`?\\s+is\\s+the\\s+only\\s+untrusted-gate",
+        "jp-session-shape`?\\s+alone,\\s+not\\s+a\\s+pair"
+      ],
+      "witness": "`jp-session-shape` is the only untrusted-gate point this ceremony carries\nthe untrusted-gate point — `jp-session-shape` alone, not a pair — carries no recommendation by design",
+      "legacy_sites": []
+    },
+    {
+      "id": "execute-review-has-an-integration-pass",
+      "claim": "Execute-workflow code review ends in exactly one integration pass that applies the residue findings.",
+      "retired_by": "docs/plans/2026-10-01-execute-workflow-self-completes.md",
+      "signatures": [
+        "\\bexactly\\s+one\\s+integration\\s+pass\\b",
+        "\\bparallel\\s+(?:review\\s+)?wave,?\\s+(?:then|plus)\\s+(?:exactly\\s+)?one\\s+integration\\s+pass\\b"
+      ],
+      "witness": "one parallel review wave, then exactly one integration pass\ncode review is one parallel wave plus one integration pass",
+      "legacy_sites": []
+    }
+  ]
+}

@@ -16,15 +16,15 @@ via `_git_root_walk` with that subprocess as fallback only), and every read/
 write beyond that root resolution targets session-scoped sentinel/log files
 it creates itself under `<git_common_dir>/coordinator-sessions/<session_id>/`
 (`workflow-launched`, `multiwave-workflow-nudged`, `multiwave-dispatch-log`)
--- generic per-session bookkeeping, never a read of DoE-authored working-data
+-- generic per-session bookkeeping, never a read of source-repo working-data
 (docs/plans, state/*, agents/*.md, etc.). That is the same "common_dir" scope
 shape `coordinator_core.hooks.track_touched_files` already carries as a
 engine-repo op (see `postuse-advisory-dispatch.py`'s `_origin_worktree`
 plumbing), not the "resolves the doctrine repo root to read doctrine working-data"
 shape the plan's Anti-scope forbids porting. Verdict: CANDIDATE for a
 net-new `common_dir`-scoped engine-repo op, tracked under C6b's DR-127
-gate -- not a DoE-runner fold (contrast a hook that reads a genuine
-DoE-authored sidecar file and therefore stays DoE-resident on
+gate -- not a runner fold in this repo (contrast a hook that reads a genuine
+source-repo sidecar file and therefore stays here on
 `preuse-agent-dispatch.py`'s runner). Actual porting
 is out of C6c's scope per that row's own body ("Porting any of them means
 writing new engine logic, not attaching existing logic"); this hook remains
@@ -206,8 +206,8 @@ except Exception:
 #: for the full explanation this hook's message used to spell out inline
 #: (docs/plans/2026-08-02-guard-message-character-cap.md § C6).
 _WIKI_ANCHOR = (
-    # Review: code-reviewer -- bare fragment produced an unresolvable
-    # `render()` citation. Full path matches every other converted hook.
+    # A bare fragment yields an unresolvable `render()` citation. Full path
+    # matches every other converted hook.
     "coordinator/docs/wiki/guards/guard-message-concision.md"
     "#workflow-offer-nudge"
 )

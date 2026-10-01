@@ -2,14 +2,13 @@
 GROUP EM WATCH emitters (`group-em-autofire.py`, `session-start-watch-
 presence.py`, `coordinator/bin/group-em-watch-cli.py`).
 
-<!-- Review: overengineering-reviewer -- hoisted from three byte-identical
-copies of `_resolve_watch_module()` plus three independent `GROUP EM WATCH:`
-format strings. `coordinator/hooks/scripts/` already hosts shared `_`-prefixed
+One home for `_resolve_watch_module()` and the `GROUP EM WATCH:` format string.
+`coordinator/hooks/scripts/` already hosts shared `_`-prefixed
 modules (`_next_move_ledger.py` et al., imported by
 `watchdog-undischarged-next-move.py` via the same sys.path-insert idiom used
-here), so the per-hook-independence posture (DR-047/DR-118) does not cover
+here), so the per-hook-independence posture (docs/decisions/DR-must-agree-helpers-have-one-home.md) does not cover
 this case: it is about hooks not importing EACH OTHER, not about refusing a
-shared helper. -->
+shared helper.
 
 `coordinator/skills/group-em/` is not an importable package name (the
 directory carries a hyphen), so `watch_heartbeat` is resolved by file path,

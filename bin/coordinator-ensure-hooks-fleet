@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-coordinator-ensure-hooks-fleet — install/repair both coordinator git hooks
-(prepare-commit-msg, post-commit) in EVERY registered repo, not only cwd's.
+coordinator-ensure-hooks-fleet — install/repair the coordinator prepare-commit-msg
+hook and apply the hook disposition table (retired/replaced hook bodies) in
+EVERY registered repo, not only cwd's.
 
 Native-Python, Windows-first (DR-059 de-bash). Logic lives in
 lib/git_hook_install.py (ensure_hooks_fleet); this is the thin entrypoint,

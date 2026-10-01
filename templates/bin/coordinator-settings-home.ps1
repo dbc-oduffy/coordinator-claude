@@ -2,6 +2,11 @@
 
 # PowerShell twin of the Python coordinator-settings-home resolver -- must resolve the
 # SAME settings-home path a POSIX-shell consumer on the same machine would.
+# Hand-maintained, interpreter-free (never a generated trampoline): the contract with the
+# .cmd twin is the OUTPUT -- same path, exit codes 0/1/2, divergence verdict.
+# TRAP: the extensionless Python resolver is the source of truth; mirror every rung,
+# subcommand and divergence-rule change here by hand. Keep the `$cmd = $args[0]` line
+# intact -- test_settings_home_ps1_resolves_symlinks.py slices the script at it.
 #   $env:COORDINATOR_SETTINGS_HOME  — explicit override (sandboxes/CI/XDG users)
 #   ($env:CLAUDE_HOME or $env:HOME or $env:USERPROFILE or $HOME) + '\.coordinator-claude-settings'
 
@@ -54,16 +59,29 @@ function Resolve-CanonicalPath {
     return $item.FullName
 }
 
+function Test-AbsentOrEmptyHusk {
+    # Mirrors Python _is_absent_or_empty_husk(): a directory left empty by a completed
+    # migration is not a second content home. Unreadable or non-directory counts as no-state.
+    param([Parameter(Mandatory)][string]$Path)
+    if (-not (Test-Path -LiteralPath $Path -PathType Container)) { return $true }
+    try {
+        return -not (Get-ChildItem -Force -LiteralPath $Path -ErrorAction Stop | Select-Object -First 1)
+    } catch {
+        return $true
+    }
+}
+
 function Test-Divergence {
-    # Mirrors bash _check_divergence(). True (OK) when homes are absent or share a
-    # canonical path (compat symlink); false (fail-loud) when both exist and diverge.
+    # Mirrors Python _check_divergence(). True (OK) when either home holds no state (absent
+    # or an empty post-migration husk) or both share a canonical path (compat symlink);
+    # false (fail-loud) only when both hold content at different canonical paths.
     $settingsHome = Resolve-SettingsHome
     $claudeHomeBase = Resolve-ClaudeHomeBase
     $legacy = Join-Path (Join-Path $claudeHomeBase '.claude') 'machine-local'
     $new = Join-Path $settingsHome 'machine-local'
 
-    if (-not (Test-Path $legacy)) { return $true }
-    if (-not (Test-Path $new)) { return $true }
+    if (Test-AbsentOrEmptyHusk -Path $legacy) { return $true }
+    if (Test-AbsentOrEmptyHusk -Path $new) { return $true }
 
     $rpLegacy = Resolve-CanonicalPath -Path $legacy
     $rpNew = Resolve-CanonicalPath -Path $new

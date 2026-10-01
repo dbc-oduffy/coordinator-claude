@@ -56,7 +56,7 @@ from typing import Callable, Iterable
 # doctrine-repo checkout and can reach ignore.py via a simple parent.parent
 # relative path), this copy's install destination is NOT a sibling of
 # coordinator/lib: the live plugin's coordinator/ tree lives one level
-# further down, at <install-root>/plugins/coordinator/
+# further down, at <install-root>/plugins/coordinator-claude/coordinator/
 # (see the doctrine repo's root `CLAUDE.md` § Architecture: "the live plugin root
 # under ~/.claude/plugins/coordinator-claude/ is one level above a
 # coordinator/ subdirectory"; not coordinator/CLAUDE.md, which was retired
@@ -117,7 +117,7 @@ def _locate_percolate_lib() -> Path:
     engine-repo-derived path.
     Rung 1: `$CLAUDE_PLUGIN_ROOT/lib/percolate/ignore.py` — harness-provided,
     most robust when this script runs under a Claude Code plugin context.
-    Rung 2: `<install-root>/plugins/coordinator/lib/percolate/ignore.py`
+    Rung 2: `<install-root>/plugins/coordinator-claude/coordinator/lib/percolate/ignore.py`
     — the doctrine-fixed live-install layout (this file's own install
     destination's grandparent is `<install-root>`).
     Rung 3 (machine-local registry): resolve the engine repo checkout
@@ -221,7 +221,7 @@ def _locate_percolate_lib() -> Path:
         "publish_sync.py: could not locate coordinator/lib/percolate/ignore.py via "
         "$REPO_CLAUDE_KLABAUTER env, $COORDINATOR_ENGINE_ROOT env, "
         "$CLAUDE_PLUGIN_ROOT/lib/percolate, "
-        "<install-root>/plugins/coordinator/lib/percolate, "
+        "<install-root>/plugins/coordinator-claude/coordinator/lib/percolate, "
         "the machine-local registry's repos.claude_klabauter, or a claude-klabauter "
         "sibling checkout's coordinator/lib/percolate. "
         "This module delegates to the SSOT ignore matcher on purpose (see the "
@@ -1321,8 +1321,7 @@ def sync_repo_cut(dest_dir: Path, dry_run: bool) -> bool:
     ever reached, by the pre-existing `run_pre_sync_gates`/
     `_git_materialize_ref` gate in `publish.py`; not re-checked here.
 
-    Operator precondition (undocumented until Review: code-reviewer P2,
-    2026-08-10): the final `git commit` relies on an inherited global
+    Operator precondition: the final `git commit` relies on an inherited global
     `user.name`/`user.email` — this function sets neither. On a machine
     with no global git identity configured, `_run_git` raises
     `RepoCutBootstrapError` loudly (fatal by design, not silent) rather
@@ -1333,7 +1332,7 @@ def sync_repo_cut(dest_dir: Path, dry_run: bool) -> bool:
     operator's behalf is its own defect, distinct from failing loud on a
     genuinely missing precondition.
 
-    Concurrency (Review: code-reviewer P2, 2026-08-10): `_repo_cut_is_
+    Concurrency: `_repo_cut_is_
     bootstrapped`'s check and this function's `git init`/`add`/`commit`
     body are not atomic in isolation — a TOCTOU window exists between them.
     In practice this is a documented no-op, not a live hazard: every

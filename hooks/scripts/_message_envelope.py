@@ -491,7 +491,7 @@ def emit(message: Message, channel: str) -> Optional[int]:
     text = render(message)
 
     if channel == CHANNEL_STOP:
-        # Review: code-reviewer -- .buffer.write bypasses Python's Windows
+        # .buffer.write bypasses Python's Windows
         # text-mode newline translation (stderr in text mode would silently
         # turn every LF into CRLF, breaking byte-fidelity with the bash
         # oracle's stderr output). Mirrors coordinator-reminder.py /

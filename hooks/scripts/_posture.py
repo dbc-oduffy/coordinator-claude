@@ -28,9 +28,9 @@ file, unparseable content, absent key, value outside the enum -- returns
 "precision". An unreadable identity file degrades to "change nothing",
 never to "start blocking".
 
-Both consulted files are flat `key: value` text (a YAML-flavored
-frontmatter block and a flat YAML mapping respectively); a line-scan parser
-is correct here and avoids adding a YAML dependency on a hot path.
+Both consulted files are read through `coordinator/lib/frontmatter_scan.py`
+(column-zero keys only; a YAML-flavored frontmatter block and a flat YAML
+mapping respectively), avoiding a YAML dependency on a hot path.
 """
 
 from __future__ import annotations
@@ -72,35 +72,32 @@ except Exception:
     _resolve_consuming_repo_root = None  # type: ignore[assignment]
 
 
-def _extract_key_from_lines(lines, key: str) -> str | None:
-    """Scan flat `key: value` lines and return the first value for `key`, or
-    None if absent. Tolerates a leading `---` frontmatter fence and trailing
-    inline comments; does not attempt general YAML parsing."""
-    prefix = key + ":"
-    for line in lines:
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        if stripped.startswith(prefix):
-            value = stripped[len(prefix):].strip()
-            if "#" in value:
-                value = value.split("#", 1)[0].strip()
-            if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
-                value = value[1:-1]
-            if value:
-                return value
-    return None
+_LIB_DIR = os.path.normpath(os.path.join(_SCRIPTS_DIR, "..", "..", "lib"))
+if _LIB_DIR not in sys.path:
+    sys.path.append(_LIB_DIR)
+try:
+    from frontmatter_scan import read_text as _read_text  # noqa: E402
+    from frontmatter_scan import scan_frontmatter as _scan_frontmatter  # noqa: E402
+    from frontmatter_scan import scan_mapping as _scan_mapping  # noqa: E402
+except Exception:
+    # An install shape that ships hooks/scripts without coordinator/lib must
+    # still fail open to the default posture, never crash at import.
+    _read_text = _scan_frontmatter = _scan_mapping = None  # type: ignore[assignment]
 
 
 def _read_key_from_file(path: str, key: str) -> str | None:
+    """Return the scalar string value of `key` from a `.md` frontmatter block
+    or a flat `.yaml` mapping; None when unreadable, absent, empty, non-scalar,
+    or the scanner is unavailable."""
+    if _read_text is None:
+        return None
     try:
-        with open(path, "r", encoding="utf-8") as handle:
-            lines = handle.readlines()
-    except OSError:
+        text = _read_text(path)
+        scan = _scan_frontmatter if str(path).endswith(".md") else _scan_mapping
+        value = scan(text).get(key)
+    except Exception:
         return None
-    except UnicodeDecodeError:
-        return None
-    return _extract_key_from_lines(lines, key)
+    return value if isinstance(value, str) and value else None
 
 
 def _find_repo_root() -> str | None:

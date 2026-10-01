@@ -5,8 +5,8 @@ coordinator_core.orientation.regenerate_cache.
 Single source-of-truth derivation for state/orientation_cache.md.
 
 Spec backlink: docs/plans/2026-05-18-orientation-cache-authoring-discipline.md
-Schema: plugins/coordinator/pipelines/workday-start-internals.md § 5.5
-Verifier: plugins/coordinator/bin/verify-orientation-cache-sync.py
+Schema: plugins/coordinator-claude/coordinator/pipelines/workday-start-internals.md § 5.5
+Verifier: plugins/coordinator-claude/coordinator/bin/verify-orientation-cache-sync.py
 Recipe: scratch/subagent-sandbox/bash-to-python-engine-migration/recipe-t3a-g3.md § 2
 
 Usage:

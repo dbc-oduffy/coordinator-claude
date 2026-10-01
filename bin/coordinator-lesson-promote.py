@@ -447,7 +447,7 @@ def _validate_target_wiki(
         print(
             "  Remediation: run 'machine-local set repos.content_root /path/to/the-coordinator-doctrine-repo'\n"
             "  or set CONTENT_ROOT=/path/to/the-coordinator-doctrine-repo before invoking this CLI.\n"
-            "  Reference: plugins/coordinator/docs/wiki/machine-local-registry.md §4c",
+            "  Reference: plugins/coordinator-claude/coordinator/docs/wiki/machine-local-registry.md §4c",
             file=sys.stderr,
         )
         return _EXIT_DOE_UNRESOLVABLE
@@ -832,7 +832,7 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 "  Remediation: run 'machine-local set repos.content_root /path/to/the-coordinator-doctrine-repo'\n"
                 "  or set CONTENT_ROOT=/path/to/the-coordinator-doctrine-repo before invoking this CLI.\n"
-                "  Reference: plugins/coordinator/docs/wiki/machine-local-registry.md §4c",
+                "  Reference: plugins/coordinator-claude/coordinator/docs/wiki/machine-local-registry.md §4c",
                 file=sys.stderr,
             )
             return _EXIT_DOE_UNRESOLVABLE
@@ -957,7 +957,7 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 "  Remediation: run 'machine-local set repos.content_root /path/to/the-coordinator-doctrine-repo'\n"
                 "  or set CONTENT_ROOT=/path/to/the-coordinator-doctrine-repo before invoking this CLI.\n"
-                "  Reference: plugins/coordinator/docs/wiki/machine-local-registry.md §4c",
+                "  Reference: plugins/coordinator-claude/coordinator/docs/wiki/machine-local-registry.md §4c",
                 file=sys.stderr,
             )
             return _EXIT_DOE_UNRESOLVABLE

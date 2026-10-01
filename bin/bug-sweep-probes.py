@@ -112,12 +112,20 @@ def cmd_detect_stack(args: argparse.Namespace) -> int:
     return 0
 
 
+def _no_console_kw() -> dict:
+    """CREATE_NO_WINDOW kwargs for a captured child on Windows; empty elsewhere."""
+    if os.name != "nt":
+        return {}
+    return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+
+
 def _git_diff_name_only(repo_root: Path) -> list[str]:
     proc = subprocess.run(
         ["git", "-C", str(repo_root), "diff", "--name-only"],
         capture_output=True,
         text=True,
         check=False,
+        **_no_console_kw(),
     )
     if proc.returncode != 0:
         raise RuntimeError(

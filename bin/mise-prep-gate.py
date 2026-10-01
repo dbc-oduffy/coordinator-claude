@@ -38,11 +38,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence
-
-if TYPE_CHECKING:  # pragma: no cover - typing only, no runtime import cost
-    from coordinator_core.roadmap.prep_gate import CorpusInputs
-
+from typing import Any, Dict, List, Optional, Sequence
 
 class GateError(RuntimeError):
     """`coordinator_core` could not be resolved on `sys.path` from this file's
@@ -99,45 +95,55 @@ def _cli():
 
 
 # ---------------------------------------------------------------------------
-# Vocabulary — re-exported by name, not restated. A caller importing these
-# before the engine has been resolved gets an AttributeError at import time
-# rather than a half-populated module; that is acceptable here because every
-# consumer of this file (DoE's tests included) resolves the engine first via
-# `_resolve_engine_root`/the `gate` fixture before touching any of these.
+# Vocabulary — re-exported by name, not restated, and resolved on first read
+# (PEP 562) so the module body stays inert for `serve_classifier`. A read made
+# before the engine is resolvable raises `AttributeError`, as an absent name
+# would, rather than a half-populated module.
 # ---------------------------------------------------------------------------
 
-try:  # pragma: no cover - depends on environment; failure is reported lazily below
-    _prep_gate = _engine()
-    _prep_gate_cli = _cli()
-except GateError:  # pragma: no cover - environment-dependent
-    _prep_gate = None
-    _prep_gate_cli = None
-
-if _prep_gate is not None:
-    PREPPED = _prep_gate.PREPPED
-    NOT_PREPPED = _prep_gate.NOT_PREPPED
-    REFUSED = _prep_gate.REFUSED
-    ENGINE_ERROR = _prep_gate.ENGINE_ERROR
-    FLEET_REPOS = _prep_gate.FLEET_REPOS
-    REQUIRES_VALUES = _prep_gate.REQUIRES_VALUES
-    STAMP_FIELDS = _prep_gate.STAMP_FIELDS
-    fleet_siblings = _prep_gate.fleet_siblings
-    repo_root_names = _prep_gate.repo_root_names
-    repo_nested_names = _prep_gate.repo_nested_names
-    _is_settings_home_path = _prep_gate._is_settings_home_path
-    _authoring_fix_lines = _prep_gate._authoring_fix_lines
-    _terminal_statuses = _prep_gate._terminal_statuses
-
-if _prep_gate_cli is not None:
-    EXIT_PREPPED = _prep_gate_cli.EXIT_PREPPED
-    EXIT_NOT_PREPPED = _prep_gate_cli.EXIT_NOT_PREPPED
-    EXIT_REFUSED = _prep_gate_cli.EXIT_REFUSED
-    EXIT_USAGE = _prep_gate_cli.EXIT_USAGE
-    EXIT_ENGINE_ERROR = _prep_gate_cli.EXIT_ENGINE_ERROR
-    GateCLIError = _prep_gate_cli.GateCLIError
+_PREP_GATE_NAMES = frozenset(
+    {
+        "PREPPED",
+        "NOT_PREPPED",
+        "REFUSED",
+        "ENGINE_ERROR",
+        "FLEET_REPOS",
+        "REQUIRES_VALUES",
+        "STAMP_FIELDS",
+        "fleet_siblings",
+        "repo_root_names",
+        "repo_nested_names",
+        "_is_settings_home_path",
+        "_authoring_fix_lines",
+        "_terminal_statuses",
+    }
+)
+_PREP_GATE_CLI_NAMES = frozenset(
+    {
+        "EXIT_PREPPED",
+        "EXIT_NOT_PREPPED",
+        "EXIT_REFUSED",
+        "EXIT_USAGE",
+        "EXIT_ENGINE_ERROR",
+        "GateCLIError",
+    }
+)
 
 
-def corpus_inputs(repo_root: Path) -> "CorpusInputs":
+def __getattr__(name: str):
+    if name in _PREP_GATE_NAMES:
+        source = _engine
+    elif name in _PREP_GATE_CLI_NAMES:
+        source = _cli
+    else:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    try:
+        return getattr(source(), name)
+    except GateError as exc:
+        raise AttributeError(f"{name}: {exc}") from exc
+
+
+def corpus_inputs(repo_root: Path) -> Any:
     """The two per-corpus facts every predicate reads (`root_names`, `siblings`,
     `nested_names`), resolved once and reused across every plan a caller gates
     standing in the same `repo_root` — `coordinator_core.roadmap.prep_gate.corpus_inputs`
@@ -146,7 +152,7 @@ def corpus_inputs(repo_root: Path) -> "CorpusInputs":
     return _engine().corpus_inputs(Path(repo_root))
 
 
-def prep_gate(plan_path: Path, corpus: "CorpusInputs") -> Dict[str, Any]:
+def prep_gate(plan_path: Path, corpus: Any) -> Dict[str, Any]:
     """The whole bar over ONE plan, given an already-resolved `corpus_inputs()`.
 
     `coordinator_core.roadmap.prep_gate.gate_plan_with_corpus` verbatim — this
@@ -164,7 +170,7 @@ def _targets(args: List[str], repo_root: Path) -> List[Path]:
     try:
         return _cli()._targets(args, Path(repo_root))
     except _cli().GateCLIError as exc:
-        raise GateCLIError(str(exc)) from exc
+        raise __getattr__("GateCLIError")(str(exc)) from exc
 
 
 def _tally(reports: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -188,7 +194,7 @@ def main(argv: "list[str] | None" = None) -> int:
         cli = _cli()
     except GateError as exc:
         print(f"mise-prep-gate.py: ERROR — coordinator_core unresolvable: {exc}", file=sys.stderr)
-        return EXIT_USAGE if "_prep_gate_cli" in globals() and _prep_gate_cli is not None else 3
+        return 3
     return cli.main(list(raw[1:]))
 
 
@@ -246,7 +252,7 @@ def _attest(text: str, fm: Dict[str, Any]) -> "Optional[str]":
     """
     from coordinator_core.frontmatter.primitives import canonical_body_sha
 
-    stamp_fields = STAMP_FIELDS if "STAMP_FIELDS" in globals() else _engine().STAMP_FIELDS
+    stamp_fields = _engine().STAMP_FIELDS
     present = [field for field in stamp_fields if field in fm]
     if not present:
         return (

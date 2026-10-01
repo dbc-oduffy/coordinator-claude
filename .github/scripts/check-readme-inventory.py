@@ -11,8 +11,8 @@ PLUGINS_ROOT = pathlib.Path(".")
 #   ### Commands (18)
 #   ### Skills (20)
 #   ### Agents (6)
-# Review: the Staff Engineer — old regex \((\d+)\) required digits immediately inside parens,
-# but README has e.g. "(18, all user-invocable via /)" — comma after digits broke match.
+# The count may be followed by a comma, e.g. "(18, all user-invocable via /)", so the match
+# does not require a closing paren right after the digits.
 COUNT_RE = re.compile(r"^#{1,3}\s+(\w+).*\((\d+)\b", re.MULTILINE)
 
 # Map from section name (lowercased) to glob pattern for actual file count

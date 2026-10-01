@@ -105,7 +105,7 @@ triple-read note below).
 SETTINGS.JSON TRIPLE-READ (named, not fixed here). Three of these guards
 (`guard-settings-integrity.py`, `guard-foreign-platform-paths.py`,
 `guard-hook-generation-self-probe.py`) each independently resolve
-`CLAUDE_CONFIG_DIR`/`settings.json` and call a THIN DoE-side stub that
+`CLAUDE_CONFIG_DIR`/`settings.json` and call a THIN plugin-side stub that
 hands off to an engine-plane function, which does its OWN independent
 file read. Folding these three into one process does not, by itself,
 collapse that to one read: the read lives inside each engine function's

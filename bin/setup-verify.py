@@ -106,7 +106,7 @@ def cmd_layout(args: argparse.Namespace) -> int:
     if not manifest.is_file():
         print(
             f"Manifest not found at {manifest}. Re-run after the install surface "
-            "has been committed (plugins/coordinator/docs/install/"
+            "has been committed (plugins/coordinator-claude/coordinator/docs/install/"
             "agent-install-manifest.json).",
             file=sys.stderr,
         )

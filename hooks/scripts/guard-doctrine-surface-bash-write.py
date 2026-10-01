@@ -238,8 +238,7 @@ the SINK:
      Matching is on the ``-m`` module argument, so a lookalike script name
      or the module string appearing only as prose elsewhere does not match.
 
-     CROSS-REPO INVARIANT THIS CARVE-OUT DEPENDS ON (Review: code-reviewer,
-     Finding 3, P2): the "write target is its own grant record, never the
+     CROSS-REPO INVARIANT THIS CARVE-OUT DEPENDS ON: the "write target is its own grant record, never the
      governed file" claim above is a property of
      ``coordinator_core.session.claude_md_grant`` -- a control-plane engine
      module this repo does not host, so there is no local source or test
@@ -425,7 +424,7 @@ def _governed_identifiers() -> "list[str]":
 _GOVERNED_IDENTIFIERS = _governed_identifiers()
 
 #: Case-folded mirror of ``_GOVERNED_IDENTIFIERS`` -- see module docstring
-#: point 3 (Review: security-audit-worker, "high" finding -- both macOS and
+#: point 3 (both macOS and
 #: Windows are case-insensitive-filesystem-by-default, this repo's own
 #: CLAUDE.md names macOS/Windows first-class, and ``claude.md``/
 #: ``EM-Operating-Doctrine.MD`` name the SAME governed file as
@@ -501,7 +500,7 @@ _WRITE_MODE_OPEN_RE = re.compile(r"open\([^)]*['\"][wax]['\"]")
 _WRITE_METHOD_RE = re.compile(r"\.write(_text|_bytes)?\(")
 
 #: Additional file-write primitives -- see module docstring point 3
-#: extension (Review: security-audit-worker, "high" finding -- enumeration
+#: extension (an enumeration
 #: gap confirmed live against `ex -c '%d' -c 'wq' CLAUDE.md`,
 #: `patch CLAUDE.md < x.patch`, `rsync -a src CLAUDE.md`,
 #: `curl -o CLAUDE.md URL`, `wget -O CLAUDE.md URL`, and
@@ -805,8 +804,7 @@ def _stdin_program_heredoc_bodies(text: str) -> "list[str]":
     disturbing the strip that legitimately suppresses prose-in-a-heredoc
     false positives everywhere else.
 
-    GENUINELY UNTERMINATED HEREDOC (Review: code-reviewer, wsc-20260818-c3run
-    slice4 finding 3 -- state/debt-backlog/
+    GENUINELY UNTERMINATED HEREDOC (state/debt-backlog/
     2026-08-18-guard-doctrine-surface-bash-write-unterminat.yaml). When the
     closing terminator line is never found (``scan`` runs off the end of
     ``lines``), real bash does not discard the body -- it reads every
@@ -1365,8 +1363,7 @@ def _assignment_indirection_reaches_a_write(segments: "list[str]") -> bool:
 
 
 def _has_xargs_pipe_indirection(segments: "list[str]") -> bool:
-    """Point 10 (new) -- Review: security-audit-worker, "critical" finding,
-    genuinely new root cause distinct from the command-substitution/quote
+    """Point 10 (new) -- a genuinely new root cause distinct from the command-substitution/quote
     bug above. Confirmed live:
     ``echo CLAUDE.md | xargs -I{} sh -c "echo pwned > {}"`` and
     ``echo CLAUDE.md | xargs tee`` both slipped past the per-segment model

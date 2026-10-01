@@ -4,9 +4,11 @@ Purpose: one CLI for the ONE handoff-housekeeping job — close finished
 handoffs, file them into `archive/handoffs/`, sweep up consumed ones — so a
 ceremony reaches all three through a single name instead of three separately
 dispatchable legs. Governing plan:
-`docs/plans/2026-08-27-one-corpus-read-or-the-housekeeping-job-dies-a-fourth-time.md`.
+`archive/specs/2026-08/2026-08-27-one-corpus-read-or-the-housekeeping-job-dies-a-fourth-time.md`;
+the op it serves was built by
+`archive/specs/2026-08/2026-08-29-the-housekeeping-cycle-stops-committing.md`.
 
-SECOND JOB (C6, `docs/plans/2026-09-11-memo-deliveries-survive-the-receiver-s-
+SECOND JOB (C6, `archive/specs/2026-09/2026-09-11-memo-deliveries-survive-the-receiver-s-
 o.md`): this is also the `/workday-start` door that runs `memo.heal_inbox`
 against the invoking repo, before `housekeeping.cycle`. It lives here, on this
 CLI, rather than on the memo surfacer or inside `housekeeping.cycle` itself,
@@ -23,7 +25,8 @@ WARM-SERVE IS THE POINT OF THIS FILE, not an incidental property of it. Every
 timing figure in the governing plan is a WARM figure. Reached cold, this job
 pays ~109ms of interpreter-plus-engine import before reading a single handoff,
 or ~163ms through the `.cmd` forwarder (two interpreter starts) — against a
-200ms process-time bar, leaving 37ms for a job measured at 65-95ms. The `.exe`
+200ms process-time bar, leaving 37ms for a job whose budget
+`coordinator_core/housekeeping/tests/test_brightline.py` measures. The `.exe`
 warm door is 23.5ms. So the cold/warm difference is not a tuning detail; it
 decides whether this job is over the bar before it starts.
 

@@ -225,6 +225,19 @@ def build_throwaway_tree(
             check=False,
             **_NO_CONSOLE,
         )
+        if result.returncode != 0 and "failed to create link" in result.stderr:
+            # Trap: the temp root and the dest sit on different volumes
+            # (Windows: X: vs C:), where `--local` hardlinks are impossible
+            # and git aborts rather than falling back to a copy.
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            tmp_dir.mkdir()
+            result = subprocess.run(
+                clone_cmd[:3] + ["--no-hardlinks"] + clone_cmd[3:],
+                capture_output=True,
+                text=True,
+                check=False,
+                **_NO_CONSOLE,
+            )
         if result.returncode != 0:
             raise ThrowawayTreeError(
                 f"git clone --local --no-checkout failed for {dest_repo_root} "

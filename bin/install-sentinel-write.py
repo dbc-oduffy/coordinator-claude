@@ -5,6 +5,7 @@ INSTALL_CLASS = True
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -13,6 +14,13 @@ from pathlib import Path
 GENERATES = []
 
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+
+
+def _no_console_kw() -> dict:
+    """CREATE_NO_WINDOW kwargs for a captured child on Windows; empty elsewhere."""
+    if os.name != "nt":
+        return {}
+    return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
 
 
 def _resolve_sha(source: Path, sha_arg: str | None) -> str:
@@ -30,6 +38,7 @@ def _resolve_sha(source: Path, sha_arg: str | None) -> str:
         ["git", "-C", str(source), "rev-parse", "HEAD"],
         capture_output=True,
         text=True,
+        **_no_console_kw(),
     )
     if result.returncode != 0:
         print(

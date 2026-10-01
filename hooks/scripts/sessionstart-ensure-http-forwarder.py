@@ -1,10 +1,10 @@
-"""SessionStart ensure for the http hook forwarder -- DoE-hosted lifecycle fallback.
+"""SessionStart ensure for the http hook forwarder -- plugin-hosted lifecycle fallback.
 
 WHY THIS EXISTS. `docs/decisions/DR-http-hook-forwarder-lifecycle.md` assigns the resident
 forwarder's (`coordinator/hooks/http_hook_forwarder.py`) start/keep-alive/respawn lifecycle to the
 engine plane's warm supervisor, via an `ensure_*` seam that DR names as NOT YET PUBLISHED
 (`grep -rn "front.door\\|forwarder" coordinator_core/warm/` returns nothing as of that DR). This
-module is the documented fallback the DR authorizes taking when that seam has slipped: a DoE-hosted
+module is the documented fallback the DR authorizes taking when that seam has slipped: a plugin-hosted
 `SessionStart` command hook that ensures the forwarder is up using nothing but the forwarder's own
 exclusive-bind arbitration, without waiting on a seam that does not exist yet on this machine.
 

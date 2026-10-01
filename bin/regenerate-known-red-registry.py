@@ -66,7 +66,9 @@ REVIEW_WINDOW_DAYS = 30
 GENERATES = [
     {
         "artifact": "state/bash-guards/known-red.json",
-        "stamp_key": "generated",
+        # `verified_at` moves on every verified --write run; `generated` moves
+        # only when the entry set does, so it cannot clear a staleness verdict.
+        "stamp_key": "verified_at",
         "sources": ["coordinator/bin/regenerate-known-red-registry.py"],
     },
 ]
@@ -163,6 +165,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="append TODO-owner stub entries for new unmarked-red nodeids and write the file",
     )
     p.add_argument(
+        "--write",
+        action="store_true",
+        help="stamp `verified_at` when the derivation matches the registry; never edits entries, "
+        "exits non-zero and writes nothing on drift",
+    )
+    p.add_argument(
         "--prune-green",
         action="store_true",
         help="remove registry entries whose nodeid is no longer red (unmarked or marked) at all",
@@ -199,17 +207,15 @@ def main(argv: list[str] | None = None) -> int:
                   "in the observed unmarked-red set" % removed, file=sys.stderr)
             changed = True
 
-    if changed:
-        # Artifact-side stamp (C2, § Mechanism correction) -- top-level keys,
-        # the shape natural to this artifact's JSON format, reusing
-        # `docs/exec-summary.md`'s `generator`/`generated` key names verbatim
-        # rather than minting new ones. Set at the write chokepoint only, so
-        # a --check-only run (no `changed`) never claims a stamp for content
-        # it did not write.
+    drift = bool(diff["new_unmarked_red"] or diff["stale_registry_entries"])
+    # --write stamps only a verified artifact: a derivation re-ran and matched.
+    verified_write = args.write and not drift
+    if changed or verified_write:
+        now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         registry["generator"] = "coordinator/bin/regenerate-known-red-registry.py"
-        registry["generated"] = datetime.datetime.now(datetime.timezone.utc).strftime(
-            "%Y-%m-%dT%H:%M:%SZ"
-        )
+        if changed:
+            registry["generated"] = now
+        registry["verified_at"] = now
         REGISTRY_PATH.write_text(json.dumps(registry, indent=2) + "\n", encoding="utf-8", newline="\n")
 
     print(json.dumps(diff, indent=2))

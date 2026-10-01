@@ -117,7 +117,7 @@ def main() -> int:
     if not findings:
         return 0
 
-    print(render_report(findings, OVERRIDE_ENV), file=sys.stderr)
+    print(render_report(findings), file=sys.stderr)
     return 1
 
 

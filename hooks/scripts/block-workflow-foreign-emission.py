@@ -97,11 +97,10 @@ def _emitter_invocation() -> tuple[str, str]:
     """A COPY-PASTEABLE emitter invocation, absolute wherever possible, plus the
     shell family it will be pasted into (`"posix"`, `"cmd"`, or `"ps1"`) --
     `_reemit_command` needs that to quote its trailing argv in a syntax the
-    target shell actually parses (Review: coordinator-code-reviewer 2026-09-22
-    -- `shlex.quote`'s POSIX single-quotes are not quoting syntax to cmd.exe at
-    all).
+    target shell actually parses (`shlex.quote`'s POSIX single-quotes are not
+    quoting syntax to cmd.exe at all).
 
-    `emit-dispatch-workflow` is served from the settings-home launcher (no DoE-local
+    `emit-dispatch-workflow` is served from the settings-home launcher (no plugin-local
     copy as of the slice-1 fence-switch, coordinator-claude#47) -- resolved the same
     way every coordinator CLI is, per `snippets/resolve-coordinator-bin.md`, never
     against `CLAUDE_PLUGIN_ROOT` or a `.content-root` pointer.
@@ -139,6 +138,8 @@ def _reemit_command(receipt: dict) -> str:
     """A queue-emitted receipt carries its own `reemit` argv; `--plan
     <plan-path>` is wrong advice there since it has no plan to name. A
     receipt predating the `reemit` key still gets the `--plan` line."""
+    # foreign-identity: OUT-OF-CLASS — renders the shared settings-home launcher,
+    # which names no repo; the remedy is that CLI (census audit N3).
     invocation, shell = _emitter_invocation()
     reemit = receipt.get("reemit")
     if isinstance(reemit, list) and reemit:
@@ -190,6 +191,8 @@ def main() -> int:
             "edit the halting phase's agent step, and no earlier one -- an edited "
             "completed step loses its cache and re-runs -- and an unedited resume "
             "replays the cached refusal -- re-stamp the receipt over your own edit:\n"
+            # foreign-identity: OUT-OF-CLASS — renders the shared settings-home
+            # launcher, which names no repo; the remedy is that CLI (census audit N3).
             f"  {_emitter_invocation()[0]} --restamp "
             f'"{script}"\n'
             "It prints the phase spine it is authorizing, and refuses unless the "

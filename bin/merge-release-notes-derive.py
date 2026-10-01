@@ -69,7 +69,7 @@ from typing import Dict, List, Optional, Set
 
 _BIN_DIR = Path(__file__).resolve().parent
 
-def _win_portability_flags() -> dict:
+def _no_console_flags() -> dict:
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_engine_on_path
 
@@ -86,7 +86,7 @@ def _git(*args: str, cwd: Optional[str] = None) -> subprocess.CompletedProcess:
         capture_output=True,
         text=True,
         cwd=cwd,
-        **_win_portability_flags(),
+        **_no_console_flags(),
     )
 
 

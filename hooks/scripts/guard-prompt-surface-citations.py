@@ -40,8 +40,6 @@ currently at zero (`test_prompt_surfaces_cite_resolvably.py`'s baseline is
 `{}`); the scoping is what keeps this guard correct if that debt is ever
 reintroduced — an import, a merge, a bulk authoring pass — rather than
 re-flagging every legacy citation in a file each time someone edits it.
-Review: code-reviewer — Finding 5, ~550-figure was stale against the
-ratchet's zero baseline.
 
 Reconstructing before/after
 -----------------------------
@@ -114,7 +112,7 @@ def _deny_reason(target: str, violations: list) -> str:
     violations, with no process/stdin/envelope setup. `_deny_message` below
     is what wires this into the real `Message`/emission path.
 
-    Review: code-reviewer, Finding 5 -- restores the first couple of
+    Names the first couple of
     distinct violation `kind`s inline so a multi-violation write still
     names WHICH citation kind fired, rather than a bare count."""
     kinds = sorted({v.kind for v in violations})

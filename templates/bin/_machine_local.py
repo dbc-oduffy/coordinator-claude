@@ -951,8 +951,7 @@ def cmd_dump(args: argparse.Namespace) -> int:
     exporters' sole consumer. (`claude-machine-local.ps1` deliberately stays
     on the JSON path instead: PowerShell cannot safely `eval` shell export
     syntax, and it re-implements the idempotency guard itself via
-    `[Environment]::GetEnvironmentVariable`. -- Review: coordinator:code-reviewer,
-    slice4) It reproduces the JSON path's four per-key
+    `[Environment]::GetEnvironmentVariable`.) It reproduces the JSON path's four per-key
     states, moved to the stream a shell `eval` can tolerate:
       - resolved, non-empty            -> `[ -n "${VAR:-}" ] || export VAR='...'`
         (the guard preserves the caller's own idempotency contract: a

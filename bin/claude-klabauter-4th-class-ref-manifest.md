@@ -18,7 +18,7 @@ references to `state/` that are rooted via either (a) root-var indirection
 this class; each instance here requires **seam-adoption** (refactor to call
 `coordinator_state_root [--central]`) rather than search-and-replace substitution.
 
-Scope searched: `plugins/coordinator/{bin,lib,hooks,tests}` and
+Scope searched: `plugins/coordinator-claude/coordinator/{bin,lib,hooks,tests}` and
 `tests/cockpit-tc3/`. Test files included (they inherit the same indirection pattern
 from the production scripts they call).
 

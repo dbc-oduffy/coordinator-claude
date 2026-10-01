@@ -11,13 +11,14 @@ import sys
 
 MAX_SIZE_BYTES = 1_000_000  # 1 MB
 MAX_SIZE_LABEL = "1 MB"
+_NO_CONSOLE = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
 
 def get_changed_files() -> list[str]:
     """Get files changed relative to origin/main."""
     try:
         result = subprocess.run(
             ["git", "diff", "--name-only", "origin/main...HEAD"],
-            capture_output=True, text=True, check=True
+            capture_output=True, text=True, check=True, **_NO_CONSOLE
         )
         return [f for f in result.stdout.strip().splitlines() if f]
     except subprocess.CalledProcessError:
@@ -26,7 +27,7 @@ def get_changed_files() -> list[str]:
         try:
             result = subprocess.run(
                 ["git", "diff", "--name-only", "--cached"],
-                capture_output=True, text=True, check=True
+                capture_output=True, text=True, check=True, **_NO_CONSOLE
             )
             return [f for f in result.stdout.strip().splitlines() if f]
         except (subprocess.CalledProcessError, FileNotFoundError) as e:

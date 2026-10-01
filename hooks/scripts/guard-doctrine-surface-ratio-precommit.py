@@ -97,7 +97,7 @@ about for a *rename* of this file ("do not rename... without a coordinated
 update on that side"), and exactly the silently-degraded-instrument shape
 this hole was found by. Riding the one gate the installer already invokes
 is the only home on this side of that boundary that is genuinely reachable
-without a coordinated claude-klabauter-side change.
+without a coordinated engine-side change.
 
 WHY THIS LEG DOES NOT SHARE THE RATIO PREDICATE'S FAIL-OPEN POSTURE: the
 ratio predicate above prices bloat -- its worst internal-failure case is a

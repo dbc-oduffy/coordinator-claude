@@ -170,6 +170,13 @@ def _apply_profile_injection(
     return ranked
 
 
+def _no_console_kw() -> dict:
+    """CREATE_NO_WINDOW kwargs for a captured child on Windows; empty elsewhere."""
+    if os.name != "nt":
+        return {}
+    return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+
+
 def get_git_tracked_files(project_root: Path) -> list[str] | None:
     try:
         result = subprocess.run(
@@ -178,6 +185,7 @@ def get_git_tracked_files(project_root: Path) -> list[str] | None:
             capture_output=True,
             text=True,
             timeout=30,
+            **_no_console_kw(),
         )
         if result.returncode == 0:
             return [f for f in result.stdout.strip().splitlines() if f]
@@ -703,6 +711,7 @@ def get_git_log_data(
             capture_output=True,
             text=True,
             timeout=60,
+            **_no_console_kw(),
         )
         if log_output.returncode != 0:
             return result

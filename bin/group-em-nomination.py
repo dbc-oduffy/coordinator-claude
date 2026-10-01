@@ -25,12 +25,10 @@ DoE reference's separate, more permissive policy — one nomination policy,
 not two that drift. Recorded in the chunk's arrival record
 (`state/audits/doe-script-arrivals/W2-C7.yaml`).
 
-`stand-down`, `who` and `standing` have no engine-side equivalent yet (the
-engine's own consumer is `groupem.enter`, which only ever claims). Their
-orchestration lives here, over the same public primitives `claim()` itself
-uses — `read_record`, `atomic_record.holder_lock`/`remove_holder_record`,
-`session_registry.find_registry_row`/`liveness_annotation` — never a
-second copy of the record shape or the liveness join.
+`who` and `standing` are engine-side (`nomination.who`/`nomination.standing`,
+op `groupem.standing`); this CLI only renders them. `stand-down` still is not:
+its orchestration lives here over `read_record` and
+`atomic_record.holder_lock`/`remove_holder_record`.
 
 Cold path — one process, one call. Direct in-process import
 (`lib` bootstrap, `require_dispatch_engine_on_path`), same trampoline shape
@@ -127,49 +125,35 @@ def _stand_down(nomination, atomic_record, repo_root: str,
     )
 
 
-def _who(nomination, session_registry, repo_root: str) -> NominationResult:
-    record = nomination.read_record(repo_root)
-    if record is None:
+_LIVE_STATE = {
+    "live": "live",
+    "no_registry_record": "not live (no registry record for this session)",
+    "pid_not_running": "not live (registry record present, process not running)",
+}
+
+
+def _who(nomination, repo_root: str) -> NominationResult:
+    annotated = nomination.who(repo_root)
+    if annotated is None:
         return NominationResult(False, f"no nomination on record for {repo_root}", 3, None)
-    live, live_reason, live_state = session_registry.liveness_annotation(record)
-    annotated = dict(record)
-    annotated["live"] = live
-    annotated["live_reason"] = live_reason
-    message = f"{record.get('session_id')} ({live_state}) holds Group EM for {repo_root}"
+    live_state = _LIVE_STATE.get(annotated.get("live_reason"), "not live")
+    message = f"{annotated.get('session_id')} ({live_state}) holds Group EM for {repo_root}"
     return NominationResult(True, message, 0, annotated)
 
 
-def _session_id_for_name(session_registry, name: str) -> Optional[str]:
-    if not name:
-        return None
-    matches = {row.session_id for row in session_registry.read_rows() if row.name == name}
-    if len(matches) != 1:
-        return None
-    return matches.pop()
-
-
-def _standing(nomination, session_registry, repo_root: str, peer: str) -> NominationResult:
-    result = _who(nomination, session_registry, repo_root)
-    if not result.ok:
-        return result
-    record = dict(result.record or {})
+def _standing(nomination, repo_root: str, peer: str) -> NominationResult:
+    record = nomination.standing(repo_root, peer)
+    if record is None:
+        return NominationResult(False, f"no nomination on record for {repo_root}", 3, None)
     holder_session_id = str(record.get("session_id") or "")
-    matches = bool(peer) and (
-        peer == holder_session_id
-        or _session_id_for_name(session_registry, peer) == holder_session_id
-    )
-    if not matches:
-        record["standing"] = "no_match"
+    if record["standing"] == "no_match":
         message = (
             f"{peer} does not hold Group EM standing for {repo_root} "
             f"(held by {holder_session_id or 'unknown'})"
         )
-        return NominationResult(True, message, 0, record)
-    if record.get("live"):
-        record["standing"] = "live"
+    elif record["standing"] == "live":
         message = f"{peer} holds live Group EM standing for {repo_root}"
     else:
-        record["standing"] = "not_live"
         message = (
             f"{peer} is the recorded Group EM for {repo_root} but is not live "
             f"({record.get('live_reason')})"
@@ -241,7 +225,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         return result.exit_code
 
     if args.verb == "who":
-        result = _who(nomination, session_registry, repo)
+        result = _who(nomination, repo)
         if not result.ok:
             print(result.message, file=sys.stderr)
             return result.exit_code
@@ -252,7 +236,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         return 0
 
     if args.verb == "standing":
-        result = _standing(nomination, session_registry, repo, args.peer)
+        result = _standing(nomination, repo, args.peer)
         if not result.ok:
             print(result.message, file=sys.stderr)
             return result.exit_code

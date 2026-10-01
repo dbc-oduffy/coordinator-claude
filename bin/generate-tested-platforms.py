@@ -61,14 +61,19 @@ Spec backlink: coordinator-content-repo:pln-platform-verified-is-a-distinc-a076a
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import os
 import sys
 
+_STAMP_KEY = "tested_platforms_verified_at"
+
 GENERATES = [
     {
         "artifact": "docs/install/agent-install-manifest.json",
-        "stamp_key": "tested_platforms",
+        # `tested_platforms` is a list, never a timestamp; the stamp moves on every
+        # --write run, since each one re-derives the list from the records.
+        "stamp_key": "tested_platforms_verified_at",
         "sources": ["coordinator/bin/generate-tested-platforms.py"],
     },
 ]
@@ -165,10 +170,6 @@ def main(argv: list[str] | None = None) -> int:
         print("(dry-run — pass --write to update agent-install-manifest.json)")
         return 0
 
-    if manifest.get("tested_platforms") == derived:
-        print(f"{manifest_path} already up to date; nothing written.")
-        return 0
-
     from coordinator_core.cli_entry import recording_declared_writes
     from coordinator_core.session.declared_writes import declare_write
 
@@ -196,6 +197,15 @@ def main(argv: list[str] | None = None) -> int:
     new_array_indented = new_array.replace("\n", "\n" + indent)
     new_field = f'{indent}"tested_platforms": {new_array_indented}'
     new_raw = raw[: field_match.start()] + new_field + raw[field_match.end() :]
+
+    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    stamp_line = f'{indent}"{_STAMP_KEY}": "{stamp}"'
+    stamp_match = re.search(rf'[ \t]*"{_STAMP_KEY}":\s*"[^"]*"', new_raw)
+    if stamp_match is not None:
+        new_raw = new_raw[: stamp_match.start()] + stamp_line + new_raw[stamp_match.end() :]
+    else:
+        array_end = field_match.start() + len(new_field)
+        new_raw = new_raw[:array_end] + ",\n" + stamp_line + new_raw[array_end:]
 
     with recording_declared_writes():
         with open(manifest_path, "w", encoding="utf-8", newline="\n") as fh:

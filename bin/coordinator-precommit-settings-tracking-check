@@ -163,6 +163,13 @@ _TRACKED_SIDECAR_GLOBS = (
 )
 
 
+def _no_console_kw() -> dict:
+    """Console-suppression kwargs for a captured spawn; empty off Windows."""
+    if os.name != "nt":
+        return {}
+    return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+
+
 def _git_out(args: list, cwd: str = None) -> str:
     try:
         out = subprocess.run(
@@ -171,6 +178,7 @@ def _git_out(args: list, cwd: str = None) -> str:
             text=True,
             timeout=30,
             cwd=cwd,
+            **_no_console_kw(),
         )
     except Exception:
         return ""

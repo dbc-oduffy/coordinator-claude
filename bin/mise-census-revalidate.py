@@ -296,6 +296,13 @@ def resolve_posix_shell() -> Optional[str]:
     return None
 
 
+def _no_console_kw() -> dict:
+    """CREATE_NO_WINDOW kwargs for a captured child on Windows; empty elsewhere."""
+    if os.name != "nt":
+        return {}
+    return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+
+
 def run_entry(entry: dict, repo_root: Path, timeout: int) -> dict:
     command = str(entry.get("command") or "").strip()
     recorded = str(entry.get("result") or "")
@@ -325,6 +332,7 @@ def run_entry(entry: dict, repo_root: Path, timeout: int) -> dict:
             capture_output=True,
             text=True,
             timeout=timeout,
+            **_no_console_kw(),
         )
     except subprocess.TimeoutExpired:
         row.update({"state": UNRUNNABLE, "detail": f"timed out after {timeout}s"})

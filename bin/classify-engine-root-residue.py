@@ -36,6 +36,7 @@ section means AC15 is not dischargeable yet, whatever the other counts say.
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -79,9 +80,17 @@ PARTITION = (
 )
 
 
+def _no_console_kw() -> dict:
+    """CREATE_NO_WINDOW kwargs for a captured child on Windows; empty elsewhere."""
+    if os.name != "nt":
+        return {}
+    return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+
+
 def live_files(repo: Path) -> list[str]:
     out = subprocess.run(
-        ["git", "ls-files"], cwd=repo, capture_output=True, text=True, check=True
+        ["git", "ls-files"], cwd=repo, capture_output=True, text=True, check=True,
+        **_no_console_kw(),
     ).stdout
     return [
         f

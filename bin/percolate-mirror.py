@@ -325,11 +325,20 @@ def _run_gate_legs(
             target,
             "--percolate-root",
             percolate_root,
+            "--json",
         ]
         if peer_repos_file is not None:
             scan_cmd += ["--peer-repos-file", str(peer_repos_file)]
         scan = _round._run(scan_cmd, timeout=_round._ROUND_SCAN_LEG_TIMEOUT_SECS)
-        print(scan.stdout)
+        if scan.returncode not in (0, 2):
+            _round._print_step_failure("Step 2 (scan-secrets)", scan_cmd, scan.stderr)
+            return _round._EXIT_FAIL
+        try:
+            scan_result = _round._parse_scan_secrets_json(scan.stdout)
+        except ValueError as exc:
+            _round._print_step_failure("Step 2 (scan-secrets)", scan_cmd, str(exc))
+            return _round._EXIT_FAIL
+        print(scan_result.render)
         if scan.returncode == 2:
             print(
                 f"percolate-mirror: HIGH-tier content leak detected on '{target}' "
@@ -338,10 +347,7 @@ def _run_gate_legs(
                 file=sys.stderr,
             )
             return _round._EXIT_FAIL
-        if scan.returncode != 0:
-            _round._print_step_failure("Step 2 (scan-secrets)", scan_cmd, scan.stderr)
-            return _round._EXIT_FAIL
-        medium_total += _round._count_medium_hits(scan.stdout)
+        medium_total += scan_result.medium_gating
 
         drift_cmd = [
             sys.executable,

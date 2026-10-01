@@ -2,11 +2,4 @@
 # Format: filepath:line_number (one per line, # comments allowed).
 # Use sparingly — prefer the EXCLUDED_PREFIXES mechanism for whole-file exemptions.
 #
-# Review: code-reviewer — every prior entry here named a path that does not
-# resolve against current source (docs/ci-pipeline.md, the plugins/coordinator/bin
-# tests/scripts they cited never existed in this tree; the depersonalize
-# mechanism they described was retired in favour of percolate-store.yaml's
-# config-driven hook). A grep of the currently-shipped tree for actual persona
-# names found none outside the checker's own self-exclusion. Cleared as
-# historical debris rather than left as dead-weight suppression. Add entries
-# here only against a real, currently-tracked file with a verified occurrence.
+# Add entries here only against a real, currently-tracked file with a verified occurrence.

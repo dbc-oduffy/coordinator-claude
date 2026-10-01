@@ -294,14 +294,12 @@ def _parse_skipped_row_names(stdout_text: str) -> List[str]:
 def _git_init_scratch_dest(scratch_dest_root: Path) -> None:
     import subprocess
 
-    from coordinator_core.win_portability import no_console_creationflags
-
     subprocess.run(
         ["git", "init", "-q", str(scratch_dest_root)],
         check=True,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
-        **no_console_creationflags(),
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
 
 

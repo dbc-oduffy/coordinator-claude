@@ -60,6 +60,11 @@ FULL payload via `_oss_payload.payload_files()` (local + engine, when the
 engine repo is resolvable) — the same local/engine split, restated here
 because an unstated asymmetry reads as coverage a mechanism does not have.
 
+WORKER ORACLE: `python coordinator/hooks/scripts/_prompt_surface_locality.py
+<path>...` prints the gate's own per-leg verdict for each path (`gate_verdict`;
+exit 0 clean, 1 violations, 2 not scanned or ambiguous) — the reproduction
+path for `current_counts()`, never a hand-rolled `iter_violations` call.
+
 THE SIBLING-NAME PATTERN ITSELF IS PAYLOAD-SCOPED: the engine leg of
 `current_counts()` scans with a pattern built ONLY from record entries with
 `is_engine_sibling is True` (`_ENGINE_SIBLING_NAME_TOKEN`), never the full
@@ -100,6 +105,14 @@ than merely asserted narrow:
      string's content happens to be. This is a deliberate simplification:
      the position decides, the string's own content does not get a second,
      content-based classification pass inside it.
+
+A FOURTH EXEMPTION, the WHOLE-TOKEN FRAGMENT CHECK in `iter_violations`,
+skips a name that is only part of a longer `-`/`_`/`.`-joined token (the local
+script `check-claude-klabauter-doctor-sentinel.sh`, `d-claude-klabauter-bin-sentinel`). It does
+not skip a start-anchored prose compound (`_is_prose_compound`): the name
+opens the token, the token is letters and `-` only, and every later component
+is lowercase and two or more characters. A lowercase mid-token prefix stays
+exempt, since shape cannot tell it from a local script name. Pinned by `test_whole_token_fragment_carveout_is_narrow`.
 
 DO NOT use backtick-delimited inline code spans as a signal in either
 direction for this detector — unlike the sibling citation detector's
@@ -396,6 +409,23 @@ def _is_angle_bracket_placeholder(line: str, start: int, end: int) -> bool:
     return s > 0 and e < len(line) and line[s - 1] == "<" and line[e] == ">"
 
 
+_PROSE_COMPOUND_SUFFIX = re.compile(r"-[a-z]{2,}(?:-[a-z]{2,})*")
+
+
+def _is_prose_compound(line: str, match_start: int, match_end: int, token_start: int, token_end: int) -> bool:
+    """True when a sibling-name match that is a fragment of a longer token is
+    a hyphenated prose adjective rather than a local identifier: the name opens the token, the token is ASCII letters and `-`
+    only (a sentence-final period aside), and every `-` component after the
+    match is lowercase, two or more characters. Mid-token names and any token
+    carrying `_`, `.`, a digit or `/` stay exempt."""
+    if token_start != match_start:
+        return False
+    token = line[token_start:token_end].rstrip(".")
+    if not re.fullmatch(r"[A-Za-z-]+", token):
+        return False
+    return _PROSE_COMPOUND_SUFFIX.fullmatch(token[match_end - token_start:]) is not None
+
+
 def _sibling_name_pattern(record: "dict | None" = None) -> "re.Pattern | None":
     """Compiled alternation over every known sibling repo name's full and
     short forms, in both hyphenated and underscored spellings, plus each
@@ -424,7 +454,7 @@ def _sibling_name_pattern(record: "dict | None" = None) -> "re.Pattern | None":
         for form in forms:
             escaped = re.escape(form)
             wrapped = escaped if case_sensitive else f"(?i:{escaped})"
-            # Review: coordinator:code-reviewer -- sort by the underlying
+            # Sort by the underlying
             # literal's length, not the wrapped alternative's, so a
             # case-insensitive form's `(?i:...)` overhead can't make a
             # shorter literal outrank a longer case-sensitive one and
@@ -830,8 +860,208 @@ def _blank_fleet_only_spans(text: str) -> str:
     return "".join(out)
 
 
-def iter_violations(text: str, *, path=None, sibling_pattern=_SIBLING_NAME_TOKEN) -> list:
+STRUCTURED_SUFFIXES = frozenset({".json", ".yaml", ".yml"})
+
+#: Keys whose scalar values are prose in structured data; every other scalar
+#: is data position. Fixed; moving this set after G2 reads its population is
+#: forbidden.
+PROSE_BEARING_KEYS = frozenset(
+    {"description", "title", "$comment", "_comment", "_readme", "note", "reason", "excludeReason"}
+)
+_PROSE_BEARING_KEY_PATTERN = re.compile(r"^x-.*-note$")
+
+#: G2's abandon conditions, fixed before its population is read.
+G2_ABANDON_OPERATIVE_HIT_IN_PROSE_POSITION = 1
+G2_ABANDON_GENUINE_RATE_ABOVE = 0.45
+G2_ABANDON_GENUINE_RATE_BELOW = 0.03
+G2_ABANDON_FALSE_NEGATIVE_RATE_ABOVE = 0.10
+
+_YAML_KEY_LINE = re.compile(r"""^(\s*)(?:-\s+)*(?:"([^"]+)"|'([^']+)'|([^\s:#'"][^:#]*?))\s*:(?:\s|$)(.*)$""")
+_JSON_KEY_LINE = re.compile(r'^\s*"((?:[^"\\]|\\.)*)"\s*:')
+_YAML_BLOCK_INDICATOR = re.compile(r"^[|>][+\-0-9]*\s*(?:#.*)?$")
+
+
+def _is_prose_bearing_key(key: str) -> bool:
+    return key in PROSE_BEARING_KEYS or _PROSE_BEARING_KEY_PATTERN.match(key) is not None
+
+
+def _yaml_comment_start(line: str) -> "int | None":
+    """Column of a `#` comment outside a quoted scalar, or None."""
+    quote = ""
+    for i, ch in enumerate(line):
+        if quote:
+            if ch == quote:
+                quote = ""
+            continue
+        if ch in ("'", '"') and (i == 0 or line[i - 1] in " \t[{,:-"):
+            quote = ch
+        elif ch == "#" and (i == 0 or line[i - 1] in " \t"):
+            return i
+    return None
+
+
+def _structured_attribution_lines(text: str, suffix: str) -> "frozenset[int] | None":
+    """Line numbers in ATTRIBUTION position in structured data: YAML `#`
+    comments and scalar values under a prose-bearing key, or JSON lines whose
+    key is prose-bearing. Every other scalar is data position. Returns `None`
+    when the text does not parse or the suffix is not structured, so the
+    caller skips the sibling-name scan rather than guessing."""
+    lines = text.split("\n")
+    out: set = set()
+    if suffix == ".json":
+        import json
+
+        try:
+            json.loads(text)
+        except ValueError:
+            return None
+        for no, line in enumerate(lines, start=1):
+            m = _JSON_KEY_LINE.match(line)
+            if m and _is_prose_bearing_key(m.group(1)):
+                out.add(no)
+        return frozenset(out)
+    if suffix not in (".yaml", ".yml"):
+        return None
+    import yaml
+
+    try:
+        list(yaml.safe_load_all(text))
+    except yaml.YAMLError:
+        return None
+    block_indent = None
+    block_prose = False
+    for no, line in enumerate(lines, start=1):
+        indent = len(line) - len(line.lstrip(" "))
+        if block_indent is not None:
+            if not line.strip() or indent > block_indent:
+                if block_prose:
+                    out.add(no)
+                continue
+            block_indent = None
+        if _yaml_comment_start(line) == indent:
+            out.add(no)
+            continue
+        m = _YAML_KEY_LINE.match(line)
+        prose_key = False
+        if m:
+            key = m.group(2) or m.group(3) or (m.group(4) or "").strip()
+            prose_key = _is_prose_bearing_key(key)
+            value = m.group(5).strip()
+            if _YAML_BLOCK_INDICATOR.match(value):
+                block_indent = len(m.group(1))
+                block_prose = prose_key
+            if prose_key and value:
+                out.add(no)
+        if _yaml_comment_start(line) is not None:
+            out.add(no)
+    return frozenset(out)
+
+
+#: The lenses on which every LOCAL production caller applies the locator test.
+#: Adding a member is a ship; every caller reads this one constant.
+SHIPPED_LOCATOR_LENSES: "frozenset[str]" = frozenset()
+
+_LOCATOR_URL = re.compile(r"https?://\S+")
+_LOCATOR_FILENAME = re.compile(
+    r"(?<![\w.\-])[\w\-]+\.(?:py|md|json|ya?ml|sh|toml|js|mjs|ts|txt|cfg|portable)\b"
+)
+_LOCATOR_PATH = re.compile(r"(?<![\w.\-/])(?:[\w.\-]+/)+[\w.\-]+/?")
+_LOCATOR_DOTTED_CHAIN = re.compile(r"(?<![\w.])[A-Za-z_]\w+(?:\.[A-Za-z_]\w+)+")
+_LOCATOR_COMMIT_SHA = re.compile(r"(?<![\w\-])[0-9a-f]{7,40}(?![\w\-])")
+_LOCATOR_CHUNK_OR_DECISION_ID = re.compile(
+    r"\bDR-[\w\-]*\d\w*|\b[A-Z]{2,}-C\d+[a-z]?\b|\b(?:pln|dlv|hnd|cmp)-[0-9a-z]+(?:-[0-9a-z]+)+"
+)
+_LOCATOR_CALL = re.compile(r"\b(?:[A-Za-z_]\w*\(\)|[a-z]+_\w+\(|[a-z]+[A-Z]\w*\()")
+_LOCATOR_BACKTICK_SPAN = re.compile(r"`([^`\n]+)`")
+_LOCATOR_SYMBOL_SHAPE = re.compile(r"[A-Za-z0-9_./\-:]+")
+_LOCATOR_CAMEL_OR_CONSTANT = re.compile(r"[a-z][A-Z]|^[A-Z][A-Z0-9]+$")
+
+
+def _backtick_span_is_locator(body: str) -> bool:
+    """A backticked symbol: a path, dotted chain, snake_case, camelCase or
+    CONSTANT. A lone lowercase word is prose in code font and carries no signal."""
+    if not _LOCATOR_SYMBOL_SHAPE.fullmatch(body):
+        return False
+    return bool(re.search(r"[/._]", body) or _LOCATOR_CAMEL_OR_CONSTANT.search(body))
+
+
+def _dotted_chain_is_locator(line: str) -> bool:
+    """Dotted symbol chain whose every segment is two or more characters and
+    not numeric-led (`Step 1.10.31`, `e.g`, `i.e` are not symbols)."""
+    for m in _LOCATOR_DOTTED_CHAIN.finditer(line):
+        if all(len(seg) >= 2 for seg in m.group(0).split(".")):
+            return True
+    return False
+
+
+def _path_is_locator(line: str) -> bool:
+    """A path needs a file extension on its last segment or two slashes;
+    `and/or` is not a path."""
+    for m in _LOCATOR_PATH.finditer(line):
+        token = m.group(0)
+        if token.count("/") >= 2 or re.search(r"\.\w{1,6}$", token):
+            return True
+    return False
+
+
+def _sha_is_locator(line: str) -> bool:
+    return any(
+        re.search(r"\d", m.group(0)) and re.search(r"[a-f]", m.group(0))
+        for m in _LOCATOR_COMMIT_SHA.finditer(line)
+    )
+
+
+def line_has_locator(line: str) -> bool:
+    """Whether the matched LINE hands the reader something to go look at: a
+    URL, path, filename, backticked symbol, dotted chain, commit SHA,
+    decision/chunk id or call citation. Scope is the one line, never a
+    neighbour; it infers nothing from which words appear."""
+    if _LOCATOR_URL.search(line) or _LOCATOR_FILENAME.search(line):
+        return True
+    if any(_backtick_span_is_locator(m.group(1)) for m in _LOCATOR_BACKTICK_SPAN.finditer(line)):
+        return True
+    return bool(
+        _path_is_locator(line)
+        or _dotted_chain_is_locator(line)
+        or _sha_is_locator(line)
+        or _LOCATOR_CHUNK_OR_DECISION_ID.search(line)
+        or _LOCATOR_CALL.search(line)
+    )
+
+
+def _locator_lens_of(path) -> "str | None":
+    """The lens a path is read under."""
+    if path is None:
+        return "md"
+    suffix = Path(path).suffix
+    if suffix == ".py":
+        return "py"
+    if suffix == ".md":
+        return "md"
+    if suffix in STRUCTURED_SUFFIXES:
+        return "structured"
+    return None
+
+
+def iter_violations(
+    text: str,
+    *,
+    path=None,
+    sibling_pattern=_SIBLING_NAME_TOKEN,
+    locator_lenses: "frozenset[str]" = frozenset(),
+    position_lenses: "frozenset[str]" = frozenset(),
+) -> list:
     """Every locality violation in `text`, in line order.
+
+    `locator_lenses` names the lenses on which a sibling-name hit whose
+    matched line carries a locator (`line_has_locator`) is suppressed.
+    Default empty: behaviour is unchanged. Members are `py`, `md` or
+    `structured`; production callers pass `SHIPPED_LOCATOR_LENSES`
+    (the engine leg passes an empty set).
+
+    `position_lenses` (sole member `structured`, default empty,
+    passed by no shipped call site) routes a structured-suffix path through
+    `_structured_attribution_lines` instead of the markdown position lens.
 
     `path` is optional but load-bearing for classification: when it names a
     `.py` file, the sibling-name/attribution check is gated by the `ast`/
@@ -869,10 +1099,16 @@ def iter_violations(text: str, *, path=None, sibling_pattern=_SIBLING_NAME_TOKEN
     if not is_python:
         text = _blank_fleet_only_spans(text)
 
+    structured = (
+        path is not None and "structured" in position_lenses and Path(path).suffix in STRUCTURED_SUFFIXES
+    )
     attribution_lines = _python_attribution_lines(text) if is_python else None
-    python_scan_disabled = is_python and attribution_lines is None
+    if structured:
+        attribution_lines = _structured_attribution_lines(text, Path(path).suffix)
+    python_scan_disabled = (is_python or structured) and attribution_lines is None
     literal_spans = _python_string_literal_spans(text) if is_python else None
-    markdown_fence_lines = _markdown_fence_lines(text) if not is_python else None
+    markdown_fence_lines = _markdown_fence_lines(text) if not (is_python or structured) else None
+    locator_active = _locator_lens_of(path) in locator_lenses
 
     lines = text.split("\n")
     violations: list = []
@@ -909,9 +1145,9 @@ def iter_violations(text: str, *, path=None, sibling_pattern=_SIBLING_NAME_TOKEN
             continue
         if python_scan_disabled:
             continue
-        if is_python and line_no not in attribution_lines:
+        if (is_python or structured) and line_no not in attribution_lines:
             continue
-        if not is_python and markdown_fence_lines and line_no in markdown_fence_lines:
+        if not (is_python or structured) and markdown_fence_lines and line_no in markdown_fence_lines:
             continue
 
         for m in sibling_pattern.finditer(line):
@@ -928,7 +1164,9 @@ def iter_violations(text: str, *, path=None, sibling_pattern=_SIBLING_NAME_TOKEN
             effective_token_end = token_end
             if token_end == m.end() + 1 and line[m.end()] == ".":
                 effective_token_end = m.end()
-            if (token_start, effective_token_end) != (m.start(), m.end()):
+            if (token_start, effective_token_end) != (m.start(), m.end()) and not _is_prose_compound(
+                line, m.start(), m.end(), token_start, effective_token_end
+            ):
                 # The matched sibling-name substring is only a fragment of a
                 # longer `-`/`_`-joined LOCAL identifier (e.g. a script named
                 # `check-claude-klabauter-doctor-sentinel.sh`) rather than the whole
@@ -940,6 +1178,8 @@ def iter_violations(text: str, *, path=None, sibling_pattern=_SIBLING_NAME_TOKEN
             if _is_identifier_shape_operative is not None and _is_identifier_shape_operative(
                 token, SIBLING_REPO_NAMES
             ):
+                continue
+            if locator_active and line_has_locator(line):
                 continue
             violations.append(
                 Violation(
@@ -1002,12 +1242,12 @@ def new_violations(before: str, after: str, *, path=None) -> list:
     if _sibling_scan_disabled(before, path) != _sibling_scan_disabled(after, path):
         before_drive = Counter(
             _violation_key(v)
-            for v in iter_violations(before, path=path)
+            for v in iter_violations(before, path=path, locator_lenses=SHIPPED_LOCATOR_LENSES)
             if v.kind == "drive-rooted windows path"
         )
         after_drive = [
             v
-            for v in iter_violations(after, path=path)
+            for v in iter_violations(after, path=path, locator_lenses=SHIPPED_LOCATOR_LENSES)
             if v.kind == "drive-rooted windows path"
         ]
         delta = Counter(_violation_key(v) for v in after_drive) - before_drive
@@ -1019,8 +1259,10 @@ def new_violations(before: str, after: str, *, path=None) -> list:
                 out.append(v)
                 seen[key] += 1
         return out
-    before_counts = Counter(_violation_key(v) for v in iter_violations(before, path=path))
-    after_violations = iter_violations(after, path=path)
+    before_counts = Counter(
+        _violation_key(v) for v in iter_violations(before, path=path, locator_lenses=SHIPPED_LOCATOR_LENSES)
+    )
+    after_violations = iter_violations(after, path=path, locator_lenses=SHIPPED_LOCATOR_LENSES)
     after_counts = Counter(_violation_key(v) for v in after_violations)
     delta = after_counts - before_counts
     if not delta:
@@ -1040,45 +1282,136 @@ def new_violations(before: str, after: str, *, path=None) -> list:
 # ---------------------------------------------------------------------------
 
 
-def current_counts() -> dict:
-    """repo-relative path -> violation count, over the FULL OSS payload
-    (`_oss_payload.payload_files()`: local files resolved against this
-    clone, plus engine files resolved against the engine-repo checkout
-    when it is resolvable). See module docstring's coverage-asymmetry note —
-    this reaches further than `is_in_scope()`/a write-time guard ever could,
-    because a ratchet test (unlike a guard) is not scoped to one write."""
-    counts: dict = {}
+_LEG_PATTERN = {"local": _SIBLING_NAME_TOKEN, "engine": _ENGINE_SIBLING_NAME_TOKEN}
+_ENGINE_PREFIX = "(engine)"
 
-    local_and_wiki = (
-        _oss_payload.local_payload_files() + _oss_payload.toplevel_wiki_payload_files()
-    )
-    for rel in local_and_wiki:
-        if rel.suffix not in (".py", ".md"):
-            continue
-        full = REPO_ROOT / rel
-        try:
-            text = full.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        n = len(iter_violations(text, path=full))
-        if n:
-            counts[rel.as_posix()] = n
 
+@dataclass(frozen=True)
+class Ambiguous:
+    """`leg_key` result for a bare relpath present on both legs."""
+
+    keys: tuple
+
+
+def _payload_index() -> dict:
+    """gate key -> (leg, absolute path) over the scannable (.py/.md) payload.
+    Gate key is `rel` for local/wiki files and `(engine)rel` for engine files.
+    One enumeration; the leg selects the sibling pattern via `_LEG_PATTERN`."""
+    index: dict = {}
+    for rel in _oss_payload.local_payload_files() + _oss_payload.toplevel_wiki_payload_files():
+        if rel.suffix in (".py", ".md"):
+            index[rel.as_posix()] = ("local", REPO_ROOT / rel)
     available, _reason = _oss_payload.engine_repo_available()
     if available:
         from _engine_root import resolve_claude_klabauter_root
 
         engine_root = Path(resolve_claude_klabauter_root())
         for rel in _oss_payload.engine_payload_files():
-            if rel.suffix not in (".py", ".md"):
-                continue
-            full = engine_root / rel
-            try:
-                text = full.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                continue
-            n = len(iter_violations(text, path=full, sibling_pattern=_ENGINE_SIBLING_NAME_TOKEN))
-            if n:
-                counts[f"(engine){rel.as_posix()}"] = n
+            if rel.suffix in (".py", ".md"):
+                index[f"{_ENGINE_PREFIX}{rel.as_posix()}"] = ("engine", engine_root / rel)
+    return index
 
+
+def leg_key(path, index: dict):
+    """Resolve `path` to its gate key in `index`: an absolute path (relative to
+    the repo root or the engine root), an already-prefixed `(engine)` key, or a
+    bare relpath tried local then engine. Returns the key, `Ambiguous` when a
+    bare relpath is on both legs, or None when on neither."""
+    raw = str(path).replace("\\", "/")
+    if raw.startswith(_ENGINE_PREFIX):
+        return raw if raw in index else None
+    p = Path(raw)
+    if p.is_absolute():
+        roots = [(REPO_ROOT, "")]
+        for key, (leg, full) in index.items():
+            if leg == "engine":
+                depth = len(Path(key[len(_ENGINE_PREFIX):]).parts)
+                roots.append((Path(full).parents[depth - 1], _ENGINE_PREFIX))
+                break
+        for root, prefix in roots:
+            try:
+                cand = prefix + p.relative_to(root).as_posix()
+            except ValueError:
+                continue
+            if cand in index:
+                return cand
+        return None
+    hits = tuple(k for k in (raw, _ENGINE_PREFIX + raw) if k in index)
+    if len(hits) > 1:
+        return Ambiguous(hits)
+    return hits[0] if hits else None
+
+
+def _scan_indexed(leg: str, full: Path):
+    """The gate's violations for one indexed file, or None when unreadable."""
+    try:
+        text = full.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    lenses = SHIPPED_LOCATOR_LENSES if leg == "local" else frozenset()
+    return iter_violations(text, path=full, sibling_pattern=_LEG_PATTERN[leg], locator_lenses=lenses)
+
+
+def current_counts(index: "dict | None" = None) -> dict:
+    """repo-relative path -> violation count, over the FULL OSS payload
+    (`_oss_payload.payload_files()`: local files resolved against this
+    clone, plus engine files resolved against the engine-repo checkout
+    when it is resolvable). See module docstring's coverage-asymmetry note —
+    this reaches further than `is_in_scope()`/a write-time guard ever could,
+    because a ratchet test (unlike a guard) is not scoped to one write.
+    `index` defaults to a fresh `_payload_index()`."""
+    counts: dict = {}
+    for key, (leg, full) in (_payload_index() if index is None else index).items():
+        found = _scan_indexed(leg, full)
+        if found:
+            counts[key] = len(found)
     return counts
+
+
+def gate_verdict(paths, index: "dict | None" = None) -> list:
+    """Worker oracle: per input path, `{path, status, key, leg, violations}`
+    with the violations `current_counts()` counts for that key. `status` is
+    `scanned`, `ambiguous` (bare relpath on both legs) or `not-scanned`.
+    One index serves the whole call; counts only, never budget verdicts."""
+    index = _payload_index() if index is None else index
+    out: list = []
+    for path in paths:
+        key = leg_key(path, index)
+        row = {"path": str(path), "status": "not-scanned", "key": None, "leg": None, "violations": []}
+        if isinstance(key, Ambiguous):
+            row.update(status="ambiguous", key=", ".join(key.keys))
+        elif key is not None:
+            leg, full = index[key]
+            found = _scan_indexed(leg, full)
+            row.update(key=key, leg=leg)
+            if found is not None:
+                row.update(status="scanned", violations=found)
+        out.append(row)
+    return out
+
+
+def main(argv=None) -> int:
+    """CLI: print each path's gate key, leg, count and violations. Exit 0 when
+    every path is scanned and clean, 1 when any has violations, 2 when any is
+    not scanned or ambiguous."""
+    args = list(sys.argv[1:] if argv is None else argv)
+    if not args:
+        print("usage: _prompt_surface_locality.py <path>...", file=sys.stderr)
+        return 2
+    code = 0
+    for row in gate_verdict(args):
+        if row["status"] != "scanned":
+            print(f"{row['path']}: {row['status']}" + (f" ({row['key']})" if row["key"] else ""))
+            code = 2
+            continue
+        vs = row["violations"]
+        print(f"{row['key']}\n  leg: {row['leg']}\n  count: {len(vs)}")
+        for v in vs:
+            print(f"    line {v.line}: {v.kind}: {v.excerpt}")
+        if vs and code == 0:
+            code = 1
+    return code
+
+
+if __name__ == "__main__":
+    sys.exit(main())

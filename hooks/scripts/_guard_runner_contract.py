@@ -21,6 +21,18 @@ constants/enums/dataclasses, never guard logic.
 
 Spec: docs/plans/2026-08-06-hook-spawn-fan-in-finish-and-extend.md § C1a.
 
+SPLIT-PERMANENCE: this contract and `_stop_family_runner_contract.py`
+(STOP-FAMILY-RUNNER-CONTRACT) stay two files. The two PROTOCOL-INDEPENDENT
+clause sets (entrypoint shape, no `os._exit`, no `atexit`, no cwd/`sys.path`
+mutation, no module-global state, import side-effect freedom) already have
+ONE executable home: the `FORBIDDEN_*` regex constants and
+`GuardScopeDescriptor` below, which the sibling's conformance test and
+module import. What the two files duplicate is prose only; a shared base
+module would hold no executable code. Clause 10 (class-aware aggregation vs
+concatenate-all) is the real divergence. Widening this contract to
+`CHANNEL_STOP` is ruled out; see
+`coordinator/docs/wiki/coordinator-tripwires/stop-family-runner-contract.md`.
+
 --------------------------------------------------------------------------
 CONTRACT MINIMUM (every enrolled guard must satisfy all of the following)
 --------------------------------------------------------------------------

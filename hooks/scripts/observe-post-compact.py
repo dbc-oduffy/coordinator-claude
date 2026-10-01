@@ -29,7 +29,7 @@ Where the record goes: `<git-common-dir>/coordinator-sessions/hook-observations/
 walking up from the payload's `cwd` (if present — since the payload shape is unconfirmed, this
 handler does not assume `cwd` exists either) looking for `.git` (directory or gitdir-pointer
 file), then resolving that git dir's own `commondir` file if one exists — the same resolution
-`observe-config-change.py` and `track-dispatched-agents.py`'s canary helper use, chosen over
+`track-dispatched-agents.py`'s canary helper uses, chosen over
 shelling out to `git rev-parse --git-common-dir` so this handler stays a pure stdlib read/write
 with no child process to fail to spawn.
 """

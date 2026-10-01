@@ -59,9 +59,6 @@ Safety envelope (AC9), each clause load-bearing:
       the tail (evidence first, then the pointer line) — `next_move` and
       `your_call` (C4b) are never dropped, only the narration text is
       hard-truncated as a last resort. See `render_additional_context`.
-      # Review: code-reviewer — module docstring's AC9(d) summary was
-      # unchanged when C4b promoted `your_call` to a protected segment;
-      # `render_additional_context`'s own docstring already documented it.
 
 Never overrides a denied claim — there is no override code path in this
 module at all; `_should_apply` only returns True on `coast: clear`, which
@@ -841,7 +838,7 @@ def render_additional_context(
 def _probe_log_path() -> Path:
     """Resolve the probe-log path, honoring `_PROBE_LOG_PATH_ENV`.
 
-    Review: code-reviewer — factored out so a caller (chiefly tests) can
+    Factored out so a caller (chiefly tests) can
     point the log at a `tempfile.TemporaryDirectory()`-scoped file via the
     env override, instead of sharing the one fixed OS-tempdir path every
     process on the machine writes to.
@@ -934,7 +931,7 @@ def _capture_producer(
     typed_command = command_name if command_name else "unresolved"
 
     if not session_id:
-        # Review: code-reviewer -- unlike the not-a-slash-command gate above
+        # Unlike the not-a-slash-command gate above
         # (an intentional D3 no-op), this is a genuine failure: a CONFIRMED
         # slash-command turn with nothing to key the write against. Must log,
         # not bare-return, or it collapses into the same silent skip AC-7

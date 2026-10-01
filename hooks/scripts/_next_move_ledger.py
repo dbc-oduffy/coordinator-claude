@@ -253,7 +253,7 @@ def block_obligation(
     NO READER ON THIS PLANE, BY DESIGN -- NOT DEAD CODE. This op family has
     zero consumers under `coordinator/`: no rendered surface in this repo
     reads `blocked_at`/`blocked_on_session_id`/`blocked_on_name`. Its
-    consumer is the engine plane: `claude-klabauter-em` requested this op by
+    consumer is the engine plane: the engine's maintainers requested this op by
     memo, and the folding/read side lives there, not here -- this repo is
     the ledger's sole WRITER for this op, the same relationship it already
     has with the intake side of `_next_move_ledger.py`. See

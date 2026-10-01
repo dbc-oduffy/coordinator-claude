@@ -3,7 +3,7 @@
 (W4b, recipe § 2.6). NOT a SessionStart hook — PreCompact fires mid-session,
 not at boot, so this stub is exempt from the AC8 boot-race fast-path
 constraint that governs `session-init.py`/`project-orientation.py`'s
-Claude-klabauter-root resolution (recipe § 4).
+engine-root resolution (recipe § 4).
 
 The doctrine plane owns only this thin PLUMBING shim (DR-047 transport-seam carve-out):
 resolve the engine repo, hand it the raw stdin payload, let it write the

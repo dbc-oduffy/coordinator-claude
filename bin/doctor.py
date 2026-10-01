@@ -15,6 +15,9 @@ break but never repair it — see
 docs/plans/2026-07-29-windows-viability-stop-the-spawn-storms.md WS-9 / AC-28
 and coordinator-content-repo state/2026-07-29-deleted-hook-scripts-bricked-every-write.md.
 
+This is the on-demand install-works verdict (does this machine's install deliver working
+hooks now), not validate-install-contract's packageability check of the source tree.
+
 Layers checked, what's auto-repairable vs. detect-only, and the reasoning
 behind the split all live in the actual implementation's module docstring:
 coordinator_core.ops.doctor. This file is a thin CLI wrapper (per the R1

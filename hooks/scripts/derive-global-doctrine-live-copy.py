@@ -86,7 +86,7 @@ hooks -> coordinator -> repo root), never from cwd or a hardcoded path.
 Spec backlink: coordinator/tests/test_global_doctrine_tracked_copy.py,
 coordinator/tests/test_derive_global_doctrine_live_copy.py
 
-Review: code-reviewer -- Finding 4: the session_start_mode branch in main()
+The session_start_mode branch in main()
 is presently reachable only via direct/manual invocation and this file's
 own tests -- no registered hooks.json entry sends this script a
 SessionStart payload today, and sweep-boot.py's fold-in bypasses main()
@@ -115,7 +115,7 @@ if _HOOKS_DIR not in sys.path:
 from _message_envelope import CHANNEL_STOP, compose, emit, measurement_enabled  # noqa: E402
 
 _WIKI_ANCHOR = (
-    # Review: code-reviewer -- render() emits `f"See {anchor}."` verbatim;
+    # render() emits `f"See {anchor}."` verbatim;
     # a bare fragment produces an unresolvable citation. Full path matches
     # every other converted hook's `_WIKI_ANCHOR` shape.
     "coordinator/docs/wiki/guards/guard-message-concision.md"
@@ -142,7 +142,7 @@ def _parse_input(raw: str) -> dict:
 
 def _repo_root() -> Path:
     # coordinator/hooks/scripts/<this file> -> parents[3] is the repo root.
-    # Review: code-reviewer -- Finding 4: this resolves from Path(__file__),
+    # This resolves from Path(__file__),
     # i.e. from wherever ${CLAUDE_PLUGIN_ROOT} points -- the canonical plugin
     # source checkout, not necessarily the checkout backing the session's
     # cwd. A session working out of a git worktree, editing that worktree's
@@ -236,7 +236,7 @@ def _emit_stop(message: str, emit_state: dict) -> int:
     """CHANNEL_STOP wrapper that writes a blank-line separator to stderr
     before every real write after the first one sharing `emit_state`.
 
-    Review: code-reviewer -- P1: `main()`'s session_start_mode branch can
+    `main()`'s session_start_mode branch can
     call `_derive_live_copy` up to 4x per invocation (live + published,
     CLAUDE.md + each rules file); each drifting target independently wrote
     straight to stderr via `emit()` with no separator, so `render()`'s

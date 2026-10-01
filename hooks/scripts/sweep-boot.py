@@ -172,7 +172,7 @@ except Exception:
         return None
 
     def forwarder_argv(script_path, tail=()):  # type: ignore[misc]
-        # Review: overengineering-reviewer F3 -- see _forwarder_resolve's
+        # See _forwarder_resolve's
         # "Import-fallback contract" docstring section for the rationale.
         # Unreachable on this leg: `resolve_forwarder`'s own fallback above
         # already returns None unconditionally, so `regenerator` is never
@@ -262,27 +262,10 @@ def _resolve_this_repo_root() -> str | None:
     failure record into the doctrine-source repo's own `state/` tree instead of the
     session's actual repo.
 
-    In-process parent walk (`_git_root_walk`, cwd-based like this function's own contract)
-    first -- no subprocess on the routine path; `git rev-parse --show-toplevel` below is kept
-    only as a fallback for the case the walk cannot resolve.
+    Resolved by the in-process parent walk (`_git_root_walk`, cwd-based like this function's
+    own contract); spawns no subprocess. Returns None when the walk cannot resolve a root.
     """
-    walked = _git_root_walk()
-    if walked:
-        return walked
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            timeout=3,
-            creationflags=_NO_WINDOW,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    root = result.stdout.strip()
-    if result.returncode != 0 or not root:
-        return None
-    return root
+    return _git_root_walk() or None
 
 
 def _import_record_child_failure(claude_klabauter_root: str | None):
@@ -487,7 +470,7 @@ def _cache_is_stale(repo_root: str) -> bool:
 
 
 def _resolve_regenerator_path(claude_klabauter_root: Optional[str]) -> Optional[Path]:
-    """Preferred path: the settings-home forwarder. Fallback: the claude-klabauter-resident CLI
+    """Preferred path: the settings-home forwarder. Fallback: the engine-resident CLI
     directly, using the SAME resolved `claude_klabauter_root` this module's own trampoline logic
     in `main()` already obtained — no second `resolve_claude_klabauter_root()` call.
 
@@ -626,7 +609,7 @@ def _selfheal_orientation_cache(claude_klabauter_root: Optional[str]) -> None:
     # CreateProcess does not consult shebang lines), a native .exe must not have it.
     # `forwarder_argv` owns that branch — do not inline either form back here.
     try:
-        # Review: overengineering-reviewer F3 -- argv computation moved inside
+        # argv computation sits inside
         # the try so a fallback-leg OSError (see _forwarder_resolve) is
         # absorbed by the handler below rather than needing its own guard.
         cmd = forwarder_argv(regenerator, ["--invoker", "sweep-boot"])
@@ -712,7 +695,7 @@ def _run_boot_sweep(root: Optional[str]) -> None:
         return
 
     if result.returncode != 0:
-        # Review: code-reviewer — fail-open per this module's own stated
+        # Fail-open per this module's own stated
         # contract (docstring above): a completed-but-nonzero child run must
         # not wedge SessionStart boot. Surface the real exit code as a
         # diagnostic, but never forward it.
@@ -918,7 +901,7 @@ def _load_global_doctrine_mirror_module():
         return None
     module = importlib.util.module_from_spec(spec)
     try:
-        # Review: code-reviewer -- Finding 2: exec_module() can raise
+        # exec_module() can raise
         # FileNotFoundError (missing sibling) or SyntaxError (broken sibling),
         # neither of which the spec/loader check above catches. Contain them
         # here so the docstring's "returns None on ANY import failure" claim
@@ -946,7 +929,7 @@ def _derive_global_doctrine_mirror() -> None:
     chain -- including the import itself -- is swallowed here and reported to
     stderr only; it must never propagate past this function.
 
-    Review: code-reviewer -- Finding 6: the containment scope here is
+    The containment scope here is
     `Exception` subclasses only, not `BaseException` -- a `SystemExit` or
     `KeyboardInterrupt` raised anywhere in this chain would still propagate.
     No path in this module currently raises either, so this is not

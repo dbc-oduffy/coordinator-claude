@@ -69,6 +69,14 @@ import os
 import subprocess
 import sys
 
+
+def _no_console_kw() -> dict:
+    """Console-suppression kwargs for a captured spawn; empty off Windows."""
+    if os.name != "nt":
+        return {}
+    return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+
+
 TRAMPOLINE = (
     '\'\'\'\'exec "$(command -v python3 || command -v python || command -v py)" '
     '"$0" "$@" #\'\'\''
@@ -134,6 +142,7 @@ def _show_toplevel(bin_dir: str) -> str:
             capture_output=True,
             text=True,
             check=False,
+            **_no_console_kw(),
         )
         return proc.stdout.strip() if proc.returncode == 0 else ""
 
@@ -156,6 +165,7 @@ def _candidate_paths(bin_dir: str, staged_only: bool) -> list[str]:
         capture_output=True,
         text=True,
         check=False,
+        **_no_console_kw(),
     )
     bin_prefix = prefix_proc.stdout.strip() if prefix_proc.returncode == 0 else ""
 
@@ -164,8 +174,9 @@ def _candidate_paths(bin_dir: str, staged_only: bool) -> list[str]:
         capture_output=True,
         text=True,
         check=False,
+        **_no_console_kw(),
     )
-    staged = staged_proc.stdout if staged_proc.returncode == 0 else ""
+    staged =staged_proc.stdout if staged_proc.returncode == 0 else ""
     if not staged:
         return []
 

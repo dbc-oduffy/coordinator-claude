@@ -178,7 +178,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, NamedTuple, Optional, Sequence, Tuple
 
 _BIN_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _BIN_DIR.parent.parent
@@ -558,9 +558,9 @@ def _run(cmd: List[str], *, timeout: float, **kwargs) -> subprocess.CompletedPro
     """
     # Suppresses the console-window flash a headless Windows Bash spawn would
     # otherwise pop for every sibling-CLI invocation this driver makes.
-    kwargs.setdefault("creationflags", getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    no_console_kwargs = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0), **kwargs}
     try:
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, **kwargs)
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, **no_console_kwargs)
     except subprocess.TimeoutExpired as exc:
         # Converted to a non-zero CompletedProcess (never raised) so every
         # existing call site's own `returncode != 0` -> `_print_step_failure`
@@ -1068,7 +1068,7 @@ def _dest_head_tree(repo_root: str) -> set:
     return {line for line in result.stdout.splitlines() if line}
 
 
-def _dest_head_diff_names(repo_root: str) -> set:
+def _dest_head_diff_names(repo_root: str) -> Optional[set]:
     """One `git diff --name-only HEAD` spawn -- tracked paths whose worktree
     bytes differ from dest HEAD (the content leg of the add-side union; AC4).
 
@@ -1078,16 +1078,20 @@ def _dest_head_diff_names(repo_root: str) -> set:
     new file, or the residue of an earlier round that synced-but-never-
     committed it) never appears here -- the caller's add side also checks
     membership in `_dest_head_tree`'s output for exactly that reason, never
-    relies on this set alone. Fails open (empty set) on a probe failure --
-    narrows the add side to only the untracked-in-HEAD paths rather than
-    fabricating a diverged HEAD read; a real problem still surfaces via the
-    commit leg's own report."""
-    result = _run(
-        ["git", "-C", repo_root, "--no-optional-locks", "diff", "--name-only", "HEAD"],
-        timeout=_GIT_PLUMBING_TIMEOUT_SECS,
-    )
+    relies on this set alone. Returns None on a probe failure, meaning
+    "unknown": an empty set there read as "nothing tracked changed" and
+    silently dropped every updated file from the commit (klabauter round
+    579cb5e7: 8 of 10 changes stranded right after a whole-tree swap, when
+    every stat is new and the probe rehashes the tree)."""
+    try:
+        result = _run(
+            ["git", "-C", repo_root, "--no-optional-locks", "diff", "--name-only", "HEAD"],
+            timeout=_GIT_PLUMBING_TIMEOUT_SECS,
+        )
+    except subprocess.TimeoutExpired:
+        return None
     if result.returncode != 0:
-        return set()
+        return None
     return {line for line in result.stdout.splitlines() if line}
 
 
@@ -1140,7 +1144,12 @@ def _pathspec_from_manifest(
     seen: dict = {}
     reported = manifest.added_or_updated
     for rel in sorted(manifest.declared_payload):
-        if rel in diff_names or (rel not in head_tree and rel in reported):
+        # An unknown diff names every tracked declared path: committing an
+        # unchanged path is a no-op, dropping a changed one strands it.
+        if (
+            (rel in head_tree if diff_names is None else rel in diff_names)
+            or (rel not in head_tree and rel in reported)
+        ):
             seen.setdefault(str(repo_root_path / rel), ("NEW", rel))
         elif rel not in head_tree:
             seen.setdefault(str(repo_root_path / rel), (_DECLARED_ONLY_TAG, rel))
@@ -1525,6 +1534,7 @@ def _stage_shebang_exec_bits(
             cwd=str(root),
             capture_output=True,
             text=True,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         if result.returncode != 0:
             print(
@@ -1957,50 +1967,33 @@ def _dest_paths_exist(dest: str, rels: List[str]) -> Dict[str, bool]:
     return result
 
 
-# ---------------------------------------------------------------------------
-# Step 2c — MEDIUM-hit count, scoped to the gating panel only.
-#
-# `scan-secrets` (percolate-gate.py::_cmd_scan_secrets) renders the MEDIUM
-# tier as up to two panels: an informational Panel A (peer-repo-name reads,
-# taken pre-transform — the scanner's own header states Phase-4 is the
-# post-transform oracle, i.e. these are never gate input) and a Panel B
-# ("surfaces to gate") that is the actual Step 3 gate input. Counting every
-# `<path>:<line>:`-shaped line between the HIGH and LOW tier headers, as this
-# function used to, sums both panels and over-counts by Panel A's size.
-#
-# The Panel A/B boundary is read via the stable, non-prose markers
-# `percolate-gate.py` emits for this purpose
-# (`_MEDIUM_PANEL_INFORMATIONAL_MARKER` / `_MEDIUM_PANEL_GATING_MARKER`),
-# not by pattern-matching the human-facing header text, which is free to
-# reword independently of this boundary. Only lines after the gating marker
-# (and before LOW) are counted; Panel A, if rendered, is skipped entirely.
-# ---------------------------------------------------------------------------
-
-_SCAN_HIT_RE = re.compile(r"^\s*\S.*:\d+:\s")
-_MEDIUM_PANEL_GATING_MARKER = "##SCAN-PANEL:GATING##"
+# `scan-secrets --json` (percolate-gate.py::_cmd_scan_secrets) prints one object:
+# {"schema": "scan-secrets.v1", "counts": {"medium_gating": int, ...}, "render": str}.
+# `counts.medium_gating` is the Step 3 gate input.
+_SCAN_SECRETS_SCHEMA = "scan-secrets.v1"
 
 
-def _count_medium_hits(scan_stdout: str) -> int:
-    lines = scan_stdout.splitlines()
-    high_idx: Optional[int] = None
-    low_idx: Optional[int] = None
-    for i, line in enumerate(lines):
-        stripped = line.strip()
-        if high_idx is None and stripped.startswith("HIGH ("):
-            high_idx = i
-        elif high_idx is not None and low_idx is None and stripped.startswith("LOW ("):
-            low_idx = i
-            break
-    if high_idx is None or low_idx is None:
-        return 0
+class ScanSecretsResult(NamedTuple):
+    render: str
+    medium_gating: int
 
-    start_idx = high_idx + 1
-    for i in range(high_idx + 1, low_idx):
-        if lines[i].strip() == _MEDIUM_PANEL_GATING_MARKER:
-            start_idx = i + 1
-            break
 
-    return sum(1 for line in lines[start_idx:low_idx] if _SCAN_HIT_RE.match(line))
+def _parse_scan_secrets_json(stdout: str) -> ScanSecretsResult:
+    """Parse `scan-secrets --json` stdout; raises ValueError on any contract break."""
+    try:
+        payload = json.loads(stdout)
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise ValueError(f"scan-secrets stdout is not JSON: {exc}") from exc
+    if not isinstance(payload, dict) or payload.get("schema") != _SCAN_SECRETS_SCHEMA:
+        raise ValueError(f"scan-secrets payload schema is not {_SCAN_SECRETS_SCHEMA!r}")
+    counts = payload.get("counts")
+    gating = counts.get("medium_gating") if isinstance(counts, dict) else None
+    if not isinstance(gating, int) or isinstance(gating, bool):
+        raise ValueError("scan-secrets payload counts.medium_gating is missing or not an int")
+    render = payload.get("render")
+    if not isinstance(render, str):
+        raise ValueError("scan-secrets payload render is missing or not a string")
+    return ScanSecretsResult(render=render, medium_gating=gating)
 
 
 def _count_drift_hits(drift_stdout: str) -> int:
@@ -2160,16 +2153,22 @@ def _partition_carried_changes(
     return carried, dropped
 
 
-def _source_sha_suffix() -> str:
+def _source_sha_suffix(pinned_sha: str = "") -> str:
     """`git_state.source_sha_suffix(_REPO_ROOT)` -- one definition shared with
     `publish.py`'s wrapper and, through `_round`, with `percolate-mirror.py`,
     so all three legs of mirror history stamp byte-identically. Rationale and
     the degrade contract live on the engine function.
+
+    `pinned_sha` (the manifest's round-start pin) wins over a fresh HEAD read:
+    the commit runs at the end of the round, and a peer commit landing
+    mid-round made the stamp name content the round never read (round 20,
+    pinned 434091831c, stamped 6df9bcca397f).
     """
     _bootstrap_engine()
+    from coordinator_core.git.git_state import format_source_sha_suffix  # noqa: PLC0415
     from coordinator_core.git.git_state import source_sha_suffix  # noqa: PLC0415
 
-    return source_sha_suffix(_REPO_ROOT)
+    return format_source_sha_suffix(pinned_sha) if pinned_sha else source_sha_suffix(_REPO_ROOT)
 
 
 def _build_commit_subject(
@@ -2178,6 +2177,7 @@ def _build_commit_subject(
     pathspec: List[str],
     *,
     deletion_paths: "Optional[Sequence[str]]" = None,
+    source_sha: str = "",
 ) -> str:
     """Two numbers, both labelled, never one presented as the other (see
     module-level defect this replaces): `real_changes` is publish.py's own
@@ -2239,7 +2239,7 @@ def _build_commit_subject(
         f"percolate publish: {target} "
         f"({len(pathspec)} file(s) to commit; carries "
         f"{added_or_updated} added-or-updated, {removed} removed{residual})"
-        f"{_source_sha_suffix()}"
+        f"{_source_sha_suffix(source_sha)}"
     )
 
 
@@ -2393,7 +2393,7 @@ def _classify_dropped_paths(
             buckets["gitignored"].append(path)
         elif not os.path.lexists(repo_root_path / path):
             buckets["absent"].append(path)
-        elif path in head_tree and path not in diff_names:
+        elif path in head_tree and diff_names is not None and path not in diff_names:
             buckets["identical_to_head"].append(path)
         else:
             buckets["unaccounted"].append(path)
@@ -3100,11 +3100,20 @@ def _cmd_round_default(
                 target,
                 "--percolate-root",
                 percolate_root,
+                "--json",
             ]
             if peer_repos_file is not None:
                 scan_cmd += ["--peer-repos-file", str(peer_repos_file)]
             scan = _run_step(_PERCOLATE_GATE, scan_cmd)
-            print(scan.stdout)
+            if scan.returncode not in (0, 2):
+                _print_step_failure("Step 2 (scan-secrets)", list(scan.args), scan.stderr)
+                return _EXIT_FAIL
+            try:
+                scan_result = _parse_scan_secrets_json(scan.stdout)
+            except ValueError as exc:
+                _print_step_failure("Step 2 (scan-secrets)", list(scan.args), str(exc))
+                return _EXIT_FAIL
+            print(scan_result.render)
             if scan.returncode == 2:
                 print(
                     "percolate-round: HIGH-tier content leak detected — refusing to "
@@ -3114,10 +3123,7 @@ def _cmd_round_default(
                     file=sys.stderr,
                 )
                 return _EXIT_FAIL
-            if scan.returncode != 0:
-                _print_step_failure("Step 2 (scan-secrets)", list(scan.args), scan.stderr)
-                return _EXIT_FAIL
-            medium_count = _count_medium_hits(scan.stdout)
+            medium_count = scan_result.medium_gating
 
             # --- Step 2b: inverse-drift detection ---------------------------
             print(f"=== percolate-round {target} — Step 2b: inverse-drift detection ===")
@@ -3384,7 +3390,8 @@ def _cmd_round_default(
                 head_tracked=head_tracked,
             )
             subject = _build_commit_subject(
-                target, real_changes, pathspec, deletion_paths=deletion_paths
+                target, real_changes, pathspec, deletion_paths=deletion_paths,
+                source_sha=manifest.source_sha if manifest is not None else "",
             )
             # The subject counts the remainder; the body names it. Recomputed
             # here rather than threaded out of `_report_commit_residual` because

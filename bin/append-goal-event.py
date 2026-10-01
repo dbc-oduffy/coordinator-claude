@@ -184,7 +184,12 @@ def _cc_invoke_bare(op: str, params: dict[str, object], repo_root: str) -> dict[
     os.environ["CLAUDE_KLABAUTER_ROOT"] = claude_klabauter_root
     os.environ["COORDINATOR_ENGINE_ROOT"] = claude_klabauter_root
 
-    from coordinator_core.invoke.__main__ import _dispatch_argv
+    try:
+        from coordinator_core.invoke.__main__ import _dispatch_argv
+    except ImportError as exc:
+        raise RuntimeError(
+            f"cc_invoke: engine will not import/start (op={op}): {exc}"
+        ) from exc
 
     stdout, stderr, exit_code = _dispatch_argv(
         [op, json.dumps(params), "--bare", "--repo", repo_root],
@@ -404,7 +409,11 @@ def main(argv: list[str]) -> int:
     parsed = _parse_args(argv)
     if parsed["events_file"]:
         return _main_batch(parsed)
-    params = _build_params(parsed)
+    try:
+        params = _build_params(parsed)
+    except ImportError as exc:
+        print(f"cc_invoke: engine will not import/start (op=goal.append): {exc}", file=sys.stderr)
+        return 2
     repo_root = _resolve_repo_root()
 
     try:

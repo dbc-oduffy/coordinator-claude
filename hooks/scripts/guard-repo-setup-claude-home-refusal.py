@@ -21,7 +21,7 @@ target-root resolver it depends on
 repo-setup-args-and-register" resolve-target-root``) are BOTH engine-plane
 code -- this repo holds no standing cross-repo commit grant to edit them
 (``docs/decisions/DR-127-...``). This hook is therefore
-authored DoE-resident, on the Bash/PowerShell command SURFACE, mirroring the
+authored plugin-resident, on the Bash/PowerShell command SURFACE, mirroring the
 precedent ``guard-doctrine-surface-bash-write.py`` already sets for "the
 predicate is plugin-resident permanently, so the guard is plugin-resident
 too, even though the thing it protects is invoked via a Bash command
@@ -125,8 +125,8 @@ from _message_envelope import Message, compose, render  # noqa: E402
 _COMMAND_TOOL_NAMES = ("Bash", "PowerShell")
 
 #: Identifiers naming the engine-plane scaffold mechanism (see module
-#: docstring "SEAM CHOICE"). Review: code-reviewer (Finding 3) -- a bare
-#: substring test denied a command that merely MENTIONS one of these
+#: docstring "SEAM CHOICE"). A bare
+#: substring test would deny a command that merely MENTIONS one of these
 #: strings (a `grep scaffold_structure ...`, a `git log --grep=...`) without
 #: invoking it, when cwd happened to be Claude Home. `_names_scaffold_
 #: mechanism` below requires the marker to appear in an INVOKED-program-ish

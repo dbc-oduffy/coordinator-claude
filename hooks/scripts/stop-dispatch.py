@@ -10,10 +10,10 @@ already ships (fan-in WITHIN one event, never pooling ACROSS events -- see
 touch).
 
 `stop-em-report-altitude.py` (the sixth entry, added after the MEASURED
-figure below was taken) is the DoE-side wiring for the EM->PM comms-budget
+figure below was taken) is the plugin-side wiring for the EM->PM comms-budget
 advisory op `hooks.em_report_altitude` -- see that shim's own docstring for
 its channel/no-op contract. Prior to this entry, that engine op had NO
-DoE-side caller anywhere in this plugin and its advisory never fired; this
+plugin-side caller anywhere in this plugin and its advisory never fired; this
 is NOT one of the five guards `runtime-tripwire-em-check.py` already
 carries live, despite an earlier stale docstring clause here claiming
 otherwise.

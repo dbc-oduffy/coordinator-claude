@@ -39,10 +39,8 @@ Five obligations:
                    action is read off the JUST-WRITTEN sizing object's
                    `route` (via the session's git `touch-record.jsonl`, same
                    technique `guard-manufactured-blocker.py` uses to find
-                   "the session's routed sizing object" -- reimplemented
-                   here as a self-contained line-scan, no shared import,
-                   matching this corpus's DR-047/DR-118 posture on tiny
-                   independently-failing-open transport helpers).
+                   "the session's routed sizing object" -- read
+                   here through `lib/frontmatter_scan.py`).
   plan->review     opens on Skill(coordinator:plan) ONLY when that same
                    sizing object's route is exactly "plan" (the FULL
                    terminal). A route of "spec-dispatch" does NOT open this
@@ -129,8 +127,22 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _posture import resolve_posture  # noqa: E402
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "lib"))
+from frontmatter_scan import read_text, scan_mapping  # noqa: E402
 import _next_move_ledger as _ledger  # noqa: E402
 from _touch_record import _touch_lines, _touch_record_jsonl_paths, _touched_txt_paths  # noqa: E402
+
+try:
+    from _git_root_walk import git_root_walk  # noqa: E402
+    from _git_common_dir import resolve_git_common_dir  # noqa: E402
+except Exception:  # import failure degrades to the "cannot evaluate" path
+    def git_root_walk(start=None):  # type: ignore[misc]
+        return None
+
+    def resolve_git_common_dir(git_root):  # type: ignore[misc]
+        return ""
+
 
 
 _SEAM_SIZING_ROUTED = "sizing-routed"
@@ -199,70 +211,7 @@ def _repo_root(payload: dict):
     cwd = payload.get("cwd") or os.getcwd()
     if not isinstance(cwd, str):
         return None
-    probe = os.path.abspath(cwd)
-    while True:
-        if os.path.exists(os.path.join(probe, ".git")):
-            return probe
-        parent = os.path.dirname(probe)
-        if parent == probe:
-            return None
-        probe = parent
-
-
-def _resolve_git_dir(dot_git: str):
-    if os.path.isdir(dot_git):
-        return dot_git
-    try:
-        with open(dot_git, "r", encoding="utf-8", errors="replace") as fh:
-            pointer = fh.read().strip()
-    except OSError:
-        return None
-    if not pointer.startswith("gitdir:"):
-        return None
-    target = pointer[len("gitdir:"):].strip()
-    if not target:
-        return None
-    if not os.path.isabs(target):
-        target = os.path.join(os.path.dirname(dot_git), target)
-    return os.path.normpath(target)
-
-
-def _extract_scalar(lines, key: str):
-    prefix = key + ":"
-    for line in lines:
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        if stripped.startswith(prefix):
-            value = stripped[len(prefix):].strip()
-            if "#" in value:
-                value = value.split("#", 1)[0].strip()
-            value = value.strip("'\"")
-            return value
-    return None
-
-
-def _extract_detents(lines):
-    values = []
-    collecting = False
-    for raw_line in lines:
-        stripped = raw_line.strip()
-        if not collecting:
-            if not stripped.startswith("detents:"):
-                continue
-            rest = stripped[len("detents:"):].strip()
-            if rest.startswith("[") and rest.endswith("]"):
-                inner = rest[1:-1]
-                return [item.strip().strip("'\"") for item in inner.split(",") if item.strip()]
-            collecting = True
-            continue
-        if stripped.startswith("- "):
-            values.append(stripped[2:].strip().strip("'\""))
-        elif stripped == "":
-            continue
-        else:
-            break
-    return values
+    return git_root_walk(cwd)
 
 
 def _is_null_scalar(value):
@@ -282,7 +231,7 @@ def _newest_touched_sizing_path(repo_root: str, session_id: str):
     Taking the last match of the naive new+legacy concatenation instead lets a legacy row
     that merely sorts later in the list mask a genuinely newer new-file row.
     """
-    git_dir = _resolve_git_dir(os.path.join(repo_root, ".git"))
+    git_dir = resolve_git_common_dir(repo_root) or None
     if not git_dir:
         return None
     session_dir = os.path.join(git_dir, "coordinator-sessions", session_id)
@@ -303,16 +252,17 @@ def _newest_touched_sizing_path(repo_root: str, session_id: str):
 def _sizing_route_and_exemption(repo_root: str, rel_path: str):
     """Return (route, exempt) for the sizing object at rel_path. Any read failure returns
     (None, True) -- "cannot prove the exemption doesn't apply" fails toward silence."""
-    try:
-        with open(os.path.join(repo_root, rel_path), "r", encoding="utf-8") as fh:
-            lines = fh.readlines()
-    except OSError:
+    text = read_text(os.path.join(repo_root, rel_path))
+    if text is None:
         return None, True
 
-    route = _extract_scalar(lines, "route")
-    fork = _extract_scalar(lines, "fork")
-    xl_exit = _extract_scalar(lines, "xl_exit")
-    detents = _extract_detents(lines)
+    m = scan_mapping(text)
+    route = m.get("route")
+    fork = m.get("fork")
+    xl_exit = m.get("xl_exit")
+    detents = m.get("detents")
+    if not isinstance(detents, list):
+        detents = []
 
     fork_open = (
         _APPETITE_DIVERGENCE_DETENT in detents or _POST_SIZE_PROMPT_DETENT in detents

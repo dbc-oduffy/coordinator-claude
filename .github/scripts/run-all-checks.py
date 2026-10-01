@@ -45,6 +45,7 @@ def main():
             [sys.executable, str(script)],
             capture_output=True, text=True,
             cwd=SCRIPTS_DIR.parent.parent,  # repo root
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         elapsed = time.monotonic() - start
         results.append((name, result.returncode, elapsed))

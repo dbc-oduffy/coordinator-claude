@@ -164,6 +164,9 @@ _SUB_FLOOR_BYTES = 512
 _RULE_ANCHOR = "the doctrinal surface weight ratchet (§ D1-D3, D6, D7)"
 
 
+_LESSON_CORPUS_TOKEN = "A-LESSON-CORPUS-PAGE-MOVES-ITS-TAIL-NOT-ITS-CEILING"
+
+
 def _select_tier(surface: str, pre_edit_size: int) -> "dict | None":
     """Step 5: select the D2 tier (ratio + `credit_scope`) `pre_edit_size`
     falls into for `surface`, or `None` if `surface` is not one of
@@ -209,10 +212,13 @@ def _advisory_reason(target: str, surface: str, delta_bytes: int, tier: dict) ->
         pool = f"THIS FILE ({target})"
     else:
         pool = f"`{surface}`"
-    return (
+    reason = (
         f"+{delta_bytes} B to a {ratio}:1 file -- {owed} B of cuts owed on "
         f"{pool} this commit."
     )
+    if ratio == 10:
+        reason += f" A lesson-corpus page: {_LESSON_CORPUS_TOKEN}."
+    return reason
 
 
 def _advisory_message(target: str, surface: str, delta_bytes: int, tier: dict) -> Message:

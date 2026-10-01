@@ -226,10 +226,16 @@ _RELEASE_CHANNELS = frozenset({"candidate"})
 
 
 def _run(cmd: List[str], **kwargs) -> subprocess.CompletedProcess:
-    kwargs.setdefault("creationflags", getattr(subprocess, "CREATE_NO_WINDOW", 0))
     kwargs.setdefault("capture_output", True)
     kwargs.setdefault("text", True)
-    return subprocess.run(cmd, **kwargs)
+    # Pinned, not the locale default: `gh` and `git` emit UTF-8 on every
+    # platform (`gh auth status` prints a U+2713 check mark), but Windows
+    # `text=True` decodes with the ANSI code page (cp1252) unless the OS-wide
+    # UTF-8 beta is on, which mangles the text or raises on undefined bytes.
+    kwargs.setdefault("encoding", "utf-8")
+    kwargs.setdefault("errors", "replace")
+    no_console_kwargs = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0), **kwargs}
+    return subprocess.run(cmd, **no_console_kwargs)
 
 
 def _resolve_percolate_root(override: Optional[str]) -> Optional[str]:

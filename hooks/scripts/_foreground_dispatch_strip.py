@@ -127,7 +127,7 @@ Spec backlink: coordinator_core/hooks/nudge_foreground_agent_dispatch.py
 coordinator/hooks/scripts/enforce-agent-dispatch-mode.py (module docstring,
 Concern G).
 
-SYNC_RETURN_TYPES divergence, deliberate and DoE-only: this module honours an
+SYNC_RETURN_TYPES divergence, deliberate and plugin-only: this module honours an
 explicit foreground dispatch for the bounded agent types in `SYNC_RETURN_TYPES`
 (returns `None` before the escape-hatch check); the engine's reference op
 `nudge_foreground_agent_dispatch` carries no such exemption and reroutes those

@@ -8,7 +8,7 @@ Purpose: Fires in the EM session. Emits an awareness additionalContext for
          model-specific runtime threshold) was stood down 2026-07-31 and
          excised entirely -- see the SUBAGENT-ARRIVAL-CHECK note below.
 
-This is a SELF-CONTAINED naked-Python hook, not a claude-klabauter-op stub: no
+This is a SELF-CONTAINED naked-Python hook, not an engine-op stub: no
 engine-repo op exists for this EM-side disk-bookkeeping check (grepped
 coordinator_core/hooks + coordinator_core/ops for "dispatched-agents.txt",
 "em-check", "wrap-requested" — only track_dispatched_agents.py [the WRITER
@@ -351,13 +351,7 @@ def _resolve_zero_tool_use_sessions_dir(git_root: str) -> str:
 
 
 def _git_root() -> str:
-    """Repo root as `git rev-parse --show-toplevel` would report it, fail-open
-    to "". Resolved by an in-process parent walk for a `.git` entry rather
-    than by spawning git -- this hook fires several times per turn across
-    every session on the box, so a spawn here is paid repeatedly. The
-    subprocess fallback below is for the case the walk cannot resolve (a bare
-    repo, or a GIT_DIR-driven invocation with no `.git` above cwd), not a
-    routine path."""
+    """Nearest ancestor of cwd holding `.git`, else "" (fail-open). No subprocess leg."""
     try:
         start = Path.cwd().resolve()
         for candidate in (start, *start.parents):
@@ -365,20 +359,7 @@ def _git_root() -> str:
                 return str(candidate)
     except Exception:
         pass
-
-    try:
-        import subprocess
-
-        result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            timeout=3,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-        return (result.stdout or "").strip()
-    except Exception:
-        return ""
+    return ""
 
 
 def _resolve_git_dir_no_commondir(git_root: str) -> str:
@@ -1203,7 +1184,7 @@ def _write_zero_tool_use_cursor(cursor_path: str, surfaced: int, size: int) -> N
     from the store and cursor, at worst re-processing (never losing) a
     detection.
 
-    Review: code-reviewer -- Finding 1. `surfaced` is clamped to be
+    `surfaced` is clamped to be
     monotonically non-decreasing against whatever is CURRENTLY on disk at
     `cursor_path`, read fresh here rather than trusted from a caller-held
     value. If the engine op ever returns a shorter `records` list than a
@@ -1610,6 +1591,8 @@ def _mint_session_baton(
             if isinstance(engine_baton_path, str) and os.path.normcase(
                 engine_baton_path
             ) != os.path.normcase(baton_path):
+                # foreign-identity: SUBJECT — the two disagreeing baton paths ARE
+                # the anomaly report (census audit N4).
                 print(
                     "session-baton-mint: path divergence -- "
                     f"hook={baton_path!r} engine={engine_baton_path!r}",
@@ -1852,7 +1835,7 @@ def main() -> int:
     # lookups above all still use byte-identically). See
     # `_resolve_zero_tool_use_sessions_dir`'s docstring.
     #
-    # Review: code-reviewer -- Finding 4. Resolved here, below the two
+    # Resolved here, below the two
     # subagent-detect early returns above, not before them -- this
     # git-common-dir walk is wasted work on every Stop fire from inside a
     # subagent's own session, the common case those early returns exist to

@@ -101,7 +101,7 @@ tag to trim, so it stays exclusively in that bucket; `Source`/`Encoded`/
 `Established` have no such header rule and are always classified as a
 provenance tag, leading or not.
 
-The probe also found two classes genuinely ambiguous and handles them
+The probe also found three classes genuinely ambiguous and handles them
 EXPLICITLY rather than folding them into either bucket by accident:
 
   - `PM ruling` — sometimes bare provenance for a rule that is still fully
@@ -145,8 +145,15 @@ EXPLICITLY rather than folding them into either bucket by accident:
     silently passing or getting flagged with a message that tells the editor
     to do exactly the wrong thing (delete the substance instead of the
     date).
+  - As-of freshness markers — `retired as of 2026-07-07` pairs a history
+    verb with a date that says when a live statement was last checked, not
+    when something happened. When every date within a matching verb's
+    proximity window is preceded by `as of` / `as-of`, the hit downgrades to
+    `ambiguous: as-of freshness marker`. `retired on <date>`, `superseded
+    <date>`, DR chains and `was P now Q` carry no as-of date and stay high.
+    The hit is reported, never silent.
 
-Neither ambiguous kind inflates the baseline silently: both carry their own
+No ambiguous kind inflates the baseline silently: each carries its own
 `kind` string (prefixed `ambiguous:`), so a baseline diff or a report reader
 can see the ambiguous count separately from the high-confidence count rather
 than the two collapsing into one number.
@@ -579,7 +586,11 @@ _ITALIC_PROVENANCE = re.compile(
 #: THRESHOLD the rule gates on now ("Pre-2026-05-22 memos...", "before
 #: 2026-08-01, X applies", "as of 2026-08-01") rather than a historical
 #: event -- see `_bare_dated_parenthetical_hit`.
-_THRESHOLD_CUE = re.compile(r"(?i)\b(pre|before|since|as\s+of)[\s-]*$")
+_THRESHOLD_CUE = re.compile(r"(?i)\b(pre|before|since|as[\s-]+of)[\s-]*$")
+
+#: Text ending in `as of` / `as-of` right before a date token: the date is a
+#: freshness marker (when a statement was last checked), not an event date.
+_FRESHNESS_CUE = re.compile(r"(?i)\bas[\s-]+of[\s-]+$")
 
 _PAREN_SPAN = re.compile(r"\(([^()]*)\)")
 _ITALIC_SPAN = re.compile(r"\*([^*\n]*)\*")
@@ -658,23 +669,30 @@ def _scan_text_line(line: str, line_no: int) -> "list[Violation]":
     read_tolerance = bool(_READ_TOLERANCE_CUES.search(line))
 
     verb_date_hit = False
+    all_near_dates_freshness = True
     if date_spans and verb_matches:
         date_token_idx = [
             _token_index_at(start, all_token_spans) for start, _end in date_spans
         ]
+        freshness = [
+            bool(_FRESHNESS_CUE.search(scannable[:start])) for start, _end in date_spans
+        ]
         for vm in verb_matches:
             verb_token_idx = _token_index_at(vm.start(), all_token_spans)
-            if any(abs(verb_token_idx - di) <= _TOKEN_PROXIMITY_WINDOW for di in date_token_idx):
-                verb_date_hit = True
-                break
+            for di, is_fresh in zip(date_token_idx, freshness):
+                if abs(verb_token_idx - di) <= _TOKEN_PROXIMITY_WINDOW:
+                    verb_date_hit = True
+                    if not is_fresh:
+                        all_near_dates_freshness = False
 
     if verb_date_hit:
-        kind = (
-            "ambiguous: archived/legacy read-tolerance note"
-            if read_tolerance
-            else "history verb near date"
-        )
-        confidence = "ambiguous" if read_tolerance else "high"
+        if read_tolerance:
+            kind = "ambiguous: archived/legacy read-tolerance note"
+        elif all_near_dates_freshness:
+            kind = "ambiguous: as-of freshness marker"
+        else:
+            kind = "history verb near date"
+        confidence = "high" if kind == "history verb near date" else "ambiguous"
         violations.append(Violation(line_no, kind, _excerpt(line), fingerprint, confidence))
 
     dequoted = _dequote_leading(line)
