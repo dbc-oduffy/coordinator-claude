@@ -9,6 +9,8 @@ Usage:
   record-superseding-review.py --plan <plan-path|plan_id> --session-id <sid> --base <sha> --head <sha>
       [--wave-sidecar <path> ...] [--prep-sidecar <path>]
       [--stage-returns-json <json>] [--supersedes <sha>] [--repo-root <path>]
+  record-superseding-review.py --plan <plan> --session-id <sid> --base <sha> --head <sha> --from-share
+      (assembles the stage returns from the session's plan-scoped sidecars; stderr names each one used)
 
 Exit codes:
   0 -- record written; its path is the only stdout line

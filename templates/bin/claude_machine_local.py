@@ -53,6 +53,9 @@ def _settings_home() -> str:
       1. COORDINATOR_SETTINGS_HOME — explicit override.
       2. ${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings — default.
 
+    coordinator/tests/test_settings_home_ladder_parity.py is the guard that
+    keeps this copy in step with templates/bin/_machine_local.py::_settings_home.
+
     Negative-spec: pure path arithmetic — never reads a file to resolve this.
     """
     override = os.environ.get("COORDINATOR_SETTINGS_HOME")

@@ -487,7 +487,7 @@ and fire with `repos` read from the fleet map. Tripwire: `A-GROUP-EM-HAND-AUTHOR
 the standing (`group-em-nomination.py who --self`); it needs no per-session PM assent. Guardrails,
 unchanged from the retired-grant rule: scoped pathspec commits only (never `git add -A`/`.`/`commit
 -a`), no destructive git ops, never leave a sibling's tests red. Engine-subject work stays
-Claude-klabauter's: memo it, do not author it. The grant ends when the standing does. Record:
+the engine repo's: memo it, do not author it. The grant ends when the standing does. Record:
 `docs/decisions/DR-group-em-role-carries-cross-repo-commit-authority.md`.
 
 ## Anti-scope

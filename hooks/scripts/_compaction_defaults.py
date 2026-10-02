@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Auto-compaction default and threshold derivation, shared by the status line and the
 imminent-compaction hook.
 

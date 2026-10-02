@@ -55,6 +55,7 @@ Step 2.6's job (below).
    that can record it (`residue/source-plan-supersession.md`).
 2. Cluster into coverage units (typically 20–60/roadmap); a sub-floor cluster folds into a
    sibling here, pre-verdict (wiki: grain-fold vs. MERGE) → `state/roadmap/<run-id>/clusters.md`.
+   Every cluster carries `loe:`; `roadmap.blitz_stage` refuses a clusters.md missing one.
    **A cluster is a unit of coverage accounting, never a unit of dispatch** — how many batons
    these become is Step 2.1.6's call, not this step's.
 3. Verdict each cluster — MERGE / DEFER / KEEP / DROP / MOVE — into
@@ -118,10 +119,9 @@ MERGE-target cluster owes retirement at Phase 2 close
    first.**
 
 <!-- engine-gap: field=roadmap_planning.stub_body_section_completeness producer=unknown memo=2026-08-27-claude-klabauter-em-doe-unmarked-obligations-and-four-lost-markers.md -->
-2.1a. **Carry the size forward — pass `--sizing-object <the object that routed this roadmap>`.** 
-   Without it `plan` trampolines the stub back to the lobby to re-size; sizing is not re-run on a
-   stub. After scaffolding, confirm `sizing_object:` is present in the frontmatter; if not, stamp it
-   by hand. Tripwire:
+2.1a. **Every stub carries its own sizing, never the roadmap's.** `roadmap.blitz_stage` mints
+   a per-baton sizing and stamps `sizing_object:`. Never pass the roadmap's sizing to a stub:
+   batons sharing a sizing all link to its plan. Tripwire:
    `A-BATON-IS-NOT-A-SIZING-ARTIFACT`.
 2.1.5. Number stubs in dependency order before writing any — run (Shape W,
    `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`)
@@ -134,11 +134,11 @@ MERGE-target cluster owes retirement at Phase 2 close
    isolated node; `@N` tags sprint N; `#` comments; unparseable line exits 2. E.g. `C1 <- C3`, `C4@2`.
 2.1.6. **Fold to size — the baton is the parallel wave, not the idea.** Runs on 2.1.5's `wave`
    output; sets how many stubs 2.1 scaffolds. `loe:` is the whole-baton t-shirt read.
-   - **Band: mostly M and L.** XS/S never ship alone — group them into one baton. XL only where a
-     group cannot cut smaller. An XXL stub means the roadmap is mis-made; go back to Phase 1.
-   - **Collapse the wave.** 2.1.5's wave assignment already places edge-free, pairwise-disjoint
-     stubs in the same wave; fold that set into one baton, several specs. Same-file units never
-     split, in any wave.
+   - **Band: mostly M and L.** `roadmap.blitz_stage` folds XS/S only along a declared edge,
+     dependent first, stopping at M. An edge-free XS/S is flagged `unfoldable-small`, and XL is
+     flagged and never auto-split. An XXL stub means the roadmap is mis-made; go back to Phase 1.
+   - **Same-wave stubs run in parallel** (`wave` is the dependency tier). Collapsing them into one
+     baton is an EM call once scopes are known; same-file units never split.
    - **Split only on a real barrier** — a gate that cannot clear until the first half lands, or a
      decision the first half's output determines.
    - **Re-price on scope change**, or a stale size routes a go-do-it through a full lifecycle.
@@ -153,9 +153,8 @@ MERGE-target cluster owes retirement at Phase 2 close
    roadmap-planning -->`.
 2.3. `STUB-INDEX.md` — a query callout, never a hand table (template + rationale: wiki).
 2.4. Before any fan-out: run `audit-roadmap <run-id>`; then **what it cannot check** —
-   confirm every wave-N stub set is file-disjoint per `scope:`. Disjointness is now a *merge*
-   predicate spent at 2.1.6, so any disjoint pair surviving here is an un-run fold, not a
-   licensed parallelism: fold it and re-number.
+   confirm every wave-N stub set is file-disjoint per `scope:`. A same-wave pair that is not
+   disjoint is a fold to make and re-number; a disjoint pair runs in parallel.
 
    **`scope:` names a SUBJECT, not a blast radius** — grep each item's symbols for its real touched
    set before splitting. Mark EM-fenced items (`archive/`, permission settings); never send a

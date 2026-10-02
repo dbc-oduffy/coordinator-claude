@@ -80,6 +80,9 @@ def _settings_home() -> Path:
     transliteration resolves EMPTY on native Windows shells and mints a
     cwd-relative settings home. Two sibling resolvers on the engine plane have
     already been bitten by that exact bug.
+
+    coordinator/tests/test_settings_home_ladder_parity.py is the guard that
+    keeps this copy in step with templates/bin/_machine_local.py::_settings_home.
     """
     override = os.environ.get("COORDINATOR_SETTINGS_HOME")
     if override:

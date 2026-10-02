@@ -4,6 +4,19 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.4.10] — 2026-10-02
+
+A batched-planning release.
+
+- **`/goal-blitz` and `/roadmap-blitz`.** PM-gated background waves: goal-blitz drafts, critiques
+  and ratifies OKRs for every goal seed at once; roadmap-blitz turns roadmap-sized asks into staged
+  batons behind one Approve gate, then hands them to plan-blitz. New `coordinator:roadmap-planner`
+  agent authors the roadmap bodies.
+- **Roadmap planning.** Every stub carries its own sizing; same-wave stubs run in parallel.
+- **Boot.** An install-currency banner reports a stale install at session start.
+- **Fixes.** Decision-citation resolver, deterministic file-index generator, `execute-plan
+  --only-incomplete` with `--plan`, and portable exec bits on Python scripts.
+
 ## [4.4.9] — 2026-10-02
 
 An install-repair release.

@@ -274,3 +274,14 @@ symptom_keywords = ["claude-author wrapper drift", "claude-author stale", "wrapp
 triage = false
 severity_if_fail = "degraded"
 remediation = "Re-publish the wrapper: re-run python scripts/setup.py (installer Step 3.5b, _install_claude_author_wrapper in coordinator_core/install/maximalist.py) to sync ~/.local/bin/claude-author from <claude_klabauter_root>/coordinator/bin/claude-author.py"
+
+[[probe]]
+id = "P-24"
+cluster = "structure"
+weight = "cheap"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["stale registered path", "moved repo", "mcp server red", "launchd plist stale path", "claude.json stale project", "repo moved"]
+triage = false
+severity_if_fail = "degraded"
+remediation = "Report only: each finding names the file, key and missing path (plus a likely ~/X relocation). Route the fix to the file's owner (harness for ~/.claude.json, the registering project for plists and .mcp.json, `machine-local set` for the registry)"

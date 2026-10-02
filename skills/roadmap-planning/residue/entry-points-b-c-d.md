@@ -38,4 +38,6 @@ sizing lobby never gates or refuses a `roadmap-planning` invocation absent one.
 4. If B or C also applies, resolve to whichever of A/B/C matches the input shape and note the
    sizing-object alongside.
 
+The same sizing run in the background, with one approval gate, is `coordinator:roadmap-blitz`.
+
 Detail and routing rationale: wiki `roadmap-planning-residue.md` § Entry Points B, C, D.

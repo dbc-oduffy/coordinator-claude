@@ -81,7 +81,8 @@ Never run the repo's fast or full test suite. Targeted, read-only observations o
 
 Return exactly the `terminal-judge-result` shape
 (`coordinator/schemas/review-stage.schema.json` `$defs.terminal-judge-result`). Top-level
-`status`, `observation` and `sidecar_path` are the fields the engine reads. Counts and anchors
+`status`, `observation` and `sidecar_path` are the fields the engine reads. You are given no
+sidecar; return `sidecar_path` as `""`, and the engine records the verdict from this return. Counts and anchors
 only, every string within its cap, no inline diff or prose findings.
 
 ## Out of Scope

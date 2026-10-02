@@ -359,7 +359,9 @@ def check_and_refresh(bin_dir: Path, now: float | None = None) -> str | None:
         if _differs(src, dst) and _copy_atomic(src, dst):
             refreshed.append(src.name)
 
-    # POSIX exec-bit leg (C2): a separate pass over the same installed entries,
+    # POSIX exec-bit leg (C2): restores with the installer's own rule,
+    # `dst.chmod(st_mode | 0o111)` (klabauter substrate `_install_one`) — do not
+    # tighten it into a second rule. A separate pass over the same installed entries,
     # after the content pass. Content drift and exec-bit loss are independent
     # events; folding this into `_copy_atomic` would only ever fix a file that
     # happened to drift in content on the same day. Contained under one

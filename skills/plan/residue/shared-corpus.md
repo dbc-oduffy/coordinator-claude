@@ -117,7 +117,7 @@ the light terminal's own mandatory scoped `code-reviewer` pass (§ `spec-dispatc
 on every exit; the pre-dispatch pass reviews the plan body and does not replace `code-reviewer`'s
 post-hoc review of the executor's diff.
 
-The `plan`-route terminal runs substrate verification, four-lens composition, (accepted-XL only)
+The `plan`-route terminal runs a pipeline of substrate verification, four-lens composition, (accepted-XL only)
 `plan-reviewer`, three pre-flights, and a named Opus reviewer who applies and verifies its own findings.
 **The light terminal is a deliberately shortened pipeline** — (1) and a reduced (2) still run;
 (3)–(5) are replaced by its cross-plan-scan-then-dispatch sequence.
@@ -127,7 +127,7 @@ The `plan`-route terminal runs substrate verification, four-lens composition, (a
 _Condition: a dispatched executor returns BLOCKED citing substrate differing from what the plan asserted (path moved, helper renamed, framework changed, contract field absent, schema column missing)._
 
 - _Default: amend the plan or write a successor; do NOT silently expand executor scope to absorb the drift._
-  → Re-invoke `coordinator:plan` to amend (small drift, same workstream) or compose a successor (larger drift or shape change). Re-run the pipeline on the amended body from substrate verification — **that invariant is shared; which chain discharges it is selected by the lane.** `plan`: prior-art-checker → named Opus persona, who applies its own findings and verifies via `review-findings-ledger verify`. `spec-dispatch`: re-run **Branch B** over the drifted paths, amend the light body, re-fire the light terminal (cross-plan scan, pre-dispatch `plan-reviewer` pass, then dispatch); its mandatory scoped `code-reviewer` pass over the re-dispatched diff still binds. **Do not hand the S lane the full lane's chain** — the pre-dispatch `plan-reviewer` pass is one pass inside the light terminal, not that chain, and adds no re-run obligation of its own.
+  → Re-invoke `coordinator:plan` to amend (small drift, same workstream) or compose a successor (larger drift or shape change). Re-run the pipeline on the amended body from substrate verification — **that invariant is shared; which chain discharges it is selected by the lane.** `plan`: prior-art-checker → named Opus persona, who applies its own findings and verifies via `review-findings-ledger verify`. `spec-dispatch`: re-run **Branch B** over the drifted paths, amend the light body, re-fire the light terminal (cross-plan scan, pre-dispatch `plan-reviewer` pass, then dispatch); its mandatory scoped `code-reviewer` pass over the re-dispatched diff still binds. **Do not hand the S lane the full lane's chain** — the pre-dispatch `plan-reviewer` pass is one pass inside the light terminal, not that chain; it does not gate on a persona verdict and adds no re-run obligation of its own.
 - _Product-risk findings during BLOCKED inspection?_
   → Even under `/autonomous`, surface them via `AskUserQuestion` before amending (a privacy implication, a permission-default change, an external contract shift).
 

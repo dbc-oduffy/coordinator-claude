@@ -239,8 +239,10 @@ Notes on fields:
   a partial date to `-01` — that fabricates precision the source does not carry, and the
   durable record is consumed read-only by a sibling repo.
 - **Confidence is uppercase:** `"HIGH"`, `"MEDIUM"`, or `"LOW"`.
-- Every claim must have a source_url. If from training knowledge, use "training_knowledge"
-  and set confidence to LOW.
+- Every claim must have a `source_url` (DR-SCHEMA-002). Use an `http(s)` URL when the claim
+  is citable. If it comes from your own training knowledge, write the literal sentinel
+  `"training_knowledge"` and set confidence to LOW. Never omit the key, never write `null`,
+  and never invent a URL.
 
 ## Summary Output Format (summary.md)
 

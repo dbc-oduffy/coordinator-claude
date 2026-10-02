@@ -2398,6 +2398,12 @@ const decisions = ((dispatch && dispatch.decisions) || []).map((d) =>
   d && typeof d === 'object' && d.sizingObject
     ? { ...d, sizingObject: repoRelativeCitation(d.sizingObject) }
     : d,
+).map((d) =>
+  // The baton arg's `route` is the effective route: a recorded `xl_exit: accept_multi_session`
+  // reads `plan` there. A pm-decision the PM already resolved is a plan, not an adjudication.
+  d && d.route === 'pm-decision' && batonFor(d) && batonFor(d).route === 'plan'
+    ? { ...d, route: 'plan', surfacedToPm: false }
+    : d,
 ).filter((d) => {
   const kept = d && decidedById.get(d.batonId)
   if (kept) {

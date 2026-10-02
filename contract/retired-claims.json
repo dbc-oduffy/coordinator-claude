@@ -33,6 +33,18 @@
       ],
       "witness": "one parallel review wave, then exactly one integration pass\ncode review is one parallel wave plus one integration pass",
       "legacy_sites": []
+    },
+    {
+      "id": "doe-box-plain-claude-is-coordinator-less",
+      "claim": "On a DoE box, plain `claude` is coordinator-less by design and only the DoE launcher loads the coordinator plugin.",
+      "retired_by": "docs/plans/2026-10-02-install-dogfood-fixes.md",
+      "signatures": [
+        "\\bcoordinator-less\\s+by\\s+design\\b",
+        "\\bnever\\s+registers\\s+or\\s+installs\\s+the\\s+coordinator\\s+plugin\\b",
+        "\\bonly\\s+way\\s+a\\s+DoE\\s+box\\s+loads\\s+coordinator\\b"
+      ],
+      "witness": "plain claude is coordinator-less by design\nthe installer never registers or installs the coordinator plugin\nthe launcher is the only way a DoE box loads coordinator",
+      "legacy_sites": []
     }
   ]
 }

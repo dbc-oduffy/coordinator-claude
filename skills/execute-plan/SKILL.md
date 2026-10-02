@@ -164,8 +164,8 @@ hand-authored wave map, or a chat emission of a wave table.
 
 **Emit and dispatch are ONE action, and the dispatch leg is not optional.** In an interactive
 session the EM runs
-`"${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/bin/emit-dispatch-workflow" --plan <plan-path>`
-(settings-home launcher — resolve per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`). Before firing, register review targets:
+`emit-dispatch-workflow --plan <plan-path>` (settings-home launcher; resolve per
+`${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`, PowerShell included). Before firing, register review targets:
 `review-findings-ledger targets --from-plan <plan-path>` — EM-only, and
 the confined execute-review stage's reviewers cannot apply findings without it. Then
 calls `Workflow({scriptPath: "<emitted path>", args: {repoRoot: "<absolute repo root>"}})` in this
@@ -191,7 +191,7 @@ same chunks with the Agent tool is never the recovery; a concurrency-cap refusal
 report and stop, as for a fire-time refusal.
 
 **A sixth state: returned `incomplete`, nothing halted.** Not a resume: run `dispatch.terminal_commit`,
-then `emit-dispatch-workflow --only-incomplete <task-output>` and fire. Never hand-dispatch them.
+then `emit-dispatch-workflow --plan <plan> --only-incomplete <task-output>` and fire. Never hand-dispatch them.
 
 **A brief never asks an executor to commit** — its Commit Gate refuses.
 

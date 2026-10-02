@@ -94,8 +94,8 @@ inferred. Pass `--exit-criterion` and `--interaction-mode` to `sizing-assemble`,
 answer with `sizing.accept_exit_criterion` (`pm_quote`, optional amended `statement`, `mode`) —
 never by hand-editing the sizing object. In pm and ceo modes the ask says plainly that accepting
 it authorizes execution without a further ask. Per-mode asks: wiki § Step 5c. For XL, Step 5b is unchanged.
-After acceptance, `emit-wave-fire --repo-root <abs repo> --trail-dir <abs trail dir> --from-sizing
-<repo-relative sizing path>` mints the baton itself (never via
+After acceptance, `emit-wave-fire --from-sizing <repo-relative sizing path> --repo-root <abs repo>
+--trail-dir <abs trail dir>` mints the baton itself (never via
 /spinoff or /handoff) and prints one `Workflow` line to fire. End the turn: the plan Workflow
 (turn 2) runs with no EM in the loop.
 

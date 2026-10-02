@@ -1039,8 +1039,6 @@ def local_install_surface_banner(repo_root: Optional[str]) -> None:
 # (>24h since ran_at)". P-19 refreshes daily under `/workday-start` Step 1.10, so a cache within
 # this window reflects that day's run.
 _CURRENCY_BANNER_STALE_HOURS = 24
-# Back-compat alias: `test_currency_banner.py` (a sibling test file outside this dispatch's file
-# scope) still reads the old name. Remove once that test is updated to the new name.
 
 
 def install_currency_banner(repo_root: Optional[str]) -> None:
@@ -1106,9 +1104,9 @@ def install_currency_banner(repo_root: Optional[str]) -> None:
     plan's Related-plan note) requires this divergence to stay visible and explained, not collapsed.
 
     `source_is_live` silences only the PLUGIN surface covered by this function -- it must never be
-    read as silencing the engine-currency surface (§ Engine anchor — open contract,
-    `docs/wiki/release-and-distribution/release-cadence-and-currency-notification.md`), which is a distinct, not-yet-built
-    axis this function does not touch.
+    read as silencing the engine-currency surface (§ Engine anchor — converged contract,
+    `docs/wiki/release-and-distribution/release-cadence-and-currency-notification.md`), which is a distinct
+    axis this function does not touch. That contract is settled; its probe (P-20) is not built.
     """
     if os.environ.get("COORDINATOR_CURRENCY_STATUS_OFF"):
         print(

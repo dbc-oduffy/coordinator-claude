@@ -1,0 +1,64 @@
+{
+  "$comment": "Pinned contract for roadmap-blitz: C2 (roadmap-blitz.mjs), C3 (emit-roadmap-fire.py) and C4 (SKILL.md) build against it; C7 and C8 load it as their shape oracle. The five seam args (repoRoot, sizing, interactionMode, approver, trailDir) are the ones warp's roadmap arm passes; the rest are DoE-side optionals warp never passes. `approver`, when supplied, must equal approverFor(interactionMode) or the run throws. `stage` holds the roadmap.blitz_stage reply fields read at claude-klabauter ffdf5f52 (coordinator_core/ops/roadmap_blitz_stage.py docstring). Values below are examples of each shape; enumerated alternatives are listed in `_enums`.",
+  "_enums": {
+    "interactionMode": ["hands-on", "pm", "ceo"],
+    "approver": ["pm", "apm"],
+    "verdict": ["approved", "declined"]
+  },
+  "args": {
+    "repoRoot": "/abs/path/to/repo",
+    "sizing": "state/sizings/2026-10-02-example.yaml",
+    "interactionMode": "hands-on",
+    "approver": "pm",
+    "trailDir": "/abs/path/to/repo/state/scratch/roadmap-blitz/2026-10-02-example",
+    "corpus": ["state/handoffs/2026-10-02-example.md"],
+    "runId": "2026-10-02-example",
+    "approvalPath": "/abs/path/to/repo/state/scratch/roadmap-blitz/2026-10-02-example/approval.json",
+    "pluginAgentsAvailable": true,
+    "provisionSidecarCli": "/abs/path/to/coordinator-doc-new"
+  },
+  "approval": {
+    "verdict": "approved",
+    "approver": "pm",
+    "utterance": "The approver's verbatim words approving or declining the roadmap.",
+    "recorded_at": "2026-10-02T18:00:00Z"
+  },
+  "result": {
+    "gate_report_path": "state/roadmap/2026-10-02-example/gate-report.json",
+    "roadmapId": "2026-10-02-example",
+    "roadmapDir": "state/roadmap/2026-10-02-example",
+    "approver": "pm",
+    "approval": {
+      "verdict": "approved",
+      "approver": "pm",
+      "utterance": "The approver's verbatim words approving or declining the roadmap.",
+      "recorded_at": "2026-10-02T18:00:00Z"
+    },
+    "awaitingApproval": false,
+    "stage": {
+      "gate_report_path": "state/roadmap/2026-10-02-example/gate-report.json",
+      "gate_report_state": "frozen",
+      "stubs": [],
+      "numbering": {},
+      "cluster_numbering": {},
+      "folds": {
+        "merged": [],
+        "split": [],
+        "flagged": [],
+        "unsized": [],
+        "in_band": [],
+        "routes": {},
+        "rule": "",
+        "ambiguities": []
+      },
+      "audit": {},
+      "commits": [{"sha": "0000000", "paths": ["state/roadmap/2026-10-02-example/gate-report.json"]}],
+      "commit_error": null,
+      "roadmap_id": "2026-10-02-example",
+      "edge_source": "clusters.md"
+    },
+    "owedRetirements": ["docs/plans/2026-09-01-live-source-plan.md"],
+    "incidents": [],
+    "trailDir": "/abs/path/to/repo/state/scratch/roadmap-blitz/2026-10-02-example"
+  }
+}

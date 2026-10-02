@@ -173,7 +173,7 @@ that shard — ship both or ship neither.
 **Disposal mechanics.** `archive-stamp-cli resolve-memo` stamps and commits in place; it never moves
 the file, so the move into the repo's archive layout (often flat) is a separate manual step, committed
 with explicit file pathspecs, never a directory. Re-enumerate the inbox directory before disposing:
-memos that arrive after the assemble are in scope. Memos to the engine go to `claude-klabauter-em`.
+memos that arrive after the assemble are in scope. Memos to the engine go to the engine repo's EM.
 
 **A manifest is a snapshot.** A memo absent from the path the manifest names is a race, not a producer
 defect — check the archival commit's timestamp against the assemble's. Tripwire:

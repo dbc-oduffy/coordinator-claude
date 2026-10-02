@@ -74,7 +74,6 @@ report_sidecar:
   - coordinator:dep-cve-auditor
   - coordinator:test-evidence-parser
   - coordinator:test-runner
-  - coordinator:exit-criterion-judge
   - coordinator:atlas-clarity-reviewer
   
   
@@ -96,7 +95,6 @@ report_type_map:
   
   
   coordinator:test-runner: run-report
-  coordinator:exit-criterion-judge: run-report
   coordinator:staff-eng: staff-eng-review
   coordinator:staff-data-sci: staff-eng-review
   coordinator:senior-front-end: staff-eng-review
@@ -124,6 +122,7 @@ report_type_map:
   coordinator:subtractive-adjudicator: review-findings
   coordinator:blitz-em: staff-eng-review
   coordinator:plan-author: run-report
+  coordinator:roadmap-planner: run-report
   coordinator:exit-criterion-falsifier: run-report
   coordinator:group-em-assistant: run-report
   coordinator:repo-scout: assessment
@@ -271,6 +270,7 @@ dispatch_tier:
   
   coordinator:blitz-em: exploration
   coordinator:plan-author: exploration
+  coordinator:roadmap-planner: exploration
 
 
 # personas. DEFAULT-TO-ALL-TO-ALL (seam adjudication / G1 C2, F9 the Director of Engineering): the
@@ -431,6 +431,8 @@ contract_blocks:
     - return-tldr
     - sizing-object-consumption
   coordinator:plan-author:
+    - return-tldr
+  coordinator:roadmap-planner:
     - return-tldr
   
   # G3 (review-pipeline agents, 2nd pass) rows: quota-self-detect-preamble is

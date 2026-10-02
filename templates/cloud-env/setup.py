@@ -138,7 +138,7 @@ def _phase3_register(root, have_plugin):
     print("=== phase 3: register the plugin in user settings ===")
     # The `directory` source sidesteps the hosted surface: Claude Code reads the marketplace
     # manifest off local disk at launch and clones nothing. The mirror is FLAT -- its
-    # .claude-plugin/marketplace.json sits at the repo root, unlike the DoE source tree where the
+    # .claude-plugin/marketplace.json sits at the repo root, unlike the doctrine source tree where the
     # manifest is one level down under coordinator/.
     (HOME / ".claude").mkdir(parents=True, exist_ok=True)
     path = HOME / ".claude" / "settings.json"

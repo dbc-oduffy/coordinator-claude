@@ -5187,6 +5187,137 @@ def coordinator_bin_default(percolate_root: Path) -> Path:
     return percolate_root / "bin"
 
 
+_PUBLISH_REPRODUCIBLE_TRIPWIRE = "A-PUBLISH-IS-REPRODUCIBLE-ONLY-FROM-PUSHED-SOURCE"
+
+
+def _ro_git(root: Path, *args: str) -> "subprocess.CompletedProcess":
+    """Read-only git (`--no-optional-locks`) in `root`."""
+    return subprocess.run(
+        ["git", "--no-optional-locks", "-C", str(root), *args],
+        capture_output=True, text=True, errors="replace",
+    )
+
+
+def _plugin_row_pathspecs_by_root(rows: "List[ResolvedTarget]") -> "dict[Path, set[str]]":
+    """Source repo root -> the pathspecs (relative to that root) the rows' allowlists publish.
+    A row with no allowlist publishes its whole source_dir (`.`). `!`/`^` entries are not inclusions."""
+    _bootstrap_engine()
+    out: "dict[Path, set[str]]" = {}
+    for row in rows:
+        sm = _parse_source_map(row.source_map)
+        entries, _ = split_inclusion_exclusion(parse_allowlist_csv(row.allowlist))
+        if not entries:
+            out.setdefault(row.source_dir, set()).add(".")
+            continue
+        for entry in entries:
+            out.setdefault(sm.get(entry, row.source_dir), set()).add(entry)
+    return out
+
+
+def dispatch_end_of_run_plugin_provenance_gate(
+    repo_roots: "List[Path]",
+    *,
+    rows_by_repo_root: "dict[Path, List[ResolvedTarget]]",
+    err: IO[str] = sys.stderr,
+    out: IO[str] = sys.stdout,
+) -> bool:
+    """Once per dest: refuse a round for the plugin dest when any contributing source root has HEAD
+    ahead of its upstream, no upstream, or a dirty TRACKED file under a path a row's allowlist
+    publishes. The public plugin must match pushed source. Fail-closed, no override."""
+    ok = True
+    for repo_root in repo_roots:
+        rows = [r for r in rows_by_repo_root.get(repo_root, [])
+                if r.dest_dir == next((p.dest_dir for p in rows_by_repo_root.get(repo_root, [])
+                                       if p.name == _PLUGIN_PAYLOAD_ROW), None)]
+        if not any(r.name == _PLUGIN_PAYLOAD_ROW for r in rows):
+            continue
+        problems: "List[str]" = []
+        by_root = _plugin_row_pathspecs_by_root(rows)
+        for root in sorted(by_root, key=str):
+            up = _ro_git(root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+            if up.returncode != 0:
+                problems.append(f"{root}: HEAD has no upstream (cannot prove it is pushed). Remedy: push "
+                                f"the branch with -u / set an upstream.")
+            else:
+                cnt = _ro_git(root, "rev-list", "--count", "@{u}..HEAD")
+                n = cnt.stdout.strip()
+                if cnt.returncode != 0 or not n.isdigit():
+                    problems.append(f"{root}: could not count commits ahead of {up.stdout.strip()}: "
+                                    f"{cnt.stderr.strip()}")
+                elif int(n) > 0:
+                    problems.append(f"{root}: HEAD is {n} commit(s) ahead of {up.stdout.strip()}. Remedy: push.")
+            st = _ro_git(root, "status", "--porcelain", "--untracked-files=no", "--", *sorted(by_root[root]))
+            dirty = [ln[3:] for ln in st.stdout.splitlines() if ln.strip()]
+            if st.returncode != 0:
+                problems.append(f"{root}: git status failed: {st.stderr.strip()}")
+            elif dirty:
+                problems.append(f"{root}: dirty tracked file(s) under published paths: {dirty}. "
+                                f"Remedy: commit (and push) them.")
+        print(f"  Plugin-provenance gate: {len(by_root)} source root(s), {len(problems)} problem(s).", file=out)
+        if problems:
+            print(f"  Error: {_PUBLISH_REPRODUCIBLE_TRIPWIRE}: refusing the {_PLUGIN_PAYLOAD_ROW} round; "
+                  f"the public plugin must match pushed source:", file=err)
+            for line in problems:
+                print(f"    {line}", file=err)
+            ok = False
+    return ok
+
+
+def dispatch_end_of_run_plugin_version_stamp_gate(
+    repo_roots: "List[Path]",
+    *,
+    rows_by_repo_root: "dict[Path, List[ResolvedTarget]]",
+    err: IO[str] = sys.stderr,
+    out: IO[str] = sys.stdout,
+) -> bool:
+    """Once per dest: refuse when the assembled payload differs from dest HEAD under the plugin
+    paths but `.claude-plugin/plugin.json` (and marketplace.json, if it carries a version) still
+    carries dest HEAD's version. Fail-closed, no override."""
+    ok = True
+    for repo_root in repo_roots:
+        plugin_rows = [r for r in rows_by_repo_root.get(repo_root, []) if r.name == _PLUGIN_PAYLOAD_ROW]
+        if not plugin_rows:
+            continue
+        real_dest = plugin_rows[0].dest_dir
+        real_root = _dest_repo_root(real_dest) or real_dest
+        try:
+            rel = real_dest.relative_to(real_root).as_posix()
+        except ValueError:
+            rel = "."
+        rel = rel or "."
+        changed = _ro_git(repo_root, "status", "--porcelain", "--", rel)
+        if changed.returncode != 0:
+            print(f"  Error: {_PUBLISH_REPRODUCIBLE_TRIPWIRE}: version-stamp gate: git status failed in "
+                  f"the assembled tree: {changed.stderr.strip()}", file=err)
+            ok = False
+            continue
+        if not changed.stdout.strip():
+            print("  Plugin version-stamp gate: no content change vs dest HEAD.", file=out)
+            continue
+        prefix = "" if rel == "." else rel + "/"
+        stale: "List[str]" = []
+        for name in (".claude-plugin/plugin.json", ".claude-plugin/marketplace.json"):
+            head = _ro_git(repo_root, "show", f"HEAD:{prefix}{name}")
+            now_path = repo_root / (prefix + name)
+            if head.returncode != 0 or not now_path.is_file():
+                continue
+            m_head = _VERSION_FIELD_RE.search(head.stdout)
+            m_now = _VERSION_FIELD_RE.search(now_path.read_text(encoding="utf-8", errors="replace"))
+            if m_head and m_now and m_head.group(1) == m_now.group(1):
+                stale.append(f"{prefix}{name}: assembled version {m_now.group(1)!r} == dest HEAD version "
+                             f"{m_head.group(1)!r}")
+        print(f"  Plugin version-stamp gate: payload changed, {len(stale)} unbumped version file(s).", file=out)
+        if stale:
+            print(f"  Error: {_PUBLISH_REPRODUCIBLE_TRIPWIRE}: the assembled {_PLUGIN_PAYLOAD_ROW} payload "
+                  f"differs from dest HEAD but its version was not bumped:", file=err)
+            for line in stale:
+                print(f"    {line}", file=err)
+            print("  Remedy: bump \"version\" in the source .claude-plugin/plugin.json "
+                  "(and marketplace.json if it carries one) before publishing.", file=err)
+            ok = False
+    return ok
+
+
 # ---------------------------------------------------------------------------
 # Resolved-target row parsing
 # ---------------------------------------------------------------------------
@@ -13349,8 +13480,20 @@ def _run_round_dr445(
                     gate_roots, rows_by_repo_root=_gate_rows_by_repo_root
                 )
             )
+        with _time_phase(round_timings, "<round>", "dispatch_end_of_run_plugin_provenance_gates"):
+            plugin_provenance_ok = (
+                True
+                if args.dry_run
+                else dispatch_end_of_run_plugin_provenance_gate(
+                    gate_roots, rows_by_repo_root=_gate_rows_by_repo_root
+                )
+                and dispatch_end_of_run_plugin_version_stamp_gate(
+                    gate_roots, rows_by_repo_root=_gate_rows_by_repo_root
+                )
+            )
         gates_ok = (
             plugin_payload_ok
+            and plugin_provenance_ok
             and identity_ok
             and install_doc_ok
             and unscanned_ok

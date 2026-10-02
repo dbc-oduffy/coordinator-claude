@@ -42,6 +42,7 @@ whether and when to fire each stub.
 - **Single-feature scope**, no broader OKR arc → straight to `coordinator:plan`.
 - **Roadmap already has goals** — picking up an existing roadmap-seed stub against an
   already-ratified goal → `/roadmap-planning` directly.
+- **Several seeds or goal-setting sizings at once** → `coordinator:goal-blitz`, the batched route, where the VP-Product Reviewer sets and ratifies the OKRs.
 
 ---
 

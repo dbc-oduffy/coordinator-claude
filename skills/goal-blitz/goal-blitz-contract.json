@@ -1,0 +1,55 @@
+{
+  "$comment": "Pinned contract for goal-blitz: C1 (goal-blitz.mjs), C2 (emit-goal-fire.py), C3 (land-goals.py) and C4 (SKILL.md) build against it; C7 and C8 load it as their shape oracle. Names mirror the roadmap-blitz seam (repoRoot, interactionMode, approver, trailDir). `approver` appears only in `result`, derived by the workflow's ratifierFor, never bound as an arg. Values below are examples of each shape; enumerated alternatives are listed in `_enums`.",
+  "_enums": {
+    "seed_kind": ["goal-seed", "sizing"],
+    "interactionMode": ["hands-on", "pm", "ceo"],
+    "period": ["day", "week", "repo", "quarter", "year"],
+    "verdict": ["ratified", "declined"],
+    "ratifier": ["vp-product"],
+    "approver": ["vp-product"]
+  },
+  "args": {
+    "repoRoot": "/abs/path/to/repo",
+    "trailDir": "/abs/path/to/repo/state/scratch/goal-blitz/2026-10-02-example",
+    "provisionSidecarCli": "/abs/path/to/coordinator-doc-new",
+    "interactionMode": "hands-on",
+    "pluginAgentsAvailable": true,
+    "seeds": [
+      {
+        "id": "2026-10-02-example-seed",
+        "path": "state/handoffs/2026-10-02-example-seed.md",
+        "kind": "goal-seed",
+        "intent": "One-line statement of the vision slice to turn into an OKR."
+      }
+    ]
+  },
+  "draft": {
+    "objective": "Qualitative, ambitious objective statement.",
+    "key_results": [
+      "Measurable key result one, perceptible weekly.",
+      "Measurable key result two, perceptible weekly."
+    ],
+    "period": "quarter",
+    "period_value": "Q4-2026",
+    "roadmap_seeds": ["Title of a roadmap-seed stub this goal spawns"],
+    "goal_seeds": ["Title of a deferred vision-slice goal-seed stub"],
+    "critique_ref": "<trailDir>/<seed-id>.critique.md",
+    "ratification": null
+  },
+  "ratification": {
+    "2026-10-02-example-seed": {
+      "verdict": "ratified",
+      "ratifier": "vp-product",
+      "utterance": "the VP-Product Reviewer's verbatim words ratifying the OKR."
+    }
+  },
+  "result": {
+    "ready": ["2026-10-02-example-seed"],
+    "pulled": [{"seed_id": "2026-10-02-other-seed", "reason": "Why the draft was pulled."}],
+    "rework": [{"seed_id": "2026-10-02-third-seed", "reason": "REFRAME or unresolvable REJECT."}],
+    "awaitingRatification": ["2026-10-02-example-seed"],
+    "ratified": [],
+    "approver": "vp-product",
+    "incidents": []
+  }
+}
