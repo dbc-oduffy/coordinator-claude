@@ -4,6 +4,18 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.4.9] — 2026-10-02
+
+An install-repair release.
+
+- **Installer ships.** `lib/install/coordinator_install.py`, missing from 4.4.8 and earlier, is in the
+  plugin, along with the `lib/` modules the hooks import (posture and environment reads had been
+  silently falling back to defaults).
+- **One install entry point.** `coordinator_install.py --plan` reports `environment.track`
+  (`fresh`, `update` or `repair`) with its ordered steps; an update always re-runs engine setup and
+  `--check`. INSTALL.md and `/coordinator:install` route on it instead of hand-run probes.
+- **Agents.** When project-rag is down, agents fall back to Grep/Read.
+
 ## [4.4.8] — 2026-10-02
 
 A hands-off-execution and install-hygiene release.
@@ -11,8 +23,7 @@ A hands-off-execution and install-hygiene release.
 - **Execution runs end to end.** A plan body changed after approval goes back through review; an
   incomplete run terminal-commits and re-emits; mise-en-place commits once per wave and supports
   resume, auto-split and plan dependencies.
-- **Installer.** The DoE launcher is renamed `claude-author`, with install docs and launcher checks
-  brought in line.
+- **Installer.** Install docs and launcher checks brought in line.
 - **Group EM.** Event-driven wakes replace the cron tick; peers ask the Group EM before the PM.
 - **Fixes.** `machine-local` serializes registry writes across processes (concurrent sets no longer
   drop keys) and refuses `set --global repos.*`; the manufactured-blocker guard ignores negated

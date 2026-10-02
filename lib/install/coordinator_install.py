@@ -148,8 +148,29 @@ def claude_dir() -> Path:
     return Path(os.environ.get("CLAUDE_HOME") or Path.home()) / ".claude"
 
 
+def _interpreter_meets_311(path: str) -> bool:
+    """Whether `path` is Python >= 3.11: the running interpreter answers from
+    `sys.version_info` (no spawn); any other path is probed once."""
+    if path == sys.executable:
+        return sys.version_info[:2] >= (3, 11)
+    try:
+        proc = subprocess.run(
+            [path, "-c", "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)"],
+            capture_output=True, timeout=10, creationflags=_no_console(),
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return proc.returncode == 0
+
+
 def _py(script, *args) -> list[str]:
-    """argv for running `script` under a real console python (bin/lib/python_interp), never a forwarder exe."""
+    """argv for running `script` under a real console python >= 3.11 (bin/lib/python_interp), never a forwarder exe.
+
+    Raises OSError when the resolved interpreter is older than 3.11 or none
+    resolves: the scripts this installer spawns need 3.11, and handing them the
+    PATH `python3` that `resolve_console_python` falls back to (or a forwarder
+    `sys.executable`) fails later and quieter than refusing here.
+    """
     sys.path.insert(0, str(plugin_root() / "bin" / "lib"))
     try:
         from python_interp import python_argv
@@ -159,7 +180,14 @@ def _py(script, *args) -> list[str]:
     finally:
         sys.path.pop(0)
     interpreter = sys.executable
-    return argv or [interpreter, str(script), *map(str, args)]
+    if argv is None and sys.version_info[:2] >= (3, 11) and interpreter:
+        argv = [interpreter, str(script), *map(str, args)]
+    if argv is None or not _interpreter_meets_311(argv[0]):
+        raise OSError(
+            f"no console Python >= 3.11 found to run {script} "
+            f"(resolved {argv[0] if argv else None!r}; sys.executable={sys.executable!r})"
+        )
+    return argv
 
 
 def manifest_path(root: Path | None = None) -> Path:
@@ -833,22 +861,45 @@ def _ver_tuple(v: object) -> tuple[int, ...] | None:
         return None
 
 
+def _entry_applies(e: dict, cwd: Path) -> bool:
+    """A user-scope install, or a project-scope install whose projectPath contains cwd."""
+    if e.get("scope") != "project":
+        return True
+    proj = e.get("projectPath")
+    if not isinstance(proj, str):
+        return False
+    try:
+        cwd.resolve().relative_to(Path(proj).resolve())
+        return True
+    except (ValueError, OSError):
+        return False
+
+
 def _installed_coordinator() -> tuple[bool, str | None, str | None]:
-    """(present, highest installed version or None, marketplace name or None)."""
+    """(present, installed version or None, marketplace name or None).
+
+    The version is the OLDEST install that applies to this cwd (user scope plus any
+    project scope containing cwd): the stalest copy the harness may load is what an
+    update must reach. Never the highest across scopes -- a newer install for some
+    other project says nothing about this one.
+    """
     installed = _read_json(claude_dir() / "plugins" / "installed_plugins.json")
     plugins = installed.get("plugins")
     plugins = plugins if isinstance(plugins, dict) else installed
-    best, market, present = None, None, False
+    cwd = Path.cwd()
+    oldest, market, present = None, None, False
     for key, entries in plugins.items():
         if not (isinstance(key, str) and key.startswith(_PLUGIN_KEY)):
             continue
         present = True
         market = key.split("@", 1)[1]
         for e in entries if isinstance(entries, list) else []:
-            t = _ver_tuple(e.get("version")) if isinstance(e, dict) else None
-            if t and (best is None or t > best):
-                best = t
-    return present, (".".join(map(str, best)) if best else None), market
+            if not (isinstance(e, dict) and _entry_applies(e, cwd)):
+                continue
+            t = _ver_tuple(e.get("version"))
+            if t and (oldest is None or t < oldest):
+                oldest = t
+    return present, (".".join(map(str, oldest)) if oldest else None), market
 
 
 def _published_version(market: str | None) -> str | None:
@@ -889,8 +940,8 @@ def detect_track() -> dict:
              that cannot be read never count as newer.
     repair : installed, not known-newer, but the engine check fails (or the engine cannot be located).
     update (reason "already current"): installed, current and engine healthy; there is no fourth
-             track value, so this path emits "update" with only the configure steps, which report
-             skipped/inherited.
+             track value. Steps drop plugin_update but keep engine_setup + engine_check: every
+             update carries the engine re-run, so the contract has one shape per track.
     """
     configure = [s.id for s in STEPS]
     present, have, market = _installed_coordinator()
@@ -907,7 +958,8 @@ def detect_track() -> dict:
                 track, reason = "repair", detail
                 steps = ["engine_setup", "engine_check", *configure]
             else:
-                track, reason, steps = "update", "already current", configure
+                track, reason = "update", "already current"
+                steps = ["engine_setup", "engine_check", *configure]
     return {"track": track, "track_reason": reason, "track_steps": steps}
 
 

@@ -84,8 +84,8 @@ of the configure steps:
 
 - **`fresh`** — no coordinator plugin installed. Go to Step 1, then the restart gate.
 - **`update`** — installed, and the installer performs the update itself (`plugin_update`,
-  `engine_setup`, `engine_check`). `track_reason: already current` means every step reports
-  SKIPPED/INHERITED. Skip Steps 1 and 2 and go to Step 3.
+  `engine_setup`, `engine_check`). `track_reason: already current` drops `plugin_update`; `engine_setup` and
+  `engine_check` still run. Skip Steps 1 and 2 and go to Step 3.
 - **`repair`** — installed, not newer, engine check fails or the engine is unlocatable. Report
   `track_reason` to the human. Skip Steps 1 and 2 and go to Step 3.
 
