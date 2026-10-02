@@ -4,39 +4,48 @@
 <!-- BEGIN prior-art-check-consumption (synced from snippets/prior-art-check-consumption.md) -->
 ## Prior-Art Check Integration
 
-If your dispatch prompt cites a **prior-art-check pre-flight** with a sidecar path (the engine-provisioned `.coordinator-local/plan-sidecars/<plan-stem>.prior-art-check.md` home, computed once by `provision_report` and passed through unchanged), the artifact has already been cross-referenced against the coordinator's accumulated internal doctrine and decision corpus. Use the pre-flight to focus your review on architecture, approach, and design rather than re-deriving lessons we've already captured.
+If your dispatch prompt cites a **prior-art-check pre-flight** with a sidecar path (the engine-provisioned `.coordinator-local/plan-sidecars/<plan-stem>.prior-art-check.md` home, passed through unchanged), the artifact has already been cross-referenced against the coordinator's accumulated internal doctrine and decision corpus. Focus your review on architecture, approach, and design rather than re-deriving captured lessons.
 
-**Prior art is current best-state, not eternal law.** A Conflict is *not* "plan must yield" — it's a direction-of-correction question with multiple valid resolutions: amend the plan, amend the wiki/registry/lessons, do both, or document a knowing divergence. Your review is where the direction gets recommended, and you land the edits yourself on whichever surface(s) you (and the EM) name.
+**Prior art is current best-state, not eternal law.** A Conflict is a direction-of-correction question, not "plan must yield": amend the plan, amend the wiki/registry/lessons, do both, or document a knowing divergence. You recommend the direction and land the edits yourself on whichever surface(s) you and the EM name.
 
 **Buckets:**
 
-- **Conflicts** — prior art contradicts a plan claim. The sidecar quotes the prior-art passage verbatim and lists candidate directions for the EM (`update-plan` / `update-prior-art` / `both` / `override-and-document` / `PM-input-needed`). Your job per conflict: recommend a direction with one-sentence reasoning — default is *think about which surface is right now*, not "fold prior art into plan": the plan is often the more current artifact, but prior art often encodes an incident the plan author didn't live through. If you recommend `update-prior-art`, name the specific wiki/lessons/registry file and the substance of the correction, and land it yourself.
-- **Compatible-but-relevant** — prior art covers the topic; the plan should cite or align vocabulary. Informational, not blockers, but flag missing citations that would materially aid maintainability. Each entry carries a `subtype`: `cite` (prior art is current) or `wiki-may-be-outdated` (entry is >60 days old and the plan looks like an evolution — treat as a soft `update-prior-art` signal).
+- **Conflicts** — prior art contradicts a plan claim. The sidecar quotes the passage verbatim and lists candidate directions (`update-plan` / `update-prior-art` / `both` / `override-and-document` / `PM-input-needed`). Per conflict, recommend a direction with one-sentence reasoning: the plan is often more current, but prior art often encodes an incident the plan author didn't live through. For `update-prior-art`, name the file and the correction, and land it yourself.
+- **Compatible-but-relevant** — prior art covers the topic; the plan should cite or align vocabulary. Informational; flag missing citations that would aid maintainability. A `subtype` of `cite` means prior art is current; `wiki-may-be-outdated` (entry >60 days old, plan looks like an evolution) is a soft `update-prior-art` signal.
 - **Silent** — no prior art covers this claim; calibrate your scrutiny accordingly.
 
 **Verdict semantics:**
 
 - **COMPATIBLE** — no conflicts; review on architecture alone.
-- **WARN** — one or more conflicts surfaced; per conflict, recommend a direction with one-sentence reasoning, and the EM dispositions before you apply it. Disagree with a pre-marked direction? Surface it as a finding.
-- **BLOCKED-SURFACE-TO-PM** — load-bearing-doctrine conflict; if you are reading this, the EM has either escalated to PM and proceeded with PM authorization, or the dispatch is malformed. Verify the plan documents PM authorization before approving.
-- **DEGRADED** — incomplete coverage (claim cap hit, Stuck Detection fired, a corpus unreadable, or token cost exceeded 50K). Treat as no signal — review the plan fully against prior art as if no pre-flight ran.
+- **WARN** — one or more conflicts surfaced; the EM dispositions each conflict before you apply it. Disagree with a pre-marked direction? Surface it as a finding.
+- **BLOCKED-SURFACE-TO-PM** — load-bearing-doctrine conflict; the EM has PM authorization or the dispatch is malformed. Verify the plan documents it before approving.
+- **DEGRADED** — incomplete coverage (claim cap hit, Stuck Detection fired, a corpus unreadable, or cost over 50K tokens). Treat as no signal and review as if no pre-flight ran.
 
-**The prior-art-checker is mechanical, not judgmental** — it can over-match (false-flag a phrasing difference) and under-match (miss doctrine under different keywords). Your review supplements it, never ratifies it; a bogus-flagged conflict is worth saying so.
+**The prior-art-checker is mechanical, not judgmental** — it can over-match and under-match. You supplement it, you do not ratify it; say so when a conflict is bogus.
 
 **When no prior-art-check pre-flight ran**, this integration is silent — proceed as before.
 
 ### Conflicts vs. your own findings
 
-If you also identify a finding that overlaps a prior-art-check Conflict, label it "reinforces prior-art-check Conflict #N" — convergence between an independent reviewer and the corpus is high-confidence signal, and you use it yourself for fix prioritization.
+If you also identify a finding that overlaps a prior-art-check Conflict, label it "reinforces prior-art-check Conflict #N" — convergence between an independent reviewer and the corpus is high-confidence signal for fix prioritization.
 
 ### Platform-capability bucket — "this plan builds infra a sibling hosts"
 
-**Plan-mode only.** When the dispatch brief resolved a `fleet_capability_index:` at dispatch time, the sidecar may carry a 4th bucket — **Platform capability** — alongside Conflicts / Compatible-but-relevant / Silent. It fires when the plan proposes *constructing* infrastructure (a store, a query surface, an index, an embedding pipeline) a sibling repo already hosts and has declared in its capability manifest.
+**Plan-mode only.** When the dispatch brief resolved a `fleet_capability_index:`, the sidecar may carry a 4th bucket, **Platform capability**: the plan *constructs* infrastructure (a store, query surface, index, embedding pipeline) a sibling repo already hosts and declares in its capability manifest.
 
-- **Offer-shape, never a violation flag.** An entry leads with the alternative — `"<sibling-repo> offers <capability>; consume via <real consume_seam>"` — not a bare "you're duplicating X" flag; the checker never auto-blocks or mutates the plan.
-- **Polarity is mechanical, not inferred.** The bucket only ever offers consumer→host. A plan that proposes *producing into* an existing sibling store (append/write against a named existing seam) is the good shape and yields no entry — silence there is intentional, not a miss.
-- **Maturity is fail-closed.** `maturity` (`live | stale | unverified | absent`) reflects whether the sibling's capability is confirmed reachable and current; downgrade confidence on `stale`/`unverified`.
-- **Action:** treat it like a Compatible-but-relevant entry arguing for reuse — factor it into your review, and say so in findings if the plan should consume rather than build. The EM routes the cross-repo ask; you don't draft it.
+- **Offer-shape, never a violation flag.** Entries read `"<sibling-repo> offers <capability>; consume via <real consume_seam>"`; the checker never blocks or mutates the plan.
+- **Polarity is mechanical.** Only consumer→host. A plan *producing into* an existing sibling seam yields no entry — silence is intentional.
+- **Maturity is fail-closed.** `maturity` (`live | stale | unverified | absent`) says whether the capability is confirmed reachable and current; downgrade confidence on `stale`/`unverified`.
+- **Action:** treat it as a Compatible-but-relevant entry arguing for reuse, and say so if the plan should consume rather than build. The EM routes the cross-repo ask.
+
+### Platform-capability copy-out bucket — "a sibling already solved this shape"
+
+**Plan-mode only.** A second section beside the consume bucket: the plan constructs infrastructure or tooling (environment, harness, gate, test pattern, pipeline) matching a shape a repo declared in its manifest `shapes[]`.
+
+- **No polarity.** The source may be any repo; only a source equal to the plan's own repo suppresses the entry.
+- **Offer-shape.** `"<source_repo> has already solved <shape_label>; lift from <exemplar_path>"`. A `copy_posture: ask-the-owner` entry is a coordination prompt to the owner, never a lift instruction.
+- **Maturity is fail-closed**, with "confirm exemplar before lifting" on `stale`/`unverified`.
+- **Action:** as for the consume bucket.
 
 <!-- END prior-art-check-consumption -->
 

@@ -12,9 +12,9 @@ Guided install — agent runs mechanism, operator decides shape. Re-run anytime;
 
 ## The install: orientation, declared choices, one block
 
-The install is a script with declared choices, `coordinator/lib/install/coordinator_install.py`. Run it bare (`python3 "${CLAUDE_PLUGIN_ROOT}/lib/install/coordinator_install.py" ...`); the phases further down are the reference for what each step wraps.
+The install is a script with declared choices, `${CLAUDE_PLUGIN_ROOT}/lib/install/coordinator_install.py`. Run it bare (`python3 "${CLAUDE_PLUGIN_ROOT}/lib/install/coordinator_install.py" ...`); the phases further down are the reference for what each step wraps.
 
-1. **Track.** Coordinator already installed (`--plan` reports `track: update`): run `/coordinator:coordinator-update` (a native-CLI install: `claude plugin update`), then a full re-run only if it says so. Otherwise continue.
+1. **Track.** `--plan` reports `environment.track`: `fresh`, `update` or `repair`. The installer decides it; never pick a track by hand. All three continue through steps 2-7, because the installer runs the track's own steps ahead of the configure steps: `fresh` runs `plugin_install`; `update` runs `plugin_update`, `engine_setup`, `engine_check` (with `track_reason: already current`, every step reports SKIPPED/INHERITED); `repair` runs `engine_setup`, `engine_check`. On `repair`, surface `track_reason` to the operator. Never route `update` to `/coordinator:coordinator-update` or a hand-run `claude plugin update`; the installer performs the update.
 2. **Orientation first.** Order: machine wiring, then the tour in a throwaway session, then opt-in repo onboarding (Phase 8). Read the plan's `orientation` text to the operator before asking anything. The posture question below only means something after it.
 3. **Plan.** `python3 ".../coordinator_install.py" --plan --permission-mode <mode>` mutates nothing and prints one JSON document: every decision with `id`, `question`, `why`, `options`, `default`, `level`. Pass the session's `permission_mode` from hook input; it adapts defaults (auto, bypass and plan presume the recommended extras and list them at the end as added; default and acceptEdits ask per change and pre-install nothing). Outside auto and bypass, mention shift-tab to auto mode once.
 4. **Ask once.** Human path: `--express` takes every recommended default; `--custom` walks the decisions one at a time on stdin, in plain language, and both print the same RAN/SKIPPED/INHERITED/FAILED block. Ask the `question` text verbatim (never paraphrase the posture options) in ONE block, not one prompt per item. `--i-am-agent` (no answers) returns the full plan for an agent to answer on the operator's behalf.
@@ -48,7 +48,7 @@ python3 "<engine-root>/coordinator/lib/detect-existing-claude-home.py"
 
 PowerShell host (rung 0): `& python3 "<engine-root>\coordinator\lib\detect-existing-claude-home.py"`
 
-Emits `state=<pristine|used-vanilla|configured>`. `configured`: surface "existing setup — merge is yours"; else proceed with no/light note. Never clobbers `CLAUDE.md`/`settings.json`/registry regardless of state (wiki).
+Emits `state=<pristine|used-vanilla|configured>`. This is a disclosure about the operator's existing home only: `state=` (and its `track=` alias) never selects the install track; `environment.track` from `--plan` does. `configured`: surface "existing setup — merge is yours"; else proceed with no/light note. Never clobbers `CLAUDE.md`/`settings.json`/registry regardless of state (wiki).
 
 ## Flags
 
@@ -355,6 +355,7 @@ Skip under `--check-only`. A repo onboarded later re-renders this overlay via `r
 project_type: {type}
 project_subtypes: [{subtype1}, {subtype2}]   # omit field when blank
 fast_test_cmd: "<your-project-fast-test-command>"  # optional, single command only
+terminal_test_cmd: "<your-project-terminal-test-command>"  # optional, single command only; run verbatim by the terminal commit gate
 ---
 ```
 

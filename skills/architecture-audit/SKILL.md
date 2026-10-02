@@ -12,7 +12,7 @@ it, and **packages findings as spinoff candidates** down a disposition ladder â€
 **never edits code**. Updates the health ledger's `Last targeted audit` clock and the atlas
 metadata.
 
-Run when `/workstream-start` surfaces "Last targeted audit >10 days", or any time PM intuition
+Run when `/workstream-start` surfaces a stale targeted audit (`check-arch-audit-staleness` owns the verdict), or any time PM intuition
 wants a targeted review. `$ARGUMENTS` names a system directly, skipping Step 1.
 
 **Announce at start:** _"I'm using /architecture-audit to audit [system name]."_

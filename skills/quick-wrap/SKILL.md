@@ -24,8 +24,8 @@ negotiating. Every computable condition names a single field read
 
 | # | Condition | Read | If it fails |
 |---|---|---|---|
-| 1 | **No governing plan** drove this session's work † | `close_gate.governing_plan` — `quick-wrap-assemble brief` <!-- engine-gap: field=close_gate.governing_plan producer=claude_klabauter:quick_wrap_assemble.brief memo=2026-08-14-coordinator-content-repo-em-quick-wrap-has-no-assembler-at-all.md --> | `/workstream-complete` |
-| 2 | **Diff under the review brightline** — <500 novel LOC, <5 commits, <4 surfaces | `close_gate.diff` (session-scoped, carve-outs pre-applied) — `quick-wrap-assemble brief` <!-- engine-gap: field=close_gate.diff producer=claude_klabauter:quick_wrap_assemble.brief memo=2026-08-14-coordinator-content-repo-em-quick-wrap-has-no-assembler-at-all.md --> | **Scoped review, then wrap** (below), not `/workstream-complete` |
+| 1 | **No governing plan** drove this session's work † | `close_gate.governing_plan` — `quick-wrap-assemble brief` | `/workstream-complete` |
+| 2 | **Diff under the review brightline** — <500 novel LOC, <5 commits, <4 surfaces | `close_gate.diff` (session-scoped, carve-outs pre-applied) — `quick-wrap-assemble brief` | **Scoped review, then wrap** (below), not `/workstream-complete` |
 | 3 | **What this session claimed has no ancestors** ‡ | `artifact.chain.ancestor_count == 0` — `pickup-assemble brief <path>` for the artifact this session claimed; nothing claimed means nothing to read, test passes | `/workstream-complete` — a chain that accumulated history owes a coverage gate |
 | 4 | **Work is finished** — nothing in-flight for a successor | judgment | `/handoff`, only if context pressure genuinely forces the stop |
 
@@ -140,7 +140,7 @@ caller-widened.
 - **A `dispatch`-routed sizing that routed this session**, work done: write `status: shipped`
   directly — no plan means this is its only write path.
 - **Every terminal sizing-object** (`shipped`/`declined`/`superseded`), cited or not:
-  `close_gate.terminal_sizings` <!-- engine-gap: field=close_gate.terminal_sizings producer=claude_klabauter:quick_wrap_assemble.brief memo=2026-08-14-coordinator-content-repo-em-quick-wrap-has-no-assembler-at-all.md -->
+  `close_gate.terminal_sizings`
   archive with `coordinator-invoke fleet.archive_terminal_sizings '{"dry_run":false}'` — it moves
   each to `archive/sizings/<YYYY-MM>/` unmodified and commits the move itself, so a sizing this
   session did not author still lands (a hand `git mv` is refused by `safe_commit_offer` as
@@ -172,7 +172,7 @@ same pass, which is the point, not overreach.
 Nothing to close is an ordinary outcome — say so and move on. **The drain is not covered by that
 sentence:** it runs whether or not this session had anything of its own to close.
 
-**3. Refresh.** `regenerate-orientation-cache` — batch into the same shell call as step 1's
+**3. Refresh.** `regenerate-orientation-cache --invoker quick-wrap` — batch into the same shell call as step 1's
 `session.safe_commit_offer` dial when step 2 needed no separate CLI invocation of its own (no
 dirty-tree/queue CLI ran between them); keep it a separate call only when step 2 actually ran one.
 

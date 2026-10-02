@@ -107,8 +107,7 @@ cross-referencing the daily files and priority fragments yourself.
 Which `state/workstreams/` workstreams have had no commits in >7 days is engine-knowable but
 not yet emitted.
 <!-- engine-gap: field=tracker.stalled_workstreams producer=unknown memo=engine-gap-markers-name-a-memo-that-was-never-filed.md -->
-Report "no engine-computed staleness signal yet" rather than running `git log --since` per tracker
-branch.
+Report "no engine-computed staleness signal yet" and derive nothing per tracker branch.
 
 ---
 

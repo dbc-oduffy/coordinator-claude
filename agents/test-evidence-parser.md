@@ -24,6 +24,8 @@ Use Read (the raw-output path) and Edit (the sentinel replacement) only. Never c
 
 ## Workflow
 
+Skip extended thinking on simple or mechanical inputs; classify straight from the rubric and reserve deliberation for an output that fits no row.
+
 1. Read the captured output from the raw-output path given in the dispatch prompt.
 2. Parse it — identify each test result (pass / fail / skip / error).
 3. Classify each non-passing result using the rubric below.

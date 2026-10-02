@@ -52,13 +52,18 @@ one Bash call to the next.
 
 ## Phase 0: Readiness Gate
 
+**Stranded-run sweep — before anything else on a resume.** For each emitted
+`state/mise-inventory/*.workflow.mjs` whose run has no completion receipt (its run died: usage limit,
+container reclaim), fire `coordinator-invoke dispatch.terminal_commit` with `script_path` set to it
+(`inline_review` omitted) so its DONE rows land. `a-dead-run-strands-its-done-rows-uncommitted`.
+
 **Certification leg — runs first, and the bypass below does not reach it.** Plan-sourced items
 only; an item with no plan has nothing to certify and is not refused for it. One revalidation
 step, two ordered legs: recompute the plan body sha against `mise_prepped_sha` (pure, spawn-free);
 only if that passes, re-run each `census[].command` and diff against `result`. Fire on sha-leg
 CERTIFIED with no entry-level census DRIFT; an unclosed census leg (`UNDECIDABLE` / `REFUSED` /
 `UNRUNNABLE`, per-entry or rolled up) does not block the fire — record it as a named,
-non-blocking finding in the Phase 1 ledger. STALE → re-gate (`<settings-home>/bin/mise-prep-gate <plan>`), then re-stamp;
+non-blocking finding in the Phase 1 ledger. STALE → re-gate (`<settings-home>/bin/mise-prep-gate <plan>`, `<settings-home>` resolved per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`), then re-stamp;
 UNSTAMPED → gate and stamp; MALFORMED → a hand-written stamp, repair the frontmatter; census
 drift → the premise moved, re-plan. **Name the state** — "not certified" sends an author to the
 wrong repair. A handoff can assert executability; it cannot assert a sha. States, recipe and the
@@ -106,18 +111,16 @@ already read → inline instead. Template/sources: wiki.
   `already-fixed`, `landed`, `dropped`. `deferred` is refused — write `routed-out: <reason>`.
 - `footprint`: backticked repo-relative file paths. A directory whose filenames are minted at run
   time is written ``writes_under: `dir/` ``; a bare directory or glob is refused.
-- `deps`: row ids of this table. A plan row expands into `<item-id>.<chunk-id>` chunks, so never
-  name a plan's own chunk ids.
-- A plan that needs another same-repo plan's chunk declares `depends_on_plan: [{plan, chunk,
+- `deps`: row ids of this table, never a plan's own chunk ids (a plan row expands into
+  `<item-id>.<chunk-id>` chunks).
+- A plan needing another same-repo plan's chunk declares `depends_on_plan: [{plan, chunk,
   gate_kind}]` on its spine row. The emitter withholds the row (and its dependents) until that
-  chunk is `coded`; a dependency inside one inventory is not sequenced within the run, so the
-  dependent waits for the next run. A missing plan, unknown chunk, `..` path or terminal non-coded
-  predecessor stops the emit.
-- The inventory lives under `<repo>/state/mise-inventory/`. Outside the repo the plan spines are
-  not expanded and the run emits thin, one executor per plan.
-- Emitted script over 524288 bytes: the emitter splits the inventory into whole-plan parts with
-  run ids `<run>-pN`, written to `<out>-pN.workflow.mjs`. The EM fires each part; `--fire` refuses
-  a split. An inventory outside `<repo>/state/mise-inventory/` is refused. Detail: wiki.
+  chunk is `coded`; inside one inventory the dependent waits for the next run. A missing plan,
+  unknown chunk, `..` path or terminal non-coded predecessor stops the emit.
+- The inventory lives under `<repo>/state/mise-inventory/`; one outside it is refused.
+- Emitted script over 524288 bytes: the emitter splits the inventory into whole-plan parts, run ids
+  `<run>-pN`, scripts `<out>-pN.workflow.mjs`. The EM fires each part; `--fire` refuses a split.
+  Detail: wiki.
 
 ## Pre-Dispatch Verification
 
@@ -197,23 +200,29 @@ harness reports the new primary directory before firing.
 
 Don't hand-author the script — mint and emit:
 `COORDINATOR_AGENT_TYPE_HOST=coordinator <settings-home>/bin/emit-dispatch-workflow --inventory state/mise-inventory/<run-id>.md --out state/mise-inventory/<run-id>.workflow.mjs --repo-root <abs repo>`
+(resolve `<settings-home>` per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`; `COORDINATOR_AGENT_TYPE_HOST=coordinator` is a runtime input to the emitter and must be set in the invocation's environment on every host)
 writes the spine (item-id → chunk-id, footprint → `writes`) plus the `.mjs`; fire it with the
 `Workflow({scriptPath, args: {repoRoot}})` call the emitter prints on stderr. An inventory row whose
 spec path is itself a plan carrying a `` ```yaml plan-tasks `` spine expands into that plan's own
 chunk DAG — `<item-id>.<chunk-id>` per chunk — inside this SAME emitted Workflow, never a second
 `--plan` emit; a plain row with no such spine stays one executor.
 
+When slicing an inventory into tranches, rows writing the same path go in the same tranche — the emitter serializes same-path writers only within one script.
+
 **Ignore the Stop-hook's "commit and push" advisory mid-run** — the dirt it flags is a live
 wave's footprint. Commit only by § Who commits; never widen it to satisfy the hook.
+A path still held dirty after the run drains, because landing it asserts what only the PM can, gets
+a committed withhold record ([withheld-paths](../docs/wiki/withheld-paths.md)); the hook does not
+read it yet, so its advisory on that path is expected and is not an instruction.
 
 **Who commits.** When a wave settles, one `coordinator:git-commit-agent` leg commits the union of
-that wave's DONE rows via `ceremony.commit_v2`; the next wave does not wait for it (wave commits chain
-only among themselves), and a wave with no DONE rows emits no leg. A failed wave commit is collected
-and named at run end. After each landed wave commit a non-awaited
-`git push origin HEAD:refs/heads/<branch>` follows (never forced, one ref, no retry; skipped on
-main/master/detached HEAD; failures named in the final log line). The EM's `dispatch.terminal_commit`
-still lands receipts, review stamps, `coded` flips, prefix-claimed files and rows declaring over 20
-paths — scoped (`snippets/scoped-commit-route.md`), never the wave union, never `git add -A`.
+that wave's DONE rows via `ceremony.commit_v2`; the next wave does not wait (wave commits chain only
+among themselves), and a wave with no DONE rows emits no leg. A failed wave commit is named at run
+end. After each landed wave commit a non-awaited `git push origin HEAD:refs/heads/<branch>` follows
+(never forced, one ref, no retry; skipped on main/master/detached HEAD; failures named in the final
+log line). The EM's `dispatch.terminal_commit` still lands receipts, review stamps, `coded` flips,
+prefix-claimed files and rows declaring over 20 paths — scoped (`snippets/scoped-commit-route.md`),
+never the wave union, never `git add -A`.
 
 **Halt routing.** A chunk whose stop rule fires, or that returns `decision_required`, halts its
 plan. Move that plan's row to `## Withheld / routed out` with the reason, re-emit with `--force`,
@@ -222,20 +231,20 @@ Across sessions, `emit-dispatch-workflow --resume-from <run-id>-continuance.md -
 <run-id>.workflow.mjs` re-emits each lane without the rows already `coded`; an empty lane reports
 `nothing_unlanded`.
 
-**Resume admitted by the classifier.** Check and allowlist edits land in their own commit, before
-and apart from the resume. State the resume plainly as resuming this run's own workflow
-(`resumeFromRunId` of the run just fired), never as a follow-on to a check change. Tripwire:
+**Resume admitted by the classifier.** Check and allowlist edits land in their own earlier commit.
+State the resume as resuming this run's own workflow (`resumeFromRunId` of the run just fired),
+never as a follow-on to a check change. Tripwire:
 `A-RESUME-RIDING-A-CHECK-EDIT-IS-DENIED-AS-CI-BYPASS`.
 
 **Limit deaths.** An executor reply opening "You've hit your … limit" is a usage-limit death, not
 a chunk failure and not a halt. Do not route the plan out or re-dispatch by hand: wait for the
-reset, then resume with `resumeFromRunId` (same session) or `--resume-from` (new session). Tell it apart from a real failure by that text and
-`tool_uses=0`. `coordinator/docs/wiki/skills-corpus/usage-limit-pause.md`.
+reset, then resume with `resumeFromRunId` (same session) or `--resume-from` (new session). It is
+identified by that text plus `tool_uses=0`. `coordinator/docs/wiki/skills-corpus/usage-limit-pause.md`.
 
 **Classifier-blocked residue.** When the auto-mode classifier denies an executor's revert of its
 own mistaken files, the EM does not revert them in its place (permission laundering). Leave the
-paths out of every commit, record them as residue in the run's continuance or tail record, and file
-a `state/bug-backlog/` row naming the paths so the PM can clear them.
+paths out of every commit, record them as residue in the continuance or tail record, and file a
+`state/bug-backlog/` row naming them for the PM.
 
 **Then stay awake while it runs — on a managed-remote host, ending the turn to wait kills the
 run** (the container is reclaimed on inactivity; `resumeFromRunId` is same-session-only). Hold the
@@ -287,8 +296,8 @@ Per wave:
    item's residue is scoped to that item's own declared footprint paths — never a bare
    `git checkout`/`git clean`, which reaches a peer's work. Unlanded items are non-terminal, so
    the run's verdict is CONTINUANCE.
-3. Wave gate: row checkpoints are already committed by § Who commits; the EM's terminal commit
-   covers what the checkpoints do not. Verify the expected branch read-only before committing;
+3. Wave gate: the wave's DONE rows are committed once by § Who commits; the EM's terminal commit
+   covers what the wave commits do not. Verify the expected branch read-only before committing;
    `ceremony.commit_v2` or a plain scoped `git commit -- <paths>` is the whole allow surface. No
    ledger call — `commit_v2` writes the row itself, so adding one duplicates it.
    Bookkeeping stays EM-side, outside the Workflow: `backlog-grind-assemble apply mise-en-place

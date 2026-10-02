@@ -35,14 +35,11 @@ Detail for B/C/D, read before starting Phase 1 on that path: `residue/entry-poin
 ```
 
 Batched, the tail is `plan-blitz → mise-prep → the run`: **each exit is the next entry, read off
-disk, never retyped.** Tripwire: `A-HANDOFF-AN-EM-RETYPES-IS-NOT-A-SEAM`.
+disk, never retyped** (`A-HANDOFF-AN-EM-RETYPES-IS-NOT-A-SEAM`).
 
-**`/mise-prep` drives the mise-prep stage** (`commands/mise-prep.md`), through
-`bin/mise-prep-run.py`. `skills/plan-blitz/mise-prep-entry.py` reads plan-blitz's exit and reports
-each approved plan's certification state; `bin/mise-prep-gate.py` runs the authoring bar, and names
-`bin/mise-prep-upgrade.py` for the declarations derivable from the plan's own text; the engine's
-`plan.stamp_prepped` is the only writer of the attest, and re-runs the bar itself, so it cannot
-stamp a plan that does not pass. `/mise-en-place` § Phase 0 is where the run consumes them.
+`/mise-prep` drives the mise-prep stage (`commands/mise-prep.md`); the engine's
+`plan.stamp_prepped` is the only writer of the attest and re-runs the authoring bar itself.
+`/mise-en-place` § Phase 0 consumes it.
 
 ---
 
@@ -53,7 +50,9 @@ Step 2.6's job (below).
 
 1. Inventory every input file (title + summary) → `state/roadmap/<run-id>/inventory.md`. Also read
    `docs/architecture/systems-index.md` and the system pages the corpus touches, noting each
-   `last_attested`; every pass, sizing-object or not.
+   `last_attested`; every pass, sizing-object or not. The inventory row also MARKS each input that
+   is a live plan under `docs/plans/` — this is the only step that walks the corpus, so the only one
+   that can record it (`residue/source-plan-supersession.md`).
 2. Cluster into coverage units (typically 20–60/roadmap); a sub-floor cluster folds into a
    sibling here, pre-verdict (wiki: grain-fold vs. MERGE) → `state/roadmap/<run-id>/clusters.md`.
    **A cluster is a unit of coverage accounting, never a unit of dispatch** — how many batons
@@ -64,14 +63,13 @@ Step 2.6's job (below).
    `residue/coordinator-resolutions-format.md`), authoritative over any stub.
 
 **Exit:** inventory + verdicts complete and balanced; resolutions doc present if conflicts; every
-sub-floor cluster folded or dispatched — a rationale is not a disposition.
+sub-floor cluster folded or dispatched.
 
 ---
 
 ## Phase 1.5 — Substantiate: research + OVERVIEW + peer-team asks (PM-gated, double-approved)
 
-Mandatory, never skipped (wiki: why). Stubs cite primary research and a PM-approved overview, not
-EM hand-waving.
+Mandatory, never skipped (wiki: why).
 
 **UE-cluster precondition:** confirm `mcp__project-rag__project_semantic_search(query="UClass",
 source="unreal", limit=1)` returns a hit before any UE-internal-API cluster proceeds; unavailable →
@@ -83,8 +81,7 @@ STOP those clusters, never substitute web scouts, surface to PM. Other clusters 
    `${CLAUDE_PLUGIN_ROOT}/snippets/internet-research-scout.md` + cluster scope → `research-corpus/<topic-
    slug>.md`, ≥2KB. Exceptions (per-project material, measurement-derived corpus): wiki.
 
-   > **Do not ask whether to dispatch** — invoking this skill IS the request for the dispatch this
-   > step names; it dissolves no gate this skill's own body names.
+   > **Do not ask whether to dispatch** — invoking this skill IS the request; no other gate dissolves.
 1.5.2. Author `OVERVIEW.md`, one section per KEEP cluster, headed by NAME never number (wiki:
    why); each section cites its research-corpus file and carries `### Contested` (required, even
    empty). Frontmatter template: wiki. It carries a `### Atlas consult` section (pages read,
@@ -110,6 +107,9 @@ final-approved`.
 ## Phase 2 — Plan: stubs + STUB-INDEX + constraint graph + PM-gates + reviews
 
 **Entry:** OVERVIEW `status: final-approved`, Phase 1.5 exit checked — else STOP, return to Phase 1.5.
+Step 1.1's live-plan marks are CHECKED here, never re-discovered; each marked plan with a KEEP or
+MERGE-target cluster owes retirement at Phase 2 close
+(`residue/source-plan-supersession.md`).
 
 2.1. Scaffold each stub (Shape W, `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`):
    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-doc-new.exe" --type roadmap-baton --title "<title>" --roadmap-id <run-id> --stub-id <slug>-<N> --out state/handoffs/<date>_<HHMMSS>_roadmap-<slug>-<N>.md`,
@@ -118,12 +118,10 @@ final-approved`.
    first.**
 
 <!-- engine-gap: field=roadmap_planning.stub_body_section_completeness producer=unknown memo=2026-08-27-claude-klabauter-em-doe-unmarked-obligations-and-four-lost-markers.md -->
-2.1a. **Carry the size forward — pass `--sizing-object <the object that routed this roadmap>`.** A
-   stub minted without it reads as unsized downstream and `plan` trampolines it back to the lobby,
-   re-litigating a size this roadmap already made: 2.1.6 assigns every stub its own `loe:`, and the
-   roadmap itself arrived through the lobby. Sizing is not re-run on a stub. After scaffolding,
-   confirm `sizing_object:` is actually present in the stub's frontmatter — if it is not, stamp it
-   by hand rather than trusting the flag silently took effect. Tripwire:
+2.1a. **Carry the size forward — pass `--sizing-object <the object that routed this roadmap>`.** 
+   Without it `plan` trampolines the stub back to the lobby to re-size; sizing is not re-run on a
+   stub. After scaffolding, confirm `sizing_object:` is present in the frontmatter; if not, stamp it
+   by hand. Tripwire:
    `A-BATON-IS-NOT-A-SIZING-ARTIFACT`.
 2.1.5. Number stubs in dependency order before writing any — run (Shape W,
    `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`)
@@ -132,9 +130,8 @@ final-approved`.
    judgment it doesn't resolve). Covers only DECLARED edges. Format + the dependency-order
    invariant it enforces: wiki.
 
-   **`<edges-file>` format** — one `A <- B` per line ("A blocked_by B", B ships first; the prose
-   form is NOT accepted); a line with no `<-` is an isolated node; `@N` tags sprint N; `#` comments.
-   An unparseable line exits 2. Sample: `C1 <- C3` and `C4@2` on separate lines.
+   **`<edges-file>`** — one `A <- B` per line (A blocked_by B; prose form NOT accepted); no `<-` =
+   isolated node; `@N` tags sprint N; `#` comments; unparseable line exits 2. E.g. `C1 <- C3`, `C4@2`.
 2.1.6. **Fold to size — the baton is the parallel wave, not the idea.** Runs on 2.1.5's `wave`
    output; sets how many stubs 2.1 scaffolds. `loe:` is the whole-baton t-shirt read.
    - **Band: mostly M and L.** XS/S never ship alone — group them into one baton. XL only where a
@@ -151,9 +148,8 @@ final-approved`.
    Reference materials (read first)` (cite `OVERVIEW.md § <name>` + research-corpus, by name never
    number); `## Specification`; `## Acceptance criteria`; `## Recommended next steps for the
    picking-up EM` (3–7); `## Anti-scope`; `## Soft seams` (may be `- None identified`, must be
-   present); `## Session Ledger` (empty until the first close appends a row — omitting it makes
-   `handoff.append_session_ledger` unwritable on this baton, per `handoff/residue/010-write-the-
-   handoff.md`'s canonical skeleton); trailing `<!-- roadmap-baton: <run-id> <stub_id> by
+   present); `## Session Ledger` (empty until the first close appends a row; omitting it makes
+   `handoff.append_session_ledger` unwritable on the baton); trailing `<!-- roadmap-baton: <run-id> <stub_id> by
    roadmap-planning -->`.
 2.3. `STUB-INDEX.md` — a query callout, never a hand table (template + rationale: wiki).
 2.4. Before any fan-out: run `audit-roadmap <run-id>`; then **what it cannot check** —
@@ -166,53 +162,45 @@ final-approved`.
    dispatched agent at the fast/full tier. `A-SCOPE-FIELD-NAMES-A-SUBJECT-NOT-A-BLAST-RADIUS`.
 2.5. `pm-gates.md` — one row per stub whose `gate_notes`/`gate_dependency` carries a
    product-coupled signal (`PM `-prefix, named stakeholder, decision/approval/policy/scope/
-   user-facing language). Template + detection rule: wiki.
-
-<!-- engine-gap: field=roadmap_planning.pm_gate_keyword_detection producer=unknown memo=2026-08-27-claude-klabauter-em-doe-unmarked-obligations-and-four-lost-markers.md -->
+   user-facing language). Template + detection rule: wiki. Origin: the stub's author prose; the EM reads it, no engine field exists.
 2.6–2.7. Phase 2 close (Shape W, `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`):
    `& "$env:COORDINATOR_SETTINGS_HOME\bin\audit-roadmap.exe" <run-id>` — one gate, five audits (stub-coverage, `ready_to_fire`
    uniqueness, pm-gates cross-reference, dependency-order). Exit 1 blocks close and names the
-   offender. `kind: roadmap-baton` frontmatter is also validator-clean per the engine's
-   frontmatter cross-field rules, the live enforcement point. Those rules require `roadmap_id`, when
-   present, to name a cluster
-   that actually exists on disk — not merely be non-empty. **A cluster is required before a stub
-   scaffolds one — if no cluster applies, the stub is not a `roadmap-baton` at all; scaffold it
-   `kind: spinoff` instead** (the ruled redirect for cluster-less baton-shaped work, which refuses
-   both a null `roadmap_id` and a minted placeholder cluster as ways around this).
+   offender. `kind: roadmap-baton` frontmatter must be validator-clean; the engine requires `roadmap_id` to name
+   a cluster that exists on disk. **No applicable cluster → the stub is not a `roadmap-baton`;
+   scaffold it `kind: spinoff`** (never a null `roadmap_id` or a placeholder cluster).
 2.8. Sequential reviews — same altitude rule and sidecar contract as Step 1.5.5. Domain reviewer
    skippable when its Step-1.5.5 findings are already pinned into the stub ACs verbatim AND each
    stub becomes a downstream `coordinator:plan` that re-applies the lens at PLAN altitude — record
    the skip rationale in the roadmap dir.
+2.9. Retire each marked source plan, in order: migrate its uniquely load-bearing prose into the
+   inheriting stubs, THEN stamp `status: superseded` + `superseded_by:
+   state/roadmap/<run-id>/STUB-INDEX.md`, THEN stand down the owed review. **MUST NOT stamp before
+   migrating** — stamping first strands the prose. Mechanics: `residue/source-plan-supersession.md`.
 
-**The stub:cluster relation is MANY-TO-ONE, and this is the contract any auditor reads against.**
-One stub may name many KEEP clusters in `covers:`; what must hold is that every cluster is named
-exactly once across all stubs — coverage and non-duplication, never a count of stubs. `stub_count ==
-keep_count` is not a weaker form of this bar, it is a different and incompatible one: Step 2.1.6
-mandates the fold, so a roadmap that obeys this skill fails a 1:1 check BY CONSTRUCTION, and fails
-harder the larger it is. A roadmap that passes a 1:1 check is one that never exercised the fold.
-Any gate asserting the two counts match is measuring the wrong thing and must read `covers:`.
+**The stub:cluster relation is MANY-TO-ONE.** One stub may name many KEEP clusters in `covers:`;
+every cluster is named exactly once across all stubs — coverage and non-duplication, never a count
+of stubs. Step 2.1.6 mandates the fold, so a `stub_count == keep_count` check fails a compliant
+roadmap by construction; any gate must read `covers:`.
 
 **Exit:** every KEEP cluster named in exactly one stub's `covers:`; every stub `loe:` M–XL;
 frontmatter validator-clean, `## Soft seams` present; STUB-INDEX regenerates; resolutions doc
 covers every conflict; `audit-roadmap <run-id>` exits 0; primary review integrated, domain
-integrated or its skip recorded; Step 2.4's disjointness check done.
+integrated or its skip recorded; Step 2.4's disjointness check done; every owed source plan retired
+per Step 2.9 (migrated, stamped, review stood down).
 
 ---
 
 ## After Phase 2 — the stubs go live
 
-Phase 2 close IS the deliverable. A stub is a baton; a fresh session picks it up via `/pickup`
-whenever ready. This skill has no execution phase and never invokes `coordinator:plan` (§
-Anti-scope — this session cannot outlive the roadmap's whole execution).
+Phase 2 close IS the deliverable; a fresh session picks each stub up via `/pickup`. This skill has
+no execution phase and never invokes `coordinator:plan`.
 
-**Three mechanisms are owned downstream and never run here:** the readiness view
-(`roadmap-number-stubs --state <run-id>`); `awaiting_gate → ready_to_fire` gate transitions, made
-by some *other* session's `/handoff` or `/workstream-complete` — **never auto-transition a
-sibling's stub, and never pre-emptively mark one ready because its gate looks satisfied from
-here**; and the end-of-roadmap review, owned by whoever closes the roadmap out. **Roadmap stubs are
-NEVER handed to `/mise-en-place` directly** — its Phase 0 readiness gate rejects them by
-construction. Full spec of all three, plus the gate-meaningfulness audit whose gates this skill
-authors: wiki § Downstream mechanisms.
+**Owned downstream, never run here:** the readiness view (`roadmap-number-stubs --state <run-id>`);
+`awaiting_gate → ready_to_fire` transitions, made by *another* session's `/handoff` or
+`/workstream-complete` — **never auto-transition or pre-mark a sibling's stub ready**; and the
+end-of-roadmap review. **Roadmap stubs are NEVER handed to `/mise-en-place` directly** (its Phase 0
+gate rejects them). Full spec: wiki § Downstream mechanisms.
 
 ---
 
@@ -232,12 +220,13 @@ touching any on behalf of a roadmap stub.
 ## Anti-scope
 
 - Auto-derive `gate_notes:`/`gate_dependency:` from natural language. Author-supplied only.
-- Cross-repo roadmap rollup. Single-repo only for v1.
-- Auto-trigger gate-meaningfulness on `/pickup` (only on `awaiting_gate → ready_to_fire`).
-- Render dashboards or HTML. The query callout in markdown is the surface.
+- Cross-repo roadmap rollup (single-repo only).
+- Auto-trigger gate-meaningfulness on `/pickup`.
+- Render dashboards.
 - **Replace `coordinator:plan` for single-plan work.** A picking-up EM keeps `deployment_state:
   in_flight`, writes `predecessor: none`, cites `roadmap_id/stub_id` in the plan-doc's "Why this
-  plan" — never a `roadmap_parent:` field until textual citation proves insufficient (PM call).
+  plan" — never a `roadmap_parent:` field.
+- **Leave a re-sliced live plan standing** — retire it at Phase 2 close (Step 2.9).
 
 ## See also
 

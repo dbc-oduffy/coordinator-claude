@@ -47,6 +47,7 @@ Never an unscoped `git commit` — no pathspec, `-a`/`-A`/`--all`, `git add -A`/
 **`--repo` is the only thing that anchors the commit, and it is not optional for you.** The op reads
 no `repo` params key; `repo_root` in the params is only a consistency assertion. Omit the flag and
 the commit lands in the dispatching session's cwd repo.
+
 **Shape 2 — a scoped plain commit:**
 
 <!-- VERBATIM -->

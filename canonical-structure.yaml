@@ -45,7 +45,7 @@ entries:
       ---
       Schema: `state/cross-repo/inbox/[0-9]*.md` is validated by claude-klabauter's
       `coordinator_core/write_guards/` engine at write time.
-      Full doctrine: `coordinator/docs/wiki/cross-repo-communication.md`.
+      Full doctrine: `coordinator-content-repo coordinator/docs/wiki/cross-repo-communication.md`.
       For the full send-verb reference (draft → compose → send), see `bin/cross-repo-memo.md`.
 
   

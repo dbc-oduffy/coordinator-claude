@@ -68,7 +68,7 @@ that was fixed. Hand-back types feed Step 5 exactly as the improvement leg's do.
 ## Step 3: Re-prioritize
 
 Blocking other work → P0. In a D/F-graded system → P1. In a recently A/B-graded system → may
-deprioritize to P2. >30 days with no activity → flag for PM attention.
+deprioritize to P2. >30 days with no activity → flag for PM attention (skill policy over entry frontmatter dates; the PM-altitude call is the point).
 
 Query historical `nature: tech-debt` completions
 (`query-completions --where "nature=tech-debt" --since "90d" --format json`, ranked descending on
@@ -178,14 +178,14 @@ Skip this step entirely if no project-specific entries survived Step 5.
 
 ## Autonomous runs
 
-No PM is present, and the APM never writes `pm_ruling` in the PM's name. For each row the run:
+No PM is present; the APM never writes `pm_ruling` in the PM's name, and no autonomous run does.
+For each row:
 
-1. Acts on the APM's recommendation only where this skill already permits EM-autonomous action
+1. Act on the APM's recommendation only where this skill already permits EM-autonomous action
    (closing a verified-resolved row, Step 2's `cross-repo` memo-then-close, re-prioritizing).
-2. Otherwise records the recommendation as `apm_recommendation` on the row and leaves it open.
-3. Continues to the next row; a pending recommendation never stops the run.
+2. Otherwise record it as `apm_recommendation` on the row and leave the row open.
+3. Continue; a pending recommendation never stops the run.
 
-Writing `pm_ruling` is never part of an autonomous run. The run's report ends with ONE batched
-PM-confirmation list: every row carrying an unconfirmed `apm_recommendation`, as row id,
-recommendation, one-line reason. The PM's confirmation, when it arrives, is what writes `pm_ruling`
-for Step 6b to consume.
+The report ends with ONE batched PM-confirmation list: every row with an unconfirmed
+`apm_recommendation`, as row id, recommendation, one-line reason. The PM's confirmation writes
+`pm_ruling` for Step 6b to consume.

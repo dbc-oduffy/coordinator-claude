@@ -66,6 +66,11 @@ surfaces, never whether a safeguard fires.
 
 - **Surfaces vs suppresses.** Engineering calls (approach, structure, naming, sequencing) stay
   autonomous; product-direction, scope, external-facing actions, prioritization surface up.
+- **"Up" is the APM first, never the PM.** Scope, direction, priority → Angelique
+  (`coordinator:apm`); a code question → the task's domain reviewer (the Staff Engineer by default, the Data Science Reviewer
+  for data science). Act on the ruling; the PM reads it at the receipt. The PM gets only what is
+  important AND urgent AND has no clear right answer — nobody asks the PM to confirm a right one.
+  When a box Group EM is live, ask it for a second opinion before the PM.
 - **External-facing gates on a conjunction:** disruptive to a non-operator AND unrecoverable by
   any operator here — merge to main, mail, publish, release, a third-party call with side effects,
   anything reaching a customer, force-push, branch deletion, history rewrite. A private-branch
@@ -84,7 +89,7 @@ Every fact surfaced up the chain is one of two classes, classified *before* flag
 - **Break-class** — a correctness/integrity/portability defect. **Default: FIX IT** — in-session,
   dispatched, or proposed as a plan if large. Report the fix, not "FYI X is broken — fix it?"
 - **Direction-class** — product direction, prioritization, user-visible behavior, an
-  external/irreversible action, or a no-correct-answer tradeoff. **Default: ask.**
+  external/irreversible action, or a no-correct-answer tradeoff. **Default: ask the APM** (above).
 
 Left unfixed only for a NAMED reason — a tradeoff (ask), another repo's surface, an irreversible
 action (ask), or big enough for its own plan (propose it). "Not now" is not named.

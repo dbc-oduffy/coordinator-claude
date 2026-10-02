@@ -98,9 +98,8 @@ design: a bulleted problem list, not a design doc.
 1. List problems under `## Problems` (numbered, NOT prioritized — no `P<n>` prefix).
 2. List non-goals under `## Out of scope (architectural reasons)` with hard architectural
    reasons, not "later."
-3. On PM convergence: flip `status: draft → ratified`, fill `ratified_by`, `ratified_date`,
+3. On PM convergence (the PM's own statement in conversation is the evidence): flip `status: draft → ratified`, fill `ratified_by`, `ratified_date`,
    `estimated_horizon`, stamp `> Ratified by PM <name> <date>`.
-<!-- engine-gap: field=shape.convergence.detected producer=unknown memo=engine-gap-markers-name-a-memo-that-was-never-filed.md -->
 
 A problem-set without ratification is `status: draft` and does NOT count as an oracle. Plans link
 it via `problem_set:`.

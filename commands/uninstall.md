@@ -79,9 +79,8 @@ Roughly nineteen further install surfaces have no landed removal leg yet — eve
 specification for work not yet done, written present-tense to describe the intended contract, not
 current behaviour. Until each leg ships, treat it as a manual-cleanup checklist item. Disposition
 set: `REVERSE`, `DELIBERATELY-NOT-REVERSED`, `CANNOT-REVERSE-SAFELY`. Rationale for each: wiki
-(`uninstall-reversal-rationale`).
-
-<!-- engine-gap: field=uninstall.item_disposition producer=unknown memo=2026-08-27-claude-klabauter-em-doe-unmarked-obligations-and-four-lost-markers.md -->
+(`uninstall-reversal-rationale`). Origin: a per-item safety judgment authored in this body, not an
+engine-computable fact.
 
 11. **Windows Defender process exclusions** — CANNOT-REVERSE-SAFELY. Roll back manually, elevated,
     per resolved toolchain path: `Remove-MpPreference -ExclusionProcess "<path>"` for each of

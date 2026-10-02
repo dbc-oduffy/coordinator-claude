@@ -39,7 +39,7 @@ Skip it when the cause is already proven (just fix it), or when you have a *pile
 
 Before reproducing anything, confirm the bug you're chasing is the bug that exists. This phase is ~2 minutes and saves hours of debugging a symptom that was already fixed, or fixing in your repo on a cause that lives in someone else's.
 
-1. **Is it still broken on HEAD?** Stale dogfood logs, predecessor handoffs, and backlog entries describe state that may already be fixed. `git log --oneline -- <cited-paths>` since the report's date, then re-run the failing case on current HEAD. An unverified "broken today" is a hypothesis, not a signal.
+1. **Is it still broken on HEAD?** Stale dogfood logs, predecessor handoffs, and backlog entries describe state that may already be fixed (origin: an artifact you do not control, so the check is the point). `git log --oneline -- <cited-paths>` since the report's date, then re-run the failing case on current HEAD. An unverified "broken today" is a hypothesis, not a signal.
 2. **Is the root cause borrowed?** If the cause came from a handoff, a cross-repo memo, or another repo's diagnosis, that framing is *hypothesis, not ground truth*. Confirm the same shape exists **here** — read the cited code on your own disk before acting on a diagnosis made elsewhere. The discrimination trap is assuming a matching symptom implies a matching cause.
 3. **Is the signal real?** If the symptom surfaced through tool output that was empty, garbled, or contradictory, the channel may have failed rather than the code. Re-read once, solo. Two reads disagreeing → read a third way before treating it as a bug.
 

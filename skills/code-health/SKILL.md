@@ -33,8 +33,8 @@ continue with the commit-based scope.
 
 ## Step 2: Diff Scope
 
-`git diff HEAD -- <file1> <file2> ...` over Step 1's surfaces (a directory prefix if Step 1
-yielded a subsystem name; `git diff <last-check-commit>..HEAD` on the fallback path). Summarize
+`coordinator-invoke review.freeze_diff '{"range":"HEAD","worktree":true,"slice_id":"<id>","paths":[<Step 1 paths>]}'`
+(a directory prefix if Step 1 yielded a subsystem name; `"range":"<last-check-commit>..HEAD"`, no `worktree`, on the fallback path). Summarize
 which files/systems changed — this drives the reviewer's vocabulary/emphasis in Step 3, not
 reviewer selection.
 

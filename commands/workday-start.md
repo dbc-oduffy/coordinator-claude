@@ -312,15 +312,14 @@ against the kill bar. Do not wire it, and do not read its absence as a gap.
 
 ## Step 2 / 3 / 3.5: Freshness Checks
 
-No CLI yet derives commit-delta staleness for docs, tests, or the bug sweep from git history —
-degraded pending engine producers on all three:
-- Doc freshness: `check-harvest-debt` moves to the weekly group.
-  <!-- engine-gap: field=freshness.doc_commit_delta producer=unknown memo=cartography-churn-live-caller-and-workday-start-staleness.md -->
-- Test staleness: skip this cadence.
-  <!-- engine-gap: field=freshness.test_commit_delta producer=unknown memo=cartography-churn-live-caller-and-workday-start-staleness.md -->
-- Bug-sweep staleness: `state/bug-backlog/.meta.yaml` date signal only (no commit-count trigger) —
-  no backlog and >50 tracked source files suggests a first sweep. Read directly, no spawn.
-  <!-- engine-gap: field=freshness.bug_sweep_commit_delta producer=unknown memo=cartography-churn-live-caller-and-workday-start-staleness.md -->
+One read, one spawn (engine op, not a git derivation): `coordinator-invoke freshness.commit_delta '{}'` returns `doc_commit_delta`,
+`test_commit_delta` and `bug_sweep_commit_delta` — commits on HEAD since the newest commit that
+fired each signal; `99` is the "none within scan depth" sentinel, not a count. Route off the field,
+derive nothing yourself:
+- Doc freshness: a `doc_commit_delta` below `99` (a doc commit within scan depth) moves `check-harvest-debt` to the weekly group; `99` keeps it daily.
+- Test staleness: `test_commit_delta` of `99` (sentinel) flags test staleness; any other value skips this cadence.
+- Bug-sweep staleness: `bug_sweep_commit_delta` of `99` (sentinel) with no `state/bug-backlog/.meta.yaml`
+  date signal, and >50 tracked source files, suggests a first sweep.
 
 **3.6** `d-rag-staleness-regen` (Step -0.9) → **Project-RAG** line when fired. Flag-only, PM
 invokes manually (a reindex can race an open editor).

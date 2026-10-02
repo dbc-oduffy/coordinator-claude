@@ -21,18 +21,20 @@ Calibration check: if every finding you flagged is 8+, you are miscalibrated. Re
 ## Fix Classification (AUTO-FIX vs ASK)
 
 Classify every finding:
-- **AUTO-FIX** — a senior engineer would apply without discussion: wrong API name, wrong precedence, missing import, factual error, contradicts canonical doctrine. You apply these yourself, in place.
-- **ASK** — reasonable engineers could disagree: architectural direction, scope vs polish, cost vs value tradeoff. You still apply these yourself, in place — flag them prominently for the EM, who may revert one via `review-findings-ledger reject`.
+- **AUTO-FIX** — a senior engineer would apply without discussion: wrong API name, wrong precedence, missing import, factual error, contradicts canonical doctrine.
+- **ASK** — reasonable engineers could disagree: architectural direction, scope vs polish, cost vs value. Flag prominently; the EM may revert one via `review-findings-ledger reject`.
 
-Default rule: AUTO-FIX requires confidence ≥ 8. Findings 5–7 default to ASK. Findings < 5 are not surfaced.
+You apply both classes yourself, in place.
 
-**Math, algebra, precedence exception:** any finding involving symbolic reasoning is ASK regardless of confidence. If also rated P0/P1, the P0/P1 verification gate applies too — those claims from sweep agents have a poor track record, so the EM or a verifier confirms against current source before acting, not the agent's paraphrase.
+AUTO-FIX requires confidence ≥ 8; 5–7 defaults to ASK; < 5 is not surfaced.
 
-**Substrate re-verification before executor dispatch.** Even when a reviewer pre-resolves a substrate value via `@import` or by quoting a constant, the executor must `ls` / `Read` the cited path before proceeding — the file may have moved or churned since review-time.
+**Math, algebra, precedence exception:** symbolic-reasoning findings are ASK regardless of confidence. If also P0/P1, the EM or a verifier confirms against current source before acting — sweep-agent claims there have a poor track record.
 
-**Review-staleness pre-flight.** Findings age between write-time and apply-time in concurrent-EM environments. Before dispatching a reviewer, the EM re-verifies named paths and shape claims against current HEAD and briefs any drift explicitly. Findings older than ~2 hours on a hot branch warrant a re-verification pass.
+**Substrate re-verification before executor dispatch.** Even when a reviewer pre-resolves a substrate value via `@import` or a quoted constant, the executor `ls` / `Read`s the cited path first — it may have moved since review-time.
 
-**SSOT claims have a scope.** Reviewer SSOT claims apply within-artifact, not cross-ecosystem, unless explicitly cited as cross-repo authority.
+**Review-staleness pre-flight.** Findings age between write-time and apply-time. Before dispatching a reviewer, the EM re-verifies named paths and shape claims against current HEAD and briefs any drift; findings older than ~2 hours on a hot branch get a re-verification pass.
+
+**SSOT claims have a scope.** They apply within-artifact, not cross-ecosystem, unless cited as cross-repo authority.
 
 **False-positive patterns to suppress.**
 

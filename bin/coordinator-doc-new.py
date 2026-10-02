@@ -5296,15 +5296,17 @@ def _validate_sizing_flags(args) -> tuple[list[str] | None, str | None]:
                 f"--detents value(s) {', '.join(_bad)} not in the schema enum: "
                 f"{', '.join(_enums['detents'])}."
             )
+    _missing = []
+    if not args.title:
+        _missing.append("--title <the PM ask, verbatim>")
     if args.premise is None or args.premise == _SIZING_PREMISE_UNRECORDED:
-        return None, "--premise executed|read|not-applicable is required."
+        _missing.append("--premise executed|read|not-applicable")
     if args.premise_evidence is not None and not args.premise_evidence.strip():
         return None, "--premise-evidence must not be empty."
     if not args.premise_evidence:
-        return None, (
-            f"--premise {args.premise} requires --premise-evidence: cite the "
-            "file:line, test, or command output the premise rests on."
-        )
+        _missing.append("--premise-evidence <file:line, test, or command output>")
+    if _missing:
+        return None, "missing required flag(s): " + "; ".join(_missing) + "."
     return _detents, None
 
 
@@ -7395,14 +7397,8 @@ def main(argv: "list[str] | None" = None) -> int:
     # than defaulted; every other type keeps its placeholder, where scaffolding
     # untitled and filling the title in afterwards is a real workflow.
     if doc_type == "sizing-object" and not args.title:
-        print(
-            "error: --title is required for --type sizing-object — it carries the "
-            "PM's ask verbatim, and a placeholder one is a durable record that "
-            "says nothing.\n"
-            '  coordinator-doc-new --type sizing-object --title "<the PM ask>" [--out PATH]\n'
-            "  Nothing was written.",
-            file=sys.stderr,
-        )
+        _, _early_error = _validate_sizing_flags(args)
+        print(f"error: {_early_error}\n  Nothing was written.", file=sys.stderr)
         return 1
 
     # Resolve title default.

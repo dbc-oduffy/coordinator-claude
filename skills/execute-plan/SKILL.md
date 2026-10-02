@@ -76,11 +76,10 @@ Firing the background Workflow Phase 1.5/1.6 assembles is one of those constitut
    `--utterance` — never the sizing's `pm_quote`, and never invented words. **hands-on** is
    unchanged: today's `--utterance` ask, using the PM's own execution words.
 3. **Remaining-context gate** (skip under `/autonomous`): read this session's own remaining-context
-   reading (the statusline's context-window percentage) before committing to same-session
+   reading (the statusline's context-window percentage; harness-reported, not visible to the engine) before committing to same-session
    execution. LOW remaining context is the narrow carve-out; a fresh (picked-up)
    session is the default. Detail: wiki.
 
-<!-- engine-gap: field=execute_plan.session_freshness_verdict producer=unknown memo=2026-08-27-claude-klabauter-em-doe-unmarked-obligations-and-four-lost-markers.md -->
 4. Resolve EM-resolvable concerns at EM altitude — not the moment to surface them to the PM. A
    concern revealing the plan isn't actually executable → Phase 1.4.
 5. Announce and continue.
@@ -130,26 +129,22 @@ continue — do not ask. A vehicle prohibition traceable to a genuine Workflow-i
 (`coordinator/docs/wiki/em-operating-model/workflow-orchestration.md` § What qualifies as a carve-out) is the one that survives.
 Tripwire: `A-PLAN-DOES-NOT-PICK-THE-EXECUTION-VEHICLE`.
 
-**Classify every chunk pair before dispatching — this decides whether you can run them together:**
-- **File-write overlap** (same path) → gates authoring, no escape hatch — predecessor must land
-  before the other authors.
-- **Output/contract consumption** (B reads A's static output, or A changes a schema/signature B
-  depends on) → author both concurrently if A's interface is pinned up front (verify at merge);
-  no pinnable interface → predecessor-wave instead.
-- **Runtime consumption** (B needs A's artifact to *exist and run*, e.g. a dry-run over a
-  not-yet-shipped pipeline) → gates authoring unconditionally, no pinning escape.
-- **Epistemic/premise** (A decides whether B's chunks should exist at all) → gates authoring
-  unconditionally — A ships alone in its own wave first, B isn't even drafted until A's verdict
-  lands.
+**Read each chunk pair's `gate_kind` off the `dispatch.emit` wave map — never classify by hand.** What each kind means for running a pair together:
+- **File-write overlap** → gates authoring, no escape hatch — predecessor lands first.
+- **Output/contract consumption** → both author concurrently if A's interface is pinned up front
+  (verify at merge); no pinnable interface → predecessor-wave.
+- **Runtime consumption** (B needs A's artifact to *exist and run*) → gates authoring, no escape.
+- **Epistemic/premise** (A decides whether B's chunks should exist) → A ships alone in its own
+  wave first; B isn't drafted until A's verdict lands.
 - **Independent** → same wave, no gate.
 
 A row carrying an uncleared `external_gate` entry with `blocks: execution` is unschedulable in any
 wave — that gate is on another repo, not on a chunk pair, so no pair-classification clears it.
 
 **Cross-check the AC table against the chunk list before emitting.** An `## Acceptance Criteria`
-row with no chunk citing it (frontmatter list, `covers:`, or body reference) is a silent gap. Walk every AC row, confirm at least
-one `## Tasks` row names it, and treat an uncovered AC as an authoring gap to fix in the plan
-before dispatching.
+row with no chunk citing it (frontmatter list, `covers:`, or body reference) is a silent gap.
+Walk every AC row, confirm at least one `## Tasks` row names it, and treat an uncovered AC as an
+authoring gap to fix in the plan before dispatching.
 
 **A signature/param-removal chunk that scopes only production handler signatures is the same kind
 of authoring gap.** Walk the chunk's task list for a scope that also names test fixture defs and
@@ -160,30 +155,26 @@ reads the spine's `writes:`/`depends_on` and emits the ready-to-fire Workflow it
 `gate_kind`, `write_files`, and `agentType` already resolved and non-dispatchable rows already
 filtered.
 
-<!-- engine-gap: field=execute_plan.gate_kind_fallback_classification producer=unknown memo=2026-08-27-claude-klabauter-em-doe-unmarked-obligations-and-four-lost-markers.md -->
 `NoWritesDeclaredError` means the spine is unpopulated — an authoring gap to fix in the plan, not a
-
-<!-- engine-gap: field=execute_plan.ses_fire_check producer=unknown memo=2026-08-27-claude-klabauter-em-doe-unmarked-obligations-and-four-lost-markers.md -->
 licence to hand-derive. Write the emitted script to a plan-relative on-disk path
 (`<plan-basename>.workflow.mjs`, next to the plan) — a disk artifact, never plan-body prose, a
 hand-authored wave map, or a chat emission of a wave table.
 
-<!-- engine-gap: field=execute_plan.wave_map_validation.violations producer=unknown memo=2026-08-27-claude-klabauter-em-doe-unmarked-obligations-and-four-lost-markers.md -->
+<!-- engine-gap: field=execute_plan.ses_fire_check producer=unknown memo=2026-08-27-claude-klabauter-em-doe-unmarked-obligations-and-four-lost-markers.md -->
 
 **Emit and dispatch are ONE action, and the dispatch leg is not optional.** In an interactive
 session the EM runs
-`emit-dispatch-workflow --plan <plan-path>`
+`"${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/bin/emit-dispatch-workflow" --plan <plan-path>`
 (settings-home launcher — resolve per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`). Before firing, register review targets:
-`review-findings-ledger targets --add <every file-level writes: path on the spine>` — EM-only, and
+`review-findings-ledger targets --from-plan <plan-path>` — EM-only, and
 the confined execute-review stage's reviewers cannot apply findings without it. Then
 calls `Workflow({scriptPath: "<emitted path>", args: {repoRoot: "<absolute repo root>"}})` in this
 session, using the exact `fire with: Workflow(...)` line the emitter prints on stderr. The
 output is already a valid `scriptPath` input. Emitting and stopping writes a script nothing runs.
 **An emitted script is not a delivered dispatch.**
 
-**An emitted fire raises no permission prompt; a hand-rolled one does.**
-An unexpected prompt means the script was hand-authored or edited in place (its
-`<script>.emitted.json` digest differs) — `--restamp`, not a re-emit. Tripwire:
+**An emitted fire raises no permission prompt.** One that does was hand-authored or edited in
+place (its `<script>.emitted.json` digest differs) — `--restamp`, not a re-emit. Tripwire:
 `AN-EMITTED-WORKFLOW-FIRES-WITHOUT-A-PROMPT-A-HAND-ROLLED-ONE-DOES-NOT`.
 
 **`--fire` is the headless and cron path only** (`engine_fire.fire_workflow`; returns a run handle
@@ -198,6 +189,11 @@ same chunks with the Agent tool is never the recovery; a concurrency-cap refusal
 
 **A fifth state: fired-then-died.** A handle with `log_size_bytes: 0` stalled past startup:
 report and stop, as for a fire-time refusal.
+
+**A sixth state: returned `incomplete`, nothing halted.** Not a resume: run `dispatch.terminal_commit`,
+then `emit-dispatch-workflow --only-incomplete <task-output>` and fire. Never hand-dispatch them.
+
+**A brief never asks an executor to commit** — its Commit Gate refuses.
 
 Wave shape comes from the file-write graph, never the plan's section/theme structure. One dispatch
 per chunk inside the emitted script — never bundle serial chunks into one executor. Taxonomy,
@@ -219,13 +215,12 @@ names this session; then resume. A second `emit-dispatch-workflow` is no recover
 excludes closed rows, narrowing to a one-wave script (an `--out` naming a chunk id is the tell). Re-emit only when the spine changed. Tripwire:
 `A-SECOND-EMIT-AFTER-A-PARTIAL-RUN-NARROWS-SILENTLY`.
 
-**Watching without waiting — arm a `Monitor`, don't poll by hand.** Once fired, arm `Monitor` on
-the run's `journal.jsonl` plus the harness completion report, surfacing phase-boundary and failure
-lines (`persistent: true` if long), every terminal state covered. Notifications are no checkpoint.
+**Watch with `Monitor`, never by hand-polling:** the run's `journal.jsonl` plus the completion
+report, phase-boundary and failure lines, every terminal state covered.
 
 **Completion — the terminal commit is the EM's first act, not a phase inside the workflow.** The
-review wave runs inside the fired workflow; nothing commits mid-run. On return, the EM's first act is `coordinator-invoke dispatch.terminal_commit` with `script_path` plus
-the wake digest's `next_action.params`, verbatim (M1 § D3): the run's ONE commit, carrying the
+review wave runs inside the fired workflow; nothing commits mid-run. On return, the EM's first act is `coordinator-invoke dispatch.terminal_commit` with `script_path` and
+`task_output_path`, the task file carrying `next_action.params`: the run's ONE commit, carrying the
 `Inline-Review:` trailer. `implemented` means done: a met terminal judge stamped it and Phase 4 steps 2.5 to 4 ran inside
 it. Still `executing`: read the reason; treat the run as Phase-5-halted (resume keys on the refusal). That commit writes one completion receipt per baton
 (`agent-delivered` if stamped, else `verdict: null`); the EM reads it, never writes one ([`completion-receipts.md`](../../docs/wiki/release-and-distribution/completion-receipts.md)).

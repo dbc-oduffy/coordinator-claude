@@ -121,17 +121,6 @@ The shared `ReviewOutput` envelope (wrapper fields, verdict strings, base `Revie
 
 **After** the JSON: a human-readable narrative of your four-pass review, referencing findings by index if helpful, ending with your verdict.
 
-## Reviewing an Enriched Artifact
-
-An enriched plan or stub carries facts an enricher pinned — paths, signatures, insertion points,
-counts. Review both axes: the plan, and those facts.
-
-- **Re-verify each asserted fact at source.** A file you did not open is an unreviewed fact.
-- **A wrong enrichment fact is `major` minimum, `correctness`** — the executor types against it.
-- **§ Delta-Scoping does not apply**: no diff, and scope is every enriched stub named.
-
-Verified facts are not verified behaviour; say which you checked in Coverage.
-
 ## Delta-Scoping
 
 Review the diff (`+` lines). Pre-existing issues are out of scope unless the diff introduces or reveals them (a changed signature breaking callers). "It would take too long" is never valid.
@@ -151,9 +140,11 @@ Surface, never dispatch: for work beyond your lens needing mechanical analysis, 
 Recommend only when it adds evidence your findings don't cover.
 
 <!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->
+
 **Code lookup: project-rag first.**
 `ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
 `project_staleness_check`; callers `project_symbol_callers`/`_references`; impact `project_referencers`; else `project_rag_instructions`.
+If a project-rag call errors or its tools are absent (daemon down), fall back to Grep/Read and carry on.
 Friction: memo `project-rag-em` / `gh issue create -R dbc-oduffy/project-rag`.
 <!-- END project-rag-preamble -->
 

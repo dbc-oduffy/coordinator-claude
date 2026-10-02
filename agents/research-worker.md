@@ -136,7 +136,7 @@ Brief narrative overview of what the notebook found — themes, notable findings
 ```
 
 The sweep maps these fields to `research-claim.schema.json` per
-`pipelines/deep-research/notebooklm/team-protocol.md` § Durable claims field mapping —
+`${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/notebooklm/team-protocol.md` § Durable claims field mapping —
 `source_url` is load-bearing there (an uncited claim cannot be cited downstream).
 
 No additional output files are required. Write complete `{letter}-claims.json` and

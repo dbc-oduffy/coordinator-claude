@@ -101,7 +101,7 @@ Run the Chunk 2 helper to produce a classified delta. The helper is co-located a
 `<skill-dir>/lib/compute-update-delta.py`
 
 where `<skill-dir>` is the directory containing this SKILL.md — typically
-`~/.claude/plugins/coordinator-claude/coordinator/skills/coordinator-update/`.
+`${INSTALL_ROOT}/coordinator/skills/coordinator-update/`.
 
 ```bash
 # $0 is unreliable when Claude runs this block via the Bash tool ($0 resolves to
@@ -358,6 +358,18 @@ fi
 The re-stamp is the critical close: without it, the baseline drifts and future runs will
 re-classify already-applied files as divergent.
 
+### 6d-bis. Re-Run Engine Setup
+
+A plugin update obliges an engine re-run: the engine's forwarders and door are built from
+plugin sources, so `--check` fails until setup runs again. Always run both, then report the
+`--check` result:
+
+```bash
+_cc_engine_root="$("$PYTHON_BIN" "${PLUGIN_DIR}/hooks/scripts/_engine_root.py")"
+"$PYTHON_BIN" "${_cc_engine_root}/scripts/setup.py" --i-am-agent \
+  && "$PYTHON_BIN" "${_cc_engine_root}/scripts/setup.py" --check
+```
+
 ### 6e. Report Completion
 
 ```
@@ -365,6 +377,7 @@ Applied: <N> files from coordinator <incoming_ref>
 Preserved: <M> consumer-modified files (your implementation shape kept)
 Consumer-added: <K> files (never touched)
 Sentinel: re-stamped to <SHA>
+Engine: setup re-run; --check <PASS|FAIL>
 Revertible: yes — via git revert <commit-hash> (or .bak files if untracked)
 ```
 
@@ -378,7 +391,7 @@ source-is-live (meta-repo) machine — it is installed and invokable only for
 OSS consumers who installed via the publish-repo `coordinator:install` flow.
 
 If you are reading this as a developer on the coordinator meta-repo: this skill lives at
-`plugins/coordinator-claude/coordinator/dist/oss-only-skills/coordinator-update/SKILL.md`
+`coordinator/dist/oss-only-skills/coordinator-update/SKILL.md` (in the coordinator-content-repo clone)
 and is injected into the OSS publish tree by the `20-inject-oss-only-skills.sh` percolate hook.
 It is intentionally absent from the meta-repo's `skills/` tree.
 

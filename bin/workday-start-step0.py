@@ -479,7 +479,7 @@ def main(argv: list[str]) -> int:
     today = local_day()
     current = wc.git_out("branch", "--show-current")
 
-    from daily_branch import read_configured_day_branch
+    from coordinator_core.daily_branch import read_configured_day_branch
 
     configured_day_branch = read_configured_day_branch(wc.root)
     if configured_day_branch and current == configured_day_branch:

@@ -147,8 +147,8 @@ Then wait; do not read the trail mid-wave.
 One file per fire — the task output file the completion notification names works as-is; never extract `.result` by hand. It lands each fire through `roadmap.blitz_land`, **sums the three lanes across
 every fire**, and states the stop condition from that sum. It refuses if the fires disagree about
 `waveIndex`, or if any fire dispatched XS and no `--shipped-in` was given. It writes
-`wave-<n>.landing.<slot>.json` into the trail (read by `read_wave_landings`). **Never redirect its
-stdout onto that path.**
+`wave-<n>.landing.<slot>.json` into the trail (read by `read_wave_landings`) and commits those
+records itself; `--no-commit` lists them instead. **Never redirect its stdout onto that path.**
 
 **Commit before landing whenever the wave dispatched any XS** — `close_dispatched` stamps `shipped`
 with a `shipped_in` SHA and the op does not commit. Pass that SHA as `shipped_in`.

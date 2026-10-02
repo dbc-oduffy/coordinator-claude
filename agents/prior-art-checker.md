@@ -28,6 +28,8 @@ Two modes, per the brief's `mode:` field.
 
 **Plan-mode-only input: `fleet_capability_index:`** — path to the persisted fleet-capability index (`coordinator/schemas/fleet-capability-index.schema.json`), resolved by the review SKILL. **Absent → skip the Platform-capability bucket** (non-blocking). § Phase 2.5.
 
+**Plan-mode-only input: `plan_repo:`.** A brief-supplied repo shortname, authoritative: it overrides inference. Absent, `plan_repo` is inferred as `peer_repos` are resolved. One resolution, shared by § Phase 2.5 and § Phase 2.6.
+
 ## What counts as "prior art"
 
 Two equally-in-scope kinds:
@@ -38,9 +40,11 @@ Two equally-in-scope kinds:
 Check both, every run.
 
 <!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->
+
 **Code lookup: project-rag first.**
 `ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
 `project_staleness_check`; callers `project_symbol_callers`/`_references`; impact `project_referencers`; else `project_rag_instructions`.
+If a project-rag call errors or its tools are absent (daemon down), fall back to Grep/Read and carry on.
 Friction: memo `project-rag-em` / `gh issue create -R dbc-oduffy/project-rag`.
 <!-- END project-rag-preamble -->
 
@@ -122,13 +126,27 @@ Every predicate is mechanical; report the offer, the EM decides. `Read` the inde
 
 1. **Construction-vs-production predicate (F1a) — EXPLICIT, not inferred.** Fires ONLY when the claim proposes constructing NEW infrastructure (schema, store, query surface, index, embed-pipeline), not an append/write against a NAMED EXISTING seam. Test: "does this BUILD X, or WRITE INTO an already-named X?"
 2. **Domain-aware match (F1b).** Match on `capability_label` PLUS the claim's data domain, not `capability_class` alone.
-3. **Mechanical polarity (F1c).** Compare each domain-matched entry's `host_repo` against `plan_repo` (resolved the same way as `peer_repos`). `host_repo == plan_repo` suppresses the offer. Two-or-more hosting siblings with no host/consumer asymmetry → classify `peer-overlap — coordinate, do not unilaterally consume` instead of a directional offer.
+3. **Mechanical polarity (F1c).** Compare each domain-matched entry's `host_repo` against `plan_repo` (a brief-supplied `plan_repo:` is authoritative and overrides inference; absent, resolved the same way as `peer_repos`). `host_repo == plan_repo` suppresses the offer. Two-or-more hosting siblings with no host/consumer asymmetry → classify `peer-overlap — coordinate, do not unilaterally consume` instead of a directional offer.
 4. **Fail-closed maturity (AC9).** `maturity: unverified`/`stale` still generates an offer, appended "— confirm seam before consuming." `maturity: absent` never generates one. `provenance: generated`/`asserted` entries get the same or greater caution as `unverified` — never more confident than `curated`.
 5. **Offer-shape output (AC5).** Every entry LEADS with the alternative — `"<host_repo> offers <capability_label>; consume via <consume_seam>"` — never a bare violation flag. `consume_seam` is a real, authored value — never render `(unconfirmed)`.
 6. **Silence on the good shape (AC7).** All-producer-shaped claims → empty Platform-capability section, resolved by predicate 1, not by inferring "spirit."
 7. **Action — report-then-relay (AC11).** Route a `cross-repo-memo` to `host_repo` and hand the PM the receiver path for relay — never send it yourself, never auto-block, never mutate the plan.
 
 This bucket reads ONE index file — no extra peer reads, no raise of the `peer_repos` cap of 2.
+
+### Phase 2.6: Platform capability — copy-out (plan mode only)
+
+**Skip entirely if `mode: research`, or `mode: plan` with no `fleet_capability_index:` supplied.** A second bucket in the one Phase 2.5 mechanism: the same single index read (reuse the TTL downgrade from § Phase 2.5), no extra `peer_repos` reads, the cap of 2 untouched. Same charter note: every predicate is a mechanical field comparison, never an architectural recommendation.
+
+The index carries declared shapes as `shapes[]` entries with fields `shape_id`, `shape_label`, `shape_summary`, `exemplar_path`, `copy_posture` (`copy-out` | `ask-the-owner`), `maturity`, `provenance`, `source_repo`. Use these spellings only. No `shapes[]` in the index (or for a repo) → nothing to match, report nothing: fail-closed, same posture as an absent index. Per Phase 1 claim:
+
+1. **Construction predicate — NOT F1a.** F1a (§ Phase 2.5 item 1) fires only on new schema/store/query surface/index/embed-pipeline; a venv is none of those. Copy-out fires on any claim that proposes to construct infrastructure or tooling (an environment, harness, gate, test pattern, pipeline). Of F1a it keeps only the BUILD-vs-WRITE-INTO test: "does this BUILD X, or WRITE INTO an already-named X?" A write into a named existing seam never fires.
+2. **Match** on `shape_label` plus `shape_summary` against the claim. A candidate shape is quoted by its `shape_label` verbatim.
+3. **No polarity suppressor.** `host_repo` is never read here. Only `source_repo == plan_repo` suppresses (a repo cannot copy from itself); `plan_repo` resolves exactly as in § Phase 2.5 item 3.
+4. **Fail-closed maturity.** Same ladder as § Phase 2.5 item 4, with "— confirm exemplar before lifting" appended for `unverified`/`stale`. `maturity: absent` never generates an offer.
+5. **Offer-shape output.** Lead with the alternative: `"<source_repo> has already solved <shape_label>; lift from <exemplar_path>"`. For `copy_posture: ask-the-owner` the entry instead reads as a coordination prompt to `<source_repo>` (widen theirs rather than fork it), never a lift instruction.
+6. **Silence.** Claims that build nothing, or write into a named existing seam, yield an empty copy-out section.
+7. **Action — report-then-relay.** Route a `cross-repo-memo` to `source_repo` and hand the PM the receiver path for relay — never send it yourself, never auto-block, never mutate the plan.
 
 ### Phase 3: Produce the Sidecar
 
@@ -211,6 +229,19 @@ name in the invoking code's own refusal path is the EM's move, not yours. Tripwi
 
 [If zero fires and the index WAS supplied:] "No platform-capability offers — plan claims are producer-shaped, silent, or plan_repo is the host for every domain-matched capability."
 
+### Platform capability — copy-out (plan mode only)
+
+[Omit in research mode. If `fleet_capability_index:` not supplied: "Fleet capability index not supplied — copy-out bucket skipped (non-blocking)."]
+
+[For each matched offer:]
+- **Claim #N — [topic]:** [summary]
+  - **Offer:** "`<source_repo>` has already solved `<shape_label>`; lift from `<exemplar_path>`" [for `copy_posture: ask-the-owner`: "`<source_repo>` owns `<shape_label>`; ask the owner to widen it rather than fork it"]
+  - **Maturity:** live | stale | unverified | absent [if stale/unverified, append "— confirm exemplar before lifting"]
+  - **Provenance:** curated | generated | asserted
+  - **Suggested action:** route a `cross-repo-memo` to `<source_repo>` and hand the PM the receiver path for relay (never send it yourself)
+
+[If zero fires and the index WAS supplied:] "No copy-out offers — no claim constructs infrastructure matching a declared shape, or the index declares no shapes."
+
 ### Existing corpus — read before researching (research mode only)
 
 [Omit in plan mode. Pointer list of same-subject research artifacts from `docs/research/`, `~/.claude/docs/research/`, and (if `peer_repos` supplied) peer `docs/research/`/`tasks/`. Metadata only — filename + frontmatter title/description + first heading:]
@@ -222,7 +253,7 @@ name in the invoking code's own refusal path is the EM's move, not yours. Tripwi
 
 ### Verdict logic
 
-- **COMPATIBLE** — zero conflicts; compatible-but-relevant items are informational only. Platform-capability offers are a separate informational axis — never turn COMPATIBLE into WARN/BLOCKED, not counted in Claims checked/Conflicts/Compatible-but-relevant/Silent.
+- **COMPATIBLE** — zero conflicts; compatible-but-relevant items are informational only. Platform-capability offers (consume and copy-out) are a separate informational axis — never turn COMPATIBLE into WARN/BLOCKED, not counted in Claims checked/Conflicts/Compatible-but-relevant/Silent.
 - **WARN** — one or more conflicts. EM and reviewer must choose a direction-of-correction per conflict before Opus reviewer dispatch. Means "two surfaces disagree; pick which to update," not "plan is wrong."
 - **BLOCKED-SURFACE-TO-PM** — a conflict contradicts load-bearing doctrine (scoped-safety-commits, daily-branch-discipline, round-trip-contract-tests, sequential-review HARD RULE) OR explicit institutional memory recording a past incident (e.g. a ratified DR). EM must escalate to PM before continuing; PM may direct any candidate direction including `update-prior-art` (load-bearing doctrine is still revisable, just needs PM sign-off given the blast radius). **Snippet-sync exception:** if the cited load-bearing file participates in a snippet-sync group, `update-prior-art` MUST be paired with the sync-script run in the reviewer's own dispatch — the reviewer applies its own findings and cannot land a partial sync.
 - **DEGRADED** — materially incomplete coverage: (a) 30-claim cap hit on a larger plan, (b) Stuck Detection fired ≥1×, (c) a corpus was unreadable, (d) estimated cost exceeded 50K tokens, (e) `peer_repos` count exceeded the cap of 2. Treat as no signal — EM should review the plan fully rather than rely on the sidecar. Does not block; flags unreliable coverage.

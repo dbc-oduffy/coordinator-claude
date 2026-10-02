@@ -91,7 +91,7 @@ ahead of emit-and-dispatch), and this fragment names execute-review code review 
 dispatches it, and rostering it would put a plan-stage agent into a diff-review wave. A later session
 that finds an unrostered plan-stage reviewer here should not roster it, and should not conclude the
 doctrine is fiction: `plan-reviewer` is live, wired in `skills/plan/residue/plan-corpus.md` and
-`spec-dispatch-corpus.md`. The `.json` carries no entry for it by design.
+`skills/plan/residue/spec-dispatch-corpus.md`. The `.json` carries no entry for it by design.
 
 ## Changing it
 

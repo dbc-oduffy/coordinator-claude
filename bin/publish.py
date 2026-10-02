@@ -124,6 +124,13 @@ GENERATES = []  # writes land only under a tempfile.TemporaryDirectory() synthet
 #: by `coordinator/bin/tests/test_publish_engine_stamp.py`.
 _ENGINE_STAMP_FILENAME = "_engine_stamp"
 
+#: The plugin-payload row (hooks/, skills/, bin/, lib/ + INSTALL.md/commands/ at the tree root).
+#: Any dest this row feeds is graded ONCE over its ASSEMBLED mirror (union of every sibling row,
+#: `dispatch_end_of_run_plugin_payload_gate`) by `percolate.doc_path_refs.check_payload`, fail-closed: doc `lib/`/`bin/` refs exist,
+#: hook/skill/bin imports resolve into lib/, and `lib/install/coordinator_install.py --plan` is
+#: error-free. Keyed by row name because the shape check (import closure) keys by package dir.
+_PLUGIN_PAYLOAD_ROW = "coordinator-claude"
+
 #: Repo-relative paths that count as "engine-touching" for the build stamp's
 #: scoping (`_scoped_engine_stamp_sha`, below) — duplicated rather than
 #: imported from `coordinator_core.warm.skew._ENGINE_TOUCHING_PATHS` for the
@@ -155,6 +162,8 @@ _BOOTSTRAPPED_NAMES = (
     "split_inclusion_exclusion",
     "_CLOSURE_PACKAGE_NAME",
     "find_import_closure_violations",
+    "check_plugin_payload",
+    "format_plugin_payload_failures",
     "run_assembled_mirror_gate",
     "format_assembled_mirror_gate_refusal",
     "find_modules_missing_tests",
@@ -224,6 +233,10 @@ def _bootstrap_engine() -> None:
         from percolate.import_closure import (  # noqa: E402
             PACKAGE_NAME as _CLOSURE_PACKAGE_NAME,
             find_import_closure_violations,
+        )
+        from percolate.doc_path_refs import (  # noqa: E402
+            check_payload as check_plugin_payload,
+            format_failures as format_plugin_payload_failures,
         )
         from percolate.assembled_mirror_gate import (  # noqa: E402
             find_modules_missing_tests,
@@ -4127,6 +4140,61 @@ def dispatch_end_of_run_assembled_mirror_gate(
     return ok
 
 
+def dispatch_end_of_run_plugin_payload_gate(
+    repo_roots: "List[Path]",
+    *,
+    rows_by_repo_root: "dict[Path, List[ResolvedTarget]]",
+    err: IO[str] = sys.stderr,
+    out: IO[str] = sys.stdout,
+) -> bool:
+    """END-OF-RUN leg: grade the plugin payload (doc path refs, import resolution into lib/,
+    `install --plan`) over the ASSEMBLED mirror, once per dest, never one row's fragment.
+
+    `repo_roots` are the gate roots (the DR-445 throwaway trees: dest HEAD with every staged row
+    overlaid, i.e. the union of every row targeting the dest); `rows_by_repo_root` is keyed by the
+    same roots. Only a root with a `_PLUGIN_PAYLOAD_ROW` row is graded, at that row's dest
+    relative to the root. Fail-closed: any finding, or a missing payload dir, returns False. No
+    override."""
+    _bootstrap_engine()
+    ok = True
+    for repo_root in repo_roots:
+        rows = rows_by_repo_root.get(repo_root, [])
+        plugin_rows = [r for r in rows if r.name == _PLUGIN_PAYLOAD_ROW]
+        if not plugin_rows:
+            continue
+        real_dest = plugin_rows[0].dest_dir
+        real_root = _dest_repo_root(real_dest) or real_dest
+        try:
+            payload_root = repo_root / real_dest.relative_to(real_root)
+        except ValueError:
+            payload_root = repo_root
+        if not payload_root.is_dir():
+            print(f"  Error: plugin-payload gate: assembled payload dir {payload_root} is absent.", file=err)
+            ok = False
+            continue
+        docs, imports, plan = check_plugin_payload(payload_root, payload_root)
+        print(
+            f"  Plugin-payload gate (assembled mirror, {len(rows)} row(s)): {len(docs)} doc ref(s), "
+            f"{len(imports)} import(s), install --plan {'FAILED' if plan else 'ok'}.",
+            file=out,
+        )
+        if docs or imports or plan:
+            print(
+                f"  Error: the assembled {_PLUGIN_PAYLOAD_ROW} mirror (rows "
+                f"{[r.name for r in rows]!r}) fails the plugin-payload gate:",
+                file=err,
+            )
+            for line in format_plugin_payload_failures(docs, imports, plan):
+                print(f"    {line}", file=err)
+            print(
+                "  Remedy: carry the missing file/module in some row targeting this dest "
+                "(allowlist or source_map), or fix the doc/import that names it.",
+                file=err,
+            )
+            ok = False
+    return ok
+
+
 def _argv_parity_pairing_origin(repo_root: Path, rel_module: str) -> str:
     """Best-effort tag for a failing pairing's `module` path, distinguishing
     a file this run's git-tracked source content is expected to have
@@ -6256,6 +6324,12 @@ def run_pre_sync_gates(
             shutil.rmtree(restricted_tmp_src, ignore_errors=True)
             print("", file=out)
             return GateResult(proceed=False, source_dir=target.source_dir, shadow_roots=tuple(shadow_toplevels))
+
+        # The plugin-payload gate is NOT run here: a single row's restricted tree is a fragment
+        # of the plugin mirror (sibling rows such as `coordinator-claude-toplevel-install` ship
+        # docs/install/agent-install-manifest.json into the same dest), so grading it row-wise
+        # false-positives. It runs once per dest over the assembled tree — see
+        # `dispatch_end_of_run_plugin_payload_gate`.
 
         # Engine build stamp — written into the restricted tree LAST, after
         # every gate above has passed, so a refused round never ships one.
@@ -8913,6 +8987,32 @@ def _dirty_paths_under(repo_root: Path, scope_dirs: Sequence[Path]) -> Optional[
     return _parse_porcelain_z(probe.stdout)
 
 
+def _reap_tracked_install_output(repo_root: Path) -> "List[str]":
+    """Delete every tracked top-level install-output directory (`*.egg-info/`)
+    from `repo_root` and return its tracked file paths, so the caller folds the
+    deletions into the commit pathspec. The root-dest swap never removes a
+    top-level directory and `_dirty_paths_under` is scoped to the swapped dests,
+    so neither path would otherwise record these as deletions. Predicate is
+    `percolate.round._is_install_output`."""
+    from coordinator_core.ops.ceremony import git_native  # noqa: PLC0415 - lazy, see module header
+    from coordinator_core.percolate.round import _is_install_output  # noqa: PLC0415
+
+    probe = git_native._git(
+        ["ls-files", "-z", "--", ":(glob)*.egg-info/**"], cwd=repo_root
+    )
+    if not probe.ok:
+        return []
+    tracked = [p for p in probe.stdout.split("\0") if p]
+    reaped_dirs = {
+        p.split("/", 1)[0]
+        for p in tracked
+        if "/" in p and _is_install_output(str(repo_root), p.split("/", 1)[0])
+    }
+    for name in reaped_dirs:
+        shutil.rmtree(repo_root / name, ignore_errors=True)
+    return sorted(p for p in tracked if p.split("/", 1)[0] in reaped_dirs)
+
+
 def _normalize_dest_exec_bits(repo_root: Path, scope_dirs: Sequence[Path]) -> "List[str]":
     """Converge the INDEX mode of every file tracked under `scope_dirs` onto
     the shebang predicate, returning the paths it fixed: a blob opening `#!`
@@ -9253,6 +9353,10 @@ def _commit_published_dests(
                 f"({', '.join(remoded[:5])}{', …' if len(remoded) > 5 else ''})."
             )
             paths = sorted(set(paths) | set(remoded))
+        reaped = _reap_tracked_install_output(repo_root)
+        if reaped:
+            print(f"  {repo_root}: removed {len(reaped)} tracked install-output file(s).")
+            paths = sorted(set(paths) | set(reaped))
         # § C1 — drop a failed sibling row's own dest-dir subtree before the
         # pathspec is frozen, so this repo root's succeeded rows still
         # commit despite a failed row sharing the root.
@@ -12652,6 +12756,10 @@ def _commit_throwaway_and_merge_into_dest(
     from coordinator_core.git.commit import commit_paths, hash_worktree_blobs_via_spawn  # noqa: PLC0415
     from coordinator_core.git.run import run_git as _run_git  # noqa: PLC0415
 
+    reaped = _reap_tracked_install_output(throwaway_root)
+    if reaped:
+        print(f"  {repo_root}: removed {len(reaped)} tracked install-output file(s).")
+        deleted_paths = sorted(set(deleted_paths) | set(reaped))
     subject = _sync_commit_message(
         repo_root.name,
         succeeded_row_names,
@@ -13233,8 +13341,17 @@ def _run_round_dr445(
                 target_filtered=bool(args.target),
                 declared_scope_root_by_repo_root=_declared_scope_root_by_throwaway,
             )
+        with _time_phase(round_timings, "<round>", "dispatch_end_of_run_plugin_payload_gate"):
+            plugin_payload_ok = (
+                True
+                if args.dry_run
+                else dispatch_end_of_run_plugin_payload_gate(
+                    gate_roots, rows_by_repo_root=_gate_rows_by_repo_root
+                )
+            )
         gates_ok = (
-            identity_ok
+            plugin_payload_ok
+            and identity_ok
             and install_doc_ok
             and unscanned_ok
             and function_gate_ok

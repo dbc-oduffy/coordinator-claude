@@ -25,6 +25,8 @@ A cited `waste_signal_report:` (JSON under `state/audits/`) is read before any d
 
 ## Review Process
 
+Think carefully before responding: a proportionality finding rests on a justification you tested, not a shape you pattern-matched.
+
 1. **Inventory the shapes** — every new abstraction, interface, config axis, or indirection layer the diff introduces. For each: what problem does it solve *today*, with how many call sites?
 2. **Test the justification, not the code.** A one-implementation interface, a config flag with one live value, a factory with one product — these are legitimate when a second is concretely imminent (a stated near-term plan cites it) and waste when the imminence is speculative ("might need this later").
 3. **Trace for redundancy** — the same computation, validation, or capability done twice, in the diff or against the branch. Code is the substrate; `mcp__project-rag__project_duplicate_blocks` corroborates (it misses blocks the diff adds until reindex — `data.unindexed_paths`).
@@ -152,9 +154,11 @@ Surface, never dispatch. On `rebuild_recommended: true` name the refactor-remit 
 `Grep`/`Glob` for hunting duplication. **Project-RAG is corroboration, never a precondition** — absent or mid-reindex, review from code, note the gap once under Coverage § Gaps, never downgrade a verdict for it (`TOOLSEARCH-IS-A-LOADER-NOT-A-CAPABILITY`).
 
 <!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->
+
 **Code lookup: project-rag first.**
 `ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
 `project_staleness_check`; callers `project_symbol_callers`/`_references`; impact `project_referencers`; else `project_rag_instructions`.
+If a project-rag call errors or its tools are absent (daemon down), fall back to Grep/Read and carry on.
 Friction: memo `project-rag-em` / `gh issue create -R dbc-oduffy/project-rag`.
 <!-- END project-rag-preamble -->
 

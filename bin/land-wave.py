@@ -604,6 +604,10 @@ def main(argv=None) -> int:
     ap.add_argument("--branch", default="main", help="branch recorded on any minted replan baton")
     ap.add_argument("--limit", type=int, default=8, help="max batons in the emitted next wave")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument(
+        "--no-commit", action="store_true",
+        help="leave the landing's own records uncommitted and list them instead",
+    )
     args = ap.parse_args(argv)
 
     def refuse(msg: str) -> int:
@@ -792,10 +796,29 @@ def main(argv=None) -> int:
                 print(f"land-wave: could not write the landing summary under {trail}: {exc}",
                       file=sys.stderr)
 
+    landing_commit = None
+    if uncommitted and not args.no_commit:
+        try:
+            committed = _invoke(
+                repo_root, "ceremony.commit_v2",
+                {"paths": uncommitted,
+                 "message": f"land-wave: wave {wave_index} landing records"},
+                args.live_engine_tree,
+            )
+            landing_commit = committed.get("sha") if committed.get("committed") else None
+            if landing_commit:
+                uncommitted = []
+            else:
+                print(f"land-wave: landing records left uncommitted: {committed.get('error') or committed}",
+                      file=sys.stderr)
+        except ValueError as exc:
+            print(f"land-wave: landing records left uncommitted: {exc}", file=sys.stderr)
+
     if args.json:
         print(
             json.dumps(
                 {
+                    "landingCommit": landing_commit,
                     "waveIndex": wave_index,
                     "totals": totals,
                     "advanced": advanced,
@@ -814,6 +837,8 @@ def main(argv=None) -> int:
         )
     else:
         print(f"land-wave: wave {wave_index} — {len(fires)} fire(s) landed")
+        if landing_commit:
+            print(f"  landing records committed in {landing_commit}")
         for l in landings:
             c = l["counted"]
             print(

@@ -11,6 +11,8 @@ Two pipelines for deep investigation, both using Agent Teams (fire-and-forget):
 
 **Both pipelines use Agent Teams.** The EM scopes, spawns a team, and is freed. The team handles everything autonomously.
 
+Per-leg classification of all four pipelines (web, repo, structured, NotebookLM) as mechanical or judgment, with a measured run-cost floor: `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/mechanical-vs-judgment.md`.
+
 **Core principle:** Each model tier does what it's best at. Haiku is fast and cheap for mechanical work (indexing files, filtering URLs). Sonnet is analytical (reading deeply, evaluating architecture, comparing implementations). Opus has the highest judgment (cross-referencing, prioritizing, making architectural calls). Don't waste expensive models on cheap work; don't trust cheap models with judgment calls.
 
 **Key design principle (Pipeline B):** Assessment and comparison are decoupled. The assessment is evergreen — it describes what the repo does and how, independent of your project's state. The comparison is point-in-time and optional — it diffs the assessment against your current implementation. The assessment always stands alone; the comparison is an additional artifact.

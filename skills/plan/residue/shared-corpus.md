@@ -23,6 +23,8 @@ _Runs first: verifying you understood the problem precedes verifying the file pa
   → **Cite a peer repo's SHA as `<repo>@<sha>`, never bare.** Read `gates.substrate.peer_sha_lint` (`bad_citations[]`); a hit is a prompt to inspect, not an automatic defect.
 - _Seven-dimension confidence checklist green?_ (no-duplicate / no-fabrication / architecture-compatible / official-docs-read / reference-impl-seen / root-cause-known / fix-locus discrimination)
   → All seven green → Branch C. Any red → loop back to investigation Tier 1–3 or escalate to PM.
+- _Cited sizing-object's `estimate.tshirt` is L or XL (never true on the `spec-dispatch` lane)?_
+  → Read the atlas per `writing-plans.md` § Codebase Research; record `atlas_consult` (pages + each page's `last_attested`, finding). Advisory, never a loop-back; an uncovered surface is a `finding`, not a blocker.
 - _Eighth dimension — unproven mechanism gate: does this plan rest on a mechanism not proven viable?_
   → **A TYPED LOOP-BACK-TO-DERISK, not a third exit:** on RED it resolves to the same loop-back as the seven, specialized to a `/spike` destination.
   → **Consume `premise_unproven` off the object** (M/L/XL/XXL); `true` is RED. **Detent absent** (S/XS, or an express-lane sizing): read the object's `premise` field. Only `executed` is GREEN. Treat bare `read` as RED (mechanism read but never run; `coordinator:spike` is the discharge); it clears only when `premise.spike_verdict` carries `viable` for this exact mechanism. `not-applicable`/`unrecorded` leaves the dimension to be evaluated fresh. **Never reach M by widening `_LARGE_TSHIRTS`.**
@@ -37,7 +39,7 @@ _Runs first: verifying you understood the problem precedes verifying the file pa
   → **A TYPED LOOP-BACK to `coordinator:sizing` (the `plan⇄sizing` back-edge), not a third exit.**
   → **Fires only when ALL hold:** (1) the seven-dimension checklist is all-green; (2) the eighth dimension is green; (3) the drafted `scope:` list is ≤2 files (count it), no new abstraction, an existing test surface already covers it, and no cross-repo contract (no scope path crosses a repo root).
   → **Action:** invoke `coordinator:sizing` with `--probe-signal collapse` and the Branch B findings as `--scout-evidence`.
-  → **Resume — all six routes disposed:** **`plan`** → resumes at **Branch C**, not Branch B; full terminal. **`spec-dispatch`** → Branch C at S-lane weight; light terminal. **`dispatch`** → abandon the pass and dispatch directly. **`shape`** → leave `plan`, shape's exit chains back here. **`roadmap`/`pm-decision`** → **unreachable by construction** (the probe signal only moves the t-shirt down); one returning anyway means the probe signal was mis-fed — stop and re-read the Branch B evidence.
+  → **Resume — all seven routes disposed:** **`plan`** → resumes at **Branch C**, not Branch B; full terminal. **`spec-dispatch`** → Branch C at S-lane weight; light terminal. **`dispatch`** → abandon the pass and dispatch directly. **`shape`** → leave `plan`, shape's exit chains back here. **`roadmap`/`pm-decision`/`goal-setting`** → **unreachable by construction** (the probe signal only moves the t-shirt down); one returning anyway means the probe signal was mis-fed — stop and re-read the Branch B evidence.
   → **Termination.** Fires at most once per pass; do not add a cycle guard.
 - _Fix-locus discrimination — is this the right layer to fix the bug?_
   → **Green:** the upper-layer registry/dispatch/extension site is identified by `file:line` (one level above each proposed edit site) AND you can name a concrete reason patching it is wrong (registry already gates this case; it is a closed contract; it is hot-path with unrelated callers).
@@ -108,10 +110,15 @@ hook — a non-empty `## Distill pass` referenced from the closing handoff or th
 
 → **Do not ask the PM whether to proceed to whichever terminal the route selected.** Asking "want me to invoke review now?" is a doctrine violation — the answer is always yes.
 
-Plan review altitude is binary — there is no Sonnet-tier plan reviewer, and the `spec-dispatch`
-lane skips review entirely; its compensating control is the light terminal's own mandatory scoped
-`code-reviewer` pass (§ `spec-dispatch` row), binding on every exit.
+Plan review altitude is graded by lane: a named Opus persona on the `plan` route, a Sonnet
+`plan-reviewer` lens ahead of it on the accepted-XL lane, and on the `spec-dispatch` lane a
+single pre-dispatch `plan-reviewer` pass and no Opus review. The lane's compensating control is
+the light terminal's own mandatory scoped `code-reviewer` pass (§ `spec-dispatch` row), binding
+on every exit; the pre-dispatch pass reviews the plan body and does not replace `code-reviewer`'s
+post-hoc review of the executor's diff.
 
+The `plan`-route terminal runs substrate verification, four-lens composition, (accepted-XL only)
+`plan-reviewer`, three pre-flights, and a named Opus reviewer who applies and verifies its own findings.
 **The light terminal is a deliberately shortened pipeline** — (1) and a reduced (2) still run;
 (3)–(5) are replaced by its cross-plan-scan-then-dispatch sequence.
 
@@ -120,7 +127,7 @@ lane skips review entirely; its compensating control is the light terminal's own
 _Condition: a dispatched executor returns BLOCKED citing substrate differing from what the plan asserted (path moved, helper renamed, framework changed, contract field absent, schema column missing)._
 
 - _Default: amend the plan or write a successor; do NOT silently expand executor scope to absorb the drift._
-  → Re-invoke `coordinator:plan` to amend (small drift, same workstream) or compose a successor (larger drift or shape change). Re-run the pipeline on the amended body from substrate verification — **that invariant is shared; which chain discharges it is selected by the lane.** `plan`: prior-art-checker → named Opus persona, who applies its own findings and verifies via `review-findings-ledger verify`. `spec-dispatch`: re-run **Branch B** over the drifted paths, amend the light body, re-fire the light terminal (cross-plan scan, then dispatch); its mandatory scoped `code-reviewer` pass over the re-dispatched diff still binds. **Do not hand the S lane the full lane's chain.**
+  → Re-invoke `coordinator:plan` to amend (small drift, same workstream) or compose a successor (larger drift or shape change). Re-run the pipeline on the amended body from substrate verification — **that invariant is shared; which chain discharges it is selected by the lane.** `plan`: prior-art-checker → named Opus persona, who applies its own findings and verifies via `review-findings-ledger verify`. `spec-dispatch`: re-run **Branch B** over the drifted paths, amend the light body, re-fire the light terminal (cross-plan scan, pre-dispatch `plan-reviewer` pass, then dispatch); its mandatory scoped `code-reviewer` pass over the re-dispatched diff still binds. **Do not hand the S lane the full lane's chain** — the pre-dispatch `plan-reviewer` pass is one pass inside the light terminal, not that chain, and adds no re-run obligation of its own.
 - _Product-risk findings during BLOCKED inspection?_
   → Even under `/autonomous`, surface them via `AskUserQuestion` before amending (a privacy implication, a permission-default change, an external contract shift).
 

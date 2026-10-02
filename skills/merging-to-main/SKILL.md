@@ -51,8 +51,7 @@ auto-recover via `merge-recovery-and-tag-cut recovery-branch` (cuts a fresh `wor
 branch off the pre-sync state, pushes, resets main, prints `BRANCH=<name>`), then continue there. On main with nothing unpushed → abort:
 _"Already on main with nothing to merge. Switch to a work or feature branch first."_
 
-Resolve the branch via `coordinator-current-branch`, compare against its remote (`git log
-origin/<branch>..HEAD`), push with `--set-upstream` if unpushed commits exist.
+Resolve the branch via `coordinator-current-branch`, decide unpushed state with `coordinator-invoke push.outstanding '{}'`, and push with `--set-upstream` when it reports commits ahead.
 
 ---
 

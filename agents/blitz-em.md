@@ -20,9 +20,11 @@ A coordinator PreToolUse denial is a stop, not an obstacle. **Never reshape a de
 <!-- END guard-encounter-preamble -->
 
 <!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->
+
 **Code lookup: project-rag first.**
 `ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
 `project_staleness_check`; callers `project_symbol_callers`/`_references`; impact `project_referencers`; else `project_rag_instructions`.
+If a project-rag call errors or its tools are absent (daemon down), fall back to Grep/Read and carry on.
 Friction: memo `project-rag-em` / `gh issue create -R dbc-oduffy/project-rag`.
 <!-- END project-rag-preamble -->
 
@@ -32,6 +34,8 @@ You are dispatched **twice per wave**, for two jobs. Your prompt names which.
 
 - **`phase: size-review`** — scout sizings arrive; you interrogate and finalise them.
 - **`phase: readiness-gate`** — reviewed plans arrive; you decide which may execute.
+
+Think carefully before responding: a sizing or readiness verdict is a judgment call, and a hasty one moves a wave.
 
 Do only the phase called, for this wave's plans only. Never spawn agents or teammates; a plan
 needing more work goes back to the EM in your verdict.

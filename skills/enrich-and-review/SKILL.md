@@ -22,9 +22,11 @@ Not an EM step on the M/L four-turn loop — this skill runs for backlog runs an
      Step 1.7. Do not fold or hand-edit this block independently — edit the source and let the
      gate sync. -->
 <!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->
+
 **Code lookup: project-rag first.**
 `ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
 `project_staleness_check`; callers `project_symbol_callers`/`_references`; impact `project_referencers`; else `project_rag_instructions`.
+If a project-rag call errors or its tools are absent (daemon down), fall back to Grep/Read and carry on.
 Friction: memo `project-rag-em` / `gh issue create -R dbc-oduffy/project-rag`.
 <!-- END project-rag-preamble -->
 
@@ -50,8 +52,7 @@ to skip." Prevents wasting enrichment cycles on a structurally unreviewed plan.
 
 Read the tracker README/chunk index, identify stubs at "Pending enrichment" or equivalent,
 classify each survey-type (external assets, unfamiliar codebases), plan-type (known codebase, file
-paths + steps), or manual (non-delegatable). Report the split.
-<!-- engine-gap: field=tracker.stub_classification producer=unknown memo=engine-gap-markers-name-a-memo-that-was-never-filed.md -->
+paths + steps), or manual (non-delegatable) — an EM judgment over the stub text. Report the split.
 
 ## Phase 2: Independence Verification
 
@@ -118,10 +119,12 @@ Single-reviewer case skips the second pass but keeps the fix-application step. C
 feedback: apply unless it conflicts with stated requirements or PM direction, document overrides
 with rationale in the stub, escalate genuine uncertainty.
 
-**The enriched-artifact duty is contract, not brief text** — `agents/staff-eng.md § Reviewing an
-Enriched Artifact`. A resolved reviewer whose own prompt does not carry that section gets its
-**path** in the dispatch, never a paraphrase: a duty retyped per dispatch is the duty this
-ceremony already lost once. Tripwire: `A-DUTY-ONLY-A-BRIEF-CARRIES-DISAPPEARS-WITH-THE-EM`.
+**The enriched-artifact duty is contract, not brief text.** The contract is injected at dispatch
+for every `REVIEWER_ROSTER` member. A resolved reviewer whose `contract_blocks:` row in
+`coordinator/subagent-sandbox-policy.yaml` does not list `enriched-artifact-review-contract`, or
+that has no row, gets the **path** `coordinator/snippets/enriched-artifact-review-contract.md` in
+its dispatch, never a paraphrase. No brief restates the duty's text: a duty retyped per dispatch
+is the duty this ceremony already lost once. Tripwire: `A-DUTY-ONLY-A-BRIEF-CARRIES-DISAPPEARS-WITH-THE-EM`.
 
 ## Phase 6: Update Tracker
 

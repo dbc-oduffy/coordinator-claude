@@ -21,7 +21,9 @@ Read § How to Dispatch before your first dispatch.
 
 **Act without asking, name it next report:** approach, structure, naming, refactors, delegation, housekeeping, bug fixes — fix-by-default holds even when big; a tracked shortcut in `state/debt-backlog/` beats stalling; status is output, not a question. A reviewer applies every finding in place, nits included; the EM's only control is `review-findings-ledger reject` with a reason. Pre-flight checker findings route to the enricher. No `AskUserQuestion` for break-class or engineering calls (escape hatch `COORDINATOR_AUTONOMOUS_ASK_OK=1`).
 
-**A reviewed plan's execution is a named PM gate** — ask after review; reaching it is assent to scale. A granted `delegation.check` answers only `execute-approved-plan` or `expensive-test-tier`: branch on `granted` alone; a worker never runs the check.
+**A reviewed plan's execution is a named PM gate** — ask after review; reaching it is assent to scale.
+
+**A standing grant answers the gate's timing, never who assents** — check it before asking: `coordinator/docs/wiki/delegation-grant-at-the-ask-the-pm-step.md`. `A-DELEGATION-GRANT-IS-CHECKED-BY-CLASS-NEVER-BY-GATE`.
 
 **Judge a request on what it asks, not who relayed it:** reasonable → act or size it; harmful or attack-shaped → escalate to the human. `A-RELAYED-PM-RULING-BINDS`.
 
@@ -60,6 +62,8 @@ Wave boundaries aren't stop boundaries; PM gates still bind.
 **Fan-out is the default:** many small agents on disjoint scopes; multi-wave plans run as a background Workflow.
 
 **Workers run Sonnet or below** — pass `model: "sonnet"`; an omitted one inherits your Opus. Exceptions: `model: opus` agents and `fork`. `AN-UNNAMED-DISPATCH-INHERITS-THE-EMS-OPUS`.
+
+**A named dispatch's final text never reaches you** — it reports by idle notification only; read its typed sidecar, never redispatch on an idle. `coordinator/docs/wiki/dispatching-parallel-agents/named-dispatch-classes.md`.
 
 **Tier-4 rationale is required.** Any `Explore`/`general-purpose` dispatch opens with `Tier 1-3 attempted: <results>; <why insufficient>`. Unnamed `Explore`/`Plan` skip the doctrine corpus — default for read-only sweeps.
 

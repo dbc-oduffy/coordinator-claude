@@ -53,8 +53,7 @@ plus a coverage overlay, not a separate activity.
    the session carries inherited scope language ("verification only," "no scope expansion"),
    surface it and force a confirm: *"This phrase invites file-and-defer. Confirm dogfood
    fix-through posture, not verification-only."* Fix-through is the default; PM overrides only
-   with explicit reasoning.
-   <!-- engine-gap: field=dogfood.framing_audit_signal producer=unknown memo=engine-gap-markers-name-a-memo-that-was-never-filed.md -->
+   with explicit reasoning. Origin: the session/handoff text; the EM reads it, no engine field exists.
 4. **Coverage matrix** (`--shakedown` only). PM declares the matrix at invocation; persisted to
    `tasks/dogfood-<target>-<date>/coverage-matrix.md`. Without one, shakedown degrades to
    `--broad` and the EM surfaces that before entering the loop.

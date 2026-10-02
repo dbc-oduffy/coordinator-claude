@@ -47,4 +47,4 @@ Run `cross-repo-memo --list-receivers` for valid `--to` targets on this machine.
 Run `cross-repo-memo --help` for the full verb + flag reference.
 
 See your own inbox's `README.md` for the inbound side of the channel, and the full
-doctrine at coordinator `coordinator/docs/wiki/cross-repo-communication.md`.
+doctrine at `coordinator-content-repo coordinator/docs/wiki/cross-repo-communication.md`.

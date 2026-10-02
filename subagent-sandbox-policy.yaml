@@ -295,6 +295,7 @@ contract_blocks:
     - sidecar-frontmatter-contract
     - persona-persisting-findings
     - context7-lazy-load-bootstrap
+    - enriched-artifact-review-contract
   coordinator:eng-director:
     - persona-dispatch-contract
     - reviewer-calibration
@@ -307,6 +308,7 @@ contract_blocks:
     - sidecar-frontmatter-contract
     - persona-persisting-findings
     - context7-lazy-load-bootstrap
+    - enriched-artifact-review-contract
   coordinator:staff-data-sci:
     - persona-dispatch-contract
     - reviewer-calibration
@@ -349,8 +351,9 @@ contract_blocks:
     - sidecar-frontmatter-contract
     - persona-persisting-findings
     - context7-lazy-load-bootstrap
-  
-  
+    - enriched-artifact-review-contract
+
+
   coordinator:apm:
     - persona-dispatch-contract
     - reviewer-calibration

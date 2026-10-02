@@ -18,19 +18,17 @@
 
 ## The Provisioned Scaffold On Disk Always Wins
 
-Your sidecar was already created for you before you started. Its frontmatter will **not** match the
-field list your own contract block describes — that mismatch is correct provisioning, not a defect
-or a template-resolution bug, and not something to report.
+Your sidecar was created for you before you started. Its frontmatter will **not** match the field
+list your contract block describes — that is correct provisioning, not a defect, and not something
+to report.
 
 The fields your contract names are the ones you **add** *within* the scaffold you were handed —
-never a competing frontmatter to overwrite it with. Fill the scaffold you got; leave its existing
-fields alone.
+never a competing frontmatter to overwrite it with. Leave its existing fields alone.
 
 **The scaffold's frontmatter is type-invariant.** `status: open`, `agent_type:`, `spawned_at:`,
 `lead_session_id:`, `divergence:`, `commits:`, and `dispatch_feed:` are emitted identically for
-every report type, and `## Exit interview` closes every scaffold regardless of type — none of them
-indicates a particular type. **No scaffold is born carrying a `kind:` field:** it is one of the
-fields your contract asks you to add, so its absence tells you nothing.
+every report type, and `## Exit interview` closes every scaffold — none indicates a type. **No
+scaffold is born carrying a `kind:` field:** it is one of the fields your contract asks you to add.
 
 **Read the body headings, never the frontmatter, to confirm you got the type you asked for:**
 
@@ -41,10 +39,9 @@ fields your contract asks you to add, so its absence tells you nothing.
 | `## Questions` | `assessment` |
 | `## Run notes`, `## Observations` (± `## Divergence from plan`, `## Completion`) | `run-report` |
 
-If your body sections match, say nothing and get on with the work — reporting an upstream
-provisioning defect on frontmatter alone is a false alarm this block exists to prevent, and
-merging the two shapes "to be safe" produces a file neither consumer expects.
+If your body sections match, say nothing and get on with the work — reporting a provisioning defect
+on frontmatter alone is a false alarm, and merging the two shapes "to be safe" produces a file
+neither consumer expects.
 
-Only a genuine **body-section** mismatch is worth raising, and then by noting it in your own output
-(`divergence:` where your type has one, your findings body otherwise) — never by overwriting the
-scaffold to the shape you expected.
+Raise only a genuine **body-section** mismatch, in your own output (`divergence:` where your type
+has one, your findings body otherwise) — never by overwriting the scaffold.

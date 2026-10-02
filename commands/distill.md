@@ -56,8 +56,7 @@ in path] into wiki documents."
 
 **Reading a plan's outcome.** For a canonical plan/spec carrying a `## Tasks` spine, fold its
 outcome from `plan-completeness status <plan-path>` — rows-resolved, chunks-reported, and the
-divergence rollup, straight off disk. Do not reconstruct it from `git log` and handoffs; the
-ledger is the read path this harvest step consumes, per
+divergence rollup, straight off disk. The ledger is the read path this harvest step consumes, per
 `coordinator/docs/wiki/planning/plan-tasks-mutate-cli.md`. A plan predating the spine, or lacking a
 `## Tasks` block at all, falls back to the prior git-log/handoff reconstruction — the ledger
 answers nothing there.

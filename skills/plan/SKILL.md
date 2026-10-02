@@ -89,7 +89,7 @@ ladder and shapes: `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`.
 
 ## Test Surface
 
-**No runtime test for this skill body** — prose-doctrine, not code. The automated check is skill-body lint / frontmatter validation; the grep-asserts below stand in, each a single `grep -c` against the named file.
+**No runtime test for this skill body** — prose-doctrine, not code. The automated check is skill-body lint / frontmatter validation; the grep-asserts below stand in, one count per token against the named file.
 
 | # | token | file | expect | threshold reason |
 |---|---|---|---|---|

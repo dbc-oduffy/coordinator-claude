@@ -70,7 +70,7 @@ watch trio — `state/group-em-watch.json`, `state/group-em-watch-parked.json`,
 `state/engine-provenance-counts.jsonl`, `state/housekeeping-liveness.json`, `state/orientation_cache.md`,
 `.project-rag-corpus-artifacts/` and `.project-rag-corpus-store/`) is present — create if
 absent, append only the missing lines under one header if partially present, skip silently if
-complete. If ceremony/coverage transients, any of the watch trio, the ledger, or the orientation cache are already
+complete. If ceremony/coverage transients, any of the watch trio, the ledger, the orientation cache, or `state/housekeeping-liveness.json` are already
 tracked, `git rm --cached` them after adding the ignore rule — never `git rm`. Warn if `.claude/`
 (not just `settings.local.json`) is blanket-ignored, if tracked content exists under
 `scratch/`/`tasks/_*.log` (offer, don't auto-`git rm --cached`), or if the project-rag corpus paths

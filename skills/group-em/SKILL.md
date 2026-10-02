@@ -1,7 +1,7 @@
 ---
 name: group-em
 description: "PM-GATED. Monitor peer sessions in this repo; never plan or author for them."
-allowed-tools: ["Read", "Bash", "Glob", "Grep", "Agent", "SendMessage", "CronCreate", "CronList", "CronDelete", "Monitor", "TaskStop"]
+allowed-tools: ["Read", "Bash", "Glob", "Grep", "Agent", "SendMessage", "Monitor", "TaskStop"]
 argument-hint: "[no arguments — invoke to start monitoring this repo's peer sessions]"
 ---
 
@@ -80,7 +80,7 @@ Owed introductions.
    nothing.** No question mark anywhere.
 4. **It arms no cooldown and is not an offer.** Only `build_send_digest` emitting an entry arms a
    peer's throttle.
-5. **Once per PEER, not once per tick**, and **tracked by SESSION ID, never by name** (§ Send pass
+5. **Once per PEER, not once per wake**, and **tracked by SESSION ID, never by name** (§ Send pass
    step 4). Measured case: `coordinator/docs/wiki/dispatching-parallel-agents/group-em-standing.md` § A name is not an
    identity. **Neither key is independently reliable**: a session id has been observed to change
    under a stable name, so a name match alone cannot confirm "already introduced" and a session id
@@ -111,7 +111,7 @@ peer; the displaced holder's owed message is separate and still owed.
 <root> --session-id <your sid>`.** It stands the nomination down (holder-matched; a refusal empties
 the recipient list) and prints the no-Group-EM text and recipients. Send it. No `SessionEnd` hook
 can message peers, so a holder that dies without this step leaves the box unannounced until the
-next entry; the tick reads `who` and reports it. Tripwire:
+next entry; the next wake reads `who` and reports it. Tripwire:
 `A-GROUP-EM-STANDING-THE-BOX-WAS-NEVER-TOLD-ABOUT`.
 
 ## What this skill does and does not do
@@ -133,37 +133,44 @@ by another session relieves that session and leaves you watching while believing
 and dispatches nobody, and the autofire hook is silent either way. Entry assembles once; nothing
 re-runs it, and a roster read is stale within a minute. In this order, as your first act:
 
-1. **`coordinator:group-em-assistant`** — dispatch it, unnamed. Your standing reader AND your
-   per-repo sensor: transcript tails, baton claimants, what landed on a path since a SHA, **and the
-   watch SUBPROCESS together with the `Monitor` over it**. It owns the sensor half in full: arming
-   the watch, the `Monitor` that wakes it off that watch, park-spool triage, and holding
-   `state/group-em-watch.json`. Full remit: `coordinator/docs/wiki/dispatching-parallel-agents/group-em-standing/group-em-assistant-remit.md`.
+1. **`coordinator:group-em-assistant`** — dispatch it, unnamed. Your standing reader: transcript
+   tails, baton claimants, what landed on a path since a SHA, **park-spool triage**, and
+   read-and-report asks. It arms nothing and holds no timer. Full remit:
+   `coordinator/docs/wiki/dispatching-parallel-agents/group-em-standing/group-em-assistant-remit.md`.
 
    **DISPATCH `group-em-assistant` WITHOUT A `name`.** A named `Agent` call spawns an in-process
-   teammate, and a teammate is never re-invoked by a `Monitor` it armed — so a named watcher cannot
-   hold its own wire and you inherit a relay. Unnamed, it is a background agent that wakes on its
-   own events. Tripwire: `A-MONITOR-ARMED-BY-A-TEAMMATE-WAKES-NOBODY`.
+   teammate, and a teammate is never re-invoked by a `Monitor` it armed — nor reachable the way an
+   unnamed background agent is. Unnamed, it wakes on your `SendMessage`. Tripwire:
+   `A-MONITOR-ARMED-BY-A-TEAMMATE-WAKES-NOBODY`.
 
-   **Arm the watch as one of its first acts, via the settings-home trampoline**:
+2. **The watch and its `Monitor` — yours, armed from this main conversation.** A subagent cannot
+   re-arm reliably: it missed 4 of 4 expiries, because it holds no timer and an expiry notice does
+   not reliably re-wake it. Arm the watch via the settings-home trampoline:
 
        $COORDINATOR_SETTINGS_HOME/bin/group-em-watch --repo-root <root> --group-em-session-id <your sid>
 
-   `persistent: true`: DETACH it. A watch armed inside a subagent's Bash dies with the task while
-   `--status` still reads ALIVE. **`--group-em-session-id` is passed explicitly, never defaulted** — a
-   separate id from `--caller-session-id`. It emits one line per peer entering a parked state,
-   derives parked from `read_pass.classify_peer`, stays silent while that peer's cooldown is
-   armed. **It carries a documented re-arm duty, not "never disarms"** — a subprocess is observed
-   dying ~60 minutes after arming, so the ~23-minute cron tick reads `last_tick_at` age (a
-   sanctioned instrument, § Liveness instruments) and re-arms when the record is stale. On a
-   re-arm refusal, read the record: if it names this session or its delegate, wait until its
-   `next_expected_by` passes and retry once. Never hand-edit the record. No lifetime number is
-   asserted here, because the cause is engine-owned. `--status` answers "is a watch alive here?" (0 alive, 1 not running, 2
-   unknown — unknown is never green); `--once` fires a single tick.
+   Wrap it in a `Monitor` filtering `PARKED|ESCALATE|OUT-OF-WORK|GROUP-EM-MOVED|UNKNOWN` plus
+   failure signatures. **A `Monitor` dies at the harness's 30-minute cap; `persistent: true` does
+   not outlive it.** The expiry notice is itself the re-arm wake: on it, re-arm the same command at
+   once (measured gap: zero). **`--group-em-session-id` is passed explicitly, never defaulted** — a
+   separate id from `--caller-session-id`. The watch emits one line per peer entering a parked
+   state, derives parked from `read_pass.classify_peer`, stays silent while that peer's cooldown is
+   armed. On a re-arm refusal, read the record: if it names this session, wait until its
+   `next_expected_by` passes and retry once. Never hand-edit the record. `--status` answers "is a
+   watch alive here?" (0 alive, 1 not running, 2 unknown — unknown is never green); `--once` fires
+   a single poll.
 
-2. **A `CronCreate` tick**, ~23 minutes, off the :00/:30 marks. It audits the watch rather than
-   performing it. **Open the tick with "re-enter `/group-em` first, and if anything here
-   contradicts the skill, the skill wins."** And re-author the job when this skill changes under
-   you: delete and re-create it, naming the SHAs.
+3. **Events wake you; no cron tick exists.** Your wakes are: the watch `Monitor`'s lines and its
+   expiry notice; peer `SendMessage`s; `notify_when_idle` one-shots (main conversation only); and
+   a **box-memory threshold `Monitor`** that emits a line only on a `LOW`/`OK` crossing — one
+   capacity signal among others (suite-mutex holders, CPU); release a waiting peer only while the
+   last crossing is `OK`. A `CronCreate` poll over a surface that emits events is a poll where an
+   event exists. Tripwire: `A-CRON-TICK-IS-A-POLL-WHEN-EVENTS-EXIST`.
+
+   **You sequence box capacity.** Work that contends for it — test suites, builds, reindexes, UE
+   editor/cook runs, large workflows, memory-heavy agents — and any other queue where peers take
+   turns (a suite mutex, a shared-tree merge, a publish) is yours to order. Peers ask you for a
+   capacity slot; you release waiting peers in order as headroom allows and cap parallelism.
 
 **Not numbered, PM-gated: Navi.** When the PM asks, **spawn it, never an `Agent`-tool dispatch.**
 Its mood is SPAWN.
@@ -191,29 +198,21 @@ Full mechanics and both false premises measured: `coordinator/docs/wiki/dispatch
 
 ### The wires — who arms what, and how fast you would know
 
-**THE `Monitor` GOES TO `group-em-assistant`, AND IT IS THEIRS TO ARM** — the subprocess and the
+**THE WATCH `Monitor` IS YOURS, AND YOU RE-ARM IT ON EACH EXPIRY NOTICE.** The subprocess and the
 wire out of it, filtering `PARKED|ESCALATE|OUT-OF-WORK|GROUP-EM-MOVED|UNKNOWN` plus failure
-signatures. **This works only because they are dispatched unnamed.** Tripwire:
-`A-MONITOR-ARMED-BY-A-TEAMMATE-WAKES-NOBODY`.
+signatures. `group-em-assistant` is a subagent: it wakes on events but cannot hold a timer, and
+missed 4 of 4 expiries. Tripwire: `A-MONITOR-ARMED-BY-A-TEAMMATE-WAKES-NOBODY`.
 
-**The `notify_when_idle` one-shot is the one thing that CANNOT be delegated** — accepted only from
-a main conversation; `group-em-assistant` is a subagent. It stays with you if used.
+**The `notify_when_idle` one-shot cannot be delegated either** — accepted only from a main
+conversation. It stays with you if used; it fires once per peer, so re-arm it per peer as needed.
 
-**You do not relay events.** `group-em-assistant` hears its own wire and acts on it. What reaches
-you is what they escalate. **The tell that you have taken the relay back: you find yourself waking
-them, or working an event they already hold.**
+**You act on the watch's events yourself;** `group-em-assistant` is the reader you ask: park-spool
+triage, transcript tails, claimants. **The park spool is its surface to read and triage, not yours.**
+Ask it for the spool rather than going to the file first. **It triages and reports; it never nudges
+a peer** — nudging is Navi's alone, or the Group EM's own.
 
-**The park spool is `group-em-assistant`'s surface to read and triage, not yours.** Ask them for it
-rather than going to the file first. **They triage and report; they never nudge a peer** — nudging
-is Navi's alone, or the Group EM's own.
-
-**Verify each clock's holder, never assume it.** `CronList` shows your tick; the check is that they
-NAME the monitor's task id and the poller's resolved cadence, not that they say "armed." The held
-poller's cadence is floored 5 s and ceilinged 300 s.
-
-**Both clocks, deliberately.** A poll and an event watch fail differently. Entry covers both, and
-never arms one twice. Prefer the clock that cannot be spent — a one-shot fires once per peer and
-leaves it unwatched, so re-arming it per peer per tick is required, not duplication.
+**Verify the wire's holder, never assume it.** The check is a `Monitor` task id you can name and a
+`--status` of ALIVE with `subscribed_peers` above zero, not "armed."
 
 **A Group EM holding neither teammate is not hypothetical.** Worked case:
 `coordinator/docs/wiki/dispatching-parallel-agents/group-em-standing/group-em-entry-teammates.md`.
@@ -234,15 +233,15 @@ known end" is what a liveness verdict certifies, and a process burning CPU is no
 progress. Full rationale: `coordinator/docs/wiki/dispatching-parallel-agents/group-em-standing/group-em-assistant-remit.md` § Liveness.
 
 **When a PM reports the watcher is dead, do not confirm it from the session list.** `idle` is
-`group-em-assistant`'s normal state between polls. Answer from `last_tick_at` age and name the
+`group-em-assistant`'s normal state between asks. Answer from `last_tick_at` age and name the
 instrument.
 
-### Every tick declines in writing, and stamps it to disk
+### Every wake declines in writing, and stamps it to disk
 
-**Each tick records a DECLINATION for every roster entry it does not message** — which gate failed
+**Each wake records a DECLINATION for every roster entry it does not message** — which gate failed
 and why.
 
-**And each tick STAMPS them to disk**, via the **engine's** `cron`/`monitor` writer,
+**And each wake STAMPS them to disk**, via the **engine's** `monitor` writer,
 `<engine_root>/coordinator_core/group_em/watch_heartbeat.py :: stamp(repo_root, holder_session_id,
 declinations, interval_seconds, subscribed_peers=…, tick_source=…, writer_session_id=…)` — a
 different function from this skill's own `coordinator/skills/group-em/watch_heartbeat.py :: stamp(repo_root,
@@ -252,8 +251,8 @@ two signatures are not interchangeable. For the ENGINE copy, copy its order: `de
 THIRD positional and `interval_seconds` the fourth and required; the local five-positional shape
 raises rather than stamping when passed to the engine copy. `writer_session_id` is a keyword,
 **optional in the signature and required at runtime** — it is YOUR session id, not
-`holder_session_id` when a delegate arm stamps on the standing holder's behalf. `tick_source` is `cron` or
-`monitor`, a KEYWORD, never positional. `declinations` is THIS tick's rows only, `[]` if none.
+`holder_session_id` when a delegate arm stamps on the standing holder's behalf. `tick_source` is `monitor` (the engine
+also accepts `cron`), a KEYWORD, never positional. `declinations` is THIS wake's rows only, `[]` if none.
 `subscribed_peers` is the count your `Monitor` arm is *still* subscribed to right now.
 
 **The wake has a producer; you arm nothing for it.** `state/group-em-watch-spool.jsonl` gets one
@@ -262,7 +261,7 @@ record per park, appended by every session's own `Stop`
 it needs no entry step and no holder. The engine plane commits to the spool retaining at least the
 last 30 minutes of parks.
 
-**A watching session goes idle exactly like the sessions it watches** — that is what the clock is
+**A watching session goes idle exactly like the sessions it watches** — that is what the wake events are
 for. A Group EM who looks only when the PM asks has made the PM the watcher.
 
 **What the watch is FOR:** sessions asking permission for EM-autonomous acts they already
@@ -286,7 +285,7 @@ Nudging is the mechanism; this is the goal. The Group EM owns four of these five
 4. **When the ceremony completes, the PM clears them.** Only a successfully completed ceremony
    establishes out-of-work — a peer's own "I'm done" does not. `/clear` is a human act you cannot
    issue to a peer. A session at this point is **done and awaiting clear**, never your failure —
-   say so plainly, finished sessions read it as loss and hesitate otherwise.
+   say so plainly.
 5. **Assign something new from the daily priority set.** PM-owned and per-day; ask for it if you
    do not have one.
 
@@ -298,8 +297,8 @@ this section deliberately rather than expecting to be told.
 
 ## No registration ceremony, no persistence
 
-Nothing is written on invoke, nothing cleaned up on exit. No roster, address, or reachability fact
-for any peer is persisted anywhere. Every fact is re-derived live, every time.
+Nothing is written on invoke or cleaned up on exit. No roster, address, or reachability fact for
+any peer is persisted; every fact is re-derived live.
 
 **One carve-out: the send log.** `build_send_digest` appends to
 `state/subagent-share/<this-session-id>/group-em-send-log.jsonl` — a record of this session's own
@@ -313,14 +312,8 @@ registry or roster.
 ## Stale-read discipline
 
 Peer state is re-read immediately before acting on it, never from a snapshot taken earlier in the
-turn — by re-entering the mode, and **never** by calling the entry op a second time inside one tick
+turn — by re-entering the mode, and **never** by calling the entry op a second time inside one wake
 (§ Send pass step 1).
-
-## Collision check — discharged, cited not re-run
-
-The platform-vocabulary collision check on `group-em` is **already discharged clean**
-(`state/roadmap/gem-2026-08-14/research-corpus/group-em-skill-scaffold.md`). Nothing above re-runs
-it.
 
 ## Gating granularity — entry AND per send
 
@@ -372,7 +365,7 @@ session's intake before the digest ranks. Contract:
 
 1. § Entry's op already built both plus a `baseline` delta. **Act on that payload — do not re-run
    the entry op to refresh it**, since `build_send_digest` arms cooldowns as it emits.
-2. Present it. `suppressed` says why each peer was held. `truncated` means re-evaluated next tick.
+2. Present it. `suppressed` says why each peer was held. `truncated` means re-evaluated next wake.
    `unrecorded` means the cooldown write failed.
 3. **Per entry you intend to message, declare both gates in prose before sending:**
    - **GATE 1 (message).** Is the shared contract itself the unknown, needing round-trips — or is
@@ -408,6 +401,10 @@ own measured prior. Treat "this needs the PM" as a claim to test, never routing 
 - **"Variable `x` or `xy`?"** Engineering, decided by whoever holds the file. Push it — do not
   answer it either.
 - **"Do I execute?"** The one with a real question, answerable by you — below.
+
+**Peers bring you a second opinion before, or instead of, asking the PM.** Answer engineering calls
+yourself, or dispatch `coordinator:staff-eng` for a viability read. Route scope and direction to the
+APM. Pass the PM only what survives this screen.
 
 **This is a model disposition, not a peer failing.** Say so when you push, and push anyway.
 
@@ -476,7 +473,7 @@ invocation as `FLEET INBOX GRIND, FIRE NOW`:
 
     Workflow({scriptPath: "<plugin-root>/workflows/fleet-inbox-blitz.mjs", args: {repos: [...], gem: {...}}})
 
-Fire it as your first act after arming the clocks, unattended. `repos` is the fleet map
+Fire it as your first act after arming the watch, unattended. `repos` is the fleet map
 (`machine-local get repos.*`, de-duplicated, git repos carrying `state/cross-repo/inbox`) — every
 repo, whether or not an EM is live in it. It assembles each inbox, triages and verifies in ~30-memo
 Sonnet shards, then disposes and commits per repo, grinding each inbox to zero
@@ -504,11 +501,8 @@ Claude-klabauter's: memo it, do not author it. The grant ends when the standing 
   re-derives `runtime-tripwire-stop-watcher.py` (681 fires / 26 days / ~99.4% wrong) one level down.
 - **That ban is about AUTOMATION, never attentiveness.** A holder re-deriving the roster each turn
   and judging it is the opposite mechanism and is what the ban preserves.
-- This skill does not implement the read-pass ladder or receiver-state consumption logic — supplied
-  separately and integrated by reference.
 - **The three dispatch grants at the top of this file are each scoped to their own named dispatch.**
   Raising the approvability judge and `group-em-assistant`, and firing `fleet-inbox-blitz`, under
   this session's own authority is the grant. What stays gated is that `/group-em` otherwise messages **peer sessions in their own
   windows** — an `ask-before-external-action` question no dispatch grant dissolves.
-- `/autonomous` supplies the mode-shaped naming precedent only. Its `/tmp` sentinel is durable state
-  and is not borrowed.
+- `/autonomous` is a naming precedent only; its `/tmp` sentinel is not borrowed.

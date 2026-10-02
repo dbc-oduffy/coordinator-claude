@@ -63,8 +63,8 @@ specifics (org slugs, allowlist contents, target names) are not.
 - `percolate-store.yaml` (this directory) — the authoritative behavioral spec;
   read its own header comment first.
 - `publish.py` (engine-repo-resident, `$CLAUDE_KLABAUTER_ROOT/coordinator/bin/publish.py`) — the driver that dispatches these phases.
-- `~/.claude/plugins/coordinator-claude/coordinator/docs/wiki/install-playbook-rationale/percolate-setup.md` — full percolation setup procedure (target registration, identity config, first-run walkthrough).
-- `~/.claude/plugins/coordinator-claude/coordinator/docs/wiki/install-playbook-rationale/post-sync-hook-doctrine.md` — canonical statement of the touched-list-scoped mutation constraint this mechanism's predecessor was built around; still relevant background for anyone writing a new declarative `hooks:` phase.
+- `${CLAUDE_PLUGIN_ROOT}/docs/wiki/install-playbook-rationale/percolate-setup.md` — full percolation setup procedure (target registration, identity config, first-run walkthrough).
+- `${CLAUDE_PLUGIN_ROOT}/docs/wiki/install-playbook-rationale/post-sync-hook-doctrine.md` — canonical statement of the touched-list-scoped mutation constraint this mechanism's predecessor was built around; still relevant background for anyone writing a new declarative `hooks:` phase.
 
 ## Out of scope (for this README)
 

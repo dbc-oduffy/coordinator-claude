@@ -2178,6 +2178,7 @@ def _build_commit_subject(
     *,
     deletion_paths: "Optional[Sequence[str]]" = None,
     source_sha: str = "",
+    dest_name: str = "",
 ) -> str:
     """Two numbers, both labelled, never one presented as the other (see
     module-level defect this replaces): `real_changes` is publish.py's own
@@ -2235,8 +2236,12 @@ def _build_commit_subject(
     residual = (
         f"; {len(dropped)} reported change(s) not carried" if dropped else ""
     )
+    # Lead with the destination repo (what a reader of the mirror's history
+    # recognises) and keep the publish row in brackets; a row that merely
+    # equals the repo name, or an unknown dest, keeps the bare-row form.
+    label = f"{dest_name} [{target}]" if dest_name and dest_name != target else target
     return (
-        f"percolate publish: {target} "
+        f"percolate publish: {label} "
         f"({len(pathspec)} file(s) to commit; carries "
         f"{added_or_updated} added-or-updated, {removed} removed{residual})"
         f"{_source_sha_suffix(source_sha)}"
@@ -3392,6 +3397,7 @@ def _cmd_round_default(
             subject = _build_commit_subject(
                 target, real_changes, pathspec, deletion_paths=deletion_paths,
                 source_sha=manifest.source_sha if manifest is not None else "",
+                dest_name=Path(repo_root).name,
             )
             # The subject counts the remainder; the body names it. Recomputed
             # here rather than threaded out of `_report_commit_residual` because

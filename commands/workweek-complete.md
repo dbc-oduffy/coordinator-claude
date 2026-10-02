@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 # Workweek Complete — Weekly Release Ceremony
 
-PM-invoked, release-grade close. Week-changelog is the canonical ledger, never `git log`.
+PM-invoked, release-grade close. Week-changelog is the canonical ledger.
 
 ## Step 0.95: Compute the Ceremony Spine
 
@@ -150,7 +150,7 @@ Illegal-path scan (NTFS-illegal chars) on tracked+staged paths; non-zero → hal
 re-commit, re-run. Compute session-keyed trail-scope shard (newest matching `<SID_SHORT>`, else
 newest overall).
 
-Read `~/.claude/plugins/coordinator-claude/coordinator/skills/parallel-code-review/SKILL.md`,
+Read `${CLAUDE_PLUGIN_ROOT}/skills/parallel-code-review/SKILL.md`,
 execute against the shard. The Staff Engineer NOT in this gate — see Step 8.
 
 - **BLOCKED:** halt before Step 10; surface verdict + findings-dir path.
@@ -217,7 +217,7 @@ gate; PM may promote an entry to Highlights at Step 12.
 
 **Main-membership is not "already announced."** An entry already on `origin/main` is the
 catch-up target, not a double-count risk — what matters is coverage in a *prior* release's notes
-(check `archive/release-notes/`, never `git log --contains`).
+(check `archive/release-notes/`).
 
 **Reconcile backstop is KILLED — no step here.** `workweek-complete-close reconcile-sweep` and
 `reconcile-completion-commits.py` are retired; their launchers survive and exit 127. Folding
@@ -402,8 +402,8 @@ Append a line only when its condition holds:
 | `**Post-ceremony hook:**` | the tail hook produced output |
 
 **Negative-spec — gone, do not restore:** `Week`, `Release notes`, `Docs updated`, `Code stats`,
-`Tracker`, `Week-changelog`. Each is already recorded by its own commit — `git log`/`git show` is
-the record, absence here is not evidence the step was skipped.
+`Tracker`, `Week-changelog`. Each is already recorded by its own commit; absence here is not
+evidence the step was skipped.
 
 ---
 

@@ -56,9 +56,9 @@ restatement), `--precedent shipped-before|novel`, `--boundary-in-notch yes|no` (
 the Step 1b/2 flags as answered, and `--jtbd-unclear`/`--well-trodden-step-change`/`--express-lane`
 as warranted. Push the returned `route`/`detents`/`next_move` verbatim.
 
-**4. Scaffold the sizing-object** (`coordinator-doc-new --type sizing-object`) for any
-non-express-lane sizing, populating `intent`/`estimate`/`route`/`detents`/`scout_evidence`/`exit_criterion`/`interaction_mode` and the
-property-attests verbatim from the returned fields. Undecided direction-class items go in
+**4. Write the sizing-object** for any non-express-lane sizing: re-run Step 3's `sizing-assemble`
+call with `--write state/sizings/<date>-<slug>.yaml`. It writes the record from its own output and
+lands it `routed`; never hand-edit its fields. Undecided direction-class items go in
 `surfaced_to_pm`, never folded into `fork`/`xl_exit`. Optionally pass `--name "<short label>"` for
 `name` — a few words, whiteboard length; never a slice of `intent`.
 

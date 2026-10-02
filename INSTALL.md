@@ -69,36 +69,41 @@ running.**
 Coordinator's own home-resolution chain honours `USERPROFILE` via `Path.home()`, so native shells
 resolve correctly there.
 
-## Step 0 — Detect: Track A or Track B?
+## Step 0 — Detect: which track?
 
-Before any other action, determine which track applies. **Run these three commands** — do not
-infer the state from a property, because the obvious test for each one lies:
+The installer decides the track; you never pick one by hand and never infer it from probes of
+`~/.claude`. Resolve the plugin root, then run:
 
 ```bash
-test -d ~/.claude/.git && echo "own-git-repo"          # NOT `git -C ~/.claude rev-parse …`
-jq -e '. != {} and . != null' ~/.claude/plugins/installed_plugins.json 2>/dev/null && echo "has-plugins"
-test -e ~/.claude/.content-root -o -d ~/.coordinator-claude-settings && echo "has-coordinator-infra"
+python3 <plugin-root>/lib/install/coordinator_install.py --plan
 ```
 
-Use the literal commands, not `git rev-parse` — a home directory under dotfile tracking makes
-`rev-parse` misread a clean home as configured.
+Read `environment.track` (with `track_reason`) from the JSON.
+All three tracks execute through the same installer call, which runs the track's own steps ahead
+of the configure steps:
 
+- **`fresh`** — no coordinator plugin installed. Go to Step 1, then the restart gate.
+- **`update`** — installed, and the installer performs the update itself (`plugin_update`,
+  `engine_setup`, `engine_check`). `track_reason: already current` means every step reports
+  SKIPPED/INHERITED. Skip Steps 1 and 2 and go to Step 3.
+- **`repair`** — installed, not newer, engine check fails or the engine is unlocatable. Report
+  `track_reason` to the human. Skip Steps 1 and 2 and go to Step 3.
 
-- **`state=pristine`** — `~/.claude` does not exist, or exists but is empty. **Track A** — proceed
-  to Step 1 from zero.
-- **`state=used-vanilla`** — `~/.claude` exists and Claude Code has run there, but all three
-  commands above printed nothing. **Track A** — the human's sessions and any `CLAUDE.md` edits are
-  preserved, not overwritten. Surface a *light, non-alarming* note; do NOT show the Track-B
-  warning below.
-- **`state=configured`** — any of the three printed. **Track B.**
+**No plugin root (cold box).** Nothing exists yet to run `--plan` from; by the installer's own
+predicate that box is `fresh`. The entry is the engine installer's cold path:
+`python3 <klabauter-clone>/scripts/setup.py --i-am-agent` (Step 4). Proceed to Step 1.
 
-**Track B with the coordinator plugin already installed** (`has-plugins` names `coordinator@…`)
-**is the update track, not a cold install.** Run `/coordinator:coordinator-update` (a native-CLI install: `claude plugin update`), then
-`python3 <plugin-root>/lib/install/coordinator_install.py --plan`: it reports `track: update` and
-every step skips what is already configured, so re-running it is the way to pick up newly added
-steps (status lines, recommended extras). Skip Steps 1 and 2 and go to Step 3. The human types `/coordinator:install` (`disable-model-invocation`); the agent may run only the `--plan` form above through Bash.
+The human types `/coordinator:install` (`disable-model-invocation`); the agent may run only the
+`--plan` form above through Bash.
 
-**Track B otherwise — proceed and report; do not stop.** The install merges config files rather than
+### Existing home — disclosure, not routing
+
+What the human's `~/.claude` already holds is a disclosure, never a routing input: it comes from
+`detect-existing-claude-home.py`'s `state=` line or the installer's INHERITED rows. A used-vanilla
+home (Claude Code has run there) gets a *light, non-alarming* note; the human's sessions and any
+`CLAUDE.md` edits are preserved, not overwritten.
+
+**Existing structure — proceed and report; do not stop.** The install merges config files rather than
 overwriting them, so an existing home is not by itself a reason to hold. Proceed, and tell the
 human afterwards what you found and what the install did with it:
 
@@ -513,10 +518,10 @@ it, and don't gate on code quality. See `CONTRIBUTING.md`.
 
 ## Keeping the install current
 
-After install, `/coordinator:coordinator-update` is the PM-invoked way to update later: it checks the latest
-published version, computes a delta, and advises a path while preserving customizations by
-default — never a blind overwrite. `claude plugin install coordinator@coordinator-claude` also
-pulls the latest, but `/coordinator:coordinator-update` is the safer, customization-aware path.
+After install, re-run `--plan` (Step 0): `track: update` means the installer performs the update
+itself, and a re-run picks up newly added steps. `/coordinator:coordinator-update` stays as the
+customization-aware advisory — it checks the latest published version, computes a delta, and
+advises a path while preserving customizations by default — but it never performs the update.
 
 `version.txt` in the installed plugin directory is the update baseline: the commit SHA of the
 source the install was made from, which `/coordinator:coordinator-update` compares against upstream. It is not

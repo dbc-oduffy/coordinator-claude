@@ -58,7 +58,7 @@ object — decide from it, never invent a verdict the evidence doesn't support.
 
 **`j-delete-<branch>` — zero-unique-commit `cloud-session` branch.** **delete** once its tip is
 reachable from main or the current branch and it heads no open PR, which you check with `gh pr list`.
-Otherwise **keep**. Before any remote delete, run `git merge-base --is-ancestor <remote tip> origin/<base>`; "a PR merged" is not evidence, and a tip with commits outside the base is kept with its count and SHA reported. `mine-stale` branches with zero unique commits delete unconditionally; a
+Otherwise **keep**. Before any remote delete, run `git merge-base --is-ancestor <remote tip> origin/<base>`; "a PR merged" is not evidence. A tip with commits outside the base is kept; report its count and SHA. `mine-stale` branches with zero unique commits delete unconditionally; a
 `cloud-session` branch always gets a verdict, because its owner is inferred, not proven.
 
 **`j-absorb-<branch>` — supersession verdict.** You get the unique-commit list plus a
