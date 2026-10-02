@@ -6,6 +6,7 @@ an explicit ``coordinator.machine_profile`` registry value wins; absent, the box
 sentinel at its root, else ``consumer``. Stdlib only, no engine import, no subprocess.
 An unreadable registry resolves to ``consumer``.
 
+``guard_level(guard_id)`` mirrors the engine (per-guard key beats global key; default ``warn``).
 ``feature_enabled(name)`` reads ``coordinator.feature.<name>`` (``on``/``off``);
 ``doctrine_edit_gate`` is off unless set ``on``, and an unreadable key is off.
 """
@@ -98,3 +99,38 @@ def feature_enabled(name: str) -> bool:
     except Exception:  # noqa: BLE001 -- hooks fail open
         return False
     return default == "on"
+
+
+LEVEL_KEY = "coordinator.guard_level"
+LEVELS = ("strict", "warn", "off")
+DEFAULT_LEVEL = "warn"
+
+
+def guard_level(guard_id: str | None = None) -> str:
+    """``strict``, ``warn`` or ``off`` for ``guard_id`` (global level when ``None``).
+
+    Per-guard ``coordinator.guard_level.<guard_id>`` beats global
+    ``coordinator.guard_level``; absent both, ``warn`` regardless of machine
+    profile. ``MACHINE_LOCAL_COORDINATOR_GUARD_LEVEL[_<ID>]`` env overrides the
+    registry. An unreadable registry resolves to ``warn``.
+    """
+    try:
+        reg_dir = _settings_home_registry_dir()
+    except Exception:  # noqa: BLE001 -- hooks fail open
+        return DEFAULT_LEVEL
+
+    def _read(key: str, env_name: str) -> str | None:
+        try:
+            raw = os.environ.get(env_name) or _registry_value(reg_dir, key)
+        except Exception:  # noqa: BLE001
+            return None
+        value = (raw or "").strip().lower()
+        return value if value in LEVELS else None
+
+    env_base = "MACHINE_LOCAL_COORDINATOR_GUARD_LEVEL"
+    if guard_id:
+        suffix = guard_id.upper().replace("-", "_").replace(".", "_")
+        per_guard = _read(f"{LEVEL_KEY}.{guard_id}", f"{env_base}_{suffix}")
+        if per_guard:
+            return per_guard
+    return _read(LEVEL_KEY, env_base) or DEFAULT_LEVEL

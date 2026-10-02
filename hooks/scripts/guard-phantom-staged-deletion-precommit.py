@@ -1,3 +1,4 @@
+# guard-not-a-hook-entrypoint
 """Native git pre-commit hook: refuse a commit that would delete a path still
 present in HEAD and on disk.
 

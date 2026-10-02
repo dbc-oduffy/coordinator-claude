@@ -16,7 +16,7 @@ out-of-scope, or unverified all resolve to not-applying. Today the verifier neve
 `human_channel` returns data (`holder` / `non-holder` / `unknown`); `unknown` routes as
 `non-holder`. The caller acts on the route; this module never opens a modal.
 
-Writes use os.replace and no POSIX mode bits. `fleet-posture` is not protected from agent
+Writes use os.replace and no POSIX mode bits. `fleet-posture.py` is not protected from agent
 invocation (R4): the grant verifier is the sole trust anchor.
 """
 

@@ -653,7 +653,11 @@ def _flatten_concern(concern_name: str, data: dict, _prefix: str = "") -> dict:
     return result
 
 
-def _build_resolution_layers(reg_dir: str, _registry_local_data: dict | None = None) -> list[dict]:
+def _build_resolution_layers(
+    reg_dir: str,
+    _registry_local_data: dict | None = None,
+    warn_unprovisioned: bool = False,
+) -> list[dict]:
     reg_path = os.path.join(reg_dir, "registry.toml")
     reg_local_path = os.path.join(reg_dir, "registry.local.toml")
 
@@ -712,14 +716,15 @@ def _build_resolution_layers(reg_dir: str, _registry_local_data: dict | None = N
             _warn_schema(c_local_data, c_local_path)
 
         if not c_data and not c_local_data and not c_data_malformed and not c_local_data_malformed:
-            print(
-                f"machine-local: warning: concern '{concern}' is registered in "
-                f"concerns=[...] but neither '{concern}.toml' nor "
-                f"'{concern}.local.toml' could be loaded from {reg_dir} "
-                "(missing/unreadable/empty) — its keys will resolve not-found. "
-                "Refresh the install or remove it from concerns.",
-                file=sys.stderr,
-            )
+            if warn_unprovisioned:
+                print(
+                    f"machine-local: warning: concern '{concern}' is registered in "
+                    f"concerns=[...] but neither '{concern}.toml' nor "
+                    f"'{concern}.local.toml' could be loaded from {reg_dir} "
+                    "(missing/unreadable/empty) — its keys will resolve not-found. "
+                    "Refresh the install or remove it from concerns.",
+                    file=sys.stderr,
+                )
             continue
 
         if c_local_data:
@@ -1093,7 +1098,7 @@ def cmd_keys(args: argparse.Namespace) -> int:
     directory guess.
     """
     reg_dir = _registry_dir()
-    layers = _build_resolution_layers(reg_dir)
+    layers = _build_resolution_layers(reg_dir, warn_unprovisioned=True)
     all_keys = _all_keys(layers)
     prefix = args.prefix
     if prefix:

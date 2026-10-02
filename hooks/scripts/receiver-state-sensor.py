@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Stop/SubagentStop producer shim for the engine's receiver-state sensor.
 
 PURPOSE. Makes `hooks.receiver_state_sensor` actually fire. The engine op has

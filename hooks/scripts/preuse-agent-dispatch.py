@@ -9,10 +9,14 @@ pattern `stop-dispatch.py` already ships for the Stop event
 (docs/plans/2026-08-06-hook-spawn-fan-in-finish-and-extend.md's own fold,
 state/audits/2026-08-16-doe-hook-consolidation-feasibility.md).
 
-THIS IS HOSTING ONLY, NEVER A POLICY CHANGE. Same four guards, same deny/allow
-text, same override hatches, same ordering, same fail-open/fail-closed contracts
-each guard's own module docstring already states. This file adds ZERO judgement
-of its own.
+THIS IS HOSTING ONLY, NEVER A POLICY CHANGE to the four guards: same deny/allow
+text, override hatches, ordering, and fail-open/fail-closed contracts each
+guard's own module docstring states. The one judgement this file owns is the
+REPO-LESS CWD REFUSAL, which runs before guard 1: a sidecar-eligible dispatch
+(policy `report_sidecar:`) whose payload `cwd` sits in no git repo -- a
+multi-repo parent directory -- is denied, naming the repos the brief's absolute
+paths point at. SubagentStart provisioning anchors on that cwd and cannot refuse,
+so the child would start and then block. Fail-open on every unknowable input.
 
 AGGREGATION CONTRACT -- FIRST-DENY-WINS, NON-DENY OUTPUT COMPOSES. Guards 1-3
 run in registration order (each guard's own `hooks/REGISTRATIONS.md` section
@@ -98,9 +102,18 @@ if str(_HOOKS_DIR) not in sys.path:
 
 try:
     from _git_root_walk import git_root_walk as _git_root_walk
+    from _git_root_walk import git_roots_named_in_text as _git_roots_named_in_text
 except Exception:
-    def _git_root_walk() -> Optional[str]:  # type: ignore[no-redef]
+    def _git_root_walk(start: Optional[str] = None) -> Optional[str]:  # type: ignore[no-redef]
         return None
+
+    def _git_roots_named_in_text(text: str, limit: int = 3) -> List[str]:  # type: ignore[no-redef]
+        return []
+
+try:
+    import yaml as _yaml
+except Exception:
+    _yaml = None  # type: ignore[assignment]
 
 
 @dataclass(frozen=True)
@@ -242,12 +255,66 @@ def _skipped_line(skipped: List[str]) -> str:
     )
 
 
+def _sidecar_eligible(subagent_type: str) -> bool:
+    """True when the policy's `report_sidecar:` list names this type. Fail-open: an
+    unreadable policy or absent `yaml` module answers False, so nothing is refused."""
+    policy_file = _HOOKS_DIR.parents[1] / "subagent-sandbox-policy.yaml"
+    if _yaml is None or not policy_file.is_file():
+        return False
+    try:
+        policy = _yaml.safe_load(policy_file.read_text(encoding="utf-8"))
+        eligible = policy.get("report_sidecar") if isinstance(policy, dict) else None
+        return isinstance(eligible, list) and subagent_type in eligible
+    except Exception:
+        return False
+
+
+def _repo_less_cwd_refusal(payload: Any) -> Optional[str]:
+    """Deny text for a sidecar-eligible dispatch whose payload `cwd` sits in no git repo.
+
+    The SubagentStart sidecar provisioner anchors on that cwd; with no repo above it the child
+    starts, then blocks with no scaffold. Refusing here names the fix while the EM can still act
+    on it. Only a payload-carried cwd is judged -- an absent one is unknowable, never refused.
+    """
+    if not isinstance(payload, dict) or payload.get("tool_name") != "Agent":
+        return None
+    cwd = payload.get("cwd")
+    tool_input = payload.get("tool_input")
+    if not isinstance(cwd, str) or not cwd or not isinstance(tool_input, dict):
+        return None
+    subagent_type = tool_input.get("subagent_type")
+    if not isinstance(subagent_type, str) or _git_root_walk(cwd) is not None:
+        return None
+    if not _sidecar_eligible(subagent_type.strip()):
+        return None
+    prompt = tool_input.get("prompt")
+    roots = _git_roots_named_in_text(prompt if isinstance(prompt, str) else "")
+    if roots:
+        fix = "cd into the repo this brief names (" + ", ".join(roots) + ") and redispatch."
+    else:
+        fix = "cd into the target repo and redispatch."
+    return (
+        f"[preuse-agent-dispatch] DISPATCH REFUSED: cwd `{cwd}` is not inside a git repo, so "
+        f"`{subagent_type}` could not be given its run-report sidecar -- the subagent would "
+        f"start, then block. Fix: {fix}"
+    )
+
+
 def main() -> int:
     raw = sys.stdin.read()
     try:
         payload: Any = json.loads(raw)
     except Exception:
         payload = None
+
+    refusal = _repo_less_cwd_refusal(payload)
+    if refusal:
+        _write_bytes(sys.stdout, json.dumps({"hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": refusal,
+        }}) + "\n")
+        return 0
 
     skipped: List[str] = []
     trailing_stderr: List[str] = []

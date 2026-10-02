@@ -1468,9 +1468,11 @@ def ensure_hooks_fleet(
     for line in stale:
         print(line, file=sys.stderr)
     if healed:
+        verb = "found" if check_only else "repaired or flagged"
+        noun = "stale hook(s)" if check_only else "hook(s)"
         print(
-            f"[git_hook_install] fleet heal repaired or flagged "
-            f"{len(healed)} hook(s) across {len(roots)} registered repo(s):",
+            f"[git_hook_install] fleet heal {verb} "
+            f"{len(healed)} {noun} across {len(roots)} registered repo(s):",
             file=sys.stderr,
         )
         for line in healed:

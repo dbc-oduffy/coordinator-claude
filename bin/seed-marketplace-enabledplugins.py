@@ -691,7 +691,7 @@ def _run(
     committed_path: pathlib.Path,
     known_marketplaces_path: pathlib.Path,
     check_only: bool,
-) -> int:
+) -> "tuple[int, bool]":
     repos = _read_repos_registry(registry_dir) if _is_author_machine() else {}
     present_keys, present_marketplaces, warnings = _enumerate_present_plugin_keys(repos)
     for warning in warnings:
@@ -700,15 +700,15 @@ def _run(
     committed_data, err = _read_settings_dict(committed_path)
     if err:
         print(f"ERROR: {err} — refusing to write.", file=sys.stderr)
-        return 1
+        return 1, False
     local_data, err = _read_settings_dict(local_path)
     if err:
         print(f"ERROR: {err} — refusing to write.", file=sys.stderr)
-        return 1
+        return 1, False
     known_marketplaces_data, err = _read_marketplaces_dict(known_marketplaces_path)
     if err:
         print(f"ERROR: {err} — refusing to write.", file=sys.stderr)
-        return 1
+        return 1, False
 
     committed_enabled = committed_data.get(_ENABLED_PLUGINS_KEY, {})
     local_enabled = local_data.get(_ENABLED_PLUGINS_KEY, {})
@@ -741,7 +741,7 @@ def _run(
 
     if not keys_to_seed and not extra_marketplaces_to_seed and not known_marketplaces_to_seed:
         print("seed-marketplace-enabledplugins: nothing to seed (already covered)")
-        return 0
+        return 0, True
 
     if check_only:
         if keys_to_seed:
@@ -759,7 +759,7 @@ def _run(
                 "seed-marketplace-enabledplugins: would seed known_marketplaces.json"
                 " (check-only, no write): " + ", ".join(sorted(known_marketplaces_to_seed))
             )
-        return 0
+        return 0, False
 
     # Both payloads share one atomic write to local_path; the outer
     # `if` gates whether a write happens at all, not two independently-gateable writes.
@@ -797,7 +797,7 @@ def _run(
             + ", ".join(sorted(known_marketplaces_to_seed))
         )
 
-    return 0
+    return 0, False
 
 
 def _check_only_requested(args: argparse.Namespace) -> bool:
@@ -870,7 +870,7 @@ def main(argv: "list[str] | None" = None) -> int:
     registry_dir = _registry_dir(args.registry_dir)
     check_only = _check_only_requested(args)
 
-    rc = _run(
+    rc, covered = _run(
         registry_dir=registry_dir,
         local_path=local_path,
         committed_path=committed_path,
@@ -884,6 +884,8 @@ def main(argv: "list[str] | None" = None) -> int:
     # detail; this is just the terse row the table reads.
     if rc != 0:
         status = "failed"
+    elif covered:
+        status = "already-covered"
     elif check_only:
         status = "would seed (check-only)"
     else:

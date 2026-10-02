@@ -150,7 +150,7 @@ def _write_raw_failure_record(repo_root: str, detail: str) -> None:
     `coordinator_core...detached_spawn.record_child_failure`'s own line
     shape. `script=` is the basename, never an absolute path — this hook
     runs from the doctrine-plane source tree regardless of which repo's
-    session invoked it, so an absolute path here would write a coordinator-content-repo
+    session invoked it, so an absolute path here would write a source-repo
     host path into a third repo's own tracked failures log."""
     from datetime import datetime, timezone
 

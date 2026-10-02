@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Install (or re-apply) the Claude Code fast-profile block into Git-for-Windows'
 `/etc/profile`.
 

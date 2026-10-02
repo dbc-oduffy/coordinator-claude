@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 dev-sync.py — sync coordinator-claude plugin source to Claude Code's cache.
 

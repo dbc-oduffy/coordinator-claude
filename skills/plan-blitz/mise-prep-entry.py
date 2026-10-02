@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """mise-prep-entry — mise-prep's entry query over plan-blitz's exit. Writes nothing.
 
 WHY THIS EXISTS. `plan-blitz` lands a wave and stops at *ready to execute*. Its exit is complete

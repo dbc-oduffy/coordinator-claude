@@ -116,6 +116,7 @@ from _claude_md_ledger import (  # noqa: E402
     admission_check_for_surface,
     resolve_governed_surface,
 )
+from _machine_profile import guard_level  # noqa: E402
 from _guard_runner_contract import (  # noqa: E402
     CHANNEL_ADDITIONAL_CONTEXT,
     CHANNEL_DENY,
@@ -251,6 +252,26 @@ def _compose_soft_warn_message(file_path: str, size: int, token_note: str, soft:
     )
 
 
+def _is_home_claude_md(abs_file_path: str) -> bool:
+    try:
+        return Path(abs_file_path).resolve() == (Path.home() / ".claude" / "CLAUDE.md").resolve()
+    except Exception:
+        return False
+
+
+def _leveled_deny(message: str) -> int:
+    """Exit code for a denial after `coordinator.guard_level.check-claude-md-size`:
+    strict -> 2 (block), warn -> 1 (advisory, message kept), off -> 0 (silent)."""
+    level = guard_level("check-claude-md-size")
+    if level == "strict":
+        sys.stderr.write(message)
+        return 2
+    if level == "off":
+        return 0
+    sys.stderr.write(message)
+    return 1
+
+
 def main() -> int:
     """Contract clause 1 (`_guard_runner_contract.py`): no `sys.exit()` for
     control flow in here -- every leg `return`s its exit code instead, and
@@ -281,6 +302,9 @@ def main() -> int:
     else:
         size_governed = _fallback_is_governed(abs_file_path)
         hard, soft = _HARD_FALLBACK, _SOFT_FALLBACK
+
+    if not (_REPO_ROOT / ".coordinator-dev-repo").exists() and _is_home_claude_md(abs_file_path):
+        size_governed = False
 
     # The SIZE-budget check (40KB perf warning, `~/.claude/CLAUDE.md` and a
     # dev-repo-sentinel-marked `coordinator/CLAUDE.md` only) and the C7
@@ -315,8 +339,7 @@ def main() -> int:
             try:
                 old_content = target_path.read_text(encoding="utf-8")
             except Exception as exc:
-                sys.stderr.write(_compose_read_failure_message(file_path, exc))
-                return 2
+                return _leveled_deny(_compose_read_failure_message(file_path, exc))
         else:
             old_content = ""
 
@@ -330,14 +353,12 @@ def main() -> int:
                 admission_surface, old_content, new_content, _REPO_ROOT
             )
         except LedgerError as exc:
-            sys.stderr.write(_compose_ledger_error_message(exc))
-            return 2
+            return _leveled_deny(_compose_ledger_error_message(exc))
 
         if not allowed:
-            sys.stderr.write(
+            return _leveled_deny(
                 _compose_admission_denied_message(file_path, size, token_note, refusal_message)
             )
-            return 2
 
     if size_governed and size > soft:
         sys.stderr.write(_compose_soft_warn_message(file_path, size, token_note, soft, hard))

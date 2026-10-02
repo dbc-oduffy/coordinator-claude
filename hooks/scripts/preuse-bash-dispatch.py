@@ -41,8 +41,10 @@ Contract (mirrors the bash dispatcher it replaces):
   exit 0  — always (ALLOW/DENY conveyed via stdout, never exit code)
 
 Graceful degradation — REQUIRED: any failure to resolve/import/run the
-engine repo falls through to fail-open ALLOW (exit 0, no stdout). A
-missing sibling engine must NEVER brick every Bash tool call — identical
+engine repo falls through to fail-open ALLOW (exit 0, no stdout), except for
+the one in-shim floor, `_degraded_stash_deny` (a subagent's stash-creating
+command is still denied). A missing sibling engine must NEVER brick every
+Bash tool call — identical
 philosophy to `preuse-write-dispatch.py`'s engine-resolution fallback.
 
 The bash-to-Python cutover is complete; this dispatcher is the sole
@@ -104,6 +106,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -124,6 +127,65 @@ except Exception:
 
     def _arm_lazy_ops() -> None:
         return None
+
+
+# Degraded-mode floor -- the one guard this shim enforces itself. Every engine-side
+# guard fails open when the engine cannot be resolved, imported, or run, and a
+# subagent's whole-tree `git stash` on a shared tree sweeps every concurrent
+# session's uncommitted work. This mirrors `block_subagent_stash_creation`'s
+# posture (subagents only; the raw `agent_id` field is the discriminant) with a
+# deliberately narrow textual matcher. It runs ONLY on the fail-open legs: when the
+# engine answers, its verdict is the whole verdict. Prose that merely mentions
+# `git stash -u` also trips it, but only for a subagent while the engine is down.
+_STASH_CREATE_RE = re.compile(
+    r"(?:^|[;&|(`\s])git"
+    r"(?:\s+(?:-[Cc]\s+\S+|--[\w-]+(?:=\S+)?|-\w+))*"
+    r"\s+stash(?=\s*(?:$|[;&|)<>`]|\d*>|-|(?:push|save)\b))",
+    re.MULTILINE,
+)
+
+_STASH_DEGRADED_DENY_REASON = (
+    "Did you mean one of these instead? Neither touches the shared worktree:\n"
+    "  - Whole-tree baseline:  git archive <sha> | tar -x -C <tmpdir>\n"
+    "  - Single file:          git show <sha>:<path>\n\n"
+    "BLOCKED: `git stash` creates a stash entry, and on a shared working tree a "
+    "stash is GLOBAL -- it sweeps every concurrent session's uncommitted work, not "
+    "just yours. This refusal is enforced even though the engine-backed guards are "
+    "unreachable on this machine.\n\n"
+    "  Command:  %s\n"
+)
+
+
+def _degraded_stash_deny(raw: str) -> dict | None:
+    """Deny verdict for a subagent's stash-creating command, else None (allow).
+
+    Unparseable payloads and payloads with no `agent_id` (the main-loop EM) allow.
+    """
+    try:
+        payload = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(payload, dict) or not payload.get("agent_id"):
+        return None
+    tool_input = payload.get("tool_input")
+    cmd = tool_input.get("command") if isinstance(tool_input, dict) else None
+    if not isinstance(cmd, str) or not _STASH_CREATE_RE.search(cmd.replace("\r", "")):
+        return None
+    shown = cmd if len(cmd) <= 200 else cmd[:200] + "..."
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": _STASH_DEGRADED_DENY_REASON % shown,
+        }
+    }
+
+
+def _emit(verdict: dict | None) -> int:
+    if verdict is not None:
+        sys.stdout.write(json.dumps(verdict))
+        sys.stdout.write("\n")
+    return 0
 
 
 def main() -> int:
@@ -154,7 +216,7 @@ def main() -> int:
     # leave payload["tool_name"] untouched.
     root, resolution_class, _provenance = _resolve_engine()
     if not root:
-        return 0  # fail-open ALLOW -- engine unresolvable on this machine
+        return _emit(_degraded_stash_deny(raw))  # engine unresolvable on this machine
 
     from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
     _place_engine_root_on_path(root)
@@ -168,7 +230,7 @@ def main() -> int:
     try:
         from coordinator_core.bash_guards.dispatch import evaluate_payload_json
     except Exception:
-        return 0  # engine unimportable -- fail-open ALLOW
+        return _emit(_degraded_stash_deny(raw))  # engine unimportable
 
     # __file__ parents: [0]=scripts [1]=hooks [2]=coordinator(plugin root) -- same depth
     # as enforce-agent-dispatch-mode.py's identical computation, since both scripts live
@@ -192,14 +254,10 @@ def main() -> int:
     try:
         out = evaluate_payload_json(raw, **kwargs)
     except Exception:
-        return 0  # any engine failure -- fail-open ALLOW (never brick a Bash call)
+        # Any engine failure falls open (never brick a Bash call) except the stash floor.
+        return _emit(_degraded_stash_deny(raw))
 
-    if out is not None:
-        import json
-
-        sys.stdout.write(json.dumps(out))
-        sys.stdout.write("\n")
-    return 0
+    return _emit(out)
 
 
 if __name__ == "__main__":

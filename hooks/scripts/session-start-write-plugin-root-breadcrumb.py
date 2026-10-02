@@ -118,7 +118,7 @@ def _plugin_root(home: str | None = None) -> str | None:
 
 
 def _breadcrumb_path() -> Path | None:
-    home = os.environ.get("HOME") or os.path.expanduser("~")
+    home = os.environ.get("HOME") or os.environ.get("USERPROFILE") or os.path.expanduser("~")
     if not home or home == "~":
         return None
     return Path(home) / BREADCRUMB_RELATIVE_PATH

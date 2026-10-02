@@ -177,12 +177,11 @@ _PICKUP_COMMAND_NAMES = frozenset({"pickup"})
 # exactly the same path `/pickup` uses. There is deliberately no second claim
 # mechanism for the mise surface.
 #
-# Both members name ONE ceremony (`commands/warp-speed-execute.md` forwards to
-# `commands/mise-en-place.md`), so both must claim. This set is invocation
+# `mise-en-place` is the one wide-run ceremony, so it must claim. This set is invocation
 # vocabulary only -- it is matched against `command_name` and against nothing
 # else. Kept literally identical to `mise-autofire.py :: _MISE_COMMAND_NAMES`;
 # a verb in one and not the other starts the run half-wired, silently.
-_BATON_GRAB_COMMAND_NAMES = frozenset({"mise-en-place", "warp-speed-execute"})
+_BATON_GRAB_COMMAND_NAMES = frozenset({"mise-en-place"})
 
 _BATON_PATH_FAMILIES = (
     "state/handoffs/",

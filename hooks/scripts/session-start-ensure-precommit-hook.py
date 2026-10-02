@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """SessionStart self-heal: this repo's `.git/hooks/pre-commit` gate chain is
 installed on every box that runs a session here.
 

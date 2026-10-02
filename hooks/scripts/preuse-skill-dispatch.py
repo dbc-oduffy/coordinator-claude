@@ -16,7 +16,7 @@ registrations.
 Problem this closes: `docs/plans/2026-09-11-computed-skill-inputs-reach-
 skill-tool-entry.md` census row 2 -- a model-invoked `Skill` tool call never
 fires `UserPromptExpansion` at all, so a typed `/pickup`/`/mise-en-place`/
-`/warp-speed-execute`/`/handoff` gets its computed brief/claim/run-id/
+`/handoff` gets its computed brief/claim/run-id/
 residue segments, and the same verb invoked programmatically via the
 `Skill` tool got nothing. C2/C3/C4 each grew a `compute_context(stdin_text)
 -> str | None` entry point reusable from either firing path; this module is
@@ -29,8 +29,8 @@ Skill-tool call) never pays for a single one of the four modules' imports.
 
 REGISTRY rows -- (leg id, script filename, verb set):
   - trampoline            {"workflow-authoring"}
-  - pickup-autofire        {"pickup", "mise-en-place", "warp-speed-execute"}
-  - mise-autofire          {"mise-en-place", "warp-speed-execute"}
+  - pickup-autofire        {"pickup", "mise-en-place"}
+  - mise-autofire          {"mise-en-place"}
   - handoff-segment-inject {"handoff"}
 `group-em-autofire` is deliberately ABSENT (plan Anti-scope) -- never add it
 here. Each non-trampoline row's verb set is pinned in
@@ -159,10 +159,8 @@ _INTERNAL_DEADLINE_SECONDS = 40.0
 # against the owning module's own frozenset without re-deriving it from
 # REGISTRY first.
 _TRAMPOLINE_VERBS: FrozenSet[str] = frozenset({"workflow-authoring"})
-_PICKUP_AUTOFIRE_VERBS: FrozenSet[str] = frozenset(
-    {"pickup", "mise-en-place", "warp-speed-execute"}
-)
-_MISE_AUTOFIRE_VERBS: FrozenSet[str] = frozenset({"mise-en-place", "warp-speed-execute"})
+_PICKUP_AUTOFIRE_VERBS: FrozenSet[str] = frozenset({"pickup", "mise-en-place"})
+_MISE_AUTOFIRE_VERBS: FrozenSet[str] = frozenset({"mise-en-place"})
 _HANDOFF_SEGMENT_INJECT_VERBS: FrozenSet[str] = frozenset({"handoff"})
 
 

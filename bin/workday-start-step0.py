@@ -175,12 +175,15 @@ def _slug_self_heal(key: str, live_func, drift_label: str, machine_rename_option
     resolved = shutil.which(ml_bin)
     if resolved is None:
         return
-    has = subprocess.run([resolved, "has", key], capture_output=True, text=True)
+    has = subprocess.run([resolved, "has", key], capture_output=True, text=True,
+                         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     if has.returncode != 0:
         live = live_func()
-        subprocess.run([resolved, "set", key, live], capture_output=True, text=True)
+        subprocess.run([resolved, "set", key, live], capture_output=True, text=True,
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         return
-    get = subprocess.run([resolved, "get", "--default", "", key], capture_output=True, text=True)
+    get = subprocess.run([resolved, "get", "--default", "", key], capture_output=True, text=True,
+                         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     persisted = get.stdout.strip() if get.returncode == 0 else ""
     live = live_func()
     if persisted and persisted != live:

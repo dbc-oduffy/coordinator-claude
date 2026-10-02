@@ -414,6 +414,9 @@ def resolve_ledger_path(repo_root: Path, surface: str) -> Path:
     return repo_root / "state" / "audits" / f"{surface_slug(surface)}-classification.md"
 
 
+DEV_REPO_SENTINEL = ".coordinator-dev-repo"
+
+
 def resolve_governed_surface(
     abs_file_path: str, repo_root: Path, home: Optional[Path] = None
 ) -> Optional[str]:
@@ -426,11 +429,16 @@ def resolve_governed_surface(
     call in the path, so no PreToolUse hook ever sees that write on its own
     -- a direct edit to the derived global copy, mapped back onto
     `global-doctrine/CLAUDE.md`'s governance (same ledger, same predicate).
+    The home mapping applies only when `repo_root` carries the
+    `.coordinator-dev-repo` sentinel: a consumer owns their `~/.claude/CLAUDE.md`.
     """
     resolved = Path(abs_file_path).resolve()
     for surface in GOVERNED_AUTHORING_SURFACES:
         if resolved == (repo_root / Path(surface)).resolve():
             return surface
+
+    if not (repo_root / DEV_REPO_SENTINEL).exists():
+        return None
 
     home_dir = (home or Path.home()).resolve()
     if resolved == (home_dir / ".claude" / "CLAUDE.md").resolve():

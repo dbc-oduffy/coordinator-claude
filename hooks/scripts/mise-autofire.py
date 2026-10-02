@@ -5,8 +5,7 @@ mise-en-place-shaped invocation reaches this hook by: a typed
 model-invoked `PreToolUse` call on the `Skill` tool naming the same verb --
 see `_skill_invocation.py`, this module's shared payload adapter.
 
-Purpose: when the EM types `/mise-en-place` or `/warp-speed-execute` (the two
-verbs naming one ceremony -- see `_MISE_COMMAND_NAMES`), this hook fires
+Purpose: when the EM types `/mise-en-place` (see `_MISE_COMMAND_NAMES`), this hook fires
 ahead of `UserPromptSubmit`, mints a
 fresh Phase-0 run id via the engine plane's `backlog-grind-assemble
 mint-run-id mise-en-place` CLI, immediately briefs that same id back through
@@ -103,8 +102,8 @@ from pathlib import Path
 # The bare verbs this hook reacts to. Deliberately the SAME literal set
 # `pickup-autofire.py` uses for its own `_BATON_GRAB_COMMAND_NAMES` -- not a
 # second, independently-chosen convention for what counts as an invocation of
-# the wide run. Both spellings name one ceremony, so both must mint.
-_MISE_COMMAND_NAMES = frozenset({"mise-en-place", "warp-speed-execute"})
+# the wide run. `fire-and-forget` is a separate ceremony and must not mint.
+_MISE_COMMAND_NAMES = frozenset({"mise-en-place"})
 
 # The one cadence `mint-run-id`/`brief` are called with from this hook. It is
 # ENGINE vocabulary, not an invocation verb: the sentinel mode, the run-id

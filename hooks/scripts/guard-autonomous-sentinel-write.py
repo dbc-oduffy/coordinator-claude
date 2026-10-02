@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """PreToolUse guard: deny Write/Edit/MultiEdit/NotebookEdit against the
 session-scoped autonomous sentinel `<gettempdir()>/autonomous-run-<sid>`.
 

@@ -189,7 +189,12 @@ def _load_module_by_path(path: Path, name: str):
     if spec is None or spec.loader is None:
         raise ProjectionUnavailableError(f"could not build an import spec for {path}")
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)  # type: ignore[union-attr]
+    sys.modules[name] = module
+    try:
+        spec.loader.exec_module(module)  # type: ignore[union-attr]
+    except BaseException:
+        sys.modules.pop(name, None)
+        raise
     return module
 
 

@@ -35,7 +35,12 @@ so it stays the zero-spawn primitive its name promises.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
+
+# An absolute path token: a drive-letter or POSIX-root start not glued to a preceding path/URL
+# character, so `https://host/x` never yields `//host/x`.
+_ABS_PATH_RE = re.compile(r"(?<![\w/\\:.~-])(?:[A-Za-z]:[\\/]|/)[^\s\"'`<>|*?,;()\[\]{}]+")
 
 
 def git_root_walk(start: str | None = None) -> str | None:
@@ -48,3 +53,22 @@ def git_root_walk(start: str | None = None) -> str | None:
     except Exception:
         pass
     return None
+
+
+def git_roots_named_in_text(text: str, limit: int = 3) -> list[str]:
+    """Return up to `limit` distinct git roots that absolute paths in `text` live under.
+
+    For a dispatch from a cwd that is no repo (a multi-repo parent directory): the brief's own
+    absolute paths name the repo the subagent must be started in. Order is first mention.
+    """
+    roots: list[str] = []
+    try:
+        for match in _ABS_PATH_RE.finditer(text or ""):
+            root = git_root_walk(match.group(0).rstrip(".:"))
+            if root and root not in roots:
+                roots.append(root)
+                if len(roots) >= limit:
+                    break
+    except Exception:
+        pass
+    return roots

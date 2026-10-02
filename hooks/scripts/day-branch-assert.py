@@ -109,6 +109,20 @@ def _certainly_compliant(repo_root) -> bool:
         return False
 
 
+def _is_install_or_engine_clone(repo_root) -> bool:
+    """True for the plugin clone/install folder or the engine clone: not a working
+    repo, so no day branch is owed there."""
+    try:
+        root = Path(repo_root)
+        if (root / ".claude-plugin" / "plugin.json").is_file():
+            return True
+        if (root / "coordinator_core").is_dir():
+            return True
+        return ".claude" in root.parts and "plugins" in root.parts
+    except Exception:
+        return False
+
+
 def main() -> int:
     try:
         from _machine_profile import is_author
@@ -135,6 +149,9 @@ def main() -> int:
     except Exception:
         return 0
     if repo_root is None:
+        return 0
+
+    if _is_install_or_engine_clone(repo_root):
         return 0
 
     if _certainly_compliant(repo_root):

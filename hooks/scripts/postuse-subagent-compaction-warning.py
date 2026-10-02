@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """PostToolUse hook: warn a subagent that auto-compaction is near, early enough to write its log.
 
 Hook payloads carry no token counts, so the subagent's context size is estimated from the last

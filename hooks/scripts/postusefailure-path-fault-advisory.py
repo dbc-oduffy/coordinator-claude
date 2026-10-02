@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """PostToolUseFailure advisory: a `command not found` tool error under a non-path PATH.
 
 Fires on a hard tool failure whose `error` carries `command not found` or

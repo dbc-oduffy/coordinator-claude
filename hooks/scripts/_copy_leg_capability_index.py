@@ -1,18 +1,18 @@
 """
 _copy_leg_capability_index -- capability-index leg of the Copies line.
 
-One question: is `state/capabilities/fleet-index.json` in the live claude-klabauter clone
+One question: is `state/capabilities/fleet-index.json` in the live engine clone
 still inside its own declared `ttl`, measured from its own `generated_at`.
 Single axis (currency). Spawn-free; re-derived against `now` on every boot and
 never served from the git-keyed cache.
 
 Invariants:
-    - An absent file, unparseable `generated_at` or `ttl`, or no claude-klabauter clone is
+    - An absent file, unparseable `generated_at` or `ttl`, or no engine clone is
       could-not-check; an unparseable ttl is never assumed fresh.
-    - The claude-klabauter clone comes from the live-tree registry rung, never the resolved
+    - The engine clone comes from the live-tree registry rung, never the resolved
       engine root (which has no `state/`).
     - The remedy launcher is resolved by file existence only; none resolving
-      yields `no local remedy -- claude-klabauter`.
+      yields the `no local remedy` verdict naming the engine repo.
 """
 from __future__ import annotations
 

@@ -90,6 +90,16 @@ def _ensure_claude_klabauter_on_path() -> str:
     return cc_invoke.require_engine_on_path(__file__)
 
 
+def _is_consumer_box() -> bool:
+    try:
+        _ensure_claude_klabauter_on_path()
+        from coordinator_core.machine_profile import machine_profile
+
+        return machine_profile() == "consumer"
+    except Exception:  # noqa: BLE001 -- unknown profile keeps the author behavior
+        return False
+
+
 def _stamp_archive_sweeps_liveness(repo_root: str) -> None:
     try:
         _ensure_claude_klabauter_on_path()
@@ -145,7 +155,10 @@ def main(argv: "list[str] | None" = None) -> int:
         print("sweep-terminal-sizings.py: not inside a git repo", file=sys.stderr)
         return 2
     if verdict["verdict"] == "MISMATCH":
-        print(verdict["message"], file=sys.stderr)
+        if _is_consumer_box():
+            print(f"warning: {verdict['message']}")
+        else:
+            print(verdict["message"], file=sys.stderr)
 
     repo_root = git_repo_root
 

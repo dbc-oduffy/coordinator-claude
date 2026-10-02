@@ -4,11 +4,30 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.4.7] — 2026-10-02
+
+A consumer-defaults and hands-off-execution release; the first 4.4 publish.
+
+- **Consumer installs default to consumer behaviour.** A consumer profile gates author-only session
+  behaviour, and repo-setup/new-project consumer fixes land. The orientation cache, rewritten every
+  session, is now gitignored in consumer repos instead of tracked.
+- **Plans are shaped for width.** Plan schema 3.2.0 with a spine check and width report, a
+  mise-prep gate, and the old five-chunk cap retired from doctrine.
+- **Reviewers apply their own findings.** The review-integrator agent is retired; plan-blitz
+  reviewers apply and verify findings in sequence, with a premise check ahead of them.
+- **New skills:** spike (prove a mechanism before planning), systematic-debugging, eval-output.
+- **Skill bodies cut for resident cost.** Rationale moved from plan, plan-blitz, pickup, handoff,
+  percolate, sizing and others into the wiki, with every pinned token kept.
+- **GitHub Actions retired.** Local validation gates the merge.
+- Also: hook-plane verdict and plan-emit fidelity gate, a `Copies:` line reporting which copy a
+  session runs, hermetic test fixtures (inherited git env and session id isolated), and the
+  queue-grind profiles shipped with the plugin.
+
 ## [4.3.0] — 2026-09-12
 
 A hands-off-execution release: the chain from plan to fired run gained its missing gates.
 
-- **`mise-prep` and `warp-speed-execute` shipped, with the seams between them.** Plans now pass a
+- **`mise-prep` and `fire-and-forget` shipped, with the seams between them.** Plans now pass a
   certification bar before an autonomous run, and the run consumes only certified plans.
 - **Plan-blitz checks premises and converges in-wave.** A premise check catches unresolvable
   citations before an Opus reviewer reads them; a converged plan re-invokes in the same wave

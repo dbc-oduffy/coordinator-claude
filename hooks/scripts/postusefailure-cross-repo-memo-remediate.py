@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """PostToolUseFailure naked-Python inline-remediation hook for register entry #17.
 
 Fires for exactly ONE bounded case: a `Bash` tool call running a `cross-repo-memo`

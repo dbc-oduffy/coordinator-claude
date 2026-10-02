@@ -379,7 +379,8 @@ def check_and_refresh(bin_dir: Path, now: float | None = None) -> str | None:
                     mode = dst.stat().st_mode
                     if mode & 0o111 != 0o111:
                         os.chmod(dst, mode | 0o111)
-                        if dst.stat().st_mode & 0o111 != 0o111:
+                        mode_after = dst.stat().st_mode
+                        if mode_after & 0o111 != 0o111:
                             mode_unrepaired.append(src.name)
                 except OSError:
                     mode_unrepaired.append(src.name)

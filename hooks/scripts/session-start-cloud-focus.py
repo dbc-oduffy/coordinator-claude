@@ -45,16 +45,24 @@ _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
 try:
-    from _engine_root import resolve_claude_klabauter_root as _resolve_claude_klabauter_root  # noqa: E402
+    from _engine_root import (  # noqa: E402
+        place_engine_root_on_path as _place_engine_root_on_path,
+        resolve_claude_klabauter_root as _resolve_claude_klabauter_root,
+    )
 except Exception:
     def _resolve_claude_klabauter_root() -> Optional[str]:
         return None
+
+    def _place_engine_root_on_path(root):
+        if root and root not in sys.path[:2]:
+            sys.path.insert(1 if sys.path else 0, root)
+        return root
 
 FOCUS_ENV = "COORDINATOR_CLOUD_FOCUS_REPO"
 TEAMS_FLAG_ENV = "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"
 
 # Must match cloud_setup.py's own retrieval_search_roots. abs-path-ok: cloud VM mount points, cloud-only hook.
-CHECKOUT_ROOTS = (Path("/home/user"), Path("/workspace"))
+CHECKOUT_ROOTS = (Path("/home/user"), Path("/workspace"))  # abs-path-ok: cloud checkout-root literal the hook probes
 
 _GIT_TIMEOUT_S = 3
 _REMOTE_SLUG = re.compile(r"[/:]([^/:]+)/([^/]+?)(?:\.git)?/?$")
@@ -199,8 +207,7 @@ def is_cloud_session() -> bool:
     root = _resolve_claude_klabauter_root()
     if not root:
         return False
-    if root not in sys.path:
-        sys.path.insert(0, root)
+    _place_engine_root_on_path(root)
     try:
         from coordinator_core.env_locality import harness_rung
     except Exception:  # noqa: BLE001

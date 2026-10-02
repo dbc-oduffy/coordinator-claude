@@ -45,8 +45,7 @@ Output:
     recommended_path "none" | "overwrite" | "cherry-pick" | "plan-to-ingest"
 
 Exit codes (byte-exact with main()'s actual returns — verify on any edit):
-  0   current (no incoming delta)
-  3   behind (delta present)
+  0   current, behind or offline; `update_status` in the JSON says which
   4   CLI-usage / setup error (bad flag, invalid --clone, classifier
       missing, classifier rejected our arguments, classifier produced no/
       unparseable JSON) — a business/setup failure, distinguishable from...
@@ -134,8 +133,13 @@ def _resolve_engine_root(install_root: str) -> str | None:
     """Resolve the coordinator engine root by delegating to the shipped
     resolver script's CLI entrypoint, or return None on any failure (never
     raises — the caller is responsible for the fail-loud remediation)."""
-    resolver = os.path.join(install_root, "coordinator", "hooks", "scripts", "_engine_root.py")
-    if not os.path.isfile(resolver):
+    resolver = ""
+    for parts in (("hooks", "scripts", "_engine_root.py"), ("coordinator", "hooks", "scripts", "_engine_root.py")):
+        cand = os.path.join(install_root, *parts)
+        if os.path.isfile(cand):
+            resolver = cand
+            break
+    if not resolver:
         return None
     try:
         proc = _run(
@@ -186,8 +190,8 @@ def _load_oss_constants(constants_path: str) -> str:
 
 
 def _emit_offline(reason: str, manual_url: str) -> int:
-    """Emit an offline JSON payload and return exit code 5 (non-zero, ≠3 →
-    offline). Never a subprocess — see negative-spec note above."""
+    """Emit an offline JSON payload and return 0; `update_status` carries
+    the verdict. Never a subprocess — see negative-spec note above."""
     payload = {
         "update_status": "offline",
         "incoming_ref": None,
@@ -200,7 +204,23 @@ def _emit_offline(reason: str, manual_url: str) -> int:
         "_offline_reason": reason,
     }
     print(json.dumps(payload, indent=2))
-    return 5
+    return 0
+
+
+def _default_install_root() -> str:
+    """Install root when --install-root is absent: ~/.claude/.coordinator-plugin-root,
+    then CLAUDE_PLUGIN_ROOT, then the legacy ~/.claude/plugins/coordinator-claude."""
+    home_claude = Path.home() / ".claude"
+    try:
+        pointed = (home_claude / ".coordinator-plugin-root").read_text(encoding="utf-8").strip()
+    except OSError:
+        pointed = ""
+    if pointed and os.path.isdir(pointed):
+        return pointed
+    env_root = os.environ.get("CLAUDE_PLUGIN_ROOT", "").strip()
+    if env_root and os.path.isdir(env_root):
+        return env_root
+    return str(home_claude / "plugins" / "coordinator-claude")
 
 
 def main(argv: list[str]) -> int:
@@ -212,7 +232,7 @@ def main(argv: list[str]) -> int:
     # install-time CLI entrypoint (not a never-block hook), so an uncaught
     # RuntimeError here is the correct, fail-loud behaviour: --install-root
     # is always available as an explicit override below.
-    install_root = os.path.join(str(Path.home()), ".claude", "plugins", "coordinator-claude")
+    install_root = _default_install_root()
     clone_dir = ""
 
     i = 0
@@ -466,8 +486,7 @@ def main(argv: list[str]) -> int:
 
         print(json.dumps(data, indent=2))
 
-        # 0 = current (nothing incoming), 3 = behind (delta present)
-        return 0 if update_status == "current" else 3
+        return 0
     finally:
         _cleanup()
 

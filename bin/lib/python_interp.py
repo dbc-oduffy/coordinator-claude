@@ -8,7 +8,7 @@ import sys
 
 def is_console_python_basename(path: str) -> bool:
     # ntpath splits on both `\\` and `/`, so a Windows path is classified the
-    # same on every host; posixpath would keep `C:\\...\\python.exe` whole.
+    # same on every host; posixpath would keep a backslash-separated Windows path whole.
     stem = ntpath.splitext(ntpath.basename(path))[0].lower()
     return stem.startswith("python") and not stem.startswith("pythonw")
 

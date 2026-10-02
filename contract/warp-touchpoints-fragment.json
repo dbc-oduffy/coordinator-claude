@@ -1,0 +1,45 @@
+{
+  "schema": "warp-touchpoints-fragment",
+  "schema_version": "1.0.0",
+  "stages": [
+    "sizing",
+    "plan",
+    "plan-review",
+    "mise-prep",
+    "execute-plan",
+    "code-review",
+    "terminal-commit"
+  ],
+  "positions": {
+    "accept_sizing": "after:sizing",
+    "accept_exit_criterion": "after:sizing",
+    "execute_go": "before:execute-plan",
+    "wrap_up": "after:terminal-commit",
+    "accept_result": "after:terminal-commit"
+  },
+  "route_stages": {
+    "plan": {
+      "stages": ["sizing", "plan", "plan-review", "mise-prep", "execute-plan", "code-review", "terminal-commit"]
+    },
+    "spec-dispatch": {
+      "stages": ["sizing", "plan", "plan-review", "mise-prep", "execute-plan", "code-review", "terminal-commit"],
+      "plan_weight": "S-lane"
+    },
+    "dispatch": {
+      "stages": ["sizing", "execute-plan", "code-review", "terminal-commit"]
+    },
+    "shape": {
+      "refused": true,
+      "sends_to": "the shape room (/shape)"
+    },
+    "roadmap": {
+      "refused": true,
+      "sends_to": "the roadmap room (/roadmap-planning)"
+    },
+    "pm-decision": {
+      "refused": true,
+      "sends_to": "the PM decision room (the APM, then the PM)"
+    }
+  },
+  "ids_source": "coordinator_core.sizing_assemble.TOUCHPOINTS_BY_MODE"
+}

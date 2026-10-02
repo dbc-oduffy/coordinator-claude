@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """guard-agent-model-pin.py -- PreToolUse(Agent) guard: a `model` override that
 crosses the tier family of a coordinator agent's own `model:` pin is denied.
 

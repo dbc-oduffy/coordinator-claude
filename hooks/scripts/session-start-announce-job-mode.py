@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """SessionStart(startup) naked-Python plumbing stub -- announces the resolved
 ``job_mode`` (``blitz`` / ``cron`` / ``interactive``).
 

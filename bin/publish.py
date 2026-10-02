@@ -10387,6 +10387,10 @@ def _create_publish_staging_dir(dest_dir: Path) -> Path:
                 copy_function=progress.copy,
             )
             progress.finish()
+            # Trap: copytree ends with copystat(dest_dir, staging_dir), back-dating
+            # the live staging root to dest_dir's mtime; a sibling row's
+            # `_sweep_stale_publish_staging_dirs` would then delete it as stale.
+            os.utime(staging_dir)
     except BaseException:
         shutil.rmtree(staging_dir, onerror=_rmtree_clear_readonly_onerror)
         raise

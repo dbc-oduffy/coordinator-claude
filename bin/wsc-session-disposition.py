@@ -498,6 +498,7 @@ def git_merge_base(repo_root: Path) -> str | None:
         ["git", "-C", str(repo_root), "merge-base", "origin/main", "HEAD"],
         capture_output=True,
         text=True,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     if proc.returncode != 0:
         return None
@@ -515,7 +516,8 @@ def _git_log_trailer_lines(repo_root: Path, rev_range: str, extra_args: list[str
         *extra_args,
         "--format=__SID__ %(trailers:key=Session-Id,valueonly)",
     ]
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+    proc = subprocess.run(cmd, capture_output=True, text=True,
+                          creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     if proc.returncode != 0:
         return None
     return proc.stdout.splitlines()
@@ -607,7 +609,8 @@ def detector_b_shipped_by_me(
         "--name-status",
         "--format=" f"__SID__{_FIELD_SEP}%s{_FIELD_SEP}%(trailers:key=Session-Id,valueonly)",
     ]
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+    proc = subprocess.run(cmd, capture_output=True, text=True,
+                          creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     if proc.returncode != 0:
         return None
     commit_is_mine = False
@@ -1280,6 +1283,7 @@ def _run_git_local(repo_root: Path, args: list[str]) -> "subprocess.CompletedPro
             capture_output=True,
             text=True,
             timeout=30,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except (OSError, subprocess.SubprocessError):
         return None

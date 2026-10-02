@@ -129,6 +129,7 @@ def _get_staged_paths(coordinator_root):
     out = subprocess.run(
         ["git", "-C", coordinator_root, "diff", "--cached", "--name-only"],
         capture_output=True, text=True,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     ).stdout
     return [line for line in out.splitlines() if line]
 
@@ -229,12 +230,14 @@ def _commit_frozen_paths(coordinator_root, commit_paths, commit_msg):
     diff = subprocess.run(
         ["git", "-C", coordinator_root, "diff", "--cached", "--name-only", "--", *commit_paths],
         capture_output=True, text=True,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     ).stdout.strip()
     if not diff:
         return None
     commit_result = subprocess.run(
         ["git", "-C", coordinator_root, "commit", "-m", commit_msg, "--", *commit_paths],
         capture_output=True, text=True,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     combined_output = (commit_result.stdout or "") + (commit_result.stderr or "")
     if combined_output:
@@ -246,6 +249,7 @@ def _commit_frozen_paths(coordinator_root, commit_paths, commit_msg):
     return subprocess.run(
         ["git", "-C", coordinator_root, "rev-parse", "--short", "HEAD"],
         capture_output=True, text=True,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     ).stdout.strip() or "unknown"
 
 
@@ -257,6 +261,7 @@ def _head_on_remote(coordinator_root, branch):
     fetch = subprocess.run(
         ["git", "-C", coordinator_root, "fetch", "origin", branch],
         capture_output=True, text=True, timeout=30,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     if fetch.returncode != 0:
         return None
@@ -264,6 +269,7 @@ def _head_on_remote(coordinator_root, branch):
         ["git", "-C", coordinator_root, "merge-base", "--is-ancestor", "HEAD",
          f"refs/remotes/origin/{branch}"],
         capture_output=True, text=True, timeout=15,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     return check.returncode == 0
 
@@ -480,6 +486,7 @@ def _get_branch(coordinator_root):
         r = subprocess.run(
             ["git", "-C", coordinator_root, "branch", "--show-current"],
             capture_output=True, text=True, timeout=15,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         if r.returncode == 0:
             out = r.stdout.strip()
@@ -666,6 +673,7 @@ def main(argv):
     subprocess.run(
         ["git", "-C", coordinator_root, "add", "--", *files_to_commit],
         capture_output=True, text=True,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
 
     # Second guard: refuse to commit at all when this ceremony's OWN output
@@ -681,6 +689,7 @@ def main(argv):
     own_diff = subprocess.run(
         ["git", "-C", coordinator_root, "diff", "--cached", "--name-only", "--", *own_rel],
         capture_output=True, text=True,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     ).stdout.strip()
     if not own_diff:
         print(
@@ -731,6 +740,7 @@ def main(argv):
     push_result = subprocess.run(
         ["git", "-C", coordinator_root, "push", "origin", push_branch],
         capture_output=True, text=True,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     push_output = (push_result.stdout or "") + (push_result.stderr or "")
     if push_output:

@@ -151,6 +151,10 @@ class Ctx:
             payload = {}
         src = payload.get("source")
         self.source: str = src if isinstance(src, str) else ""
+        sid = payload.get("session_id")
+        self.session_id: str = sid if isinstance(sid, str) else ""
+        cwd = payload.get("cwd")
+        self.cwd: str = cwd if isinstance(cwd, str) else ""
 
 
 @dataclass(frozen=True)
@@ -300,11 +304,22 @@ def _invoke(main_fn: Callable[..., int], argv: Optional[List[str]],
     return (rc or 0), out_buf.combined_bytes(), err_buf.combined_bytes()
 
 
+def _snapshot_surfaces(ctx: Ctx) -> None:
+    """Records load-time surfaces for `bin/needs-restart.py`; silent, fail-open."""
+    try:
+        import session_surface_snapshot
+        session_surface_snapshot.write_snapshot(ctx.session_id, ctx.source, ctx.cwd or None)
+    except BaseException:
+        pass
+
+
 def main() -> int:
     raw = sys.stdin.read()
     ctx = Ctx(raw)
 
     skipped: List[str] = []
+
+    _snapshot_surfaces(ctx)
 
     if ctx.source and not any(ctx.source in g.sources for g in REGISTRY):
         sys.__stderr__.write(_UNMATCHED_SOURCE_BREADCRUMB.format(source=ctx.source))

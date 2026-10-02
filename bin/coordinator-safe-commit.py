@@ -338,6 +338,7 @@ class Args:
         self.body: str = ""
         self.paths: List[str] = []
         self.declared_reverts: List[str] = []
+        self.invoking_command: str = ""
 
 
 def usage(stream=None) -> None:
@@ -347,7 +348,7 @@ def usage(stream=None) -> None:
     print(
         """Usage:
   coordinator-safe-commit "<subject>"
-  coordinator-safe-commit --blanket "<subject>"
+  coordinator-safe-commit --blanket --invoking-command <ceremony> "<subject>"
   coordinator-safe-commit --scope-from <handoff.md> "<subject>"
   coordinator-safe-commit --dry-run "<subject>"
   coordinator-safe-commit --body-file <path> "<subject>"
@@ -414,6 +415,11 @@ def parse_args(argv: Sequence[str]) -> Args:
         elif tok == "--dry-run":
             args.dry_run = True
             i += 1
+        elif tok == "--invoking-command":
+            if i + 1 >= n or argv[i + 1].startswith("-"):
+                raise UsageError("--invoking-command requires a ceremony name.")
+            args.invoking_command = argv[i + 1]
+            i += 2
         elif tok == "--allow-out-of-scope-dirty":
             args.allow_out_of_scope_dirty = True
             i += 1
@@ -2334,16 +2340,19 @@ def _print_no_live_session_error() -> None:
 # BLANKET MODE
 # ---------------------------------------------------------------------------
 
-def _blanket_invoking_command_allowed() -> bool:
+def _blanket_invoking_command_allowed(flag_value: str = "") -> bool:
     """Carve-out enforcement: --blanket is only valid from authorized sweep
-    ceremonies. Primary signal is CLAUDE_INVOKING_COMMAND; fallback inspects
+    ceremonies. Primary signal is `--invoking-command` (it survives the warm
+    door, which forwards no `CLAUDE_INVOKING_COMMAND`), then the env var, each
+    as self-asserted as the other and checked against the same
+    BLANKET_ALLOWED_COMMANDS set; fallback inspects
     the parent process's command line (Linux /proc, else `ps -p <ppid> -o
     command=`) for one of the ceremony markers, matching bash's dual-path
     check exactly."""
-    invoking = os.environ.get("CLAUDE_INVOKING_COMMAND", "").strip()
-    invoking = invoking.lstrip("/").removesuffix(".md")
-    if invoking in BLANKET_ALLOWED_COMMANDS:
-        return True
+    for raw in (flag_value, os.environ.get("CLAUDE_INVOKING_COMMAND", "")):
+        invoking = raw.strip().lstrip("/").removesuffix(".md")
+        if invoking in BLANKET_ALLOWED_COMMANDS:
+            return True
 
     ppid = os.getppid()
     ppid_cmd = ""
@@ -2458,7 +2467,7 @@ def do_blanket(session_id: str, args: "Args", cs_core, cs_liveness, cs_claims) -
     nothing) and must NOT abort — only a read/resolution error does. An
     absent session_id (own_set/agent-touched resolution) is likewise a
     normal empty-identity case, not a failure, and must NOT abort."""
-    if not _blanket_invoking_command_allowed():
+    if not _blanket_invoking_command_allowed(args.invoking_command):
         print(
             "ERROR: --blanket is only valid from authorized sweep ceremonies: "
             "/workstream-start, /update-docs, relay-protocol, or /distill (distillation).",
@@ -2466,7 +2475,7 @@ def do_blanket(session_id: str, args: "Args", cs_core, cs_liveness, cs_claims) -
         )
         print(
             "From an authorized ceremony, prefix the call: "
-            "CLAUDE_INVOKING_COMMAND=workstream-start coordinator-safe-commit --blanket \"<subject>\". "
+            "coordinator-safe-commit --blanket --invoking-command workstream-start \"<subject>\". "
             "Otherwise use scoped staging (default) or COORDINATOR_OVERRIDE_SCOPE=1 for emergencies.",
             file=sys.stderr,
         )
@@ -2488,7 +2497,7 @@ def do_blanket(session_id: str, args: "Args", cs_core, cs_liveness, cs_claims) -
         print("(no git add or commit executed)", file=sys.stderr)
         sys.exit(0)
 
-    invoking = os.environ.get("CLAUDE_INVOKING_COMMAND", "")
+    invoking = args.invoking_command or os.environ.get("CLAUDE_INVOKING_COMMAND", "")
     base = cs_core.sessions_dir()
     if base and session_id:
         # `ensure_session`, not `os.makedirs`: `<base>/<session_id>` IS a

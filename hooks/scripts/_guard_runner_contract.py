@@ -315,6 +315,7 @@ ENROLLED_GUARD_MODULES: Tuple[str, ...] = (
     "guard-doctrine-surface-ratio.py",
     "guard-posix-invocation-doctrine-write.py",
     "guard-handoff-summary-cap-on-write.py",
+    "guard-autonomous-sentinel-write.py",
 )
 
 #: `guard-doctrine-changelog-prose.py`'s `GuardScopeDescriptor` (C3b). Lives

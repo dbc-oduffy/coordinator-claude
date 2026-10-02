@@ -268,13 +268,13 @@ def baseline_scenario(tmp_path: pytest.TempPathFactory):
 
 
 # ---------------------------------------------------------------------------
-# AC3: forward-safe-only delta → recommended_path "overwrite", exit 3
+# AC3: forward-safe-only delta → recommended_path "overwrite", exit 0
 # ---------------------------------------------------------------------------
 
 
 def test_forward_safe_only_gives_overwrite(baseline_scenario, tmp_path):
     """AC3 + AC6: when source has a new file the live install doesn't, we get
-    update_status=behind, recommended_path=overwrite, exit 3."""
+    update_status=behind, recommended_path=overwrite, exit 0."""
     make = baseline_scenario
 
     # Live has one file.
@@ -289,7 +289,7 @@ def test_forward_safe_only_gives_overwrite(baseline_scenario, tmp_path):
 
     exit_code, data = _run_script(tmp_path, clone, install_root)
 
-    assert exit_code == 3, f"expected exit 3 (behind), got {exit_code}. stderr: {data.get('_raw_stderr', '')}"
+    assert exit_code == 0, f"expected exit 0 (behind), got {exit_code}. stderr: {data.get('_raw_stderr', '')}"
     assert data.get("update_status") == "behind"
     assert data.get("recommended_path") == "overwrite", (
         f"expected overwrite, got {data.get('recommended_path')}. counts={data.get('counts')}"
@@ -326,7 +326,7 @@ def test_consumer_modified_file_appears_in_output(baseline_scenario, tmp_path):
 
     exit_code, data = _run_script(tmp_path, clone, install_root)
 
-    assert exit_code == 3
+    assert exit_code == 0
     assert data["update_status"] == "behind"
 
     modified_paths = [e["path"] for e in data.get("consumer_modified", [])]
@@ -355,7 +355,7 @@ def test_consumer_modified_only_gives_plan_to_ingest(baseline_scenario, tmp_path
 
     exit_code, data = _run_script(tmp_path, clone, install_root)
 
-    assert exit_code == 3
+    assert exit_code == 0
     assert data["update_status"] == "behind"
     assert data["recommended_path"] == "plan-to-ingest", (
         f"expected plan-to-ingest, got {data['recommended_path']}. counts={data['counts']}"
@@ -438,8 +438,8 @@ def test_invalid_clone_preflight_guard(tmp_path):
 
     # Must NOT be exit 0 (that would be "current") — must be non-zero.
     assert exit_code != 0, "pre-flight guard must NOT return exit 0 (false 'current')"
-    # Must NOT be exit 3 (that's the "behind" signal).
-    assert exit_code != 3, "pre-flight guard must NOT return exit 3 (that's the 'behind' signal)"
+    # A setup error is the only non-zero exit.
+    assert exit_code == 4
 
     # If we got JSON back, it should say offline.
     if "update_status" in data:
@@ -668,8 +668,8 @@ def test_hung_git_clone_does_not_wedge_forever(tmp_path, monkeypatch):
     # Must return well under the stub's 30s sleep — proves the internal
     # timeout fired rather than the process hanging on the wedged clone.
     assert elapsed < 10, f"script took {elapsed:.1f}s — internal timeout did not fire against a hung git clone"
-    assert result.returncode == 5, (
-        f"expected exit 5 (offline/transport-timeout), got {result.returncode}. stderr={result.stderr}"
+    assert result.returncode == 0, (
+        f"expected exit 0 (offline/transport-timeout), got {result.returncode}. stderr={result.stderr}"
     )
     data = json.loads(result.stdout)
     assert data.get("update_status") == "offline"

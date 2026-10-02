@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """land-wave — land every fire of one plan-blitz wave, and read the stop condition once.
 
 WHY THIS EXISTS. `roadmap.blitz_land` takes ONE fire's result. A wave over the per-fire

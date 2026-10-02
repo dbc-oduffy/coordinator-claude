@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """CwdChanged naked-Python cross-repo boundary nudge for register entry #15.
 
 BUILD ARM (C13's spike verdict, `state/reference/anthropic-docs/_hook-frontmatter-
@@ -79,7 +78,7 @@ except Exception:
 
 
 # foreign-identity: SUBJECT — the advisory fires only when the session's own cwd
-# crosses the sibling repo boundary, so naming that repo and coordinator-content-repo is the
+# crosses the sibling repo boundary, so naming both repos is the
 # report itself (census audit N2).
 _REMEDIATION = (
     "[cross-repo boundary] this session just crossed into or out of the claude-klabauter "

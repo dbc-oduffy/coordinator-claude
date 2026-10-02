@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """PostToolUse(Agent) naked-Python fan-in dispatcher.
 
 W0 (docs/plans/2026-08-25-route-the-bash-guard-onto-the-native-htt.md) --

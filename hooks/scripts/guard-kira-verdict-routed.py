@@ -142,6 +142,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import time
 
@@ -153,6 +154,8 @@ if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 
 from frontmatter_scan import read_text, scan_frontmatter  # noqa: E402
+from _machine_profile import guard_level  # noqa: E402
+from _touch_record import _touch_record_jsonl_paths, _touched_txt_paths  # noqa: E402
 
 try:
     from _git_root_walk import git_root_walk  # noqa: E402
@@ -468,6 +471,33 @@ def _emit_block(reasons: list[str], repo_root: str, session_id: str) -> int:
     return 2
 
 
+_GUARD_ID = "guard-kira-verdict-routed"
+_SIZING_PATH_RE = re.compile(r"^state/sizings/[^/]+\.ya?ml$")
+
+
+def _session_route_is_xs_dispatch(repo_root: str, session_id: str) -> bool:
+    """True when the newest sizing object this session touched is route
+    `dispatch` at t-shirt XS (EM-inline work: no Kira close is owed)."""
+    try:
+        from _git_common_dir import resolve_git_common_dir
+
+        git_dir = resolve_git_common_dir(repo_root)
+        if not git_dir:
+            return False
+        session_dir = os.path.join(git_dir, "coordinator-sessions", session_id)
+        rels = [r for r in _touch_record_jsonl_paths(session_dir) if _SIZING_PATH_RE.match(r)]
+        if not rels:
+            rels = [r for r in _touched_txt_paths(session_dir) if _SIZING_PATH_RE.match(r)]
+        if not rels:
+            return False
+        text = read_text(os.path.join(repo_root, rels[-1])) or ""
+        route = re.search(r"^route:\s*(\S+)", text, re.M)
+        tshirt = re.search(r"^\s+tshirt:\s*(\S+)", text, re.M)
+        return bool(route and tshirt and route.group(1) == "dispatch" and tshirt.group(1) == "XS")
+    except Exception:
+        return False
+
+
 def _emit_could_not_evaluate(reason: str) -> None:
     sys.stdout.write(f"[guard] guard-kira-verdict-routed could not evaluate: {reason}\n")
 
@@ -500,6 +530,12 @@ def main() -> int:
     repo_root = _repo_root(payload)
     if repo_root is None:
         _emit_could_not_evaluate("could not resolve repo root from cwd")
+        return 0
+
+    level = guard_level(_GUARD_ID)
+    if level == "off":
+        return 0
+    if _session_route_is_xs_dispatch(repo_root, session_id):
         return 0
 
     chain_session_ids = _pickup_chain_session_ids(repo_root, session_id)
@@ -579,6 +615,16 @@ def main() -> int:
             )
 
     if not reasons:
+        return 0
+
+    if level == "warn":
+        sys.stdout.write(
+            _BLOCK_HEADER.replace("[guard]", f"[guard] Advisory ({_GUARD_ID}, level warn):", 1)
+            + "\n".join(reasons)
+            + "\nAllowed at guard_level warn. Stricter: `machine-local set "
+            "coordinator.guard_level strict`; silence: `machine-local set "
+            f"coordinator.guard_level.{_GUARD_ID} off`.\n"
+        )
         return 0
 
     return _emit_block(reasons, repo_root, session_id)

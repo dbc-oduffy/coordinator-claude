@@ -36,6 +36,7 @@ import os
 import shutil
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable
 
@@ -767,6 +768,90 @@ def _sweep_mirror_top_level_orphans(
     return removed
 
 
+# ---------------------------------------------------------------------------
+# Mirror mode — per-plugin subdir sync
+# ---------------------------------------------------------------------------
+
+
+def _git_out(repo: Path, args: "list[str]") -> str:
+    """One local `git` read, stdout stripped, empty string on any failure.
+
+    Fail-open by construction: every caller is a DIAGNOSTIC enriching a refusal
+    that has already been decided, so a git that is missing, slow, or pointed at
+    something that is not a repository must degrade to "no extra detail", never
+    change the verdict or raise into the abort path. Bounded by
+    `coordinator_core.git.run.run_git`'s local-plumbing ceiling, never a
+    module-private number.
+    """
+    from coordinator_core.git.run import run_git
+
+    result = run_git(["-C", str(repo), "--no-optional-locks", *args])
+    return result.stdout.strip() if result.ok else ""
+
+
+def _orphan_provenance(src_dir: Path, name: str) -> str:
+    """One sentence naming WHY a destination directory has no source counterpart,
+    or `""` when the source repo cannot answer.
+
+    THE QUESTION THIS ANSWERS. A top-level orphan has two causes that look
+    identical at the destination and have opposite remedies:
+
+      - GENUINELY ORPHANED -- the directory was removed on purpose and the
+        destination is carrying a stale copy. The sweep deleting it is correct.
+      - PUBLISHED FROM ANOTHER BRANCH -- the content is real, in-progress work
+        that lives on a source branch this publish is not running from. Deleting
+        it reverts a peer's landed work, and the remedy is to publish from (or
+        merge) that branch, NOT to override the sweep.
+
+    Telling them apart needed cross-branch archaeology the operator had to do by
+    hand, against a message that offered only `COORDINATOR_OVERRIDE_ORPHAN_SWEEP`
+    -- i.e. the remedy that is WRONG in the second case, as the only remedy on
+    offer. The source repository already holds the answer: `git log --all` over
+    the path the directory WOULD occupy in the source finds the commit that
+    carries it, and `git branch --contains` names the branches it is on.
+
+    Reads only; never fetches. A branch the local clone has never seen is
+    invisible here, which is why this returns a sentence rather than a verdict:
+    silence means "the source repo cannot answer", never "confirmed orphaned".
+    """
+    top = _git_out(src_dir, ["rev-parse", "--show-toplevel"])
+    if not top:
+        return ""
+    try:
+        rel = (src_dir / name).resolve().relative_to(Path(top).resolve()).as_posix()
+    except Exception:  # noqa: BLE001 -- src_dir outside its own toplevel; nothing to say
+        return ""
+    commit = _git_out(Path(top), ["log", "--all", "-n", "1", "--format=%H", "--", rel])
+    if not commit:
+        return (
+            "    Provenance: '{0}' appears nowhere in the SOURCE repository's history "
+            "({1}) -- no branch it knows of has ever carried it, so it was published "
+            "from a checkout this clone cannot see. Confirm before deleting.".format(
+                rel, top
+            )
+        )
+    branches = [
+        b.strip().lstrip("* ").strip()
+        for b in _git_out(
+            Path(top),
+            ["branch", "--all", "--contains", commit, "--format=%(refname:short)"],
+        ).splitlines()
+        if b.strip()
+    ]
+    if not branches:
+        return ""
+    shown = ", ".join(branches[:4])
+    if len(branches) > 4:
+        shown += " (+{0} more)".format(len(branches) - 4)
+    return (
+        "    Provenance: '{0}' IS in the source repository's history ({1}), on: {2}. "
+        "This is a BRANCH DIVERGENCE, not an orphan -- the destination carries work "
+        "published from one of those branches and this run's source branch does not "
+        "have it. Publish from that branch, or merge it into this one. Do NOT "
+        "override the sweep: the override DELETES it.".format(rel, top, shown)
+    )
+
+
 def sync_mirror(
     src_dir: Path,
     dst_dir: Path,
@@ -779,6 +864,7 @@ def sync_mirror(
     sweep_top_level_orphans: bool = False,
     renamed_file_names: "frozenset[str] | None" = None,
     foreign_dir_names: "frozenset[str] | None" = None,
+    injected_paths: "frozenset[str] | None" = None,
 ) -> tuple[int, int]:
     """`sweep_top_level_orphans` (default `False` -- 100% behavior-preserving
     for every existing caller): when True, destination top-level FILES absent
@@ -887,6 +973,17 @@ def sync_mirror(
     renamed_dir_names = renamed_dir_names or frozenset()
     renamed_file_names = renamed_file_names or frozenset()
     foreign_dir_names = foreign_dir_names or frozenset()
+    # Every plugin-qualified dst rel_path (`f"{plugin_name}/{rel_path}"`) an `inject`
+    # entry (coordinator_core/percolate/inject.py `run_inject`) copied into this
+    # destination with no source-dir analog by construction. Phase 2 below has no
+    # other way to tell "injected, source-analog-less" apart from "genuinely stray" --
+    # both are present at dst, absent from src. Left unexempted, this sweep would
+    # delete injected content immediately after `inject` restores it, or (worse,
+    # depending on pipeline ordering) right before, making the restore look like it
+    # never ran. Matched on the FULL qualified path, never basename alone, because an
+    # inject entry's `dst` is caller-declared and may collide in basename with
+    # unrelated source content elsewhere in the tree.
+    injected_paths = injected_paths or frozenset()
 
     synced += _sync_mirror_top_level_files(
         src_dir, dst_dir, ignore, dry_run, copier, changed_paths=changed_paths
@@ -969,6 +1066,13 @@ def sync_mirror(
                 # renames them again immediately after), but a preview nobody can read
                 # is what the exemption exists to prevent.
                 if Path(rel_path).name in renamed_file_names:
+                    continue
+                # Same present-by-construction contract as the rename exemption
+                # above, for a different provenance (§ `injected_paths` param
+                # docstring): an inject entry's dst has no source-dir analog by
+                # design, so it must never read as a dropped file here.
+                if f"{plugin_name}/{rel_path}" in injected_paths:
+                    print(f"    KEEP:   {rel_path} (injected, no source analog)")
                     continue
                 if (src_plugin / rel_path).is_file():
                     continue
@@ -1061,6 +1165,13 @@ def sync_mirror(
                     f"{sorted(renamed_dir_names) or '(empty)'}, foreign_dir_names="
                     f"{sorted(foreign_dir_names) or '(empty)'}."
                 )
+                provenance = "\n".join(
+                    line
+                    for line in (_orphan_provenance(src_dir, p.name) for p in at_risk)
+                    if line
+                )
+                if provenance:
+                    diagnostic = f"{diagnostic}\n{provenance}"
                 if dry_run:
                     print(
                         f"    WARNING (dry-run): WOULD ABORT — {diagnostic}\n    A real "
@@ -1163,6 +1274,150 @@ def _apply_coordinator_install_manifest_transform(dst_file: Path) -> None:
         )
 
 
+# ---------------------------------------------------------------------------
+# Manifest layout-rewrite transform — declarative, row-supplied, caller-owned.
+#
+# Folds the authoring repo's `setup/publish_sync.py` per-root override (the coordinator
+# install-manifest layout transform, `_is_coordinator_install_src` /
+# `_apply_coordinator_install_manifest_transform`) into this engine module —
+# docs/plans/2026-09-18-doe-holds-no-scripts.md chunk W3-C10 / reviewer
+# finding 6 (ACCEPT). That override kept the transform out of this module
+# because it was keyed to ONE publish row's identity
+# (`coordinator-claude-toplevel-install`) and its own authoring-repo-specific
+# nested-vs-flat layout — hardcoding a row name and a layout into a generic
+# percolate library is the same doctrine-layout coupling the DR-141 cluster
+# already forbids. `ManifestLayoutRewrite` is how the row supplies that
+# instead: every field below — the manifest filename, the source-directory
+# suffix that gates it, the literal string rewrite pairs, and the top-level
+# fields excluded from rewriting — is caller data. This module holds no row
+# name and no source-repo layout anywhere in it.
+#
+# `apply_manifest_layout_rewrite` is the ACTUAL substitution logic the authoring repo's own
+# override never wrote: `_COORDINATOR_MANIFEST_PATH_REWRITES` there has
+# always been an empty list (its own docstring: the only two fields the
+# transform ever targeted, `standalone_setup_script.{posix,windows}` and
+# `programmatic_entry_point.posix`, are engine-root-relative and must publish
+# byte-identical everywhere, so no rewrite has ever actually applied), and
+# `_apply_coordinator_install_manifest_transform` only guarded against a
+# rewrite pair being added without also wiring the apply — it never performed
+# one. This function performs one: it walks the manifest's top-level fields
+# (skipping `excluded_top_level_fields`) and substring-replaces every
+# `path_rewrites` pair inside every string leaf, recursively through nested
+# dicts/lists, exactly the shape `standalone_setup_script`/
+# `programmatic_entry_point` (nested `{posix, windows}` objects) would need
+# were either ever un-excluded.
+#
+# NOT wired to any real row by this chunk: `sync_flat_mirror`'s own
+# `manifest_layout_rewrite` parameter below defaults to `None` (a true no-op,
+# 100% behavior-preserving for every existing caller — the same contract
+# `renamed_dir_names`/`foreign_dir_names` already hold in `sync_mirror`).
+# Passing a row's real rewrite pairs through requires `coordinator/bin/
+# publish.py`'s row-resolution layer and a field on the row in
+# `setup/publish-targets.portable` to read it from — outside this chunk's
+# footprint (chunk W3-C10 writes only this module, its test, and the cockpit
+# publisher). Both authoring-repo copies (`setup/publish_sync.py` and
+# `coordinator/templates/setup/publish_sync.py`) retire once that field
+# lands and is wired through.
+# ---------------------------------------------------------------------------
+@dataclass(frozen=True)
+class ManifestLayoutRewrite:
+    """Declarative, row-supplied top-level path-rewrite for a JSON manifest
+    file `sync_flat_mirror` copies. See the module-level comment above for
+    why every field here is caller data rather than a constant this module
+    hardcodes.
+
+    `filename` — the manifest's basename (e.g. "agent-install-manifest.json").
+    `src_dir_suffix` — a POSIX-style suffix `src_dir.as_posix()` must end with
+        for the rewrite to apply at all (e.g. "/coordinator/docs/install") —
+        the row-specific layout gate, supplied by the caller, never matched
+        against a hardcoded row identity here.
+    `path_rewrites` — ordered `(old, new)` literal substring-replacement
+        pairs, applied to every string leaf value under a non-excluded
+        top-level field. Empty (the default) makes `apply_manifest_layout_
+        rewrite` a documented no-op, matching the authoring repo's own dormant transform.
+    `excluded_top_level_fields` — top-level manifest keys the rewrite must
+        never touch, e.g. `{"standalone_setup_script", "programmatic_entry_
+        point"}` for the coordinator install-manifest (both engine-root-
+        relative, never coordinator-tree-relative — see the authoring repo's own
+        `_EXCLUDED_ENGINE_ROOT_RELATIVE_FIELDS`).
+    """
+
+    filename: str
+    src_dir_suffix: str
+    path_rewrites: "tuple[tuple[str, str], ...]" = ()
+    excluded_top_level_fields: "frozenset[str]" = frozenset()
+
+
+def _rewrite_manifest_json_value(value: object, path_rewrites: "tuple[tuple[str, str], ...]") -> object:
+    """Recursively applies every `(old, new)` pair in `path_rewrites` to
+    every string leaf under `value` — dicts and lists are walked, every
+    other type (int, float, bool, None) is returned unchanged."""
+    if isinstance(value, str):
+        for old, new in path_rewrites:
+            value = value.replace(old, new)
+        return value
+    if isinstance(value, dict):
+        return {k: _rewrite_manifest_json_value(v, path_rewrites) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_rewrite_manifest_json_value(v, path_rewrites) for v in value]
+    return value
+
+
+def apply_manifest_layout_rewrite(dst_file: Path, rewrite: ManifestLayoutRewrite) -> bool:
+    """Applies `rewrite.path_rewrites` to `dst_file` (already a byte-identical
+    copy of the source manifest, placed there by `sync_flat_mirror`'s Phase 1)
+    in place, skipping `rewrite.excluded_top_level_fields` entirely. Returns
+    whether anything changed — the caller uses this to decide whether to
+    print a `TRANSFORM:` line, matching `_apply_install_md_doe_strip_
+    transform`'s own report-only-on-real-change contract in the authoring repo's override.
+
+    A no-op `path_rewrites` (the `ManifestLayoutRewrite` default) returns
+    `False` without reading `dst_file` at all — every existing caller of
+    `sync_flat_mirror` (which never supplies `manifest_layout_rewrite`) never
+    reaches this function in the first place, so this early return is
+    defense-in-depth, not the only guard.
+
+    Malformed JSON or a non-object top-level document is left untouched and
+    reported to stderr rather than raised: a manifest transform must never be
+    the reason an otherwise-valid copy fails a publish outright — the
+    original bytes `sync_flat_mirror` already copied stay in place."""
+    if not rewrite.path_rewrites:
+        return False
+    try:
+        data = json.loads(dst_file.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        print(
+            f"    WARNING: manifest layout rewrite skipped for {dst_file} — "
+            f"could not parse as JSON: {exc}",
+            file=sys.stderr,
+        )
+        return False
+    if not isinstance(data, dict):
+        print(
+            f"    WARNING: manifest layout rewrite skipped for {dst_file} — "
+            "top-level JSON value is not an object.",
+            file=sys.stderr,
+        )
+        return False
+
+    changed = False
+    for key, value in list(data.items()):
+        if key in rewrite.excluded_top_level_fields:
+            continue
+        new_value = _rewrite_manifest_json_value(value, rewrite.path_rewrites)
+        if new_value != value:
+            data[key] = new_value
+            changed = True
+
+    if not changed:
+        return False
+    dst_file.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8", newline="\n")
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Flat-mirror mode — top-level files only, no subdirs
+# ---------------------------------------------------------------------------
 def sync_flat_mirror(
     src_dir: Path,
     dst_dir: Path,
@@ -1171,14 +1426,36 @@ def sync_flat_mirror(
     *,
     copy_file: CopyFileFn | None = None,
     changed_paths: "set[str] | None" = None,
+    manifest_layout_rewrite: "ManifestLayoutRewrite | None" = None,
+    renamed_file_names: "frozenset[str] | None" = None,
+    injected_paths: "frozenset[str] | None" = None,
 ) -> tuple[int, int]:
     """`changed_paths` — see `sync_mirror`'s own parameter docstring for the
     full contract (structured copy-decision sink, `None`-default no-op,
     mutate-in-place, tri-state ownership boundary); identical here, without
-    a plugin prefix since flat-mirror has no per-plugin subdir."""
+    a plugin prefix since flat-mirror has no per-plugin subdir.
+
+    `manifest_layout_rewrite` (default `None` — 100% behavior-preserving for
+    every existing caller) — see the module-level comment above `Manifest
+    Layout-rewrite transform` for the full contract. Applied, non-dry-run
+    only, to a copied file whose basename equals `manifest_layout_rewrite.
+    filename` AND whose `src_dir` ends with `manifest_layout_rewrite.
+    src_dir_suffix` — both caller-supplied, so this module never names a row
+    or a layout itself.
+
+    `renamed_file_names` and `injected_paths` (both default `None`, treated
+    as empty -- 100% behavior-preserving for every existing caller) are the
+    same present-by-construction exemptions `sync_mirror`'s per-plugin Phase 2
+    carries (basenames from the store's `basename_rename` section, and full
+    top-level rel_paths an `inject` entry copied with no source-dir analog).
+    Flat-mirror has no plugin prefix, so `renamed_file_names` matches on the
+    top-level basename exactly as `sync_mirror`'s does, and `injected_paths`
+    matches on the bare rel_path rather than a plugin-qualified one."""
     synced = 0
     removed = 0
     copier = copy_file or _default_copy_file
+    renamed_file_names = renamed_file_names or frozenset()
+    injected_paths = injected_paths or frozenset()
 
     _guard_against_empty_source_mass_delete(
         dst_dir.name or str(dst_dir),
@@ -1213,6 +1490,18 @@ def sync_flat_mirror(
                 and _is_coordinator_install_src(src_dir)
             ):
                 _apply_coordinator_install_manifest_transform(dst_file)
+            # Manifest layout-rewrite transform — see the long comment block
+            # above `apply_manifest_layout_rewrite` for the full contract.
+            # Applied ONLY when the caller supplied one AND this copy matches
+            # both its filename and its src_dir_suffix gate; never dry-run
+            # (dst_file is not written under dry-run).
+            if (
+                manifest_layout_rewrite is not None
+                and rel_path == manifest_layout_rewrite.filename
+                and src_dir.as_posix().endswith(manifest_layout_rewrite.src_dir_suffix)
+            ):
+                if apply_manifest_layout_rewrite(dst_file, manifest_layout_rewrite):
+                    print(f"    TRANSFORM: {rel_path} layout rewrite applied", file=sys.stderr)
             _restore_shebang_executable_bit(dst_file)
             print(f"    {'NEW:   ' if is_new else 'UPDATE:'} {rel_path}")
         if changed_paths is not None:
@@ -1227,6 +1516,11 @@ def sync_flat_mirror(
             if _archived_or_orphan(rel_path):
                 continue
             if ignore.matches(rel_path):
+                continue
+            if rel_path in renamed_file_names:
+                continue
+            if rel_path in injected_paths:
+                print(f"    KEEP:   {rel_path} (injected, no source analog)")
                 continue
             if (src_dir / rel_path).is_file():
                 continue

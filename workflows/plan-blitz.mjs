@@ -1172,16 +1172,19 @@ leave them alone. Change the BODY to answer what the reviews raised, and leave \
 you found it.`
     : `No plan exists yet. Author one.`
 
-  return trackAgent('planner', agent(
-    `Write the implementation plan for ONE roadmap baton, in plan-blitz wave ${waveIndex}.
+const singleContextBlock = singleContext ? `
+SINGLE-PLAN MODE (§ Pinned interfaces / C4 body item 3). \`prime_exit_criterion.statement\` is the
+sizing's own \`exit_criterion\` verbatim: "${singleContext.exitCriterionStatement || '(the sizing carries none)'}".
+Set \`derived_from\` to the sizing path, \`${singleContext.sizingPath || '(no sizing path)'}\` — never the
+baton's handoff. Refine the statement ONLY when the sizing carries none at all; do not rephrase one
+that is already there, even to make it read better — the accepted wording is the PM's touchpoint,
+not yours to improve.
+${singleContext.priorArtSidecarPath ? `
+A prior-art pre-flight already ran over this baton's sizing intent, before you started. Read its
+sidecar before you write: ${singleContext.priorArtSidecarPath}
+A CONFLICT bucket there is prior art the plan must reconcile with, not information to skim past.` : ''}` : ''
 
-Baton: ${baton.id} — "${baton.title}"
-Record: ${baton.path}
-Finalised size: ${decision.tshirt}, route: ${decision.route}
-EM's sizing rationale: ${decision.rationale}
-
-${revising}
-${baton.planPath ? `You are revising, so the file already exists and the generator has no part in this: the
+const planBranchBlock = baton.planPath ? `You are revising, so the file already exists and the generator has no part in this: the
 scaffold step below is for a plan being authored from nothing, and running it here is what
 produces the duplicate you were just told not to create. Read the existing plan first, then edit
 its body.
@@ -1321,7 +1324,18 @@ gate this whole pipeline exists to hold.
 
 Body: the problem in one paragraph; file scope; acceptance criteria that can each be checked as
 true or false against the tree; the test surface; and an explicit Anti-scope naming what this
-plan does NOT do.`}
+plan does NOT do.`
+
+  return trackAgent('planner', agent(
+    `Write the implementation plan for ONE roadmap baton, in plan-blitz wave ${waveIndex}.
+
+Baton: ${baton.id} — "${baton.title}"
+Record: ${baton.path}
+Finalised size: ${decision.tshirt}, route: ${decision.route}
+EM's sizing rationale: ${decision.rationale}
+
+${revising}
+${planBranchBlock}
 
 The size above is FINAL for this wave. It was already interrogated by the EM. Do not re-litigate
 it — if the substrate contradicts it once you are in the body, say so in your returned summary
@@ -1337,23 +1351,13 @@ write a plan, return \`status: blocked\` with the reason rather than a path to s
 Getting this wrong does not fail loudly on your side: every reviewer is aimed at whatever you
 return here, so a sidecar path sends more agents at a file that is not the plan, and the baton
 spends a wave slot producing nothing.
-${singleContext ? `
-SINGLE-PLAN MODE (§ Pinned interfaces / C4 body item 3). \`prime_exit_criterion.statement\` is the
-sizing's own \`exit_criterion\` verbatim: "${singleContext.exitCriterionStatement || '(the sizing carries none)'}".
-Set \`derived_from\` to the sizing path, \`${singleContext.sizingPath || '(no sizing path)'}\` — never the
-baton's handoff. Refine the statement ONLY when the sizing carries none at all; do not rephrase one
-that is already there, even to make it read better — the accepted wording is the PM's touchpoint,
-not yours to improve.
-${singleContext.priorArtSidecarPath ? `
-A prior-art pre-flight already ran over this baton's sizing intent, before you started. Read its
-sidecar before you write: ${singleContext.priorArtSidecarPath}
-A CONFLICT bucket there is prior art the plan must reconcile with, not information to skim past.` : ''}` : ''}
+${singleContextBlock}
 ${MISE_PREP_RULE}
 ${PM_BRIEF_RULE}
 ${NO_EXECUTION_RULE}
 ${REPO_ROOT_RULE}
 ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'planning-report'))}`,
-    withRole('coordinator:plan-author', {
+    { model: 'opus', ...withRole('coordinator:plan-author', {
       label: `plan:${baton.id}`,
       phase: 'Plan',
       // Planning is opus on EVERY route, and the wave does not offer a knob to
@@ -1363,7 +1367,6 @@ ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'planning-report'))}`,
       // executor is held to, and on `spec-dispatch` it is stamped
       // `execution_authorized_*` and read by nobody in between. Reviewers apply
       // their own findings now, so the planner is never re-invoked to resolve one.
-      model: 'opus',
       // Medium, not high: the planner is authoring against a size and a route the
       // blitz-em already interrogated, over substrate a scout already inventoried.
       // The judgment it owes is the plan's shape, not a re-derivation of the wave's
@@ -1371,7 +1374,7 @@ ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'planning-report'))}`,
       // was set to, which makes the wave's authoring depth an accident of who fired it.
       effort: 'medium',
       schema: PLAN_SCHEMA,
-    }),
+    }) },
   ))
 }
 
@@ -1511,19 +1514,18 @@ ${REVIEW_SIDECAR_RULE(
       
       'review-findings',
     )}`,
-    withRole('coordinator:premise-checker', {
+    { model: 'sonnet', ...withRole('coordinator:premise-checker', {
       label: `premise:${baton.id}`,
       phase: 'Premise check',
       // Sonnet, pinned rather than inherited, and the pass's whole economic premise: these are
       // questions with mechanical answers, priced against a discovery cost today of an opus
       // reviewer plus a wave slot. An opus premise checker would cost more
       // than the reader it is meant to spare.
-      model: 'sonnet',
       // Low. The judgment is "did I open the thing", not "is this a good plan" — and raising it
       // invites exactly the plan-level opinion the schema refuses to carry.
       effort: 'low',
       schema: PREMISE_SCHEMA,
-    }),
+    }) },
   ))
 }
 
@@ -1673,13 +1675,12 @@ Exit criterion: ${baton.exitCriterion || '(none stated on the baton)'}
 ${NO_EXECUTION_RULE}
 ${REPO_ROOT_RULE}
 ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'prior-art-check'))}`,
-    withRole('coordinator:prior-art-checker', {
+    { model: 'sonnet', ...withRole('coordinator:prior-art-checker', {
       label: `prior-art:${baton.id}`,
       phase: 'Plan',
-      model: 'sonnet',
       effort: 'low',
       schema: PRIOR_ART_SCHEMA,
-    }),
+    }) },
   ))
 }
 
@@ -1695,13 +1696,12 @@ the same freshly-written plan.
 ${NO_EXECUTION_RULE}
 ${REPO_ROOT_RULE}
 ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'plan-coverage-check'))}`,
-    withRole('coordinator:plan-coverage-checker', {
+    { model: 'sonnet', ...withRole('coordinator:plan-coverage-checker', {
       label: `plan-coverage:${baton.id}`,
       phase: 'Premise check',
-      model: 'sonnet',
       effort: 'low',
       schema: PLAN_COVERAGE_SCHEMA,
-    }),
+    }) },
   ))
 }
 
@@ -1817,12 +1817,11 @@ from inside your own dispatch. If you believe a finding should NOT have been app
 so in your summary; you do not revert your own edit outside the ledger's own record.
 ${REPO_ROOT_RULE}
 ${REVIEW_SIDECAR_RULE(sidecarFor(trailDir, baton.id, `review-${reviewer}-pointer`), reviewer)}`,
-    withRole(reviewer, {
+    { model: 'opus', ...withRole(reviewer, {
       label: `review:${baton.id}:${reviewer}`,
       phase: 'Review',
-      model: 'opus',
       schema: REVIEW_SCHEMA,
-    }),
+    }) },
   ))
 }
 
@@ -1845,8 +1844,8 @@ Baton: ${baton.id} — "${baton.title}"
 Record: ${baton.path}
 EM's sizing rationale: ${decision.rationale}
 
-An XS routes to dispatch and has no plan — there is nothing to write a plan against and nothing
-to review. Read the baton, do exactly what it asks, and report what you changed.
+An XS routes to dispatch and has no plan — there is nothing to write a plan against. The workflow
+reviews your changes after you return. Read the baton, do exactly what it asks, and report what you changed.
 
 **Bounded to the baton's own remit.** If the work turns out larger than XS, STOP and report it
 with \`completed: false\` and a \`blockedReason\` — do not grow into it. An XS that expands under
@@ -1886,12 +1885,11 @@ Report honestly. \`completed: false\` with a reason is a first-class outcome and
 a partial reported as done costs whoever reads the trail next.
 ${REPO_ROOT_RULE}
 ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'execution'))}`,
-    withRole('coordinator:executor', {
+    { model: 'sonnet', ...withRole('coordinator:executor', {
       label: `dispatch:${baton.id}`,
       phase: 'Dispatch',
-      model: 'sonnet',
       schema: DISPATCH_SCHEMA,
-    }),
+    }) },
   ))
 }
 
@@ -2300,12 +2298,11 @@ ${NO_EXECUTION_RULE}
 ${REPO_ROOT_RULE}
 ${CLI_RESOLUTION_RULE}
 ${TRAIL_RULE(sidecarFor(trailDir, waveSlot, 'em-size-review'))}`,
-  withRole('coordinator:blitz-em', {
+  { model: 'opus', ...withRole('coordinator:blitz-em', {
     label: `size-review:${waveSlot}`,
     phase: 'Size review',
-    model: 'opus',
     schema: WAVE_DISPATCH_SCHEMA,
-  }),
+  }) },
 ))
 
 // Plannability follows the ROUTE, not a boolean. Only `plan` and `spec-dispatch`
@@ -2678,11 +2675,71 @@ const chains = await pipeline(
 // Phase 5b — XS work, executed. LAST, deliberately: planning is read-mostly and this
 // phase mutates, so running it after the pipeline means every planner in this wave read a
 // tree no sibling was changing underneath it.
-const dispatched = (
-  await pipeline(dispatchable, (decision) =>
-    executor(batonFor(decision), decision, trailDir),
+// A completed XS lane lands only after `executeReview` ran over its touched files and returned no
+// blocking verdict. Every other outcome rewrites the lane to `completed: false`, the one field
+// `closableDispatched` and the verdict reconciliation read, so a failed gate never reaches a
+// shipped stamp. There is no skip: a missing `executeReview` is itself a failure.
+// Failing values of `verdict` per `schemas/review-stage.schema.json`: slice-review-result
+// (BLOCKED; WARN is not failing), whole-diff-review-result (REQUIRES_CHANGES, REJECTED) and
+// delivery-verdict (FAIL). The prep verdicts are partition advice, and the integration result
+// carries no verdict: it fails on confinement_violations or brief_conformance.unmet.
+const BLOCKING_REVIEW_VERDICTS = new Set(['BLOCKED', 'REJECTED', 'REQUIRES_CHANGES', 'FAIL'])
+
+function reviewBlockers(result) {
+  const wave = (result && result.wave) || []
+  const integration = result && result.integration
+  const missing = wave.filter((leg) => !leg).length
+  const blocked = wave.filter(
+    (leg) => leg && BLOCKING_REVIEW_VERDICTS.has(String(leg.verdict || '').toUpperCase()),
   )
-).filter(Boolean)
+  if (integration) {
+    const unmet = Number((integration.brief_conformance || {}).unmet || 0)
+    if (Number(integration.confinement_violations || 0) > 0 || unmet > 0) {
+      blocked.push({
+        verdict: 'FAIL',
+        summary: `integration: ${integration.confinement_violations || 0} confinement violation(s), ${unmet} unmet brief item(s)`,
+      })
+    }
+  }
+  return { missing, blocked }
+}
+
+async function reviewedDispatch(decision) {
+  const baton = batonFor(decision)
+  const lane = await executor(baton, decision, trailDir)
+  if (!lane || !lane.completed) return lane
+  const failClosed = (reviewGate) => ({
+    ...lane,
+    completed: false,
+    reviewGate,
+    blockedReason: `XS review gate failed closed: ${reviewGate}`,
+  })
+  const touchedFiles = lane.filesChanged || []
+  // A confirm-and-close that cites its shipped commit lands no code: nothing to review.
+  if (!touchedFiles.length && lane.priorShippedIn) return lane
+  if (!touchedFiles.length) {
+    return failClosed('executor reported no touched files, so nothing landed and no review ran')
+  }
+  if (typeof executeReview !== 'function') {
+    return failClosed('executeReview is not defined in this fire, so the XS lane cannot be reviewed')
+  }
+  let result
+  try {
+    result = await executeReview({ batonId: baton.id, declaredPaths: touchedFiles })
+  } catch (err) {
+    return failClosed(`executeReview threw: ${(err && err.message) || String(err)}`)
+  }
+  const { missing, blocked } = reviewBlockers(result)
+  if (!result || missing) {
+    return failClosed(`${missing || 'all'} review leg(s) returned nothing, so the review did not complete`)
+  }
+  if (blocked.length) {
+    return failClosed(`review verdict failing: ${blocked.map((b) => `${b.verdict} ${b.summary || b.reviewer || 'unnamed leg'}`).join('; ')}`)
+  }
+  return lane
+}
+
+const dispatched = (await pipeline(dispatchable, reviewedDispatch)).filter(Boolean)
 
 // Each reviewer applies and verifies its own findings now, so there is no separate integration
 // pass to render — a reviewer's own line already carries its verdict and sidecar, and the gate
@@ -2756,6 +2813,24 @@ const trailLines = chains
 // was Linux while its own declared `external_gate` withheld 8 of 13 rows for the Windows corpus
 // host, and `cq-17` was pulled for serialising behind it. Both plans were ready to execute on the
 // host they name. Tripwire: THE-BOX-THE-WAVE-RAN-ON-IS-NOT-THE-BOX-THE-PLAN-RUNS-ON.
+const dispatchedBlock = dispatched.length ? `XS batons DISPATCHED in this wave (no plan, work already done):
+${dispatched.map((d) => `  - ${d.batonId}: ${d.completed ? 'completed' : 'INCOMPLETE'} — ${d.summary}${d.blockedReason ? ` [blocked: ${d.blockedReason}]` : ''}
+      files: ${(d.filesChanged || []).join(', ') || '(none — a closure, not a change)'}`).join('\n')}
+
+For each of these the question is different: did it do what the baton asked, and is the baton now
+closable? An INCOMPLETE one, or one that grew past XS, is a sizing defect to report — say so.
+
+**The word for a closable dispatch is \`ready\`, and only that word closes it.** There is no fourth
+verdict meaning "done" — the three below are the whole vocabulary, and \`ready\` on a \`dispatch\`
+route does not mean "ready to execute later", it means LAND IT: \`blitz_land\` stamps the baton
+\`shipped\` with the wave's \`shipped_in\` SHA, which is what makes it terminal (§ Three lanes).
+\`pulled\` on a completed dispatch is the recycling defect wearing a verdict: landing leaves the
+baton where it is, the gate returns it as a candidate, and the next wave re-scouts work that is
+already on disk. Measured 2026-09-10, wave 0 of run 20260910T000000Z: five dispatched batons came
+back \`pulled\` with reasons that each read "Complete and closable", and the landing closed none of
+them. If your reason says the baton is closable, the verdict is \`ready\`. Reserve \`pulled\` for a
+dispatch that did NOT finish its remit, and \`replan\` for one whose remit was wrong.` : ''
+
 const readiness = await trackAgent('readiness-gate', agent(
   `phase: readiness-gate
 
@@ -2783,23 +2858,7 @@ author has not finished writing it, and both read as ordinary output.
 
 ${trailLines}
 
-${dispatched.length ? `XS batons DISPATCHED in this wave (no plan, work already done):
-${dispatched.map((d) => `  - ${d.batonId}: ${d.completed ? 'completed' : 'INCOMPLETE'} — ${d.summary}${d.blockedReason ? ` [blocked: ${d.blockedReason}]` : ''}
-      files: ${(d.filesChanged || []).join(', ') || '(none — a closure, not a change)'}`).join('\n')}
-
-For each of these the question is different: did it do what the baton asked, and is the baton now
-closable? An INCOMPLETE one, or one that grew past XS, is a sizing defect to report — say so.
-
-**The word for a closable dispatch is \`ready\`, and only that word closes it.** There is no fourth
-verdict meaning "done" — the three below are the whole vocabulary, and \`ready\` on a \`dispatch\`
-route does not mean "ready to execute later", it means LAND IT: \`blitz_land\` stamps the baton
-\`shipped\` with the wave's \`shipped_in\` SHA, which is what makes it terminal (§ Three lanes).
-\`pulled\` on a completed dispatch is the recycling defect wearing a verdict: landing leaves the
-baton where it is, the gate returns it as a candidate, and the next wave re-scouts work that is
-already on disk. Measured 2026-09-10, wave 0 of run 20260910T000000Z: five dispatched batons came
-back \`pulled\` with reasons that each read "Complete and closable", and the landing closed none of
-them. If your reason says the baton is closable, the verdict is \`ready\`. Reserve \`pulled\` for a
-dispatch that did NOT finish its remit, and \`replan\` for one whose remit was wrong.` : ''}
+${dispatchedBlock}
 
 One question per plan: is it ready to execute? Answer ready, pulled, or replan — and give a reason
 that names the evidence. "Looks off" is not a disposition. (A dispatched XS baton is not a plan and
@@ -2893,12 +2952,11 @@ thing the replan inherits: a brief holding only the pivot rationale throws away 
 that nobody will run again. Name each surviving finding and its reviewer.
 ${REPO_ROOT_RULE}
 ${NO_EXECUTION_RULE}`,
-  withRole('coordinator:blitz-em', {
+  { model: 'opus', ...withRole('coordinator:blitz-em', {
     label: `readiness:wave-${waveIndex}`,
     phase: 'Readiness gate',
-    model: 'opus',
     schema: READINESS_SCHEMA,
-  }),
+  }) },
 ))
 
 // WAVE RESULT — the caller stamps `ready` plans to `approved` (which is what opens the NEXT
@@ -2996,6 +3054,16 @@ const verdicts = ((readiness && readiness.verdicts) || []).filter((v) => fireBat
     // that goes missing.
     reviewVerdicts: reviews.map((r) => ({ reviewer: r.reviewer, verdict: r.verdict })),
   }
+  // A lane whose review gate failed closed is never `ready`, whatever the gate agent concluded.
+  if (dispatchRow && dispatchRow.reviewGate && entry.verdict === 'ready') {
+    return {
+      ...entry,
+      verdict: 'pulled',
+      reviewOverride: `XS review gate failed closed: ${dispatchRow.reviewGate}. Reconciled to pulled.`,
+      reason: `${entry.reason} [reconciled: XS review gate failed closed]`,
+    }
+  }
+
   // SPINE, reconciled mechanically for the same reason the pivot is: a plan with no
   // `plan-tasks` block declares no work a run can schedule, the planner brief says so, and
   // nothing between authoring and the mise-prep gate checks it. Measured 2026-09-10: a
@@ -3110,12 +3178,11 @@ reads the ruling at the receipt.
 ${NO_EXECUTION_RULE}
 ${REPO_ROOT_RULE}
 ${TRAIL_RULE(sidecarFor(trailDir, entry.batonId, 'pm-adjudication'))}`,
-    withRole(agentType, {
+    { model: 'opus', ...withRole(agentType, {
       label: `adjudicate:${entry.batonId}`,
       phase: 'Adjudicate',
-      model: 'opus',
       schema: ADJUDICATION_SCHEMA,
-    }),
+    }) },
   )).then(
     (v) => ({ agentType, verdict: v, error: null }),
     (err) => ({ agentType, verdict: null, error: String((err && (err.message || err.error)) || err).slice(0, 500) }),

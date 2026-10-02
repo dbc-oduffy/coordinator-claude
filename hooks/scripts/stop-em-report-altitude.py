@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Stop-dispatch REGISTRY member #6 -- relays engine op `hooks.em_report_altitude`.
 
 This doctrine-plane repo owns only this thin PLUMBING shim (DR-047

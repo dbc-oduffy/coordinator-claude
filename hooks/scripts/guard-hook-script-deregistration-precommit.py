@@ -1,3 +1,4 @@
+# guard-not-a-hook-entrypoint
 # Native git pre-commit hook, not a hooks.json entrypoint: staged-set-for-
 # THIS-commit is only directly readable at pre-commit time, and a
 # PreToolUse hook sees one tool call, never a commit's whole staged diff.

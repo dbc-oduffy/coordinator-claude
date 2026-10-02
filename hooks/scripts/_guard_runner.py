@@ -73,11 +73,43 @@ from _guard_runner_contract import (  # noqa: E402
     GuardScopeDescriptor,
 )
 
+from _machine_profile import guard_level  # noqa: E402
+
+#: INVARIANT: guards listed here guard truly irreversible/destructive actions
+#: and ignore `coordinator.guard_level`: their deny always stands. Add a guard
+#: only when its harm cannot be undone after the action proceeds. Everything
+#: else is downgraded to an advisory at `warn` and silenced at `off`.
+NON_DOWNGRADABLE_GUARDS = frozenset({"guard-oss-payload-locality"})
+
 #: A verdict is the shape both layers speak: {"channel": ..., "text": ...}.
 GuardVerdict = Dict[str, str]
 #: run_guards() accepts either an already-computed verdict dict, or a (name, callable) pair
 #: it invokes itself under exception isolation.
 GuardEntry = Union[GuardVerdict, Tuple[str, Callable[[Any], Optional[GuardVerdict]]]]
+
+
+def apply_guard_level(guard_id: str, verdict: Optional[GuardVerdict]) -> Optional[GuardVerdict]:
+    """Map a guard's `CHANNEL_DENY` verdict through its effective guard level:
+    strict keeps the deny; warn turns it into an advisory carrying the same
+    text; off drops it. Advisories and `NON_DOWNGRADABLE_GUARDS` pass through."""
+    if not verdict or verdict.get("channel") != CHANNEL_DENY:
+        return verdict
+    if guard_id in NON_DOWNGRADABLE_GUARDS:
+        return verdict
+    level = guard_level(guard_id)
+    if level == "strict":
+        return verdict
+    if level == "off":
+        return None
+    return {
+        "channel": CHANNEL_ADDITIONAL_CONTEXT,
+        "text": (
+            f"Advisory ({guard_id}, level warn): {verdict.get('text', '')}\n"
+            "Allowed at guard_level warn. Stricter: `machine-local set "
+            "coordinator.guard_level strict`; silence: `machine-local set "
+            f"coordinator.guard_level.{guard_id} off`."
+        ),
+    }
 
 
 def run_guards(
@@ -287,6 +319,11 @@ def _import_guard_module(guard: RegisteredGuard):
     return module
 
 
+def _guard_id(guard: RegisteredGuard) -> str:
+    """The guard's `coordinator.guard_level.<id>` key: its filename sans `.py`."""
+    return Path(guard.module_path).stem
+
+
 def build_registry_entries(
     registry: Iterable[RegisteredGuard],
     raw_payload_text: str,
@@ -310,9 +347,11 @@ def build_registry_entries(
                 # no stdin/stdout swap here, that plumbing is internal to the guard's own
                 # callable.
                 verdict_fn = getattr(module, _guard.verdict_attr)
-                return verdict_fn(_payload) or {}
-            main_fn = getattr(module, _guard.entry_attr)
-            return _invoke_guard_main(main_fn, raw_payload_text)
+                verdict = verdict_fn(_payload) or {}
+            else:
+                main_fn = getattr(module, _guard.entry_attr)
+                verdict = _invoke_guard_main(main_fn, raw_payload_text)
+            return apply_guard_level(_guard_id(_guard), verdict) or {}
 
         entries.append((guard.module_key, _call))
     return entries
@@ -355,6 +394,7 @@ _GUARD_PYTHON_SYNTAX_ON_WRITE = "guard-python-syntax-on-write.py"
 _GUARD_DOCTRINE_SURFACE_RATIO = "guard-doctrine-surface-ratio.py"
 _GUARD_POSIX_INVOCATION_DOCTRINE_WRITE = "guard-posix-invocation-doctrine-write.py"
 _GUARD_HANDOFF_SUMMARY_CAP_ON_WRITE = "guard-handoff-summary-cap-on-write.py"
+_GUARD_AUTONOMOUS_SENTINEL_WRITE = "guard-autonomous-sentinel-write.py"
 
 REAL_GUARD_REGISTRY: Tuple[RegisteredGuard, ...] = (
     RegisteredGuard(
@@ -476,6 +516,17 @@ REAL_GUARD_REGISTRY: Tuple[RegisteredGuard, ...] = (
             # directory (live or archived). This descriptor is exactly that predicate.
             path_suffixes=frozenset({".md"}),
             directory_substrings=("state/handoffs/",),
+        ),
+    ),
+    RegisteredGuard(
+        module_key="guard_autonomous_sentinel_write",
+        module_path=str(Path(_HOOKS_DIR) / _GUARD_AUTONOMOUS_SENTINEL_WRITE),
+        descriptor=GuardScopeDescriptor(
+            guard_module=_GUARD_AUTONOMOUS_SENTINEL_WRITE,
+            # Real scope (the guard's own is_autonomous_sentinel) is `autonomous-run-<sid>`
+            # directly inside the temp dir; the substring over-approximates it (no suffix, any
+            # directory) and the in-guard predicate stays authoritative.
+            directory_substrings=("autonomous-run-",),
         ),
     ),
 )

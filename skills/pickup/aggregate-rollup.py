@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """aggregate-rollup — roll a baton's constituent plans up into one fire verdict. Writes nothing.
 
 WHY THIS EXISTS. An aggregate execution baton names N workstreams and declares the run as its

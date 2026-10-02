@@ -13,8 +13,10 @@ the act that protects consumers on the same code path as the routine that
 runs every round.
 
 REFUSAL BAR — promotion refuses, naming which predicate failed, unless ALL
-four hold:
-  1. The mirror dest is clean (`percolate-push.py::_check_dest_state`).
+five hold:
+  1. The mirror dest status is readable and its branch has an upstream
+     (`percolate-push.py::_check_dest_state`; uncommitted files never
+     refuse, DR-390).
   2. No DR-301 round-failure marker is present
      (`percolate-push.py::_round_failure_marker_path`).
   3. The candidate ref fast-forwards onto `main` — `main` is an ancestor of
@@ -33,6 +35,10 @@ four hold:
      docs/reference/klabauter-release-channels.md § "Promotion evidence
      bar". It does not invent an operator-assertion predicate and does
      not pass vacuously.
+  5. The candidate tip's `[source-head <hex>]` stamp names a source commit
+     whose subject does not start with `WIP`. A committed-fact check at
+     promotion (DR-390 keeps publish itself from refusing on source state);
+     an unparseable stamp or unresolvable sha fails CLOSED.
 
 Reuse, not reimplementation: `_resolve_dest`, `_check_dest_state`,
 `_round_failure_marker_path`, `_resolve_default_branch` are imported from
@@ -61,18 +67,19 @@ Usage:
     klabauter-promote.py <target> [--percolate-root <path>] [--confirm]
 
 Exit codes:
-    0 — dry-run: predicates 1-3 enforced and predicate 4's soak-floor proxy
-        (cross-machine half UNENFORCED) all passed (nothing pushed), or
-        `--confirm`: the fast-forward push of `main` succeeded.
+    0 — dry-run: predicates 1-3 and 5 enforced and predicate 4's soak-floor
+        proxy (cross-machine half UNENFORCED) all passed (nothing pushed),
+        or `--confirm`: the fast-forward push of `main` succeeded.
     1 — `--confirm` and the push failed (forwarded git exit code), or the
         default-branch resolution needed to name `main` failed.
     2 — usage error (bad argv, target not resolvable), or refused because
-        one or more of the four predicates failed.
+        one or more of the five predicates failed.
 """
 from __future__ import annotations
 
 import argparse
 import importlib.util
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -279,6 +286,49 @@ def _check_cross_machine_observed(dest: str, target: str) -> Optional[str]:
     )
 
 
+_SOURCE_HEAD_STAMP_RE = re.compile(r"\[source-head ([0-9a-f]{7,40})\]\s*$")
+
+
+def _check_source_head_not_wip(dest: str, percolate_root: str) -> Optional[str]:
+    """Predicate 5 — the source commit the candidate was cut from is not a
+    WIP commit. Reads the `[source-head <hex>]` stamp off the candidate tip
+    subject and resolves it in the percolate root. Fails CLOSED on an
+    unparseable stamp or an unresolvable sha.
+    """
+    _bootstrap_engine()
+    prefix = "klabauter-promote: predicate 5 (source-head not WIP)"
+    tip = _run(["git", "-C", dest, "log", "-1", "--format=%s", _CANDIDATE_BRANCH])
+    if tip.returncode != 0:
+        return (
+            f"{prefix} could not be evaluated — reading the candidate tip "
+            f"subject in {dest} exited {tip.returncode}. Refusing.\n"
+            + (tip.stderr or "").strip()
+        )
+    subject = (tip.stdout or "").strip()
+    match = _SOURCE_HEAD_STAMP_RE.search(subject)
+    if match is None:
+        return (
+            f"{prefix} could not be evaluated — the candidate tip subject "
+            f"{subject!r} carries no parseable '[source-head <hex>]' stamp. "
+            "Refusing."
+        )
+    sha = match.group(1)
+    src = _run(["git", "-C", percolate_root, "log", "-1", "--format=%s", f"{sha}^{{commit}}"])
+    if src.returncode != 0:
+        return (
+            f"{prefix} could not be evaluated — source-head {sha} does not "
+            f"resolve in {percolate_root}. Refusing.\n" + (src.stderr or "").strip()
+        )
+    source_subject = (src.stdout or "").strip()
+    if source_subject.startswith("WIP"):
+        return (
+            f"{prefix} FAILED — the candidate was cut from source-head "
+            f"{sha}, a WIP commit ({source_subject!r}). Refusing: commit the "
+            "source, republish, and promote that round."
+        )
+    return None
+
+
 def _evaluate_promotion_bar(
     dest: str, target: str, percolate_root: str, candidate_branch: str, main_branch: str
 ) -> List[str]:
@@ -310,6 +360,10 @@ def _evaluate_promotion_bar(
     if cross_machine_refusal:
         refusals.append(f"klabauter-promote: predicate 4 (cross-machine observation) FAILED —\n{cross_machine_refusal}")
 
+    wip_refusal = _check_source_head_not_wip(dest, percolate_root)
+    if wip_refusal:
+        refusals.append(wip_refusal)
+
     return refusals
 
 
@@ -338,14 +392,14 @@ def _cmd_promote(args: argparse.Namespace) -> int:
             print(refusal, file=sys.stderr)
         print(
             f"klabauter-promote: refusing to promote '{target}' — "
-            f"{len(refusals)} of 4 evidence-bar predicate(s) failed.",
+            f"{len(refusals)} of 5 evidence-bar predicate(s) failed.",
             file=sys.stderr,
         )
         return _EXIT_USAGE
 
     if not args.confirm:
         print(
-            f"klabauter-promote: DRY RUN — predicates 1-3 enforced and "
+            f"klabauter-promote: DRY RUN — predicates 1-3 and 5 enforced and "
             "predicate 4's soak-floor proxy (cross-machine half UNENFORCED, "
             "see docs/reference/klabauter-release-channels.md § 'Promotion "
             f"evidence bar') all passed for '{target}'. Nothing was pushed. "

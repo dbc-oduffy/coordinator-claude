@@ -675,6 +675,37 @@ def _write_fire_receipt(script_path: Path) -> None:
         print(f"  WARNING: could not write emission receipt for {script_path.name}: {exc}", file=sys.stderr)
 
 
+def _execute_review_function(review, stage_schemas: dict, repo_root: str) -> str:
+    """The roster's review wave as a top-level `async function executeReview({ batonId,
+    declaredPaths })` for the fire's workflow body to call, once per baton.
+
+    Composed by `compose_execute_review`, the one review composer. Scope is the call's own
+    `declaredPaths` argument and `batonId` rides in the prep prompt, so batons sharing a fire
+    never name each other's files as foreign claims.
+    """
+    from coordinator_core.git.git_state import head_sha
+    from coordinator_core.ops.dispatch_emit.emit import _BRIEF_PRECEDENCE_CLAUSE
+    from coordinator_core.ops.review_mint.execute_review import compose_execute_review
+
+    blocks = compose_execute_review(
+        review,
+        stage_schemas=stage_schemas,
+        plan_path="",
+        run_base_sha=(head_sha(repo_root) if repo_root else "") or "",
+        declared_paths_js="declaredPaths",
+        prompt_head=_BRIEF_PRECEDENCE_CLAUSE,
+        prep_suffix_js="'\\nbaton_id: ' + String(batonId)",
+    )
+    body = "\n".join(block for _title, block in blocks)
+    integration = "_reviewIntegration" if review.integration is not None else "null"
+    return (
+        "async function executeReview({ batonId, declaredPaths }) {\n"
+        f"{body}\n"
+        f"  return {{ prep: _reviewPrep, wave: _reviewWave, integration: {integration} }};\n"
+        "}\n\n"
+    )
+
+
 def _bind(
     script_path: Path,
     args: dict,
@@ -706,6 +737,20 @@ def _bind(
 
     if live_engine_tree:
         allow_unstamped_dispatch()
+
+    try:
+        from coordinator_core.ops.review_mint import op as _review_op
+        from coordinator_core.ops.review_mint import roster as _review_roster
+
+        fragment = _review_op.load_fragment()
+        stage_schemas = _review_op.load_stage_schemas()
+        _review_roster.require_emit_route(fragment, _review_roster.EMIT_ROUTE_WAVE_FIRE)
+        review = _review_roster.parse_execute_review(fragment)
+        review_fn = _execute_review_function(
+            review, stage_schemas, str(args.get("repoRoot") or "")
+        )
+    except Exception as exc:  # noqa: BLE001 -- any failure must refuse the fire
+        raise ValueError(f"execute_review unavailable: {exc}") from exc
 
     msg = {
         "jsonrpc": "2.0",
@@ -740,7 +785,12 @@ def _bind(
             "workflow.bind_args returned a reply carrying neither `error` nor a "
             f"`result.script` string. Got keys: {sorted(reply)!r}"
         )
-    return script
+    # Ahead of `const args`, never ahead of the file: Workflow reads `export const meta`
+    # off the script's head, which the workflow's own header and meta block occupy.
+    at = script.find("\nconst args = ")
+    if at < 0:
+        raise ValueError("workflow.bind_args returned a script with no `const args = ` line")
+    return script[: at + 1] + review_fn + script[at + 1:]
 
 
 def _settings_home_bin(name: str) -> str | None:

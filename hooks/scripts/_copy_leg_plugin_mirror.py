@@ -1,8 +1,8 @@
 """
 _copy_leg_plugin_mirror -- plugin-mirror leg of the Copies line.
 
-Two verdicts for the one copy: currency (DoE source vs the published plugin mirror,
-anchored on commit time because no DoE sha is stamped) and completeness. Completeness
+Two verdicts for the one copy: currency (doctrine source vs the published plugin mirror,
+anchored on commit time because no source sha is stamped) and completeness. Completeness
 is `drift` when hooks.json registration parity finds a defect, else the shared constant
 `could-not-check (no expected-manifest emitted)`; parity never makes it `current`.
 
@@ -10,7 +10,7 @@ Invariants:
     - The source is the `.content-root` pointer target, and only when `.coordinator-dev-repo`
       is present there; the registry's source-repo key is never read (it names the mirror on cloud).
     - A mirror that is unresolvable or equals the source is could-not-check on both axes.
-    - The only rename source is DoE's declared `basename_rename` table; no name is
+    - The only rename source is the source's declared `basename_rename` table; no name is
       inferred. A source registration the mirror carries only in a form the table does
       not declare (an http-daemon registration) is unverifiable, never drift.
     - Reads no manifest, allowlist or publish map. The leg spawns nothing; the only git
@@ -90,7 +90,7 @@ def git_commit_times(source: Path, mirror: Path) -> tuple[int, int] | None:
 
 
 def load_basename_rename(source: Path) -> dict[str, str]:
-    """DoE's declared outbound basename_rename table as {src: dst}; raises when unreadable."""
+    """The source's declared outbound basename_rename table as {src: dst}; raises when unreadable."""
     import yaml
 
     doc = yaml.safe_load((source / RENAME_TABLE_RELPATH).read_text(encoding="utf-8"))

@@ -5209,8 +5209,8 @@ def _sizing_schema_enums() -> dict[str, tuple[str, ...]]:
     }
 
 
-#: `premise.evidence` is required by the schema for every provenance but this one.
-_SIZING_PREMISE_EVIDENCE_EXEMPT = "unrecorded"
+#: Migration-only provenance; a new scaffold refuses it.
+_SIZING_PREMISE_UNRECORDED = "unrecorded"
 
 
 def _validate_sizing_flags(args) -> tuple[list[str] | None, str | None]:
@@ -5238,15 +5238,11 @@ def _validate_sizing_flags(args) -> tuple[list[str] | None, str | None]:
                 f"--detents value(s) {', '.join(_bad)} not in the schema enum: "
                 f"{', '.join(_enums['detents'])}."
             )
+    if args.premise is None or args.premise == _SIZING_PREMISE_UNRECORDED:
+        return None, "--premise executed|read|not-applicable is required."
     if args.premise_evidence is not None and not args.premise_evidence.strip():
         return None, "--premise-evidence must not be empty."
-    if args.premise_evidence and args.premise is None:
-        return None, "--premise-evidence requires --premise."
-    if (
-        args.premise is not None
-        and args.premise != _SIZING_PREMISE_EVIDENCE_EXEMPT
-        and not args.premise_evidence
-    ):
+    if not args.premise_evidence:
         return None, (
             f"--premise {args.premise} requires --premise-evidence: cite the "
             "file:line, test, or command output the premise rests on."
@@ -6716,13 +6712,14 @@ Spec backlink (workflow): pln-workflow-skeleton-stamper-maki-adab0d
     )
     parser.add_argument(
         "--premise",
+        "--premise-provenance",
         dest="premise",
         default=None,
         metavar="PROVENANCE",
         help=(
-            "(sizing-object) premise.provenance: executed | read | not-applicable | "
-            "unrecorded. Every value but unrecorded requires --premise-evidence. "
-            "Omitted scaffolds unrecorded. Refused for every other --type."
+            "(sizing-object) premise.provenance: executed | read | not-applicable. "
+            "Required for sizing-object, with --premise-evidence. "
+            "Refused for every other --type."
         ),
     )
     parser.add_argument(

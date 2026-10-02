@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Standalone OSS coordinator-claude installer for the publish repo. Deliberately self-contained -- no claude-klabauter/coordinator_core import, since it runs on end-user machines with no sibling engine clone."""
 
 # install.py — coordinator-claude installer.
@@ -731,6 +730,8 @@ def prompt_naming_addon(args: Args, non_interactive: bool, script_dir: Path) -> 
 def _chmod_shebanged_files(root: Path) -> None:
     """Shebang-scan: chmod +x every file under `root` whose first 2 bytes
     are '#!'. Spec backlink: docs/plans/2026-06-11-exec-bit-install-surface-completion.md § Chunk 7."""
+    if os.name == "nt":
+        return
     for dirpath, _dirnames, filenames in os.walk(root):
         for fname in filenames:
             fpath = Path(dirpath) / fname
