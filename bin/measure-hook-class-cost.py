@@ -62,7 +62,7 @@ _PROBE_PATH = Path(__file__).parent / "_hook_cost_probe.py"
 _PROBE_TIMEOUT_S = 30
 
 D450109AB_PRECEDENT = (
-    "claude-klabauter d450109ab: a confirmed warm hit measured no faster than cold "
+    "engine-repo d450109ab: a confirmed warm hit measured no faster than cold "
     "(221ms vs 224ms, CLI ping) because the structural cost dominated and the two arms were "
     "not actually distinguishable -- the module-count delta, not wall-clock, is what exposed "
     "the regression."

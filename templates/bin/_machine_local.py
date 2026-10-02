@@ -61,6 +61,8 @@ from __future__ import annotations
 
 import sys
 import os
+import time
+import contextlib
 import json
 import argparse
 import re
@@ -1935,6 +1937,15 @@ def cmd_set(args: argparse.Namespace) -> int:
     value = args.value
     dry_run = args.dry_run
 
+    if args.write_global and key.startswith("repos."):
+        print(
+            f"machine-local: refusing `set --global {key}`: repos.* is resolved only from "
+            "registry.local.toml (the local scope), so a --global write would be invisible "
+            f"to `get`. Re-run without --global: `machine-local set {key} <path>`.",
+            file=sys.stderr,
+        )
+        return 1
+
     rc = _check_concern_namespace(reg_dir, key)
     if rc != 0:
         return rc
@@ -2535,6 +2546,46 @@ def cmd_migrate_publish_mirrors(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+_MUTATING_COMMANDS = frozenset({"set", "unset", "array-append", "array-set", "migrate-publish-mirrors"})
+
+
+@contextlib.contextmanager
+def _registry_write_lock(timeout_s: float = 10.0):
+    """Serialize registry read-modify-write across processes.
+
+    Trap: every mutating verb reads the whole file, edits, and os.replace()s it. Two sessions
+    setting different keys at once each write a copy lacking the other's key, so one entry
+    silently vanishes. An O_EXCL lock file is portable (no fcntl on Windows); a lock older than
+    60 s is a crashed writer's and is broken.
+    """
+    lock_path = os.path.join(_registry_dir(), ".registry-write.lock")
+    os.makedirs(os.path.dirname(lock_path), exist_ok=True)
+    deadline = time.monotonic() + timeout_s
+    while True:
+        try:
+            fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, str(os.getpid()).encode())
+            os.close(fd)
+            break
+        except FileExistsError:
+            try:
+                if time.time() - os.path.getmtime(lock_path) > 60:
+                    os.remove(lock_path)
+                    continue
+            except OSError:
+                continue
+            if time.monotonic() > deadline:
+                raise SystemExit(f"machine-local: registry is locked by another writer ({lock_path}); retry")
+            time.sleep(0.05)
+    try:
+        yield
+    finally:
+        try:
+            os.remove(lock_path)
+        except OSError:
+            pass
+
+
 def main() -> int:
     # Windows: Python text-mode stdout translates '\n' -> '\r\n', so a captured
     # `$(machine-local get repos.x)` carries a trailing '\r'. That stray CR
@@ -2729,6 +2780,9 @@ def main() -> int:
         "array-set": cmd_array_set,
         "migrate-publish-mirrors": cmd_migrate_publish_mirrors,
     }
+    if parsed.command in _MUTATING_COMMANDS:
+        with _registry_write_lock():
+            return dispatch[parsed.command](parsed)
     return dispatch[parsed.command](parsed)
 
 

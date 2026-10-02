@@ -1,7 +1,7 @@
 """compose-review-wave.py -- caller-side composer for the fired review
 partition workflow.
 
-Ported from coordinator-content-repo coordinator/bin/compose-review-wave.py
+Ported from the coordinator content repo's coordinator/bin/compose-review-wave.py
 (docs/plans/2026-09-18-doe-holds-no-scripts.md, chunk W2-C10). Measured cold
 on this box (`python3 coordinator/bin/compose-review-wave.py --help`, real
 subprocess, three runs): ~58-61ms end-to-end, comfortably inside the 200ms
@@ -10,16 +10,16 @@ not rewritten. See state/audits/doe-script-arrivals/W2-C10.yaml for the
 figures.
 
 Spec backlink: docs/plans/2026-08-18-fire-the-review-partition-as-a-workflow.md,
-chunk C1. `coordinator/docs/wiki/workflow-emitter-contract.md` (coordinator-content-repo)
+chunk C1. `coordinator/docs/wiki/workflow-emitter-contract.md` (content repo)
 §5 pins a four-part payload on every Workflow-emit agent-call. A Workflow
 `agent()` spawn is not an `Agent`-tool call, so `coordinator/hooks/scripts/
-enforce-agent-dispatch-mode.py`'s (coordinator-content-repo) PreToolUse catering never
+enforce-agent-dispatch-mode.py`'s (content repo) PreToolUse catering never
 fires on it. This script is the caller-side reconstruction of the three
 parts a composer CAN close (i, ii, iv) -- part (iii), the permission-mode
 requirement, is a settled unclosable residual on this path (§6) and is
 recorded, not resolved, here.
 
-Sibling to coordinator/workflows/wsc-review-partition.mjs (coordinator-content-repo, C2):
+Sibling to coordinator/workflows/wsc-review-partition.mjs (content repo, C2):
 this script produces exactly the `args` object that Workflow script consumes
 -- `{ slices: [ { id, diffPath, shaRange, wasteReport,
 reviewer: {sidecarPath, contractBlocks} } ] }`,
@@ -58,9 +58,9 @@ appended directly by this script, not via provision_report.
 
 PATH RESOLUTION -- doctrine assets, plugin root, never `Path(__file__)`.
 `subagent-sandbox-policy.yaml` and `snippets/agent-role-dispatched.md` are
-DoE-side doctrine assets: they stay in coordinator-content-repo and are published, so
+DoE-side doctrine assets: they stay in the content repo and are published, so
 they are never at a fixed offset from this file's own location once this
-CLI lands here in claude-klabauter (docs/plans/2026-09-18-doe-holds-no-scripts.md §
+CLI lands here in the engine repo (docs/plans/2026-09-18-doe-holds-no-scripts.md §
 Path resolution). Both default paths resolve through the plugin root
 (`coordinator_core.subagent_sandbox.provision_report.resolve_plugin_root`),
 mirroring `check-gitignore-template-drift.py`'s own `_default_template_path`.
@@ -361,7 +361,7 @@ def _freeze_slices_batch(requests: list[dict[str, str]]) -> list[dict]:
     `coordinator_core`-reaching function in this file.
 
     NO TRAIL RECORD IS REQUESTED, and its absence is not a gap. `review_trail.
-    write` was gravestoned at kill-ledger K-060 (2026-08-27, coordinator-content-repo) and
+    write` was gravestoned at kill-ledger K-060 (2026-08-27, content repo) and
     the engine's CLI has no legacy fallback by design.
 
     The sha-range binding it protected did not depend on it. This slice's
@@ -585,7 +585,7 @@ def _run_waste_attribution(changed_paths: list[str], repo_root: Path) -> dict:
     the instrument arms `sys.addaudithook` and runs the resolved covering
     tests inside ONE process (visibility), while this composer never runs a
     test suite in its own process (crash isolation, per
-    coordinator/docs/wiki/test-environment-discipline.md:161/168, coordinator-content-repo).
+    coordinator/docs/wiki/test-environment-discipline.md:161/168, content repo).
     This composer hosts no test-running logic of its own -- it names the
     child's stdout and parses it; the instrument owns test resolution, hook
     arming, and running.
@@ -834,7 +834,7 @@ def compose(
             )
             # Parts (i) and (iv) concatenated, role framing LAST -- see
             # module docstring and coordinator/hooks/scripts/
-            # enforce-agent-dispatch-mode.py's own ordering (coordinator-content-repo)
+            # enforce-agent-dispatch-mode.py's own ordering (content repo)
             # (sidecar offer -> injected contract -> role framing).
             contract_blocks_text = injected_blocks.rstrip("\n") + "\n\n" + role_append
             role_payloads[role] = {

@@ -23,7 +23,7 @@ def main(argv: "list[str] | None" = None) -> int:
             "coordinator-invoke.py: engine unreachable (searched "
             "COORDINATOR_ENGINE_ROOT, machine-local pointer files, "
             "repos.claude_klabauter, self-location). Run: python3 "
-            "<claude-klabauter>/scripts/setup.py (cloud box: scripts/cloud_setup.py)",
+            "<engine repo>/scripts/setup.py (cloud box: scripts/cloud_setup.py)",
             file=sys.stderr,
         )
         print(f"coordinator-invoke.py: detail: {exc}", file=sys.stderr)

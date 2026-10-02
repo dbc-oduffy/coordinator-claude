@@ -213,7 +213,7 @@ def main(argv: "list[str]") -> int:
             print(f"  - {f}")
         print(
             "  Reference: coordinator/docs/wiki/windows-process-spawn-and-console.md "
-            "§ Interactive launch (coordinator-content-repo)"
+            "§ Interactive launch"
         )
         return 1
 

@@ -30,7 +30,6 @@ import _copy_currency as cc  # noqa: E402
 
 COPY = "capability-index"
 INDEX_RELPATH = "state/capabilities/fleet-index.json"
-OP_KEY = "fleet.aggregate_capability_index"
 
 #: Settings-home launcher names that expose `fleet.aggregate_capability_index`.
 REMEDY_LAUNCHER_CANDIDATES = ("coordinator-fleet-aggregate-capability-index",)

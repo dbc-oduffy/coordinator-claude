@@ -362,7 +362,7 @@ def _outbox_root() -> str:
         raise RuntimeError(
             f"coordinator-lesson-promote: refusing to write the lessons-outbox into "
             f"an OSS publish-mirror install ({resolved_content_root!r}) — the private "
-            f"coordinator-content-repo source repo is unresolvable via env/registry. Remediation: "
+            f"coordinator content repo is unresolvable via env/registry. Remediation: "
             f"run 'machine-local set repos.content_root /path/to/the-coordinator-doctrine-repo' "
             f"or set CONTENT_ROOT=/path/to/the-coordinator-doctrine-repo before invoking this CLI."
         )

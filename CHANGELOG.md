@@ -4,6 +4,22 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.4.8] — 2026-10-02
+
+A hands-off-execution and install-hygiene release.
+
+- **Execution runs end to end.** A plan body changed after approval goes back through review; an
+  incomplete run terminal-commits and re-emits; mise-en-place commits once per wave and supports
+  resume, auto-split and plan dependencies.
+- **Installer.** The DoE launcher is renamed `claude-author`, with install docs and launcher checks
+  brought in line.
+- **Group EM.** Event-driven wakes replace the cron tick; peers ask the Group EM before the PM.
+- **Fixes.** `machine-local` serializes registry writes across processes (concurrent sets no longer
+  drop keys) and refuses `set --global repos.*`; the manufactured-blocker guard ignores negated
+  triggers; quick-wrap passes `--invoker`.
+- **Schemas.** plan 2.28.0 (`claimed_by_handoff`, `approved_body_sha`, `depends_on_plan`),
+  plan-tasks 3.6.0, debt-backlog 1.3.0, and patch bumps recording earlier unversioned shape moves.
+
 ## [4.4.7] — 2026-10-02
 
 A consumer-defaults and hands-off-execution release; the first 4.4 publish.

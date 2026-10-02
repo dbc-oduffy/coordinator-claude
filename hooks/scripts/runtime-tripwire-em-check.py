@@ -1458,9 +1458,12 @@ def _minted_advisory_text(artifact_path: str, git_root: str) -> str:
     )
 
 
-def _handoff_mint_advisory(minted_artifacts, baton_path: str, git_root: str) -> str | None:
-    """Advisory text for every path in `minted_artifacts` not yet announced,
-    or `None` if there is nothing new. Reads/writes a sibling marker file
+def _handoff_mint_advisory(minted_artifacts, baton_path: str, git_root: str):
+    """Returns `(text, commit_fn)` for every path in `minted_artifacts` not
+    yet announced, or `(None, None)` if there is nothing new. `commit_fn`
+    records the announcement and must run only after a successful emit; a
+    symlink at the marker refuses the announcement before emit. Reads a
+    sibling marker file
     (`_BATON_MINTED_ANNOUNCED_SUFFIX`) holding the newline-delimited set of
     paths already announced -- unlike the adopted marker, this one carries
     content because a mint can recur mid-session and each path needs its own
@@ -1474,7 +1477,7 @@ def _handoff_mint_advisory(minted_artifacts, baton_path: str, git_root: str) -> 
     path as a storm on the next call.
     """
     if not isinstance(minted_artifacts, list) or not minted_artifacts:
-        return None
+        return None, None
 
     marker_path = baton_path + _BATON_MINTED_ANNOUNCED_SUFFIX
     try:
@@ -1483,7 +1486,7 @@ def _handoff_mint_advisory(minted_artifacts, baton_path: str, git_root: str) -> 
     except FileNotFoundError:
         announced = set()
     except Exception:
-        return None
+        return None, None
 
     new_paths = []
     seen = set()
@@ -1492,18 +1495,22 @@ def _handoff_mint_advisory(minted_artifacts, baton_path: str, git_root: str) -> 
             new_paths.append(p)
             seen.add(p)
     if not new_paths:
-        return None
+        return None, None
 
     try:
+        if os.path.islink(marker_path):
+            return None, None
+    except Exception:
+        return None, None
+
+    def _commit() -> None:
         if not _symlink_safe_marker(marker_path):
-            return None
+            return
         with open(marker_path, "a", encoding="utf-8") as fh:
             for p in new_paths:
                 fh.write(p + "\n")
-    except Exception:
-        return None
 
-    return "\n".join(_minted_advisory_text(p, git_root) for p in new_paths)
+    return "\n".join(_minted_advisory_text(p, git_root) for p in new_paths), _commit
 
 
 def _combine_baton_advisories(baton_line, mint_block) -> str | None:
@@ -1515,16 +1522,18 @@ def _combine_baton_advisories(baton_line, mint_block) -> str | None:
 
 def _mint_session_baton(
     git_root: str, session_id: str, sessions_dir: str, hook_event: str, prompt
-) -> str | None:
+):
+    """Returns `(text, advance_fn)` on every path. `advance_fn` runs the
+    announced-marker writes (minted, adopted) and must be called only after
+    a successful emit."""
     if hook_event != "UserPromptSubmit":
-        return
-        # ZERO-TOOL-USE-DETECT-SURFACE gate immediately above)
+        return None, None
 
     if not sessions_dir:
-        return
+        return None, None
 
     if not session_id or not _ID_CHARSET_RE.match(session_id):
-        return
+        return None, None
 
     baton_path = os.path.join(sessions_dir, session_id, "baton.json")
 
@@ -1534,16 +1543,24 @@ def _mint_session_baton(
     except FileNotFoundError:
         record = None
     except Exception:
-        return
+        return None, None
 
     if record is not None and not isinstance(record, dict):
-        return
+        return None, None
 
-    mint_advisory = (
+    mint_advisory, mint_commit = (
         _handoff_mint_advisory(record.get("minted_artifacts"), baton_path, git_root)
         if isinstance(record, dict)
-        else None
+        else (None, None)
     )
+    commits = [mint_commit] if mint_commit is not None else []
+
+    def _advance() -> None:
+        for fn in commits:
+            try:
+                fn()
+            except Exception:
+                pass
 
     if isinstance(record, dict):
         if record.get("adopted_artifacts"):
@@ -1555,22 +1572,26 @@ def _mint_session_baton(
             # this same branch and must stay silent.
             announced_marker = baton_path + _BATON_ADOPTED_ANNOUNCED_SUFFIX
             if os.path.isfile(announced_marker):
-                return mint_advisory
+                return mint_advisory, _advance
             try:
-                if not _symlink_safe_marker(announced_marker):
-                    return mint_advisory
+                if os.path.islink(announced_marker):
+                    return mint_advisory, _advance
             except Exception:
-                return mint_advisory
-            return _combine_baton_advisories(
-                _baton_advisory_text(baton_path, git_root), mint_advisory
+                return mint_advisory, _advance
+            commits.append(lambda: _symlink_safe_marker(announced_marker))
+            return (
+                _combine_baton_advisories(
+                    _baton_advisory_text(baton_path, git_root), mint_advisory
+                ),
+                _advance,
             )
         if record.get("first_prompt") is not None:
-            return mint_advisory
+            return mint_advisory, _advance
 
     try:
         root = _resolve_claude_klabauter_root()
         if not root:
-            return mint_advisory
+            return mint_advisory, _advance
         from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
         _place_engine_root_on_path(root)
 
@@ -1595,7 +1616,7 @@ def _mint_session_baton(
                 engine_baton_path
             ) != os.path.normcase(baton_path):
                 # foreign-identity: SUBJECT — the two disagreeing baton paths ARE
-                # the anomaly report (census audit N4).
+                # the anomaly report.
                 print(
                     "session-baton-mint: path divergence -- "
                     f"hook={baton_path!r} engine={engine_baton_path!r}",
@@ -1608,15 +1629,18 @@ def _mint_session_baton(
                     f"error={result.get('error')!r}",
                     file=sys.stderr,
                 )
-                return mint_advisory
+                return mint_advisory, _advance
             if not os.path.isfile(baton_path):
-                return mint_advisory
-            return _combine_baton_advisories(
-                _baton_advisory_text(baton_path, git_root), mint_advisory
+                return mint_advisory, _advance
+            return (
+                _combine_baton_advisories(
+                    _baton_advisory_text(baton_path, git_root), mint_advisory
+                ),
+                _advance,
             )
-        return mint_advisory
+        return mint_advisory, _advance
     except Exception:
-        return mint_advisory
+        return mint_advisory, _advance
 
 
 _VALID_HOOK_EVENTS = ("Stop", "UserPromptSubmit", "PostToolUse")
@@ -1893,13 +1917,14 @@ def main() -> int:
     # adoption) -- see `_mint_session_baton`'s docstring. ---
     # --- REPLY-CAP-ESCAPE-FOLD-IN (C3, see block above _check_reply_cap_
     # escape). Independently wrapped, same as the checks above -- a bug here
-    baton_msg = _fail_open(
+    baton_msg, _baton_advance = _fail_open(
         _mint_session_baton,
         git_root,
         session_id,
         sessions_dir,
         hook_event,
         payload.get("prompt"),
+        default=(None, None),
     )
 
     # --- Subagent-overrun tripwire: REMOVED (PM ruling 2026-07-31 stood it
@@ -1915,6 +1940,11 @@ def main() -> int:
         if _zero_tool_use_advance is not None:
             try:
                 _zero_tool_use_advance()
+            except Exception:
+                pass
+        if _baton_advance is not None:
+            try:
+                _baton_advance()
             except Exception:
                 pass
 

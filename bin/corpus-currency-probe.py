@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """corpus-currency-probe — is this repo's landed corpus behind its published artifact?
 
-Ported from coordinator-content-repo `coordinator/bin/corpus-currency-probe.py` (W2-C6,
+Ported from the coordinator content repo `coordinator/bin/corpus-currency-probe.py` (W2-C6,
 `docs/plans/2026-09-18-doe-holds-no-scripts.md`) — mechanical move, no behavioural change.
 `_load_tier_last_run_module()` by-path-loads `tier-last-run.py`, a "doctrine asset" sibling that
 arrived in this same `coordinator/bin/` directory in an earlier chunk of this plan — the by-path
 load is unchanged, since it is still a same-directory sibling. `_claude_home()` is unchanged (env
-var then `Path.home()`, no engine-shim fast path needed off the boot path). Coordinator-content-repo carries no
+var then `Path.home()`, no engine-shim fast path needed off the boot path). The content repo carries no
 test file for this CLI (handover-confirmed absence); this arrival's test is written from the
-CLI's requirement — cited by coordinator-content-repo's `commands/workday-start.md` Step 1.10 and
+CLI's requirement — cited by the content repo's `commands/workday-start.md` Step 1.10 and
 `coordinator/hooks/scripts/project-orientation.py`'s `corpus_currency_banner()`, both DoE-resident
 consumers this plan's handback protocol (§ Sequencing and the handback protocol) retargets at this
 CLI once it ships here.

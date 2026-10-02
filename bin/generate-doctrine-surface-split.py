@@ -162,7 +162,7 @@ def _repo_root() -> Path:
     plugin_root = resolve_caller_context().plugin_root
     if plugin_root is None:
         raise RuntimeError(
-            "generate-doctrine-surface-split: cannot resolve the coordinator-content-repo "
+            "generate-doctrine-surface-split: cannot resolve the coordinator "
             "plugin root -- resolve_caller_context().plugin_root returned no "
             "result. Set CLAUDE_PLUGIN_ROOT, or register the coordinator-claude "
             "plugin install / .content-root pointer (see resolve_plugin_root())."

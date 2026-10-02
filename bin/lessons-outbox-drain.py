@@ -37,12 +37,12 @@ Two subcommands remain, one per mechanical step:
 
 Step 5 (route each deduped entry through the central-mode classifier -> verify-gate ->
 apply pipeline) is deliberately NOT mechanized here — which wiki a lesson's body belongs in
-is a judgment call the EM/router makes per `coordinator-content-repo coordinator/docs/wiki/schema-and-validation-contracts/lessons-outbox-schema.md` § Change-kind
+is a judgment call the EM/router makes per `coordinator/docs/wiki/schema-and-validation-contracts/lessons-outbox-schema.md` § Change-kind
 enum, not a deterministic parse. `read`'s output is the input to that judgment step; marking
 an entry drained (`git mv` to `drained/` + commit, within this repo only) happens directly
 once routing succeeds — no manifest, no peer writeback.
 
-Schema reference: coordinator-content-repo coordinator/docs/wiki/schema-and-validation-contracts/lessons-outbox-schema.md
+Schema reference: the coordinator content repo's coordinator/docs/wiki/schema-and-validation-contracts/lessons-outbox-schema.md
 Spec backlink: archive/specs/2026-06/2026-06-15-universal-lesson-routing-mechanical-capture.md § C4
 Co-located test: test_lessons_outbox_drain.py (fixture git repos — never a real peer repo).
 """

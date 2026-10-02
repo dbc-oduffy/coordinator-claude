@@ -3,11 +3,11 @@
 WHY THIS EXISTS. `state/group-em-watch.json`, `state/group-em-watch-parked.json` and
 `state/group-em-watch-spool.jsonl` are per-machine runtime state written by a live poller and by
 every session's own `Stop` hook. `/coordinator:repo-setup` already prescribes them in its canonical
-`.gitignore` block (`skills/repo-setup/residue/mechanics.md`, coordinator-content-repo) -- but that block is laid
+`.gitignore` block (`skills/repo-setup/residue/mechanics.md`, coordinator content repo) -- but that block is laid
 down once, at setup, and a repo onboarded before the trio existed never receives it. Nothing else
 checks.
 
-That gap is not theoretical: `claude-klabauter` was found on 2026-09-02 with the spool TRACKED, i.e.
+That gap is not theoretical: the engine repo was found on 2026-09-02 with the spool TRACKED, i.e.
 one machine's park records syncing to every other machine through git. The failure is silent in
 exactly the way the starter template's own header warns about -- invisible until a second machine
 exists, and then wrong rather than merely untidy.
@@ -31,7 +31,7 @@ this machine has not cloned is normal.
 
 _checked_paths()/BOX_LOCAL_STATE_GROUPS name paths only, never touch a doctrine asset at runtime --
 the residue block their spelling is pinned against (`skills/repo-setup/residue/mechanics.md`)
-stays in coordinator-content-repo and is a test-time concern only (see
+stays in the coordinator content repo and is a test-time concern only (see
 coordinator/tests/test_arrival_check_watch_state_gitignore_fleet.py), so this CLI itself needs no
 plugin-root resolution (docs/plans/2026-09-18-doe-holds-no-scripts.md § Path resolution).
 
@@ -55,7 +55,7 @@ import sys
 from pathlib import Path
 
 # Every path here is box-local: written by a live poller or a hook on THIS machine, read by
-# nothing in any other clone. Spelled exactly as skills/repo-setup/residue/mechanics.md (coordinator-content-repo)
+# nothing in any other clone. Spelled exactly as skills/repo-setup/residue/mechanics.md (content repo)
 # prescribes them; test_arrival_check_watch_state_gitignore_fleet.py pins the two spellings
 # together so the instrument and the prose that documents it cannot drift apart.
 #
@@ -186,7 +186,7 @@ def audit_repo(repo: Path) -> tuple[list[str], list[str]]:
     ignore this path", and for a TRACKED path the answer is always no -- tracking beats every
     ignore rule, so the rule is not consulted. Without the flag this function reports
     "rule missing" for a repo whose rule is present and whose file is merely tracked, and `--apply`
-    then appends a duplicate of a rule already there. Measured on `claude-klabauter`, 2026-09-02,
+    then appends a duplicate of a rule already there. Measured on the engine repo, 2026-09-02,
     which is exactly the shape this sweep exists to find -- so the misread lands on precisely the
     repos that matter. The two questions are independent and both are asked: is the RULE present
     (`--no-index`), and is the path in the INDEX (`ls-files`).
@@ -289,7 +289,7 @@ def main(argv: list[str] | None = None) -> int:
         print("THEN COMMIT FROM THE INDEX, and VERIFY -- `git commit -- <paths>` CANNOT do this.")
         print("Pathspec (`--only`) mode commits WORKTREE state for the named paths and bypasses")
         print("the index, so it silently re-adds the file you just removed and exits 0. Measured")
-        print("twice on claude-klabauter, 2026-09-02. Afterwards, always confirm with:")
+        print("twice on the engine repo, 2026-09-02. Afterwards, always confirm with:")
         print("  git -C <repo> ls-files --error-unmatch -- <path>   # non-zero means untracked")
 
     if findings == 0:

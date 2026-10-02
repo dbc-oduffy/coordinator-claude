@@ -69,9 +69,13 @@ _EXCLUDE_DIR_NAMES = {
 # dispositioned either, because the disposition map is keyed by path and
 # `test_disposition_map_has_no_stale_entries` requires the path to still
 # exist, which a per-session share directory does not.
+#
+# `scratch/` is the same class: gitignored, untracked clone and benchmark trees
+# (`scratch/benchmark-clones/<id>/clone/...`) that duplicate real call sites
+# under paths that vanish with the session.
 _EXCLUDE_PREFIXES = (
     "state/", "archive/", "cross-repo/", "tasks/", "docs/decisions/",
-    ".coordinator-local/",
+    ".coordinator-local/", "scratch/",
 )
 
 _VAR_NAMES = ("CLAUDE_KLABAUTER_ROOT", "COORDINATOR_ENGINE_ROOT", "COORDINATOR_ENGINE_SOURCE_ROOT")
@@ -146,6 +150,10 @@ _REVIEWED_DISPOSITIONS: dict[str, tuple[str, str]] = {
         "dispatch", "hands the root to engine-side session resolution"),
     "coordinator/bin/lib/op_trampoline.py": (
         "dispatch", "returns the resolved root for the caller's engine import"),
+    "coordinator/bin/hook-run.py": (
+        "dispatch", "resolves the dispatch ladder to put the engine on sys.path and then reports "
+                    "that root in the --check-all identity line; the root names the engine, "
+                    "never repo content"),
     "coordinator/bin/workday-start-inbox-blitz-assemble.py": (
         "dispatch", "truthiness guard on the resolved root only; no filesystem use"),
     "coordinator/lib/coordinator_session.py": (
@@ -199,6 +207,10 @@ _REVIEWED_DISPOSITIONS: dict[str, tuple[str, str]] = {
                    "message's own remedy text and re-calls `shim._resolve_claude_klabauter_root` against "
                    "a tmp_path engine dir to confirm the remedy works. The var is the subject "
                    "under test, never a route to an engine"),
+    "coordinator_core/tests/test_engine_root_two_tier_claude_klabauter_corpus.py": (
+        "fixture", "source-side two-tier registry-layout tests: asserts ON the resolver's returned "
+                   "root and class against synthetic live/published roots, never uses the root "
+                   "to reach an engine or read repo content"),
     "coordinator_core/tests/test_engine_root_two_tier.py": (
         "fixture", "builds synthetic live/published roots to exercise the ladder"),
     "coordinator/bin/tests/test_cc_invoke_provenance_hardening.py": (

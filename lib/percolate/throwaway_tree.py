@@ -222,12 +222,9 @@ def build_throwaway_tree(
             # and git aborts rather than falling back to a copy.
             shutil.rmtree(tmp_dir, ignore_errors=True)
             tmp_dir.mkdir()
-            result = subprocess.run(
-                clone_cmd[:3] + ["--no-hardlinks"] + clone_cmd[3:],
-                capture_output=True,
-                text=True,
-                check=False,
-                **_NO_CONSOLE,
+            result = run_git(
+                ["clone", "--local", "--no-hardlinks", "--no-checkout", str(dest_repo_root), str(tmp_dir)],
+                remote=True,
             )
         if result.returncode != 0:
             raise ThrowawayTreeError(

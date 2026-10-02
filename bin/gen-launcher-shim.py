@@ -569,7 +569,7 @@ def _cmd_localappdata_rung() -> str:
 # --- Dispatch-root launcher cache (C15, docs/plans/2026-08-21-the-cli-
 # bootstrap-tax-dies-at-the-interpreter-floor.md) -----------------------
 #
-# THE SHAPE: stamp + `_registry_mtime_pair`'s triple as the composite key,
+# THE SHAPE: stamp + `_registry_mtime_pair`'s pair as the composite key,
 # carried in the `%LOCALAPPDATA%` self-healing cache, NEVER in any tracked
 # `.cmd`/`.ps1` body -- the byte-parity guard over all 393 launchers requires
 # that, and a launcher cannot re-bake itself past the next publish (see this
@@ -628,7 +628,7 @@ def write_dispatch_root_cache(
 ) -> None:
     """Persist a gate-resolved `(root, resolution_class)` answer under
     `%LOCALAPPDATA%`, keyed on the engine build stamp PLUS
-    `_registry_mtime_pair`'s float triple (AC17) -- the stamp alone misses a
+    `_registry_mtime_pair`'s float pair (AC17) -- the stamp alone misses a
     `machine-local set repos.*` redirect, which changes which engine
     executes WITHOUT touching any stamp (HARD CONSTRAINT 2: that would trade
     a visible latency bug for an invisible staleness one).
@@ -674,7 +674,7 @@ def read_dispatch_root_cache(ml_dir: Path, engine_root: Path) -> tuple[str, str]
     starting Python -- only this function does.
 
     Composite key: engine build stamp bytes (DR-328's invalidation key)
-    PLUS `_registry_mtime_pair`'s triple (HARD CONSTRAINT 2 -- a stamp alone
+    PLUS `_registry_mtime_pair`'s pair (HARD CONSTRAINT 2 -- a stamp alone
     misses a `machine-local set repos.*` redirect). Both must match the
     cached values for a hit; any mismatch, missing file, or corrupt content
     is a miss -- never an error, since a miss just falls back to the full

@@ -86,6 +86,8 @@ guard result — AC15/AC8 fail-closed, never best-effort.
 
 from __future__ import annotations
 
+INSTALL_CLASS = False  # writes only throwaway mirror trees, never this machine's install state; see door_install.declared_install_class
+
 import argparse
 import contextlib
 import functools
@@ -10479,9 +10481,10 @@ def _create_publish_staging_dir(dest_dir: Path) -> Path:
                 copy_function=progress.copy,
             )
             progress.finish()
-        # copytree's copystat stamps the dest root's (often hours-old) mtime
-        # onto staging_dir, which the age-keyed stale sweep reads as orphaned.
-        os.utime(staging_dir)
+            # Trap: copytree ends with copystat(dest_dir, staging_dir), back-dating
+            # the live staging root to dest_dir's mtime; a sibling row's
+            # `_sweep_stale_publish_staging_dirs` would then delete it as stale.
+            os.utime(staging_dir)
     except BaseException:
         shutil.rmtree(staging_dir, onerror=_rmtree_clear_readonly_onerror)
         raise

@@ -54,12 +54,12 @@ every register id is `rcr-<8 hex>`, so there is no collision to resolve)
 WHY NOTHING IS OMITTED, given the register marks 309 rows
 `genuinely-inapplicable`. That disposition makes a rule a CANDIDATE for
 omission; it does not ratify one.
-`DR-an-omission-is-ratified-by-the-plane-that-enforces-the-rule` stands
-`proposed`, so only its safe arm is in force: an omission is ratified by
-the plane that ENFORCES the rule recording that its guard does not fire
-here. No artifact in this repo bridges an `rcr-<hash>` id to an
-engine-plane guard verdict, so no omission is ratifiable today and every
-unestablished case resolves toward PRESENCE.
+`DR-an-omission-is-ratified-by-the-plane-that-enforces-the-rule` is
+`accepted`, and its safe arm binds: an omission is ratified by the plane
+that ENFORCES the rule recording that its guard does not fire here. No
+enforcement-verdict artifact bridges an `rcr-<hash>` id to an engine-plane
+guard verdict, so no omission is ratifiable today and every unestablished
+case resolves toward PRESENCE.
 
 A prior version of this constant carried 902 ids, excluding the 309. That
 left those 309 in neither the story nor the omission register -- the one
@@ -160,8 +160,8 @@ EPHEMERAL_CLOUD_VM_PROSE = "\n\n".join(
 # at build time -- see "WHY A BUILT CONSTANT, NOT A RUNTIME READ" above.
 # Regenerate with: python coordinator/hooks/scripts/_environment_stories.py
 # 1,211 ids: EVERY rule-bearing row id, `genuinely-inapplicable` included --
-# see the module docstring on why nothing is omitted while the ratification
-# DR stands proposed. `CORE_RULE_IDS` is unioned in separately, below, not
+# see the module docstring on why nothing is omitted while no
+# enforcement-verdict artifact exists. `CORE_RULE_IDS` is unioned in separately, below, not
 # baked in here, so this constant stays a pure function of the register.
 _EPHEMERAL_CLOUD_VM_REGISTER_RULE_IDS: frozenset[str] = frozenset(
     {
@@ -381,6 +381,67 @@ EPHEMERAL_CLOUD_VM_STORY = Story(
 # time, rather than admitting a core-omitting story silently. See
 # "IDEMPOTENT REGISTRATION" above for why re-running this line is safe.
 register_story(EPHEMERAL_CLOUD_VM_STORY)
+
+# MEMBERSHIP VERDICTS. Bar: a candidate is a member only if at least one
+# register row takes a different disposition in it than in every other
+# member; candidates with identical omission sets collapse into one story.
+#
+# INPUT READ: the doctrine rule-class register's 309 `genuinely-inapplicable`
+# DISPOSITIONS -- what would omit once an enforcement verdict exists -- not the
+# omission register's emitted rows, which are empty for every story
+# (`carrying_an_omission_row_count: 0`) and would make distinctness vacuous.
+# That register classifies against ONE target, the single-tenant ephemeral VM,
+# measured against a reference environment that is a workstation (header
+# "THE TARGET ENVIRONMENT"; "The reference environment on axes 1 and 2"). Its
+# `per_story` block carries only `strictest` and `ephemeral-cloud-vm`, so the
+# bar is APPLIED only to `ephemeral-cloud-vm`; `workstation` and `unmanaged`
+# have no register input and are decided by construction and by fail-safe, not
+# by argued dispositions. The JOB axis collapses structurally: the resolver
+# returns a HOST-only scalar, so no JOB variant is selectable.
+#
+# `candidate` is `Story.name` for a composed story, so the table joins to the
+# registry by name. A COLLAPSED row's `basis` names the member it collapses
+# into. Do not add an assertion that no two stories share an omission set:
+# over empty sets it is vacuously green and the omission ledger owns it.
+MEMBER = "MEMBER"
+COLLAPSED = "COLLAPSED"
+
+STORY_MEMBERSHIP_VERDICTS: tuple[tuple[str, str, str], ...] = (
+    (
+        "strictest",
+        MEMBER,
+        "The fail-safe story every resolver failure returns; it omits nothing "
+        "and is the reference the other candidates are measured against.",
+    ),
+    (
+        "ephemeral-cloud-vm",
+        MEMBER,
+        "309 `genuinely-inapplicable` register dispositions are omission "
+        "candidates here and none is in `strictest`'s omission set; the only "
+        "input on which the bar discriminates.",
+    ),
+    (
+        "workstation",
+        COLLAPSED,
+        "Collapses into `strictest`: it IS the register's reference "
+        "environment, so no rule is inapplicable there and its omission set "
+        "is empty.",
+    ),
+    (
+        "unmanaged",
+        COLLAPSED,
+        "Collapses into `strictest` by the fail-safe: no register basis "
+        "exists, so there is no evidence of a distinct omission set.",
+    ),
+    (
+        "job-axis",
+        COLLAPSED,
+        "Collapses into `strictest` for every attended/unattended variant of "
+        "an unselected HOST, and into the HOST-selected member otherwise: "
+        "cloudem-04 D1 pins `resolve_environment_story()` to a HOST-only "
+        "scalar, so no JOB variant can be selected as a distinct story.",
+    ),
+)
 
 
 def _derive_register_rule_ids(

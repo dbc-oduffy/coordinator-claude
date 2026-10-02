@@ -6,7 +6,7 @@ registration (context-pressure + runtime-tripwire checks) with ONE `python3`
 hook entry -- zero Git-Bash cold-start per tool call on Windows (each bash.exe
 spawn costs 200-500ms; this is the whole point).
 
-This doctrine-plane repo owns only this thin PLUMBING shim (DR-047 transport-seam carve-out): resolve
+This doctrine-plane repo owns only this thin PLUMBING shim (in-process `coordinator_core` import, sanctioned by DR-047's Python-caller-shape Addendum): resolve
 the engine repo, hand it the mapped params, relay its stdout. The engine repo owns the
 advisory LOGIC (coordinator_core.hooks.postuse_advisory_dispatch, registered
 under the JSON-RPC method "hooks.postuse_advisory_dispatch"). The engine is
@@ -161,11 +161,18 @@ try:
     from _engine_root import (  # noqa: E402
         arm_lazy_ops as _arm_lazy_ops,
         resolve_claude_klabauter_root as _resolve_claude_klabauter_root,
+        place_engine_root_on_path as _place_engine_root_on_path,
     )
 except Exception:
     # A deploy missing its sibling _engine_root.py must fail-open rather than crash on import.
+    # Same fallback shape as preuse-write-dispatch.py.
     def _resolve_claude_klabauter_root() -> str | None:
         return None
+
+    def _place_engine_root_on_path(root):
+        if root and root not in sys.path[:2]:
+            sys.path.insert(1 if sys.path else 0, root)
+        return root
 
     def _arm_lazy_ops() -> None:
         return None
@@ -189,7 +196,6 @@ def main() -> int:
     if not root:
         return 0  # fail-open -- engine repo unresolvable on this machine
 
-    from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
     _place_engine_root_on_path(root)
 
     _arm_lazy_ops()

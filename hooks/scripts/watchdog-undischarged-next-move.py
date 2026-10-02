@@ -147,7 +147,6 @@ except Exception:  # import failure degrades to the "cannot evaluate" path
         return ""
 
 
-
 _SEAM_SIZING_ROUTED = "sizing-routed"
 _SEAM_PLAN_REVIEW = "plan->review"
 _SEAM_REVIEW_A1_A2 = "review-a1-a2"

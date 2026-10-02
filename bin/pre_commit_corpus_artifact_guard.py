@@ -172,7 +172,7 @@ def main(argv: list[str] | None = None) -> int:
             "    git restore --staged -- <path>\n"
             "If they were already tracked, untrack them so the ignore rule takes effect:\n"
             "    git rm -r --cached <path>\n"
-            "Ruling: coordinator-content-repo coordinator/docs/wiki/coordinator-tripwires/"
+            "Ruling: the coordinator content repo's wiki, coordinator-tripwires/"
             "corpus-artifact-is-never-committed.md\n",
             file=out,
         )

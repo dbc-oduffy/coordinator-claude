@@ -703,7 +703,7 @@ def prompt_naming_addon(args: Args, non_interactive: bool, script_dir: Path) -> 
             print("")
             print("  Binding names via setup/name-personas.py...")
             print("")
-            # Hardening applies uniformly (no carve-out): timeout as a hang backstop
+            # Subprocess hardening applies uniformly (no carve-out): timeout as a hang backstop
             # + stdin=DEVNULL (name-personas.py does no stdin reads of its
             # own — all names were already collected via _prompt above), while
             # stdout stays inherited so the script's own progress output

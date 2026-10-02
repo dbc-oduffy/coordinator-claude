@@ -20,9 +20,8 @@ directly. Stdlib-only (`pathlib` only) -- satisfies `test_hook_stdlib_only_contr
 distribution-resolution invariant trivially, since it imports no third-party distribution at all.
 
 Start-anchored form: `git_root_walk(start)` walks from `start` instead of cwd, for callers that
-resolve a root from a payload path rather than the process cwd. The nine payload-anchored
-callers are named by the plan's Batch A/B rows (`per-hook-independence-agree-to-be-correct`
-C3 onward); niladic callers are unchanged.
+resolve a root from a payload path rather than the process cwd; a falsy `start` falls back to
+cwd.
 
 Negative spec: do NOT reintroduce a `git rev-parse --show-toplevel` spawn here as a routine
 path, and do NOT fold a subprocess fallback into this module. Each caller already carries its

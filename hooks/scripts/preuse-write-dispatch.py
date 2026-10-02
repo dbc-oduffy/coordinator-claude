@@ -5,7 +5,7 @@ Replaces the former ~10 `bash …/block-*.sh` + `bash …/nudge-*.sh` PreToolUse
 registrations with ONE `python3` hook entry — zero Git-Bash cold-starts per edit
 (each bash.exe spawn costs 200-500ms on Windows; this is the whole point).
 
-The doctrine plane owns only this thin PLUMBING shim (DR-047 transport-seam carve-out): resolve
+The doctrine plane owns only this thin PLUMBING shim (in-process `coordinator_core` import, sanctioned by DR-047's Python-caller-shape Addendum): resolve
 the engine, hand it the raw payload, relay its stdout. The engine repo owns the
 guard LOGIC (`coordinator_core.write_guards`, which also reuses
 `coordinator_core.subagent_sandbox`). The engine is imported and run IN-PROCESS —
@@ -18,9 +18,13 @@ Contract (mirrors the bash hooks it replaces):
   exit 0  — always (ALLOW/DENY conveyed via stdout, never exit code)
 
 Graceful degradation — REQUIRED: any failure to resolve/import/run the engine
-falls through to fail-open ALLOW (exit 0, no stdout). A missing sibling
+drops only the engine's verdict. The DoE-resident guard registry still runs
+in-process, exit stays 0, and one stderr breadcrumb names the failure; only a
+verdict a DoE-resident guard returns itself can reach stdout. A missing sibling
 engine must NEVER brick every edit — identical philosophy to the bash sandbox
-shim it supersedes.
+shim it supersedes. The breadcrumb fires on every edit while the engine stays
+missing, deliberately (operator visibility of the outage); never latch it to
+once per session.
 
 NOTE (transition): the legacy bash guards stay registered until hooks.json is
 rewired to this dispatcher; both emitting is harmless (the harness aggregates
@@ -113,33 +117,44 @@ def _compose_skipped_guard_breadcrumb(skipped: "list[str]") -> str:
     )
 
 
+def _compose_engine_unavailable_breadcrumb(reason: str) -> str:
+    """Stderr breadcrumb for a missing engine verdict. Pure; main() prints it once per edit."""
+    return (
+        f"[preuse-write-dispatch] {reason}; engine guards skipped "
+        "(fail-open for engine guards only, DoE-resident guards ran)"
+    )
+
+
 def main() -> int:
     raw = sys.stdin.read()
 
+    evaluate_payload_json = None
+    engine_unavailable: "str | None" = None
+
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0  # fail-open ALLOW — engine unresolvable on this machine
+        engine_unavailable = "engine root unresolvable"
+    else:
+        # Contract clause 8 (SYS.PATH ORDERING, `_guard_runner_contract.py`):
+        # the engine root is APPENDED, never inserted at index 0 -- the hooks
+        # dir (inserted at index 0 above, before this point) must stay AHEAD
+        # of the engine root on sys.path, so a module-name collision between a
+        # doctrine-plane-local helper and a same-named engine-side module resolves toward
+        # the doctrine-plane-local helper.
+        # Index-1 placement via the shared primitive: hooks dir stays at 0, engine root
+        # outranks site-packages. A bare append put it BEHIND an editable install of the
+        # engine, so the resolver answered the mirror and the import returned the working
+        # tree -- see _engine_root.place_engine_root_on_path.
+        _place_engine_root_on_path(root)
 
-    # Contract clause 8 (SYS.PATH ORDERING, `_guard_runner_contract.py`):
-    # the engine root is APPENDED, never inserted at index 0 -- the hooks
-    # dir (inserted at index 0 above, before this point) must stay AHEAD
-    # of the engine root on sys.path, so a module-name collision between a
-    # doctrine-plane-local helper and a same-named engine-side module resolves toward
-    # the doctrine-plane-local helper.
-    # Index-1 placement via the shared primitive: hooks dir stays at 0, engine root
-    # outranks site-packages. A bare append put it BEHIND an editable install of the
-    # engine, so the resolver answered the mirror and the import returned the working
-    # tree -- see _engine_root.place_engine_root_on_path.
-    _place_engine_root_on_path(root)
+        # Must precede the first coordinator_core.* import -- see _engine_root.arm_lazy_ops for
+        # the package-init cost this avoids.
+        _arm_lazy_ops()
 
-    # Must precede the first coordinator_core.* import -- see _engine_root.arm_lazy_ops for
-    # the package-init cost this avoids.
-    _arm_lazy_ops()
-
-    try:
-        from coordinator_core.write_guards.engine import evaluate_payload_json
-    except Exception:
-        return 0  # engine unimportable → fail-open ALLOW
+        try:
+            from coordinator_core.write_guards.engine import evaluate_payload_json
+        except Exception:
+            engine_unavailable = "engine import failed"
 
     # Policy file for the reused subagent_sandbox guard lives at the doctrine-plane plugin
     # root. __file__ parents: [0]=scripts [1]=hooks [2]=coordinator(plugin root)
@@ -180,19 +195,23 @@ def main() -> int:
     # import to answer a question one tuple lookup already answers. A callee without
     # __code__ (a C function, an un-unwrappable wrapper) simply keeps today's non-aggregating
     # behaviour.
-    kwargs: dict = {"policy_path": policy_path, "cwd": cwd, "skipped_out": _skipped}
-    try:
-        _code = evaluate_payload_json.__code__
-        _names = _code.co_varnames[: _code.co_argcount + _code.co_kwonlyargcount]
-        if "aggregate" in _names:
-            kwargs["aggregate"] = True
-    except Exception:
-        pass
+    out = None
+    if engine_unavailable is None:
+        kwargs: dict = {"policy_path": policy_path, "cwd": cwd, "skipped_out": _skipped}
+        try:
+            _code = evaluate_payload_json.__code__
+            _names = _code.co_varnames[: _code.co_argcount + _code.co_kwonlyargcount]
+            if "aggregate" in _names:
+                kwargs["aggregate"] = True
+        except Exception:
+            pass
 
-    try:
-        out = evaluate_payload_json(raw, **kwargs)
-    except Exception:
-        return 0  # any engine failure → fail-open ALLOW (never brick an edit)
+        try:
+            out = evaluate_payload_json(raw, **kwargs)
+        except Exception:
+            # No engine verdict; the DoE-resident registry below still runs.
+            engine_unavailable = "engine raised"
+            out = None
 
     # Under aggregate=True the advisory phase returns a LIST of envelopes (empty when nothing
     # fired); the hard-deny phase is unchanged and still returns a single envelope.
@@ -233,6 +252,8 @@ def main() -> int:
     # Best-effort signal only -- must never affect the ALLOW/DENY decision above or this
     # hook's own exit code; any failure here is swallowed.
     try:
+        if engine_unavailable is not None:
+            print(_compose_engine_unavailable_breadcrumb(engine_unavailable), file=sys.stderr)
         if _skipped:
             print(_compose_skipped_guard_breadcrumb(_skipped), file=sys.stderr)
     except Exception:

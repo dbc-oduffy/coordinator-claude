@@ -26,14 +26,12 @@ module's own established precedent of already inlining the ``CLAUDE_HOME``
 chain for that same self-containment reason. Keep ``claude_home()`` in step
 by hand with ``claude_config_dir()`` whenever its precedence changes.
 
-Two deliberate exceptions inline this same ladder rather than importing this
-module, for the same self-contained/no-recursion reason — keep BOTH in sync
+One deliberate exception inlines this same ladder rather than importing this
+module, for the same self-contained/no-recursion reason — keep it in sync
 by hand when this module's precedence rule changes:
-  - `gen-claude-klabauter-root-pointer.py` (see that file's own docstring) (review:
-    code-reviewer F5/F6).
   - `coordinator/bin/machine-local` (its own docstring gives the recursion
     rationale: engine-root resolution itself shells out to machine-local, so
-    a trampoline that imports this module here would recurse). This second
+    a trampoline that imports this module here would recurse). This
     exception was not originally listed here, which is how its inline copy
     drifted from this ladder (dropped the `CLAUDE_HOME` rung) unnoticed
     until a review caught it — now corrected and listed.
@@ -155,8 +153,8 @@ def settings_home() -> str:
     ``claude_home()`` here would nest settings-home one level too deep
     (``~/.claude/.coordinator-claude-settings`` instead of the canonical
     ``~/.coordinator-claude-settings``) — mirrors every existing correct
-    inline copy of this ladder (`gen-claude-klabauter-root-pointer.py::_settings_home`,
-    `cc_invoke.py::_resolve_claude_klabauter_root`'s inline settings-home block).
+    inline copy of this ladder (`cc_invoke.py::_resolve_claude_klabauter_root`'s inline
+    settings-home block).
 
     Inlined rather than importing ``coordinator_core._settings_home`` —
     mirrors `cc_invoke.py::_resolve_claude_klabauter_root`'s documented rationale

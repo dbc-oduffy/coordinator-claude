@@ -91,10 +91,10 @@ _CLAUDE_KLABAUTER_ROOT_REMEDIATION = (
     "repos.claude_klabauter (unset), and self-location from this script's own "
     "checkout (no enclosing coordinator_core/ + pyproject.toml found).\n"
     "  Remediate (choose one):\n"
-    "    machine-local set repos.claude_klabauter /path/to/claude-klabauter\n"
-    "    python3 <claude-klabauter>/scripts/setup.py   (installs and registers the engine)\n"
+    "    machine-local set repos.claude_klabauter /path/to/engine-checkout\n"
+    "    python3 <engine-checkout>/scripts/setup.py   (installs and registers the engine)\n"
     "    On a cloud/container box with no prior install: "
-    "python3 <claude-klabauter>/scripts/cloud_setup.py\n"
+    "python3 <engine-checkout>/scripts/cloud_setup.py\n"
     "  Reference: plugins/coordinator-claude/coordinator/docs/wiki/machine-local-registry.md §4c"
 )
 

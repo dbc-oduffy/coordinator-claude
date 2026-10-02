@@ -129,6 +129,7 @@ import secrets
 import subprocess
 import sys
 import tempfile
+from collections.abc import Sequence
 from typing import NamedTuple
 
 # ---------------------------------------------------------------------------
@@ -3021,12 +3022,14 @@ def _scaffold_spinoff(
     sizing_object: str | None = None,
     summary: str | None = None,
     what_this_covers: str | None = None,
+    reference_materials: Sequence[str] = (),
 ) -> str:
     """Generate validator-clean spinoff frontmatter + canonical section skeleton.
 
     summary / what_this_covers, when supplied, replace the placeholder
     `summary:` line and the `## What this covers` comment; absent, the
-    placeholder skeleton is byte-identical to before.
+    placeholder skeleton is byte-identical to before. reference_materials
+    (ready-made bullet lines) replace the `## Reference materials` comment.
 
     Produces a conformant spinoff (kind: spinoff) against the handoff schema.
     Spinoffs use the same schema as session-handoffs; kind discriminates the body dialect.
@@ -3244,7 +3247,10 @@ def _scaffold_spinoff(
         "",
         "## Reference materials (read first)",
         "",
-        "<!-- List file paths the picking-up EM will need, each with a one-line annotation. -->",
+        *(
+            reference_materials
+            or ["<!-- List file paths the picking-up EM will need, each with a one-line annotation. -->"]
+        ),
         "",
         "## Specification",
         "",
@@ -4728,6 +4734,36 @@ def _write_baton_file(out_abs: str, content: str) -> None:
             fh.write("\n")
 
 
+def _fit_summary(one_line: str) -> str:
+    """Cut ``one_line`` (ellipsis kept) until its YAML-quoted inner length fits ``_SUMMARY_LIMIT``.
+
+    The handoff validator counts the escaped form (``\\`` and ``"`` cost two), not the raw characters.
+    """
+    _bootstrap_engine()
+
+    def _cost(text: str) -> int:
+        return len(_yaml_quote(text)) - 2
+
+    if _cost(one_line) <= _SUMMARY_LIMIT:
+        return one_line
+    cut = min(len(one_line), _SUMMARY_LIMIT)
+    while cut > 0 and _cost(one_line[:cut].rstrip() + "…") > _SUMMARY_LIMIT:
+        cut -= 1
+    return one_line[:cut].rstrip() + "…"
+
+
+def _evidence_bullets(scout_evidence: object) -> list[str]:
+    """Render a sizing's ``scout_evidence`` as bullet lines: strings verbatim, objects as ``finding``."""
+    if not isinstance(scout_evidence, list):
+        return []
+    bullets: list[str] = []
+    for item in scout_evidence:
+        text = item.get("finding") if isinstance(item, dict) else item
+        if isinstance(text, str) and text.strip():
+            bullets.append("- " + " ".join(text.split()))
+    return bullets
+
+
 def mint_baton_from_sizing(sizing_rel: str, repo_root: str) -> dict:
     """Mint the baton for an M+ sizing, or return the one its `baton:` edge already names.
 
@@ -4787,7 +4823,7 @@ def mint_baton_from_sizing(sizing_rel: str, repo_root: str) -> dict:
 
     title = " ".join(str(meta.get("name") or intent).split())
     one_line = " ".join(intent.split())
-    summary = one_line if len(one_line) <= _SUMMARY_LIMIT else one_line[: _SUMMARY_LIMIT - 1] + "…"
+    summary = _fit_summary(one_line)
     dlv_source = meta.get("deliverable_id")
     if dlv_source:
         deliverable_id = _mint_deliverable_id(
@@ -4810,9 +4846,15 @@ def mint_baton_from_sizing(sizing_rel: str, repo_root: str) -> dict:
         sizing_object=sizing_rel,
         summary=summary,
         what_this_covers=intent,
+        reference_materials=_evidence_bullets(meta.get("scout_evidence")),
     )
     _assert_no_archived_handoff_twin(out_abs, handoff_id, repo_root)
-    _assert_scaffold_content_valid(content, out_abs, repo_root)
+    try:
+        _assert_scaffold_content_valid(content, out_abs, repo_root)
+    except SystemExit as exc:
+        raise SizingMintRefused(
+            ["intent"], f"--from-sizing refused for {sizing_rel}: baton scaffold failed validation ({exc})"
+        ) from exc
 
     old_text = _write_sizing_baton_edge(sizing_abs, out_rel, repo_root)
     try:

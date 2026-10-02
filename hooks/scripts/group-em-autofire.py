@@ -340,12 +340,14 @@ def render_additional_context(
         "GATES UNRESOLVED. `gate1`/`gate2` are unset and nothing here resolves them. "
         "Declare both in prose per send, and never loop over `entries` sending."
     )
-    # No hook can arm the clocks itself -- each fires on a session event and cannot outlive it.
-    # Whether arming happened is reported by the watch verdict, never acted on here.
+    # No hook can arm the watch itself -- a Monitor is a model tool. A Monitor dies at the harness's
+    # 30-minute cap, so the arming ask carries the re-arm duty. Whether arming happened is reported
+    # by the watch verdict, never acted on here.
     arm_line = (
-        "ARM BOTH CLOCKS, NOW, AS YOUR FIRST ACT: `CronCreate` a ~23-minute recurring "
-        "re-entry (off the :00/:30 marks) AND hold a `Monitor` poller over the session "
-        "registry. Both are session-scoped; no hook arms them for you."
+        "ARM THE WATCH, NOW, AS YOUR FIRST ACT: run the watch trampoline under a `Monitor` from "
+        "this conversation, and re-arm it on each expiry notice -- a `Monitor` dies at the "
+        "harness's 30-minute cap, so it does not run for the session. Wakes are events (watch "
+        "lines, peer SendMessages, notify_when_idle); arm no cron tick."
     )
     # Box blocks are owed sends and a workflow fire: obligations, so they ride the tail.
     tail = "\n\n".join([*(box_blocks or []), arm_line, gate_line])

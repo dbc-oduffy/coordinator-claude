@@ -2,7 +2,7 @@
 coordinator.bin.measure-loopback-round-trip -- committed probe for the local HTTP round-trip term
 in the hook-routing budget.
 
-Ported from coordinator-content-repo `coordinator/bin/measure-loopback-round-trip.py` (W3-C1,
+Ported from the coordinator content repo's `coordinator/bin/measure-loopback-round-trip.py` (W3-C1,
 `docs/plans/2026-09-18-doe-holds-no-scripts.md`) -- mechanical move, no behavioural change. No
 path resolution at all (§ Path resolution): the module never touches `__file__`, spawns nothing,
 and only opens an in-process loopback HTTP server.

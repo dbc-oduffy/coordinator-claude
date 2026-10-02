@@ -342,6 +342,90 @@ async function phaseZeroCensus() {
   return results
 }
 
+// Census oversized-set verification leg. One union invocation over every bucket's dirs: the agent
+// is handed directories only and returns threshold-crossing paths plus one integer, so neither
+// side can truncate and nothing the census claimed ever reaches it.
+const CENSUS_OVERSIZED_THRESHOLD = 801 // matches CARTOGRAPHY_OVERSIZED_THRESHOLD
+
+const CENSUS_REMEASURE_SCHEMA = {
+  type: 'object',
+  required: ['oversizedPaths', 'totalFiles'],
+  properties: {
+    oversizedPaths: { type: 'array', items: { type: 'string' } },
+    totalFiles: { type: 'number' },
+  },
+}
+
+function censusRemeasureBriefFor(dirs) {
+  return COMMON + `
+
+You are a mechanical command-runner (Phase-0 census verification of the /architecture-survey
+Workflow). Do NOT judge, summarize, or analyze anything, and do NOT read file contents yourself.
+
+Run exactly this command and capture its stdout. Copy it verbatim, including the quoted heredoc
+delimiter (<<'PY') and the closing PY line:
+
+  python3 - <<'PY'
+import json, os
+dirs = json.loads(r'''${JSON.stringify(dirs)}''')
+skip = {".git", "node_modules", "__pycache__"}
+paths = []
+for d in dirs:
+    if os.path.isfile(d):
+        paths.append(d)
+        continue
+    for root, names, files in os.walk(d):
+        names[:] = [n for n in names if n not in skip]
+        for f in files:
+            paths.append(os.path.join(root, f).replace(os.sep, "/"))
+paths = sorted(set(paths))
+over = []
+for p in paths:
+    try:
+        with open(p, "rb") as fh:
+            n = fh.read().count(b"\\n")
+    except OSError:
+        continue
+    if n >= ${CENSUS_OVERSIZED_THRESHOLD}:
+        over.append(p)
+print(json.dumps({"oversizedPaths": over, "totalFiles": len(paths)}))
+PY
+
+Parse that stdout as JSON and return its two fields unchanged. On any non-zero exit, report the
+failure and return no counts — do NOT estimate, infer, or reconstruct them by other means. Do not
+write any output file.`
+}
+
+async function remeasureCensusOversized(dirs) {
+  const results = await runBatchWithBackoff(
+    [() => agent(censusRemeasureBriefFor(dirs), {
+      schema: CENSUS_REMEASURE_SCHEMA,
+      agentType: 'coordinator:executor',
+      phase: 'census',
+      label: 'census-oversized-remeasure',
+      model: 'haiku',
+    })],
+    'census oversized-remeasure'
+  )
+  return results[0] || null
+}
+
+// Pure: overwrites each census file's `oversized` with membership in the measured set. Returns
+// the corrected results and the paths whose flag flipped. No agent() call, no logging.
+function reconcileCensusLoc(censusResults, measuredOversizedPaths) {
+  const measured = new Set(measuredOversizedPaths || [])
+  const divergences = []
+  const corrected = censusResults.map((bucket) => ({
+    ...bucket,
+    files: (bucket.files || []).map((f) => {
+      const truth = measured.has(f.path)
+      if (!!f.oversized !== truth) divergences.push(f.path)
+      return { ...f, oversized: truth }
+    }),
+  }))
+  return { corrected, divergences }
+}
+
 
 // Deterministic in-JS clustering of census files into Phase-1 sub-chunks by directory/prefix,
 // at zero agent cost.
@@ -817,6 +901,27 @@ if (!cartographyUsed) {
   failedCensusBuckets = CENSUS_BUCKETS
     .map((b) => b.bucketId)
     .filter((id) => !censusResults.some((r) => r.bucket_id === id))
+
+  // Ratified behaviour: correct-and-log. The census's self-reported `oversized` is overwritten by
+  // the measured set and each flipped path is logged; only a failed measurement halts.
+  if (censusResults.length > 0) {
+    const unionDirs = [...new Set(CENSUS_BUCKETS.flatMap((b) => b.dirs || []))]
+    const measured = await remeasureCensusOversized(unionDirs)
+    const hasFiles = censusResults.some((r) => (r.files || []).length > 0)
+    if (!measured || !Array.isArray(measured.oversizedPaths) || typeof measured.totalFiles !== 'number' || (measured.totalFiles === 0 && hasFiles)) {
+      log('census: oversized-set re-measure failed to return a usable count — stopping (no agentic fallback)')
+      return {
+        phase_reached: 'census',
+        halted: 'census-verification-failed',
+        run_id: RUN_ID,
+        census_results: censusResults,
+        failed_census_buckets: failedCensusBuckets,
+      }
+    }
+    const reconciled = reconcileCensusLoc(censusResults, measured.oversizedPaths)
+    censusResults = reconciled.corrected
+    log(`census: re-measured ${measured.totalFiles} file(s), ${measured.oversizedPaths.length} oversized; corrected ${reconciled.divergences.length} divergent oversized flag(s)${reconciled.divergences.length ? ': ' + reconciled.divergences.join(', ') : ''}`)
+  }
 }
 
 const chunkTable = censusResults.length > 0 ? buildChunkTable(censusResults) : (INPUT.chunkTable || [])

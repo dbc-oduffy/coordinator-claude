@@ -2,7 +2,7 @@
 """Re-export coordinator/schemas/subagent-catering-resolution.json from live sources.
 
 Arrival record: state/audits/doe-script-arrivals/W3-C3.yaml
-(docs/plans/2026-09-18-doe-holds-no-scripts.md, chunk W3-C3). Mechanical move from coordinator-content-repo
+(docs/plans/2026-09-18-doe-holds-no-scripts.md, chunk W3-C3). Mechanical move from the coordinator content repo's
 coordinator/bin/export-catering-resolution.py (158 lines, measured cold well under the 200ms
 bar -- moved under the batch rules). § Path resolution (docs/plans/2026-09-18-doe-holds-no-scripts.md):
 `coordinator/subagent-sandbox-policy.yaml`, `coordinator/snippets/*.md` and
@@ -12,7 +12,7 @@ published DoE assets and this script resolves them through the plugin root
 `coordinator_core/subagent_sandbox/provision_report.py :: resolve_plugin_root` for this bare CLI's
 ambient rung, the same idiom `compose-review-wave.py` uses), replacing the DoE version's
 `_REPO_ROOT = Path(__file__).resolve().parents[2]` constant -- this script's own tree is no longer
-the doctrine tree once it lives in claude-klabauter.
+the doctrine tree once it lives in the engine repo.
 
 Purpose: the catering-resolution export is a resolve-and-serialize pass over
 `coordinator/subagent-sandbox-policy.yaml` and the `coordinator/snippets/` block
@@ -34,7 +34,7 @@ which on a Windows checkout meant the policy file hashed LF and every snippet
 hashed CRLF. Claude-klabauter's `check_pcli_drift_gate.py :: compute_hash_drift` hashed
 raw bytes to match, so the two sides agreed by construction on a same-EOL host —
 and a clean Linux clone would have read identical content as drift. Agreed with
-Claude-klabauter-em 2026-08-28 to normalize both sides.
+the engine repo's EM 2026-08-28 to normalize both sides.
 
 THE FLIP IS ORDERED, NOT SYMMETRIC, and this half goes first. While this export
 records LF hashes and their gate still hashes raw bytes, leg 3 is red on our

@@ -108,7 +108,7 @@ def _repo_root() -> Path:
     plugin_root = resolve_caller_context().plugin_root
     if plugin_root is None:
         raise RuntimeError(
-            "generate-doctrine-surfaces: cannot resolve the coordinator-content-repo plugin "
+            "generate-doctrine-surfaces: cannot resolve the coordinator plugin "
             "root -- resolve_caller_context().plugin_root returned no result. "
             "Set CLAUDE_PLUGIN_ROOT, or register the coordinator-claude plugin "
             "install / .content-root pointer (see resolve_plugin_root())."
@@ -197,7 +197,7 @@ def manifest_path(repo_root: Path) -> Path:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=(__doc__ or "").strip().splitlines()[0])
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--check", action="store_true", help="diff the manifest against a fresh render; write nothing"
     )

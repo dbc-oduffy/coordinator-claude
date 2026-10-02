@@ -1,14 +1,14 @@
 """Fold the four guard-enforcement join shards into the single artifact
-`coordinator-content-repo` reads to decide whether a doctrine rule is enforced here.
+the coordinator content repo reads to decide whether a doctrine rule is enforced here.
 
 WHAT THIS IS THE OTHER HALF OF
-    `coordinator-content-repo docs/decisions/DR-an-omission-is-ratified-by-the-plane-that-
+    `content repo docs/decisions/DR-an-omission-is-ratified-by-the-plane-that-
     enforces-the-rule.md` makes omission authority follow enforcement: a
     story may omit a rule only when the plane that ENFORCES it has said the
     enforcement is absent. It closed with the decision taken and one thing
     outstanding -- "no file bridges an `rcr-<hash>` register id to an
     engine-plane guard verdict". This emits that file. The consuming half is
-    `coordinator-content-repo coordinator/hooks/scripts/_guard_enforcement_join.py`, whose
+    `content repo coordinator/hooks/scripts/_guard_enforcement_join.py`, whose
     module docstring is the schema contract; read it before changing the
     shape emitted here.
 

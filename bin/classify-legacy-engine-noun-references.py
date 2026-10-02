@@ -66,7 +66,6 @@ CONTRACT_BOUND_FILES = frozenset(
         "coordinator/lib/resolve-claude-klabauter/_resolve_claude_klabauter.py",
         "coordinator/lib/resolve-claude-klabauter/tests/test_dispatch_prefers_stamped_engine.py",
         "coordinator/bin/check-claude-klabauter-doctor-sentinel.sh",
-        "coordinator/bin/gen-claude-klabauter-root-pointer.py",
         "coordinator/bin/remove-claude-klabauter-precommit-hook.py",
         "coordinator_core/tests/test_claude_klabauter_doctor_probe_selectors.py",
         "coordinator_core/tests/test_engine_root_census.py",
@@ -349,13 +348,13 @@ def main(argv: "list[str] | None" = None) -> int:
     parser.add_argument(
         "--content-root",
         default=None,
-        help="Override for coordinator-content-repo's root; default resolves via `machine-local get "
+        help="Override for the coordinator content repo's root; default resolves via `machine-local get "
         "repos.content_root`.",
     )
     parser.add_argument(
         "--klabauter-root",
         default=None,
-        help="Override for claude-klabauter's root; default resolves via `machine-local "
+        help="Override for the publish repo's root; default resolves via `machine-local "
         "get repos.claude_klabauter`.",
     )
     parser.add_argument(
@@ -364,9 +363,9 @@ def main(argv: "list[str] | None" = None) -> int:
         help="Pin this repo's SHA (avoids a 4th git spawn beyond the 3-spawn budget). "
         "Falls back to `git rev-parse HEAD` if omitted.",
     )
-    parser.add_argument("--doe-sha", default=None, help="Pin coordinator-content-repo's SHA; see --repo-sha.")
+    parser.add_argument("--doe-sha", default=None, help="Pin the content repo's SHA; see --repo-sha.")
     parser.add_argument(
-        "--klabauter-sha", default=None, help="Pin claude-klabauter's SHA; see --repo-sha."
+        "--klabauter-sha", default=None, help="Pin the publish repo's SHA; see --repo-sha."
     )
     parser.add_argument(
         "--admit-renameable",

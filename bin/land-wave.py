@@ -594,7 +594,7 @@ def main(argv=None) -> int:
         "--live-engine-tree",
         action="store_true",
         help=(
-            "the --engine-root given is claude-klabauter's live authoring tree, which "
+            "the --engine-root given is the engine repo's live authoring tree, which "
             "carries no build stamp. Takes the engine's own live-tree path (the PM's "
             "manual test-and-execute carve-out) for this landing's ops. Its case is a "
             "box whose published mirror predates a fix the landing depends on — the "

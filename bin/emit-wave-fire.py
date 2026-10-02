@@ -65,8 +65,6 @@ import hashlib
 import json
 import os
 import re
-import shlex
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -772,7 +770,7 @@ def _bind(
             raise ValueError(
                 f"workflow.bind_args refused: {message}. This checkout of "
                 "coordinator_core does not carry the op — pull the latest "
-                "claude-klabauter."
+                "engine repo."
             )
         raise ValueError(f"workflow.bind_args refused: {message}")
     script = (reply.get("result") or {}).get("script")
@@ -793,156 +791,16 @@ def _bind(
     return script[: at + 1] + review_fn + script[at + 1:]
 
 
-def _settings_home_bin(name: str) -> str | None:
-    """A settings-home launcher path, or None. Rung 2 of the resolution ladder."""
-    settings_home = os.environ.get("COORDINATOR_SETTINGS_HOME") or str(
-        Path(os.environ.get("CLAUDE_HOME") or Path.home()) / ".coordinator-claude-settings"
-    )
-    candidate = Path(settings_home) / "bin" / name
-    if candidate.is_file():
-        return str(candidate)
-    return shutil.which(name)
+def _plan_blitz_args():
+    """`coordinator_core.ops.dispatch_emit.plan_blitz_args`, the shared planBlitz arg resolver."""
+    import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
 
+    from cc_invoke import require_colocated_engine_on_path
 
-def _engine_env_prefix(engine_root: Path) -> str:
-    """`COORDINATOR_ENGINE_ROOT=<engine> `, or empty. Part of the injected literal.
+    require_colocated_engine_on_path(__file__)
+    from coordinator_core.ops.dispatch_emit import plan_blitz_args
 
-    `review-findings-ledger` resolves CLAUDE_KLABAUTER_ROOT before it does anything, and on a
-    box with no machine-local registry that resolution fails outright — the CLI exits 3
-    with a bootstrap message naming this variable as one of its remedies. The integrator
-    then reports the op refused and correctly declines to hand-author around it, so the
-    wave runs every review and records not one disposition. Silent by construction: the
-    refusal loses only the RECORD. Measured 2026-09-10 on example-cockpit-repo, wave 4 — three
-    sidecars, no verified `findings_ledger` stamp on any of them.
-
-    The dispatching side already resolved an engine root to bind the fire with; the agent
-    running the CLI cannot. Same rung-3 reasoning as the interpreter and CONTENT_ROOT.
-    """
-    if os.environ.get("COORDINATOR_ENGINE_ROOT"):
-        return ""
-    if os.name != "posix":
-        return ""
-    return f"COORDINATOR_ENGINE_ROOT={shlex.quote(str(engine_root))} "
-
-
-#: The two layouts a published/mirrored plugin ships the registry manifest in. The private
-#: DoE tree keeps it under `coordinator/`; the OSS publish row ships it flat at plugin root.
-#: `coordinator_registry._mp_candidate_manifest_path` probes exactly this pair, so exporting
-#: a root that satisfies neither is exporting a value its consumer cannot use.
-_MANIFEST_RELPATHS = (
-    Path("schemas") / "coordinator-registry.manifest.json",
-    Path("coordinator") / "schemas" / "coordinator-registry.manifest.json",
-)
-
-
-def _registry_manifest_prefix(engine_root: Path, plugin_root: Path) -> str:
-    """`CONTENT_ROOT=<a root the manifest actually resolves under> `, or empty.
-
-    Both CLIs load the registry manifest, and an install-less box does not have it in the
-    engine tree — the schemas ship with the DOCTRINE repo, not the engine mirror. The
-    CLI's own diagnostic names `CONTENT_ROOT` as the remedy, but it is a remedy nobody reads:
-    the failure happens inside a dispatched reviewer, where its stderr becomes "the
-    sidecar step did not work".
-
-    VALIDATE THE VALUE YOU EXPORT. An earlier cut checked for the manifest under
-    `<plugin_root>/schemas/` and then exported `plugin_root.parent`, which agree only when
-    the plugin root's basename is literally `coordinator` — the private layout. Under the
-    published layout, where the manifest sits flat at plugin root, that exported a root
-    the consumer cannot resolve from, AND `CONTENT_ROOT` is taken as-is ahead of every other
-    rung and is the state-write root. A wrong value there is worse than none: it is the
-    plausible-but-wrong invocation this module exists to stop emitting.
-
-    POSIX-shaped, and deliberately not emitted elsewhere: `VAR=x cmd` is not a command on
-    a PowerShell host. A Windows box in this state gets no prefix and the CLI's own
-    diagnostic, which names the variable — a loud failure rather than a wrong literal.
-    """
-    if any((engine_root / rel).is_file() for rel in _MANIFEST_RELPATHS):
-        return ""
-    if os.name != "posix":
-        return ""
-    for candidate in (plugin_root.parent, plugin_root):
-        if any((candidate / rel).is_file() for rel in _MANIFEST_RELPATHS):
-            return f"CONTENT_ROOT={shlex.quote(str(candidate))} "
-    return ""
-
-
-def _engine_bin(
-    engine_root: Path | None, name: str, plugin_root: Path | None = None
-) -> str | None:
-    """The engine checkout's own copy of a CLI, as a runnable invocation, or None.
-
-    Rung N's rung 3. On a box with no settings home — every ephemeral container — the
-    launcher rungs above resolve nothing, and the two CLIs this module injects are
-    exactly the two whose absence fails SILENTLY downstream. The engine source is on
-    disk regardless, but these files carry no shebang and no executable bit, so the path
-    alone is not an invocation: the interpreter has to be part of the literal. Building
-    it here is the whole of rung 3's "the dispatching side has a filesystem" — leaving it
-    to the caller means a human hand-types an interpreter prefix per run, and a
-    hand-typed resolution is the thing this module exists to remove.
-    """
-    if engine_root is None:
-        return None
-    candidate = engine_root / "coordinator" / "bin" / f"{name}.py"
-    if not candidate.is_file():
-        return None
-    prefix = _engine_env_prefix(engine_root)
-    if plugin_root is not None:
-        prefix += _registry_manifest_prefix(engine_root, plugin_root)
-    return (
-        f"{prefix}{shlex.quote(sys.executable)} {shlex.quote(str(candidate))}"
-    )
-
-
-#: Agent definitions every wave dispatches under. The roster the write guards consult is walked
-#: from the plugin's own `agents/*.md`, so their presence IS the question `--plugin-agents-available`
-#: asks — there is nothing to assume.
-_WAVE_AGENT_DEFINITIONS = ("plan-author.md", "blitz-em.md")
-
-
-def _plugin_agents_available(plugin_root: Path | None, explicit: str) -> tuple[bool, str]:
-    """Resolve whether `coordinator:*` agent types resolve here. Returns (value, why).
-
-    `false` is not a safe default and must never be reached by omission. An `agent()` call
-    carrying no `agentType` is stamped `workflow-subagent` by the Workflow runtime — a non-empty
-    type on no roster — and the write guards confine it on that roster absence. The planner is
-    then refused its own plan body by `block_subagent_plan_body_write` and denied
-    `plan-spine-check.py` by `block-reviewer-bash-outside-allowlist`, so a wave dispatches, burns
-    its full token budget, writes planning research to sidecars, and lands no plan at all.
-    Absence of a label is not neutral; it is the most-confined state there is
-    (`A-WORKFLOW-DISPATCH-WITHOUT-WITHROLE-IS-CONFINED`).
-
-    Negative-spec: this NEVER probes the harness for whether a type would resolve at dispatch
-    time — no such read exists here. It answers the narrower question it can answer honestly,
-    "does this plugin root define the agents the wave dispatches", and says which question it
-    answered.
-    """
-    if explicit in ("true", "false"):
-        return explicit == "true", f"passed --plugin-agents-available {explicit}"
-    if plugin_root is None:
-        return False, "no plugin root resolved, so no agents/ directory to read"
-    agents_dir = plugin_root / "agents"
-    missing = [n for n in _WAVE_AGENT_DEFINITIONS if not (agents_dir / n).is_file()]
-    if missing:
-        return False, f"{agents_dir} is missing {', '.join(missing)}"
-    return True, f"{agents_dir} defines every agent this wave dispatches"
-
-
-def _default_spine_check_cli(plugin_root: Path | None) -> str | None:
-    """`plan-spine-check`, resolved off the PLUGIN root — rung 3's plugin-local case.
-
-    It ships in the coordinator plugin's own `bin/`, never in the repo being planned, so
-    the brief's `<repoRoot>/coordinator/bin/plan-spine-check.py` resolves to nothing
-    everywhere except the plugin's own source tree. The planner then runs a check the
-    brief calls "runnable, not advice", gets "No such file or directory", and returns a
-    plan whose spine was never checked — silently, because a missing file reads as a
-    tooling hiccup rather than a skipped gate.
-    """
-    if plugin_root is None:
-        return None
-    candidate = plugin_root / "bin" / "plan-spine-check.py"
-    if not candidate.is_file():
-        return None
-    return f"{shlex.quote(sys.executable)} {shlex.quote(str(candidate))}"
+    return plan_blitz_args
 
 
 
@@ -1005,38 +863,6 @@ def _archived_fire_identity(path: Path) -> tuple[int | None, frozenset[str]] | N
     return (index if isinstance(index, int) else None, ids)
 
 
-def _default_arming_check_cli(plugin_root: Path | None) -> str | None:
-    """`instrument-can-report-red`, resolved off the PLUGIN root. Same rung, worse citation.
-
-    The brief cited it as a BARE RELATIVE path, so it resolved against the planner's cwd —
-    the repo being planned — and every wave outside the plugin's own tree got "No such file
-    or directory". The arming line then read `N/A`, which is indistinguishable from a plan
-    that declared no falsifier at all.
-    """
-    if plugin_root is None:
-        return None
-    candidate = plugin_root / "bin" / "instrument-can-report-red.py"
-    if not candidate.is_file():
-        return None
-    return f"{shlex.quote(sys.executable)} {shlex.quote(str(candidate))}"
-
-
-def _default_sidecar_cli(
-    engine_root: Path | None, plugin_root: Path | None = None
-) -> str | None:
-    """`provision-sidecar`, resolved caller-side for the same reason as the op below.
-
-    A reviewer cannot resolve `<machinery_root>` or `<your session id>` from inside its
-    brief — both are facts about this box. An agent handed those placeholders invents
-    them, and the invention is silent: the path it picks still carries the
-    `subagent-share` segment `review-findings-ledger` checks for, so the findings
-    are written, accepted, and simply kept somewhere the repo does not track.
-    """
-    return _settings_home_bin("provision-sidecar") or _engine_bin(
-        engine_root, "provision-sidecar", plugin_root
-    )
-
-
 def _emit_repair(args, repo_root: Path, trail_dir: Path, plugin_root: Path, engine_root, refuse) -> int:
     """Emit one repair fire, bound the same way a wave fire is — identity resolution included.
 
@@ -1055,7 +881,8 @@ def _emit_repair(args, repo_root: Path, trail_dir: Path, plugin_root: Path, engi
         return refuse(f"no plan-blitz.mjs at {script_source} — pass --plugin-root")
     if not trail_dir.is_dir():
         return refuse(f"trail dir {trail_dir} does not exist — a repair reads its records")
-    plugin_agents, plugin_agents_why = _plugin_agents_available(plugin_root, args.plugin_agents_available)
+    pba = _plan_blitz_args()
+    plugin_agents, plugin_agents_why = pba._plugin_agents_available(plugin_root, args.plugin_agents_available)
     print(f"  agent identities: {'declared' if plugin_agents else 'OMITTED'} — {plugin_agents_why}", file=sys.stderr)
 
     entries, refusals = [], []
@@ -1086,7 +913,7 @@ def _emit_repair(args, repo_root: Path, trail_dir: Path, plugin_root: Path, engi
         # every wave fire got it.
         "pluginAgentsAvailable": plugin_agents,
     }
-    spine_check_cli = args.spine_check_cli or _default_spine_check_cli(plugin_root)
+    spine_check_cli = args.spine_check_cli or pba._default_spine_check_cli(plugin_root)
     if spine_check_cli:
         repair_args["spineCheckCli"] = spine_check_cli
     try:
@@ -1296,7 +1123,8 @@ def _emit_single_from_sizing(
         "executionOpen": False,
     }
 
-    plugin_agents, plugin_agents_why = _plugin_agents_available(
+    pba = _plan_blitz_args()
+    plugin_agents, plugin_agents_why = pba._plugin_agents_available(
         plugin_root, args.plugin_agents_available
     )
     if plugin_agents:
@@ -1304,9 +1132,9 @@ def _emit_single_from_sizing(
     else:
         print(f"  agent identities: OMITTED ({plugin_agents_why})", file=sys.stderr)
 
-    sidecar_cli = args.provision_sidecar_cli or _default_sidecar_cli(engine_root, plugin_root)
-    spine_check_cli = args.spine_check_cli or _default_spine_check_cli(plugin_root)
-    arming_check_cli = _default_arming_check_cli(plugin_root)
+    sidecar_cli = args.provision_sidecar_cli or pba._default_sidecar_cli(engine_root, plugin_root)
+    spine_check_cli = args.spine_check_cli or pba._default_spine_check_cli(plugin_root)
+    arming_check_cli = pba._default_arming_check_cli(plugin_root)
     engine_ref = _engine_ref(repo_root, script_source)
 
     wave_args = {
@@ -1389,19 +1217,19 @@ def main(argv=None) -> int:
         ),
     )
     ap.add_argument("--plugin-root", help="resolved CLAUDE_PLUGIN_ROOT (default: this file's plugin root)")
-    ap.add_argument("--engine-root", help="claude-klabauter root (default: $COORDINATOR_ENGINE_ROOT)")
+    ap.add_argument("--engine-root", help="engine root (default: $COORDINATOR_ENGINE_ROOT)")
     ap.add_argument("--provision-sidecar-cli", help="absolute provision-sidecar invocation")
     ap.add_argument(
         "--spine-check-cli",
         help="absolute plan-spine-check invocation (default: derived from --plugin-root). "
         "Plugin-owned tooling, so it is resolved against the PLUGIN root and never the repo "
-        "being planned — the two coincide only on coordinator-content-repo.",
+        "being planned — the two coincide only on the coordinator content repo.",
     )
     ap.add_argument(
         "--live-engine-tree",
         action="store_true",
         help=(
-            "the --engine-root given is claude-klabauter's live authoring tree, which carries "
+            "the --engine-root given is the engine repo's live authoring tree, which carries "
             "no build stamp. The engine's own live-tree path (the PM's manual "
             "test-and-execute carve-out) is taken for the bind call and NOTHING else — every "
             "other op this run makes still goes through the engine the caller resolved. Its "
@@ -1467,7 +1295,8 @@ def main(argv=None) -> int:
     repo_root = Path(args.repo_root).resolve()
     trail_dir = Path(args.trail_dir).resolve()
     plugin_root = Path(args.plugin_root).resolve() if args.plugin_root else _resolve_plugin_root()
-    plugin_agents, plugin_agents_why = _plugin_agents_available(plugin_root, args.plugin_agents_available)
+    pba = _plan_blitz_args()
+    plugin_agents, plugin_agents_why = pba._plugin_agents_available(plugin_root, args.plugin_agents_available)
     _engine = args.engine_root or os.environ.get("COORDINATOR_ENGINE_ROOT") or ""
     engine_root = Path(_engine).resolve() if _engine.strip() else None
 
@@ -1717,11 +1546,11 @@ def main(argv=None) -> int:
             file=sys.stderr,
         )
 
-    sidecar_cli = args.provision_sidecar_cli or _default_sidecar_cli(
+    sidecar_cli = args.provision_sidecar_cli or pba._default_sidecar_cli(
         engine_root, plugin_root
     )
-    spine_check_cli = args.spine_check_cli or _default_spine_check_cli(plugin_root)
-    arming_check_cli = _default_arming_check_cli(plugin_root)
+    spine_check_cli = args.spine_check_cli or pba._default_spine_check_cli(plugin_root)
+    arming_check_cli = pba._default_arming_check_cli(plugin_root)
 
     per = max(1, args.batons_per_fire)
     fires = _pack_by_plan(entries, per)
