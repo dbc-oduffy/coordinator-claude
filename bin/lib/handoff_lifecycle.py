@@ -20,17 +20,15 @@ demonstrated twice in this tree, JS-side) is that one shared accessor per
 lifecycle field means a rename has one edit site, not N silent ones.
 
 Input-shape decision: `claim_holder`/`claim_timestamp` accept EITHER a
-frontmatter dict OR a file path (str). Existing callers are split on this —
-reap-orphaned-in-flight-handoffs.py's `_fm_field` reads a single key straight
-off disk (path-based, no full-frontmatter parse), while other callers already
-hold a parsed dict. Forcing dict-only would make the reaper build a throwaway
-dict just to satisfy this module's signature; forcing path-only would make a
+frontmatter dict OR a file path (str). Callers are split on this — some read
+a single key straight off disk (path-based, no full-frontmatter parse), while
+others already hold a parsed dict. Forcing dict-only would make a path-holding
+caller build a throwaway dict just to satisfy this module's signature; forcing path-only would make a
 dict-holding caller round-trip through a tempfile. A `Union[str, dict]` input
 with an internal dispatch is the smaller adapter — it costs one `isinstance`
 check here instead of an awkward call-site shim in every caller. Path input
-reuses the same minimal frontmatter-value scanner reap-orphaned-in-flight-
-handoffs.py already had (single-key linear scan bounded by the first `---`
-fence pair) rather than a full YAML parse — this module has no YAML dependency
+uses a minimal frontmatter-value scanner (single-key linear scan bounded by
+the first `---` fence pair) rather than a full YAML parse — this module has no YAML dependency
 and doesn't want one for a single scalar lookup.
 
 Negative-spec: does NOT parse the full frontmatter block into a dict when

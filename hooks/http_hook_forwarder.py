@@ -1278,7 +1278,7 @@ def _normalize_clone_root(raw: str) -> Optional[Path]:
     `claude-author-shim.sh.tmpl` itself exports NOTHING and must not -- it resolves no plugin dir,
     and DR-087 forbids promoting its `.content-root` pointer to rung-1 authority (negative-spec
     pinned in `test_launcher_templates_export_clone_root.py`). It delegates instead, terminating
-    in `claude-author`, and the engine's `coordinator/bin/claude-author.py:650` does the
+    in `claude-author`, and the engine's `coordinator/bin/claude-author.py:1015` does the
     `setdefault` ABOVE its `os.name == "nt"` branch, so it runs on every platform. A
     shim-launched POSIX session therefore DOES carry the header, and `_extract_cwd` is its
     second identity source rather than its only one.

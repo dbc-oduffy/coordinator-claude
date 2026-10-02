@@ -31,14 +31,14 @@ Detection model — CONTENT-first, NOT extension-based:
   classification catches them correctly.
 
 Spec backlink: docs/plans/2026-06-18-bin-cli-sh-shebang-polyglot.md
-Doctrine: docs/wiki/cross-platform-shell-portability.md § sh/python trampoline
+Doctrine: coordinator-content-repo coordinator/docs/wiki/portability/cross-platform-shell-portability.md § sh/python trampoline
 Port backlink: docs/plans/2026-07-19-debash-coordinator-windows.md § E3-b
 
 NOT A SECOND ENFORCEMENT SITE past claude-klabauter: claude-klabauter's
 coordinator_core.bash_guards.commit_tripwires.check_bin_sh_polyglot is an
 INDEPENDENT native re-implementation of this same invariant used at commit
 time — it does not invoke this script. This script remains the manual/
-ceremony-invocable CLI (see docs/wiki/coordinator-tripwires.md).
+ceremony-invocable CLI (see coordinator-content-repo coordinator/docs/wiki/coordinator-tripwires.md).
 
 Usage:
   check-bin-sh-polyglot.py [--staged]

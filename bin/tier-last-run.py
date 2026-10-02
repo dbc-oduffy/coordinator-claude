@@ -32,6 +32,10 @@ resolve on disk is also exit 1, with the missing path named.
 
 Zero third-party runtime dependency beyond PyYAML (already imported elsewhere in this directory,
 e.g. `compose-review-wave.py`), stdlib otherwise.
+
+Never imports `coordinator_core`: a stdlib-only CLI that runs with no engine-root
+bootstrap, so it keeps its own git spawns and is exempt from the shared git runner
+(`coordinator_core/tests/test_shared_git_runner.py :: _CONTRACT_EXEMPT_MODULES`).
 """
 from __future__ import annotations
 

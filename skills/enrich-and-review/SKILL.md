@@ -9,7 +9,7 @@ argument-hint: "[stub-ids|directory-path|'all']"
 
 Run the enrichment-review pipeline on a chunk directory: dispatch Sonnet enricher agents, then
 Opus reviewers, sequentially. Nothing computes this pipeline for you yet — every phase below is a
-manual EM procedure over theoretically claude-klabauter-izable facts (stub discovery, independence
+manual EM procedure over theoretically computable facts (stub discovery, independence
 verification, status transitions); worked detail and phase archaeology: wiki.
 
 Not an EM step on the M/L four-turn loop — this skill runs for backlog runs and hands-on re-plans
@@ -44,20 +44,20 @@ string pinned at `coordinator/skills/staff-session/SKILL.md` Step 8, item 2 (pro
 `/staff-session --mode plan` Step 8 — read it from there, never hand-type a second copy). No match
 → "This plan has not been through review. Route it through `/review` first, or confirm PM override
 to skip." Prevents wasting enrichment cycles on a structurally unreviewed plan.
-<!-- engine-gap: field=plan.review_marker_present producer=unknown memo=2026-08-14-coordinator-content-repo-em-three-cut-obligations-from-the-corpus-grind.md -->
+<!-- engine-gap: field=plan.review_marker_present producer=unknown memo=engine-gap-markers-name-a-memo-that-was-never-filed.md -->
 
 ## Phase 1: Discover Stubs
 
 Read the tracker README/chunk index, identify stubs at "Pending enrichment" or equivalent,
 classify each survey-type (external assets, unfamiliar codebases), plan-type (known codebase, file
 paths + steps), or manual (non-delegatable). Report the split.
-<!-- engine-gap: field=tracker.stub_classification producer=unknown memo=2026-08-14-coordinator-content-repo-em-three-cut-obligations-from-the-corpus-grind.md -->
+<!-- engine-gap: field=tracker.stub_classification producer=unknown memo=engine-gap-markers-name-a-memo-that-was-never-filed.md -->
 
 ## Phase 2: Independence Verification
 
 Before parallel dispatch, read each stub's Files-Affected/Scope, build a file→stub map, force
 sequential enrichment for stubs sharing a file. Report the parallel/sequential split.
-<!-- engine-gap: field=tracker.stub_file_overlap producer=unknown memo=2026-08-14-coordinator-content-repo-em-three-cut-obligations-from-the-corpus-grind.md -->
+<!-- engine-gap: field=tracker.stub_file_overlap producer=unknown memo=engine-gap-markers-name-a-memo-that-was-never-filed.md -->
 
 ## Phase 2.5: Write-Ahead Status Update
 

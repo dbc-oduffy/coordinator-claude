@@ -6,7 +6,7 @@ version: 1.0.0
 
 # claudemeta Manifest Cadence
 
-> **Inlined by `/update-docs` Phase 11k.** DoE-specific — `state/reference/claudemeta-keep-manifest.txt`
+> **Inlined by `/update-docs` Phase 11k.** Maintainer-only — `state/reference/claudemeta-keep-manifest.txt`
 > is this repo's own derived artifact, projecting the retrieval-priority ruling at
 > `state/reference/state-subtree-retrieval-priority-index.md` for an external indexer. Not a
 > generic OSS pipeline concern. No-op in any repo without the generator.

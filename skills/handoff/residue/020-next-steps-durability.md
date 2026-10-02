@@ -14,10 +14,9 @@ These rules apply specifically to `## Recommended Next Steps` and `## In-Progres
 3. **Each next step is independently verifiable.** The picker should be able to confirm "done" without reading this handoff again.
 4. **Explicit out-of-scope line.** End every `## Recommended Next Steps` section with an "Out of scope for next session" line, so a fresh-eyed picker doesn't gold-plate or drift.
 
-**Predecessor identification is not EM cognition.** A CONTINUATION always has a predecessor — the
-baton this session was born with — and the assembler resolves it, never the EM. Write the
-`Continuing from` preamble for a CONTINUATION. Deflection kinds (`spinoff`, `goal-seed`,
-`roadmap-seed`) carry `predecessor: none` by schema invariant — key the preamble off the handoff's
-KIND, never off how the session opened: those kinds omit it, a CONTINUATION always carries it.
+**Predecessor identification is not EM cognition.** A CONTINUATION's predecessor is the baton this
+session was born with; the assembler resolves it. Write the `Continuing from` preamble for a
+CONTINUATION; deflection kinds (`spinoff`, `goal-seed`, `roadmap-seed`) carry `predecessor: none`
+and omit it — key the preamble off the handoff's KIND, never off how the session opened.
 
-**"Most recent file in `state/handoffs/`" is a facile signal — do not use it.** Concurrent sessions across machines routinely produce adjacent handoffs that have nothing to do with each other. Adjacency is not ancestry. Picking the most recent timestamp corrupts the audit trail and incorrectly archives active work belonging to other workstreams.
+**"Most recent file in `state/handoffs/`" is not a predecessor signal — adjacency is not ancestry.**

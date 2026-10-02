@@ -1,7 +1,7 @@
 # Cluster-scout-brief fragment
 
 `cluster-scout-brief-fragment.json` is the dispatch shape behind `dispatch-cluster-scout` —
-`roadmap-planning` Step 1.5.1, one research scout per cluster. DoE owns the brief and the
+`roadmap-planning` Step 1.5.1, one research scout per cluster. The doctrine plane owns the brief and the
 exclusion rules; a consumer reads them from here rather than reconstructing them, on the
 `review-roster-fragment` precedent.
 

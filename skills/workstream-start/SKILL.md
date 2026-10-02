@@ -17,16 +17,16 @@ at specific work.
 ## Setup-freshness probe
 
 If `state/.repo-setup-just-ran` exists, `/repo-setup` just ran. Delete it immediately (before
-printing anything), print one line — `Setup just ran; running orientation once now.` — and
+printing anything), print one line — `Setup just ran: running orientation once now.` — and
 continue with Orient. Orientation runs exactly once per repo on a fresh setup; the sentinel never
 suppresses it.
 
-<!-- engine-gap: field=session.setup_just_ran producer=unknown memo=2026-08-14-coordinator-content-repo-em-three-cut-obligations-from-the-corpus-grind.md -->
+<!-- engine-gap: field=session.setup_just_ran producer=unknown memo=engine-gap-markers-name-a-memo-that-was-never-filed.md -->
 Single-shot; race window and lifecycle: wiki.
 
-**Machine profile.** A consumer box is one where `machine-local get coordinator.machine_profile`
-prints `consumer`, or prints nothing and no `repos.*` path holds a `.coordinator-dev-repo` file.
-Author-only steps below say so; on a consumer box skip them without comment.
+**Machine profile.** A consumer box: `machine-local get coordinator.machine_profile` prints
+`consumer`, or nothing and no `repos.*` path holds a `.coordinator-dev-repo` file. Skip
+author-only steps there without comment.
 
 ## Orient
 
@@ -39,19 +39,17 @@ cross-repo memo inbox, fleet registries, cockpit); every `judgment_points[]` ent
 present each with its `dispositions[]`, pick, don't drop any. Don't hand-run what these compute.
 
 **Do NOT load, summarize, or act on any handoff the orient output surfaces** — a `ready-to-fire`
-directive naming one is not implicit selection. When the PM indicates they want a handoff picked
-up (link, name, or "pick up that handoff"), read the full file; sets `HANDOFF_LOADED=true` for
-Engage below — or the PM uses `/pickup` directly. A markdown in `state/handoffs/`, `tasks/`, or
-`archive/` may already be addressed by commits landed after it was authored — verify before
-treating it as pending.
-<!-- engine-gap: field=handoffs.stale_advisory_reconcile producer=unknown memo=2026-08-14-coordinator-content-repo-em-three-cut-obligations-from-the-corpus-grind.md -->
+directive naming one is not implicit selection. When the PM asks for one to be picked up, read the
+full file and set `HANDOFF_LOADED=true` for Engage — or the PM uses `/pickup`. A markdown in
+`state/handoffs/`, `tasks/`, or `archive/` may already be addressed by later commits — verify
+before treating it as pending.
+<!-- engine-gap: field=handoffs.stale_advisory_reconcile producer=unknown memo=engine-gap-markers-name-a-memo-that-was-never-filed.md -->
 
 **Route-to-baton default:** a memo/finding/triage item inside an active handoff's scope
 (`state/handoffs/*.md`, `status: open|claimed`) gets a dated `## Routed from inbox triage
 (<YYYY-MM-DD>)` note, committed with pathspec, then closed: `archive-stamp-cli resolve-memo <memo>
 --decision accepted --decision-note "routed into <baton>" --realized-by "<baton>"
---in-repo-capture "<baton>"`. Stays `open` only if the capture didn't land or a PM question is
-unanswered. Every other fork is `/pickup`'s.
+--in-repo-capture "<baton>"`. Open only if the capture didn't land. Other forks are `/pickup`'s.
 
 **`tasks/`/`archive/` gitignored?** Warn — must track.
 
@@ -64,17 +62,15 @@ Shape W in `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` (PowerShe
 them — none reads another's output):
 
 - **Safety commit**, non-negotiable, don't ask, silent no-op if nothing to commit:
-  `CLAUDE_INVOKING_COMMAND=workstream-start coordinator-safe-commit --blanket "chore:
+  `coordinator-safe-commit --blanket --invoking-command workstream-start "chore:
   workstream-start sweep — pre-orientation capture"`.
 - **Setup-state self-heal**, silent: `coordinator-setup-state auto-record-if-source-is-live`.
 - **Outbox drafts** (inbound staleness is already in the orient output):
   `workday-start-cross-repo-memo-outbox-surface` — non-empty → surface verbatim; empty → skip.
 
-**Branch detection** stays its own call — its outcome (which branch you end up on) gates
-everything that follows: main is read-only. Stay on a non-main branch if on one — this already
-covers an environment-designated day branch (e.g. a cloud harness's checkout, recorded as
-`coordinator.dayBranch`): the engine's day-branch oracles honour it, whatever its shape, so
-nothing here needs a separate cloud rule. On main, run `sync-main --quiet` (report divergence
+**Branch detection** stays its own call — it gates everything that follows: main is read-only.
+Stay on a non-main branch if on one (this covers an environment-designated day branch, recorded as
+`coordinator.dayBranch`). On main, run `sync-main --quiet` (report divergence
 first), then — author box only — create the default `work/{machine}/{date}` (`-2` on collision),
 superseded by the branch-day-span directive when present. A consumer box stays on the branch it
 is on and cuts nothing. Diverged from `main` >2 days → recommend
@@ -90,22 +86,18 @@ Otherwise read whichever of `ACTION-ITEMS.md`, `ROADMAP.md` (or their `docs/` va
 first match wins; it gets a brief active/blocked/ready summary feeding the Engage menu.
 
 **Orientation check.** SessionStart already injected orientation context — don't re-read it. No
-fresh cache → point at `/workday-start` or `/update-docs`. There is no lister CLI — the
-per-commit review-trail writer/lister family was retired with no launcher of any kind — surface
-the most recent record's path directly instead: glob `state/review-trail/**/*.json` and
-`archive/review-trail/**/*.json`, sort by basename, take the last. The corpus is frozen (no live
-writer), so this marks the historical trail's stopping point, not a live un-reviewed gap.
+fresh cache → point at `/workday-start` or `/update-docs`. Review-trail: glob
+`state/review-trail/**/*.json` and `archive/review-trail/**/*.json`, sort by basename, surface the
+last path (a frozen corpus — a historical stopping point, not a live gap).
 
-**Doc index / fan-out.** `docs/README.md` present → note wiki/research/plan counts;
-`docs/guides/`/`docs/research/` without an index → note `/update-docs` builds one.
-`fan-out-dispatch.py` — use instead of hand-authoring parallel executor prompts.
+**Doc index / fan-out.** `docs/README.md` present → note wiki/research/plan counts; without an
+index → note `/update-docs` builds one. Use `fan-out-dispatch.py` for parallel executor prompts.
 
 **Delegation (game-dev, author box only).** `project_type: game-dev` + `unreal` in `project_subtypes`
-(`coordinator.local.md`) → dispatch `Agent(subagent_type='example-game-repo-control:ue-{domain}')` for
-single-domain work (Blueprint graph needs ue-asset-author); 8 tools direct for fact-finding.
+→ dispatch `Agent(subagent_type='example-game-repo-control:ue-{domain}')` for single-domain work.
 
-**Project-RAG (author box only).** `project-rag` MCP available → call `project_subsystem_profile()` (no args), report the count;
-prefer `project_subsystem_profile("<name>")` over Explore — deterministic, <200ms.
+**Project-RAG (author box only).** `project-rag` MCP available → call `project_subsystem_profile()`,
+report the count; prefer `project_subsystem_profile("<name>")` over Explore.
 
 ---
 
@@ -127,10 +119,8 @@ steps → execute in order unless the PM redirects.
 **If no handoff loaded — fresh-install branch — fires ONLY when ALL hold:** no handoff loaded
 (established above), AND `$HOME/.claude/.coordinator-fresh-install` exists. Consume (delete) the
 sentinel BEFORE emitting anything, so this never re-fires on a later no-handoff session, then emit
-the fresh-install message: points at `~/.claude` as the live install to evolve (not the upstream
-`coordinator-claude` source), the onboarding handoff if present, fallback first steps (co-write
-`CLAUDE.md`, `/repo-setup` the first project, `/workday-start` daily). Sentinel lifecycle detail:
-wiki.
+the fresh-install message: `~/.claude` is the live install to evolve, the onboarding handoff if
+present, fallback first steps (co-write `CLAUDE.md`, `/repo-setup`, `/workday-start` daily).
 
 **Otherwise, the standard work menu** — each option loads its own context once picked:
 
@@ -151,33 +141,19 @@ wiki.
    coordinator.machine_slug>.yaml` if present (absent/malformed → skip silently, no error). Per
    tier, compute the delta against the comparison baseline (`acknowledged.baseline` when live and
    unexpired, else `previous.failing`), and advocate `/bug-blitz` — **naming the tier and
-   surfacing the delta counts, never a bare "the suite is red"** — on any of:
-   - `new` non-empty → "{tier}: N new failures since the acknowledged baseline" (or "since the
-     last run", unacknowledged).
-   - `acknowledged` null/voided (independent of whether `new` is also non-empty) AND `failing[]`
-     non-empty: **void-on-doubt** (owner unresolvable/unparseable/missing baseline) → "{tier}:
-     acknowledgement void: owner `<path>` unresolvable — M failing, unacknowledged." **void-on-
-     expiry** (`ran_at` past `expires_at`) → "{tier}: acknowledgement expired `<date>`, owner
-     `<path>` still open — M failing." **no acknowledgement at all** → "{tier}: M unacknowledged
-     failures."
-   - the acknowledged owner artifact is closed/terminal while `failing[]` is still non-empty →
-     "{tier}: owning work `<path>` closed but M failures remain."
-   - `failing` is `null` → "{tier}: red, failing set unavailable" — never read as clean, never
-     folded into a delta.
-
-   An acknowledged, unexpired red set whose delta is all-`persistent` advocates nothing from this
-   predicate — correct silence, not a gap. Never runs the test tier itself, never blocks on it —
-   only reads the record the engine's emitter already wrote.
-   <!-- engine-gap: field=test_red.advisory producer=unknown memo=2026-08-14-coordinator-content-repo-em-three-cut-obligations-from-the-corpus-grind.md -->
+   surfacing the delta counts, never a bare "the suite is red"** — when `new` is non-empty, the
+   acknowledgement is null/void/expired with `failing[]` non-empty, the acknowledged owner is
+   closed while `failing[]` remains, or `failing` is `null` (never read as clean). Message
+   wordings per case: wiki. An acknowledged, unexpired, all-`persistent` set advocates nothing.
+   Never runs the test tier, never blocks — only reads the engine's record.
+   <!-- engine-gap: field=test_red.advisory producer=unknown memo=engine-gap-markers-name-a-memo-that-was-never-filed.md -->
 7. **Other** — ask the user to describe it; load relevant context.
 
 `$ARGUMENTS` provided → use it directly, skip the menu. Surface the tracker's ready/executing
-items and project-specific plan docs (`docs/`, `tasks/`, `tasks/plans/`) as concrete options, not
-generic categories. A fresh backlog item or ad-hoc ask with no sizing-object yet routes through
+items and plan docs (`docs/`, `tasks/`, `tasks/plans/`) as concrete options. A fresh backlog item or ad-hoc ask with no sizing-object yet routes through
 `coordinator:sizing` first.
 
 ### Status report
 
-Briefly (2 lines): repo state (uncommitted changes may be a peer's), current branch. Orientation,
-not ownership.
-<!-- engine-gap: field=session.repo_status_summary producer=unknown memo=2026-08-14-coordinator-content-repo-em-three-cut-obligations-from-the-corpus-grind.md -->
+Two lines: repo state (uncommitted changes may be a peer's), current branch.
+<!-- engine-gap: field=session.repo_status_summary producer=unknown memo=engine-gap-markers-name-a-memo-that-was-never-filed.md -->

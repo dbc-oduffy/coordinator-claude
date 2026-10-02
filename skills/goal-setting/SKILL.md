@@ -1,15 +1,15 @@
 ---
 name: goal-setting
-description: "PM-GATED. Turns raw vision into ratified OKRs plus roadmap-seed stubs."
+description: "PM-GATED. Raw vision into ratified OKRs and roadmap seeds."
 version: 1.0.0
 user-invocable: true
 ---
 
 # Goal-Setting — Vision to OKRs to Scaffolded Stubs
 
-> **Posture:** vision-in, OKR-out. Neither rubber-stamp nor idea-crushing gate. Each KR must be
-> weekly-perceptible (can an agent or PM observe it move this week?); one that fails is a
-> later-impact aspiration, surfaced as a shaping question, not a rejection.
+> **Posture:** vision-in, OKR-out; neither rubber-stamp nor gate. Each KR must be
+> weekly-perceptible (observable moving this week); one that fails is a later-impact aspiration,
+> surfaced as a shaping question, not a rejection.
 
 **Entry points:**
 
@@ -17,11 +17,10 @@ user-invocable: true
 2. **Pickup-from-goal-seed** — a deferred `kind: goal-seed` stub; run this skill on the captured
    vision.
 3. **Conform intake from a sizing-object** — `coordinator:sizing` hands an optional
-   `state/sizings/<id>.yaml` entry contract ahead of Step 1, on three arrival shapes
-   (`route: pm-decision`+`xl_exit: roadmap`, legacy `route: roadmap`, or direct-routed
-   `route: goal-setting` XXL). This is receive-and-use-if-present, never a wall: no sizing-object
-   present means Step 1 runs exactly as today, and the sizing lobby never gates or refuses a
-   `goal-setting` invocation absent one — see wiki for the full field-crossing table.
+   `state/sizings/<id>.yaml` ahead of Step 1 (`route: pm-decision`+`xl_exit: roadmap`, legacy
+   `route: roadmap`, or direct-routed `route: goal-setting` XXL). Receive-and-use-if-present, never
+   a wall: absent one, Step 1 runs exactly as today, and the sizing lobby never gates or refuses a
+   `goal-setting` invocation. Field-crossing table: wiki.
 
 **What this skill produces:** a ratified OKR (one Objective + ≤5 Key Results, weekly-perceptible)
 via `coordinator-doc-new --type goal`; `kind: roadmap-seed` stubs pre-tagged to the goal, one per
@@ -54,23 +53,17 @@ The PM names the **Objective** (qualitative, direction-setting) and one or more 
 (raw is fine). Do NOT prompt for a specific format — the ceremony imposes structure through
 critique, not intake.
 
-**When a sizing-object is present** (see Entry point 3), it pre-populates part of this step's raw
-framing in body prose only, never new frontmatter: `intent` → opening vision statement;
-`appetite` → context only, never a KR or stub `cost:`; `estimate.tshirt`+`estimate.provisional`
-together → routing signal only; `scout_evidence` → framing pointers; `route`(+`xl_exit`) → the
-recorded reason this ceremony opened. Full field-by-field detail and does/doesn't-cross list:
-wiki.
+**When a sizing-object is present** (Entry point 3), it pre-populates this step's raw framing in
+body prose only, never new frontmatter (`appetite` is never a KR or stub `cost:`). Field-by-field
+crossing: wiki.
 
-**PM-assent record for a direct-routed XXL:** that shape emits no `xl_exit`, so once this step's
-PM utterance happens, write `pm_resolution.xl_route_assent` on the sizing-object recording it as
-the assent — this does not reintroduce a PM halt above `goal-setting` (Step 1's own utterance
-already is the gate). Detail: wiki.
+**PM-assent record for a direct-routed XXL:** once this step's PM utterance happens, write
+`pm_resolution.xl_route_assent` on the sizing-object recording it. Detail: wiki.
 
 ### Step 1b — Offer to record competitive context (optional)
 
-If the PM's vision names or implies a domain, check `state/strategic/self-description.yaml`'s
-`competitors[]` first — skip the offer silently if already populated (same discipline as
-`workweek-start`/`repo-setup` Phase 3l nudges). Otherwise offer once:
+If the PM's vision names or implies a domain and `state/strategic/self-description.yaml`'s
+`competitors[]` is empty, offer once (else skip silently):
 
 > This reads like <inferred domain> work — want me to record inspirations / peers / competitors /
 > aspirational-targets? Goes in your repo's strategic self-description. (Skip freely.)
@@ -99,23 +92,21 @@ second marking store. On decline, proceed to Step 2 without repeating the offer.
 > flagged/rejected elements, a SET-level verdict (GO/REVISE/REFRAME). Give the EM and PM the
 > material to revise it themselves — do not rewrite the whole OKR yourself.
 
-Step 2's dispatch runs in the background: tell the PM to expect a wait and stand down until the
-idle notification for the VP-Product Reviewer's return, rather than polling or re-dispatching.
+The dispatch runs in the background: tell the PM to expect a wait, and stand down until the VP-Product Reviewer's idle
+notification — no polling or re-dispatch.
 
 ### Step 3 — EM+PM integrate the VP-Product Reviewer's critique in-dialogue
 
-The artifact does not exist on disk yet. REJECT items are rewritten or dropped; FLAG items are
-rewritten or consciously accepted with a stated rationale; weekly-perceptibility notes are
-rewritten or deferred to a `kind: goal-seed` stub. This is a dialogue: EM presents the critique,
-proposes a revised shape, and asks the PM to confirm.
+No artifact exists on disk yet. REJECT items are rewritten or dropped; FLAG items rewritten or
+accepted with a stated rationale; weekly-perceptibility notes rewritten or deferred to a
+`kind: goal-seed` stub. EM presents the critique, proposes a revised shape, asks the PM to confirm.
 
 **Do NOT proceed to Step 4 without explicit PM confirmation on the revised OKR.**
 
 ### Step 4 — Scaffold the goal artifact
 
-Resolve every CLI in Steps 4-5 per the ladder in
-`${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` (Shape A/B on a POSIX host; Shape W's
-`.exe` launcher only on a PowerShell host).
+Resolve every CLI in Steps 4-5 (incl. 5a/5b) per the ladder in
+`${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`.
 
 `coordinator-doc-new --type goal --title "<objective-slug>"`, resolved per that ladder.
 
@@ -123,13 +114,10 @@ Fill: `objective:` (ratified text), `key_results:` (≤5, weekly-perceptible), `
 schema enum `day|week|repo|quarter|year` — e.g. `period: quarter`, `period_value: Q3-2026`),
 `status: active`.
 
-Once filled, invoke `emit-goal-from-artifact` (claude-klabauter-owned, the goal-pipeline emitter per
-`goals-okr-system.md` § Emit → Cockpit → Cockpit Pipe), resolved per the same ladder, with the
-scaffolded artifact's path as its argument:
-
-`emit-goal-from-artifact state/goals/<objective-slug>.md`, resolved per that ladder — scaffolding
-alone does not emit. Run `emit-goal-from-artifact --help` first on doubt about flags or the
-artifact-path argument shape.
+Once filled, invoke `emit-goal-from-artifact <path>` (the goal-pipeline emitter per
+`goals-okr-system.md` § Emit → Cockpit → Cockpit Pipe), resolved per the same ladder, where
+`<path>` is the `state/goals/*.yaml` path `coordinator-doc-new --type goal` printed — scaffolding
+alone does not emit. On doubt about flags, run `emit-goal-from-artifact --help`.
 
 ### Step 5 — Spawn downstream stubs
 
@@ -137,8 +125,7 @@ artifact-path argument shape.
 invocation, one coherent capability arc; when in doubt, fewer/larger — the PM can split at
 pickup):
 
-`coordinator-doc-new --type roadmap-seed --goals "<goal-id>" --title "<roadmap-topic>"`,
-resolved per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`.
+`coordinator-doc-new --type roadmap-seed --goals "<goal-id>" --title "<roadmap-topic>"`.
 
 Each stub carries `kind: roadmap-seed`, `origin_goal_id:` FK (via `--goals`), `deployment_state:
 awaiting_gate`, a one-line title naming the capability arc.
@@ -146,12 +133,10 @@ awaiting_gate`, a one-line title naming the capability arc.
 **5b. Goal-seed stubs (optional)** — for vision-slices out of scope this period, or KRs deferred
 rather than rewritten:
 
-`coordinator-doc-new --type goal-seed --title "<deferred-vision-slice>"`,
-resolved per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`.
+`coordinator-doc-new --type goal-seed --title "<deferred-vision-slice>"`.
 
 Each stub carries `kind: goal-seed`, `deployment_state: awaiting_gate`, and a brief body
-capturing the vision-slice verbatim — raw over polished. These feed the pickup-from-goal-seed
-entry point; they are vision preservation, not roadmap stubs.
+capturing the vision-slice verbatim — raw over polished.
 
 ### Step 6 — Offer the PM-gated chain
 
@@ -172,20 +157,16 @@ scaffolded.
 
 ## Out of scope
 
-- **Roadmap authoring** — `/roadmap-planning` owns it; this skill scaffolds the stubs that feed
-  it. Auto-chaining bypasses the PM's multi-wave sequencing authority.
+- **Roadmap authoring** — `/roadmap-planning` owns it; auto-chaining bypasses the PM.
 - **KR tracking infrastructure** — cockpit-contract `goal.schema.json` owns event emission.
-- **Deferred-goal fleshing without PM pickup** — a `kind: goal-seed` stub is dormant until the PM
-  picks it up via entry point 2.
+- **Deferred-goal fleshing without PM pickup** — a `kind: goal-seed` stub stays dormant until entry
+  point 2.
 
 ---
 
-## Skill-scaffold checklist (self-verify before reporting DONE)
+## Self-verify before reporting DONE
 
-- [ ] the VP-Product Reviewer dispatched at Opus altitude via `subagent_type: "coordinator:vp-product"`
-- [ ] PM confirmed revised OKR before any artifact written to disk
-- [ ] Goal artifact scaffolded with `coordinator-doc-new --type goal`
-- [ ] Goal artifact emitted via `emit-goal-from-artifact.py` after scaffolding
-- [ ] Each roadmap-seed stub carries `origin_goal_id:` FK and `deployment_state: awaiting_gate`
-- [ ] `/roadmap-planning` was NOT auto-invoked — offered and PM-gated
-- [ ] Commit is scoped to goal artifact + stubs only — no blanket add
+The VP-Product Reviewer dispatched via `coordinator:vp-product`; PM confirmed the revised OKR before any artifact hit
+disk; goal artifact scaffolded then emitted; each roadmap-seed stub carries `origin_goal_id:` and
+`deployment_state: awaiting_gate`; `/roadmap-planning` offered, not auto-invoked; commit scoped to
+goal artifact + stubs.

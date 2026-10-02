@@ -1,6 +1,6 @@
 ---
 name: uhura
-description: "PM-GATED. Hold this repo's PM comms channel: gate what reaches the PM, reserve the push channel."
+description: "PM-GATED. Hold this repo's PM comms channel: gate what reaches the PM."
 allowed-tools: ["Read", "Bash", "Glob", "Grep", "SendMessage", "ListAgents", "PushNotification", "Agent", "ToolSearch"]
 argument-hint: "[no arguments — invoke to take this repo's comms channel]"
 ---

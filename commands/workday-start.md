@@ -1,6 +1,6 @@
 ---
 name: workday-start
-description: "Morning orient — triage handoffs, surface staleness, align priorities."
+description: "Morning orient — triage handoffs, staleness, priorities."
 allowed-tools: ["Read", "Write", "Grep", "Glob", "Bash", "Agent"]
 argument-hint: "[optional day focus]"
 disable-model-invocation: true
@@ -84,7 +84,7 @@ the same notes file).
 Actionable-now/awaiting-gate triage are Step -0.9 directives (`d-handoff-triage-*`) — surface
 `detail`, don't re-query.
 
-**1.1** Route on `kind:` — `spinoff`/`spinoff-roadmap` → "Spinoffs awaiting pickup" (cluster by
+**1.1** Route on `kind:` — `spinoff`/`roadmap-baton` → "Spinoffs awaiting pickup" (cluster by
 `roadmap_id:` when count > 3); `session-handoff`(or absent)/`recovery` → "Continuation handoffs"
 (`recovery` suffixed).
 
@@ -103,21 +103,14 @@ fallback: `archive/completed/legacy/<YYYY-MM>.md`) — match on workstream/featu
 keyword, flag likely-shipped items.
 
 **1.47** One shell call, in this order (idempotent, safe every run): `sweep-terminal-handoffs`,
-`promote-shipped-in-flight-stubs` (must precede the reaper, so a shipped deliverable isn't mistaken
-for a crash orphan — ordering preserved inside the batch), `reap-orphaned-in-flight-handoffs` (Step
--0.9; dry-run then live), `handoff-housekeeping`. Surface verbatim under `### Handoffs`. Reaper
-never touches frontmatter directly — releases a dead holder's claim to the pool, never
-abandons/archives.
+`promote-shipped-in-flight-stubs`, `handoff-housekeeping`. Surface verbatim under `### Handoffs`.
+An orphaned `in_flight` claim (dead holder) is released by hand with
+`archive-stamp-cli unclaim-handoff` — never abandoned or archived.
 
-**This is the on-demand drain, not the owner.** The abandoned-session case — a session that dies
-mid-close and never stamps its baton — belongs to the `/workday-complete` spine's
-`reap-orphaned-in-flight-handoffs` + `handoff-housekeeping` pair, which reclaims dead-holder claims
-and archives everything terminal in one batch. This step covers the same population on demand, so
-that residue does not wait on the day's close. **`session.boot_sweep` is not behind either** — its
-archival composite was killed (`sweep-boot.py` carries `never dispatches an op` as a negative spec).
-Skipping this step is survivable; skipping `/workday-complete` is what lets residue accumulate.
-Measured 2026-08-30: five terminal batons unswept and the gem-01 roadmap reading seven batons behind
-its real state, on a stretch where `/workday-complete` had not run.
+**This is the on-demand drain, not the owner.** The abandoned-session case belongs to the
+`/workday-complete` spine's `handoff-housekeeping` directive; this
+step covers the same population on demand. `session.boot_sweep` is not behind either. Skipping this
+step is survivable; skipping `/workday-complete` is what lets residue accumulate.
 → `coordinator/docs/wiki/coordinator-tripwires/terminal-batons-are-swept-at-close-not-left-to-the-next-ceremony.md`
 
 **1.5** _"{N} actionable ({K} continuations, {S} spinoffs incl. {R} roadmap in {G} groups). {G}
@@ -152,28 +145,19 @@ get triaged, whatever else was written about it.
 
 `workday-start-inbox-blitz-assemble`'s `state` sizes the response, never whether items are left
 open. `escalate` (open-count or oldest-age over threshold) means surface the counts and fan out;
-`inventory` means the day's clear-down is small enough to run inline or on one agent — it is not
-a licence to leave a roster standing. `skipped` means the inbox is already empty; nothing to do.
+`inventory` means run inline or on one agent; `skipped` means the inbox is already empty.
 
-There is no cap on agent count: an inbox that accreted for a fortnight is exactly the case the
-blitz exists for, and a bound that leaves part of it untouched re-queues the accretion it was
-dispatched to end. A small inbox gets the same rule for the opposite reason — ten memos left open
-because ten is under a threshold is how the fortnight's accretion starts.
+There is no cap on agent count, and a small inbox gets the same rule: nothing is left open because
+it is under a threshold.
 
-**Size the fan-out from volume, not from a fixed number.** ~30 memos per triage agent is the
-working grain — enough context to see threads across a bucket, small enough to read each memo in
-full. Where a `dispatches[]` bucket exceeds that, shard its `memos[]` across as many agents as
-the count needs and give every shard the same bucket `brief` verbatim; `brief` and `memos[]` are
-passed **verbatim** to every agent, never paraphrased, sharded or not.
+**Size the fan-out from volume.** ~30 memos per triage agent is the working grain. Where a
+`dispatches[]` bucket exceeds that, shard its `memos[]` across as many agents as needed; `brief` and
+`memos[]` go **verbatim** to every agent, never paraphrased, sharded or not.
 
-**A verify pass rides with its triage and is never the thing that gets dropped.** Each triage
-shard's verify pass is part of that shard, not a separate item competing for budget — an
-unverified triage report is the failure mode the blitz is built to avoid, since a triage pass
-routinely refutes or shrinks a large share of its own findings. Ship both or ship neither.
+**A verify pass rides with its triage and is never dropped.** Each shard's verify pass is part of
+that shard — ship both or ship neither.
 
-**Two checks the EM adds to every verify brief, on top of whatever `brief` the op ships.** Both
-are failure modes of the verify pass itself, not of any memo, so a verifier that omits them
-returns confident wrong answers rather than fewer answers:
+**Two checks the EM adds to every verify brief, on top of whatever `brief` the op ships.**
 
 - **Already-answered, not just accurate.** Confirming a memo's *claim* is not confirming its
   *ask* is open. Before any verdict, glob the archives on both sides — `cross-repo/archive/`,
@@ -186,15 +170,17 @@ returns confident wrong answers rather than fewer answers:
   looked there. The send path is `state/memo-outbox/sent/` plus the ledger; a stale sibling
   directory is residue, never a queue.
 
-**A manifest is a snapshot; the tree moves under it.** Peer sessions archive and close memos
-mid-run. An assigned memo that is no longer where the manifest says is a race, not a producer
-defect — check the archival commit's timestamp against the assemble's before reporting one.
-Tripwires: `A-VERIFY-PASS-THAT-SKIPS-THE-ARCHIVE-CONFIRMS-A-DEAD-ASK`.
+**Disposal mechanics.** `archive-stamp-cli resolve-memo` stamps and commits in place; it never moves
+the file, so the move into the repo's archive layout (often flat) is a separate manual step, committed
+with explicit file pathspecs, never a directory. Re-enumerate the inbox directory before disposing:
+memos that arrive after the assemble are in scope. Memos to the engine go to `claude-klabauter-em`.
 
-**Dispatch in waves, not one simultaneous batch.** The machine carries a dozen-plus concurrent EM
-sessions; a 25-agent fan-out fired at once is a machine-wide event. Run triage shards in waves
-sized to what the box will carry, each shard's verify following its own triage. Wave structure
-paces the grind — it never truncates it.
+**A manifest is a snapshot.** A memo absent from the path the manifest names is a race, not a producer
+defect — check the archival commit's timestamp against the assemble's. Tripwire:
+`A-VERIFY-PASS-THAT-SKIPS-THE-ARCHIVE-CONFIRMS-A-DEAD-ASK`.
+
+**Dispatch in waves, not one simultaneous batch**, sized to what the box will carry, each shard's
+verify following its own triage. Waves pace the grind, never truncate it.
 
 `supersession_candidates[]` are candidates, never confirmations. Group PLAN-WEIGHT items by
 problem/solution space, one baton per space, routed via the default above — that per-space rule governs PLAN-WEIGHT only: **every XS/S item from one blitz
@@ -291,10 +277,8 @@ remediate `--sync` mirror→`~/.claude` only, after re-authoring in the tracked 
 same WARN shape, naming dates), and `corpus-currency-probe.py` (per landed
 `.project-rag-corpus-store/<band>/`, is the local manifest triple behind the declared publish
 ref?) — nine named CLIs, one shell invocation, each rendering into `### Addon Health` only when
-non-empty. All silent-skip when the engine root/op is unresolvable, or (for the corpus probe)
-when the repo has no landed store — a fleet-topology fact, never a health regression. No
-multiplexer CLI for these nine exists today; this is the interim shell-level batch, not a new
-engine CLI — do not invent one here, that surface is engine-owned, not this skill's to add.
+non-empty. All silent-skip when the engine root/op is unresolvable, or (corpus probe) when the repo
+has no landed store. No multiplexer CLI exists; do not invent one here.
 
 **Memo-outbox tracking.** `python <plugin-root>/bin/memo-outbox-tracking-guard.py` — delivered memos
 losing their sender-side record. Exit 1 renders under `### Addon Health`. Daily, because leg 2
@@ -302,23 +286,20 @@ fires while a phantom staged deletion is still armed. Repair a leg-1 finding, th
 in `state/memo-outbox/acknowledged-sweeps.json`. Read the module docstring before touching the leg
 order.
 
-**Boot currency dependency:** `coordinator-doctor-sentinel --full` above writes P-19's verdict to
+**Boot currency dependency:** `coordinator-doctor-sentinel --full` writes
 `~/.claude/plugins/coordinator-claude/data/doctor-last-run.json`, the only cache
-`install_currency_banner()` reads at boot (zero-spawn). `corpus-currency-probe.py` in the same
-batch carries the identical dependency shape: it writes `corpus-currency-last-run.json`, and
-`corpus_currency_banner()` is the only thing that reads it at boot. Drop or reorder either
-sentinel run and its boot line doesn't go quiet — it degrades to `stale-unknown` past the 24h
-refresh window.
-`<ENGINE-CURRENCY-PROBE-PLACEHOLDER>`: engine leg, still not in this batch. C6's cross-plane
-contract with claude-klabauter-em converged
-(`coordinator/docs/wiki/release-and-distribution/release-cadence-and-currency-notification.md` § Engine anchor — converged contract:
-`version.txt` source SHA + `track_ref`/channel field) — but the engine-side probe (P-20, a sibling
-to P-19 pointed at that surface) is the engine repo's to implement on the engine repo's own surface,
-not yet shipped. Add the real invocation here once it ships; do not invent one now, that surface is
-engine-owned.
+`install_currency_banner()` reads at boot; `corpus-currency-probe.py` likewise writes
+`corpus-currency-last-run.json` for `corpus_currency_banner()`. Drop or reorder either run and its
+boot line degrades to `stale-unknown` past the 24h refresh window.
+`<ENGINE-CURRENCY-PROBE-PLACEHOLDER>`: engine leg, not in this batch — the engine-side probe (P-20)
+is the engine repo's to ship
+(`coordinator/docs/wiki/release-and-distribution/release-cadence-and-currency-notification.md` § Engine anchor).
+Add the real invocation once it ships; do not invent one.
 
 **1.10.5** MCP registration: per `~/.claude.json mcpServers` entry, skip disabled/off-project,
 count `mcp__<server>__` matches; 0 → `### MCP Tool Registration` line + `/<server>:doctor`.
+Reverse direction: `python3 coordinator/bin/check-mcp-namespace-registration.py` (report-only, exit 0) —
+each `WARN` line (agent-claimed namespace no config registers) renders under the same heading.
 
 **1.10.6** No auto-reconcile step. `handoff.reconcile_open` is dead (K-026, superseded by K-057)
 and is deliberately left unclassified engine-side — classifying or eager-listing it resurrects it
@@ -422,11 +403,8 @@ else the smallest number of calls that covers all suggestions grouped by shared 
 of suggestions is multi-line prose: it goes through `--text-file`, never inline `--text`, which
 refuses a newline rather than landing a one-line event.
 
-**Deliberately wire-only, no `state/goals/*.yaml` scaffold.** This event is daily telemetry — a
-same-day snapshot of what the EM surfaced, not a ratified goal with KRs a close-out ceremony needs
-to target. Goal artifacts on disk are for the goal-setting ceremony's weekly/quarterly OKRs
-(`coordinator/skills/goal-setting/SKILL.md`); scaffolding one per day would be per-day churn with
-no ceremony that ever reads it back.
+**Deliberately wire-only, no `state/goals/*.yaml` scaffold** — daily telemetry, not a goal
+(`coordinator/skills/goal-setting/SKILL.md`).
 
 **Marker:** `d-workday-marker-write` (Step -0.9) — write `state/.workday-start-marker` once
 complete; `/workstream-start` checks this file.
@@ -439,6 +417,12 @@ repomap content); skip if `tasks/` absent. Full derivation: wiki.
 `d-ceremony-hook-output` (Step -0.9) — print verbatim as a standalone trailing line, after the
 briefing (this ceremony's summary settles before this step, unlike the other three). Silent no-op
 absent a `workday_start_post_command:` key in `coordinator.local.md`.
+
+## Step 5.65: Refresh the `Copies:` boot line's cache
+
+Run `<plugin-root>/bin/copy-currency-refresh.py` (`snippets/resolve-coordinator-bin.md` § CLIs with
+no launcher) and report its one line. It is the only writer of the cache the boot banner reads; a
+failure is reported as-is and the prior cache stays.
 
 ## Step 5.7: Offer to Volunteer as Group EM
 
@@ -454,10 +438,8 @@ on a session that looks idle, not because the offer went unanswered.
 `GROUP EM WATCH: <verdict>` line alongside the nomination read — different questions, neither
 substitutes. Report the verdict as-is; never nominate or nudge off it.
 
-The reason is that `nominate` is last-writer-wins and never refuses. It cannot decline a bad take,
-so the judgment has to sit upstream of it — and a ceremony that runs every morning would silently
-pass the role around the fleet, displacing live holders who learn about it only if someone
-remembers to tell them. Volunteering is a direction-class call: it is the PM's to make.
+`nominate` is last-writer-wins and never refuses, so the judgment sits upstream of it.
+Volunteering is a direction-class call: the PM's to make.
 
 On the PM's yes, run `nominate --repo <root> --session-id <this session>` and report the verdict.
 If it names a displaced holder that is still running, tell that session the role has moved.

@@ -1,6 +1,6 @@
 ---
 name: shape
-description: "Converge with the PM on a problem's shape before any solutioning. Invoke coordinator:sizing first if unsized."
+description: "Converge with the PM on a problem's shape. Size first if unsized."
 description-budget: 190
 version: 1.0.0
 allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskUserQuestion","TaskCreate","TaskUpdate","TaskGet","TaskList"]
@@ -100,7 +100,7 @@ design: a bulleted problem list, not a design doc.
    reasons, not "later."
 3. On PM convergence: flip `status: draft → ratified`, fill `ratified_by`, `ratified_date`,
    `estimated_horizon`, stamp `> Ratified by PM <name> <date>`.
-<!-- engine-gap: field=shape.convergence.detected producer=unknown memo=2026-08-14-coordinator-content-repo-em-three-cut-obligations-from-the-corpus-grind.md -->
+<!-- engine-gap: field=shape.convergence.detected producer=unknown memo=engine-gap-markers-name-a-memo-that-was-never-filed.md -->
 
 A problem-set without ratification is `status: draft` and does NOT count as an oracle. Plans link
 it via `problem_set:`.

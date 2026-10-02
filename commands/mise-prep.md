@@ -40,7 +40,7 @@ NOT-PREPPED residue is authorship: the bar asks what only a plan's author knows.
 
 - the plan path and its `bar:` line verbatim;
 - the bar's own refusal, naming each missing declaration and its declared-empty form:
-  `"${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/bin/mise-prep-gate" --repo-root <repo> <plan>`;
+  `mise-prep-gate --repo-root <repo> <plan>` (resolve per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`);
 - the charter: amend this plan in place, declaring only the classes named. No scaffold, no
   `status` change, no `mise_prepped_*` key, no body edit beyond a named class. Declared-empty only
   where true. A matter that is scope, direction or priority goes to `coordinator:apm` (code, to `coordinator:staff-eng`), which writes `pm_ruling:` on the plan; only a `pm_only` matter (important, urgent, no clear answer) goes in the summary, class left undeclared.

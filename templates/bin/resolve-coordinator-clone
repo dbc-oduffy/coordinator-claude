@@ -265,7 +265,7 @@ def main(argv: list[str]) -> int:
             f"  Searched: $CLAUDE_PLUGIN_ROOT, $COORDINATOR_ROOT, $COORDINATOR_CLONE, "
             f"{home}/.coordinator-content-root pointer, claude-klabauter (via $COORDINATOR_ENGINE_ROOT, "
             "$REPO_CLAUDE_KLABAUTER, the .claude-klabauter-root pointer, or registry.local.toml), "
-            f"{home}/plugins/coordinator/, and the versioned plugin cache.\n"
+            f"{home}/plugins/coordinator-claude/coordinator/, and the versioned plugin cache.\n"
             f"  Remediation: install/repair the coordinator plugin (writes {home}/.coordinator-content-root), "
             "set CLAUDE_PLUGIN_ROOT to its checkout, or set COORDINATOR_ENGINE_ROOT to the claude-klabauter checkout.\n"
         )

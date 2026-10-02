@@ -14,7 +14,7 @@ meta-repo. Without `--apply` it only prints and sets its exit code — it never 
 `~/.claude/.gitignore`. `--apply` appends missing rules (verbatim from the template) and is the
 only mutating path; it still never runs `git rm --cached` for you — an ignore rule added for an
 already-tracked path is inert until untracked, and deciding to untrack a path is not this script's
-call to make unattended. See `docs/wiki/claude-home-tracking-policy.md` (coordinator-content-repo).
+call to make unattended. See `coordinator-content-repo coordinator/docs/wiki/claude-md-surfaces/claude-home-tracking-policy.md` (coordinator-content-repo).
 
 TWO ENTRIES ARE REPLACE, NOT APPEND — carried over from Phase 4's own text, because a template-
 derived line diff gets both wrong by construction:

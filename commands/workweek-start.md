@@ -21,7 +21,7 @@ artifacts — it does not reconstruct or re-author them.
 
 If `state/week-changelog/HEADER.md` doesn't exist, create it with the template below, then
 continue — no scaffold CLI covers this file yet.
-<!-- engine-gap: field=week_changelog.header_bootstrap producer=unknown memo=2026-08-14-coordinator-content-repo-em-three-cut-obligations-from-the-corpus-grind.md -->
+<!-- engine-gap: field=week_changelog.header_bootstrap producer=unknown memo=engine-gap-markers-name-a-memo-that-was-never-filed.md -->
 If it already exists, skip silently — never overwrite an existing HEADER.
 
 ```markdown
@@ -52,34 +52,26 @@ freshness check: its
 `update_in_place`) whenever HEADER.md reads stale. Step 8 acts on that.
 
 - **`directives[]`** — execute as you reach each one; render its `detail` into the Weekly Digest
-  rather than re-deriving the finding by hand.
+  rather than re-deriving the finding by hand. `d-plan-orphan-tiers` (the `census:` directive)
+  is the orphaned-plan check: render its `detail` as the digest's `**Orphaned plans:**` line,
+  P1 lines first.
 - **`judgment_points[]`** — genuine EM/PM calls the op cannot resolve (inbound memo dispositions,
   non-benign worktree/reconcile findings, the week-marker reset call). Present each to the PM
   before proceeding past it — never auto-pick a disposition.
 - **`narration`** / **`next_move`** — surface verbatim as the digest's lead when non-empty.
 
-**The day-branch is asserted here, not just its span.** A branch-*span* assertion answers "does
-today fall inside this branch's name" and says nothing when the tree is sitting on `main` — so a
-Monday opened with `/workweek-start` and no `/workday-start` used to cut nothing and report
-nothing. The week cadence now asserts the same day-branch invariant the day cadence does: tree on
-`main` → the day branch is cut automatically (serialized, so concurrent sessions inherit rather
-than each cutting); a non-`main` branch that violates the auto-push rules → a warning, never a
-switch. Both outcomes render through the shared day-branch banner, not a look-alike printed here —
-`/workweek-start` is a mid-session slash command and never re-enters the SessionStart boot assert,
-so a second renderer would drift from the one every other entry path uses.
+**The day-branch is asserted here, not just its span.** Tree on `main` → the day branch is cut
+automatically (serialized, so concurrent sessions inherit); a non-`main` branch that violates the
+auto-push rules → a warning, never a switch. Both render through the shared day-branch banner, not
+a look-alike printed here.
 
-**Expired plan gates.** The daily sweep reads `awaiting_gate` from *handoff* frontmatter only — a
-gate on a **plan chunk row** is read by nothing, so a chunk naming this ceremony as its expiry
-never surfaces itself. Both plan-row spellings count: the declared `external_gate[]` the emitter
-schedules against, and the undeclared `awaiting_gate` straggler. Check non-terminal plans only:
+**Expired plan gates.** A gate on a **plan chunk row** (declared `external_gate[]` or undeclared
+`awaiting_gate`) is read by no daily sweep. Check non-terminal plans only:
 `python <plugin-root>/bin/expired-plan-gates.py`. An expiry naming an action is a directive — fire
-it or record why not; one that silently rolls to next week is the failure this catches.
+it or record why not.
 
-**Anchor-freshness flag.** `python <plugin-root>/bin/check-anchor-freshness.py` — prints the digest
-line verbatim when no commit changed `.version` in `coordinator/.claude-plugin/plugin.json` in the
-prior week, and the matching commits when one did. Render the flag line as printed; silence is not
-a finding. Scoped to the coordinator plugin triple only — the engine anchor has no cadence to
-check against, pending its own converged contract.
+**Anchor-freshness flag.** `python <plugin-root>/bin/check-anchor-freshness.py` — render the flag
+line as printed; silence is not a finding. Coordinator plugin triple only.
 
 Do not recompute any check this op already covers. What follows is the week-specific residue it
 doesn't cover: the exec-summary refresh, the positioning nudge, priority-setting and goal
@@ -103,7 +95,7 @@ repos). Kill-switch for the staleness banner: `COORDINATOR_EXECSUMMARY_STATUS_OF
 
 Days covered, implemented plans, blockers carried over, and priorities met vs. missed are
 engine-knowable but not yet emitted by any producer.
-<!-- engine-gap: field=week_changelog.prior_week_digest producer=unknown memo=2026-08-14-coordinator-content-repo-em-three-cut-obligations-from-the-corpus-grind.md -->
+<!-- engine-gap: field=week_changelog.prior_week_digest producer=unknown memo=engine-gap-markers-name-a-memo-that-was-never-filed.md -->
 Until it lands, report: _"No engine-computed prior-week digest yet — see
 `state/week-changelog/*.md` for the raw record."_ Do not hand-derive the digest by reading and
 cross-referencing the daily files and priority fragments yourself.
@@ -114,7 +106,7 @@ cross-referencing the daily files and priority fragments yourself.
 
 Which `state/workstreams/` workstreams have had no commits in >7 days is engine-knowable but
 not yet emitted.
-<!-- engine-gap: field=tracker.stalled_workstreams producer=unknown memo=2026-08-14-coordinator-content-repo-em-three-cut-obligations-from-the-corpus-grind.md -->
+<!-- engine-gap: field=tracker.stalled_workstreams producer=unknown memo=engine-gap-markers-name-a-memo-that-was-never-filed.md -->
 Report "no engine-computed staleness signal yet" rather than running `git log --since` per tracker
 branch.
 
@@ -124,7 +116,7 @@ branch.
 
 Upcoming `tasks/*-recheck-due-*.md` items due within 7 days are engine-knowable but not yet
 emitted.
-<!-- engine-gap: field=tasks.recheck_due_this_week producer=unknown memo=2026-08-14-coordinator-content-repo-em-three-cut-obligations-from-the-corpus-grind.md -->
+<!-- engine-gap: field=tasks.recheck_due_this_week producer=unknown memo=engine-gap-markers-name-a-memo-that-was-never-filed.md -->
 
 ---
 
@@ -263,6 +255,7 @@ After the chained `/workday-start` returns, emit the combined summary below.
 **Prior week:** [D days, N shipped, K blockers carried over — or "no prior record"]
 **Stalled workstreams:** [list or "none"]
 **Handoff/health advisories:** [Step 1 directives[] renders, or "none"]
+**Orphaned plans:** [Step 1 `d-plan-orphan-tiers` detail, P1 lines first, or "none"]
 **Upcoming rechecks:** [list or "none"]
 **This week's priorities:**
   - [ ] Priority 1

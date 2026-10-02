@@ -1,6 +1,6 @@
 ---
 name: new-project
-description: "Scaffolds and onboards a new repo (vs. repo-setup's onboard-existing)."
+description: Scaffold and onboard a new repo.
 version: 1.0.0
 allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskUserQuestion","TaskCreate","TaskUpdate","TaskGet","TaskList"]
 ---
@@ -44,7 +44,7 @@ Shape W (rung 0) — ladder and shapes: `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-
     `& "$env:COORDINATOR_SETTINGS_HOME\bin\new-project-scaffold.exe" --name "<name>" --parent "<parent>" --template "<template>"`
 
 A template that does not boot is a **failed scaffold** — report it, don't work around it.
-<!-- engine-gap: field=new_project.scaffold.file_manifest producer=unknown memo=2026-08-14-coordinator-content-repo-em-three-cut-obligations-from-the-corpus-grind.md -->
+<!-- engine-gap: field=new_project.scaffold.file_manifest producer=unknown memo=engine-gap-markers-name-a-memo-that-was-never-filed.md -->
 
 **3 — Hand off to a session rooted in the new dir.** The Bash tool resets its cwd after every
 call, so a `cd` never persists and this session cannot onboard the new project itself. Run the

@@ -19,9 +19,9 @@ Python interpreter start.
 Contract (mirrors the former bash hook it replaces):
   stdin   -- PreToolUse JSON (tool_name, tool_input, session_id, agent_id, ...)
   stdout  -- one hookSpecificOutput JSON envelope (allow_advisory shape) unless
-             agent_id names an authorized subagent researcher (suppressed via
-             no_advisory -- op-side regex ^[a-f0-9]{12,}$ on agent_id); NOTHING
-             in that suppressed case
+             agent_id resolves to a subagent (suppressed via no_advisory --
+             op-side resolve_subagent_identity, bare-hex or named-teammate
+             shape); NOTHING in that suppressed case
   exit 0  -- always (advisory conveyed via stdout, never exit code; this hook
              is advisory-only and never blocks)
 

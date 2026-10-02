@@ -1,6 +1,6 @@
 ---
 name: workday-complete
-description: "End-of-day wrap — validate, consolidate branches, review, changelog."
+description: "End-of-day wrap — validate, consolidate, review, changelog."
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Skill"]
 argument-hint: "[optional summary of the day]"
 disable-model-invocation: true
@@ -8,12 +8,12 @@ disable-model-invocation: true
 
 # Workday Complete — End-of-Day Orchestration
 
-Daily wrap: validate, consolidate branches, daily review, week-changelog, staleness. Does NOT
-merge to main — `/workweek-complete` is the weekly heavy ceremony.
+Daily wrap: validate, consolidate branches, daily review, week-changelog, staleness. Never
+merges to main — that is `/workweek-complete`.
 
 An assembler computes this into an 8-key decision object. An unconditional directive fires when
-reached; a gated one fires once its judgment point resolves. Below: the judgment residue, plus
-steps with no consumes-manifest CLI (dispatch/gate steps). Wiring detail throughout: wiki.
+reached; a gated one once its judgment point resolves. Below: the judgment residue, plus steps
+with no consumes-manifest CLI (dispatch/gate steps). Wiring detail: wiki.
 `$ARGUMENTS` is the optional day-summary.
 
 ## Step 0.9-1: Grant, Front Door
@@ -30,12 +30,11 @@ POSIX hosts: Shape A, `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md
 PowerShell hosts (rung 0, Shape W, same snippet), one command per line:
 
     & "$env:COORDINATOR_SETTINGS_HOME\bin\tier-u-grant-cli.exe" grant ceremony "workday-complete Tier-U consumers" --ceremony workday-complete
-    & "$env:COORDINATOR_SETTINGS_HOME\bin\workday-complete-args-and-validate.exe" parse-front-door "$ARGUMENTS"
     & "$env:COORDINATOR_SETTINGS_HOME\bin\workday-complete-args-and-validate.exe" check-cross-machine "$ARGUMENTS"
 
-Capture stdout+exit code of each; non-zero on either stops. `eval` the front-door's stdout to set
-`$FOR_DATE`/`$ONLY_MODE`/`$ONLY_FLAG`/`$SCOPE_SUMMARY`. The cross-machine check fails loud on a
-cross-machine `--for-date` mismatch — stop and report.
+Capture stdout+exit code of each; non-zero on either stops. The assembler's front-door directive
+sets `$FOR_DATE`/`$ONLY_MODE`/`$ONLY_FLAG`/`$SCOPE_SUMMARY`. A cross-machine `--for-date` mismatch
+fails loud — stop and report.
 
 ## Step 2: Compute the Ceremony
 
@@ -46,12 +45,12 @@ PowerShell hosts (rung 0, Shape W):
 
     & "$env:COORDINATOR_SETTINGS_HOME\bin\workday-complete-assemble.exe" brief $(if ($FOR_DATE) { "--for-date", $FOR_DATE }) $ONLY_FLAG $(if ($SCOPE_SUMMARY) { "--scope-summary=$SCOPE_SUMMARY" })
 
-Splice `$ONLY_FLAG`/`${SCOPE_SUMMARY:+...}` exactly as shown — do not hand-derive (wiki).
+Splice `$ONLY_FLAG`/`${SCOPE_SUMMARY:+...}` exactly as shown (wiki).
 
 ## Step 3-4: RAG Nudge, Plugin Validation
 
 If `ToolSearch` finds `mcp__project-rag__*`, run the staleness survey with this repo's root as
-`project_root`; an unnamed call is ambiguous whenever a second session is live. Surface
+`project_root` (an unnamed call is ambiguous with a second live session). Surface
 stale/very-stale only for a repo `project_list_sources` reports as `origin: consumer-project` —
 elsewhere the step is N/A and silent (`A-RAG-VERDICT-ON-AN-UNINDEXED-REPO-IS-NOT-STALENESS`).
 Run `node --test coordinator/tests/plugin-ecosystem/run.js` — hook-behavior failures block;
@@ -62,14 +61,12 @@ non-hook failures report and continue.
 Read each `judgment_points[]` entry verbatim — question/evidence/dispositions are fully formed.
 
 - `jp_step2_5_dirty_tree_ambiguous`: adopt-commit / discard / attribute-to-session. Attribute only
-  to a session the claim index actually shows holding the path — `liveness=dead` is an orphan, not
-  an owner, and "some peer probably wants this" is not attribution. Everything left over is
-  adopt-commit; see Step 9e, which will not let the ceremony end while any of it is still dirty.
+  to a session the claim index shows holding the path — `liveness=dead` is an orphan, not an
+  owner. Everything left over is adopt-commit; Step 9e will not let the ceremony end while any of
+  it is still dirty.
 - `jp_step3_5_backfill_cap`: backfill all, or bounded subset (default).
-- `jp_step4b_analyst_dispatch` / `jp_step4c_observer_dispatch`: dispatch unless
-  `skip_no_new_work`.
-- `jp_step4_5_clustering_dispatch`: dispatch per ≥2-entry chain; `skip_only_mode` under
-  `$ONLY_MODE=1`.
+- `jp_step4b_analyst_dispatch` / `jp_step4c_observer_dispatch`: dispatch unless `skip_no_new_work`.
+- `jp_step4_5_clustering_dispatch`: dispatch per ≥2-entry chain; `skip_only_mode` under `$ONLY_MODE=1`.
 - `jp_step4e_health_ledger_new_rows`: add `?` rows for touched systems; never audit clocks/grades.
 - `jp_day_goal_closeout`: `decisions["day_goal_closeout"] = {goal_id: "done"|"dropped"}`, or skip.
 
@@ -82,16 +79,15 @@ PowerShell hosts (rung 0, Shape W):
 
     & "$env:COORDINATOR_SETTINGS_HOME\bin\workday-complete-assemble.exe" apply --decisions-file <path> $(if ($FOR_DATE) { "--for-date", $FOR_DATE }) $ONLY_FLAG
 
-Read `landed`/`blocked`/`failed`; `blocked` returns to Step 5. Exit-code tables: wiki.
+Read `landed`/`blocked`/`failed`; `blocked` returns to Step 5 (exit codes: wiki).
 
 ## Step 6b-7: Daily-Summary Dispatch and Stitch
 
 Dispatch a Sonnet analyst (target day: `$FOR_DATE` under `$ONLY_MODE=1`, else today) writing
-`archive/daily-summaries/<target-day>-<machine>.md` (field detail: wiki), plus a parallel
-strategic observer (skip under `$ONLY_MODE=1`) writing debt-backlog YAML + a
-`<target-day>-<machine>.observer.md` sidecar (field detail: wiki). Skip both on
-`skip_no_new_work`. Each Step 6 backfill gap-row TSV entry (oldest-first) gets its own analyst
-dispatch, only after Step 6 completes (wiki).
+`archive/daily-summaries/<target-day>-<machine>.md`, plus a parallel strategic observer (skip under
+`$ONLY_MODE=1`) writing debt-backlog YAML + a `<target-day>-<machine>.observer.md` sidecar (field
+detail: wiki). Skip both on `skip_no_new_work`. Each Step 6 backfill gap-row TSV entry
+(oldest-first) gets its own analyst dispatch, only after Step 6 completes (wiki).
 
 POSIX hosts: Shape A, resolving `workday-complete-close stitch-sidecar`.
 
@@ -100,14 +96,13 @@ PowerShell hosts (rung 0, Shape W):
     & "$env:COORDINATOR_SETTINGS_HOME\bin\workday-complete-close.exe" stitch-sidecar
 
 Pass `--today` with the target day under `$ONLY_MODE=1`. Non-zero is a HARD FAIL. Verify the
-stitch landed via a single-line Grep/read check on
-`archive/daily-summaries/<target-day>-<machine>.md` for `^## Strategic Review` occurrence count
-(harness `Grep`/`Select-String`, not a shell pipeline — the check is read-only on both hosts).
+stitch via harness `Grep`/`Select-String` (no shell pipeline) counting `^## Strategic Review` in
+`archive/daily-summaries/<target-day>-<machine>.md`.
 
 Zero: dispatch the observer and re-stitch. Two-plus: reconcile by hand, never re-dispatch.
 
-Health ledger (`jp_step4e_health_ledger_new_rows`): add `?` rows to `state/health-ledger.md` for
-newly-touched systems. Remove `tasks/daily-review-scratch`.
+Health ledger (`jp_step4e_health_ledger_new_rows`): add `?` rows to `state/health-ledger.md`
+for touched systems. Remove `tasks/daily-review-scratch`.
 
 ## Step 8: Completion-Log Clustering
 
@@ -116,8 +111,9 @@ worker per ≥2-entry chain lacking one (≤300 words, SHAs preserved, no editor
 
 ## Step 9: Completed Archive Audit
 
-Skip `$ONLY_MODE=1`. Add/fix completion entries from today's commits. Report: _"Archive audit: N
-verified, M added, K corrected."_
+Skip `$ONLY_MODE=1`. Add/fix entries from today's commits and the brief's receipts (see
+`release-and-distribution/completion-receipts.md`); an uncovered receipt goes into a meta-entry. Report: _"Archive audit: N verified, M added, K corrected; R receipts, U without
+a covering entry."_
 
 ## Step 9b-9c: Coverage, Baton-Drift, Auto-Memory Drain
 
@@ -129,7 +125,7 @@ PowerShell hosts (rung 0, Shape W), one command per line:
     & "$env:COORDINATOR_SETTINGS_HOME\bin\day-coverage-sweep.exe" <resolved day, YYYY-MM-DD>
     & "$env:COORDINATOR_SETTINGS_HOME\bin\baton-drift-sweep.exe"
 
-Skip both under `$ONLY_MODE=1`. Read their counts straight off, never collapsed to one number
+Skip both under `$ONLY_MODE=1`. Read counts straight off, never collapsed to one number
 (`foreign`/`sibling_homed` are not gaps; `stranded` must be zero, `held` need not be — wiki).
 
 POSIX hosts: Shape A, resolving `check-auto-memory-drained --root .`.
@@ -138,9 +134,8 @@ PowerShell hosts (rung 0, Shape W):
 
     & "$env:COORDINATOR_SETTINGS_HOME\bin\check-auto-memory-drained.exe" --root .
 
-Blocking. Exit 1 names every residual path owned by this session — resolve PROMOTE (durable home,
-restated in its own voice) or DROP per path, delete, re-run to confirm exit 0 (disposition detail:
-wiki).
+Blocking. Exit 1 names every residual path this session owns — PROMOTE (durable home, own voice)
+or DROP per path, delete, re-run to confirm exit 0 (wiki).
 
 ## Step 8b: Maintenance Checkpoint
 
@@ -154,7 +149,7 @@ Shape W above / Shape A/B POSIX — `snippets/resolve-coordinator-bin.md`. `--re
 ## Step 9d: claudemeta Manifest Cadence
 
 Skip the step entirely if `state/reference/generate-claudemeta-manifest.py` is absent —
-DoE-specific, no-op in every other repo. Where it exists, no prompt:
+source-repo only, no-op in every other repo. Where it exists, no prompt:
 
 ```
 python state/reference/generate-claudemeta-manifest.py --cadence

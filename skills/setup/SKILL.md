@@ -1,6 +1,6 @@
 ---
 name: setup
-description: "Install-chain walker (step 5/5) — verifies the engine, finishes install."
+description: "Install-chain step 5/5: verify the engine, finish install."
 allowed-tools: ["Read", "Bash"]
 argument-hint: "[--skip-dep-check --accept-missing-deps-risk]"
 ---
@@ -14,14 +14,14 @@ with remediation if the engine is unresolvable. Does NOT replace `coordinator:in
 bootstrap into `~/.claude/`) or `coordinator:repo-setup` (consumer-project first-time
 scaffolding) — three distinct verbs; disambiguation rationale: wiki.
 
-**`setup_skill` in the manifest is informational, not the dispatch primitive** — it tells humans
-what to type. This skill uses direct Bash calls, not subagent dispatch (the single engine
-dependency self-confirms via the `claude_klabauter_seam_resolvable` probe kind — no recursive chain-walk).
+**`setup_skill` in the manifest is informational, not the dispatch primitive.** This skill uses
+direct Bash calls, not subagent dispatch (the engine dependency self-confirms via
+`claude_klabauter_seam_resolvable`).
 
-**Registry-key resolution:** a dev-tree session resolves the engine via `repos.claude_klabauter` /
-`REPO_CLAUDE_KLABAUTER`; an OSS install has no such registry entry and resolves the same engine
-(published as `claude-klabauter`) via `docs/install/AGENT.md` instead. Both paths resolve the
-identical dependency.
+**Registry-key resolution:** a dev-tree session resolves the engine via `repos.claude_klabauter` (in
+`<settings-home>/machine-local/registry.local.toml`) /
+`REPO_CLAUDE_KLABAUTER`; an OSS install resolves the same engine (published as `claude-klabauter`)
+via `docs/install/AGENT.md`.
 
 ---
 
@@ -31,7 +31,7 @@ DO NOT run `gh pr create`, `gh pr merge`, `git push origin main`, `gh release cr
 command mutating GitHub state beyond pushing the current branch. DO NOT commit to `main` directly.
 Surface a needed merge to the EM instead of doing it.
 
-- Writing outside `plugins/coordinator/`.
+- Writing outside `plugins/coordinator-claude/coordinator/`.
 - Modifying `docs/install/agent-install-manifest.json` at runtime (static artifact, read-only here).
 - Touching the DR, example-game-repo, ue-addon, or project-rag trees.
 - Any `git commit` or `git push`.
@@ -66,7 +66,7 @@ continue with a corrupt manifest.
 
 ## Step 3 — Initialise the visited-set
 
-Disk-resident, for diamond-DAG and cycle detection across recursive subagent dispatches:
+Disk-resident, for diamond-DAG and cycle detection:
 `<settings-home>/coordinator-claude/chain-walk-<session-id>.json`, where `<settings-home>` is
 resolved per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` (Shape W on PowerShell hosts).
 
@@ -79,11 +79,9 @@ file with an empty `visited` array, prints `Session ID:` and `Visited-set:`.
 ## Step 4 — Walk direct_deps and resolve system prerequisites
 
 Python is pre-verified (hard exit if absent — the sole hard gate on this path). Run
-`python3 $CLAUDE_KLABAUTER_ROOT/coordinator/scripts/chain-walk.py` (resolve `CLAUDE_KLABAUTER_ROOT` via
-`machine-local get repos.claude_klabauter`, or the `REPO_CLAUDE_KLABAUTER`/`CLAUDE_KLABAUTER_ROOT` env override
-— the trampoline re-resolves `CLAUDE_KLABAUTER_ROOT` itself; from a shell already rooted in the engine repo,
-`python3 -m coordinator_core.ops.setup_chain_walker` is the same walker without the trampoline).
-**Never the deprecated `setup.py` forwarder.**
+`python3 -m coordinator_core.ops.setup_chain_walker --coordinator-root "${CLAUDE_PLUGIN_ROOT}"`
+(the engine resolves itself; no root variable to set). **Never the deprecated `setup.py`
+forwarder.**
 
 This calls `_co_run_prereq_gate post-consumer`, which emits one dep row (the engine, hard) and the
 prereq probe rows (git, python, uv, gh, node, pwsh, ue, clone_auth, longpaths, git_lfs) at the
@@ -91,7 +89,7 @@ severities the Step 5 terminal report shows below.
 
 Advisory failures print `[WARN]` to stderr and do not block exit 0. A missing/broken engine
 dependency triggers the [FAIL] hard-fail path — exit 1 (`--preflight`/`--check`) or consent-gate
-codes 90/91/92 (full install), remediation pointing at the `CLAUDE_KLABAUTER_ROOT` resolution ladder. Full
+codes 90/91/92 (full install), remediation pointing at the engine-root resolver. Full
 contract detail (severity taxonomy, consent-gate banner, exit codes): wiki.
 
 **Read-only flags** (`--help`, `--version`, `--phase-list`, `--last-status`, `--check`) are
@@ -109,68 +107,26 @@ both together bypass the consent gate.
 
 ## Step 5 — Terminal report
 
-```
-## /coordinator:setup — chain step 5 of 5
-
-Manifest: plugins/coordinator/docs/install/agent-install-manifest.json
-Contract version: <agent_install_contract_version from manifest>
-Layout: <flat | nested>
-Session ID: <uuid>
-
-### System prerequisite gate (post-consumer mode)
-
-| Probe      | Severity | Result | Notes                                      |
-|------------|----------|--------|--------------------------------------------|
-| python     | hard     | PASS   | Python 3.11+ (the sole hard gate)          |
-| gh         | advisory | PASS/WARN | demoted from hard; WARN does not block  |
-| node       | advisory | PASS/WARN | demoted from hard; WARN does not block  |
-| git        | advisory | PASS/WARN | demoted from hard; WARN does not block  |
-| clone_auth | advisory | PASS/WARN | demoted from semi-hard; WARN does not block |
-| uv/pwsh/ue/longpaths/git_lfs | advisory | PASS/WARN | advisory, no change |
-
-### Dependency walk
-
-| Dep | Severity | Probe | Action |
-|-----|----------|-------|--------|
-| claude-klabauter | hard | PASS/FAIL | claude_klabauter_seam_resolvable — self-confirming (this walker code only runs once claude-klabauter is already resolved) |
-
-### Result
-
-coordinator install-chain walker — chain step 5 of 5: all deps satisfied.
-
-coordinator-claude install chain complete.
-```
-
-Exit 0 (advisory WARN rows do not affect exit code).
+Report: header `## /coordinator:setup — chain step 5 of 5`; manifest path, contract version,
+layout, session id; a prerequisite table (python hard — the sole hard gate; gh, node, git,
+clone_auth, uv, pwsh, ue, longpaths, git_lfs advisory, WARN does not block); a dependency row
+(the engine, hard, `claude_klabauter_seam_resolvable`, self-confirming); result line `coordinator
+install-chain walker — chain step 5 of 5: all deps satisfied.` then `coordinator-claude install
+chain complete.` Exit 0 (advisory WARN rows do not affect it).
 
 ---
 
 ## Step 6 — Live Claude-Code-integration validation
 
-Asserts the plugin is running-in-Claude-Code, not just present on disk, via three testable
-surfaces (no MCP server for this plugin):
-
-1. **Plugin enabled** — listed in `settings.json`/`enabledPlugins`, not disabled/overridden.
-2. **Hooks registered and live** — this plugin's hooks exist on disk at their expected paths and
-   are included in the Claude Code hooks configuration.
-3. **Skill discovery preconditions** — a representative skill file exists, parses, and exposes a
-   `description:` field with trigger phrases. Skills are model-invoked, not shell-invoked — the
-   assertion is discovery-preconditions-met, not shell execution.
+Asserts the plugin is running-in-Claude-Code, not just present on disk: plugin enabled in
+`settings.json`/`enabledPlugins`; hooks registered and live at their expected paths; skill
+discovery preconditions met (a representative skill file parses and has a `description:`).
 
 ### Restart-batch (emit before the per-item probe table)
 
-Collect every **restart-gated** finding into one block, emitted only if non-empty:
-
-```
-restart-batch (emit this block if any restart-gated items are found):
-────────────────────────────────────────────────────────────────
-The following items require a Claude Code restart to take effect.
-Restart Claude Code NOW, then re-validate (re-run /coordinator:setup).
-
-  [restart-gated] <item description>
-  ...
-────────────────────────────────────────────────────────────────
-```
+Collect every **restart-gated** finding into one block, emitted only if non-empty: "The following
+items require a Claude Code restart to take effect. Restart Claude Code NOW, then re-validate
+(re-run /coordinator:setup)." then one `[restart-gated] <item>` line each.
 
 ### Restart discriminator
 
@@ -188,9 +144,7 @@ self-contained). Rationale for probe ordering and design: wiki.
 `& "$env:COORDINATOR_SETTINGS_HOME\bin\setup-verify.exe" check-plugin-registered --plugin coordinator --marketplace coordinator-claude --marketplace-source dbc-oduffy/coordinator-claude --plugin-dir "<PLUGIN_ROOT>"`
 (Shape W).
 Asserts reachability (marketplace registration OR live `--plugin-dir` resolution — `PASS
-(live-resolved)` when a manifest plus commands or hooks are present at that path), not mere
-enablement membership. Runs before Probe 1 deliberately. **Never restart-gated** — always
-configured-but-broken on FAIL.
+(live-resolved)`), not mere enablement. **Never restart-gated.**
 
 **Probe 1 — Plugin enabled in settings.json.**
 `& "$env:COORDINATOR_SETTINGS_HOME\bin\setup-verify.exe" check-settings-membership --plugin-dir "<PLUGIN_ROOT>"`
@@ -199,40 +153,30 @@ Pass the same `<PLUGIN_ROOT>` Probe 0 got — omitting `--plugin-dir` FAILs a li
 `PASS`/exit 0, `[WARN]`/exit 0 if settings.json missing/unparseable, `FAIL`/exit 1 otherwise. A
 FAIL after a config write with no subsequent restart is restart-gated-expected; after a restart,
 configured-but-broken.
-**Probe 0's verdict governs this one.** enabledPlugins membership is a marketplace-install signal;
-the dev / `--plugin-dir` shape never establishes it. When Probe 0 reported `PASS (live-resolved)`,
-Probe 1 degrades to `[WARN]`/exit 0 — absence from enabledPlugins is that shape's expected state,
-never a configured-but-broken install.
+**Probe 0 governs this one.** On `PASS (live-resolved)`, Probe 1 degrades to `[WARN]`/exit 0 —
+absence from enabledPlugins is that shape's expected state.
 
 **Probe 2 — Hooks registered and live on disk.**
 `& "$env:COORDINATOR_SETTINGS_HOME\bin\setup-verify.exe" check-hooks --plugin-root "<PLUGIN_ROOT>"`
 (Shape W).
 Parses `<PLUGIN_ROOT>/hooks/hooks.json`, verifies each coordinator-owned hook path exists on disk
 (named lookup, not a blanket file count). `PASS`/exit 0, `FAIL` (lists missing paths)/exit 1,
-`[WARN]` (hooks.json absent/unparseable, or no coordinator-owned hooks)/exit 0. Hooks absent from
-disk → configured-but-broken. Hooks present but not yet loaded by a running session →
-restart-gated-expected.
+`[WARN]` (hooks.json absent/unparseable, or no coordinator hooks)/exit 0. Absent from disk →
+configured-but-broken; present but not yet loaded → restart-gated-expected.
 
 **Probe 3 — Skill discovery preconditions.**
 Use this skill itself as the representative: `<PLUGIN_ROOT>/skills/setup/SKILL.md`.
 `& "$env:COORDINATOR_SETTINGS_HOME\bin\setup-verify.exe" check-skill-description --skill-file "<PLUGIN_ROOT>/skills/setup/SKILL.md"`
 (Shape W).
-`PASS`/exit 0, `FAIL` (missing file, no frontmatter, no/empty `description:`)/exit 1. Missing or
-unparseable skill file is always configured-but-broken — never restart-gated. Probe 1's WARN
-propagates here since plugin-enabled is a precondition for the model reaching this skill.
+`PASS`/exit 0, `FAIL` (missing file, no frontmatter, no/empty `description:`)/exit 1 — always
+configured-but-broken, never restart-gated. Probe 1's WARN propagates here.
 
 **Probe 4 — Windows launch shape (dogfood shape only).**
 `python3 "<PLUGIN_ROOT>/bin/check-launch-shape.py"`.
-Asserts the interactive `claude.exe` would be a DIRECT child of the invoking shell: no
-`claude-author` shadowing the real launcher from earlier on PATH, the rendered shim scanning for
-`claude-author.ps1` rather than taking the first PATH hit, and the launcher consuming `--content-root`
-instead of delegating the interactive launch. `PASS`/exit 0, `FAIL` (names the offending
-directory or file)/exit 1, `SKIP`/exit 0 on non-Windows or when no rendered launcher pair is on
-PATH — OSS coordinator-claude and claude-klabauter installs never take the `--content-root` seam.
-Always configured-but-broken on FAIL, **never restart-gated**: PATH order and rendered launcher
-content are disk state, and a restart cannot change either. A FAIL here means every session on
-the box launches into a corrupted console, whose only operator-available mitigation — disabling
-the shim — silently strips the coordinator plugin entirely.
+Asserts the interactive `claude.exe` would be a DIRECT child of the invoking shell (no `claude-author`
+shadowing the real launcher on PATH; shim and launcher shapes intact). `PASS`/exit 0, `FAIL`
+(names the offender)/exit 1, `SKIP`/exit 0 on non-Windows or with no rendered launcher pair on
+PATH. Always configured-but-broken on FAIL, **never restart-gated**.
 
 ### Validation summary table
 
@@ -250,16 +194,11 @@ the shim — silently strips the coordinator plugin entirely.
 
 ### Exit-code semantics
 
-`configured-but-broken` → `[ERROR]` to stderr, exit non-zero — the install is incomplete and the
-chain-walk result is not valid; this is the exception to the Steps 4/5 advisory-WARN model.
-`restart-gated-expected` → WARN row in the summary table and restart-batch; does not change the
-exit code. All probes PASS → emit the summary table, exit 0.
+`configured-but-broken` → `[ERROR]` to stderr, exit non-zero (the exception to the advisory-WARN
+model). `restart-gated-expected` → WARN row and restart-batch, exit code unchanged. All PASS → exit 0.
 
 ---
 
 ## Negative-spec
 
-<!-- negative-spec: this skill does NOT dispatch subagents. coordinator-claude's one direct_dep (the engine) self-confirms via the claude_klabauter_seam_resolvable probe kind — there is no recursive chain-walk into the engine's own manifest. The visited-set is initialised for contract-conformance only. -->
-<!-- negative-spec: this skill does NOT replace coordinator:install (OSS plugin install) or coordinator:repo-setup (consumer-project first-time setup). This skill DOES assert, via Probe 0, that the plugin is actually reachable — by marketplace registration or live --plugin-dir resolution — rather than merely enabled by membership; that assertion is in scope here even though performing the registration itself remains coordinator:install's job. -->
-<!-- negative-spec: this skill does NOT seed install-leg spinoffs into the install-baton rendezvous (`$(coordinator-settings-home)/state/handoffs/`). Spinoffs are PM-authorized via /spinoff only. -->
-<!-- negative-spec: the visited-set path is <settings-home>/coordinator-claude/chain-walk-*.json where <settings-home> resolves per ${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md (Shape W on PowerShell hosts) — canonical per agent-install-contract.md § Visited-set protocol. -->
+<!-- negative-spec: this skill does NOT dispatch subagents (no recursive chain-walk; the visited-set is for contract-conformance only), does NOT replace coordinator:install or coordinator:repo-setup (it only asserts reachability via Probe 0), and does NOT seed install-leg spinoffs into the install-baton rendezvous (/spinoff only). -->

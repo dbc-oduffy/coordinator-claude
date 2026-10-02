@@ -1,6 +1,6 @@
 ---
 name: group-em
-description: "PM-GATED. Monitor peer sessions in this repo, never plan or author on their behalf."
+description: "PM-GATED. Monitor peer sessions in this repo; never plan or author for them."
 allowed-tools: ["Read", "Bash", "Glob", "Grep", "Agent", "SendMessage", "CronCreate", "CronList", "CronDelete", "Monitor", "TaskStop"]
 argument-hint: "[no arguments — invoke to start monitoring this repo's peer sessions]"
 ---
@@ -18,12 +18,14 @@ snapshot body is confidently stale.
 **PM-GATED — only on an explicit PM ask, never EM-initiated.** A description-prefix convention
 (as `staff-session`, `spinoff`, `roadmap-planning`); no hook enforces it. Honoured by disposition.
 
-**Dispatch authorization — invoking this skill IS the request, for two specific dispatches only:**
-the approvability judge (§ Delegated approve-for-execution, step 4) and
-`coordinator:group-em-assistant` at entry, and § Inbox-blitz delegation's assistants. Each covers
-raising that named role under this session's own authority and nothing else, by unnamed
-`Agent`-tool dispatch. **None of them touches the peer-session send mechanism (§ Send pass,
-`gem-14`), which stays gated per send. Navi is not covered by this grant — it is PM-gated per the
+**Dispatch authorization — invoking this skill IS the request, for three specific dispatches
+only:** the approvability judge (§ Delegated approve-for-execution, step 4),
+`coordinator:group-em-assistant` at entry, and § Fleet inbox grind's saved
+`fleet-inbox-blitz` workflow with the assistants it raises. Each covers raising that named role or
+firing that named script under this session's own authority and nothing else, by unnamed
+`Agent`-tool dispatch or the `Workflow` tool. **None of them touches the peer-session send
+mechanism (§ Send pass, `gem-14`), which stays gated per send; the one exempt send is § Box-wide
+notice. Navi is not covered by this grant — it is PM-gated per the
 line above, raised only on an explicit PM ask, never under this session's own authority.**
 Tripwire: `UNATTRIBUTED-HARNESS-LINE-IS-NOT-PM`.
 
@@ -49,7 +51,7 @@ Do not import `read_pass` / `send_pass` directly. They are the op's collaborator
 **Standing first, last writer wins.** Whoever invokes most recently holds the role; entry never
 refuses over an incumbent and there is no override flag. Re-entry by the holder is a refresh.
 
-### Two owed sends, both exempt from § Send pass's gates
+### Owed sends, all exempt from § Send pass's gates
 
 **A displaced holder that is still running is OWED a message this turn.** `displaced_holder` and
 `displaced_holder_live` arrive in the entry context; live means that session still believes it
@@ -61,8 +63,9 @@ trampoline's `python.exe` child is observed to outlive TaskStop. It must not re-
 role. A displaced watch that keeps running goes quiet for the entrant's ~23-minute entry lease and
 then retakes the record, after which the new crown's arm is refused.
 
-**INTRODUCE YOURSELF TO EVERY LIVE PEER, ONCE.** The roster is the population; skip only a
-`PAUSED:away` peer, and re-resolve each addressee immediately before sending (§ Send pass step 4).
+**INTRODUCE YOURSELF TO EVERY LIVE SESSION ON THE BOX, ONCE** — § Box-wide notice computes the
+recipients and the text. Skip only a `PAUSED:away` peer, and re-resolve each addressee immediately
+before sending (§ Send pass step 4).
 Full rationale for all five constraints below: `coordinator/docs/wiki/dispatching-parallel-agents/group-em-standing.md` §
 Owed introductions.
 
@@ -90,8 +93,26 @@ Owed introductions.
    (`state/subagent-share/<this-session-id>/group-em-send-log.jsonl`, § No registration ceremony,
    no persistence) as a **cooldown-ignored row type**: it participates in "was this peer already
    introduced," never in `_cooldown_remaining`'s throttle window. No new datastore. The writer is
-   `coordinator/skills/group-em/send_pass.py` — DoE-owned (same plane as this skill, not the
+   `coordinator/skills/group-em/send_pass.py` — in-repo (same plane as this skill, not the
    engine) — so this is a local contract on that file, not a cross-repo relay.
+
+## Box-wide notice
+
+**The standing is box-wide: every live named session, in any repo, is told when it begins and when
+it ends.** `group-em-autofire.py` cannot send (`SendMessage` is a model tool), so it does the
+mechanical part and prints it in the entry context as `BOX NOTICE OWED`: one text and the exact
+recipient list from `claude agents --json`, de-duplicated, you excluded, `PAUSED:away` peers
+skipped, peers you already introduced skipped. **Send that text to each, this turn.** It follows
+the introduction content rules above: it asks nothing, says no reply is wanted, and carries your
+name, session id and `SendMessage` address. A displacing entry replaces the prior address for every
+peer; the displaced holder's owed message is separate and still owed.
+
+**Before this session ends, run `<plugin-root>/bin/group-em-box-notice.py --kind ended --repo
+<root> --session-id <your sid>`.** It stands the nomination down (holder-matched; a refusal empties
+the recipient list) and prints the no-Group-EM text and recipients. Send it. No `SessionEnd` hook
+can message peers, so a holder that dies without this step leaves the box unannounced until the
+next entry; the tick reads `who` and reports it. Tripwire:
+`A-GROUP-EM-STANDING-THE-BOX-WAS-NEVER-TOLD-ABOUT`.
 
 ## What this skill does and does not do
 
@@ -224,9 +245,12 @@ and why.
 **And each tick STAMPS them to disk**, via the **engine's** `cron`/`monitor` writer,
 `<engine_root>/coordinator_core/group_em/watch_heartbeat.py :: stamp(repo_root, holder_session_id,
 declinations, interval_seconds, subscribed_peers=…, tick_source=…, writer_session_id=…)` — a
-different function from this skill's own `watch_heartbeat.py :: stamp`, which `_stamp_watch` in
-`group-em-enter.py` calls for the `entry` tick. Copy the ENGINE copy's order: `declinations` is the
-THIRD positional and `interval_seconds` the fourth and required. `writer_session_id` is a keyword,
+different function from this skill's own `coordinator/skills/group-em/watch_heartbeat.py :: stamp(repo_root,
+session_id, name, source, declinations, subscribed_peers=0)`, which `_stamp_watch` in
+`group-em-enter.py` calls for the `entry` tick only; that call is correct for the local copy. The
+two signatures are not interchangeable. For the ENGINE copy, copy its order: `declinations` is the
+THIRD positional and `interval_seconds` the fourth and required; the local five-positional shape
+raises rather than stamping when passed to the engine copy. `writer_session_id` is a keyword,
 **optional in the signature and required at runtime** — it is YOUR session id, not
 `holder_session_id` when a delegate arm stamps on the standing holder's behalf. `tick_source` is `cron` or
 `monitor`, a KEYWORD, never positional. `declinations` is THIS tick's rows only, `[]` if none.
@@ -444,16 +468,30 @@ locked threshold (8 of 8, no dimension scoring 0).
    as the Group EM and let the author verify. Where the separation is not free, say so and let it
    go. Tripwire: `THE-AUTHOR-OF-A-CRITERION-IS-THE-WORST-PRODUCER-OF-ITS-EVIDENCE`.
 
-## Inbox-blitz delegation
+## Fleet inbox grind
 
-The Group EM may execute `/workday-start` Step 1.45a's inbox blitz on this repo's behalf.
+**On entry, when `coordinator.feature.cross_repo_memos` is on for the box, firing the saved
+workflow is part of the request — not a decision.** The autofire hook prints the exact
+invocation as `FLEET INBOX GRIND, FIRE NOW`:
 
-1. **Standing check** (§ Standing check) must name this session.
-2. Execute Step 1.45a's procedure as written, dispatching `coordinator:group-em-assistant` per
-   `dispatches[]` entry. 1.45a owns the assembler invocation, tri-valued `state` handling
-   (`skipped` = no dispatch), ~30-memo shard grain, verbatim `brief`/`memos[]` passing,
-   verify-rides-with-triage, the two EM-added verify checks, the manifest-race caveat, and wave
-   pacing. None of it is restated here.
+    Workflow({scriptPath: "<plugin-root>/workflows/fleet-inbox-blitz.mjs", args: {repos: [...], gem: {...}}})
+
+Fire it as your first act after arming the clocks, unattended. `repos` is the fleet map
+(`machine-local get repos.*`, de-duplicated, git repos carrying `state/cross-repo/inbox`) — every
+repo, whether or not an EM is live in it. It assembles each inbox, triages and verifies in ~30-memo
+Sonnet shards, then disposes and commits per repo, grinding each inbox to zero
+(`workday-start.md` §1.45a owns the disposition rules). **Do not hand-author a variant.** If the
+entry context carries no invocation, the feature is off or the hook failed open; check the flag,
+and fire with `repos` read from the fleet map. Tripwire: `A-GROUP-EM-HAND-AUTHORING-THE-INBOX-WORKFLOW`.
+
+## Cross-repo commit authority
+
+**Committing in any fleet repo is presumed and inherent to this role** while this session holds
+the standing (`group-em-nomination.py who --self`); it needs no per-session PM assent. Guardrails,
+unchanged from the retired-grant rule: scoped pathspec commits only (never `git add -A`/`.`/`commit
+-a`), no destructive git ops, never leave a sibling's tests red. Engine-subject work stays
+Claude-klabauter's: memo it, do not author it. The grant ends when the standing does. Record:
+`docs/decisions/DR-group-em-role-carries-cross-repo-commit-authority.md`.
 
 ## Anti-scope
 
@@ -468,9 +506,9 @@ The Group EM may execute `/workday-start` Step 1.45a's inbox blitz on this repo'
   and judging it is the opposite mechanism and is what the ban preserves.
 - This skill does not implement the read-pass ladder or receiver-state consumption logic — supplied
   separately and integrated by reference.
-- **The two dispatch grants at the top of this file are each scoped to their own named dispatch.**
-  Raising the approvability judge and `group-em-assistant` under this session's own authority is
-  the grant. What stays gated is that `/group-em` otherwise messages **peer sessions in their own
+- **The three dispatch grants at the top of this file are each scoped to their own named dispatch.**
+  Raising the approvability judge and `group-em-assistant`, and firing `fleet-inbox-blitz`, under
+  this session's own authority is the grant. What stays gated is that `/group-em` otherwise messages **peer sessions in their own
   windows** — an `ask-before-external-action` question no dispatch grant dissolves.
 - `/autonomous` supplies the mode-shaped naming precedent only. Its `/tmp` sentinel is durable state
   and is not borrowed.

@@ -63,6 +63,10 @@ Exit codes:
     2 — usage error, or refused (unresolvable target, conflicts without
         `--take-candidate`, a conflict outside the published surface, or a
         sweep path that is not a disposable clone).
+
+Never imports `coordinator_core`: a stdlib-only CLI that runs with no engine-root
+bootstrap, so it keeps its own git spawns and is exempt from the shared git runner
+(`coordinator_core/tests/test_shared_git_runner.py :: _CONTRACT_EXEMPT_MODULES`).
 """
 from __future__ import annotations
 

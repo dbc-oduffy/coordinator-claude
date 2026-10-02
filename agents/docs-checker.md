@@ -1,6 +1,6 @@
 ---
 name: docs-checker
-description: "Verifies external API claims against authoritative docs (Context7, LSP) before an expensive Opus review. A table, not a review."
+description: "Verifies external API claims against authoritative docs before Opus review. A table."
 model: haiku
 effort: low
 color: cyan

@@ -6,7 +6,7 @@ coordinator_core.ops.check_version_consistency.
 Assert the coordinator-claude version surfaces agree: plugin.json .version ==
 marketplace.json .metadata.version == latest *released* CHANGELOG `## [X.Y.Z]`
 section. SSOT is plugin.json; the mechanical enforcer of
-docs/wiki/versioning-convention.md.
+Coordinator-content-repo coordinator/docs/wiki/install-playbook-rationale/versioning-convention.md.
 
 Shebang note: the SHEBANG line above is `#!/usr/bin/env python3`, generator-
 owned by `gen-launcher-shim.py --ensure-unix`, and correct for this shape. On

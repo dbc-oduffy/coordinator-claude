@@ -1,6 +1,6 @@
 ---
 name: delivery-verifier
-description: "Read-only execute-review wave member: checks executor delivery claims against the frozen diff. FAILs on an unbacked claim or zero files."
+description: "Execute-review: checks executor delivery claims against the frozen diff. Read-only."
 model: sonnet
 effort: low
 color: yellow

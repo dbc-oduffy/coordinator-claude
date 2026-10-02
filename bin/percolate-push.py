@@ -68,10 +68,14 @@ at all (tests assert this on the subprocess, not just the exit code). A
 declared release channel (`_RELEASE_CHANNELS`,
 docs/reference/klabauter-release-channels.md) takes the identical
 push-only, no-`gh` path — a publish round landing on `candidate` must
-never open or merge a PR into `main`. An unrecognised branch is neither
-and still takes the PR path below.
-When the checked-out branch is NOT the default and NOT a declared
-channel, this module opens a PR via `gh pr create` and merges it with
+never open or merge a PR into `main`. An unrecognised branch is neither: it is pushed, and reaches the default
+branch only through `--promote`. Without the flag the round stops after the
+push and refuses (exit 2) before any `gh` call -- publish follows the
+source branch, so a feature-branch round would otherwise auto-merge into a
+public mirror's `main`. Promotion of the engine mirror's `candidate` onto
+`main` is `klabauter-promote.py`, not this flag.
+When the checked-out branch is NOT the default, NOT a declared channel,
+and `--promote` is passed, this module opens a PR via `gh pr create` and merges it with
 `gh pr merge <branch> --merge` once the push (already gated on DR-301's
 two predicates) has landed. `--merge` (not
 `--squash`/`--rebase`) is the deliberate choice: it preserves the exact
@@ -90,7 +94,7 @@ loudly with the exact remediation command (`gh auth refresh -s repo`). Any
 loudly; it is never treated as a silent success.
 
 Usage:
-    percolate-push.py <target> [--percolate-root <path>]
+    percolate-push.py <target> [--percolate-root <path>] [--promote]
 
 Exit codes:
     0 — `git -C <dest> push` ran and exited 0 (and, on a non-default
@@ -103,7 +107,9 @@ Exit codes:
         the dest tree is dirty / has no upstream configured / its status
         could not be read, or because a round-failure marker is present
         (or unparseable) for this target — DR-301's two replacement
-        predicates.
+        predicates — or because the dest is on a branch that is neither
+        the default nor a release channel and `--promote` was not passed
+        (the push still ran; nothing was opened or merged).
     75 — the dest is held by an in-flight percolate/publish round (`git
         push` never ran) — `EX_TEMPFAIL`, naming the holder, not a defect.
         See `docs/reference/percolate-lock-contention.md`.
@@ -226,7 +232,6 @@ _RELEASE_CHANNELS = frozenset({"candidate"})
 
 
 def _run(cmd: List[str], **kwargs) -> subprocess.CompletedProcess:
-    kwargs.setdefault("capture_output", True)
     kwargs.setdefault("text", True)
     # Pinned, not the locale default: `gh` and `git` emit UTF-8 on every
     # platform (`gh auth status` prints a U+2713 check mark), but Windows
@@ -234,8 +239,12 @@ def _run(cmd: List[str], **kwargs) -> subprocess.CompletedProcess:
     # UTF-8 beta is on, which mangles the text or raises on undefined bytes.
     kwargs.setdefault("encoding", "utf-8")
     kwargs.setdefault("errors", "replace")
-    no_console_kwargs = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0), **kwargs}
-    return subprocess.run(cmd, **no_console_kwargs)
+    return subprocess.run(
+        cmd,
+        capture_output=True,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        **kwargs,
+    )
 
 
 def _resolve_percolate_root(override: Optional[str]) -> Optional[str]:
@@ -586,6 +595,13 @@ def _open_and_merge_pr(dest: str, branch: str, target: str) -> Optional[str]:
     return None
 
 
+def _unpromoted_merge_refusal(target: str, branch: str, default_branch: str) -> str:
+    return (
+        f"percolate-push: '{branch}' pushed, not merged into '{default_branch}'; "
+        f"only a promotion merges a feature branch. Promote: percolate-push {target} --promote"
+    )
+
+
 def _cmd_push(args: argparse.Namespace) -> int:
     _bootstrap_engine()
     target = args.target
@@ -720,6 +736,10 @@ def _cmd_push(args: argparse.Namespace) -> int:
     if branch_head == default_branch or branch_head in _RELEASE_CHANNELS:
         return _EXIT_OK
 
+    if not args.promote:
+        print(_unpromoted_merge_refusal(target, branch_head, default_branch), file=sys.stderr)
+        return _EXIT_USAGE
+
     scope_refusal = _check_gh_repo_scope(dest)
     if scope_refusal:
         print(scope_refusal, file=sys.stderr)
@@ -743,6 +763,14 @@ def _build_parser() -> argparse.ArgumentParser:
         "--percolate-root",
         required=False,
         help="Override PERCOLATE_ROOT (default: percolate-gate.py resolve-root).",
+    )
+    parser.add_argument(
+        "--promote",
+        action="store_true",
+        help=(
+            "Open and merge a PR into the default branch when the dest is on a branch that is "
+            "neither the default nor a release channel. Without it that merge is refused."
+        ),
     )
     parser.set_defaults(func=_cmd_push)
     return parser

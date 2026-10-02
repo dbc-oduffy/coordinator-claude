@@ -4,7 +4,7 @@ WHY THIS EXISTS. `/workday-start` Step 1.2 sweeps `awaiting_gate` off *handoff* 
 flags a gate stuck past six days. A gate declared on a **plan chunk row** is read by nothing at
 all, so a chunk whose gate names a ceremony as its own expiry never surfaces there — the expiry
 fires only if a human happens to remember it. That is the failure mode the discharge test
-(`docs/wiki/invisible-doctrine.md`) exists to name: if the operator remembering is the mechanism,
+(`coordinator-content-repo coordinator/docs/wiki/claude-md-surfaces/invisible-doctrine.md`) exists to name: if the operator remembering is the mechanism,
 the work is not finished.
 
 WHY IT READS TWO SPELLINGS. `awaiting_gate` is the older, UNDECLARED plan-row spelling — absent

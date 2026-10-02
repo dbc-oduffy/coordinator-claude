@@ -1,6 +1,6 @@
 # Cloud-session verification — does the coordinator layer actually load?
 
-Run this **inside a cloud session**, once, after `setup.sh` has provisioned the environment. It
+Run this **inside a cloud session**, once, after `setup.py` has provisioned the environment. It
 answers the one question provisioning cannot: the setup script runs *before* Claude Code launches,
 so it can prove the files are on disk and prove nothing about whether Claude Code reads them.
 
@@ -14,11 +14,11 @@ nobody after you can rely on.
   script first, then Claude Code.
 - **Your own machine's `~/.claude` does not carry over.** "User-level settings stay on your
   machine." This is about the laptop you launched from — *not* about the VM's own `$HOME/.claude`,
-  which `setup.sh` writes and which is as local to the session as any file it clones. Conflating
+  which `setup.py` writes and which is as local to the session as any file it clones. Conflating
   those two is the trap; see the tripwire
   `coordinator/docs/wiki/coordinator-tripwires/a-vm-written-home-claude-is-not-your-machines-home-claude.md`.
 - **Skills, agent types, engine import, and the env-var block reach the session.** Verified
-  2026-09-06 in a real Anthropic-hosted environment: a session booted against `setup.sh` reported,
+  2026-09-06 in a real Anthropic-hosted environment: a session booted against the setup script reported,
   from its own context rather than from the script's config, coordinator skills and agent types
   present and loaded, both env-var-block values reached, both clones present, the marketplace
   registered as a directory source, `coordinator_core` importing, and the pointer file written.

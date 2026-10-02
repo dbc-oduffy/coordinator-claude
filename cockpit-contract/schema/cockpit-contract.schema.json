@@ -2,8 +2,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://coordinator.local/cockpit-contract.schema.json",
   "title": "Cockpit work-state contract",
-  "description": "Canonical work-state contract (tc-2), version 4.9.0.",
-  "version": "4.9.0",
+  "description": "Canonical work-state contract (tc-2), version 4.11.0.",
+  "version": "4.11.0",
   "$defs": {
     "provenance-envelope": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -242,7 +242,7 @@
           }
         }
       ],
-      "version": "4.9.0"
+      "version": "4.11.0"
     },
     "coordinator-root": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -587,7 +587,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "4.9.0"
+      "version": "4.11.0"
     },
     "branch": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -949,7 +949,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "4.9.0"
+      "version": "4.11.0"
     },
     "goal": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1313,7 +1313,7 @@
         "parent_goal_id"
       ],
       "additionalProperties": false,
-      "version": "4.9.0"
+      "version": "4.11.0"
     },
     "routine-signal": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1652,7 +1652,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "4.9.0"
+      "version": "4.11.0"
     },
     "day-rollup": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -2095,7 +2095,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "4.9.0"
+      "version": "4.11.0"
     },
     "week-rollup": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -2553,7 +2553,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "4.9.0"
+      "version": "4.11.0"
     },
     "handoff-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -3411,7 +3411,7 @@
         "producer"
       ],
       "additionalProperties": false,
-      "version": "4.9.0",
+      "version": "4.11.0",
       "x-baton-class": {
         "description": "kind -> baton_class derivation map. Generated from frontmatter/schemas/handoff.schema.json's own x-baton-class.mapping key, resolved through coordinator_core.frontmatter.baton_class.baton_class() (which also folds in that function's pre-rename kind-alias resolution). One entry per member of this schema's own properties.kind.enum; a null value means baton_class() returns null for that kind (it is not a baton, e.g. 'spike-result'). Do not hand-author a copy of this map — it is generated at emit time from the one canonical source above.",
         "mapping": {
@@ -3775,7 +3775,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "4.9.0"
+      "version": "4.11.0"
     },
     "review-trail": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -4096,7 +4096,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "4.9.0"
+      "version": "4.11.0"
     },
     "lesson-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -4471,7 +4471,7 @@
         "created"
       ],
       "additionalProperties": false,
-      "version": "4.9.0"
+      "version": "4.11.0"
     },
     "plan-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -4982,7 +4982,7 @@
         "review_verified"
       ],
       "additionalProperties": false,
-      "version": "4.9.0"
+      "version": "4.11.0"
     },
     "cross-repo-memo-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -5325,7 +5325,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "4.9.0"
+      "version": "4.11.0"
     },
     "roadmap-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -5901,7 +5901,7 @@
         "scan_errors"
       ],
       "additionalProperties": false,
-      "version": "4.9.0"
+      "version": "4.11.0"
     },
     "tracker-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -6238,7 +6238,7 @@
         "items"
       ],
       "additionalProperties": false,
-      "version": "4.9.0"
+      "version": "4.11.0"
     },
     "health-status-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -6572,7 +6572,7 @@
         "summary"
       ],
       "additionalProperties": false,
-      "version": "4.9.0"
+      "version": "4.11.0"
     },
     "decision-guide-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -6918,7 +6918,7 @@
         "decision_count"
       ],
       "additionalProperties": false,
-      "version": "4.9.0"
+      "version": "4.11.0"
     },
     "session-hierarchy": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -7304,7 +7304,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "4.9.0"
+      "version": "4.11.0"
     },
     "initiative-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -7996,7 +7996,7 @@
         "description"
       ],
       "additionalProperties": false,
-      "version": "4.9.0"
+      "version": "4.11.0"
     },
     "exec-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -8427,7 +8427,7 @@
         "docs_staleness"
       ],
       "additionalProperties": false,
-      "version": "4.9.0"
+      "version": "4.11.0"
     },
     "roadmap-dag-node": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -8783,7 +8783,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "4.9.0"
+      "version": "4.11.0"
     },
     "roadmap-dag-edge": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -9083,7 +9083,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "4.9.0"
+      "version": "4.11.0"
     },
     "backlog-history": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -9398,7 +9398,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "4.9.0"
+      "version": "4.11.0"
     },
     "competitor-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -9754,7 +9754,7 @@
         "display_order"
       ],
       "additionalProperties": false,
-      "version": "4.9.0"
+      "version": "4.11.0"
     },
     "intelligence-signal": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -10218,7 +10218,7 @@
         "measurement_basis"
       ],
       "additionalProperties": false,
-      "version": "4.9.0"
+      "version": "4.11.0"
     },
     "financial-metric-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -10605,7 +10605,7 @@
         "measurement_basis"
       ],
       "additionalProperties": false,
-      "version": "4.9.0"
+      "version": "4.11.0"
     },
     "priority-ledger-entry": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -10940,7 +10940,526 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "4.9.0"
+      "version": "4.11.0"
+    },
+    "completion-receipt": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "schema": {
+          "type": "string",
+          "const": "completion-receipt"
+        },
+        "receipt_id": {
+          "type": "string",
+          "pattern": "^rcp-[a-z0-9-]+-[0-9a-f]{6}$"
+        },
+        "baton_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "deliverable_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "workstream_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "repo": {
+          "type": "string"
+        },
+        "coordinator_root_path": {
+          "type": "string"
+        },
+        "plan_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "branch": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "run": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "execute-plan",
+                "mise-en-place"
+              ]
+            },
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "verdict": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "agent-delivered",
+                "human-approved",
+                "rejected"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "judge": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "identity": {
+                  "type": "string"
+                },
+                "observation_summary": {
+                  "type": "string"
+                },
+                "judged_at": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                }
+              },
+              "required": [
+                "identity",
+                "observation_summary",
+                "judged_at"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "commit_range": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "base": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "head": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "base",
+                "head"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "started_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "concluded_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        },
+        "loe": {
+          "type": "object",
+          "properties": {
+            "estimated": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "XS",
+                    "S",
+                    "M",
+                    "L",
+                    "XL",
+                    "XXL"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "actual": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "XS",
+                    "S",
+                    "M",
+                    "L",
+                    "XL",
+                    "XXL"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "estimated",
+            "actual"
+          ],
+          "additionalProperties": false
+        },
+        "prose_ref": {
+          "type": "string"
+        },
+        "supersedes": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^rcp-[a-z0-9-]+-[0-9a-f]{6}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "approved_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "provenance": {
+          "type": "object",
+          "properties": {
+            "source_kind": {
+              "type": "string",
+              "enum": [
+                "github_graphql",
+                "github_rest",
+                "git_commit",
+                "local_fs",
+                "coordinator_artifact",
+                "transcript_summary",
+                "sec_edgar",
+                "code_comparison",
+                "p4_server",
+                "p4_workspace"
+              ]
+            },
+            "repo": {
+              "type": "string",
+              "description": "Owner-qualified repo identity: '<owner>/<repo>'. Owner carries the producing repo's own casing (producer-authoritative — there is no independent casing authority); no '.git' suffix. Consumers must not assume pre-normalization: normalizing to lower(owner)/lower(repo) for join, dedup, or storage keying is conformant. See DR-022. This owner-qualified string is the canonical cross-entity join anchor. repo: '' means the fact is NOT repo-anchored — see entity_anchor (entity-first claims with no repo to join on)."
+            },
+            "ref": {
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "branch": {
+                          "type": "string"
+                        },
+                        "sha": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "branch",
+                        "sha"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "stream": {
+                          "type": "string"
+                        },
+                        "change": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": [
+                        "stream",
+                        "change"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "path": {
+              "type": "string"
+            },
+            "observed_at": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+            },
+            "derivation": {
+              "type": "string",
+              "enum": [
+                "raw",
+                "parsed",
+                "rolled_up",
+                "computed",
+                "synthesized"
+              ]
+            },
+            "entity_anchor": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "value"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "source_kind",
+            "repo",
+            "ref",
+            "path",
+            "observed_at",
+            "derivation",
+            "entity_anchor"
+          ],
+          "additionalProperties": false,
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "source_kind": {
+                    "enum": [
+                      "github_graphql",
+                      "github_rest",
+                      "git_commit",
+                      "p4_server",
+                      "p4_workspace"
+                    ]
+                  }
+                },
+                "required": [
+                  "source_kind"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "ref": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "source_kind": {
+                    "enum": [
+                      "local_fs",
+                      "coordinator_artifact",
+                      "transcript_summary",
+                      "sec_edgar",
+                      "code_comparison"
+                    ]
+                  }
+                },
+                "required": [
+                  "source_kind"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "ref": {
+                    "type": "null"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "repo": {
+                    "const": ""
+                  }
+                },
+                "required": [
+                  "repo"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "entity_anchor": {
+                    "type": "object",
+                    "properties": {
+                      "value": {
+                        "not": {
+                          "const": ""
+                        }
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "value"
+                    ]
+                  }
+                },
+                "required": [
+                  "entity_anchor"
+                ]
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "entity_anchor": {
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "entity_anchor"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "entity_anchor": {
+                    "properties": {
+                      "kind": {
+                        "not": {
+                          "const": ""
+                        }
+                      },
+                      "value": {
+                        "not": {
+                          "const": ""
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "required": [
+        "schema",
+        "receipt_id",
+        "baton_id",
+        "deliverable_id",
+        "workstream_id",
+        "repo",
+        "coordinator_root_path",
+        "plan_path",
+        "branch",
+        "run",
+        "verdict",
+        "judge",
+        "commit_range",
+        "started_at",
+        "concluded_at",
+        "loe",
+        "prose_ref",
+        "supersedes",
+        "approved_by",
+        "provenance"
+      ],
+      "additionalProperties": false,
+      "version": "4.11.0"
     },
     "snapshot-envelope": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -13438,6 +13957,526 @@
             "week"
           ],
           "additionalProperties": false
+        },
+        "completion_receipts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "schema": {
+                "type": "string",
+                "const": "completion-receipt"
+              },
+              "receipt_id": {
+                "type": "string",
+                "pattern": "^rcp-[a-z0-9-]+-[0-9a-f]{6}$"
+              },
+              "baton_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "deliverable_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "workstream_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "repo": {
+                "type": "string"
+              },
+              "coordinator_root_path": {
+                "type": "string"
+              },
+              "plan_path": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "branch": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "run": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "execute-plan",
+                      "mise-en-place"
+                    ]
+                  },
+                  "id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "id"
+                ],
+                "additionalProperties": false
+              },
+              "verdict": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "agent-delivered",
+                      "human-approved",
+                      "rejected"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "judge": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "identity": {
+                        "type": "string"
+                      },
+                      "observation_summary": {
+                        "type": "string"
+                      },
+                      "judged_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                      }
+                    },
+                    "required": [
+                      "identity",
+                      "observation_summary",
+                      "judged_at"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "commit_range": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "base": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "head": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "base",
+                      "head"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "started_at": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "concluded_at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              "loe": {
+                "type": "object",
+                "properties": {
+                  "estimated": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "XS",
+                          "S",
+                          "M",
+                          "L",
+                          "XL",
+                          "XXL"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "actual": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "XS",
+                          "S",
+                          "M",
+                          "L",
+                          "XL",
+                          "XXL"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "estimated",
+                  "actual"
+                ],
+                "additionalProperties": false
+              },
+              "prose_ref": {
+                "type": "string"
+              },
+              "supersedes": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^rcp-[a-z0-9-]+-[0-9a-f]{6}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "approved_by": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "provenance": {
+                "type": "object",
+                "properties": {
+                  "source_kind": {
+                    "type": "string",
+                    "enum": [
+                      "github_graphql",
+                      "github_rest",
+                      "git_commit",
+                      "local_fs",
+                      "coordinator_artifact",
+                      "transcript_summary",
+                      "sec_edgar",
+                      "code_comparison",
+                      "p4_server",
+                      "p4_workspace"
+                    ]
+                  },
+                  "repo": {
+                    "type": "string",
+                    "description": "Owner-qualified repo identity: '<owner>/<repo>'. Owner carries the producing repo's own casing (producer-authoritative — there is no independent casing authority); no '.git' suffix. Consumers must not assume pre-normalization: normalizing to lower(owner)/lower(repo) for join, dedup, or storage keying is conformant. See DR-022. This owner-qualified string is the canonical cross-entity join anchor. repo: '' means the fact is NOT repo-anchored — see entity_anchor (entity-first claims with no repo to join on)."
+                  },
+                  "ref": {
+                    "anyOf": [
+                      {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "branch": {
+                                "type": "string"
+                              },
+                              "sha": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "branch",
+                              "sha"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "stream": {
+                                "type": "string"
+                              },
+                              "change": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              }
+                            },
+                            "required": [
+                              "stream",
+                              "change"
+                            ],
+                            "additionalProperties": false
+                          }
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "observed_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  },
+                  "derivation": {
+                    "type": "string",
+                    "enum": [
+                      "raw",
+                      "parsed",
+                      "rolled_up",
+                      "computed",
+                      "synthesized"
+                    ]
+                  },
+                  "entity_anchor": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string"
+                          },
+                          "value": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "value"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "source_kind",
+                  "repo",
+                  "ref",
+                  "path",
+                  "observed_at",
+                  "derivation",
+                  "entity_anchor"
+                ],
+                "additionalProperties": false,
+                "allOf": [
+                  {
+                    "if": {
+                      "properties": {
+                        "source_kind": {
+                          "enum": [
+                            "github_graphql",
+                            "github_rest",
+                            "git_commit",
+                            "p4_server",
+                            "p4_workspace"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "source_kind"
+                      ]
+                    },
+                    "then": {
+                      "properties": {
+                        "ref": {
+                          "not": {
+                            "type": "null"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "if": {
+                      "properties": {
+                        "source_kind": {
+                          "enum": [
+                            "local_fs",
+                            "coordinator_artifact",
+                            "transcript_summary",
+                            "sec_edgar",
+                            "code_comparison"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "source_kind"
+                      ]
+                    },
+                    "then": {
+                      "properties": {
+                        "ref": {
+                          "type": "null"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "if": {
+                      "properties": {
+                        "repo": {
+                          "const": ""
+                        }
+                      },
+                      "required": [
+                        "repo"
+                      ]
+                    },
+                    "then": {
+                      "properties": {
+                        "entity_anchor": {
+                          "type": "object",
+                          "properties": {
+                            "value": {
+                              "not": {
+                                "const": ""
+                              }
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "value"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "entity_anchor"
+                      ]
+                    }
+                  },
+                  {
+                    "if": {
+                      "properties": {
+                        "entity_anchor": {
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "entity_anchor"
+                      ]
+                    },
+                    "then": {
+                      "properties": {
+                        "entity_anchor": {
+                          "properties": {
+                            "kind": {
+                              "not": {
+                                "const": ""
+                              }
+                            },
+                            "value": {
+                              "not": {
+                                "const": ""
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "required": [
+              "schema",
+              "receipt_id",
+              "baton_id",
+              "deliverable_id",
+              "workstream_id",
+              "repo",
+              "coordinator_root_path",
+              "plan_path",
+              "branch",
+              "run",
+              "verdict",
+              "judge",
+              "commit_range",
+              "started_at",
+              "concluded_at",
+              "loe",
+              "prose_ref",
+              "supersedes",
+              "approved_by",
+              "provenance"
+            ],
+            "additionalProperties": false
+          }
         },
         "backlogs": {
           "type": "object",
@@ -21907,7 +22946,7 @@
         "malformed_records"
       ],
       "additionalProperties": false,
-      "version": "4.9.0"
+      "version": "4.11.0"
     },
     "emission-scope": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -22238,7 +23277,7 @@
           "additionalProperties": false
         }
       ],
-      "version": "4.9.0"
+      "version": "4.11.0"
     }
   }
 }

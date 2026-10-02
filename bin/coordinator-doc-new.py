@@ -59,6 +59,9 @@ Supported types:
                        outputs to .coordinator-local/subagent-share/<session-id>/YYYY-MM-DD-codereview-slice<ID>-<SLUG>.md
                        (the DR-091 home -- same session-scoped root provision_report uses; SLUG is
                        sanitized from --scope; the <!-- FINDINGS --> sentinel is the Edit anchor)
+  review-probe       — empty pytest probe file a reviewer fills via Edit, then runs with
+                       python3 -m pytest <path>::test_probe -q; prints the computed
+                       .coordinator-local/subagent-share/<session-id>/review-probe-<nonce>.py; --out refused
   findings-sidecar   — findings sidecar for a plan-less, slice-less agent  requires --agent-type <type> --title <subject>
                        delegates to provision_report._provision (no agent_id); prints the minted
                        .coordinator-local/subagent-share/<session-id>/<agent-type>-<nonce>.md; --out refused
@@ -122,6 +125,7 @@ import json
 import os
 import random
 import re
+import secrets
 import subprocess
 import sys
 import tempfile
@@ -390,7 +394,7 @@ def _bootstrap_engine() -> None:
         # --type findings-sidecar — LOCAL shim, same shape as the run-report one above.
         # DoE's manifest docTypes entry is requested; once it lands the union is
         # idempotent (harmless to keep), not conflicting.
-        _KNOWN_TYPES = _KNOWN_TYPES | frozenset({"findings-sidecar"})
+        _KNOWN_TYPES = _KNOWN_TYPES | frozenset({"findings-sidecar", "review-probe"})
 
         # Canonical Session Ledger block, shared verbatim by every handoff-family scaffolder
         # (_scaffold_handoff/_scaffold_recovery/_scaffold_spinoff/_scaffold_roadmap_baton/
@@ -2168,10 +2172,22 @@ def _delegate_to_queue_append(doc_type: str) -> None:
     required per schema, and now reaches the caller intact; inventing a default
     here would be a product decision (e.g. "open" is not universally correct)
     this scaffold has no authority to make.
+    Refusal: --summary/--summary-file are handoff-only and the delegate does not
+    know them; refused here, before any spawn, naming the queue's own text flags.
     """
+    passthrough = _argv_without_type()
+    for arg in passthrough:
+        flag = arg.split("=", 1)[0]
+        if flag in ("--summary", "--summary-file"):
+            print(
+                f"error: {flag} is handoff-only; a {doc_type} entry takes its text as "
+                "--title and --body (or --body-file). Required flags: "
+                f"coordinator-doc-new --type {doc_type} --help",
+                file=sys.stderr,
+            )
+            sys.exit(2)
     _bootstrap_engine()
     delegate = _find_sibling_binary("coordinator-queue-append.py")
-    passthrough = _argv_without_type()
     interpreter = _resolve_console_python()
     if interpreter is None:
         print("error: no console Python interpreter could be resolved.", file=sys.stderr)
@@ -5323,6 +5339,10 @@ def _scaffold_sizing(
     Edit tool can record a real sizing at birth. Values arrive already
     validated against the sizing schema by `_validate_sizing_flags`; each
     omitted one leaves its default line byte-identical.
+
+    `status` is `sized` when both `tshirt` and `route` are supplied (estimate
+    set, route chosen, not yet handed off); `routed` is stamped later by the
+    plan reverse edge. Otherwise `draft`.
     """
     _bootstrap_engine()
     intent_placeholder = title if title else "PLACEHOLDER — replace with the PM's ask, verbatim"
@@ -5345,7 +5365,7 @@ def _scaffold_sizing(
         f"detents: [{', '.join(detents or [])}]  # boundary detents crossed while sizing (e.g. appetite_exceeded); [] if none",
         "fork: null  # cut_to_fit | raise_appetite | null — set ONLY on genuine appetite/estimate divergence; never auto-resolved",
         "xl_exit: null  # split | shape | roadmap | accept_multi_session | null — the PM's pick at a pm-decision route; null means NOT YET CHOSEN, never 'accepted'",
-        "status: draft  # draft | sized | routed | shipped | declined | superseded",
+        f"status: {'sized' if tshirt and route else 'draft'}  # draft | sized | routed | shipped | declined | superseded",
         "premise:",
         f"  provenance: {premise or 'unrecorded'}  # executed | read | not-applicable | unrecorded — how the premise was verified; ADVISORY, never blocks a route",
         (
@@ -6081,6 +6101,30 @@ def _assert_output_safe(out_path: str) -> None:
     sys.exit(1)
 
 
+def _scaffold_review_probe(session_id: str) -> int:
+    """Create an empty ``test_probe`` stub under subagent-share and print its path.
+
+    Contract: the path is ``<SHARE_RELDIR>/<session-id>/review-probe-<nonce>.py``,
+    repo-relative when a repo root resolves; never caller-chosen, never overwritten.
+    """
+    _ensure_engine_on_path()
+    from coordinator_core.session.machinery_paths import SHARE_RELDIR
+
+    rel = os.path.join(
+        *SHARE_RELDIR.split("/"),
+        _sanitize_session_segment(session_id),
+        f"review-probe-{secrets.token_hex(4)}.py",
+    )
+    repo_root = _current_repo_root()
+    abs_path = os.path.join(repo_root, rel) if repo_root else rel
+    _assert_output_safe(abs_path)
+    os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+    with open(abs_path, "x", encoding="utf-8", newline="\n") as fh:
+        fh.write("def test_probe():\n    raise NotImplementedError\n")
+    print(rel.replace(os.sep, "/") if repo_root else abs_path)
+    return 0
+
+
 def _provision_findings_sidecar(
     agent_type: str,
     title: str,
@@ -6359,6 +6403,11 @@ Spec backlink (workflow): pln-workflow-skeleton-stamper-maki-adab0d
             "Bypasses _slug_from_title's own sanitization/truncation — pass an "
             "already filesystem-safe slug."
         ),
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Replace the file at the output path when it already exists (default: refuse).",
     )
     parser.add_argument(
         "--out",
@@ -7284,6 +7333,17 @@ def main(argv: "list[str] | None" = None) -> int:
             print(_fs_path)
         return _fs_rc
 
+    # review-probe writes only to a path it computes under subagent-share; --out is refused
+    # so the scaffolder is never a caller-chosen-path write primitive.
+    if doc_type == "review-probe":
+        if args.out:
+            print(
+                "error: --out is not accepted for --type review-probe; the path is computed.",
+                file=sys.stderr,
+            )
+            return 1
+        return _scaffold_review_probe(_resolve_session_id())
+
     # A sizing-object is the one scaffold with no useful untitled form: its title
     # IS the PM's ask, verbatim, and a placeholder one mints a durable record into
     # `state/sizings/` that says nothing. Measured 2026-09-11 on example-cockpit-repo: a
@@ -7868,7 +7928,7 @@ def main(argv: "list[str] | None" = None) -> int:
             #
             # Measured 2026-09-11 on example-store-repo: a baton about mise-prep
             # authoring-bar backfill, scaffolded with `--new-chain` and no
-            # predecessor, came out carrying `dlv-ingest-delphi-jira-f26-into-
+            # predecessor, came out carrying `dlv-ingest-example-studio-jira-f26-into-
             # the-registry-101c06` from the session's claimed plan. Two
             # unrelated works then read as one chain and the LoE rollup sums
             # across both, with nothing in the output to suggest a link had
@@ -8599,16 +8659,14 @@ def main(argv: "list[str] | None" = None) -> int:
     # outweighs the negligible performance gain on a review-time tool.
     _assert_output_safe(out_path)
 
-    # B4a: refuse to overwrite an existing sizing object. A truncated-slug
-    # collision (two titles hashing to the same slug prefix) must never
-    # silently replace a ratified sizing object with a fresh scaffold — the
-    # loss is a routing-lobby record, not a regenerable file. Scoped to
-    # --type sizing-object only: other doc types rely on conform-in-place
-    # re-invocation, which this check would break.
-    if doc_type == "sizing-object" and os.path.exists(out_path):
+    # Refuse to overwrite an existing doc: a re-run at the same slug would
+    # replace a filled body with a fresh scaffold and a new deliverable_id
+    # (a ratified sizing object or a written handoff is not regenerable).
+    # --force is the explicit opt-in to replace.
+    if not args.force and os.path.exists(out_path):
         print(
-            f"error: refusing to overwrite existing sizing object at {out_path}. "
-            "Pass --out PATH to write to a different location.",
+            f"error: refusing to overwrite existing {doc_type} at {out_path}. "
+            "Pass --out PATH to write elsewhere, or --force to replace it.",
             file=sys.stderr,
         )
         sys.exit(1)

@@ -237,6 +237,7 @@ def main(argv: "list[str] | None" = None) -> int:
         from coordinator_core.op_scopes import WORKTREE_SCOPED_OPS
         from coordinator_core.git.repo_root import show_toplevel
         from coordinator_core.warm.hook_http import (
+            FORWARDED_ENV_NAMES,
             is_blocking_event,
             payload_from_event,
             unreachable_response,
@@ -253,7 +254,7 @@ def main(argv: "list[str] | None" = None) -> int:
     event_name = event.get("hook_event_name")
     if not isinstance(event.get("env"), dict):
         event = {**event, "env": dict(os.environ)}
-    params = {"payload": payload_from_event(event)}
+    params = {"payload": payload_from_event(event, FORWARDED_ENV_NAMES)}
 
     # A worktree-scoped op REQUIRES `_origin_worktree` and refuses (-32602)
     # without it; `coordinator_core/invoke/__main__.py` injects it for the

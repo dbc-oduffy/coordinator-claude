@@ -1,10 +1,10 @@
 ---
 name: queue-grind-op-runner
-description: "Runs one queue-grind `op` verify invocation via coordinator-invoke, shell-only, and relays exit code plus JSON verbatim."
+description: "Runs one queue-grind op verify via coordinator-invoke; relays exit code and JSON."
 model: sonnet
 effort: low
 tools: ["Bash", "PowerShell"]
-access-mode: read-only
+access-mode: read-write
 ---
 
 # Queue-Grind Op Runner

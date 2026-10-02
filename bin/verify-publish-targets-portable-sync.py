@@ -95,7 +95,7 @@ the clean-skip and INCONCLUSIVE paths that end the two-copy comparison. See
 Negative-spec for why the live copy is not a third subject and for every
 entry shape deliberately not flagged.
 
-Placement: coordinator-doctor probe (see `docs/wiki/coordinator-doctor.md`
+Placement: coordinator-doctor probe (see `coordinator-content-repo coordinator/docs/wiki/install-playbook-rationale/coordinator-doctor.md`
 P-11 precedent — a machine-dependent check that is NOT wired into the fast
 test tier because a missing live install must not fail a machine that never
 had one). This script is invoked directly by the probe; it is NOT trampolined

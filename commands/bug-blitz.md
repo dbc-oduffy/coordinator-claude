@@ -14,7 +14,10 @@ done once Tier-U is granted; declined runs the backlog leg only. Empty/absent ba
 halts the run; suite leg still fires. `backlog-grind-assemble brief bug-blitz` emits
 `j-bug-blitz-commit-readiness` (resolve it before the emitted grind's first commit),
 `executor-dispatch-prompt-template`, and `spinoff-handoff-template` — read them, don't
-hand-narrate them. Rationale, worked examples, and full phase mechanics: wiki.
+hand-narrate them. When the PM already authorized commit and/or the suite in the session
+prompt, pass it explicitly — `brief bug-blitz --standing-grant commit,tests` — and both asks
+land answered in `decisions` instead of re-raised; never infer a grant the PM did not state.
+Rationale, worked examples, and full phase mechanics: wiki.
 
 **Announce:** "Running `/bug-blitz` — one authorization ask for the full test suite (baseline +
 confirm-green), then an emitted grind through every fixable item. Default is dispatch, not
@@ -57,6 +60,14 @@ nothing, backlog-only leg, note the decline in the report.
 
 ## Phase 0.7 — Suite Baseline (no-op unless granted)
 
+The baseline is taken before any committing grind fires in this tree — including
+`/debt-triage` Step 1's improvement grind — or waits for that grind to finish; a baseline
+straddling another run's commits attributes its regressions to this one.
+
+**Cloud session: no baseline.** The cloud environment block bars every broad suite, and no
+in-container invocation tests the tree under test. Skip the grant ask and this phase, report
+`suite: not-run (cloud)`, and prove each fix with the tests covering its surface.
+
 `coordinator-resolve-validation-cmd --full` resolves `TEST_CMD`: exit 0 full suite; exit 3
 fast-tier fallback, report as `fast-fallback`, never call it the full suite; exit 2 unconfigured,
 continue backlog-only, name the remediation, never fabricate a command. EM runs it directly as `with-suite-mutex -- <TEST_CMD>`
@@ -73,11 +84,7 @@ suite → skip to a one-line all-clear, no commit. Not reachable under decline.
 
 After Phase 0.7, emit through C4's queue route and fire it interactively:
 
-```
-"${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/bin/emit-dispatch-workflow" --queue state/bug-backlog --profile bug \
-  --appetite <a> --limit <N> --budget-tokens <N> \
-  --out state/scratch/bug-blitz/{run-id}/blitz.workflow.mjs --repo-root <abs repo root>
-```
+Run `emit-dispatch-workflow --queue state/bug-backlog --profile bug --appetite <a> --limit <N> --budget-tokens <N> --out state/scratch/bug-blitz/{run-id}/blitz.workflow.mjs --repo-root <abs repo root>`, resolving the CLI per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`.
 
 Resolve `j-bug-blitz-commit-readiness` before firing — firing IS the emitted grind's first
 commit. Fire with the `Workflow({scriptPath, args})` call the emitter prints on stderr; firing is interactive, never `--fire` — the
@@ -114,6 +121,11 @@ bar as one multi-item handoff). Firing the emitted grind is the run-authority ac
 for the PM-authorization gate a themed baton or a `big` item would otherwise need, per the Spinoff
 Gate above. Bug-specific dispositions — severity, repro, the `wontfix` status value — are
 preserved; the four classes are the terminus, not a replacement for bug triage's own semantics.
+
+**Partition.** File footprint governs wave dispatch; theme governs baton authorship only. A themed
+baton whose members land in different footprint waves is one baton citing each wave, never
+force-dispatched together. **Gate.** A themed baton is never dispatched as a `small` immediate fix,
+whatever its members' size: it is minted at the Spinoff Gate under the run authority above.
 Mechanics: wiki.
 
 ## Phase 4 — Archive and Report
@@ -123,9 +135,19 @@ Archive only the rows this command disposes after the run: baton-minted rows, cl
 closes every other row. The EM commits each minted baton together with the archival of the rows
 it absorbs, as one scoped commit per baton via the committer route, with `--declared-revert` for
 the removed rows.
-<!-- engine-gap: field=directives[build_verifier_dispatch].dispatch_entry producer=unknown memo=2026-08-14-coordinator-content-repo-em-three-cut-obligations-from-the-corpus-grind.md -->
 
 **Per-item cadence.** One commit per verified fix, never collapsed per batch.
+
+**Review routing.** No in-run review gate (PM ruling `ecbb6b786`). Freeze the run range:
+`freeze-review-diff --range "<start-sha>..HEAD" --slice-id "bug-blitz-<run-id>"`; name
+`/workstream-complete`'s downstream coverage (`code-reviewer` on any executor dispatched) in the
+report as the surface the frozen path is handed to. Under `/autonomous` no surface fires that
+review for a hands-off grind: the gap is documented, not closed.
+The `j-bug-blitz-commit-readiness` hold
+is the engine's pre-commit precondition, not a review gate; never claim in-run reviewer coverage,
+never hand-apply findings, write no `state/review-trail/` record. BLOCKED under `/autonomous`:
+halt, fixes left uncommitted
+(`coordinator/docs/wiki/bug-blitz-residue/bug-blitz-review-gate.md`).
 
 Re-run the suite (mandatory if any fix dispatched, only if Tier-U was granted). All clear → PASS.
 **Disposition splits on whether the failure was already red at baseline:** a pre-existing failure

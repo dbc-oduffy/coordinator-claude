@@ -53,6 +53,7 @@ GENERATES = [
         "sources": ["coordinator/bin/emit-guard-enforcement-join.py"],
     },
 ]
+UNSTAMPED_BY_DESIGN = ["state/audits/2026-09-07-guard-enforcement-join/guard-enforcement-join.yaml"]
 
 _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.dirname(os.path.dirname(_BIN_DIR))

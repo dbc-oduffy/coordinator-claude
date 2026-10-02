@@ -1,11 +1,6 @@
 <!-- Purpose: The lane-independent mechanical core of repo-setup — detection, rendering, scaffolding,
-     hooks, substrate seeds, report shape, and tripwire installs that run the SAME WAY regardless
-     of which lane (`lanes/new-project.yaml`, `lanes/add-existing-project.yaml`,
-     `lanes/add-repo.yaml`) fired. Re-cut from the phase-keyed originals: a phase number is a
-     table of contents, not a situation split, so this file keys on "runs regardless of lane"
-     instead. Lane-varying judgment (which round_trip point resolves to which value, which
-     terminal offer defaults to what) lives in the three lane files, not here — narrated
-     ask-and-wait prose is stripped; see each lane file for the pre-answered values. -->
+     hooks, substrate seeds, report shape, and tripwire installs that run the same way whichever lane
+     fired. Lane-varying judgment lives in `lanes/*.yaml`. -->
 
 # repo-setup mechanics — lane-independent
 
@@ -31,33 +26,31 @@ Output is advisory stdout; no skill/agent/hook reads it programmatically.
 
 ## Rendering and scaffolding
 
-**Machine profile.** Every step below marked *author box only* is skipped without comment on a
+**Machine profile.** Every step marked *author box only* is skipped without comment on a
 consumer box (`machine-local get coordinator.machine_profile` prints `consumer`, or prints nothing
 and no `repos.*` path holds a `.coordinator-dev-repo` file).
 
-**CLAUDE.md** (if missing): create it once with the Write tool (a first-time create of an absent
-file is the path the doctrine-surface guards allow; never a Bash redirect, never an overwrite of
-an existing file) from `render-template templates/CLAUDE.md.template` with
+**CLAUDE.md** (if missing): create it once with the Write tool (never a Bash redirect, never an
+overwrite of an existing file) from `render-template templates/CLAUDE.md.template` with
 `PROJECT_NAME`, `PROJECT_TYPE`, `SUBTYPES`, `GLOBAL_EXTENDS_LINE` (present iff `~/.claude/CLAUDE.md`
 exists), `PROJECT_TYPE_BLOCK` (concatenated `templates/project-type-block.<type>.template` bodies;
 empty for `general` or an unmatched type). Populate `## Runtime conventions` bullets from the
 marker-scan output (or a single "no runtime markers detected; PM to fill" placeholder). Set
 `_PHASE_3A_RENDERED_CLAUDE_MD=true` on success so the Phase 4 fill-in reminder fires only when this
-run rendered the template, never for a bespoke CLAUDE.md.
+run rendered the template.
 
 **docs/README.md** (if missing): `render-template templates/README.md.template`, substituting
 `[PROJECT_NAME]`/`[DATE]`.
 
 **docs/exec-summary.md** (if missing): run
 `repo-setup-args-and-register resolve-exec-summary-generator --run` (Shape W). When the generator is
-unresolvable (it ships with the author toolchain, not with a consumer install), skip and list
-`docs/exec-summary.md` under `### Needs Attention` with that reason — a skip is never silent. Regenerates the two
-MANAGED sections (identity, progress) from current disk state on every run, including re-runs
-against an existing file; copies the two HAND sections (`special`, `goals`) forward verbatim. A
-malformed/absent HAND fence fails loud, writes nothing, names the file. `--batch` runs this in
-no-clobber mode fleet-wide.
+unresolvable (it ships with the author toolchain), skip and list `docs/exec-summary.md` under
+`### Needs Attention` with that reason — a skip is never silent. It regenerates the two MANAGED
+sections (identity, progress) on every run and copies the two HAND sections (`special`, `goals`)
+forward verbatim; a malformed/absent HAND fence fails loud, writes nothing, names the file.
+`--batch` runs this in no-clobber mode fleet-wide.
 
-**DIRECTORY.md**: never created directly here — `/update-docs` Phase 2 owns it, self-gated.
+**DIRECTORY.md**: never created here — `/update-docs` Phase 2 owns it.
 
 **Directories.** On a consumer box create only `docs/`, `docs/plans/`, `state/handoffs/` and the
 gitignored `scratch/subagent-sandbox/` directly, and do not run the manifest scaffolder: the
@@ -66,56 +59,42 @@ answer or the PM asks for one. On an author box create only `docs` (for README.m
 gitignored `scratch/subagent-sandbox` directly; everything else scaffolds via the engine-plane
 `coordinator_core.install.scaffold_structure` CLI (`--manifest-root <coordinator-plugin-root>`,
 `--root` defaults to cwd), idempotent, reading `canonical-structure.yaml`. Skip with a stderr note
-if the engine-plane root doesn't resolve. Most tracker-shaped files are NOT pre-created — lazy,
-written by their owning skill on first use — except `state/orientation_cache.md` (below), which
-has real day-1 content once Phase 2 answers exist.
+if the engine-plane root doesn't resolve. Tracker-shaped files are lazy, written by their owning
+skill on first use — except `state/orientation_cache.md` (below).
 
-**`.gitignore`.** Source the block from `templates/gitignore.project.template` (a project
-template; the settings-home `dotgitignore.tmpl` is the `~/.claude` starter, never this repo's).
-Ensure the canonical block (`.coordinator-local/`, settings.local.json, scratch/, per-session
-sentinels, ceremony/coverage transients, the group-EM watch trio —
-`state/group-em-watch.json`, `state/group-em-watch-parked.json`,
+**`.gitignore`.** Source the block from `templates/gitignore.project.template` (never the
+settings-home `dotgitignore.tmpl`). Ensure the canonical block (`.coordinator-local/`,
+settings.local.json, scratch/, per-session sentinels, ceremony/coverage transients, the group-EM
+watch trio — `state/group-em-watch.json`, `state/group-em-watch-parked.json`,
 `state/group-em-watch-spool.jsonl` — the engine-provenance ledger
-`state/engine-provenance-counts.jsonl`, `state/housekeeping-liveness.json`,
-`.project-rag-corpus-artifacts/` and
-`.project-rag-corpus-store/`) is present — create if
+`state/engine-provenance-counts.jsonl`, `state/housekeeping-liveness.json`, `state/orientation_cache.md`,
+`.project-rag-corpus-artifacts/` and `.project-rag-corpus-store/`) is present — create if
 absent, append only the missing lines under one header if partially present, skip silently if
-complete. If ceremony/coverage transients, any of the group-EM watch trio, or the
-engine-provenance ledger are already tracked, `git rm --cached` them after adding the ignore rule
-— never `git rm`: a Stop hook is appending to the spool live and a hook appends to the ledger on
-every fire, so deleting either mid-append costs a peer's records for nothing — both are
-regenerated on the next write. Warn if `.claude/`
-(not just `settings.local.json`) is blanket-ignored, if tracked
-content exists under `scratch/`/`tasks/_*.log` (offer, don't auto-`git rm --cached`), or if the
-project-rag corpus paths are already tracked (break-class finding, not a nit — ~230MB in history).
+complete. If ceremony/coverage transients, any of the watch trio, the ledger, or the orientation cache are already
+tracked, `git rm --cached` them after adding the ignore rule — never `git rm`. Warn if `.claude/`
+(not just `settings.local.json`) is blanket-ignored, if tracked content exists under
+`scratch/`/`tasks/_*.log` (offer, don't auto-`git rm --cached`), or if the project-rag corpus paths
+are already tracked (break-class finding, not a nit).
 
 **Pre-commit corpus-artifact guard**: install `${CLAUDE_PLUGIN_ROOT:?coordinator plugin root unset — run this from a plugin command/skill, or substitute an absolute path}/bin/pre_commit_corpus_artifact_guard.py`
 as `.git/hooks/pre-commit` in the same pass: `cp` it byte-for-byte, `chmod +x`, and confirm
 `head -1 .git/hooks/pre-commit` prints `#!/usr/bin/env python3` — a hook without the shebang runs
-under `sh` and fails every commit with `import: command not found`. It belt-and-braces the `.gitignore` stanza above — the
-stanza stops an artifact being *added*, the guard stops one already tracked or force-added from
-being *committed*, and the two fail independently. Measured 2026-09-02: the guard existed in this
-tree with **no installer referencing it anywhere**, so every repo had the docstring and none had the
-protection. A guard nothing installs is indistinguishable from a guard that never fires, and the
-thing it protects against is ~230MB in history.
+under `sh` and fails every commit with `import: command not found`.
 
 **Post-commit auto-push hook**: `coordinator-ensure-hooks-fleet` (Shape W) — idempotent
-install/repair/exec-bit self-heal in one call. Skip if a custom hook exists with PM sign-off
-(judgment; see the `add-existing-project` lane's `p3f5.custom-hook-skip` policy).
+install/repair/exec-bit self-heal. Skip if a custom hook exists with PM sign-off (the
+`add-existing-project` lane's `p3f5.custom-hook-skip` policy).
 
 **Session-Id trailer hook**: `coordinator-ensure-prepare-commit-msg-hook` (Shape W) — same
 self-heal pattern; silent no-op when no session-id env var resolves.
 
 **Git config hardening**: `coordinator-configure-git` (Shape W) —
 `gc.auto 0` + `core.checkStat minimal` + `maintenance.strategy incremental` +
-`maintenance.auto false` + `maintenance.prefetch.enabled false`. Idempotent. Cwd-only, and not the sole
-mechanism: the install's git-perf-config fleet sweep (`coordinator_core.install.git_perf_config`,
-engine-resident) applies per-repo git settings across every registered worktree. This call stays as
-belt-and-braces for a repo onboarded between sweeps.
+`maintenance.auto false` + `maintenance.prefetch.enabled false`. Idempotent, cwd-only.
 
 **Meta-repo pre-commit exec-bit gate** (*author box only*, and only when the repo being onboarded
 is the meta-repo itself): run `install-meta-repo-precommit-hook <meta-root>` (Shape W) solely when
-`canon(<repo-root>) == canon($HOME/.claude)`. Onboarding any other repo skips the step; it never
+`canon(<repo-root>) == canon($HOME/.claude)`. Any other repo skips the step; it never
 writes into `~/.claude/.git` and never creates `~/.claude/working-repos.yaml`.
 Override: `COORDINATOR_OVERRIDE_PRECOMMIT_EXEC_BIT=1`.
 
@@ -126,77 +105,60 @@ is absent or the settings file is JSONC.
 ## Substrate seeds (ALWAYS, idempotent — no lane varies these)
 
 **Currency stamp**: `<claude-klabauter-root>/coordinator/lib/coordinator_currency.py write "$(pwd)"
-<coordinator-plugin-root>`. Skip for `published-artifact` classification; apply otherwise. Failure
-is a Needs-Attention warning, non-fatal to onboarding.
+<coordinator-plugin-root>`. Skip for `published-artifact` classification. Failure is a
+Needs-Attention warning, non-fatal.
 
-**`state/orientation_cache.md`** (if missing): render with `## Active workstreams` (name + 2-3
+**`state/orientation_cache.md`** (if missing; gitignored, session-start rewrites it): render with `## Active workstreams` (name + 2-3
 deliverables from ratified Phase 2 input), `## Branch`, empty `## Pinboard`. The heading set is
-closed and verifier-enforced — never invent a heading. No project-summary/status section: the
-cache is a cache, not a record (routing question: "does this have a truth-expiry?").
+closed and verifier-enforced — never invent a heading; no project-summary/status section.
 
-**Extended substrate seeds** (Shape W trampolines, resolved via the shared engine-plane root
-idiom, run as subprocesses — each is fail-loud/`exit`-on-ambiguity so `source`-ing would kill the
-shell): test-command detection (`setup-detect-test-cmd.py --root`, writes `fast_test_cmd`/
-`full_test_cmd`, fails loud on ambiguous candidates, never silent-picks); health-ledger seed
-(`setup-seed-health-ledger.py`, every row `?`, never fabricates a grade); RAG-index decision
-(`setup-rag-decision.py --root`, *author box only* — UE + daemon present → offer to index;
-everything else → tripwire path, `un-indexed; use Tier-3` written to CLAUDE.md; on a consumer box
-the step is skipped and CLAUDE.md carries no RAG text); fnm pin-resolution (`setup-fnm-pin.py` — acts
-only when `.node-version`/`.nvmrc` present; fails loud if `fnm` itself isn't installed, never
-installs the binary — that's `coordinator:install` Phase 3's job). `coordinator:new-project`
-inherits all four via delegation; no re-implementation there.
+**Extended substrate seeds** (Shape W trampolines, run as subprocesses — each is fail-loud, so
+`source`-ing would kill the shell): test-command detection (`setup-detect-test-cmd.py --root`,
+writes `fast_test_cmd`/`full_test_cmd`, fails loud on ambiguous candidates, never silent-picks);
+health-ledger seed (`setup-seed-health-ledger.py`, every row `?`, never fabricates a grade);
+RAG-index decision (`setup-rag-decision.py --root`, *author box only* — UE + daemon present →
+offer to index; everything else → `un-indexed; use Tier-3` written to CLAUDE.md; a consumer box
+skips the step and CLAUDE.md carries no RAG text); fnm pin-resolution (`setup-fnm-pin.py` — acts
+only when `.node-version`/`.nvmrc` present; fails loud if `fnm` is missing, never installs it).
+`coordinator:new-project` inherits all four via delegation.
 
-**Agent-install-manifest.json seed** (ALWAYS if absent, never overwritten if present): minimal
-compliant shape per the schema — `agent_install_contract_version: 3`, `repo_id`, `setup_skill`,
+**Agent-install-manifest.json seed** (if absent, never overwritten): minimal compliant shape per
+the schema — `agent_install_contract_version: 3`, `repo_id`, `setup_skill`,
 `standalone_setup_script` with `entry_point_contract`, empty `direct_deps`/`required_env_vars`/
 `tested_platforms`, one `configurable_locations` example, `packageability_compliance.declared:
 true`. Substitute `[REPO_NAME]` from the ratified Phase 2 name.
 
-**Strategic self-description skeleton** (ALWAYS if absent): scaffold
-`state/strategic/self-description.yaml` with every field provenance `asserted` or null. This is a
-terminal offer (`p3l.curation-prompt`) for the immediate curate-now-or-defer choice — see the
-per-lane policy default; the skeleton write itself is unconditional.
+**Strategic self-description skeleton** (if absent): scaffold
+`state/strategic/self-description.yaml` with every field provenance `asserted` or null. The
+curate-now-or-defer choice is the `p3l.curation-prompt` terminal offer; the write is unconditional.
 
-**Guard-regression tripwire tests** (ALWAYS, idempotent, never offered — the class of failure is
-invisible until it causes an outage). Destination is derived from the repo's own `fast_test_cmd`
-path argument (`<that-path>/guards/`), never hardcoded to `tests/guards/` — a guard pytest never
-collects is no guard at all. Runs only where
-`<coordinator-plugin-root>/tests/templates/` exists in the resolved plugin root; where it does not
-(a published install), skip the whole seed and report one `### Needs Attention` line naming the
-missing directory. Copy, no-clobber, every ALWAYS template from that directory: `test_machine_local_state_tracked.py`,
-`test_foreign_platform_paths.py`, `test_registry_toml_machine_paths.py` (conditional on a tracked
-`registry.toml`), `test_guard_wiring_completeness.py` (conditional on a `hooks/hooks.json`
-surface), `test_every_test_tree_is_collected.py`, `test_no_absolute_path_literals.py`,
+**Guard-regression tripwire tests** (ALWAYS, idempotent, never offered). Destination is
+`<that-path>/guards/`, derived from the repo's own `fast_test_cmd` path argument, never hardcoded.
+Runs only where `<coordinator-plugin-root>/tests/templates/` exists; where it does not (a
+published install), skip the seed and report one `### Needs Attention` line naming the missing
+directory. Copy, no-clobber, every ALWAYS template from that directory:
+`test_machine_local_state_tracked.py`, `test_foreign_platform_paths.py`,
+`test_registry_toml_machine_paths.py` (conditional on a tracked `registry.toml`),
+`test_guard_wiring_completeness.py` (conditional on a `hooks/hooks.json` surface),
+`test_every_test_tree_is_collected.py`, `test_no_absolute_path_literals.py`,
 `test_gitattributes_line_ending_coverage.py`. Each resolves its own repo root via
-`_tripwire_root.resolve_repo_root()` (copy that sibling alongside). After copying, verify the
-guards are actually collected by the repo's own `fast_test_cmd` — don't trust the path derivation
-blindly.
+`_tripwire_root.resolve_repo_root()` (copy that sibling alongside). Afterwards verify the guards
+are collected by the repo's own `fast_test_cmd`.
 
-`test_every_test_tree_is_collected.py` is what makes that verification standing rather than
-one-shot: it reads the repo's own `fast_test_cmd`/`full_test_cmd`/`ceremony_test_cmds[].
-collection_roots` live out of `coordinator.local.md` and fails on any test module on disk that
-no tier collects — the tree added six months after setup, not just the guards seeded here. It
-skips clean where a repo has no `coordinator.local.md` or declares no roots, so it is safe to
-seed unconditionally.
-
-**Widened spawn tripwire — `.py`/`.ps1`, ALWAYS, not offered; same `tests/templates/` existence
-condition as the seed above.** Closes the gap the `.sh`-only
-console-subprocess tripwire (below, offered) leaves for repos without `coordinator_core`. Copy
-`test_no_bare_python_spawn.py` + `spawn_detect.py` (verbatim vendored copy, stdlib-only) + the
+**Widened spawn tripwire — `.py`/`.ps1`, ALWAYS, not offered; same `tests/templates/` condition.**
+Copy `test_no_bare_python_spawn.py` + `spawn_detect.py` (verbatim vendored copy, stdlib-only) + the
 `no_console_creationflags()` helper (`_win_portability.py` for hooks, `win_portability.py` for
-lib/bin) into `<scope>/guards/` (same derivation as the guard-regression seed). Adjust the repo-
-root hop count via the template's `SCOPE_SUBDIR` constant; extend `spawn_detect.DEFAULT_EXCLUDE`
-with the repo's own ephemera dirname — never add a bare `dist`-shaped exclude by dirname alone,
-name a genuinely-vendored tree by path. Two exemption mechanisms, keyed on a stable marker never
-`file:line`: inline `# guard-allow: <rule-id> <rationale>` (scanned across the full call span), or
-the central `spawn_exemption_register.yaml` + monotonic `RATCHET_MAX` for tiering a bulk legacy
-tree (`frozen_relpaths` makes a newly-authored file structurally ineligible). `# popup-intentional-
-last-resort` is honoured identically to `guard-allow` for last-resort cases.
+lib/bin) into `<scope>/guards/`. Adjust the repo-root hop count via the template's `SCOPE_SUBDIR`
+constant; extend `spawn_detect.DEFAULT_EXCLUDE` with the repo's own ephemera dirname, naming a
+vendored tree by path, never a bare `dist`-shaped dirname. Exemptions are keyed on a stable marker,
+never `file:line`: inline `# guard-allow: <rule-id> <rationale>`, or the central
+`spawn_exemption_register.yaml` + monotonic `RATCHET_MAX` for bulk legacy trees.
+`# popup-intentional-last-resort` is honoured identically to `guard-allow`.
 
-**Fleet memo-destination registration — mechanical half (*author box only*).** On accept (lane- or PM-answered), only-
-if-absent register via `repo-setup-args-and-register register-repo` (Shape W; derives `<key>` the
-same way `cross-repo-memo`'s `_receiver_repo_key` does), and stop: nothing writes
-`~/.claude/working-repos.yaml`. Report `### Created` on success; surface
+**Fleet memo-destination registration — mechanical half (*author box only*).** On accept (lane- or
+PM-answered), only-if-absent register via `repo-setup-args-and-register register-repo` (Shape W;
+derives `<key>` the same way `cross-repo-memo`'s `_receiver_repo_key` does), and stop: nothing
+writes `~/.claude/working-repos.yaml`. Report `### Created` on success; surface
 `### Needs Attention` loudly (with the manual remediation command) when the repo is still not a
 memo destination after this run for any reason — declined, skipped, or `machine-local` unavailable.
 
@@ -206,22 +168,18 @@ memo destination after this run for any reason — declined, skipped, or `machin
 `tests/templates/test_no_bare_console_subprocess.py` to `tests/test_no_bare_console_subprocess.py`,
 customize `PREFIXES`/`EXACT_FILES`, verify with `python tests/test_no_bare_console_subprocess.py`
 (bare `python`, no `python3` alias on Windows). Two suppression markers, honoured identically:
-`# popup-intentional-last-resort` (popup accepted), `# popup-safe-env-suppressed` (suppressed by
-env-var means). Retired form `# noqa: bare-subprocess-windows` is NOT honoured. Whether to offer
-this tripwire at all is lane/PM judgment (Windows-operator repo signal); the install steps
-themselves don't vary by lane.
+`# popup-intentional-last-resort`, `# popup-safe-env-suppressed`. Retired form
+`# noqa: bare-subprocess-windows` is NOT honoured. Whether to offer it is lane/PM judgment.
 
 ## Phase 4 report — mechanical shape
 
 **Declared exemption from the ≤200-word EM→PM budget** (global `CLAUDE.md § Communication Style`):
-this is a once-per-repo onboarding walkthrough, not a recurring status report — do not shorten it
-to satisfy the word-budget advisory hook. The template's first and last lines are the marker pair
-that declares the exemption to the comms hook (`em-pm-comms-instrumentation.md` § The
-ceremony-mandated marker).
+do not shorten this once-per-repo walkthrough to satisfy the word-budget hook. The template's first
+and last lines are the marker pair that declares the exemption (`em-pm-comms-instrumentation.md`
+§ The ceremony-mandated marker).
 
-Report-by-exception on `### Already Existed (untouched)` — print only when non-empty.
-`### Created` and `### Needs Attention` always print. `### Recent Roadmap` is count-always — render
-`(none)` explicitly on a fresh repo rather than omitting the heading.
+`### Already Existed (untouched)` prints only when non-empty. `### Created` and `### Needs Attention` always
+print. `### Recent Roadmap` is count-always — render `(none)` on a fresh repo.
 
 Template:
 
@@ -238,32 +196,12 @@ Template:
 ```
 
 `### What's next` carries the fixed operator walkthrough: `~/.claude` is the surface the operator
-evolves (git-tracked, holds config/lessons/working-data); the plugin **source** lives in the
-doctrine-plane clone, resolved live via `--plugin-dir` — launch the session the way the
-install documented; restart (or `/reload-plugins` if available) to pick up mid-session doctrine-plane edits.
-CLAUDE.md fill-in reminder fires only when `_PHASE_3A_RENDERED_CLAUDE_MD=true`. `machine-local get repos.*` failure: no registry dir →
-`/coordinator:install` Phase 3; registry present, no keys → `machine-local set repos.<name> <path>`
-per sibling; command itself not found → re-run `/coordinator:install` Phase 3 (bare-name reach is
-the `coordinator/bin` forwarder, not a PATH edit).
+evolves; the plugin **source** lives in the doctrine-plane clone, resolved live via `--plugin-dir`;
+restart (or `/reload-plugins`) to pick up mid-session doctrine-plane edits. The CLAUDE.md fill-in
+reminder fires only when `_PHASE_3A_RENDERED_CLAUDE_MD=true`. `machine-local get repos.*` failure:
+no registry dir → `/coordinator:install` Phase 3; registry present, no keys →
+`machine-local set repos.<name> <path>` per sibling; command not found → re-run
+`/coordinator:install` Phase 3.
 
-## Fate of the seven prior segments
-
-- `phase1-detection-details.md` — mechanical detection retained above; the PM-ask/branch prose it
-  carried (Phase 2 question skip) is now pre-answered per lane —
-  see the three lane files.
-- `phase3-core-docs.md` — rendering mechanics retained above verbatim in substance (3a/3d/3d.5/3g).
-  Of its three retired-tracker references: the retired-3b tracker note and
-  `p1.healthcheck-shortcircuit`'s tracker-format branch are deleted outright, carried nowhere;
-  `p4.scout-citation-check`'s peer-repo scout `file:line` citation requirement is re-homed onto
-  `state/workstreams/<id>.yaml` (`specs[]` / `deliverables[].text`), stated in `SKILL.md` § Notes.
-- `phase3-infra-hooks.md` — retained above verbatim in substance (3e/3f/3f.5/3f.5.5/3f.5.6/3f.6).
-- `phase3-substrate-seeds.md` — mechanical scaffold/seed procedure retained above; the terminal-
-  offer prompt text and PM-authoritative-branch prose (curation prompt, hand-section prompt,
-  custom-hook-skip judgment, memo-destination offer wording) move to the three lane files as
-  policy defaults.
-- `phase4-report-template.md` — retained above verbatim in substance.
-- `tripwire-installs.md` — mechanical install-step content retained above; the offer-firing
-  judgment (when to ask, what the inference prompt says) moves to the lane files.
-- `batch-mode.md` — retained as its own file (`residue/batch-mode.md`) since `--batch` is an
-  entry-point mode, not one of the three lanes; its Phase-2-substitution description now cites the
-  `add-existing-project` lane's pre-answers instead of re-describing them ad hoc.
+Rationale and history: `coordinator/docs/wiki/install-playbook-rationale/repo-setup-residue.md`
+§ repo-setup mechanics rationale.

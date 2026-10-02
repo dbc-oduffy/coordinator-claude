@@ -9,7 +9,7 @@
 # implementation and its co-located pytest (test_generate_exec_summary.py).
 #
 # Spec backlink: docs/plans/2026-07-03-exec-summary-per-repo-brief.md § C2
-# Spec backlink: docs/wiki/exec-summary-artifact.md § Generator contract
+# Spec backlink: coordinator-content-repo coordinator/docs/wiki/em-operating-model/exec-summary-artifact.md § Generator contract
 # Spec backlink: coordinator-content-repo:pln-bash-polyglot-clean-slate-full-5c71ee
 #
 # Usage:

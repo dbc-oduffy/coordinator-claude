@@ -168,7 +168,7 @@ mv docs/research/archive/YYYY-MM-DD-{topic-slug}/ docs/research/{topic-slug}/YYY
 After each phase's workers complete and output is verified, the command commits:
 
 ```bash
-CLAUDE_INVOKING_COMMAND=relay-protocol "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-safe-commit" --blanket "{pipeline}: phase {N} ({description}) complete"
+"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-safe-commit" --blanket --invoking-command relay-protocol "{pipeline}: phase {N} ({description}) complete"
 ```
 
 This provides revert safety. The helper captures all phase output under a sweep-ceremony (`--blanket`) scoped to the relay-protocol invoking command — no concurrent-session scope leakage. The EM does NOT need to read the paper trail when results come back — it's there for later critique if needed.

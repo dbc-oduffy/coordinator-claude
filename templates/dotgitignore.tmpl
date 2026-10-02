@@ -89,7 +89,7 @@
 # The machine-local registry tree — same hazard, but it is the one entry here
 # that is not a single marker file. Its canonical home is the settings home
 # ($COORDINATOR_SETTINGS_HOME/machine-local); the path here is a compat pointer
-# to it. Tracking it ships one box's RESOLVED values — a Windows X:/ engine
+# to it. Tracking it ships one box's RESOLVED values — a Windows drive-letter engine
 # root landing on a Mac — and re-materialises the path as a real directory on
 # every checkout, which permanently blocks the settings-home migration from
 # reaching its terminal symlink state.
@@ -153,8 +153,9 @@ __pycache__/
 # --- Session transcripts (regenerable, massive) ---
 *.jsonl
 # Exception: plugin test fixtures are work product, not ephemeral transcripts.
-# `**` matches at any depth, so a flat plugins/<name>/tests/fixtures/ is covered.
-!plugins/**/tests/fixtures/*.jsonl
+# `**` matches at any depth, on both sides of tests/, so flat and per-suite
+# (tests/<suite>/fixtures/) fixture dirs are both covered.
+!plugins/**/tests/**/fixtures/*.jsonl
 
 # --- Claude Code internals (regenerable / ephemeral) ---
 backups/
@@ -208,8 +209,8 @@ projects/**
 
 # The multi-machine caveat, stated so the tradeoff is chosen rather than
 # discovered: the slug is the project's ABSOLUTE PATH with separators replaced.
-# Machines whose checkouts sit at different paths (a Windows X:\repo and a macOS
-# /Users/you/repo) therefore write DISJOINT slugs and can never collide. Two
+# Machines whose checkouts sit at different paths (a Windows drive-letter path and a macOS
+# home-rooted path) therefore write DISJOINT slugs and can never collide. Two
 # machines with the SAME layout -- a laptop and a desktop both at /Users/you/repo
 # -- write the SAME paths and will conflict.
 #

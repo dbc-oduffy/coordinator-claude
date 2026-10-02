@@ -96,10 +96,14 @@ def _parse_args(argv: list[str]) -> dict[str, object]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if "--help" in argv or "-h" in argv:
+        print("usage: query-work-state [--repo-root <path>]")
+        return 0
+
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     import cc_invoke
 
-    argv = sys.argv[1:] if argv is None else argv
     parsed = _parse_args(argv)
     repo_root = parsed["repo_root"]
 

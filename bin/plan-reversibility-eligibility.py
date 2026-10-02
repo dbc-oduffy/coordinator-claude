@@ -4,7 +4,7 @@ WHY THIS EXISTS. `docs/plans/2026-08-30-delegated-approve-for-execution.md` § D
 reversibility preconditions that gate whether a Group EM may delegate-approve a plan for
 execution at all. Before this CLI, they existed only as a prose checklist any human or agent
 executing the delegated-approve procedure had to read and judge for themselves — the exact
-"discharge test" failure this repo's `docs/wiki/invisible-doctrine.md` names: if the operator
+"discharge test" failure this repo's `coordinator-content-repo coordinator/docs/wiki/claude-md-surfaces/invisible-doctrine.md` names: if the operator
 remembering to check is the mechanism, the work is not finished. This CLI makes all six checks
 codeable, run against the plan's own frontmatter and `## Tasks` spine, with no prose reading
 substituting for any of them.
@@ -16,7 +16,7 @@ never the FLAVOUR of change, and contains none of publish/percolate/release/merg
 branch-deletion/history-rewrite — so a check written against it could never fire. Check 3 is
 restated here against three real, checkable signals instead: a write to a
 `coordinator/schemas/*.schema.json` file carrying `x-schema-version` (a schema-version-gate hold
-by construction, per `docs/wiki/schema-version-gate.md`), a `scope:`/`writes:` path under the OSS
+by construction, per `coordinator-content-repo coordinator/docs/wiki/schema-and-validation-contracts/schema-version-gate.md`), a `scope:`/`writes:` path under the OSS
 percolate surface, and a `gated_exit_criteria` row whose `statement` names an external emit using
 the same five keyword tokens named above (publish/percolate/release/merge-to-main/branch-deletion/
 history-rewrite plus their close spelling variants) — a plan cannot declare a brightline statement
@@ -38,7 +38,7 @@ WHY CHECKS 3 AND 5 SHARE ONE SIGNAL. D4 check 5 ("no peer-vendored schema bump")
 check 3 ("no schema-version-gate-holding write") both ultimately ask the same mechanical question
 this repo can answer without a registry: does any `writes:` path point at a
 `coordinator/schemas/*.schema.json` file that currently carries `x-schema-version`? Every such
-schema is, by `docs/wiki/schema-version-gate.md`'s own rule, unconditionally holding on the
+schema is, by `coordinator-content-repo coordinator/docs/wiki/schema-and-validation-contracts/schema-version-gate.md`'s own rule, unconditionally holding on the
 x-schema-version axis until any vendoring peer re-vendors it — there is no on-disk registry
 distinguishing "peer-vendored" from "not yet vendored but structurally identical," so this CLI
 does not invent one. A future registry could split the two signals; until one exists, sharing it
@@ -60,6 +60,10 @@ schema comment names.
 Zero third-party runtime dependency beyond PyYAML (already imported elsewhere in this directory,
 e.g. `approvability-calibration.py`, `compose-review-wave.py`); `git show` is shelled out to only
 for `--validate-record`'s historical-content resolution, which cannot be done any other way.
+
+Never imports `coordinator_core`: a stdlib-only CLI that runs with no engine-root
+bootstrap, so it keeps its own git spawns and is exempt from the shared git runner
+(`coordinator_core/tests/test_shared_git_runner.py :: _CONTRACT_EXEMPT_MODULES`).
 """
 from __future__ import annotations
 
@@ -127,7 +131,7 @@ def _parse_frontmatter(text: str, plan_path: Path) -> dict[str, Any]:
 
 
 def _parse_tasks(text: str, plan_path: Path) -> list[dict[str, Any]]:
-    """The `## Tasks` fenced `plan-tasks` block, per `docs/wiki/writing-plans.md`.
+    """The `## Tasks` fenced `plan-tasks` block, per `coordinator-content-repo coordinator/docs/wiki/planning/writing-plans.md`.
 
     A plan with no such block yet (still in Phase 1 authoring) parses to an empty task list
     rather than raising — an author has not necessarily reached `## Tasks` yet, and an empty

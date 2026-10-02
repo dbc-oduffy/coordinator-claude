@@ -39,6 +39,10 @@ Exit codes: 0 = every resolvable repo is clean, or nothing resolved. 1 = at leas
 missing a rule or is tracking one of the trio. 2 = usage/environment error (no `machine-local`).
 
 Spec backlink: docs/plans/2026-09-18-doe-holds-no-scripts.md, chunk W2-C5.
+
+Never imports `coordinator_core`: a stdlib-only CLI that runs with no engine-root
+bootstrap, so it keeps its own git spawns and is exempt from the shared git runner
+(`coordinator_core/tests/test_shared_git_runner.py :: _CONTRACT_EXEMPT_MODULES`).
 """
 
 from __future__ import annotations

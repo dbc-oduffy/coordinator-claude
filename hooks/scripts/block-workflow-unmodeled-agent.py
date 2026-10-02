@@ -162,8 +162,12 @@ from pathlib import Path
 _SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
+_LIB_DIR = _SCRIPTS_DIR.parents[1] / "lib"
+if str(_LIB_DIR) not in sys.path:
+    sys.path.insert(0, str(_LIB_DIR))
 
 from _message_envelope import compose, render  # noqa: E402
+from frontmatter_scan import read_text, scan_frontmatter  # noqa: E402
 from _win_portability import no_console_creationflags  # noqa: E402
 try:
     from _git_root_walk import git_root_walk as _git_root_walk  # noqa: E402
@@ -592,7 +596,6 @@ def _extract_string_literal(value: str) -> "str | None":
 
 _COORDINATOR_AGENT_TYPE_PREFIX = "coordinator:"
 _AGENTS_DIR = _SCRIPTS_DIR.parent.parent / "agents"
-_FRONTMATTER_MODEL_RE = re.compile(r"^model:\s*(\S+)\s*$", re.MULTILINE)
 _ROSTER_FRAGMENT = _SCRIPTS_DIR.parent.parent / "contract" / "review-roster-fragment.json"
 _REVIEW_SIGNALS = _SCRIPTS_DIR.parent.parent / "contract" / "review-signals.json"
 
@@ -692,19 +695,10 @@ def _resolve_call_site_tier(agent_type: "str | None") -> "str | None":
     if not name:
         return None
     path = _AGENTS_DIR / f"{name}.md"
-    try:
-        text = path.read_text(encoding="utf-8")
-    except Exception:
+    model = scan_frontmatter(read_text(path)).get("model")
+    if not isinstance(model, str) or not model:
         return None
-    if not text.startswith("---"):
-        return None
-    end = text.find("\n---", 3)
-    if end == -1:
-        return None
-    m = _FRONTMATTER_MODEL_RE.search(text[:end])
-    if not m:
-        return None
-    return m.group(1).strip().lower()
+    return model.lower()
 
 
 _MODEL_LINE_RE = re.compile(r'"model"\s*:\s*"(claude-[^"]*)"')

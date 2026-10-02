@@ -10,7 +10,7 @@
   "brief": {
     "preamble_source": "coordinator/snippets/internet-research-scout.md",
     "preamble_inlined_verbatim": true,
-    "preamble_text": "Use WebSearch and WebFetch directly to find answers and return a structured brief. Do NOT invoke any skills, the Deep Research pipeline, or spawn agents/teams. Your job is a quick solo web search — 5-10 minutes, a handful of queries, a clear brief back to me.",
+    "preamble_text": "Use WebSearch and WebFetch directly to find answers and return a structured brief. Do not invoke any skills, the Deep Research pipeline, or spawn agents/teams. Your job is a quick solo web search — 5-10 minutes, a handful of queries, a clear brief back to me.",
     "appended": "the cluster's own scope text, verbatim from reconciliation.md",
     "composition": "preamble_text, then a blank line, then the cluster scope. Nothing else — no EM commentary, no per-cluster prompt authoring."
   },

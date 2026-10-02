@@ -55,6 +55,7 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Optional
+from coordinator_core.git.run import run_git
 from coordinator_core.win_portability import is_executable
 
 
@@ -634,15 +635,7 @@ def _refuse_engine_root_as_dest(
             # hazard in itself: the hazard is committing there. Move it onto the track
             # branch; a switch git refuses (dirty tree, missing branch) falls through
             # to the refusal below.
-            try:
-                switched = subprocess.run(
-                    ["git", "-C", dest_root, "switch", "--quiet", track_branch],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                ).returncode == 0
-            except (OSError, subprocess.SubprocessError):
-                switched = False
+            switched = run_git(["-C", dest_root, "switch", "--quiet", track_branch]).ok
             if switched and _checked_out_branch(dest_root) == track_branch:
                 print(
                     f"resolve-publish-target: switched {dest_root} onto its track_ref "

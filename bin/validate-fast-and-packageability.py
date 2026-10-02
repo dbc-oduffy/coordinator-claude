@@ -93,7 +93,7 @@ Negative-spec:
     never about probing whether the first token names a real executable.
   - Does NOT wire the packageability check into any cross-repo/fleet-shared
     hook -- it is invoked only against the calling repo's own manifest, at
-    that repo's own request (docs/wiki/agent-install-contract.md §
+    that repo's own request (coordinator-content-repo coordinator/docs/wiki/install-playbook-rationale/agent-install-contract.md §
     Packageability).
   - The `fast` subcommand NEVER calls ``write_tier_u_grant`` -- R4
     (cross-repo/inbox/2026-07-25-coordinator-content-repo-em-validate-tier-u-shape-

@@ -71,7 +71,7 @@ during Step 5 below, that's debris to remove, not state to preserve.
 #### Option 1: Merge to main via PR (Recommended)
 
 Invoke the `merging-to-main` skill. This creates a PR, confirms local validation, and merges
-on success. Branch is deleted after merge.
+on success. The branch is deleted only when its remote tip is an ancestor of the base (`merging-to-main` Step 7).
 
 #### Option 2: Create a Pull Request (manual merge later)
 

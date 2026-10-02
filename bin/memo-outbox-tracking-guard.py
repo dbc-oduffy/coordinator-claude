@@ -62,6 +62,10 @@ refutation of a true hypothesis. Every leg here queries this repo's own history 
 Exits 1 when any leg fires — a lost sender-side record is a defect to repair, not a note to skim.
 
 Spec backlink: docs/plans/2026-09-18-doe-holds-no-scripts.md, chunk W2-C5.
+
+Never imports `coordinator_core`: a stdlib-only CLI that runs with no engine-root
+bootstrap, so it keeps its own git spawns and is exempt from the shared git runner
+(`coordinator_core/tests/test_shared_git_runner.py :: _CONTRACT_EXEMPT_MODULES`).
 """
 from __future__ import annotations
 

@@ -44,24 +44,9 @@ _USAGE_FAIL = 2
 
 def _parse_batch(argv: List[str]) -> List[Tuple[str, List[str]]]:
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    from entry_point_shim import ASSEMBLE_TARGETS, UnknownTargetError
+    from entry_point_shim import ASSEMBLE_TARGETS, parse_batch
 
-    batch: List[Tuple[str, List[str]]] = []
-    i = 0
-    n = len(argv)
-    while i < n:
-        name = argv[i]
-        if name not in ASSEMBLE_TARGETS:
-            raise UnknownTargetError(name)
-        i += 1
-        if i < n and argv[i] == "--":
-            i += 1
-        args: List[str] = []
-        while i < n and argv[i] not in ASSEMBLE_TARGETS:
-            args.append(argv[i])
-            i += 1
-        batch.append((name, args))
-    return batch
+    return parse_batch(argv, ASSEMBLE_TARGETS)
 
 
 def main(argv: List[str]) -> int:

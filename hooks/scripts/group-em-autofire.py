@@ -104,6 +104,95 @@ def resolve_enter_cli() -> Path | None:
     return candidate if candidate.is_file() else None
 
 
+def _load_box_notice():
+    """`bin/group-em-box-notice.py`, loaded by path from this hook's own tree; None when absent."""
+    path = Path(__file__).resolve().parents[2] / "bin" / "group-em-box-notice.py"
+    if not path.is_file():
+        return None
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("_gem_autofire_box_notice", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def fleet_repo_roots() -> list[str]:
+    """Fleet repos from the machine-local registry (`repos.*`), never from live sessions: a repo
+    with no EM still has an inbox. De-duplicated by normalised path (the registry carries aliases
+    for one checkout) and kept only when it is a git repo carrying `state/cross-repo/inbox`."""
+    import tomllib
+
+    import _engine_root
+
+    reg_dir = _engine_root._settings_home_registry_dir()
+    paths: dict[str, str] = {}
+    for name in ("registry.toml", "registry.local.toml"):  # local overrides the tracked baseline
+        try:
+            with (reg_dir / name).open("rb") as fh:
+                data = tomllib.load(fh)
+        except (OSError, tomllib.TOMLDecodeError):
+            continue
+        for key, value in _engine_root._flatten_registry(data).items():
+            if key.startswith("repos.") and isinstance(value, str) and value:
+                paths[key] = value
+    roots: dict[str, str] = {}
+    for value in paths.values():
+        root = Path(value)
+        if (root / ".git").exists() and (root / "state" / "cross-repo" / "inbox").is_dir():
+            roots.setdefault(os.path.normcase(os.path.normpath(value)), str(root).replace("\\", "/"))
+    return sorted(roots.values())
+
+
+def render_fleet_workflow(plugin_root: Path, repos: list[str], holder: dict) -> str:
+    """The exact `Workflow` invocation that grinds every fleet inbox to zero."""
+    script = (plugin_root / "workflows" / "fleet-inbox-blitz.mjs").as_posix()
+    args = {"repos": repos, "gem": {"sessionId": holder.get("sessionId"), "name": holder.get("name")}}
+    return (
+        "FLEET INBOX GRIND, FIRE NOW: cross-repo memos are enabled on this box, and entering the "
+        "Group EM role is the request. Fire this saved workflow as your first act, unattended; "
+        "do not hand-author a variant (`A-GROUP-EM-HAND-AUTHORING-THE-INBOX-WORKFLOW`). "
+        "Commit authority in every listed repo is inherent to the role.\n"
+        f"  Workflow({{scriptPath: {json.dumps(script)}, args: {json.dumps(args)}}})"
+    )
+
+
+def _box_blocks(repo_root: str, session_id: str, payload: dict) -> list[str]:
+    """The box-wide additions to the entry context: the owed notice sends, and the fleet inbox
+    workflow invocation when cross-repo memos are enabled. Fail-open per block."""
+    blocks: list[str] = []
+    notice_mod = None
+    try:
+        notice_mod = _load_box_notice()
+        if notice_mod is not None:
+            away = frozenset(
+                p.get("session_id")
+                for p in (payload.get("roster") or [])
+                if str(p.get("state") or "").startswith("PAUSED:away")
+            )
+            notice = notice_mod.build_notice(
+                "entered", repo_root, session_id, skip_session_ids=away
+            )
+            blocks.append(notice_mod.render_sends_block(notice))
+            holder = notice["holder"]
+        else:
+            holder = {"sessionId": session_id, "name": None}
+    except Exception:  # noqa: BLE001
+        holder = {"sessionId": session_id, "name": None}
+    try:
+        import _machine_profile
+
+        if _machine_profile.feature_enabled("cross_repo_memos"):
+            repos = fleet_repo_roots()
+            if repos:
+                blocks.append(
+                    render_fleet_workflow(Path(__file__).resolve().parents[2], repos, holder)
+                )
+    except Exception:  # noqa: BLE001
+        pass
+    return blocks
+
+
 def _run_enter(script: Path, repo_root: str, session_id: str):
     argv = [
         sys.executable,
@@ -126,7 +215,9 @@ def _run_enter(script: Path, repo_root: str, session_id: str):
         return None
 
 
-def render_additional_context(payload: dict, exit_code: int, stderr: str) -> str:
+def render_additional_context(
+    payload: dict, exit_code: int, stderr: str, box_blocks: list[str] | None = None
+) -> str:
     """Render the injected turn context. A refusal renders as loudly as a success -- see the
     module docstring's refusal clause. Truncated from the tail to stay inside the budget; the
     standing verdict and the gate reminder are never dropped, because a session that loses the
@@ -256,16 +347,16 @@ def render_additional_context(payload: dict, exit_code: int, stderr: str) -> str
         "re-entry (off the :00/:30 marks) AND hold a `Monitor` poller over the session "
         "registry. Both are session-scoped; no hook arms them for you."
     )
-    lines += ["", arm_line, "", gate_line]
-
-    text = "\n".join(lines)
+    # Box blocks are owed sends and a workflow fire: obligations, so they ride the tail.
+    tail = "\n\n".join([*(box_blocks or []), arm_line, gate_line])
+    head = "\n".join(lines)
+    text = head + "\n\n" + tail
     if len(text) > _CONTEXT_BUDGET_CHARS:
         # Truncation drops roster rows, never the tail: a session that loses the gate line is
         # the one the send gate exists to stop, and a session that loses the arm line stops
         # watching without noticing. Both are obligations, not listings.
-        tail = f"{arm_line}\n\n{gate_line}"
         keep = max(0, _CONTEXT_BUDGET_CHARS - len(tail) - 24)
-        text = text[:keep] + "\n... (truncated)\n\n" + tail
+        text = head[:keep] + "\n... (truncated)\n\n" + tail
     return text
 
 
@@ -332,7 +423,10 @@ def main() -> int:
     if not entered and result.returncode not in (6, 7):
         return _emit(watch_line)  # nothing else to report -- still fail open on the watch line
 
-    context = render_additional_context(entered, result.returncode, result.stderr or "")
+    boxes: list[str] = []
+    if result.returncode == 0 and (entered.get("standing") or {}).get("claimed"):
+        boxes = _box_blocks(repo_root, session_id, entered)
+    context = render_additional_context(entered, result.returncode, result.stderr or "", boxes)
     if watch_line and context:
         context = f"{watch_line}\n\n{context}"
     elif watch_line and not context:

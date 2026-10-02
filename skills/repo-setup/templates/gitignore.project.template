@@ -4,6 +4,7 @@
 scratch/
 state/.repo-setup-just-ran
 state/.workday-start-marker
+state/orientation_cache.md
 
 # coordinator — ceremony and coverage transients
 state/housekeeping-liveness.json

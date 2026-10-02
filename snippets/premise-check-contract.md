@@ -9,25 +9,17 @@ A premise check asks one question, over a plan's cited paths, symbols and refs:
 sibling snippet, `instrument-can-report-red.md`, asks the companion question for a falsifier
 itself: is its verdict wired to its exit path?) The judgment half — class 5, semantics — is a
 separate block, `premise-check-class-5-semantics.md`, delivered only to consumers that enact it.
-It is written to be INLINED into a dispatch brief, never dispatched as its own agent — the
-`PLUGIN_AGENTS` default-off constraint means an `agentType` the harness cannot resolve silently
-degrades to a generic agent wearing the role's label, which reuses the persona and loses the
-check. Whatever consumes this text must inline it directly.
+INLINE it into a dispatch brief; never dispatch it as its own agent (an unresolvable `agentType`
+silently degrades to a generic agent and loses the check).
 
 **Classes 1 and 2 — paths and symbols (mechanical).** For every cited in-repo path: does it
 exist? For every cited `file:line` / `file:symbol` claim: does the symbol exist in that file? This
 is the same check plan-coverage-checker's Lens 3 already runs (`ls`-check cited paths,
 `Read`-verify cited claims, grep backtick-quoted in-repo constants) — it is not re-derived here.
 
-**Why `ls`/`Read`/`grep` and not the symbol-graph tools.** `project_referencers` and
-`project_symbol_callers` would answer classes 1 and 2 more precisely, and they are deliberately not
-used: this text is INLINED into a dispatch brief inside a workflow, and an MCP tool surface is not
-guaranteed to be present for the agent that receives it — a check that silently degrades when a tool
-is missing is worse than one built from primitives that are always there. The project-rag index is
-also a projection that can lag the tree (1494 commits behind at the time this shipped), and a premise
-check that reads a stale projection would report the tree as it was, which is the exact failure it
-exists to catch. Existing checker agents ARE reused: this contract carries plan-coverage-checker's
-Lens 3 calibration over verbatim rather than re-deriving it, and Lens 3 consumes this same text.
+**Primitives only — `ls`/`Read`/`grep`, never the symbol-graph tools** (an MCP surface may be
+absent where this is inlined, and the index can lag the tree). Rationale:
+`coordinator/docs/wiki/planning/plan-blitz.md` (coordinator-content-repo) § Premise-check instrument choice.
 
 **Tolerance rule, carried over verbatim, do not recalibrate:** same-file line-number drift alone
 (same file, same symbol, shifted line number) is tolerated and is not a finding; a missing file or

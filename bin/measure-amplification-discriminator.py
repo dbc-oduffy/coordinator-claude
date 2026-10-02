@@ -41,6 +41,16 @@ _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _BASELINE = _REPO_ROOT / "tasks" / "amp-discriminator-baseline.json"
 _GATE_MODULE = "coordinator_core.tests.test_no_unbatched_per_item_git_spawn"
 
+# A measurement baseline under tasks/ (ephemera): declared, outside the staleness contract.
+GENERATES = [
+    {
+        "artifact": "tasks/amp-discriminator-baseline.json",
+        "stamp_key": "generated_at",
+        "sources": ["coordinator_core/tests/test_no_unbatched_per_item_git_spawn.py"],
+    },
+]
+UNSTAMPED_BY_DESIGN = ["tasks/amp-discriminator-baseline.json"]
+
 
 def _raw_violation_keys() -> set[tuple[str, str, str, int]]:
     """Collector output with BOTH suppression registers emptied.

@@ -35,9 +35,14 @@ Subcommands:
       of coordinator/skills/merging-to-main/SKILL.md in coordinator-content-repo for the
       pre-port original.
 
-This subcommand is self-resolving (no cwd dependence beyond the git
-commands themselves, which operate against whatever repo the caller's cwd
-is inside -- same contract the bash oracle had) and idempotent: re-running
+  missed-releases <release_tag_cut> <entry_path>...
+      Lists every `pending-release` entry whose commits an EARLIER tag already
+      contains -- work from a release that never ran flip-tags. Exit 1 when
+      any exist, so the notes for <release_tag_cut> leave them out instead of
+      double-counting them.
+
+flip-tags operates on the repo named by `--repo-root` (default: the caller's cwd), resolves
+relative entry paths against it, and is idempotent: re-running
 flip-tags on an already-`released` entry is a silent no-op (the
 `status != "pending-release"` guard skips it).
 
@@ -61,6 +66,8 @@ Negative-spec:
 from __future__ import annotations
 
 import argparse
+import contextvars
+import os
 import re
 import subprocess
 import sys
@@ -80,14 +87,28 @@ def _no_console_flags() -> dict:
     return no_console_creationflags()
 
 
+# The repo this invocation operates on, set by `main` from `--repo-root`. A ContextVar,
+# never `os.chdir`: the script runs in-process inside a shared engine, where cwd is
+# process-global. None means the caller's cwd.
+_REPO_ROOT: "contextvars.ContextVar[Optional[str]]" = contextvars.ContextVar(
+    "merge_release_notes_derive_repo_root", default=None
+)
+
+
 def _git(*args: str, cwd: Optional[str] = None) -> subprocess.CompletedProcess:
     return subprocess.run(
         ["git", *args],
         capture_output=True,
         text=True,
-        cwd=cwd,
+        cwd=cwd if cwd is not None else _REPO_ROOT.get(),
         **_no_console_flags(),
     )
+
+
+def _entry_file(path: str) -> str:
+    """`path` as given names the entry in output; this is where it is read and written."""
+    root = _REPO_ROOT.get()
+    return path if root is None or os.path.isabs(path) else os.path.join(root, path)
 
 
 def _frontmatter_field(text: str, key: str) -> Optional[str]:
@@ -172,7 +193,7 @@ def _flip_entry(
     merge_date: str,
     _tag_ancestor_cache: Optional[Dict[str, Set[str]]] = None,
 ) -> Optional[str]:
-    with open(path, encoding="utf-8") as f:
+    with open(_entry_file(path), encoding="utf-8") as f:
         text = f.read()
     if _frontmatter_field(text, "status") != "pending-release":
         return None
@@ -216,7 +237,7 @@ def _flip_entry(
                 continue
         out.append(line)
 
-    with open(path, "w", encoding="utf-8", newline="\n") as f:
+    with open(_entry_file(path), "w", encoding="utf-8", newline="\n") as f:
         f.writelines(out)
     return f"{path}: released_in={resolved_tag}"
 
@@ -247,6 +268,48 @@ def cmd_flip_tags(args: argparse.Namespace) -> int:
     return 0
 
 
+def _missed_release(
+    path: str, earlier_tags: List[str], _cache: Dict[str, Set[str]]
+) -> Optional[str]:
+    """The earliest earlier tag that already contains every commit of a
+    still-`pending-release` entry, or None. A hit is an entry whose own
+    release skipped `flip-tags`; it belongs to that tag's notes, not this one."""
+    with open(_entry_file(path), encoding="utf-8") as f:
+        text = f.read()
+    if _frontmatter_field(text, "status") != "pending-release":
+        return None
+    commits = _parse_commits(text)
+    if not commits:
+        return None
+    for tag in earlier_tags:
+        if _contains_all(tag, commits, _cache):
+            return tag
+    return None
+
+
+def cmd_missed_releases(args: argparse.Namespace) -> int:
+    tag_prefix = _resolve_tag_prefix(args.release_tag_cut)
+    tags_result = _git("tag", "--list", f"{tag_prefix}v*", "--sort=creatordate")
+    earlier = [t for t in tags_result.stdout.splitlines() if t and t != args.release_tag_cut]
+    cache: Dict[str, Set[str]] = {}
+    missed = []
+    for path in args.entry_paths:
+        tag = _missed_release(path, earlier, cache)
+        if tag is not None:
+            missed.append(f"{path}: already in {tag}")
+    if not missed:
+        print(f"no entry belongs to a release before {args.release_tag_cut}")
+        return 0
+    print("\n".join(missed))
+    print(
+        f"{len(missed)} pending-release entr{'y' if len(missed) == 1 else 'ies'} shipped in an "
+        f"earlier release whose flip-tags never ran. Leave them out of {args.release_tag_cut}'s "
+        "notes; flip-tags attributes them to that earlier tag.",
+        file=sys.stderr,
+    )
+    return 1
+
+
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="merge-release-notes-derive",
@@ -256,9 +319,16 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     sub = p.add_subparsers(dest="subcommand", required=True)
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument(
+        "--repo-root",
+        default=None,
+        help="Repo to operate on, and the base for relative entry paths (default: cwd).",
+    )
 
     flip = sub.add_parser(
         "flip-tags",
+        parents=[common],
         help=(
             "Flip every pending-release entry to released, attributed to "
             "the earliest containing release tag."
@@ -273,16 +343,33 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Completion-log entry file paths to consider.",
     )
 
+    missed = sub.add_parser(
+        "missed-releases",
+        parents=[common],
+        help=(
+            "List pending-release entries an earlier tag already contains "
+            "(a release that skipped flip-tags). Exit 1 when any exist."
+        ),
+    )
+    missed.add_argument("release_tag_cut", help="The release whose notes are being drafted.")
+    missed.add_argument("entry_paths", nargs="+", help="Completion-log entry file paths.")
+
     return p
 
 
 def main(argv: Optional[List[str]] = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
-    if args.subcommand == "flip-tags":
-        return cmd_flip_tags(args)
-    parser.print_usage(sys.stderr)
-    return 2
+    token = _REPO_ROOT.set(args.repo_root)
+    try:
+        if args.subcommand == "flip-tags":
+            return cmd_flip_tags(args)
+        if args.subcommand == "missed-releases":
+            return cmd_missed_releases(args)
+        parser.print_usage(sys.stderr)
+        return 2
+    finally:
+        _REPO_ROOT.reset(token)
 
 
 if __name__ == "__main__":

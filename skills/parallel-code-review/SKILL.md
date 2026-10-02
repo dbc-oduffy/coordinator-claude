@@ -1,6 +1,6 @@
 ---
 name: parallel-code-review
-description: "Weekly pre-merge code-review gate — chunk reviewers, one verdict. /workweek-complete only."
+description: Weekly chunked code-review gate. /workweek-complete only.
 argument-hint: "[--force] [--gate-mode strict|advisory]"
 version: 2.0.0
 allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskUserQuestion","TaskCreate","TaskUpdate","TaskGet","TaskList"]
@@ -15,15 +15,13 @@ The /workweek-complete pre-merge code-review gate. Snapshots the week's diff aga
 code-semantics scope plus 3 mechanical specialists (security, deps, tests) over the full diff —
 all in parallel — synthesizes into BLOCKED/WARN/OK, halts or proceeds before release notes.
 Enforcement surface for `${CLAUDE_PLUGIN_ROOT}/snippets/em-operating-doctrine.md` § How to Review What Came
-Back. The Staff Engineer is not in this gate — that advisory Layer-2 architecture pass runs separately at
-`/workweek-complete` Step 7.5 (rationale: wiki).
+Back. The Staff Engineer's Layer-2 pass runs separately at `/workweek-complete` Step 7.5 (wiki).
 
 ## Wrong-Context Refusal
 
-Invoked exclusively from coordinator:/workweek-complete, by the top-level EM — a dispatched
-agent has no `Agent` tool (`A-SKILL-PHASE-NAMES-ITS-ACTOR`). Reached any other way — STOP, surface
-the misroute to the PM. `coordinator/skills/review/SKILL.md` § A.3 — Sequencing governs every
-other surface.
+Invoked exclusively from coordinator:/workweek-complete, by the top-level EM
+(`A-SKILL-PHASE-NAMES-ITS-ACTOR`). Reached any other way — STOP, surface the misroute to the PM.
+`coordinator/skills/review/SKILL.md` § A.3 governs every other surface.
 
 ---
 
@@ -46,12 +44,10 @@ POSIX-shell form shown below. Ladder and shapes: `${CLAUDE_PLUGIN_ROOT}/snippets
   "$RESOLVER_EXIT" --test-cmd "$TEST_CMD"` (after resolving `$TEST_CMD`/`$RESOLVER_EXIT` per Test-
   Output Capture below).
 
-**Rule 5 is the one EM judgment in this trio, never auto-fired.** On a large catch-up span where
-every workstream already carries a review-trail verdict, run `rule5-inputs --scope-shas-file
-<scope-shas> --seam-files-file <seam-files> --review-trail-dir state/review-trail`. Decide **(a)
-skip** — record `incrementally-reviewed`, name the week's review-trail records as evidence — or
-**(b) narrow** — chunk-gate only `unreviewed_set`. Why this can't auto-fire, worked examples:
-wiki.
+**Rule 5 is the one EM judgment here, never auto-fired.** On a large catch-up span where every
+workstream carries a review-trail verdict, run `rule5-inputs --scope-shas-file <scope-shas>
+--seam-files-file <seam-files> --review-trail-dir state/review-trail`; decide **(a) skip**
+(record `incrementally-reviewed`, name the records) or **(b) narrow** to `unreviewed_set`. Wiki.
 
 ---
 
@@ -85,9 +81,8 @@ Resolve: `coordinator-resolve-validation-cmd --full` (same resolution) → `$TES
 resolver-branch decision above and act on its `next_move`.
 
 Pre-scaffold (`Edit` cannot create a file): `printf '<!-- FINDINGS -->\n' >
-"$FINDINGS_DIR/tests.md"`. On `RESOLVER_EXIT=2`, still write the sentinel but don't dispatch
-test-evidence-parser — the untouched file fails the synthesizer's pre-flight and surfaces as
-`failed_disk_read`, same as any infra-failed reviewer.
+"$FINDINGS_DIR/tests.md"`. On `RESOLVER_EXIT=2`, still write it but don't dispatch
+test-evidence-parser (it surfaces as `failed_disk_read`).
 
 ---
 
@@ -104,19 +99,14 @@ Pre-provision each dispatched agent's sidecar first, resolved per
 as `sidecar_path:` in its brief: a Workflow spawn never auto-provisions one. Omit
 `testOutputPath` on an unconfigured-resolver (`RESOLVER_EXIT=2`) week and the parser is skipped.
 
-The gate is not a checkpoint. Reviewers run to completion without pausing for the EM to authorize
-each one, and a run that stops between reviewers to narrate the next dispatch has converted an
-automatic gate back into a manual one. Oversight is on disk and after the fact, not in the loop:
-every reviewer's reasoning lands in its own findings file and sidecar, and the EM reverts anything
-it disagrees with the same way it reverts any other landed change.
+The gate is not a checkpoint: reviewers run to completion without pausing for EM authorization;
+oversight is on disk and after the fact (findings files, sidecars), reverted like any landed change.
 
-**Hand-dispatch is the fallback for a broken vehicle, not a preference.** If the Workflow refuses
-or the script is unusable, dispatch all active reviewers in one multi-tool-call batch and say why
-the vehicle was bypassed. Either way, each reviewer reads its own frozen input and writes only its
-own findings file. **The fallback's named `Agent` dispatch requires agent teams**
-(`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in `settings.json`'s `env`, session-start-only, not
-mid-session toggleable) — without it each call is an ordinary background subagent, not a team
-member. The primary `Workflow` path above does not depend on this.
+**Hand-dispatch is the fallback for a broken vehicle, not a preference.** If the Workflow refuses,
+dispatch all active reviewers in one multi-tool-call batch and say why. Each reviewer reads its own
+frozen input and writes only its own findings file. The fallback's named `Agent` dispatch requires
+agent teams (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`, session-start-only); the `Workflow` path
+does not.
 
 - **Chunk reviewers** (`agents/code-reviewer-weekly.md`, skip all if `SKIP_CODE_SEMANTICS=1`): one
   per chunk, its file-scope list plus `$DIFF_PATH`, writing **only** `$FINDINGS_DIR/chunk-<k>.md`
@@ -127,20 +117,17 @@ member. The primary `Workflow` path above does not depend on this.
 - **test-evidence-parser**: `$TEST_OUTPUT_PATH` → `$FINDINGS_DIR/tests.md` via one `Edit` on the
   pre-scaffolded sentinel. Skip on `RESOLVER_EXIT=2`.
 
-These four are orthogonal lenses (no domain repeats) — the N chunk reviewers partition one of
-them by file-scope, so they are not orthogonal to each other. Full rationale, the two
-orthogonality assertions: wiki.
+These four are orthogonal lenses; the N chunk reviewers partition one by file-scope. Rationale
+and the two orthogonality assertions: wiki.
 
-Reviewers never commit. A chunk reviewer's footprint on return is exactly its one
-`chunk-<k>.md` — anything else is a contract violation to revert.
-<!-- engine-gap: field=chunks[k].footprint producer=unknown memo=2026-08-14-coordinator-content-repo-em-three-cut-obligations-from-the-corpus-grind.md -->
+Reviewers never commit. A chunk reviewer's footprint is exactly its one `chunk-<k>.md` —
+anything else is a contract violation to revert.
+<!-- engine-gap: field=chunks[k].footprint producer=unknown memo=engine-gap-markers-name-a-memo-that-was-never-filed.md -->
 
 ## Lens-Domain Manifest
 
-Machine-readable form of the four lenses above. `verify-parallel-review-lens-orthogonality`
-parses this table, not the prose — it asserts every reviewer's agent file exists, that no two
-reviewers claim the same lens domain, and that at least four rows are present. The guard fails
-closed: with this table absent or short, every parallel-review dispatch is refused.
+Machine-readable form of the four lenses. `verify-parallel-review-lens-orthogonality` parses this
+table (agent files exist, no shared lens domain, at least four rows) and fails closed.
 
 | Reviewer | Lens domain |
 |---|---|
@@ -163,9 +150,8 @@ match (or the `QUOTA-EXHAUSTED-DISPATCH:` envelope) is failed-needing-re-dispatc
 synthesis. Wait-and-re-dispatch or escalate partial coverage to the PM; the gate holds until
 resolved.
 
-A non-quota failed dispatch: retry once via `SendMessage`, resuming from transcript (never
-redispatch from scratch). Second failure: same `failed_disk_read`/WARN degrade — a single infra
-dropout never blocks; only genuine findings do.
+A non-quota failed dispatch: retry once via `SendMessage` (never redispatch from scratch). Second
+failure: `failed_disk_read`/WARN degrade — an infra dropout never blocks.
 
 Once all present files pass, dispatch Sonnet `parallel-review-synthesizer`
 (`agents/parallel-review-synthesizer.md`) with `$HEAD_SHA_PATH` (not mirrored into
@@ -173,9 +159,8 @@ Once all present files pass, dispatch Sonnet `parallel-review-synthesizer`
 `arch_tier_candidates` aggregation — this skill does not restate its rules. Writes
 `$FINDINGS_DIR/synthesis.json`.
 
-`review-wave.mjs` covers this span too — its Synthesize phase runs the pre-flight and the
-synthesizer dispatch above. The rules here are the contract either vehicle satisfies, not a
-second path to run beside it.
+`review-wave.mjs`'s Synthesize phase runs this span; the rules here are the contract either
+vehicle satisfies.
 
 ---
 

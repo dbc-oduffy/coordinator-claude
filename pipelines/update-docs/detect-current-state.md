@@ -8,10 +8,6 @@
 3. Recent git context (supplementary): `git log --oneline -15`; `git log --oneline
    origin/HEAD..HEAD 2>/dev/null` for unpushed commits.
 
-<!-- Review: review-integrator/overengineering-reviewer — single home for the updatedocs.gates
-     invocation; source-index-maintenance.md, artifact-pruning.md, and docs-readme-maintenance.md
-     point here instead of each repeating it (722a72146 had drifted one of the three copies). -->
-
 ## The `updatedocs.gates` invocation — one authority
 
 Every later phase's "Detect first" step calls the same op:

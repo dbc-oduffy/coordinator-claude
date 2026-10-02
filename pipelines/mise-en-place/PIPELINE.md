@@ -16,10 +16,10 @@ The tail action after execution depends on how the PM invoked the skill:
 
 | Mode | Trigger | Tail action |
 |------|---------|-------------|
-| **Standard** (default) | No special flags | EM-serial per-wave commits + push only (no `/update-docs`) |
+| **Standard** (default) | No special flags | per-wave commits + push, EM terminal commit (no `/update-docs`) |
 | **Hibernate** | PM says "overnight", "hibernate", "shutdown", "go to bed", or similar | verify push, then hibernate PC (no `/update-docs`) |
 
-**Default to standard.** If the PM doesn't specify a mode, run standard. Don't ask — the PM can always invoke `/workday-complete` separately afterward. The EM confirms the mode in Phase 4 ("Tail: EM-serial per-wave commits + push only — straight shot, work stays on branch").
+**Default to standard.** If the PM doesn't specify a mode, run standard. Don't ask — the PM can always invoke `/workday-complete` separately afterward. The EM confirms the mode in Phase 4 ("Tail: per-wave commits + push, EM terminal commit — straight shot, work stays on branch").
 
 **Standard/Hibernate is orthogonal to the run-level verdict.** Tail mode governs the machine action at the end of the run; it does not say anything about how much of the backlog got executed. § Phase 6 below governs that separately via the COMPLETE / CONTINUANCE terminal.
 
@@ -141,7 +141,7 @@ Create tasks with this structure:
 1. **Goal task** — titled with the full scope of the run, including:
    - What items are being executed (full list with identifiers)
    - That this is a mise-en-place straight shot
-   - The tail mode: standard (EM-serial per-wave commits + push only) or hibernate (verify push, then hibernate)
+   - The tail mode: standard (per-wave commits + push, EM terminal commit) or hibernate (verify push, then hibernate)
 
 2. **Per-item tasks** — one for each work item, with:
    - Item identifier and file path to spec
@@ -152,7 +152,7 @@ Create tasks with this structure:
    - Status: `pending`
 
 3. **Tail tasks** (based on mode):
-   - **Standard:** (no tail task — wave gates already commit + push, once per wave, EM-serial)
+   - **Standard:** (no tail task — row checkpoints already commit + push; the EM's terminal commit lands the rest)
    - **Hibernate:** "Verify all pushes succeeded" — `pending`, then "Hibernate PC" — `pending`
 
 **The flight recorder must contain enough context to resume cold.** After compaction, you may have lost the conversation but the task list survives. Write it like a handoff to a stranger. This is not only compaction insurance — it is the CONTINUANCE terminal's substrate (§ Phase 6): if the run stops at context pressure with backlog remaining, the successor's handoff resumes from exactly this record, so "resume cold" and "resume after a continuance handoff" are the same read.
@@ -170,7 +170,7 @@ Present the plan to the PM:
 [Numbered list with identifiers and one-line descriptions]
 
 **Sequence:** [any dependency notes]
-**Tail:** EM-serial per-wave commits + push only — work stays on branch. PM runs `/update-docs` separately when ready.
+**Tail:** per-wave commits + push, EM terminal commit — work stays on branch. PM runs `/update-docs` separately when ready.
 [or: verify push + hibernate — overnight run, work stays on branch.]
 
 **Estimated scope:** [rough sense of the run — "3 small items + 1 medium" etc.]
@@ -186,7 +186,7 @@ This is a launch announcement, not a proposal. Output it and immediately begin P
 
 **Default execution vehicle: ONE background Workflow for the whole run.** It carries the Phase-2e cross-plan DAG across every wave — executors, verifiers, and the one terminal commit alike — not one Workflow per wave and never a hand-typed sequence of dispatch calls. Every `agent()` call on an UNPINNED `subagent_type` passes `model: 'sonnet'` explicitly — a `coordinator:*` agent pins its own tier in frontmatter and the engine-plane pin guard refuses any `model:` passed alongside it, so omit the parameter there rather than overriding it (`docs/wiki/coordinator-tripwires/a-model-pin-is-a-vehicle-choice-not-a-parameter.md`); width is the spine's DAG, and admission is by measured load (`coordinator_core/ops/dispatch_emit/admission.py :: await_admission`), not a count; a `/handoff` may still be elected at a wave boundary.
 
-**Do not hand-author the script — mint the spine and let the emitter write it.** A mise run has no plan spine, which is why this path exists: `"${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/bin/emit-dispatch-workflow" --inventory state/mise-inventory/<run-id>.md --out state/mise-inventory/<run-id>.workflow.mjs --repo-root <abs repo>` mints a schema-valid spine beside the record (item-id → chunk-id, footprint → `writes`, no `deliverable_id`) and emits from it, so the emitter derives the wave shape, the per-wave commit pathspecs and the terminal test phase. Fire the emitted path with `Workflow({scriptPath: ...})` in this session; `--fire` is the headless/cron route and spawns a detached child. Hand-authoring instead costs roughly 4x (`A-HAND-AUTHORED-WORKFLOW-COSTS-4X-THE-PLAN-EXECUTION`). The minted spine is derived, not authored: the next mint overwrites it, so a coordination fact belongs in the inventory record. **Minting refuses rather than guesses** — a row whose disposition is neither live nor in § Phase 6's closed set, and a live row whose Footprint cell names no backticked repo-relative path, both stop the mint naming the row. Fix the record; do not work around it.
+**Do not hand-author the script — mint the spine and let the emitter write it.** A mise run has no plan spine, which is why this path exists: `"${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/bin/emit-dispatch-workflow" --inventory state/mise-inventory/<run-id>.md --out state/mise-inventory/<run-id>.workflow.mjs --repo-root <abs repo>` mints a schema-valid spine beside the record (item-id → chunk-id, footprint → `writes`, no `deliverable_id`) and emits from it, so the emitter derives the wave shape, the per-wave commit pathspecs and the terminal test phase. Fire the emitted path with `Workflow({scriptPath: ...})` in this session; `--fire` is the headless/cron route and spawns a detached child. Hand-authoring instead costs roughly 4x (`A-HAND-AUTHORED-WORKFLOW-COSTS-4X-THE-PLAN-EXECUTION`). The minted spine is derived, not authored: the next mint overwrites it, so a coordination fact belongs in the inventory record. **Minting refuses rather than guesses** — a row whose disposition is neither live nor in § Phase 6's closed set, and a live row whose Footprint cell names no backticked repo-relative path, both stop the mint naming the row. Fix the record; do not work around it. Grammar (dispositions, `writes_under:` footprints, deps, `depends_on_plan`, in-repo inventory) and the 524288-byte cap — the emitter auto-splits into whole-plan parts `<run>-pN`, and the EM fires each — are in `commands/mise-en-place.md` § Phase 1 and `docs/wiki/lesson-triage/mise-en-place-residue.md` § Phase 1 — inventory part splitting and grammar.
 
 **Why the vehicle is not a preference: hand-dispatch spends the one resource a mise run cannot replace.** Every `Agent` call the EM issues puts the brief, the completion notification, and the follow-up reasoning through the EM's own context. A mise run is *defined* by having more backlog than context — so the orchestration method that burns context fastest is the one that must not be reachable by default. A six-item run hand-dispatched eight times — four executors, four verifiers — costs ~430k subagent tokens with every brief and every completion landing in the EM's window; the Workflow path keeps all of it out. **There is no single-wave carve-out.** A one-wave run is precisely the case where a Workflow is cheapest to author, and "only one wave" is not a shape a Workflow cannot express — the only carve-out this doctrine recognizes (`docs/wiki/em-operating-model/workflow-orchestration.md` § What qualifies as a carve-out). A default that degrades to discretion under load is not a default, and the EM is under load at exactly the moment Phase 5 opens.
 
@@ -222,7 +222,7 @@ This tells the hook to emit informational-only context pressure messages (no han
 
 3. **Wave gate:** ALL items in a wave must complete before the next wave begins. This is the serialization point that guarantees later-wave items see earlier-wave changes. Once every item has a PASS verdict, the wave's whole changed-path set commits in a single scoped commit, never `git add -A`. The post-commit hook pushes automatically. This is the only commit point in Phase 5.
 
-   **The commit is a phase inside the Workflow, not an EM step between Workflows** — that is what lets one Workflow span the whole run. It dispatches `coordinator:git-commit-agent` against the wave's recomputed pathspec, committing through **`ceremony.commit_v2`** — that and a plain scoped `git commit -m ... -- <paths>` are the whole of `block_subagent_commit`'s allow surface, which reads literal top-level argv. Because neither live route re-asserts the branch the way the EM-side wave-commit op does, **the commit phase's prompt names the expected branch and requires the agent to verify it read-only before committing** — a peer flipping the branch mid-run is not theoretical on this tree. **Do not add a ledger call to the commit phase** — `ceremony.commit_v2` writes the commit-ledger row itself, so a per-caller call is a duplicate row, not a gap being filled.
+   **Current rule: each DONE row gets a serialised checkpoint commit inside the Workflow, then a non-awaited push; the EM's `dispatch.terminal_commit` lands the rest** (`commands/mise-en-place.md` § Who commits). **The commit is a phase inside the Workflow, not an EM step between Workflows** — that is what lets one Workflow span the whole run. It dispatches `coordinator:git-commit-agent` against the wave's recomputed pathspec, committing through **`ceremony.commit_v2`** — that and a plain scoped `git commit -m ... -- <paths>` are the whole of `block_subagent_commit`'s allow surface, which reads literal top-level argv. Because neither live route re-asserts the branch the way the EM-side wave-commit op does, **the commit phase's prompt names the expected branch and requires the agent to verify it read-only before committing** — a peer flipping the branch mid-run is not theoretical on this tree. **Do not add a ledger call to the commit phase** — `ceremony.commit_v2` writes the commit-ledger row itself, so a per-caller call is a duplicate row, not a gap being filled.
 
    **The mise directive set is bookkeeping, not a commit, and stays with the EM outside the Workflow:** `backlog-grind-assemble apply mise-en-place --run-id <id>` with **no** `--wave-path` runs the directives and builds no commit directive. Do not reach for the `--wave-path` form from inside a Workflow, and do not ask for the commit guard to admit `apply` as an argv shape — top-level argv cannot distinguish a committing run from a bookkeeping one, which is why that widening is refused.
 
@@ -298,7 +298,7 @@ This is a ratified engine property, not a recipe convenience — `resolve_lineag
 1. Report the run-level verdict resolved by the backlog-exhaustion check above — COMPLETE or CONTINUANCE, per the canonical sentence — never a bare "done" standing in for it. Per-wave commits already pushed. The PM runs `/update-docs` (and later `/workday-complete` or `/merge-to-main`) separately when ready to integrate. Rationale: `/update-docs` now absorbs the tracker-maintenance, handoff-archival, and atlas-integrity-check subroutines inline, making it a heavier operation than it was when /mise tailed it automatically. PM-gated invocation is the right shape.
 
 **Hibernate:**
-1. Verify push — resolve the current branch via the settings-home `coordinator-current-branch` forwarder (never a hand-rolled claude-klabauter-root resolution ladder), then check the branch is fully pushed:
+1. Verify push — resolve the current branch via the settings-home `coordinator-current-branch` forwarder (never a hand-rolled engine-root resolution ladder), then check the branch is fully pushed:
 
    `git log "origin/$("${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-current-branch")..HEAD" 2>/dev/null`
 

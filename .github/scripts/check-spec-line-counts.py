@@ -9,19 +9,7 @@ PLUGINS_ROOT = pathlib.Path(".")
 CEILING = 500
 WARNING_THRESHOLD = 400
 
-KNOWN_EXCEPTIONS: set[str] = {
-    # Logged in source-repo tasks/coordinator-improvement-queue.md 2026-05-24 — trim pending.
-    "coordinator/commands/workweek-complete.md",
-    "coordinator/skills/learn-lessons/SKILL.md",
-    # 2026-06-17 — regressed past the ceiling through normal authoring; load-bearing
-    # specs, trim pending (separate reviewed workstream).
-    "coordinator/commands/install.md",
-    "coordinator/commands/update-docs.md",
-    "coordinator/commands/workday-start.md",
-    "coordinator/skills/repo-setup/SKILL.md",
-    "coordinator/skills/workstream-complete/SKILL.md",
-    "coordinator/pipelines/artifact-distillation/PIPELINE.md",
-}
+KNOWN_EXCEPTIONS: set[str] = set()
 
 SPEC_PATTERNS = [
     "*/agents/*.md",

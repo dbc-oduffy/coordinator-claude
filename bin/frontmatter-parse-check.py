@@ -40,6 +40,10 @@ Exit status: 0 every checked record parses, 1 at least one does not, 2 usage.
 
 Budget: zero spawns in the default and explicit-path modes; ONE `git diff`
 spawn under `--changed`. No engine import, no network.
+
+Never imports `coordinator_core`: a stdlib-only CLI that runs with no engine-root
+bootstrap, so it keeps its own git spawns and is exempt from the shared git runner
+(`coordinator_core/tests/test_shared_git_runner.py :: _CONTRACT_EXEMPT_MODULES`).
 """
 
 from __future__ import annotations

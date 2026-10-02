@@ -380,6 +380,10 @@ and --allow-out-of-scope-dirty. --body-file IS supported here (2026-08-31):
 put a long message in a file so its prose never enters the command string,
 where the harness's own destructive-action scan reads argv.
 
+A pathspec too large for argv commits through
+`coordinator-invoke ceremony.commit_v2 --params-file <file>`. A subagent is
+denied on that route: the commit guard cannot read the file's paths.
+
 Whether a caller may commit at all is enforced by the
 coordinator_core/bash_guards/block_subagent_commit.py PreToolUse(Bash)
 guard, not by a flag this script parses (2026-07-24, M4).
@@ -1723,7 +1727,7 @@ def _own_touched_paths_for_banner() -> "tuple[Optional[Set[str]], str]":
 def _scoped_commit_suggestion(subject: str) -> str:
     """Build a copy-pasteable retry command for the concurrency-refusal deny
     message in `do_scoped` — the rung-B shape
-    (`docs/wiki/bash-guard-threat-model.md`): reproduce the caller's own
+    (`coordinator-content-repo coordinator/docs/wiki/guards/bash-guard-threat-model.md`): reproduce the caller's own
     situation in corrected form rather than naming a destination with no
     route.
 
@@ -2932,7 +2936,7 @@ def do_scoped(
     # --scope-from parses (2026-07-25, coordinator-content-repo 1d5aa82b) and every
     # handoff written since fails it on arrival — a named alternative that
     # is inoperative in the situation the caller is actually in is worse
-    # than none (docs/wiki/bash-guard-threat-model.md). `_scoped_commit_
+    # than none (coordinator-content-repo coordinator/docs/wiki/guards/bash-guard-threat-model.md). `_scoped_commit_
     # suggestion` below reproduces the caller's own dirty-path set as a
     # verified-runnable `run_commit_pipeline` retry script instead — a
     # copy, not a re-derivation. (2026-08-25: `ceremony.scoped_git_commit`
@@ -3641,7 +3645,7 @@ def main(argv: Sequence[str]) -> None:
 
     # Self-heal orphaned git locks before any git operation. Best-effort:
     # non-zero rc is not fatal — git itself surfaces a real collision.
-    # See docs/wiki/concurrent-em-hazards.md § H21.
+    # See coordinator-content-repo coordinator/docs/wiki/concurrent-em-git-operations/concurrent-em-hazards.md § H21.
     #
     # P055-C5 (docs/plans/2026-09-11-a-python-process-does-not-spawn-a-
     # python-process.md): this used to spawn a Python interpreter to run the

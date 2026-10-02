@@ -47,13 +47,10 @@ schema = 1
 "repos.example-os-repo"                   = ""
 "repos.example_cockpit_repo"            = ""
 "repos.project_rag_template_addon" = ""
-# Review: code-reviewer (Finding 7) — repos.example_store_repo and
-# repos.example_market_data_repo are real on-disk sibling repos found and
-# registered during this same 2026-07-14 cold-install dogfood session, but
-# fall outside the § F8 spec's enumerated list above. EM-confirmed
-# intentional (discovered on-disk during the scan, beyond the enumerated
-# list).
-"repos.example_store_repo"               = ""
+# repos.example_store_repo and repos.example_market_data_repo are real on-disk sibling
+# repos that fall outside the § F8 spec's enumerated list above; their
+# registration is intentional.
+"repos.example_store_repo"              = ""
 "repos.example_market_data_repo"        = ""
 # The doctrine repo's canonical key. It shares its path with the depersonalized
 # alias repos.example_doctrine_repo; declaring it here is what makes
@@ -148,8 +145,8 @@ schema = 1
 # the publish-targets.sh deprecation fallback.  Setting it to [] (empty array)
 # is treated the same as absent — both fall through.
 #
-# Review: code-reviewer (F8) — empty-array default was misleading; operator
-# copying the example as-is would get a silent empty-array path with no targets.
+# The example is left commented out: copying an empty-array default as-is would
+# yield a silent path with no targets.
 # "publish.targets" = []
 # "publish.targets" = [
 #   "coordinator-claude|mirror|publish-mirror:coordinator_claude|plugin-source:coordinator-claude|",
@@ -231,10 +228,9 @@ concerns = ["project_rag", "unreal"]
 "repos.example-os-repo"                   = "session-accumulated-must-survive-crash"
 "repos.example_cockpit_repo"            = "session-accumulated-must-survive-crash"
 "repos.project_rag_template_addon" = "session-accumulated-must-survive-crash"
-# Review: code-reviewer (Finding 7) — repos.example_store_repo and
-# repos.example_market_data_repo, discovered on-disk beyond the § F8 enumerated
-# list (see matching declaration-block comment above); EM-confirmed
-# intentional. Same class as every other repos.* key by definition (§13),
+# repos.example_store_repo and repos.example_market_data_repo sit beyond the § F8
+# enumerated list (see matching declaration-block comment above). Same class
+# as every other repos.* key by definition (§13),
 # except a key written by that repo's own installer at its own install time
 # (see repos.claude_klabauter below).
 "repos.example_store_repo"               = "session-accumulated-must-survive-crash"
@@ -262,8 +258,6 @@ concerns = ["project_rag", "unreal"]
 # forward-declared, INERT until claude-klabauter's consumer-side prefix arm
 # ships — nothing reaches this row today, since no canonical key is the bare
 # string "engine.working_repos".
-# Review: code-reviewer-ad6a8345 — Finding 1: row read as already-consumed
-# classification; labeled forward-declared/inert per its own suggested fix.
 "engine.working_repos" = "idempotent-regeneratable"
 # repos.claude_klabauter — idempotent-regeneratable, same reasoning class as
 # engine.working_repos.* above (installer-written, self-known root), NOT

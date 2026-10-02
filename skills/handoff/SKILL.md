@@ -1,6 +1,6 @@
 ---
 name: handoff
-description: "Mid-workstream save-state under context pressure — always a continuation."
+description: Mid-workstream save-state under context pressure; a continuation.
 allowed-tools: ["Read", "Write", "Bash", "Grep", "Glob"]
 argument-hint: "[optional context]"
 ---
@@ -36,41 +36,33 @@ self-authored. Tripwire: `A-SESSION-IS-NEVER-STANDALONE`.
 > **A `roadmap-baton`'s successor is a `roadmap-baton`** and inherits `stub_id`, `roadmap_id`,
 > `blocks`, `blocked_by`, `sprint`, `wave`. The predecessor is superseded and archived in the same
 > move — succession kills the originator, roadmap batons included. Both halves or neither:
-> `blocked_by` resolves by `stub_id`, so inheriting without archiving duplicates a globally-unique id,
-> and archiving without inheriting strands the dependent. Cutting a `session-handoff` successor from a
-> baton silently drops that identity.
+> `blocked_by` resolves by `stub_id`: inheriting without archiving duplicates a globally-unique id,
+> archiving without inheriting strands the dependent.
 >
 > **The archival half runs via `d6`'s supersession route** (see § Supersession) — `mode='supersede'`
-> needs `--continued-into` naming the successor. Both halves land through that route now; do not
-> hand-stamp `deployment_state: continued` as a substitute for running `d6`, and do not restore
-> `handoff.reconcile_open` (superseded by K-057).
+> needs `--continued-into` naming the successor; do not hand-stamp `deployment_state: continued`
+> as a substitute, and do not restore `handoff.reconcile_open` (superseded by K-057).
 
 The mechanical spine — deliverable/initiative id inheritance, frontmatter scaffolding,
 `handoff_phase` stamping, tracker refresh, and (on a clean chain) predecessor archival — is
-computed by `baton-assemble brief handoff <artifact-path>`, resolved per
-`${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` (Shape W on a PowerShell host). What follows is what it
-cannot decide for you.
+computed by `baton-assemble brief handoff`, which fires at entry. The brief, its open
+decisions, the decisions-file template and the literal `apply` line arrive with this invocation.
+Write your answers into the template at the named path and run the rendered line. An unanswered `<CHOOSE: …>` or `<NOTE: …>` placeholder makes
+the file unparseable, and `apply` refuses it.
 
-**`<artifact-path>` is the artifact this handoff is written FROM — on the plan→execute trigger that
-is the PLAN, not a handoff.** Passing a handoff, or nothing, falls through silently to the
-predecessor's id or a fresh mint; plan and executing handoff then carry different `deliverable_id`s,
-and close-out reports a fully-shipped plan as entirely unshipped. Right on an ordinary
-continuation; wrong and silent at the plan→execute seam.
+**The brief names the rung the lineage resolved from.** If it is not the artifact this handoff is
+written from, that is the mis-link — on the plan→execute trigger the source is the PLAN, and a
+wrong rung gives plan and executing handoff different `deliverable_id`s. Stop and resolve before
+running `apply`.
 
-**Divergent `deliverable_id`s are a judgment point, not a dead end.** `brief` surfaces
-`j-divergent-deliverable-id` — `keep-plan`/`keep-predecessor`, `decision_note` required. Nothing
-recommends a rung: the earliest artifact's id wins, and only you can see that history. Name the
-survivor and how you know; the losing rung is excised before the cascade raises.
+**Divergent `deliverable_id`s are a judgment point.** The earliest artifact's id wins; name the
+survivor and how you know.
 
-Feed resolutions back via `apply --decisions-file <path>`: a JSON object mapping each
-`judgment_points[].id` to `{"disposition": "<value>"}`, values from that point's own
-`dispositions[].value`. `{"value": "<v>"}` is equivalent; a `decision_note` sibling key carries
-through.
+**`apply` is the single route out — never hand-execute the directive list.** `apply` cannot run? Repair `PATH` and retry; still blocked → leave the draft at its target path and name it in the final report (`coordinator-tripwires/a-non-path-path-is-a-break-class-fault-reported-not-worked-around.md`).
 
-**`apply` is the single route out — never hand-execute the directive list.** `apply` cannot run (`git`/engine unreachable, non-path `PATH`)? Repair `PATH` and retry; still blocked → leave the draft at its target path and name it in the final report (`coordinator-tripwires/a-non-path-path-is-a-break-class-fault-reported-not-worked-around.md`).
-`baton-assemble apply handoff <artifact-path> --decisions-file <path>`, resolved per
-`${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` (Shape W on PowerShell hosts) — same `<artifact-path>` as
-`brief`.
+No brief block in context means the entry hook failed open: run `baton-assemble brief handoff`
+with no artifact-path, resolved per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`
+(`coordinator-tripwires/an-autofire-hook-that-did-not-fire-is-silent.md`).
 
 Once `apply`'s commit lands, best-effort trigger project-rag's SCIP rebuild in the background —
 never waits, never blocks this ceremony: `"$_py"
@@ -83,12 +75,9 @@ supersession, orientation refresh — arrives with this invocation from
 `coordinator/skills/handoff/residue/`; you should not need to open it.
 
 **`d5` releases the plan artifact-claim only — the path-touch plane is a separate close-time
-check.** Before this session ends, loop `who-claims-path <repo-relative-path>` over the paths it
-actually touched and release what comes back with `session-claim-cli release-artifact artifact
-<path>`. `list-claims-by-session` never enumerates the path-touch plane, so a clean-looking
-result from it proves nothing about touch-claims. Recheck any path a safe-commit already
-committed but this session then edited again — that re-touched path is where a claim goes
-missing, not merely stale.
+check.** Before this session ends, run `session-claim-cli list-claims-by-session <sid>` and
+release each `path\t<p>` line it does not need with `session-claim-cli release-artifact artifact
+<path>`. Recheck any path a safe-commit already committed but this session then edited again.
 `coordinator/docs/wiki/coordinator-tripwires/touch-claim-retirement-is-commit-path-specific-who-claims-path-is-the-only-instrument-that-sees-it.md`.
 
 ---
@@ -104,23 +93,19 @@ STOP and take the next action here.
 context pressure and don't answer with a trigger analysis. A blocked next action is real too: name
 the blocker and the event that clears it in the successor's remit.
 
-**On a box whose successor cannot be reached, context pressure is not a handoff trigger at
-all.** A cloud session has no `/clear`, and reaching its successor takes a PR merge, a new session
-and a re-point — so a handoff authored under compaction pressure buys nothing this session can
-hand anyone. Append what the post-compaction self needs to the baton this session already has
+**On a box whose successor cannot be reached (a cloud session), context pressure is not a handoff
+trigger at all.** Append what the post-compaction self needs to the baton this session already has
 (`baton.carry_forward`; the context-pressure advisory names the path), and continue the run. The
 engine selects this posture with no configuration —
 `coordinator/docs/wiki/coordinator-tripwires/tripwire-registry/a-mode-default-can-be-answered-by-the-environment.md`;
 tripwire `A-HANDOFF-NAG-ASSUMES-A-SUCCESSOR-THAT-IS-CHEAP-TO-REACH`.
-A PM ask still self-authorizes a handoff anywhere, and a blocked next action is still a blocked
-next action.
+A PM ask and a blocked next action still qualify anywhere.
 
 **Trigger 4 (review-owed close) is an instance of this same blocked-next-action skip, not a
 second discharge.** The ratified closed class of un-runnable-here reasons is stated once, at
 `coordinator/docs/wiki/coordinator-tripwires/two-ceremonies-two-predicates-one-handover.md`
-(which cites its own ruling record) — this is a citation, not a restatement; that tripwire is the
-source, this roster is reproduced inline only so an EM deciding whether trigger 4 fires is not
-forced to open a second file to learn what the class contains. Trigger 4 qualifies only when the
+(which cites its own ruling record); the roster is reproduced inline only so no second file need
+be opened. Trigger 4 qualifies only when the
 owed review is un-runnable in this session for a reason on that class — a hard-stop oracle
 disagreement, a
 quota-exhausted dispatch, a live peer's files this session must not touch, or the `review_scale`
@@ -128,8 +113,8 @@ gate returning unresolved on the row-4 brightline inputs where the per-owned-com
 that would otherwise name the scale by hand is itself un-runnable in this session for a
 separately named external reason (not merely un-performed) — each with its clearing event outside
 this session's reach. Name the blocker and the event that clears it, in the
-successor's remit, exactly as above — do not author a parallel discharge for the review case, and
-do not admit a reason off this roster by resemblance or analogy.
+successor's remit, exactly as above — no parallel discharge for the review case, and no reason
+admitted off this roster by analogy.
 **A successor session existing is not itself a qualifying clearing event:** the clearing event is
 the outside-the-session fact (a PM/reviewer-pool decision, a quota reset, a peer's landing) that
 lets the review actually run, never merely the fact that a successor could pick this up. Naming a
@@ -141,13 +126,13 @@ settled diff, at its own close.
 **A parked successor's frontmatter is `deployment_state: awaiting_gate` plus a named gate —
 `blocked_by` when a stub or handoff on the graph clears it, `gate_notes` when nothing on the
 graph does (a sibling plane's ruling) — with `pickup_ready` false or omitted.** The scaffold hands
-you `ready_to_fire` + `pickup_ready: true`; leaving that above a body full of blocker prose births
-the baton advertising itself as available work, and nothing warns. Authorization-pending is not a
+you `ready_to_fire` + `pickup_ready: true`; leaving that above blocker prose advertises the baton
+as available work. Authorization-pending is not a
 gate — a PM handoff or `/pickup` is itself the authorization, so never author `awaiting_gate` for
 that reason; a parked baton stays legal only when its blocker is something else — a sibling repo's
 landing, a peer's dependency, a PM product decision.
 
 **Inverted antipattern:** picking up a handoff does not license appending progress to the
-predecessor's (now `status: claimed`) body instead of writing a successor. The pickup index treats
-it as historical, so stapled-in progress is invisible to the next opener. About to edit a
+predecessor's (now `status: claimed`) body instead of writing a successor; the pickup index treats
+it as historical. About to edit a
 `status: claimed` body to record what you just did? STOP and run this skill from the top.

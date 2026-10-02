@@ -16,9 +16,8 @@ order: 2
 op-invocation seam every `coordinator/hooks/scripts/*.py` dispatcher uses (sibling engine root →
 `sys.path.insert` → in-process `coordinator_core.ipc.dispatch_message`, method
 `"fleet.aggregate_capability_index"`, `common_dir` scope via `_origin_worktree`). **Never invent a
-second seam or author a DoE-side index builder** — the sibling op produces the index
-(`coordinator_core/ops/fleet/capability_index.py`); this skill only resolves and reads it. The op
-is read-only against every sibling and writes only under THIS repo's worktree.
+second seam or author your own index builder** — the sibling op
+(`coordinator_core/ops/fleet/capability_index.py`) produces the index; this skill only resolves and reads it.
 
 1. Invoke the op. Any failure (engine unresolvable, import error, op exception) → proceed without
    the field, never blocking.

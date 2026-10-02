@@ -136,48 +136,19 @@ def _resolve_coordinator_root() -> str:
 def _import_main():
     """Resolve the engine root, put it on sys.path, and import the ported entrypoint.
 
-    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
-    self-location walk-up from this file -> settings-home pointer file ->
-    machine-local registry) via `require_engine_on_path()` (which wraps
-    `resolve_engine_root()`'s same ladder), rather than
-    re-deriving it -- this is a plain in-process import, not an RPC invoke, so
-    cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is
-    deliberately NOT used here (this is not a hot per-commit path, but the
-    module's own dependency shell-outs to publish.py/the guards are already
-    subprocess hops -- no benefit to adding a second envelope hop on top).
-    Unlike `_resolve_coordinator_root()` above, self-location is safe here:
-    this call resolves the engine checkout this SAME file lives in for its
-    own in-process import, not a path reported to describe a possibly-copied
-    script.
-
-    That "safe" claim is narrower than `_resolve_coordinator_root()`'s
-    rejection of self-location reads: it depends on this trampoline never
-    being EXECUTED from inside a materialized copy of itself, not on
-    self-location being safe in general (`_resolve_coordinator_root()`
-    above still deliberately avoids `__file__` for that reason). Verified
-    only this much: `publish.py::_git_materialize_ref` shadow trees ARE
-    full copies of this repo (git-archive of the whole toplevel at a
-    commit sha, so they carry both `coordinator_core/` and
-    `pyproject.toml` and WOULD satisfy `_walk_up_to_checkout`'s probe if
-    self-located into) but every checked publish.py call site that reads
-    from a shadow tree (the `subprocess.run` sites invoking
-    `check-registry-codename-leak.py`/`check-persona-slug-leak.py`/the
-    version-consistency gate, plus the file-copy paths) treats it as a
-    read-only COPY SOURCE, never as something re-executed in-process or
-    re-invoked as this script. Not chased: every possible invocation
-    surface, including an operator manually `cd`-ing into a materialized
-    shadow tree and hand-running this script from there. If a future
-    change ever causes this trampoline to be invoked from inside a
-    `_git_materialize_ref` shadow root, self-location here would resolve
-    into that (possibly stale/different-revision) shadow tree, and this
-    call site would need to move back to the bare
-    `_resolve_claude_klabauter_root()` ladder like `_resolve_coordinator_root()`
-    above. — Review: code-reviewer P2 finding + EM ruling, 2026-08-07.
+    Resolves through the bare `cc_invoke._resolve_claude_klabauter_root()` ladder (env ->
+    settings-home pointer file -> machine-local registry; no self-location rung),
+    the same ladder `_resolve_coordinator_root()` uses, so a copy of this script
+    inside a materialized shadow tree can never self-locate into the wrong
+    checkout. An unresolvable root raises `RuntimeError`, which `main()` reports
+    with exit 3. A plain in-process import: no RPC hop.
     """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    from cc_invoke import require_engine_on_path
+    from cc_invoke import _resolve_claude_klabauter_root
 
-    require_engine_on_path(__file__)
+    root = _resolve_claude_klabauter_root()
+    if root not in sys.path:
+        sys.path.insert(0, root)
     from coordinator_core.cli_entry import run_op_main
 
     return run_op_main

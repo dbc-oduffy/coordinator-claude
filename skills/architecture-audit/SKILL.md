@@ -1,6 +1,6 @@
 ---
 name: architecture-audit
-description: "Rotational arch audit — score systems, audit the top, package spinoffs. Never edits code."
+description: "Rotational arch audit: score systems, audit the top. No code edits."
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent"]
 argument-hint: "[system-name]"
 ---

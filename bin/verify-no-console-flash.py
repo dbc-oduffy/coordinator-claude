@@ -17,7 +17,7 @@ tree.
 # node.exe, powershell.exe) allocates a fresh conhost.exe window that briefly
 # flashes. The only reliable suppression is CREATE_NO_WINDOW / windowsHide:true
 # at the CreateProcess call — not `-WindowStyle Hidden`, which is
-# create-then-hide. See: docs/wiki/claude-code-platform-gotchas.md § Windows
+# create-then-hide. See: coordinator-content-repo coordinator/docs/wiki/claude-md-surfaces/claude-code-platform-gotchas.md § Windows
 # console window flash.
 #
 # Spec backlink: docs/plans/2026-05-29-windows-console-flash-elimination.md § Chunk 3

@@ -1,6 +1,6 @@
 ---
 name: architecture-survey
-description: "Build or refresh the architecture atlas via scout, analyst, synth."
+description: "Build or refresh the architecture atlas."
 allowed-tools: ["Agent", "Read", "Write", "Edit", "Bash", "Grep", "Glob"]
 argument-hint: "[--refresh]"
 disable-model-invocation: true
@@ -34,7 +34,7 @@ Announce the resolved mode before starting.
    settings home), so resolve it against the plugin root:
    `python <plugin-root>/bin/survey-consume-gate.py`, feeding it the JSON config
    (`repo_root`, `claude_klabauter_root`, `run_id`, `census_buckets`, `mode`, `since`, `system_dirs`,
-   `excluded_dirs`) on stdin. Capture its stdout verbatim and pass it straight into the
+   `excluded_dirs`, which is required and has no default: pass `["state/", "cross-repo/"]`) on stdin. Capture its stdout verbatim and pass it straight into the
    Workflow's `INPUT.consumeGate` — a pure pass-through, do not branch on `ok`/
    `declined_reason` here. When the gate declines (or its output is absent/malformed), the
    Workflow falls back to the agentic census wave at a known higher cost — a designed path, not
@@ -91,16 +91,14 @@ Out of scope for every agent here: `gh pr create/merge`, `git push origin main`,
 5. Atomic commit, two scoped calls, never `git add -A`:
    `git add -- docs/architecture/ state/health-ledger.md`
    A survey write is not attestation (`coordinator/docs/wiki/coordinator-tripwires/a-survey-write-is-not-an-attestation.md`):
-   `git diff HEAD -G '^last_attested:' --diff-filter=AMR --name-only -- docs/architecture/systems/`
-   must print nothing. Diffing against `HEAD` (not `--cached`) covers a late worktree edit made
-   after the `git add` above but before the commit, since the pathspec `git commit` below commits
-   the worktree contents of those paths, not the index. `--diff-filter=AMR` excludes a page the
-   survey legitimately deletes (retired/merged system) or renames from matching on its old
-   `last_attested` line — a deleted page, or a renamed page carrying an unchanged
-   `last_attested` value forward, must never be listed. Any page still listed means this run
-   wrote or bumped the audit clock: for a listed modified page, restore its `last_attested` line
-   to its `HEAD` value; for a listed new page, remove the line; re-stage and re-run this check
-   before committing.
+   `python3 ${CLAUDE_PLUGIN_ROOT}/bin/check-survey-attestation.py --repo-root .` must exit 0
+   (exit 1 lists pages; exit 2 is could-not-check). It diffs the worktree against `HEAD`, not the
+   index, so a late edit made after the `git add` above still counts: the pathspec `git commit`
+   below commits worktree contents. It lists only added, modified, and renamed pages, so a deleted
+   page, or a renamed page carrying an unchanged `last_attested` value forward, is never listed.
+   Any listed page means this run wrote or bumped the audit clock: for a modified page, restore
+   its `last_attested` line to its `HEAD` value; for a new page, remove the line; re-stage and
+   re-run the check before committing.
    `git commit -m "deep-architecture-survey: [first run|refresh] — [N] systems mapped; Last full audit bumped" -- docs/architecture/ state/health-ledger.md`
 6. Rotation target (Shape W, `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`):
    `& "$env:COORDINATOR_SETTINGS_HOME\bin\query-completions.exe" --since "30d" --where "nature=roadmap" --format json`

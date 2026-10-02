@@ -11,6 +11,7 @@
     "coordinator:staff-ux": "REJECTED"
   },
   "execute_review": {
+    "required_for_emit": ["plan", "inventory", "queue", "wave-fire-dispatch"],
     "brightline": { "op": "review_brightline_gate", "partition_on": "PARTITION-MANDATORY" },
     "stages": [
       {
@@ -29,9 +30,9 @@
         ]
       },
       {
-        "kind": "integration",
+        "kind": "judge",
         "agents": [
-          { "agentType": "coordinator:code-reviewer", "model": "opus", "effort": "low", "applies": "residue", "schema": "review-integration-result" }
+          { "agentType": "coordinator:exit-criterion-judge", "model": "opus", "effort": "medium", "schema": "terminal-judge-result" }
         ]
       }
     ]

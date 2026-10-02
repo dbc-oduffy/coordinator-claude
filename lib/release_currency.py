@@ -13,7 +13,7 @@ and never pull a Release tarball, so the Release object was never on the install
 the Release API also anchors stale when tags are cut ahead of the next drafted Release
 (the realized v2.0.0-anchoring bug). GitHub Releases are still cut for OSS changelog /
 discoverability — only the machine currency *check* moved to git-tags.
-→ docs/wiki/release-cadence-and-currency-notification.md
+→ coordinator-content-repo coordinator/docs/wiki/release-and-distribution/release-cadence-and-currency-notification.md
 
 Spec backlink: docs/plans/2026-06-01-boot-currency-notification-hook.md § C2;
   port: docs/plans/2026-07-19-debash-coordinator-windows.md (chunk E2-a).

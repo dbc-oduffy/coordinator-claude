@@ -1,6 +1,6 @@
 ---
 name: repo-setup
-description: "First-time setup for an EXISTING repo, single or fleet-wide (--batch)."
+description: First-time setup for an existing repo, single or --batch.
 version: 2.0.0
 allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskUserQuestion","TaskCreate","TaskUpdate","TaskGet","TaskList"]
 ---
@@ -16,7 +16,7 @@ allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskU
 - **Creating a NEW repo from scratch** (not onboarding an existing folder)? → use `coordinator:new-project`, which creates + scaffolds a stack + delegates the onboarding half back to this skill.
 
 **The engine repo is a hard prerequisite** — resolved via `CLAUDE_KLABAUTER_ROOT` / the machine-local
-`repos.claude_klabauter` registry entry — for coordinator-claude itself, so it must already
+`repos.claude_klabauter` registry entry (in `<settings-home>/machine-local/registry.local.toml`) — for coordinator-claude itself, so it must already
 resolve before this skill's own fences will run (private until its OSS release; the maintainer
 grants access on request, as for `project-rag`).
 

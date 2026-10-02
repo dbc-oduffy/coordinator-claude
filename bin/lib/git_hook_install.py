@@ -452,7 +452,14 @@ def _resolve_klabauter_bin_sh(script_name: str) -> Optional[str]:
 # total miss warned, so a hook running off rung 2-6 was indistinguishable from a
 # healthy one until the last fallback also died and it failed open. Installed
 # bodies carry no notice and must be rewritten to gain it.
-_HOOK_GEN_STAMP = 15
+#
+# Gen 16: inside Claude Code (`CLAUDECODE` set) the prepare-commit-msg session
+# guard refuses a commit with no session id instead of exiting 0, so it never
+# lands without a Session-Id.
+#
+# Gen 17: one body carrying both the gen-15 notice and the gen-16 refusal;
+# bodies stamped 15 or 16 lack one of them.
+_HOOK_GEN_STAMP = 17
 
 
 def _hook_gen_stamp_line() -> str:
@@ -613,8 +620,16 @@ def _shim_body(
     skip_guard = (
         f'[ -n "${skip_env}" ] && exit 0\n' if skip_env else ""
     )
+    # No session id: a human commit passes untouched, but a commit made from
+    # inside Claude Code (`CLAUDECODE` set) would land unattributed, so it is
+    # refused with the cause named -- a missing Session-Id is a defect, never
+    # a silent absence.
     session_guard = (
-        '[ -z "' + "".join(f"${v}" for v in skip_if_all_unset) + '" ] && exit 0\n'
+        '[ -z "' + "".join(f"${v}" for v in skip_if_all_unset) + '" ] && { '
+        '[ -n "$CLAUDECODE" ] && { echo "[coordinator] refused: no session id in env '
+        '(' + ", ".join(skip_if_all_unset) + '), so this commit would land without '
+        'Session-Id. Export COORDINATOR_SESSION_ID=<session id> and retry." 1>&2; exit 1; }; '
+        'exit 0; }\n'
         if skip_if_all_unset
         else ""
     )

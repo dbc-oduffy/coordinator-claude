@@ -43,6 +43,15 @@ import sys
 
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
+
+def _fd_or_none(stream):
+    """The stream's OS fd, or None (inherit) for a fileno-less stream."""
+    try:
+        return stream.fileno()
+    except (AttributeError, ValueError, OSError):
+        return None
+
+
 EXIT_PASS = 0
 EXIT_FAIL = 1
 EXIT_UNSTABLE = 2
@@ -227,7 +236,15 @@ def main(argv: list[str] | None = None) -> int:
 
     for attempt in range(1, max(1, args.attempts) + 1):
         head_before, dirty_before = _corpus_fingerprint()
-        completed = subprocess.run(command, check=False, creationflags=_NO_WINDOW)
+        # Real fds handed over: CREATE_NO_WINDOW with no stream kwarg sends the
+        # suite's output into an unreadable console on Windows.
+        completed = subprocess.run(
+            command,
+            check=False,
+            creationflags=_NO_WINDOW,
+            stdout=_fd_or_none(sys.stdout),
+            stderr=_fd_or_none(sys.stderr),
+        )
         head_after, dirty_after = _corpus_fingerprint()
 
         # A None on either side means git

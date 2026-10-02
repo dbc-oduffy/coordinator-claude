@@ -1,6 +1,6 @@
 ---
 name: coordinator:eval-output
-description: "Scores a research output against the 5-criteria rubric via Sonnet."
+description: Score a research output on the 5-criteria rubric.
 version: 1.0.0
 ---
 

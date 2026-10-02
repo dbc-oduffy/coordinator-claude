@@ -143,7 +143,6 @@ from __future__ import annotations
 import importlib.util
 import os
 import random
-import re
 import signal
 import subprocess
 import sys
@@ -154,6 +153,10 @@ from typing import Optional
 _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
+_FM_LIB_DIR = str(Path(__file__).resolve().parents[2] / "lib")
+if _FM_LIB_DIR not in sys.path:
+    sys.path.insert(0, _FM_LIB_DIR)
+from frontmatter_scan import read_text, scan_frontmatter  # noqa: E402
 try:
     from _engine_root import resolve_claude_klabauter_root
 except Exception:
@@ -343,9 +346,6 @@ def _record_failure(
         pass
 
 
-_FRONTMATTER_KV_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*):\s*(.*?)\s*$")
-
-
 def _claude_home() -> Path:
     """Resolves the $HOME analog for this hook's own settings-home lookup.
 
@@ -410,22 +410,8 @@ def _read_cache_head(repo_root: str) -> Optional[str]:
     prove it is fresh is not fresh; see `_cache_is_stale`'s docstring).
     """
     cache_path = Path(repo_root, "state", "orientation_cache.md")
-    try:
-        text = cache_path.read_text(encoding="utf-8")
-    except OSError:
-        return None
-    if not text.startswith("---"):
-        return None
-    parts = text.split("---", 2)
-    if len(parts) < 3:
-        return None
-    frontmatter = parts[1]
-    for line in frontmatter.splitlines():
-        match = _FRONTMATTER_KV_RE.match(line)
-        if match and match.group(1) == "git_head_at_generation":
-            value = match.group(2).strip()
-            return value or None
-    return None
+    value = scan_frontmatter(read_text(cache_path)).get("git_head_at_generation")
+    return value if isinstance(value, str) and value else None
 
 
 def _read_current_head(repo_root: str) -> Optional[str]:

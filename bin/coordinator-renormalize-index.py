@@ -44,7 +44,7 @@ exactly; see that module's docstring for the full contract):
       engine-root resolution failed, or coordinator_core.ops.renormalize_index not
       importable.
 
-Spec backlink: docs/wiki/concurrent-em-hazards.md § H23.
+Spec backlink: coordinator-content-repo coordinator/docs/wiki/concurrent-em-git-operations/concurrent-em-hazards.md § H23.
 
 DR-276: routed through `coordinator_core.cli_entry.run_op_main` rather than a
 plain in-process `import ... as _op_main` + `sys.exit(op_main(argv))` tail, so

@@ -9,7 +9,7 @@ argument-hint: "[optional context]"
 
 Close out a finished vein of work. No handoff — this is for work that's *done*.
 
-> **Mutual exclusion with `/handoff`.** This caps a workstream; `/handoff` passes one on. In-flight work → STOP, use `/handoff`. Two workstreams (one done, one live) → end each separately, naming which.
+> **Mutual exclusion with `/handoff`.** This caps a workstream; `/handoff` passes one on. In-flight work → STOP, use `/handoff`. Two workstreams (one done, one live) → end each separately, naming which. Exception: the review-owed-close class (`coordinator/skills/handoff/SKILL.md` § Step 0, trigger 4) → the trampoline, § Resolve judgment points.
 
 This ceremony is computed end to end — session-shape, plan reconciliation, lessons, completion-entry, memo lifecycle, scratch self-clean, orientation refresh, and commit-tail ship as `directives[]`; what cannot be resolved ships as `judgment_points[]`. Never recompute by hand what a field already answers.
 
@@ -47,7 +47,7 @@ Returns `artifact`/`preflight`/`gates`/`directives`/`judgment_points`/`decisions
 - **Execution-observations fold**: read each sidecar's `divergence` as quoted narrative, never EM-authored prose; surface a crashed-executor marker before deleting it. For a plan carrying a `## Tasks` spine, cite `plan-completeness status <plan-path>`'s divergence rollup — including its non-conformant count — rather than re-reading N per-chunk sidecars one at a time; a plan predating the spine still reads sidecars directly.
 - **Memo-resolution / self-clean disposition**: no signal for which memos resolved, or which scratch files to keep — ask/decide once, plain prose; evidence is surfaced, never picked.
 - **Session Ledger row append** (predecessor-consumed only): one row to the consumed handoff's `## Session Ledger` — the sole edit `/pickup`'s frozen-body rule carves out. Append via the `handoff.append_session_ledger` engine op, never a hand-typed row.
-- **Prime exit criterion assertion**: a plan this session executed whose `exit_criterion_met` is absent blocks the close — no directive computes it. `asserted: false` is a legitimate, first-class outcome and does not block: it routes to `/handoff` or a Phase-5 halt.
+- **Prime exit criterion assertion**: a run-stamped plan already carries `exit_criterion_met`; verify it, never recompute. Absent blocks; `asserted: false` routes to `/handoff` or a Phase-5 halt. [terminal-judge](../../docs/wiki/reviewer-pipeline/terminal-judge.md); `A-PLAN-SELF-COMPLETES-ONLY-ON-A-MET-TERMINAL-JUDGE`.
 - **Terminal-baton drain — MANDATORY, and the last thing this ceremony does.** No directive
   performs it and nothing downstream catches the miss.
   1. Hand-stamp `deployment_state`/`shipped_in` on **only** the two batons § Apply's carve-out
@@ -70,6 +70,7 @@ Returns `artifact`/`preflight`/`gates`/`directives`/`judgment_points`/`decisions
   an unrouted Kira verdict blocks the next turn end once (`stop_hook_active` passes it on replay)
   and surfaces the owed route — no warn tier, no override. Tripwire:
   `KIRA-ROUTING-IS-STAMPED-NOT-REMEMBERED`.
+- **An idle subagent has not failed.** A review that never delivered its verdict is recovered from its transcript under `subagents/` (`stop_reason: end_turn` means it finished), never replaced with `em-verified` — that overwrites an independent finding with the author's own. `AN-IDLE-SUBAGENT-HAS-NOT-NECESSARILY-FAILED`.
 
 ---
 
@@ -80,45 +81,64 @@ same artifacts on disk, could reasonably answer it differently.** `A-FACT-WITH-A
 
 **3 classes.** 1 = CLI-computable (not listed here). 2 = interpretation, but not *this EM's* — the
 passage raising it already specifies the inputs and closes the output enum, so a differing answer
-is demonstrably wrong, not merely differently defensible; demote off the EM's plate when a
-demotion path exists, and when none does it is carried as a judgment point **by necessity**, named
-as such. 3 = judgment/taste/tradeoff — two competent EMs can disagree and both be right. **Do not
-author a fact as a judgment point when the same passage specifies its inputs and output enum** —
-that is class 2, not class 3. Calibration: `completion-nature-classification` (four inputs, closed
-output enum off the diff — a differing classification is demonstrably wrong) is class 2;
-`finding-tradeoff-escalation-check` (below) takes a diff and a
-review posture but closes on no enumerable output — two competent EMs weigh a tradeoff
-differently and both are defensible, so it stays class 3. A re-test names a class per item it
-**keeps**, not only those it demotes — a keep with no stated class is the tell the test was not
-applied.
+is demonstrably wrong, not merely differently defensible; demote when a demotion path exists,
+else carry it as a judgment point **by necessity**, named as such. 3 = judgment/taste/tradeoff —
+two competent EMs can disagree and both be right. **Do not author a fact as a judgment point when
+the same passage specifies its inputs and output enum** — that is class 2. Calibration:
+`completion-nature-classification` (four inputs, closed output enum off the diff) is class 2;
+`finding-tradeoff-escalation-check` (below) takes a diff and a review posture but closes on no
+enumerable output, so it stays class 3. A re-test names a class per item it **keeps**, not only
+those it demotes — a keep with no stated class is the tell the test was not applied.
 
-**A shipped `recommendation` is applied by default and shown, not asked** — carry it into the decisions map and report what was filed as a receipt (`completion-nature-classification`/`jp-coverage-verdict` both ship one). A null earns attention only when genuine: `jp-session-shape` always, tail-blocking scaffold/commit-subject/consumed-handoff whenever they fire. Blocked computation or a missing producer is a break-class engine defect — resolve cheaply or memo, once confirmed absent.
+**A shipped `recommendation` is applied by default and shown, not asked** — carry it into the decisions map and report what was filed (`completion-nature-classification`/`jp-coverage-verdict` both ship one). A null matters only when genuine: `jp-session-shape` always, tail-blocking scaffold/commit-subject/consumed-handoff when they fire. Blocked computation or a missing producer is a break-class engine defect — resolve cheaply or memo, once confirmed absent.
 
-**`jp-session-shape` is honoured by the tail but never reflected back in `brief`'s gate readout** — a re-`brief` still shows `gates.session_shape.disposition` at the original detector verdict, exit 0, no diagnostic. That is not a discarded decision: confirm from `apply`'s own output, never by re-`brief`, and never re-answer or reach for `override-known-in-flight`.
+**`jp-session-shape` is honoured by the tail but never reflected back in `brief`'s gate readout** — a re-`brief` still shows `gates.session_shape.disposition` at the original detector verdict, exit 0, no diagnostic. Not a discarded decision: confirm from `apply`'s output, never re-`brief`, never re-answer or reach for `override-known-in-flight`.
 
-**The rest — read the object.** Every point not named here carries its own prompt/evidence on `judgment_points[]`.
+**The rest — read the object.** Unnamed points carry their own prompt/evidence on `judgment_points[]`.
 
-**Completion entry:** TITLE + ≤8-sentence body, banned sections `## Reviewer chain`, `## Deviations from plan`, `## Acceptance criteria`, `## Universal lessons captured`. `d-complete-entry` scaffolds placeholders only — hand-write the resolved title/prose/nature before commit-tail; a placeholder-carrying scaffold is refused.
+**Completion entry:** TITLE + ≤8-sentence body, banned sections `## Reviewer chain`, `## Deviations from plan`, `## Acceptance criteria`, `## Universal lessons captured`. With run receipts, `d-complete-entry` scaffolds a meta-entry with `receipts` (`commits`,`loe` derived); write only title/prose/nature, never receipt fields (`completion-receipts.md`).
 
-**Review — 4 class-3 survivors, no mechanical rule for any**, so none demotes: `shared-schema-touch-check`, `governing-spec-identification`, `finding-tradeoff-escalation-check`, `shallow-row3-waive-check` (`coordinator/docs/wiki/ceremony-calibration/close-ceremony-residue.md` § Review class-3 survivors). The other four named there historically — `review-partition-strategy`, `reviewer-count-on-oracle-disagreement`, `review-dispatch-vehicle-choice`, `quota-retry-vs-escalate` — no longer exist as judgment points of this ceremony: partitioning, dispatch-vehicle choice, and quota handling now live inside the execute workflow's review stage (`coordinator/skills/execute-plan/SKILL.md`, `review-brightline-gate`).
+**Review — 4 class-3 survivors, no mechanical rule for any**, so none demotes: `shared-schema-touch-check`, `governing-spec-identification`, `finding-tradeoff-escalation-check`, `shallow-row3-waive-check` (`coordinator/docs/wiki/ceremony-calibration/close-ceremony-residue.md` § Review class-3 survivors). The other four named there — `review-partition-strategy`, `reviewer-count-on-oracle-disagreement`, `review-dispatch-vehicle-choice`, `quota-retry-vs-escalate` — are not judgment points of this ceremony: they live inside the execute workflow's review stage (`coordinator/skills/execute-plan/SKILL.md`, `review-brightline-gate`).
 
 **Verify once and trust it:** a close-time suite or oracle check runs once, foreground — no rerun loops, no background waiters (`coordinator/docs/wiki/test-design-discipline.md` § Verify once and trust it).
 
 **L+ code-quality trigger — a separate derivation, not a parameter on Scale's measurement.** Scale
 keys off *measured* `gross_loc`/`commit_count`/`surface_count` (`commit_count` excludes zero-diff bookkeeping commits; `surface_count` counts all); L+ answers *how big was this meant
 to be* and keys off the **cited sizing-object's `estimate.tshirt`** — resolve the closing plan's
-`sizing_object:` frontmatter citation and read `estimate.tshirt` off the artifact it names. The
-only keying surface: `plan.schema.json` carries no t-shirt field of its own and none is added here
-(a second size per plan would drift). Fires at `L` or `XL`. Never reach for Scale's measured
+`sizing_object:` frontmatter citation and read `estimate.tshirt` off the artifact it names. `plan.schema.json`
+carries no t-shirt field and none is added here. Fires at `L` or `XL`. Never use Scale's measured
 computation to answer it.
 
 **The review record is the plan's `review_stamp`, not something this ceremony runs or dispatches.**
 For a plan-bearing close, code review already ran and integrated as review stages of the emitted
-execute-plan workflow; `review-stamp mint` recorded the outcome on the plan before this ceremony
-ever starts, and `gates.review_receipt` reads that `review_stamp` (MK2). This ceremony reads the
-gate; it never dispatches a reviewer, computes a scale, or writes a trail record to produce one.
-For a close with **no** governing plan, the ad-hoc route is `/review-code`, and the terminal-review
-Stop gate still holds regardless of route.
+execute-plan workflow; `review-stamp mint` recorded the outcome on the plan, via `terminal_commit`
+(never re-minted by hand), before this ceremony starts; `gates.review_receipt` reads that
+`review_stamp` (MK2). Where that stamp exists, this ceremony reads the gate and writes no trail.
+**Review absent at close → this ceremony dispatches review; there is no skip.** A close with no
+governing plan, or a plan whose `review_stamp` is missing (a mise-en-place landing included), runs
+`/review-code` over the close's diff before `apply` — at least one reviewer, partitioned when the
+diff is PARTITION-MANDATORY. Never dispose the gap with `proceed-unresolved` or any other skip; an
+absent review is not an EM confirmation to give. The terminal-review Stop gate still holds
+regardless of route.
+
+**Hand-measuring the brightline is a last resort, never a shortcut past the gate** — only once
+`stage_paths` has been supplied and `review_scale` still returns `resolved: false`. **Sum
+per-owned-commit diffs** (`<sha>~1..<sha>` each — `~1`, never `^`: cmd.exe eats a literal `^` in
+argv on Windows), **never a range across `oldest..newest` — a shared branch adds every peer commit
+landed in the window (specimen: 33,246 LOC against its own 16,037)**, and **count code only**
+(`.md`/`.yaml`/`.yml` excluded). Method and evidence: `coordinator/docs/wiki/ceremony-calibration/workstream-complete-review.md`
+§ Hand-measuring the brightline.
+
+**The trampoline — hand the whole ceremony to a fresh session rather than cap with the review unrun.** Low
+context is not a trigger-4 reason; it takes the ordinary `/handoff` route. When the owed review is
+genuinely un-runnable here (`coordinator/skills/handoff/SKILL.md` § Step 0, trigger 4 — a ratified
+closed class, never admitted by analogy), exit via `/handoff` naming which member fires and the
+event outside this session's reach that clears it.
+
+**Capping with the review unrun is forbidden; `verdict: pending` is not the escape hatch.** Tells
+to trampoline instead: "the next session can review this"; `reviewer: waived` paired with a
+non-`waived` verdict; a range narrowed to one commit because the honest range was refused;
+"mandatory" reasoned as advisory. Tripwire: `PARTITION-MANDATORY`.
 
 **A chain-ancestry waiver is provenance, not review discharge — it does not clear a HALT.** `certifies_review: false` reads "ancestry NOT reviewed," and re-running does not clear it either. Tripwire: `WAIVER-IS-PROVENANCE-NOT-DISCHARGE`.
 
@@ -129,11 +149,10 @@ Stop gate still holds regardless of route.
 **Case (c) is not always an orphan** — often a live peer's in-flight files. `brief` classifies
 a/b/c mechanically and surfaces the peer-vs-orphan call as `concurrent-peer-attribution`;
 disposing case (c) is EM judgment, weak/contradictory signals default to case (c), never a guess.
-**If a peer is plausibly live, never stash or adopt their paths** — commit only your own files by
+**If a peer is plausibly live, never adopt their paths** — commit only your own files by
 explicit path. Once ruled out, take exactly one, never terminate with case-(c) files dirty and
-unnamed: **commit** with provenance (per `snippets/scoped-commit-route.md`); **stash with
-provenance** (`git stash push -u -m "orphaned-WT <date> workstream-complete: <path> — left by unknown session" -- <path>`);
-or **leave it explicitly owned by X**. Orphan `.tmp.<pid>.<nanos>` files are an Edit-tool crash
+unnamed: **commit** with provenance (per `snippets/scoped-commit-route.md`), or **leave it
+explicitly owned by X**. Never `git stash` — on a shared tree it captures every peer's work. Orphan `.tmp.<pid>.<nanos>` files are an Edit-tool crash
 artifact — diff before deleting.
 
 ---
@@ -151,8 +170,13 @@ object whose keys are *either* a `judgment_point_id` (value `{"disposition": "<v
 across spine rows of the plan whose frontmatter `deliverable_id` matches the baton —
 grep-resolvable, the only declared source; no `deliverable_paths` key exists anywhere, and
 `deliverable_id` is plan-level, never per-row. No such plan → no `shipped` arm. `shipped_in` is
-the last commit in this session's own owned-commit list touching those paths, filtered on
-path-touch — **never** the code-only `.md`/`.yaml`/`.yml`
+the last commit in this session's own owned-commit list touching those paths — the commit after
+which the baton's acceptance criteria hold. Resolve it by this session's own owned-commit
+enumeration, sliced `<sha>~1..<sha>` per commit as § Resolve judgment points slices the brightline
+walk (never an `oldest..newest` range, which attributes peer commits on a shared branch), filtered
+on path-touch. This is its own step, reusing the slicing convention only: not the brightline walk's
+conditional trigger (it runs only once `stage_paths` is supplied and the gate still will not
+resolve), and **never** its code-only `.md`/`.yaml`/`.yml`
 filter, which discards the doc-only commits batons usually ship in. One full-length sha per baton
 (`git rev-parse` form) — never a range, PR ref, list, or the close's own commit-tail sha; the
 engine derives and defaults none. **No fallback arm**: no commit touched the deliverable → not
@@ -161,7 +185,7 @@ nearest sha.
 
 **An entry is silently dropped unless three preconditions hold**: an object (never a bare string); this session holds the claim; the record is still active under `state/handoffs/` at `apply` invocation (not a later commit-tail moment). Miss one and `apply` drops the entry with no error — a silent skip, not a raised error. **Separately, reachability**: the whole disposition leg runs only when `decisions` also carries a `subject` — a payload emitted on a close with no `subject` is read by nothing.
 
-**Two reachable states get no entry at all — deliberate omission, a narrow named carve-out, never the memo's blanket exclude-by-omission rule (which told this repo to omit every non-`shipped` baton and starved the disposal leg).** (1) The deliverable is carried only by the close's own commit: no `shipped_in` sha exists yet, no `closed_reason` is honest, `continued` is refused. **Payload: omit the baton**, and the terminal stamp is owed to the residual hand route (§ Genuine EM actions). (2) The record was already archived — typically by `/handoff`'s supersession route, the only writer of `deployment_state: continued`, which archives the predecessor in the same move on a clean chain. **Payload: omit the baton.** **Nothing wider** — a `closed`/`abandoned`/`continued` baton outside these two named states is always emitted.
+**Two reachable states get no entry at all — deliberate omission, a narrow named carve-out, never the memo's blanket exclude-by-omission rule (which told this repo to omit every non-`shipped` baton and starved the disposal leg).** (1) The deliverable is carried only by the close's own commit: no `shipped_in` sha exists yet, no `closed_reason` is honest, `continued` is refused. **Payload: omit the baton**, and the terminal stamp is owed to the residual hand route (§ Genuine EM actions). (2) The record was already archived — typically by `/handoff`'s supersession route, the only writer of `deployment_state: continued`, which archives the predecessor in the same move on a clean chain. **Payload: omit the baton**; any stamp still owed is the same residual hand route. **Nothing wider** — a `closed`/`abandoned`/`continued` baton outside these two named states is always emitted.
 
 **The payload implies a ceremony order — transition, dispose, archive — not optional.** `continued` is refused unless `deployment_state` already reads `continued` (transition before disposal); disposition is refused once the record has left `state/handoffs/` (disposal before archival, never after). A successful disposal releases this session's claim; `closed`/`abandoned` alike land the record at `deployment_state: closed`.
 
@@ -177,27 +201,27 @@ as leaving nothing landed.** Then, still yours to make:
    commit and never carrying the stamps itself.
 2. **Nothing** — for a plan-bearing close, the review record is the plan's `review_stamp`, minted
    before this ceremony ran; confirm `gates.review_receipt.blocks` is `false` and name any gap in
-   the summary. For a close with no plan, confirm `/review-code` ran on the ad-hoc route.
+   the summary. Where review was absent, the `/review-code` dispatch above already ran before
+   `apply`.
 
 Once the close commit(s) land, best-effort trigger project-rag's SCIP rebuild in the background —
 never waits, never blocks this ceremony: `"$_py"
 "${CLAUDE_PLUGIN_ROOT:-<content-root>/coordinator}/bin/scip-rebuild-at-ceremony.py" --ceremony
 workstream-complete` (§ Plugin-local `coordinator/bin/`, `resolve-coordinator-bin.md`).
 
-**The terminal stamp is gated engine-side, and a blocked stamp is not a failed one.**
-`d-stamp-plan-implemented` carries three empty-`resolves` judgment points on its `depends_on`:
+**A run-stamped plan already carries `implemented`; the ceremony verifies it, never restamps.**
+Where `terminal_commit` did not stamp, `d-stamp-plan-implemented` is gated engine-side (a blocked stamp is not a failed one) and carries three empty-`resolves` judgment points on its `depends_on`:
 `jp-open-spine-rows-block-stamp` (unwaived `open` rows, or `indeterminate`),
 `jp-landed-reconciliation-block-stamp` (plan `landed` with unticked ACs),
 `jp-review-receipt-block-stamp`. An unresolved one lands in `report["blocked"]` under
 `HALTED_AT_JUDGMENT`, **not** `report["failed"]` — a close exits non-failing with no stamp.
-`waived_open_spine_row_ids` clears leg 1's `applicable` arm only, never `indeterminate`. Never
-build a doctrine gate beside these — report the incomplete, resolve the leg. Tripwire:
+`waived_open_spine_row_ids` clears leg 1's `applicable` arm only. Never build a doctrine gate
+beside these — report the incomplete, resolve the leg. Tripwire:
 `AN-HONEST-INCOMPLETE-DOES-NOT-EARN-THE-WRAP-OFFER`.
 
 **A stamp line can carry a failed archival move.** The sweep reports `status draft -> implemented`
-and `N of M moves failed` on one line — read all of it and move any remainder, or the plan's
-`.workflow.mjs`/`.emitted.json` sidecars stay orphaned in `docs/plans/` while the plan sits in
-`archive/specs/`.
+and `N of M moves failed` on one line — move any remainder, or the plan's
+`.workflow.mjs`/`.emitted.json` sidecars stay orphaned in `docs/plans/`.
 
 `apply` prints diagnostics on every non-zero exit — read them, don't memorize codes. Exit `2` (`DIRECTIVE_FAILED`) = nothing landed; exit `4` (`PARTIAL_MUTATION`) = some landed, some failed. A client-side timeout is not a failure signal — reconcile against actual commit state before re-running.
 
@@ -209,7 +233,7 @@ Push runs on a cadence, not on this commit: `push_status` `"cadence-pending"`, `
 
 A residual discovered mid-execution never counts in the harvest — `Queued 0` reads as "nothing left behind." One disposition per item; nothing to sweep is ordinary — omit the line. **Default is fix it now**; routing elsewhere costs a named reason from a closed class: `peer-contention`, `other-repo`, `own-plan`, `irreversible`, `not-real` — in full, `coordinator/docs/wiki/ceremony-calibration/workstream-complete-review.md` § Execution-residual reason classes. A break-class residual with none of the five is fixed, not filed. The auto-memory drain gate runs only at `/workday-complete`/`/workweek-complete`, never here.
 
-**Touch-claim release, same step.** Before reporting complete, run `who-claims-path <repo-relative-path>` over every path this session touched and release each hit (`session-claim-cli release-artifact artifact <path>`). `list-claims-by-session` never sees path-touch claims — its clean output proves nothing. A `coordinator-safe-commit` already retired what it committed; paths edited after that commit are where claims leak. `coordinator/docs/wiki/coordinator-tripwires/touch-claim-retirement-is-commit-path-specific-who-claims-path-is-the-only-instrument-that-sees-it.md`.
+**Touch-claim release, same step.** Before reporting complete, run `session-claim-cli list-claims-by-session <sid>` — its `path\t<p>` lines are this session's live path-touch claims — and release each one this session does not need (`session-claim-cli release-artifact artifact <path>`). A `coordinator-safe-commit` already retired what it committed; paths edited after that commit are where claims leak. `coordinator/docs/wiki/coordinator-tripwires/touch-claim-retirement-is-commit-path-specific-who-claims-path-is-the-only-instrument-that-sees-it.md`.
 
 **Spinoff overlap re-check, same step.** `/pickup`'s "no overlapping handoff" reconcile is point-in-time — a concurrent peer can fork a handoff for the same scope while this session planned, reviewed, and executed, so the pickup-time finding does not stay true through to close. Before reporting complete, list every open (`kind: spinoff`) handoff this session or its chain authored, and for each, <!-- VERBATIM -->`git log --since=<its authored-at> -- <its named scope/paths>` against `state/handoffs/` and the scope paths themselves. A hit means the scope landed (by this session or a peer) since the spinoff was forked — surface it to the PM as a candidate for `superseded`/`consumed` rather than leaving a stale spinoff open for a peer to pick up. No hit is the ordinary case — omit the line. `coordinator/docs/wiki/ceremony-calibration/workstream-complete-review.md` § Re-check for overlapping peer spinoffs at workstream-complete.
 

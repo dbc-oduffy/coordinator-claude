@@ -82,8 +82,6 @@ frontmatter: it is the same minted identity on every box, and putting it machine
 the key needed to read the machine-local store unreachable without already having it. A provider launching its own Perforce server connection
 (for example p4mcp) takes identity from these keys instead of keeping a second copy.
 
-<!-- Review: EM disposition #3, prompted by example-game-workbench-repo-10's blocking question — names
-     how a provider reads the machine-local store, not just what writes it. -->
 A provider reads these keys through the `machine-local` CLI, never by path: `machine-local get
 p4.<repo_key>.port` for one key, `machine-local dump` for a batch read of all of them in one
 process rather than one per key. `machine-local has <key>` exits 0 when the key is set, 1 when

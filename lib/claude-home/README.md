@@ -71,7 +71,7 @@ Templates are scaffolding the installer copies out — operator-owned post-insta
 ## Tests
 
 ```bash
-python plugins/coordinator/lib/claude-home/tests/test_claude_home.py
+python plugins/coordinator-claude/coordinator/lib/claude-home/tests/test_claude_home.py
 ```
 
 Stdlib-only; runs anywhere Python 3.9+ runs. 16 tests covering the full surface. CI gate (when one exists) should fail if any test fails — this is load-bearing infrastructure.

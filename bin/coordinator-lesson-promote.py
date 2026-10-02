@@ -69,7 +69,7 @@ the generic promotion-target field for EVERY change_kind, not only wiki entries 
 `skill-edit` promotion stores a `SKILL.md` path here, a `script-edit` promotion
 stores a `bin/` script path. Only `wiki-new` and `wiki-append` (the two schema
 change_kind members whose semantics are unambiguously wiki-targeting — see
-docs/wiki/lessons-outbox-schema.md § Change-kind enum) run through
+Coordinator-content-repo coordinator/docs/wiki/schema-and-validation-contracts/lessons-outbox-schema.md § Change-kind enum) run through
 _normalize_target_wiki and the central-wiki-inventory check below. Every other
 change_kind's --target-wiki passes through completely UNCHANGED and UNVALIDATED.
 Negative-spec: this CLI previously ran BOTH the collapse and the inventory check
@@ -784,7 +784,7 @@ def main(argv: list[str] | None = None) -> int:
     # promotion-target field for every change_kind, not only wiki entries — a
     # skill-edit promotion stores a SKILL.md path here, not a central-wiki name.
     # Only wiki-new/wiki-append (the schema's wiki-targeting change_kinds — see
-    # docs/wiki/lessons-outbox-schema.md § Change-kind enum) run the directory
+    # coordinator-content-repo coordinator/docs/wiki/schema-and-validation-contracts/lessons-outbox-schema.md § Change-kind enum) run the directory
     # collapse and the central-wiki-inventory check; every other change_kind's
     # --target-wiki passes through UNCHANGED and UNVALIDATED.
     if args.change_kind in _WIKI_TARGETING_CHANGE_KINDS:

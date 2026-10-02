@@ -42,7 +42,7 @@ Three of the four legs are detection. This one is not, and building it as a matc
 mistake the fragment exists to prevent.
 
 Who a gate is addressed to is frequently a peer **team** rather than a role word — "coordinate
-with `claude-klabauter-em`", "ask whoever owns the ingest path". Resolving that takes knowledge of
+with the engine team", "ask whoever owns the ingest path". Resolving that takes knowledge of
 the fleet and of who is actually on the hook for the thing, and no term list holds it. So the leg
 carries `judgment_required: true` and `surfaces_as: "judgment_point"`: the floor's role words fire
 mechanically, and everything past them surfaces as an offer to the EM rather than a silent yes or

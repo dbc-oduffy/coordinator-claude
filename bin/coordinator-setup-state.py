@@ -5,7 +5,7 @@ coordinator_core.ops.coordinator_setup_state.
 
 Single writer/reader primitive for the coordinator setup/orientation milestone
 receipt at ~/.claude/coordinator-setup-state.yaml. This is a RECEIPT in the
-sense of docs/wiki/plugin-identity-and-health-sentinels.md — written by the
+sense of coordinator-content-repo coordinator/docs/wiki/install-playbook-rationale/plugin-identity-and-health-sentinels.md — written by the
 actor whose action it witnesses, stale = signal not lie. It is the cross-repo
 chaining contract: sibling (branch/leaf) repos read it to confirm coordinator
 is bootstrapped before chaining their own setup/orientation after it.
@@ -40,7 +40,7 @@ coordinator-auto-push — a claude-klabauter-link failure here exits 2, mirrorin
 oracle's own usage() exit code for malformed invocations, rather than
 swallowing to 0.
 
-Spec backlink: docs/wiki/coordinator-setup-state-receipt.md
+Spec backlink: coordinator-content-repo coordinator/docs/wiki/install-playbook-rationale/coordinator-setup-state-receipt.md
 Port of: coordinator/bin/coordinator-setup-state.py (bash body retired on
          cutover; see git log)
 Port backlink: docs/plans/2026-07-16-bash-clean-slate-residual-migration.md

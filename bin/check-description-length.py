@@ -11,7 +11,7 @@ Assert each enabled SKILL.md description fits its budget. Three-tier limit:
 
 Advisory-only caller: /workweek-complete captures this script's stdout/rc
 without propagating a non-zero exit to the ceremony (see
-docs/wiki/workday-workweek-cadence.md).
+Coordinator-content-repo coordinator/docs/wiki/ceremony-calibration/workday-workweek-cadence.md).
 
 Port target: coordinator_core.ops.check_description_length (claude-klabauter).
 """

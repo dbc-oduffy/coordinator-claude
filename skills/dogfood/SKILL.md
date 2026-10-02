@@ -1,6 +1,6 @@
 ---
 name: dogfood
-description: "Fix-through loop — invoke a new thing, fix bugs until it works."
+description: "Fix-through loop: invoke a new thing, fix until it works."
 triggers:
   - /dogfood
   - dogfood <target>
@@ -54,7 +54,7 @@ plus a coverage overlay, not a separate activity.
    surface it and force a confirm: *"This phrase invites file-and-defer. Confirm dogfood
    fix-through posture, not verification-only."* Fix-through is the default; PM overrides only
    with explicit reasoning.
-   <!-- engine-gap: field=dogfood.framing_audit_signal producer=unknown memo=2026-08-14-coordinator-content-repo-em-three-cut-obligations-from-the-corpus-grind.md -->
+   <!-- engine-gap: field=dogfood.framing_audit_signal producer=unknown memo=engine-gap-markers-name-a-memo-that-was-never-filed.md -->
 4. **Coverage matrix** (`--shakedown` only). PM declares the matrix at invocation; persisted to
    `tasks/dogfood-<target>-<date>/coverage-matrix.md`. Without one, shakedown degrades to
    `--broad` and the EM surfaces that before entering the loop.
@@ -86,7 +86,7 @@ fix the inconsistent signal, not the channel that told the truth.
   skips are forbidden.
 
 Skip-ratio and consecutive-skip thresholds: wiki.
-<!-- engine-gap: field=dogfood.skip_ratio producer=unknown memo=2026-08-14-coordinator-content-repo-em-three-cut-obligations-from-the-corpus-grind.md -->
+<!-- engine-gap: field=dogfood.skip_ratio producer=unknown memo=engine-gap-markers-name-a-memo-that-was-never-filed.md -->
 
 ### Per-Iteration Mode Artifact
 

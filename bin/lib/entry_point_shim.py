@@ -71,7 +71,7 @@ import io
 import os
 import sys
 from pathlib import Path
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Tuple
 
 BIN_DIR = Path(__file__).resolve().parent.parent
 
@@ -187,6 +187,32 @@ def _recover_json_payload_argv(name: str, argv: List[str]) -> List[str]:
 
 class UnknownTargetError(LookupError):
     """Raised when a requested subcommand name is not one of ASSEMBLE_TARGETS."""
+
+
+def parse_batch(argv: List[str], targets: "tuple[str, ...]") -> List[Tuple[str, List[str]]]:
+    """Split a batched dispatcher argv into ``(name, args)`` pairs.
+
+    A subcommand's args run to the next recognized name in ``targets``, or
+    start after a literal ``--`` directly following the name (consumed, not
+    forwarded) so an arg equal to another target's name can be passed.
+    Raises ``UnknownTargetError`` on a name outside ``targets``.
+    """
+    batch: List[Tuple[str, List[str]]] = []
+    i = 0
+    n = len(argv)
+    while i < n:
+        name = argv[i]
+        if name not in targets:
+            raise UnknownTargetError(name)
+        i += 1
+        if i < n and argv[i] == "--":
+            i += 1
+        args: List[str] = []
+        while i < n and argv[i] not in targets:
+            args.append(argv[i])
+            i += 1
+        batch.append((name, args))
+    return batch
 
 
 def _record_invocation(name: str) -> None:

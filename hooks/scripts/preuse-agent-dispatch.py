@@ -11,12 +11,13 @@ state/audits/2026-08-16-doe-hook-consolidation-feasibility.md).
 
 THIS IS HOSTING ONLY, NEVER A POLICY CHANGE to the four guards: same deny/allow
 text, override hatches, ordering, and fail-open/fail-closed contracts each
-guard's own module docstring states. The one judgement this file owns is the
-REPO-LESS CWD REFUSAL, which runs before guard 1: a sidecar-eligible dispatch
+guard's own module docstring states. This file owns two judgements of its own.
+The REPO-LESS CWD REFUSAL runs before guard 1: a sidecar-eligible dispatch
 (policy `report_sidecar:`) whose payload `cwd` sits in no git repo -- a
 multi-repo parent directory -- is denied, naming the repos the brief's absolute
 paths point at. SubagentStart provisioning anchors on that cwd and cannot refuse,
 so the child would start and then block. Fail-open on every unknowable input.
+The other is the one advisory under SKILL-STAGE BRIEF ADVISORY below.
 
 AGGREGATION CONTRACT -- FIRST-DENY-WINS, NON-DENY OUTPUT COMPOSES. Guards 1-3
 run in registration order (each guard's own `hooks/REGISTRATIONS.md` section
@@ -76,6 +77,13 @@ before, so a guard's own module-level code (there is none here that calls
 sibling engine-plane checkout, via `_engine_root`'s own resolver) --
 untouched, out of scope for this shared-root injection.
 
+SKILL-STAGE BRIEF ADVISORY (SKILL-STAGE-BRIEF-ADVISORY). The one check this
+file owns rather than hosts: a non-coordinator Agent prompt naming two or more
+of the skill stages in `_SKILL_STAGES` gets an `additionalContext` advisory
+pointing at `Skill(coordinator:<stage>)`. Advisory only, never a deny; it runs
+after the guards, so a deny suppresses it. One regex over the prompt, no import
+or spawn -- it sits on the Agent hot path.
+
 Negative spec: do not add a fourth guard here without updating this module's
 docstring and the `hooks.json` comment naming the fold set; do not collapse
 the first-deny-wins short-circuit into concatenate-all; do not drop a non-deny
@@ -91,6 +99,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -130,6 +139,40 @@ REGISTRY: Tuple[AgentGuard, ...] = (
     AgentGuard("guard_agent_model_pin", "guard-agent-model-pin.py"),
     AgentGuard("enforce_agent_dispatch_mode", "enforce-agent-dispatch-mode.py"),
 )
+
+
+_SKILL_STAGES = ("sizing", "plan-blitz", "mise-prep", "mise-en-place")
+_SKILL_STAGE_RE = re.compile(
+    r"(?<![\w-])(" + "|".join(re.escape(s) for s in _SKILL_STAGES) + r")(?![\w-])",
+    re.IGNORECASE,
+)
+
+
+def _skill_stage_advisory(payload: Any) -> Optional[str]:
+    """Advisory text when a non-coordinator Agent prompt names >= 2 distinct
+    skill stages; None otherwise."""
+    if not isinstance(payload, dict):
+        return None
+    tool_input = payload.get("tool_input")
+    if not isinstance(tool_input, dict):
+        return None
+    agent_type = tool_input.get("subagent_type")
+    if isinstance(agent_type, str) and agent_type.startswith("coordinator:"):
+        return None
+    prompt = tool_input.get("prompt")
+    if not isinstance(prompt, str):
+        return None
+    named = {m.lower() for m in _SKILL_STAGE_RE.findall(prompt)}
+    if len(named) < 2:
+        return None
+    stages = [s for s in _SKILL_STAGES if s in named]
+    return (
+        "SKILL-STAGE-BRIEF-ADVISORY: this Agent prompt briefs a worker to run "
+        + ", ".join(stages)
+        + ". These are skills, not a worker's checklist: invoke "
+        + ", ".join(f"Skill(coordinator:{s})" for s in stages)
+        + " instead."
+    )
 
 
 class _ByteSink:
@@ -361,6 +404,9 @@ def main() -> int:
         _write_bytes(sys.stdout, out)
         return 0
     _collect_notes(env, contexts, system_messages)
+    advisory = _skill_stage_advisory(payload)
+    if advisory:
+        contexts.append(advisory)
 
     hso = dict(_hso(env))
     if not isinstance(hso.get("updatedInput"), dict) and upstream_input is not None:

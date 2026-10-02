@@ -1,6 +1,6 @@
 ---
 name: premise-checker
-description: "Resolves a plan's load-bearing citations against the tree before review: paths, symbols, refs, falsifier arming, semantics. Reports classes, never plan correctness."
+description: "Resolves a plan's load-bearing citations against the tree before review."
 model: sonnet
 effort: low
 color: teal

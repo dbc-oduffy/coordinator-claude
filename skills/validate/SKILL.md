@@ -1,6 +1,6 @@
 ---
 name: validate
-description: "Run the project's fast test command at a cadence gate: merge, workday close, or an explicit ask."
+description: Run the fast test command at a merge, workday-close, or asked gate.
 version: 2.0.0
 allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskUserQuestion","TaskCreate","TaskUpdate","TaskGet","TaskList"]
 ---

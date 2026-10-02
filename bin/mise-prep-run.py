@@ -104,7 +104,7 @@ def _invoke(repo_root: Path, op: str, params: dict) -> dict:
 
     Dispatched via `coordinator_core.invoke.dispatch.dispatch_message` — the same JSON-RPC
     envelope the subprocess route parsed, minus the process hop — against `repo_root` via
-    `_origin_worktree`, in-process, with no subprocess hop. Raises `ValueError` on any failure — unresolvable
+    `_origin_worktree`. Raises `ValueError` on any failure — unresolvable
     engine, an error envelope, or a malformed reply — so callers keep treating a refusal as a
     reply, never a crash.
     """

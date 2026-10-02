@@ -77,14 +77,21 @@ This skill explicitly does NOT:
 ## Step 1: Resolve Install Root
 
 Determine `INSTALL_ROOT` — the directory where the coordinator plugin lives on your machine.
-Default: `~/.claude/plugins/coordinator-claude/`.
+Resolution order: `--install-root <dir>` from `$ARGUMENTS`; else the path in
+`~/.claude/.coordinator-plugin-root`; else `$CLAUDE_PLUGIN_ROOT`; else
+`~/.claude/plugins/coordinator-claude/`.
 
-If the user passed `--install-root <dir>` as `$ARGUMENTS`, use that path instead.
-
-Confirm the path exists and contains a `coordinator/` subdirectory. If not, surface:
+Both layouts are valid: the plugin root itself (`<root>/hooks/scripts/_engine_root.py`) or a
+checkout with a `coordinator/` subdirectory (`<root>/coordinator/hooks/scripts/_engine_root.py`).
+Probe the first, then the second. If neither exists, surface:
 > "Cannot locate a coordinator install at `<path>`. Pass `--install-root <dir>` with the
 > correct path, or confirm you installed via the OSS `coordinator:install` flow."
 Stop.
+
+**Native-CLI install.** If `INSTALL_ROOT` is under `~/.claude/plugins/cache/`, the Claude Code
+CLI owns the plugin tree; do not diff or overwrite it. Run
+`claude plugin marketplace update` then `claude plugin update coordinator-claude`, report the
+output, and stop. (Drift is reported, never an error: exit 0.)
 
 ---
 
@@ -94,13 +101,18 @@ Run the Chunk 2 helper to produce a classified delta. The helper is co-located a
 `<skill-dir>/lib/compute-update-delta.py`
 
 where `<skill-dir>` is the directory containing this SKILL.md — typically
-`~/.claude/plugins/coordinator/skills/coordinator-update/`.
+`~/.claude/plugins/coordinator-claude/coordinator/skills/coordinator-update/`.
 
 ```bash
-# Review: code-reviewer — $0 is unreliable when Claude runs this block via the Bash tool
-# ($0 resolves to /bin/bash, not the skill path). Derive SKILL_DIR deterministically from
+# $0 is unreliable when Claude runs this block via the Bash tool ($0 resolves to
+# /bin/bash, not the skill path). Derive SKILL_DIR deterministically from
 # INSTALL_ROOT, which was already resolved in Step 1.
-SKILL_DIR="${INSTALL_ROOT}/coordinator/skills/coordinator-update"
+if [ -f "${INSTALL_ROOT}/hooks/scripts/_engine_root.py" ]; then
+  PLUGIN_DIR="${INSTALL_ROOT}"
+else
+  PLUGIN_DIR="${INSTALL_ROOT}/coordinator"
+fi
+SKILL_DIR="${PLUGIN_DIR}/skills/coordinator-update"
 
 # Interpreter resolution contract: COORDINATOR_PYTHON env -> machine-local
 # registry pin (coordinator.python) -> PATH. See the coordinator wiki,
@@ -124,9 +136,9 @@ fi
 # The engine root this update flow depends on is resolved by the shipped
 # resolver script, which is the single source of that resolution — no other
 # code in this skill hardcodes how or where it is found.
-_cc_engine_root="$("$PYTHON_BIN" "${INSTALL_ROOT}/coordinator/hooks/scripts/_engine_root.py" 2>/dev/null)"
+_cc_engine_root="$("$PYTHON_BIN" "${PLUGIN_DIR}/hooks/scripts/_engine_root.py" 2>/dev/null)"
 if [ -z "$_cc_engine_root" ] || [ ! -d "$_cc_engine_root" ]; then
-  echo "ERROR: could not resolve the coordinator engine root via ${INSTALL_ROOT}/coordinator/hooks/scripts/_engine_root.py — consult your coordinator install's engine-setup documentation for how to register it, then retry." >&2
+  echo "ERROR: could not resolve the coordinator engine root via ${PLUGIN_DIR}/hooks/scripts/_engine_root.py — consult your coordinator install's engine-setup documentation for how to register it, then retry." >&2
   exit 1
 fi
 
@@ -154,7 +166,7 @@ The helper emits a single JSON object to stdout. Capture it. The schema:
 }
 ```
 
-Exit codes: `0` = current; `3` = behind; non-zero (not 3) = offline/error.
+Exit `0` whether current, behind or offline — branch on `update_status`, never the exit code; `4` is a setup error.
 
 ---
 
@@ -162,7 +174,7 @@ Exit codes: `0` = current; `3` = behind; non-zero (not 3) = offline/error.
 
 ### 3a. Offline
 
-If `update_status` is `"offline"` (helper exited non-zero and not 3):
+If `update_status` is `"offline"`:
 
 Report:
 > "Could not reach the coordinator update source. Check your network or visit the update
@@ -296,7 +308,7 @@ For each file in the apply set:
 1. Copy the incoming version from the fetched clone into the install path:
    ```bash
    cp "${CLONE_DIR}/${REL_PATH}" "${INSTALL_ROOT}/${REL_PATH}"
-   # Review: code-reviewer (A-F1) — drop plugins/ prefix; SOURCE_DIR is the clone ROOT in the OSS publish repo (no plugins/ subdir).
+   # No plugins/ prefix: SOURCE_DIR is the clone ROOT in the OSS publish repo (no plugins/ subdir).
    ```
 2. Add it to the explicit staging list.
 
@@ -366,7 +378,7 @@ source-is-live (meta-repo) machine — it is installed and invokable only for
 OSS consumers who installed via the publish-repo `coordinator:install` flow.
 
 If you are reading this as a developer on the coordinator meta-repo: this skill lives at
-`plugins/coordinator/dist/oss-only-skills/coordinator-update/SKILL.md`
+`plugins/coordinator-claude/coordinator/dist/oss-only-skills/coordinator-update/SKILL.md`
 and is injected into the OSS publish tree by the `20-inject-oss-only-skills.sh` percolate hook.
 It is intentionally absent from the meta-repo's `skills/` tree.
 

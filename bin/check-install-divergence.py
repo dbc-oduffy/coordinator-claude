@@ -1,7 +1,7 @@
 """coordinator/bin/check-install-divergence.py
 
 Three-way blob-SHA install-divergence classifier. Shared primitive for
-agentic install integrity — see docs/wiki/agentic-install-integrity.md
+agentic install integrity — see coordinator-content-repo coordinator/docs/wiki/install-playbook-rationale/agentic-install-integrity.md
 for the doctrine, deferred extensions, and `version.txt` sentinel format.
 
 Lifted verbatim-on-contract 2026-05-28 from the project-rag repo's
@@ -67,6 +67,7 @@ INSTALL_CLASS = False  # read-only probe; see door_install.declared_install_clas
 
 import argparse
 import difflib
+import filecmp
 import json
 import os
 import re
@@ -196,32 +197,38 @@ def _git_ls_tree_all(source: Path, baseline_sha: str) -> dict[str, str]:
     return result
 
 
-def _git_hash_object(source: Path, relpath: str, file_path: Path) -> object:
-    """Return the git blob SHA for *file_path* applying gitattributes via *relpath*.
+def _live_blob(
+    source: Path, relpath: str, live_file: Path, incoming: object
+) -> object:
+    """Return the blob SHA of *live_file* as git would store it at *relpath*.
 
-    The ``--path <relpath>`` argument is load-bearing: it drives gitattributes
-    resolution (e.g. ``tests/** eol=lf``) symmetrically for both live and
-    incoming sides regardless of where the file physically lives.
+    Only a live file whose bytes differ from ``source/relpath`` costs a git
+    spawn: byte-equal content under the same relpath hashes to the same blob,
+    so those files answer with *incoming* directly. The spawn keeps ``--path``
+    because it applies the attribute-path override (``eol=crlf``, ``-text``,
+    ``core.autocrlf``) symmetrically with the incoming side.
 
-    Returns ``ABSENT_LIVE`` when *file_path* does not exist (absent in live dir).
+    Returns ``ABSENT_LIVE`` when *live_file* does not exist. A non-zero git exit
+    raises ``RuntimeError`` from ``_run_git``.
     """
-    if not file_path.exists():
+    if not live_file.exists():
         return ABSENT_LIVE
 
-    # RuntimeError from _run_git (non-zero git exit) propagates to the caller.
+    source_file = source / relpath
+    if incoming is not ABSENT_LIVE and filecmp.cmp(
+        str(live_file), str(source_file), shallow=False
+    ):
+        return incoming
+
     output = _run_git(
-        ["hash-object", "--path", relpath, "--", str(file_path)],
+        ["hash-object", "--path", relpath, "--", str(live_file)],
         source=source,
     )
-
     stripped = output.strip()
     if stripped:
         return stripped
-    # File exists (checked above) but git returned empty output — returning
-    # ABSENT_LIVE here would silently mis-classify an existing file as absent.
-    # Fail loud so the ambiguous case is visible rather than silently wrong.
     raise RuntimeError(
-        f"git hash-object returned empty output for existing file: {file_path}"
+        f"git hash-object returned empty output for existing file: {live_file}"
     )
 
 
@@ -279,10 +286,9 @@ def _git_hash_object_batch(source: Path, relpaths: list[str]) -> dict[str, objec
     when live/relpath and source/relpath are different files on disk) or
     ``--stdin-paths`` (batched, but each stdin line does double duty as both
     content location AND attribute-matching pathname) — never both in the same
-    invocation. The live side needs the override, so it stays a per-file
-    ``--path`` call via ``_git_hash_object``; only the memoization in
-    ``_classify_with_baseline``/``_classify_two_way`` removes its redundant
-    re-hashing, not batching.
+    invocation. The live side needs the override, so it goes through
+    ``_live_blob``, which spawns only for live files whose bytes differ from
+    the source copy.
 
     Missing files resolve to ``ABSENT_LIVE`` via a local ``Path.exists()`` check
     (no subprocess) rather than asking git to fail loud per-line and parsing
@@ -554,9 +560,8 @@ def _classify_with_baseline(
     *baseline_map* and *incoming_map* are pre-resolved via one batched
     ``git ls-tree -r`` and one batched ``git hash-object --stdin-paths`` call
     (``_git_ls_tree_all`` / ``_git_hash_object_batch``) rather than per-relpath
-    spawns inside this loop — only the live-side blob (which needs the
-    per-file ``--path`` override, see ``_git_hash_object_batch``'s docstring)
-    is still resolved one spawn per relpath here. The live-side results are
+    spawns inside this loop — the live-side blob (``_live_blob``) spawns only
+    for live files whose bytes differ from the source copy. The live-side results are
     captured into the returned ``live_sha_map`` so callers building hunks
     downstream don't re-hash the same files a second time.
 
@@ -592,7 +597,7 @@ def _classify_with_baseline(
 
         baseline = baseline_map.get(relpath, ABSENT_BASELINE)
         incoming = incoming_map.get(relpath, ABSENT_LIVE)
-        live_blob = _git_hash_object(source, relpath, live_file)
+        live_blob = _live_blob(source, relpath, live_file, incoming)
         live_sha_map[relpath] = live_blob
 
         if live_blob == incoming:
@@ -629,8 +634,8 @@ def _classify_two_way(
 
     *incoming_map* is pre-resolved via one batched ``git hash-object --stdin-paths``
     call (``_git_hash_object_batch``) rather than a per-relpath spawn in this loop.
-    The live-side blob still costs one spawn per relpath here (see
-    ``_git_hash_object_batch``'s docstring for why it can't batch); those results
+    The live-side blob (``_live_blob``) spawns only for live files whose bytes
+    differ from the source copy; those results
     are captured into the returned ``live_sha_map`` so the caller doesn't
     re-hash the same files building hunks afterward.
 
@@ -665,7 +670,7 @@ def _classify_two_way(
         live_file = live / relpath
 
         incoming = incoming_map.get(relpath, ABSENT_LIVE)
-        live_blob = _git_hash_object(source, relpath, live_file)
+        live_blob = _live_blob(source, relpath, live_file, incoming)
         live_sha_map[relpath] = live_blob
 
         # Skip case 1: both absent (spec-required guard).
@@ -989,7 +994,7 @@ def run(
         # live_sha_map_2w for hunk rendering — only consumer_modified files need
         # it (consumer_added have no incoming counterpart to diff against).
         # Sliced from the map _classify_two_way already built, not re-hashed —
-        # this loop used to be a second `_git_hash_object` spawn per modified
+        # this loop used to be a second live-side hash spawn per modified
         # file, duplicating work the classify call had just done.
         live_sha_map_2w = {
             entry["relpath"]: live_sha_map_2w_full[entry["relpath"]]

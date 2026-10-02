@@ -1,7 +1,7 @@
 """Generate C2's four-class reference manifest: every ``claude-klabauter``-noun LINE across the
 four code trees (``coordinator/``, ``coordinator_core/``, ``bin/``, ``scripts/``),
-classified into exactly one of RENAMEABLE-LOCAL, CONTRACT-BOUND, EXTERNALLY-NAMED-THING
-or PROSE-ONLY, under the most-binding tie-break order
+classified into exactly one of RENAMEABLE-LOCAL, CONTRACT-BOUND, EXTERNALLY-NAMED-THING,
+PROSE-ONLY or FIXTURE-LITERAL (a test file whose noun sits only in non-f string literals or a test function's name), under the most-binding tie-break order
 EXTERNALLY-NAMED-THING > CONTRACT-BOUND > RENAMEABLE-LOCAL > PROSE-ONLY.
 
 Plan: docs/plans/2026-09-10-claude-klabauter-noun-sweep-across-the-tree.md, row C2.
@@ -20,6 +20,10 @@ row's own SHA (the ratchet, escalation E2).
 
 SPAWNS: at most 3 `git` processes total -- one `git ls-files` per repo (this repo,
 Coordinator-content-repo, claude-klabauter). No per-file, per-identifier or per-item git call.
+
+Never imports `coordinator_core`: a stdlib-only CLI that runs with no engine-root
+bootstrap, so it keeps its own git spawns and is exempt from the shared git runner
+(`coordinator_core/tests/test_shared_git_runner.py :: _CONTRACT_EXEMPT_MODULES`).
 """
 
 from __future__ import annotations
@@ -99,6 +103,20 @@ SLICE_LIST_PATH = REPO_ROOT / "coordinator/bin/legacy-engine-noun-reference-clas
 IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
+#: A repo key (`claude_klabauter`, `claude-klabauter`) or an UPPER_CASE env var is a real
+#: identifier a rename sweep cannot touch; a line whose noun sits only in these is
+#: admitted under E2 without --admit-renameable.
+_UPPER_ENV_VAR = re.compile(r"\b[A-Z0-9_]*CLAUDE-KLABAUTER[A-Z0-9_]*\b")
+
+
+def _is_real_identifier_line(text: str) -> bool:
+    """True iff every noun occurrence on ``text`` is inside a repo key or an
+    UPPER_CASE env var name."""
+    stripped = re.sub(r"project[-_]claude-klabauter", "", text, flags=re.IGNORECASE)
+    stripped = _UPPER_ENV_VAR.sub("", stripped)
+    return NOUN.search(text) is not None and NOUN.search(stripped) is None
+
+
 def _no_console_creationflags() -> int:
     return getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
@@ -168,7 +186,29 @@ def _classify_line(rel: str, stripped: str, in_docstring: bool) -> tuple[str, st
     if _is_prose_line(stripped, in_docstring):
         return "PROSE-ONLY", None
 
+    if _is_test_file(rel) and not NOUN.search(
+        _TEST_DEF_NAME.sub("def ", _STRING_LITERAL.sub("", stripped))
+    ):
+        return "FIXTURE-LITERAL", None
+
     return "RENAMEABLE-LOCAL", None
+
+
+#: A single-line non-f quoted literal. An f-string interpolates code, so its
+#: noun can be a live identifier and is never stripped. Multi-line strings are
+#: already handled by the docstring toggle.
+_STRING_LITERAL = re.compile(r"""(?<![A-Za-z0-9_])[rRbBuU]{0,2}("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')""")
+
+#: A test function's name labels what it asserts about; it is never a binding a
+#: rename sweep rewrites. Parameters and the body stay classified on their own text.
+_TEST_DEF_NAME = re.compile(r"^(?:async\s+)?def\s+test_\w*")
+
+
+def _is_test_file(rel: str) -> bool:
+    """Test data, not production: a fixture literal is renamed with its test
+    (or is deliberately arbitrary), never by a codename rename sweep."""
+    name = rel.rsplit("/", 1)[-1]
+    return name.startswith("test_") or "/tests/" in f"/{rel}"
 
 
 def _stem_publish(identifier: str) -> str:
@@ -224,6 +264,11 @@ def _scan_four_trees(repo: Path) -> tuple[list[dict], int]:
     return rows, len(files)
 
 
+#: Every published identifier carries this stem (`_stem_publish`), so a sibling file
+#: without it cannot hit; the guard keeps the large alternation off the other files.
+_PUBLISHED_STEM = re.compile(STEM_PUBLISHED.replace("_", "_?"), re.IGNORECASE)
+
+
 def _sibling_pass(
     rows: list[dict], content_root: Path, klabauter_root: Path
 ) -> dict[str, dict]:
@@ -262,6 +307,8 @@ def _sibling_pass(
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
+        if not NOUN.search(text):
+            continue
         for m in source_pattern.finditer(text):
             result[m.group(0)]["doe_hit"] = True
 
@@ -273,6 +320,8 @@ def _sibling_pass(
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
+            continue
+        if not _PUBLISHED_STEM.search(text):
             continue
         for m in published_pattern.finditer(text):
             for c in reverse_published.get(m.group(0), ()):
@@ -365,6 +414,9 @@ def main(argv: "list[str] | None" = None) -> int:
         row["sibling_check"] = "clean"
         key = f"{row['file']}:{row['line']}"
         if slice_list is not None and key not in slice_list and key not in admitted:
+            if _is_real_identifier_line(row["text"]):
+                row["admitted"] = "real-identifier"
+                continue
             refused.append(key)
 
     if refused:
@@ -420,7 +472,7 @@ def _render_json(rows: list[dict], repo_sha: str, doe_sha: str, klabauter_sha: s
         {
             r["file"]
             for r in rows
-            if r["primary_class"] in ("CONTRACT-BOUND", "EXTERNALLY-NAMED-THING", "PROSE-ONLY")
+            if r["primary_class"] in ("CONTRACT-BOUND", "EXTERNALLY-NAMED-THING", "PROSE-ONLY", "FIXTURE-LITERAL")
         }
     )
     return {
@@ -482,7 +534,7 @@ def _render_manifest(
     total = sum(counts.values())
     a("## Per-class counts")
     a("")
-    for cls in ("EXTERNALLY-NAMED-THING", "CONTRACT-BOUND", "RENAMEABLE-LOCAL", "PROSE-ONLY"):
+    for cls in ("EXTERNALLY-NAMED-THING", "CONTRACT-BOUND", "RENAMEABLE-LOCAL", "PROSE-ONLY", "FIXTURE-LITERAL"):
         a(f"- **{cls}**: {counts.get(cls, 0)}")
     a(f"- **Total (reconciles to denominator)**: {total}")
     a("")

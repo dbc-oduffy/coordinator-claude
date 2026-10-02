@@ -160,6 +160,37 @@ def check_plan(path: Path, for_execution: bool = False) -> dict:
     except OSError as exc:
         return {"path": str(path), "verdict": "UNREADABLE", "detail": str(exc), "rows": []}
 
+    body_finding = _approved_body_finding(text, for_execution)
+
+    report = _check_spine(path, text, for_execution)
+    if body_finding is not None:
+        if body_finding["class"] == "structural":
+            report["rows"].append(body_finding)
+            report["verdict"] = "INVALID"
+        else:
+            report.setdefault("advisories", []).append(body_finding)
+    return report
+
+
+def _approved_body_finding(text: str, for_execution: bool):
+    if not for_execution:
+        return None
+    _ensure_engine_on_path()
+    from coordinator_core.frontmatter.primitives import (
+        APPROVED_BODY_CHANGED,
+        APPROVED_BODY_UNVERIFIABLE,
+        check_approved_body,
+    )
+
+    state, message = check_approved_body(text)
+    if state == APPROVED_BODY_CHANGED:
+        return {"row": "-", "error": message, "at": "approved_body_sha", "class": "structural"}
+    if state == APPROVED_BODY_UNVERIFIABLE:
+        return {"row": "-", "error": message, "at": "approved_body_sha", "class": "advisory"}
+    return None
+
+
+def _check_spine(path: Path, text: str, for_execution: bool) -> dict:
     result, LocateStatus = _locate_spine(text)
     if result.status is LocateStatus.ABSENT:
         return {"path": str(path), "verdict": "NO-SPINE", "detail": None, "rows": []}

@@ -17,7 +17,8 @@ Two write paths, in preference order:
      this hook already wrote for the same body — that reconciliation is
      the engine's responsibility and is not verified by this file or its
      tests.
-  2. Fallback: the verbatim raw write below. Reached whenever the routed path
+  2. Fallback: the raw write below -- the body verbatim plus a locally minted
+     `plan_id`, so no keyless plan is ever written. Reached whenever the routed path
      is unavailable for any reason — the fail-open contract the engine side
      deliberately delegates here. Its worst case is a captured-but-gate-
      invisible plan, i.e. the pre-routing status quo; never plan loss.
@@ -275,6 +276,54 @@ def _derive_slug(plan_content: str) -> str:
 
     # Timestamp fallback (UTC, matches bash `date -u +%H%M%S`).
     return "plan-" + datetime.now(timezone.utc).strftime("%H%M%S")
+
+
+# A raw-written plan carries a plan_id so it is never keyless: the engine is
+# unreachable on this path, so the id is minted here with the engine leg's
+# recipe (`backfill_deliverable_spine._mint_plan_id`: `pln-<slug>-<6hex>`).
+_MINTED_PLAN_ID_RE = re.compile(r'^plan_id: "pln-[a-z0-9-]+-[0-9a-f]{6}"\n', re.M)
+
+
+def _mint_plan_id(slug: str) -> str:
+    import hashlib  # noqa: PLC0415 -- off the hook's common no-op path
+    import random  # noqa: PLC0415
+    import time  # noqa: PLC0415
+
+    seed = f"{slug}|{int(time.time())}|{os.getpid()}|{random.randint(0, 32767)}"
+    return f"pln-{slug}-{hashlib.sha1(seed.encode('utf-8')).hexdigest()[:6]}"
+
+
+def _keyed_plan(plan_content: str, slug: str) -> str:
+    """`plan_content` with a minted `plan_id` line; unchanged when it already has one.
+
+    A body without a frontmatter fence gets a fence holding only the id; a
+    body with one gets the id as its first key.
+    """
+    try:
+        from frontmatter_scan import scan_frontmatter
+
+        if scan_frontmatter(plan_content).get("plan_id"):
+            return plan_content
+    except Exception:
+        pass
+    line = f'plan_id: "{_mint_plan_id(slug)}"\n'
+    if plan_content.startswith("---\n"):
+        return "---\n" + line + plan_content[4:]
+    return "---\n" + line + "---\n" + plan_content
+
+
+def _unkeyed(text: str) -> str:
+    """Inverse of `_keyed_plan` for refire comparison: drop a minted id line
+    and the fence it alone occupied."""
+    head, sep, rest = text.partition("\n---\n")
+    if not text.startswith("---\n") or not sep:
+        return text
+    stripped, n = _MINTED_PLAN_ID_RE.subn("", head + "\n", count=1)
+    if not n:
+        return text
+    if stripped == "---\n":
+        return rest
+    return stripped + "---\n" + rest
 
 
 def _read_ceremony_day_anchor(repo_root: str | None) -> str:
@@ -614,7 +663,7 @@ def main() -> int:
             existing = target_path.read_text(encoding="utf-8")
         except Exception:
             existing = ""
-        if existing == plan_content:
+        if existing == plan_content or _unkeyed(existing) == plan_content:
             # Byte-identical -> idempotent no-op (no write, no re-stage).
             idempotent_ctx = render(
                 _compose_idempotent_context(
@@ -634,7 +683,7 @@ def main() -> int:
     # behavior — no LF->CRLF translation on Windows (golden-diff parity).
     try:
         with target_path.open("w", encoding="utf-8", newline="") as fh:
-            fh.write(plan_content)
+            fh.write(_keyed_plan(plan_content, slug))
     except Exception:
         return 0
 

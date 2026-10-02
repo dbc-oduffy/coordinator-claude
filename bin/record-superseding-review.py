@@ -6,7 +6,7 @@ repo-root-relative path as the ONLY line on stdout, so
 threads it into `review-stamp mint --superseding-record`.
 
 Usage:
-  record-superseding-review.py --plan <path> --session-id <sid> --base <sha> --head <sha>
+  record-superseding-review.py --plan <plan-path|plan_id> --session-id <sid> --base <sha> --head <sha>
       [--wave-sidecar <path> ...] [--prep-sidecar <path>]
       [--stage-returns-json <json>] [--supersedes <sha>] [--repo-root <path>]
 

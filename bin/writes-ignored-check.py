@@ -70,7 +70,6 @@ from __future__ import annotations
 
 import argparse
 import pathlib
-import subprocess
 import sys
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -127,14 +126,16 @@ def declared_write_paths(spine_read, plan_path: pathlib.Path):
 def ignored_paths(repo_root: pathlib.Path, paths: list) -> set:
     if not paths:
         return set()
-    result = subprocess.run(
-        ["git", "check-ignore", "--stdin", "-z"],
-        input="".join(f"{p}\0" for p in paths).encode("utf-8"),
-        capture_output=True,
+    if str(_REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(_REPO_ROOT))
+    from coordinator_core.git.run import run_git
+
+    result = run_git(
+        ["check-ignore", "--stdin", "-z"],
         cwd=str(repo_root),
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        input="".join(f"{p}\0" for p in paths).encode("utf-8"),
     )
-    return {p for p in result.stdout.decode("utf-8").split("\0") if p}
+    return {p for p in result.stdout_bytes.decode("utf-8").split("\0") if p}
 
 
 def directory_paths(repo_root: pathlib.Path, paths: list) -> set:

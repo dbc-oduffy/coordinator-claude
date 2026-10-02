@@ -58,7 +58,7 @@ step, two ordered legs: recompute the plan body sha against `mise_prepped_sha` (
 only if that passes, re-run each `census[].command` and diff against `result`. Fire on sha-leg
 CERTIFIED with no entry-level census DRIFT; an unclosed census leg (`UNDECIDABLE` / `REFUSED` /
 `UNRUNNABLE`, per-entry or rolled up) does not block the fire — record it as a named,
-non-blocking finding in the Phase 1 ledger. STALE → re-gate (`"${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/bin/mise-prep-gate" <plan>`), then re-stamp;
+non-blocking finding in the Phase 1 ledger. STALE → re-gate (`<settings-home>/bin/mise-prep-gate <plan>`), then re-stamp;
 UNSTAMPED → gate and stamp; MALFORMED → a hand-written stamp, repair the frontmatter; census
 drift → the premise moved, re-plan. **Name the state** — "not certified" sends an author to the
 wrong repair. A handoff can assert executability; it cannot assert a sha. States, recipe and the
@@ -100,6 +100,24 @@ disposition), sourced from `tasks/*/todo.md`, enriched stubs,
 `$ARGUMENTS`, claimed batons — not `tasks/`. `disposition` updates every wave gate: a live row
 reads `pending`, `queued` or `in_progress`; a terminal one opens with a § Phase 6 verb. ≤3 items
 already read → inline instead. Template/sources: wiki.
+
+**Chunk-table grammar** (the emitter refuses anything else, naming the row):
+- `disposition`: live `pending` / `queued` / `in_progress`; withheld `routed-out: <reason>`; closed
+  `already-fixed`, `landed`, `dropped`. `deferred` is refused — write `routed-out: <reason>`.
+- `footprint`: backticked repo-relative file paths. A directory whose filenames are minted at run
+  time is written ``writes_under: `dir/` ``; a bare directory or glob is refused.
+- `deps`: row ids of this table. A plan row expands into `<item-id>.<chunk-id>` chunks, so never
+  name a plan's own chunk ids.
+- A plan that needs another same-repo plan's chunk declares `depends_on_plan: [{plan, chunk,
+  gate_kind}]` on its spine row. The emitter withholds the row (and its dependents) until that
+  chunk is `coded`; a dependency inside one inventory is not sequenced within the run, so the
+  dependent waits for the next run. A missing plan, unknown chunk, `..` path or terminal non-coded
+  predecessor stops the emit.
+- The inventory lives under `<repo>/state/mise-inventory/`. Outside the repo the plan spines are
+  not expanded and the run emits thin, one executor per plan.
+- Emitted script over 524288 bytes: the emitter splits the inventory into whole-plan parts with
+  run ids `<run>-pN`, written to `<out>-pN.workflow.mjs`. The EM fires each part; `--fire` refuses
+  a split. An inventory outside `<repo>/state/mise-inventory/` is refused. Detail: wiki.
 
 ## Pre-Dispatch Verification
 
@@ -172,14 +190,13 @@ is not a shape a Workflow cannot express. Verifiers ride inside the Workflow —
 `provision-sidecar --agent-type <type>` for any phase whose `report_type_map` row is not
 `run-report`.
 
-**Pre-fire anchor.** Before firing a part's Workflow, if the session's primary working directory
-is not inside the target repo — a managed-remote container starts primary cwd at the repos'
-common parent — run `cd <abs repoRoot>` as its own standalone Bash call, never folded into a
-compound command, and confirm the harness reports the new primary working directory before
-proceeding. `A-CD-OUT-OF-A-REPO-DISARMS-EVERY-DISPATCHED-COMMIT-FOR-THE-SESSION`.
+**Pre-fire anchor.** Primary cwd outside the target repo (a managed-remote container starts at
+the repos' common parent) → `cd <abs repoRoot>` as its own standalone Bash call, and confirm the
+harness reports the new primary directory before firing.
+`A-CD-OUT-OF-A-REPO-DISARMS-EVERY-DISPATCHED-COMMIT-FOR-THE-SESSION`.
 
 Don't hand-author the script — mint and emit:
-`COORDINATOR_AGENT_TYPE_HOST=coordinator "${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/bin/emit-dispatch-workflow" --inventory state/mise-inventory/<run-id>.md --out state/mise-inventory/<run-id>.workflow.mjs --repo-root <abs repo>`
+`COORDINATOR_AGENT_TYPE_HOST=coordinator <settings-home>/bin/emit-dispatch-workflow --inventory state/mise-inventory/<run-id>.md --out state/mise-inventory/<run-id>.workflow.mjs --repo-root <abs repo>`
 writes the spine (item-id → chunk-id, footprint → `writes`) plus the `.mjs`; fire it with the
 `Workflow({scriptPath, args: {repoRoot}})` call the emitter prints on stderr. An inventory row whose
 spec path is itself a plan carrying a `` ```yaml plan-tasks `` spine expands into that plan's own
@@ -187,31 +204,52 @@ chunk DAG — `<item-id>.<chunk-id>` per chunk — inside this SAME emitted Work
 `--plan` emit; a plain row with no such spine stays one executor.
 
 **Ignore the Stop-hook's "commit and push" advisory mid-run** — the dirt it flags is a live
-wave's footprint. The only commit path is the wave-gate commit above; never widen it to satisfy
-the hook.
+wave's footprint. Commit only by § Who commits; never widen it to satisfy the hook.
 
-**Then stay awake for as long as it runs — on a managed-remote host, ending the turn to wait for
-the completion notification is what kills the run.** The container is reclaimed on session
-inactivity and background work does not count as activity, so a fired wave plus a quiet EM is a
-dead wave: journals stop mid-run, no halt verdict is written, and `resumeFromRunId` is
-same-session-only so what died is not resumable. Hold the turn with a `Monitor` that emits on a
-poll interval and re-arm it at expiry. Push after every wave, not at the end of the run — the repo
-volumes and settings home survive reclamation, so an unpushed commit is the only thing that does
-not. `a-quiet-session-gets-its-container-reclaimed-under-running-work`.
+**Who commits.** When a wave settles, one `coordinator:git-commit-agent` leg commits the union of
+that wave's DONE rows via `ceremony.commit_v2`; the next wave does not wait for it (wave commits chain
+only among themselves), and a wave with no DONE rows emits no leg. A failed wave commit is collected
+and named at run end. After each landed wave commit a non-awaited
+`git push origin HEAD:refs/heads/<branch>` follows (never forced, one ref, no retry; skipped on
+main/master/detached HEAD; failures named in the final log line). The EM's `dispatch.terminal_commit`
+still lands receipts, review stamps, `coded` flips, prefix-claimed files and rows declaring over 20
+paths — scoped (`snippets/scoped-commit-route.md`), never the wave union, never `git add -A`.
 
-**File/commit counts can't see a stall** — both stay flat on live and dead runs alike. Size the
-Monitor per `[[a-compaction-can-kill-a-background-workflow]]`.
+**Halt routing.** A chunk whose stop rule fires, or that returns `decision_required`, halts its
+plan. Move that plan's row to `## Withheld / routed out` with the reason, re-emit with `--force`,
+and resume with `resumeFromRunId` of the same run so finished agents replay from cache.
+Across sessions, `emit-dispatch-workflow --resume-from <run-id>-continuance.md --out
+<run-id>.workflow.mjs` re-emits each lane without the rows already `coded`; an empty lane reports
+`nothing_unlanded`.
 
-**A mid-run `/compact` can take the whole Workflow down with no retry and no verdict** — after
-any compaction, check for that before assuming the run survived it.
+**Resume admitted by the classifier.** Check and allowlist edits land in their own commit, before
+and apart from the resume. State the resume plainly as resuming this run's own workflow
+(`resumeFromRunId` of the run just fired), never as a follow-on to a check change. Tripwire:
+`A-RESUME-RIDING-A-CHECK-EDIT-IS-DENIED-AS-CI-BYPASS`.
+
+**Limit deaths.** An executor reply opening "You've hit your … limit" is a usage-limit death, not
+a chunk failure and not a halt. Do not route the plan out or re-dispatch by hand: wait for the
+reset, then resume with `resumeFromRunId` (same session) or `--resume-from` (new session). Tell it apart from a real failure by that text and
+`tool_uses=0`. `coordinator/docs/wiki/skills-corpus/usage-limit-pause.md`.
+
+**Classifier-blocked residue.** When the auto-mode classifier denies an executor's revert of its
+own mistaken files, the EM does not revert them in its place (permission laundering). Leave the
+paths out of every commit, record them as residue in the run's continuance or tail record, and file
+a `state/bug-backlog/` row naming the paths so the PM can clear them.
+
+**Then stay awake while it runs — on a managed-remote host, ending the turn to wait kills the
+run** (the container is reclaimed on inactivity; `resumeFromRunId` is same-session-only). Hold the
+turn with a `Monitor` on a poll interval, re-armed at expiry; checkpoint pushes land per row. File/commit
+counts cannot see a stall; size the Monitor per `[[a-compaction-can-kill-a-background-workflow]]`,
+and check for a compaction kill after any `/compact`. Detail: wiki.
+`a-quiet-session-gets-its-container-reclaimed-under-running-work`,
 `A-COMPACTION-CAN-KILL-A-BACKGROUND-WORKFLOW`.
 
 **The env var is not optional, and omitting it does not fail — it downgrades.** The script probes
 for a plugin root to decide whether `coordinator:*` agent types resolve, and a Bash subprocess
 carries neither `CLAUDE_PLUGIN_ROOT` nor a roster, so it degrades every `coordinator:executor`,
 `git-commit-agent` and `test-runner` in the run to `general-purpose` — no do-not-commit snippet,
-no pathspec discipline, no sandbox preamble — and says so in one stderr line that reads like
-housekeeping. You are the only party that can see your own agent roster: assert it. Pass
+no pathspec discipline, no sandbox preamble — and says so in one stderr line. Assert it. Pass
 `host` instead if your roster genuinely lacks the `coordinator:*` types, never to silence the
 narration. In PowerShell set `$env:COORDINATOR_AGENT_TYPE_HOST = "coordinator"` first. It reads the `## Chunk table` heading and its `id`
 column and nothing else — both names are literal, and a record spelling either differently is
@@ -233,11 +271,7 @@ Per wave:
    (`AN-ORPHANED-RETURN-CONTRACT-IS-A-DROPPED-ONE`).
 
 <!-- engine-gap: field=tracker_sweep.item_state producer=unknown memo=2026-08-27-claude-klabauter-em-doe-unmarked-obligations-and-four-lost-markers.md -->
-2. On DONE (verify via disk — DONE path + `dirty-tree-gate --terminator mise-item-done`
-   (`--terminator` is a free-form display token, not a validated enum — confirmed against
-   `coordinator_core.ops.dirty_tree_gate.main` in `claude-klabauter`, which only interpolates it
-   into stderr text — so this value cannot fail loud at runtime; verified, no re-derivation
-   needed), which
+2. On DONE (verify via disk — DONE path + `dirty-tree-gate --terminator mise-item-done`, which
    classifies every dirty path as session-authored, known-peer, or unattributable rather than a
    hand-parsed status line; never trust idle-alone; never double-dispatch onto a live footprint):
    the Workflow's verifier phase runs a Haiku verifier per
@@ -253,11 +287,10 @@ Per wave:
    item's residue is scoped to that item's own declared footprint paths — never a bare
    `git checkout`/`git clean`, which reaches a peer's work. Unlanded items are non-terminal, so
    the run's verdict is CONTINUANCE.
-3. Wave gate: a commit phase INSIDE the Workflow — `coordinator:git-commit-agent` over **the
-   PASSed items' footprint paths**, via `ceremony.commit_v2` (that plus a plain scoped
-   `git commit -- <paths>` is the whole allow surface). Neither live route re-asserts the branch, so the phase's prompt names the
-   expected branch and requires a read-only check before committing. No ledger call in the phase —
-   `commit_v2` writes the row itself, so adding one duplicates it. Never hand-typed git.
+3. Wave gate: row checkpoints are already committed by § Who commits; the EM's terminal commit
+   covers what the checkpoints do not. Verify the expected branch read-only before committing;
+   `ceremony.commit_v2` or a plain scoped `git commit -- <paths>` is the whole allow surface. No
+   ledger call — `commit_v2` writes the row itself, so adding one duplicates it.
    Bookkeeping stays EM-side, outside the Workflow: `backlog-grind-assemble apply mise-en-place
    --run-id <id>` with **no** `--wave-path` (that form builds no commit directive).
 
@@ -266,20 +299,15 @@ Per wave:
    reports are the CLAIM. Derive the pathspec from the reports and commit it. A blocked or
    non-`PASS` item contributes no paths and blocks nothing: its chunk id drops out of the subject
    alongside its paths, and § Partial wave landing above governs the rest. **Refusing to commit
-   because one item of N is blocked is the failure mode, not the safe choice** — it is a coherent
-   inverse of this rule that has been reasoned to in a live run, and it strands every other
-   executor's work uncommitted on a checkout a dozen peers are writing to, where HEAD moves
-   underneath it. Holding work back is the expensive outcome here; the unlanded item is
-   non-terminal and returns to `pending` either way.
+   because one item of N is blocked is the failure mode, not the safe choice** — it strands every
+   other executor's work uncommitted.
 
-   **Peer-session commit collision**, checked before the commit and not after:
+   **Peer-session commit collision**, checked before the commit:
    `git log <wave-dispatch-sha>..HEAD --name-only -- <this wave's footprint paths>`. Non-empty
-   means a peer landed **inside** this wave's footprint — a collision, distinct from the
-   concurrent-session churn in § When to Stop, which lands outside it. Next call: re-dispatch the
-   wave's verifier over the merged state for the colliding items only; still-`PASS` commits
-   normally, non-`PASS` routes the item out with the collision named and its residue rides the
-   successor. **Never revert, rebase, amend or force-push over the peer's commit** — a hard block,
-   not a judgment call.
+   means a peer landed **inside** this wave's footprint (distinct from the churn in § When to
+   Stop, which lands outside it): re-dispatch the verifier over the merged state for the colliding
+   items only; still-`PASS` commits, non-`PASS` routes out with the collision named. **Never
+   revert, rebase, amend or force-push over the peer's commit.**
 4. "Wave N complete ([items]). Firing wave N+1 ([items])." — never a question.
 
 No worktrees.
@@ -319,11 +347,8 @@ check, anti-vacuity gate, diff freeze, inventory archival (COMPLETE only), track
   every constituent lands inside; `/workstream-complete`'s chain diff covers a different object
   and is untouched. **The frozen diff and its `.head.sha` (`state/review-trail/`) and executor
   evidence (`.coordinator-local/plan-sidecars/`) are gitignored by design — absence from the commit is EXPECTED
-  and is not a missing step.** <!-- Review: coordinator-code-reviewer -- distinct fact the trim
-  dropped: an item can legitimately go DONE while its sidecar record contributes nothing to the
-  wave commit, so DONE must never be inferred from commit contents. --> A DONE item's evidence can
-  legitimately contribute nothing to the wave commit — never infer DONE-ness from commit
-  contents. Tripwire:
+  and is not a missing step.** An item can legitimately go DONE while its sidecar record contributes nothing to the
+  wave commit, so DONE is never inferred from commit contents. Tripwire:
   `A-GITIGNORED-DELIVERABLE-IS-INVISIBLE-TO-EVERY-COMMIT-BASED-READER`.
 - **Orphan check**, on that same range and inside this phase, never a mechanism of its own: read
   the `.diff` file § Review routing just froze — a plain unified diff, not `--name-status` — and
@@ -331,16 +356,14 @@ check, anti-vacuity gate, diff freeze, inventory archival (COMPLETE only), track
   diff re-run — the freeze already materialized this range to disk one bullet above), intersect with
   the run's declared `writes:`, and ask of each whether any other file in the tree references it.
   Zero
-  referencers → **ORPHAN-CANDIDATE**, named in the tail summary with its path. It is
-  **necessary, not sufficient, and is never reported as a correctness verdict** — a surface can
-  acquire a referencer and still be wrong, and a clean check licenses no claim that the run's work
-  is right. It gates nothing, routes nothing, and never moves the verdict line.
+  referencers → **ORPHAN-CANDIDATE**, named in the tail summary with its path. Necessary, not
+  sufficient, never a correctness verdict; it gates nothing and never moves the verdict line.
 - **End-of-run verification:** run every test file the cumulative diff touched, once, EM-only,
   naming each path literally. Never the repo's fast- or full-suite command — the suite guard
   refuses it without a PM grant; say which files you ran instead.
 - **Tracker sweep:** final pass, same procedure as the per-wave sweep (wiki); commit
   (`--message "mise: tracker sync"`).
-- **Baton disposition (whenever Phase 0a ran):** the engine flips a baton terminal when its plan is stamped `implemented` or its workstream concludes — no manual flip. One still advertising live work after that is a **defect**: report it, don't hand-correct. Unstarted → `pickup-assemble drop <path>`; mid-stream → successor via `/handoff`. State each disposition in the tail summary.
+- **Baton disposition (whenever Phase 0a ran):** the terminal commit (or the inventory-run op) writes a receipt per Phase 0a baton; the tail lists each path and verdict. No receipt, or live status left, is a **defect**: report, never hand-write. Unstarted → `pickup-assemble drop <path>`; mid-stream → `/handoff`. `coordinator/docs/wiki/release-and-distribution/completion-receipts.md`.
 - **Verdict line** reads exactly `COMPLETE` or `CONTINUANCE` — never a bare "done."
   The run-level verdict line MUST read exactly COMPLETE or CONTINUANCE; the word 'complete'
   may not appear as the run's disposition unless the exhaustion check passed. Item-level,
@@ -400,19 +423,9 @@ agent's rate-limit error is recovered; the account's threshold advisory ends the
 
 ## Relationship to Other Commands
 
-**This run is `warp-speed-execute`; this file is it.** `/warp-speed-execute` is a forwarding alias
-onto this body, not a second ceremony — there is one wide-run ceremony. **Either verb is a
-first-class invocation:** both autofire hooks admit both spellings
-(`hooks/scripts/mise-autofire.py :: _MISE_COMMAND_NAMES`,
-`hooks/scripts/pickup-autofire.py :: _BATON_GRAB_COMMAND_NAMES`), so either mints the run-id and
-claims the batons. **And either entry path fires them:** a typed slash command reaches both hooks
-under `UserPromptExpansion`; a model-invoked `Skill` call for either verb reaches the same two
-hooks' legs through `preuse-skill-dispatch.py`, the `PreToolUse`/`Skill` fan-in that hosts them —
-so a PM writing the verb inline, a skill forwarding to this one, or a skill fired under context
-pressure starts with the same inputs a typed invocation would have gotten. The engine vocabulary
-does not follow the verb — the sentinel mode, the cadence passed to `mint-run-id`/`brief`, and
-`handoff.schema.json`'s cadence key all stay `mise-en-place`, which is why this file keeps that
-name.
+`/fire-and-forget` is a separate ceremony that fires a whole sizing-to-commit run and does not
+enter this body; the engine vocabulary here (sentinel mode, the cadence passed to `mint-run-id`/`brief`,
+`handoff.schema.json`'s cadence key) stays `mise-en-place`.
 
 `/update-docs`, `/workday-complete`, `/merging-to-main` are PM-run afterward, never auto-invoked.
 `/autonomous` composes with this run: it governs the unattended posture (sentinel, nudge

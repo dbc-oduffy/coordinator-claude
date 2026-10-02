@@ -2,7 +2,7 @@
 """
 refresh-plugin-live-install.py — Managed refresh for a registered plugin's live install.
 
-Spec backlink: docs/plans/2026-05-21-plugin-source-live-mirror-doctrine.md §Chunk 2 [DEAD-CITATION: plan file never committed to this repo]
+Spec backlink: project-rag archive/specs/2026-05/2026-05-21-plugin-source-live-mirror-doctrine.md §Chunk 2
 Spec backlink: docs/plans/2026-07-19-debash-coordinator-windows.md (Wave E2, chunk E2-e)
 Port of: refresh-plugin-live-install.sh (DoE 9a00683c, 2026-07-21) — naked-Python
 port, no bash in the middle: git/uv/pip are still invoked as subprocesses, which is

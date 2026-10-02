@@ -12,7 +12,7 @@ re-assessment carries the negative-spec that it never auto-sets `status:`. Each 
 Together they mean the only writer of a terminal KR status is a human, and nothing anywhere reads
 whether the human wrote — so `active` + `not-started` after the period closes is indistinguishable
 from nobody having done the work. This module is the artifact that discharges the
-achieved/missed/never-assessed doctrine, per `docs/wiki/invisible-doctrine.md`'s discharge test.
+achieved/missed/never-assessed doctrine, per `coordinator-content-repo coordinator/docs/wiki/claude-md-surfaces/invisible-doctrine.md`'s discharge test.
 
 WHY `yaml.safe_load`, NOT A HAND-ROLLED SCRAPE. A goal artifact routinely carries inline enum
 comments (see every `key_results[].status` line in `state/goals/*.yaml`: `status: not-started  #

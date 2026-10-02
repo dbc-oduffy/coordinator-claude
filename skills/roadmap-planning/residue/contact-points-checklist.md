@@ -1,8 +1,11 @@
-- **`/handoff` and `/spinoff` durability rules apply with extra force to roadmap stubs.** Gate text MUST be subsystem-named (e.g., `consumer_runner retry telemetry policy`), never file-pathed (e.g., `state/handoffs/<YYYY-MM-DD>_<topic>.md ships`). The gate-meaningfulness audit (§ After Phase 2) reads this text from git history via `git show HEAD:<file>`; a file-pathed dependency goes stale on archive-to-`archive/handoffs/` and breaks the audit prompt by displaying a dangling reference. That is why the schema **rejects** a path-shaped `gate_dependency` value outright — put the baton dependency in `blocked_by` as a resolvable slug and the prose in `gate_notes`. The picking-up EM editing a roadmap stub's frontmatter must respect this.
-
-- **`/repo-setup`** — verify roadmap-planning is mentioned in the orientation flow when the project tracker contains roadmap entries.
-- **`/workstream-start`** — query callout already covers `kind: roadmap-baton` via the universal `deployment_state=ready_to_fire` filter.
-- **`/workstream-complete`** — verifies workstream-complete's plan-doc update step covers roadmap stubs (no special-case logic; they share the handoff lifecycle).
-- **`/workday-start`** — Step 1.1 routing groups `kind: roadmap-baton` with spinoffs and clusters by `roadmap_id` when count > 3 per group.
-- **Hooks:** the boot-time archival sweep (engine repo `coordinator_core/ops/` `session.boot_sweep`, fronted by `bin/sweep-boot.py`) provides a quiet sweep: consumed handoffs whose authoring session is dead are silently archived to `archive/handoffs/`. Covers orphaned roadmap stubs without roadmap-specific hook logic.
-- **Canonical artifact:** roadmap stubs themselves are the artifact agents will encounter. The `kind:` enum and frontmatter schema make them discoverable via `bin/query-records --list-schemas` and `bin/lint-frontmatter --list-schemas`.
+- **`/handoff` and `/spinoff`:** gate text MUST be subsystem-named, never file-pathed (the
+  gate-meaningfulness audit reads it from git history; a path goes stale on archive). The schema
+  rejects a path-shaped `gate_dependency` — baton dependency → `blocked_by` slug, prose →
+  `gate_notes`. Rationale: wiki `roadmap-planning-residue.md` § Contact points.
+- **`/repo-setup`** — orientation flow mentions roadmap-planning when the tracker has roadmap entries.
+- **`/workstream-start`** — query callout already covers `kind: roadmap-baton` via `deployment_state=ready_to_fire`.
+- **`/workstream-complete`** — plan-doc update step covers roadmap stubs (shared handoff lifecycle).
+- **`/workday-start`** — Step 1.1 groups `kind: roadmap-baton` with spinoffs, clustered by `roadmap_id` when >3 per group.
+- **Hooks:** the boot-time archival sweep (`session.boot_sweep`, `bin/sweep-boot.py`) silently
+  archives consumed handoffs whose session is dead, covering orphaned roadmap stubs.
+- **Discovery:** `bin/query-records --list-schemas`, `bin/lint-frontmatter --list-schemas`.

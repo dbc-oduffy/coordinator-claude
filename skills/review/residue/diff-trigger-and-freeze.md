@@ -11,7 +11,7 @@ order: 10
 
 **Freeze the diff before dispatching `code-reviewer` — part of the dispatch contract, not an enhancement.** `code-reviewer`'s Bash is allowlist-confined to a single literal absolute `<settings-home>/bin/coordinator-doc-new --type review-findings` command (the dispatching EM resolves the settings home per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` — and injects the literal path — the confined reviewer cannot resolve shell expansion itself) (engine guard `coordinator_core.bash_guards.block_reviewer_bash_outside_allowlist`, fail-closed, no escape hatch) — it cannot run `git show`/`git diff`/`git log` and has no way to obtain a diff on its own. Left unmaterialized, the reviewer reads current on-disk file state instead of the change under review: deletions vanish, before/after context is lost, and on a shared `work/*` branch a concurrent session's commits contaminate attribution.
 
-- Before dispatch, freeze the diff by invoking the claude-klabauter-resident `freeze-review-diff` via the settings-home forwarder — never a hand-typed `git diff > file` payload, and never a hand-rolled claude-klabauter-root resolution ladder:
+- Before dispatch, freeze the diff by invoking the engine's `freeze-review-diff` via the settings-home forwarder — never a hand-typed `git diff > file` payload, and never a hand-rolled engine-root resolution ladder:
 
   `& "$env:COORDINATOR_SETTINGS_HOME\bin\freeze-review-diff.exe" --range "<scope-appropriate-range>" --slice-id "<slice-id>"`
   (shape per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`; PowerShell shown)

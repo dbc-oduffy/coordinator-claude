@@ -57,12 +57,12 @@ Domain extensions layer on top:
 
 cross-repo-commitment does NOT share the base field-set's from_repo/status-enum shape —
 it pins its own status enum {open, fulfilled, withdrawn} (NOT {open, closed, deferred})
-and replaces from_repo with committed_by (see docs/wiki/cross-repo-commitments-schema.md
+and replaces from_repo with committed_by (see coordinator-content-repo coordinator/docs/wiki/cross-repo-communication/cross-repo-commitments-schema.md
 § Negative-spec — committed_by names the SIBLING counterparty, never this repo's own
 cwd-resolved identity). Also requires: committed_by, memo, commitment, observed.
 
 workstream / workstream-event do NOT share the base field-set above — see
-docs/wiki/workstream-store-schema.md. workstream requires: workstream_id, title,
+Coordinator-content-repo coordinator/docs/wiki/schema-and-validation-contracts/workstream-store-schema.md. workstream requires: workstream_id, title,
 created, coordinator_root_path. workstream-event requires: workstream, field,
 value, sequence, session, coordinator_root_path. Both auto-resolve
 coordinator_root_path from the cwd git root (override via --coordinator-root-path).
@@ -400,7 +400,7 @@ def _schema_cli_validate(schema_name: str, fields: dict) -> tuple[bool, list[str
 # Valid queue_scope values — mirrors BacklogQueueScope in cockpit-contract.
 # "project" is the default (per-project local entries); "central" is for
 # universal patterns destined for claude-klabauter's central improvement queue / lessons
-# store (docs/wiki/state-placement-law.md § Taxonomy "Central/global state").
+# store (coordinator-content-repo coordinator/docs/wiki/hook-best-practices/state-placement-law.md § Taxonomy "Central/global state").
 _VALID_QUEUE_SCOPES = ("central", "project")
 # Mirrors the `scope` enum in frontmatter/schemas/lesson-entry.schema.json. Duplicated
 # deliberately: the schema rejects an invalid value downstream with no diagnostic the
@@ -695,7 +695,7 @@ def _output_path(
     — correct only when this invariant holds for all supported schemas.
 
     Spec backlinks:
-      - docs/wiki/state-placement-law.md § Taxonomy — "Central/global state" routes
+      - coordinator-content-repo coordinator/docs/wiki/hook-best-practices/state-placement-law.md § Taxonomy — "Central/global state" routes
         to claude-klabauter unconditionally (central)
       - docs/plans/2026-07-03-stop-the-rot-claude-klabauter-state-home-placement.md § C12 / AC13 (meta-repo)
       - docs/plans/2026-07-08-project-tracker-render-from-queue.md § Substrate / § Chunks C2 (filename_override)
@@ -733,7 +733,7 @@ def _output_path(
                 f"_output_path: central queue_scope only valid for improvement-queue or lessons, got '{schema_name}'"
             )
         # Central state routes to claude-klabauter unconditionally — see
-        # docs/wiki/state-placement-law.md § Taxonomy "Central/global state".
+        # coordinator-content-repo coordinator/docs/wiki/hook-best-practices/state-placement-law.md § Taxonomy "Central/global state".
         # (The [coordinator-content-repo] docs/plans/2026-07-06-gate2-w23-state-seam-caller-switch.md
         # plan's proposal to route this branch to DoE was never ratified: that plan is `status: draft`,
         # AC1/AC2 are `pending`, and its own C3 is HELD with recorded disk proof
@@ -2075,23 +2075,29 @@ def main(argv: "list[str] | None" = None) -> int:
         # argparse-required despite the write refusing without them).
         described = _schema_cli_describe(_SCHEMA_CLI_NAME.get(schema_name, schema_name))
         required_fields = described.get("required") or []
-        missing = [
-            _flag_name_for_field(field)
+        _enums = described.get("enums") or {}
+
+        def _flag_with_values(field: str) -> str:
+            _allowed = _enums.get(field)
+            _flag = _flag_name_for_field(field)
+            return f"{_flag} {{{','.join(str(v) for v in _allowed)}}}" if _allowed else _flag
+
+        _problems = [
+            f"missing {_flag_with_values(field)}"
             for field in required_fields
             if field not in _NO_CLI_FLAG_FIELDS
             and field not in _AUTO_FILLED_FIELDS
             and getattr(args, field, None) is None
         ]
-        if missing:
-            _enums = described.get("enums") or {}
-            _named = [
-                f"{flag} {{{','.join(str(v) for v in _enums[flag[2:].replace('-', '_')])}}}"
-                if flag[2:].replace("-", "_") in _enums
-                else flag
-                for flag in missing
-            ]
+        _problems += [
+            f"invalid {_flag_with_values(_field)}, got {_given!r}"
+            for _field in _enums
+            for _given in [getattr(args, _field, None)]
+            if isinstance(_given, str) and _given not in [str(v) for v in _enums[_field]]
+        ]
+        if _problems:
             _refuse_for_schema(
-                f"--schema {schema_name} requires {', '.join(_named)}"
+                f"--schema {schema_name}: {'; '.join(_problems)}"
             )
 
     # Validate and resolve queue_scope (improvement-queue only; fail-loud on invalid).
@@ -2117,17 +2123,6 @@ def main(argv: "list[str] | None" = None) -> int:
             file=sys.stderr,
         )
         return 1
-
-    # Enum-typed flags are checked against the loaded schema, so the allowed
-    # values named in the refusal are the ones enforcement uses.
-    if schema_name not in _WORKSTREAM_STORE_SCHEMAS:
-        for _field, _allowed in (described.get("enums") or {}).items():
-            _given = getattr(args, _field, None)
-            if isinstance(_given, str) and _given not in [str(v) for v in _allowed]:
-                _refuse_for_schema(
-                    f"{_flag_name_for_field(_field)} {_given!r} is invalid; "
-                    f"allowed: {', '.join(str(v) for v in _allowed)}"
-                )
 
     # Schema guard for --queue-scope; only improvement-queue supports it.
     # --queue-scope central on debt-backlog or bug-backlog would silently redirect those entries
@@ -2277,7 +2272,7 @@ def main(argv: "list[str] | None" = None) -> int:
             "why": args.why,
             "how_to_apply": args.how_to_apply,
             # cross-repo-commitment domain fields. Note: this schema does NOT use
-            # from_repo (see docs/wiki/cross-repo-commitments-schema.md § Negative-spec)
+            # from_repo (see coordinator-content-repo coordinator/docs/wiki/cross-repo-communication/cross-repo-commitments-schema.md § Negative-spec)
             # — committed_by carries the sibling-counterparty identity instead. The
             # from_repo key above is still populated in this dict but is excluded
             # on BOTH write paths: dropped by _build_yaml on the legacy path (its
@@ -2565,7 +2560,7 @@ def main(argv: "list[str] | None" = None) -> int:
     if _native_result.get("skipped"):
         # Contract pt 5 (AC12): map skipped:true → legacy WARN + exit 0 (no path printed).
         # Parity with the legacy path's _ClaudeKlabauterUnresolvable WARN messages — both routes
-        # degrade on unresolvable engine root, not CONTENT_ROOT (see docs/wiki/state-placement-law.md
+        # degrade on unresolvable engine root, not CONTENT_ROOT (see coordinator-content-repo coordinator/docs/wiki/hook-best-practices/state-placement-law.md
         # § Taxonomy "Central/global state"). The native op's _output_path (coordinator_core/ops/
         # queue_append.py) raises _ClaudeKlabauterUnresolvable on THREE branches — central-scope,
         # meta-repo-cwd, and the caller_worktree-is-None fallback — not central-scope alone, so

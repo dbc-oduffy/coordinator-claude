@@ -35,8 +35,8 @@ DR-072: durable, per-machine coordinator state lives in settings-home, not the
 resettable/synced ~/.claude tree — see
 docs/decisions/DR-072-durable-machine-local-coordinator-state-lives-in-settings-home-not-claude.md
 and its predecessor DR-071-durable-coordinator-root-anchor-settings-home-registry-content-root-demoted-to-cache.md.
-See also docs/wiki/state-placement-law.md § Surfaces That Deliberately Stay in ~/.claude
-and docs/wiki/machine-local-registry.md § 4e.
+See also coordinator-content-repo coordinator/docs/wiki/hook-best-practices/state-placement-law.md § Surfaces That Deliberately Stay in ~/.claude
+and coordinator-content-repo coordinator/docs/wiki/hook-best-practices/machine-local-registry.md § 4e.
 
 Port backlink: docs/plans/2026-07-19-debash-coordinator-windows.md (E3-e,
   naked-python port).

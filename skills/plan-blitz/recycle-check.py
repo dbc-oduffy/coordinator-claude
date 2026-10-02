@@ -84,6 +84,9 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib"))
+from frontmatter_scan import read_text, scan_frontmatter  # noqa: E402
+
 EXIT_CLEAN, EXIT_RECYCLED, EXIT_USAGE = 0, 1, 2
 
 # Mirrors workflows/plan-blitz.mjs :: slug. See the module docstring on why this is borrowed.
@@ -117,7 +120,6 @@ _HANDOFF_PATH = re.compile(r"^\s*(?:handoff|record):\s*(\S.*?)\s*$", re.M)
 # `deliverable_id`, so only the other three END a deliverable.
 _TERMINAL_DEPLOYMENT = frozenset({"shipped", "abandoned", "continued", "closed"})
 _DELIVERABLE_ENDED = _TERMINAL_DEPLOYMENT - {"continued"}
-_FM_KEY = re.compile(r"^([A-Za-z_]+):\s*(.*?)\s*$")
 
 
 def _norm_path(p: str) -> str:
@@ -288,13 +290,9 @@ def scan(repo_root: Path, baton_ids, trail_root: str, exclude_run: str | None, l
 
 
 def _keys(path: Path) -> dict:
-    """Top-level `key: value` pairs of a record's frontmatter, first occurrence wins."""
-    out = {}
-    for line in _frontmatter(path.read_text(encoding="utf-8", errors="replace")).splitlines():
-        m = _FM_KEY.match(line)
-        if m and m.group(1) not in out:
-            out[m.group(1)] = m.group(2).strip("'\"")
-    return out
+    """Scalar top-level keys of a record's frontmatter, first occurrence wins."""
+    fields = scan_frontmatter(read_text(path))
+    return {k: v for k, v in fields.items() if isinstance(v, str)}
 
 
 def _terminal(keys: dict) -> bool:

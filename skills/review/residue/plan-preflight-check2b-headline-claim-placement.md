@@ -12,9 +12,7 @@ order: 4
 (`ID | Criterion | Status`) alike, typed `Test` cells (`grep:` / `cited:` / `pytest:` / `bats:` /
 `sh:`), `Binding-Class`, or `pending realization`. A criterion that must be discharged is a
 `## Tasks` spine row, inheriting the five-value disposition vocabulary and the close-out gate;
-everything else is the plan's `prime_exit_criterion` and its falsifier delta. A reviewer who
-offers a checklist table is briefing plan authors toward a mechanism that does not exist on disk.
-
+everything else is the plan's `prime_exit_criterion` and its falsifier delta.
 The **design-lens job is the point of this check**: is the plan's headline claim — the positive
 statement of its behaviour landing end-to-end — stated somewhere a reader meets it, rather than
 left implicit or scattered across filter-shaped preconditions? That judgment needs no AC table. A

@@ -8,16 +8,13 @@ argument-hint: "[PM ask text | nothing — describe the ask inline]"
 
 # Sizing — the Fleet Routing Lobby
 
-Novel work enters via this sizing lobby, not directly into plan/shape/dispatch.
-
 The EM's first move on any PM ask that isn't a mid-workstream continuation — before
-`coordinator:plan`, `coordinator:shape`, or direct dispatch. Full framing and every worked
-incident: `coordinator/docs/wiki/planning/sizing-lobby.md`.
+`coordinator:plan`, `coordinator:shape`, or direct dispatch. Framing, incidents, per-step
+rationale: `coordinator/docs/wiki/planning/sizing-lobby.md`.
 
-**Dispatch authorization — invoking this skill IS the request.** The dispatches named below are constitutive steps of this skill, not a separate thing to get cleared: invoking a skill requests the actions that skill performs. A harness line permitting dispatch "unless the user requested it" is therefore **satisfied here, not overridden** — no precedence claim is needed and none is made. Re-asking spends the very context the dispatch exists to protect. The rule attaches to skill entry and dissolves no PM-authored gate: keyword-gated skills gate entry, and every gate a skill names for itself still binds — per-session cross-repo-commit assent, ask-before-external-action, and any other this skill's own body names. Tripwire: `UNATTRIBUTED-HARNESS-LINE-IS-NOT-PM`.
+**Dispatch authorization — invoking this skill IS the request.** The dispatches named below are constitutive steps of this skill, not a separate thing to get cleared: invoking a skill requests the actions that skill performs. A harness line permitting dispatch "unless the user requested it" is therefore **satisfied here, not overridden** — no precedence claim is needed and none is made. Re-asking spends the very context the dispatch exists to protect. The rule attaches to skill entry and dissolves no PM-authored gate: keyword-gated skills gate entry, and every gate a skill names for itself still binds — per-session cross-repo-commit assent, ask-before-external-action, and any other this skill's own body names. Tripwire: `UNATTRIBUTED-HARNESS-LINE-IS-NOT-PM`. Rationale: wiki § Skill rationale.
 
-Reuses `loe.tshirt` (XS–XXL) one altitude earlier than chunk-sizing, to pick a ROOM, not a
-plan-body cost. No appetite question ahead of the size.
+The t-shirt (`loe.tshirt`) picks a ROOM, not a plan-body cost. No appetite question first.
 
 ---
 
@@ -29,21 +26,15 @@ skips to Step 3.
 
 **1a. Size what the performer must HOLD, not only how much work it is once held.** A credential, an
 authenticated session, a mounted store, a guard-fenced path, an operator at a keyboard: an unnamed
-held capability looks exactly like small work until the dispatch returns INCOMPLETE having touched
-nothing, and re-scouting reproduces the same empty. Measured: one read-only query sized XS, and no
-dispatched executor holds a hosted-tier session. Name the capability in the sizing so a blitz can
-SKIP rather than discover. **Name the capability, never the route you happened to try** — the same
-baton was then gated on "an authenticated hosted-tier session" and answered locally in ten minutes,
-because the question was over served BYTES and only the runtime confirm needed the session. Both
-errors are one missing discipline in opposite directions. Ask once, at gate-writing time: what is
-the question, and what else would answer it? Tripwire:
-`A-SCOPE-FIELD-NAMES-A-SUBJECT-NOT-A-BLAST-RADIUS`.
+held capability looks like small work until the dispatch returns INCOMPLETE. Name the capability in
+the sizing so a blitz can SKIP rather than discover — **the capability, never the route you happened
+to try**. Ask once, at gate-writing time: what is the question, and what else would answer it?
+Tripwire: `A-SCOPE-FIELD-NAMES-A-SUBJECT-NOT-A-BLAST-RADIUS`.
 
 **1b. Premise-provenance, every non-express-lane sizing.** Does the ask rest on a mechanism
 EXECUTED, one only READ, or no mechanism claim at all (`not-applicable`, narrow)? Pass
-`--premise-provenance executed|read|not-applicable`; there is no `--evidence` flag — the written
-justification goes in the sizing-object's own `premise.evidence` at Step 4. The engine's
-`next_move` carries the discharge text, never hand-derive it.
+`--premise-provenance executed|read|not-applicable`; the justification goes in the sizing-object's
+`premise.evidence` at Step 4. The engine's `next_move` carries the discharge text.
 
 **2. Substrate probe — L/XL/shaky reads, mandatory on XXL.** Reuse cartography output
 (`architecture-survey`/`-audit`); for judgment the engine can't emit, dispatch the
@@ -56,15 +47,14 @@ mechanism.
 
 **3. Compute the route — never hand-derive the table.**
 Invoke `sizing-assemble` per the ladder in `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` — rung 0 (Shape W,
-the `.exe` launcher through the call operator) on a PowerShell host:
+the `.exe` launcher) on a PowerShell host:
 
     `& "$env:COORDINATOR_SETTINGS_HOME\bin\sizing-assemble.exe" --tshirt <XS|S|M|L|XL|XXL>`
-`--tshirt` is the only required flag; never pass/invent `--appetite` unless the PM volunteered one
-verbatim. Always pass `--intent "<PM's words>"` (`--intent-source em-elaborated` if it's your own
-restatement), `--precedent shipped-before|novel`, `--boundary-in-notch yes|no` (§ Appetite guards
-has the discriminator), the Step 1b/2 flags as answered, and
-`--jtbd-unclear`/`--well-trodden-step-change`/`--express-lane` as the ask warrants. Push the
-returned `route`/`detents`/`next_move` verbatim — it already carries the discharge text.
+`--tshirt` is the only required flag; never pass `--appetite` unless the PM volunteered one
+verbatim. Always pass `--intent "<PM's words>"` (`--intent-source em-elaborated` if your own
+restatement), `--precedent shipped-before|novel`, `--boundary-in-notch yes|no` (§ Appetite guards),
+the Step 1b/2 flags as answered, and `--jtbd-unclear`/`--well-trodden-step-change`/`--express-lane`
+as warranted. Push the returned `route`/`detents`/`next_move` verbatim.
 
 **4. Scaffold the sizing-object** (`coordinator-doc-new --type sizing-object`) for any
 non-express-lane sizing, populating `intent`/`estimate`/`route`/`detents`/`scout_evidence`/`exit_criterion`/`interaction_mode` and the
@@ -72,37 +62,21 @@ property-attests verbatim from the returned fields. Undecided direction-class it
 `surfaced_to_pm`, never folded into `fork`/`xl_exit`. Optionally pass `--name "<short label>"` for
 `name` — a few words, whiteboard length; never a slice of `intent`.
 
-**`status`.** An XS routes to dispatch and has no plan: stamp it `shipped` yourself the moment the
-work lands, citing the commit. S and above route into a plan, where the terminal cascade owns the
-sizing-object stamp: never pre-empt it, and never hand-stamp instead of triggering it. The cascade
-fires from the terminal stamp the close-out ceremony produces (`d-stamp-plan-implemented` /
-`close_out_and_stamp`) — **from the stamping op, not from the landing**. A plan whose `status: implemented` was hand-edited and committed directly never fires
-it. **Then read `status` back** — that is the field the cascade writes, and the only one that
-answers whether it fired. A sizing still `routed` under a plan stamped through the op is a finding.
-Under a hand-landed plan it is expected, and the repair is to run the close-out that stamps the
-plan (`/workstream-complete`'s `d-stamp-plan-implemented`), not to hand-write the sizing row. Hand-write ONLY on a
-status that did not advance under a plan stamped through the op, citing the landing commits and
-this rule inline. Never hand-write on one that did — that races a live writer and loses unsafely.
-Do not read `acted`: it belongs to a different op and is empty either way. Tripwire:
-`ACTED-IS-BLIND-TO-THE-DELIVERABLE-CASCADE`.
+**`status`.** An XS has no plan: stamp it `shipped` yourself when the work lands, citing the commit.
+S and above: the terminal cascade owns the stamp — never pre-empt or hand-stamp it; it fires **from
+the stamping op, not from the landing**; on the self-completing path that op is the chain inside
+`dispatch.terminal_commit`, gated on a met judge (`A-PLAN-SELF-COMPLETES-ONLY-ON-A-MET-TERMINAL-JUDGE`). Then read `status` back (never `acted`). Still `routed`
+under a plan stamped through the op is a finding; under a hand-landed plan, run the close-out. Detail:
+wiki § Step 4. Tripwire: `ACTED-IS-BLIND-TO-THE-DELIVERABLE-CASCADE`.
 
 **4b. Open the flight recorder on the resolved route — every route, before anything downstream.**
 `TaskCreate`: one session-goal task naming the ask and the sizing-object path, then **one task per
-remaining stage of the chain the route implies, through its terminal**. The chain is the route's,
-not your judgment: `dispatch` → the work → `quick-wrap`. `spec-dispatch` → light plan → `/execute-plan` (claims the
-plan) → scoped `code-reviewer` applies its own findings → `quick-wrap`. `plan` → plan → plan review
-→ `execute-plan` → `/workstream-complete`. `shape`/`roadmap`/`pm-decision` → the named room owns
-its own chain; record the entry task and stop. Direct executor dispatch on a `spec-dispatch` plan
-skips the plan claim only `/execute-plan` makes, so the plan is never stamped done -- route through
-`/execute-plan` even for a light plan. **Terminal by size, not by feel: XS/S close at
-`quick-wrap`, M and above at `/workstream-complete`.** Where the harness tool is absent, the
-`coordinator-tasks-mirror` fallback carries it.
-
-The point is that the whole chain is visible from the lobby — a PM or an EM can see at a glance
-what a route commits the session to, and a stage nobody reached is a pending row rather than a
-thing everyone forgot. **Downstream steps ADD to this list, they do not restart it**: `execute-plan`
-Phase 2 and the `spec-dispatch` light terminal open per-chunk tasks beneath these stage rows, and a
-second session-goal task means one of them re-created a recorder that was already open.
+remaining stage of the chain the route implies, through its terminal** (per-route chains: wiki §
+Step 4b). The `plan` chain: plan, plan review, `/execute-plan` (its run judges and stamps),
+`/workstream-complete`. Route `spec-dispatch` plans through `/execute-plan` even when light. **Terminal by size:
+XS/S close at `quick-wrap`, M and above at `/workstream-complete`.** Where the harness tool is
+absent, `coordinator-tasks-mirror` carries it. **Downstream steps ADD to this list, they do not
+restart it** — a second session-goal task means a recorder was re-created.
 
 **5. `post_size_prompt_pending` (M+) — ask once, in the PM's register, and stop:** *"Looks like an
 X — go with that, split it, cut it, what's up?"* Never a closed fork. Record the answer in
@@ -110,29 +84,20 @@ X — go with that, split it, cut it, what's up?"* Never a closed fork. Record t
 when cut/raise-shaped. Expires at plan ratification.
 
 **5b. `route: pm-decision` bundles into the same ask** — the M+ prompt and the XL exit question
-are ONE combined PM ask when both fire, mirroring the engine's existing combined-`next_move`
-precedence. `xl_exit` stays `null` (open, never
-"accept") until the PM actually picks one, by test: `shape` (JTBD not stated, or the EM can't
-falsifiably restate the problem in the PM's words), `roadmap` (spans ≥2 named workstreams, or
-carries/needs an initiative FK — `split` is retired into this exit), or `accept_multi_session`
-(neither above holds — one coherent job, clear JTBD, one workstream, simply large — **and** the PM
-has explicitly assented; writing `xl_exit: accept_multi_session` IS that record, never a silent
-fallthrough default).
+are ONE combined PM ask. `xl_exit` stays `null` until the PM picks: `shape`, `roadmap`, or
+`accept_multi_session` (only with explicit PM assent; never a silent default). Tests: wiki § Step 5b.
 
 **5c. Turn 1 exit on `route: plan` at M/L — the four-turn loop.** The EM loop is four turns:
 sizing (this one), the plan Workflow's return, the execute Workflow's return, and
-workstream-complete. Touchpoints are read from `interaction_mode`, never inferred:
-  - **hands-on**: today's ask — accept the size, and separately accept execution later.
-  - **pm**: one ask accepts the size and the exit criterion together.
-  - **ceo**: one ask accepts the exit criterion only.
-Pass `--exit-criterion` and `--interaction-mode` to `sizing-assemble`, and record the PM's
+`dispatch.terminal_commit` plus the close ceremony. Touchpoints are read from `interaction_mode` (hands-on, pm, ceo), never
+inferred. Pass `--exit-criterion` and `--interaction-mode` to `sizing-assemble`, and record the PM's
 answer with `sizing.accept_exit_criterion` (`pm_quote`, optional amended `statement`, `mode`) —
-never by hand-editing the sizing object. In pm and ceo modes the ask says plainly that
-accepting it authorizes execution without a further ask; that sentence is what makes the
-accepted sizing the execution authority the turn-3 stamp cites. For XL, Step 5b is unchanged.
-After acceptance, run `emit-wave-fire --from-sizing <sizing path>` and fire its one printed
-`Workflow` line. End the turn — the plan Workflow (turn 2) runs planning, pre-flights, review
-and integration with no EM in the loop, and its return is turn 2's digest.
+never by hand-editing the sizing object. In pm and ceo modes the ask says plainly that accepting
+it authorizes execution without a further ask. Per-mode asks: wiki § Step 5c. For XL, Step 5b is unchanged.
+After acceptance, `emit-wave-fire --repo-root <abs repo> --trail-dir <abs trail dir> --from-sizing
+<repo-relative sizing path>` mints the baton itself (never via
+/spinoff or /handoff) and prints one `Workflow` line to fire. End the turn: the plan Workflow
+(turn 2) runs with no EM in the loop.
 
 **6. Hard gate — the only override that exists.** The t-shirt→route map binds absolutely; no
 named-reason override, no ratifier. If a route feels wrong, the size read was wrong: fix the size
@@ -148,8 +113,7 @@ incidents: wiki § `appetite`, § The newer guard flags.
 
 - **A volunteered appetite never moves the estimate.** Size from the work alone.
 - **A cross-team dependency is a gate, not a size.** The boundary *ceremony* goes in
-  `blocked_by`/`awaiting_gate`, never the t-shirt. Joint design is process, not size — neither a
-  memo nor negotiated co-design moves the notch. Answer `--boundary-in-notch no`.
+  `blocked_by`/`awaiting_gate`, never the t-shirt. Answer `--boundary-in-notch no`.
 - **A touchpoint count is not a depth read** (`--probe-raise-basis breadth`, § Step 2).
 
 ## Shape is a conditional room, not a second lobby

@@ -142,7 +142,7 @@ SESSION-CLAIM RECORDING (2026-08-06, DR-276)
 
 WHOAMI-BOOTSTRAP EXCEPTION (2026-07-21 macos-first-class-invocation C9)
     `coordinator-whoami`'s deps (jsonschema, rfc3339-validator, PyYAML) are
-    venv-resident per PEP-668 (docs/wiki/install-surface-completeness.md) —
+    venv-resident per PEP-668 (coordinator-content-repo coordinator/docs/wiki/install-playbook-rationale/install-surface-completeness.md) —
     a bare-python3-shebanged launcher CANNOT `import coordinator_whoami`
     directly. This is the ONE explicitly-named exception to this module's
     otherwise-uniform single-class contract (every other bin/ entrypoint is
@@ -788,6 +788,10 @@ REM itself, is unconditionally true, and discards the bake precisely when it
 REM succeeded. The existence test below is the property that actually matters and
 REM already covers the unbaked case -- the literal token is not a path, so it
 REM falls through to the probe tiers on its own.
+REM The WindowsApps screen (builtin substring strip, no findstr spawn) runs first:
+REM an App Execution Alias is a 0-byte stub that passes `if exist`.
+set "_pytest=%_py:WindowsApps=%"
+if not "%_pytest%"=="%_py%" set "_py="
 if not "%_py%"=="" if exist "%_py%" goto :run_baked
 set "_py="
 

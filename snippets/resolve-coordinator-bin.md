@@ -275,7 +275,8 @@ session end it is ordinary provisioning, done once at session start and not repo
 deliberately not carried into it, so no launcher is written for them and none will be. Never file
 the absence as an install defect.
 
-**Invoke them out of the engine's AUTHORING checkout — `machine-local get repos.claude_klabauter` —
+**Invoke them out of the engine's AUTHORING checkout — `machine-local get repos.claude_klabauter` (the key lives in
+`<settings-home>/machine-local/registry.local.toml`) —
 never `<engine-root>`.** That placeholder means the *published* mirror everywhere else in this
 corpus, and the publisher chain is the one set of CLIs guaranteed absent from it, so a path built
 that way gets `can't open file` and reads as "the publisher is missing" when it is exactly where it

@@ -37,12 +37,12 @@ Two subcommands remain, one per mechanical step:
 
 Step 5 (route each deduped entry through the central-mode classifier -> verify-gate ->
 apply pipeline) is deliberately NOT mechanized here — which wiki a lesson's body belongs in
-is a judgment call the EM/router makes per `docs/wiki/lessons-outbox-schema.md` § Change-kind
+is a judgment call the EM/router makes per `coordinator-content-repo coordinator/docs/wiki/schema-and-validation-contracts/lessons-outbox-schema.md` § Change-kind
 enum, not a deterministic parse. `read`'s output is the input to that judgment step; marking
 an entry drained (`git mv` to `drained/` + commit, within this repo only) happens directly
 once routing succeeds — no manifest, no peer writeback.
 
-Schema reference: docs/wiki/lessons-outbox-schema.md
+Schema reference: coordinator-content-repo coordinator/docs/wiki/schema-and-validation-contracts/lessons-outbox-schema.md
 Spec backlink: archive/specs/2026-06/2026-06-15-universal-lesson-routing-mechanical-capture.md § C4
 Co-located test: test_lessons_outbox_drain.py (fixture git repos — never a real peer repo).
 """
@@ -116,7 +116,7 @@ def _canonical_target_wiki(target_wiki: str, change_kind: str) -> str:
     unconditionally to every change_kind: that fixed the originally-verified A9 defect
     (`"concurrent-em-hazards"` vs `"concurrent-em-hazards.md"` failing to dedupe) but did
     NOT collapse directory-prefix variance (`"test-design-discipline.md"` vs
-    `"docs/wiki/test-design-discipline.md"`), because a basename-only collapse is unsafe
+    `"coordinator-content-repo coordinator/docs/wiki/test-design-discipline.md"`), because a basename-only collapse is unsafe
     for non-wiki change_kinds — every skill file shares the basename `SKILL.md`, so
     collapsing on basename alone would silently merge unrelated skills' entries into one
     dedupe group. Gating the FULL collapse on `change_kind` (wiki-new/wiki-append only,

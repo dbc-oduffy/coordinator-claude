@@ -15,6 +15,11 @@ split — you do not reproduce that logic in a skill body. Hand it the enumerate
 subject, and your own id as `Dispatching Session-Id: <uuid>` (`$CLAUDE_CODE_SESSION_ID`) — without
 it the commit lands unattributed and every session-keyed gate undercounts. It refuses an unbounded or missing pathspec rather than guessing.
 
+When the commit fixes the defect a queue row records, the brief also hands `Fixes-Row: <row
+filename stem>`, one line per row. Whoever knows the row supplies it; it is never inferred. It
+reaches the reader through `queue-closure-sweep.py`'s `commit-claimed` class and does not close
+the row.
+
 ## The mechanism underneath
 
 **The route is the op `ceremony.commit_v2`, INVOKED — `coordinator-invoke ceremony.commit_v2

@@ -23,30 +23,16 @@ directive's `hard_block` field — halt before Step 7 on a hard-blocking FAIL; s
 without halting.
 
 **Vendored-schema drift is advisory, and its absence from the set above is a ruling.** The
-`schema-drift-gate` verdict covers `coordinator_core/frontmatter/schemas/` — the ENGINE's
-vendored set, which only the engine repo can re-vendor. A consuming repo cannot discharge it at
-any effort, so blocking its release on that verdict halts it on another team's queue with no
-sanctioned way past. Surface DRIFT with the owning repo named and proceed. A gate the running
-repo cannot discharge is not a gate.
+`schema-drift-gate` verdict covers the ENGINE's vendored `coordinator_core/frontmatter/schemas/`,
+which a consuming repo cannot re-vendor. Surface DRIFT with the owning repo named and proceed.
 
-**UBT pending-record merge is NOT in that set, and its absence is a ruling.** This ceremony never
+**UBT pending-record merge is NOT in that set, and its absence is a ruling.** UBT freshness is
+Example-game-repo's requirement, discharged by example-game-repo's own ceremonies. Do not re-add the gate or
+compensating EM prose for it.
 <!-- guard-allow: directive-ids-are-engine-current d_step4c_ubt_pending_merge_gate is named here as history: the engine repo drained it at f88ae3bddf and this text exists to say the gate is dead. -->
-gated UBT compile-freshness in fact: `d_step4c_ubt_pending_merge_gate` read `state/review-trail/`,
-which is empty in the one repo class the check was built for (example-game-repo) — that repo's writer,
-`bin/check_ubt_build_fresh.py`, puts its markers under `.coordinator-local/review-trail/` instead.
-The gate was reading an empty directory and reporting clean, from before its scanner was ever
-deleted. Nor was this ceremony ever its discharge: that writer's own docstring names
-Example-game-repo's `/workstream-complete` Step 2.9 and `/workday-complete` as its consumers. UBT freshness is
-Example-game-repo's requirement, discharged by example-game-repo's own ceremonies. Do not re-add it here, and do not
-re-add compensating EM prose for it — a manual compensation for a requirement this ceremony does
-not own is worse than the gap it patches.
-
-**Interim, until the engine drain publishes.** The engine repo removed the directive, its CLI
-subcommand and its two contract tests (`f88ae3bddf`), but that drain reaches sessions only when it
-lands on the `claude-klabauter` mirror. Until then the mirror still emits `4c` and it exits 1 with
-`ModuleNotFoundError: No module named 'coordinator_core.ops.scan_unresolved_ubt_records'`. That
-crash is expected and is not a release blocker — it is a dead gate failing closed, carrying no
-signal about the tree. Proceed past it; do not hand-derive a UBT verdict in its place.
+Until the engine drain publishes, the mirror still emits `d_step4c_ubt_pending_merge_gate` (`4c`),
+which exits 1 with `ModuleNotFoundError: ... scan_unresolved_ubt_records`. That is a dead gate, not
+a release blocker; proceed and hand-derive no UBT verdict.
 
 ---
 
@@ -119,15 +105,11 @@ Resolve from the spine's directives in one pass; advisory rows never block:
 - **Cruft-sweep:** staleness >21d or >2GB reclaimable → nudge `/cruft-sweep`.
 - **Strategic self-description staleness (named line item, not an advisory):** newest
   `state/strategic/self-description.yaml` `version_highlights[].date` older than 14d → run
-  `coordinator:strategic-self-description-refresh` this ceremony. It carries its own human
-  ratify gate, so this line schedules the gate; it does not decide the content. Missing file in
-  a repo that has adopted the standard reads as stale, not as opt-out. **Negative-spec:** a
-  disposition of "skip" is recorded with a reason on the spine — never silently dropped, and
-  never folded back into the advisory bucket, where a fleet-wide drift went undetected for
-  seven weeks. Schema, provenance model, and the curated-vs-generated partition this line
-  schedules a gate for: `coordinator/docs/wiki/skills-corpus/strategic-self-description-standard.md`. Onboarding
-  a new repo onto the standard is `coordinator/skills/repo-setup/SKILL.md`'s concern, not this
-  ceremony's — this line is the recheck cadence for a repo already on it.
+  `coordinator:strategic-self-description-refresh` this ceremony (it carries its own human ratify
+  gate). Missing file in a repo that has adopted the standard reads as stale. **Negative-spec:** a
+  disposition of "skip" is recorded with a reason on the spine — never silently dropped or folded
+  into the advisory bucket. Standard: `coordinator/docs/wiki/skills-corpus/strategic-self-description-standard.md`;
+  onboarding is `coordinator/skills/repo-setup/SKILL.md`'s.
 - **Sidecar reap (hand-run):** `reap-stale-subagent-sidecars`; non-zero → surface.
 - **wsc inline-budget:** `WARN: ... exceeds baseline` → mechanism inlined not extracted.
 - **Weekly KR re-assessment:** `& "$env:COORDINATOR_SETTINGS_HOME\bin\reassess-goal-krs.exe"`
@@ -168,7 +150,7 @@ Illegal-path scan (NTFS-illegal chars) on tracked+staged paths; non-zero → hal
 re-commit, re-run. Compute session-keyed trail-scope shard (newest matching `<SID_SHORT>`, else
 newest overall).
 
-Read `~/.claude/plugins/coordinator/skills/parallel-code-review/SKILL.md`,
+Read `~/.claude/plugins/coordinator-claude/coordinator/skills/parallel-code-review/SKILL.md`,
 execute against the shard. The Staff Engineer NOT in this gate — see Step 8.
 
 - **BLOCKED:** halt before Step 10; surface verdict + findings-dir path.
@@ -266,12 +248,9 @@ in any `Decisions:` field; Minor = new feature/command; Patch = fixes/docs/refac
 
 **This step is the weekly bump for the coordinator-plugin-triple anchor** — `plugin.json`
 `.version`, `marketplace.json` `.metadata.version`, and the CHANGELOG's latest `## [X.Y.Z]`
-section, the only anchors that exist today. EM proposes the level; PM confirms — the gate below
-IS that confirmation, because a release surface is a product call. The engine is deliberately not
-an anchor here: its converged contract (`coordinator/docs/wiki/release-and-distribution/release-cadence-and-currency-notification.md`
-§ Engine anchor — converged contract) is a per-publish `version.txt` source SHA + `track_ref`
-field, not a release-shaped anchor, so it bumps per-publish, on claude-klabauter-em's own cadence,
-never on this weekly clock.
+section. EM proposes the level; the gate below is PM's confirmation. The engine is not an anchor
+here — it bumps per-publish (`coordinator/docs/wiki/release-and-distribution/release-cadence-and-currency-notification.md`
+§ Engine anchor), never on this weekly clock.
 
 **PM gate:** propose vX.Y.Z with one-line rationale; update release-notes filename and
 HEADER.md `Prior week released:`.
@@ -347,7 +326,7 @@ Residue is row-granular to this session only — never the whole store, never a 
 
 Moves daily files + priorities fragments to `archive/week-changelogs/<week-starting>/` (which must
 end up holding one `WEEK-SUMMARY.md` in the rollup-frontmatter shape —
-`docs/wiki/ceremony-calibration/daily-summary-procedure.md` § Rollup Frontmatter Standard),
+`coordinator/docs/wiki/ceremony-calibration/daily-summary-procedure.md` § Rollup Frontmatter Standard),
 review-trail JSON to `archive/review-trail/<week-starting>/` (`.gitkeep` and
 `.weekly-reviewer-scopes-*.json` shards deleted not archived), rewrites `HEADER.md`, commits +
 pushes. Run `workweek-complete-close archive --version vX.Y.Z --merge-sha <merge-sha>`
@@ -361,9 +340,7 @@ mismatch means multi-week — use `archive --week-only`, one run per week (pair 
 `--week-only`, the `HEADER.md` rewrite is conditional on `derive_week_start(HEADER.md) ==
 week_starting` — inert at a genuine live boundary but silently skipped if HEADER still carries
 the "(not yet set …)" sentinel; treat that as known behavior, not something this step branches
-on. Open item carried forward, not settled here: whether a detected skipped week should warn,
-block, or proceed with `--week-only` and leave the orphan for a later run — a PM-facing
-direction-class question, not resolved by this step's prose.
+on.
 
 **Negative spec:** the daily matcher `^\d{4}-\d{2}-\d{2}.*\.md$` also matches
 `YYYY-MM-DD-pending-release.md` (Step 12's live editorial corpus) — an unbounded sweep archives
@@ -374,16 +351,10 @@ first.
 Tail: opt-in `workweek_complete_post_command:` hook (advisory, non-blocking); cadence emission
 at completion (best-effort).
 
-**Push checkpoint — `push.outstanding`.** Push runs on a cadence, not on every commit, and this
-is one of its named checkpoints — a backstop, not the durability mechanism: the per-commit
-auto-push hook already lands every commit on the shared branch as it happens, so this checkpoint
-exists only to catch anything the hook missed. Fire the primitive and move on — do not block on
-it, detach it, or wrap it: it is not a synchronous EM-watched step and a failed or slow call here
-is not an EM concern; the branch-gate refusal, the protected-branch policy, the retry ladder, and
-the LFS-range predicate all belong to the op, never to a hand-rolled `git push` waiting beside it.
-If the reconcile read to confirm the call landed comes back empty, don't treat that as proof it
-didn't — a fast read can itself lose the race against the write; wait, then read again before
-concluding.
+**Push checkpoint — `push.outstanding`.** A backstop for anything the per-commit auto-push hook
+missed. Fire the primitive and move on — do not block on it, detach it, or wrap it; branch-gate,
+protected-branch policy, retry ladder and LFS-range predicate belong to the op, never a hand-rolled
+`git push`. An empty reconcile read is not proof the call failed — wait, then read again.
 
 `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" push.outstanding '{}' --repo "<repo-root>"`
 

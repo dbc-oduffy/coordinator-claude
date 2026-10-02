@@ -1,6 +1,6 @@
 ---
 name: external-pattern-checker
-description: "Opt-in bounded web research on plan claims prior-art-checker left Silent, on empirically-tricky topics. Sidecar signal buckets; never mutates the plan."
+description: "Opt-in web research on plan claims prior-art-checker left Silent. Sidecar only."
 model: sonnet
 effort: medium
 color: teal
@@ -153,5 +153,5 @@ Omit `Signal Worth Deeper Research` if empty (state: "No topics warrant a dedica
 - **Do not commit.** Write the sidecar, report back — the EM owns commits.
 
 <!-- BEGIN subagent-sandbox-preamble (synced from snippets/subagent-sandbox-preamble.md) -->
-**Provisioned home: `state/subagent-share/<session-id>/<provision_key>.md` — git-tracked, assessment-typed (question/answer shape), created for your role before you start. Record your findings and answer there as you go; return only a terse pointer, `done: <path>`, never a full dump. No `sidecar_path:`/`provision_key:` in your dispatch → fall back to `scratch/subagent-sandbox/` (root-level, off `state/`); files there are reaped after 24h.**
+**Provisioned home: `state/subagent-share/<session-id>/<provision_key>.md` (git-tracked, assessment-typed, pre-created). Record findings and answer there as you go; return only a terse pointer, `done: <path>`, never a full dump. No `sidecar_path:`/`provision_key:` → `scratch/subagent-sandbox/` (reaped after 24h).**
 <!-- END subagent-sandbox-preamble -->

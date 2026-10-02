@@ -1,10 +1,10 @@
 # Configuring a cloud environment for coordinator
 
-**`setup.sh` is one of four fields, not the whole configuration.** A cloud environment is created at
+**The setup script is one of four fields, not the whole configuration.** A cloud environment is created at
 [claude.ai/code](https://claude.ai/code) → environment selector → **Add cloud environment** (or the
 settings icon on an existing one). The dialog is the operator's surface: it lives in no repo, and
 nothing in any repo can read it, set it, or check it. That is why this file exists — the parts that
-are not `setup.sh` have nowhere else to be written down.
+are not the setup script have nowhere else to be written down.
 
 An environment applies wherever a cloud session starts: Claude Code on the web, `claude --cloud`,
 Claude Tag, routines, the mobile and desktop apps. **It is not scoped to a repo**, so one
@@ -57,7 +57,16 @@ on an existing environment's dialog instead.
 
 ### 4. Setup script
 
-Paste `setup.sh` from this directory. It runs on a fresh Ubuntu 24.04 VM with the repo already
+The field takes bash, so the paste is a fetch-and-run of `setup.py` from this directory:
+
+```bash
+set -u
+curl -fsSL -o /root/setup.py https://raw.githubusercontent.com/dbc-oduffy/coordinator-claude/HEAD/templates/cloud-env/setup.py
+python3 /root/setup.py
+exit 0
+```
+
+`setup.py` (stdlib only) runs on a fresh Ubuntu 24.04 VM with the repo already
 cloned, **before Claude Code launches** — which is the ordering the whole design rests on, since it
 means the script can write the VM's own `$HOME/.claude` and have Claude Code read it at launch.
 
@@ -83,12 +92,12 @@ hosts**, and at roughly **seven-day** cache expiry. Resuming an existing session
 The snapshot keeps what was written to disk and loses anything merely running: clones, installed
 packages and files survive; a started database or `docker compose` stack does not.
 
-**So editing `setup.sh` in this repo changes nothing about a live environment.** The paste is a
-copy, not a link. Re-paste it into the dialog to pick up any change here.
+**Editing `setup.py` in this repo changes a live environment only once the mirror publishes it** —
+the paste fetches the mirror's copy at run time, not this tree's.
 
 ## Known gap — doctrine does not yet reach non-authoring repos
 
-`setup.sh` phase 3b installs fleet doctrine into the VM's `$HOME/.claude/` from the first of three
+`setup.py` phase 3b installs fleet doctrine into the VM's `$HOME/.claude/` from the first of three
 candidates it finds: the working repo's own `global-doctrine/`, a sibling checkout's, or the
 published copy inside the plugin clone. **The third does not exist yet.** `git ls-tree
 HEAD:templates` on `dbc-oduffy/coordinator-claude` has no `global-doctrine` entry — verified

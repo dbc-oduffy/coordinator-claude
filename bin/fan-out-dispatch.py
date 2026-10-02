@@ -64,6 +64,7 @@ promoted INTO Python. The spawn-time run-report provisioner is called IN-PROCESS
 """
 from __future__ import annotations
 
+import ast
 import json
 import os
 import re
@@ -113,6 +114,43 @@ def __getattr__(name: str) -> str:
     if name == "PLUGIN_ROOT":
         return _resolve_plugin_root()
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+_DEFINITION_KEYWORDS = r"(?:def|class|function|const|let|var|fn|struct)"
+
+
+def _defines_symbol(path: str, contents: str, symbol: str) -> bool:
+    """True when `contents` DEFINES `symbol`, not merely mentions it.
+
+    `.py`: a top-level def/async def/class/assignment named `symbol` (the first
+    segment of a dotted symbol). Any other file, or a `.py` that does not parse:
+    `symbol` as a whole word directly after a definition keyword.
+    """
+    if path.endswith(".py"):
+        name = symbol.split(".", 1)[0]
+        try:
+            tree = ast.parse(contents)
+        except (SyntaxError, ValueError):
+            tree = None
+        if tree is not None:
+            for node in tree.body:
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    if node.name == name:
+                        return True
+                    continue
+                targets = []
+                if isinstance(node, ast.Assign):
+                    targets = node.targets
+                elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+                    targets = [node.target]
+                for target in targets:
+                    for leaf in ast.walk(target):
+                        if isinstance(leaf, ast.Name) and leaf.id == name:
+                            return True
+            return False
+    return (
+        re.search(rf"\b{_DEFINITION_KEYWORDS}\s+{re.escape(symbol)}\b", contents) is not None
+    )
 
 
 def _err(msg: str) -> None:
@@ -598,7 +636,7 @@ def main(argv: List[str]) -> int:
                     contents = pf.read()
             except Exception:
                 contents = ""
-            if pin_symbol not in contents:
+            if not _defines_symbol(pin_path, contents, pin_symbol):
                 _err(
                     f"NOTE: chunk '{chunk_ids[idx]}' declares a pinned interface "
                     f"'{pin_symbol}' but that symbol was NOT found in '{pin_path}'. The "

@@ -3,7 +3,7 @@
 project-rag corpus artifact, or any oversized real blob.
 
 Purpose: the belt-and-braces half of the fleet ruling that a corpus artifact is never
-committed (coordinator-content-repo's ``docs/wiki/coordinator-tripwires/corpus-artifact-is-never-committed.md``).
+committed (coordinator-content-repo's ``coordinator-content-repo coordinator/docs/wiki/coordinator-tripwires/corpus-artifact-is-never-committed.md``).
 The ignore stanza is the primary defence; this catches the cases the stanza cannot,
 because a `.gitignore` rule is silent once a path is staged with ``git add -f`` or was
 already tracked before the rule existed.
@@ -56,6 +56,10 @@ Negative-spec:
     passed as zero-sized.
 
 Spec backlink: docs/plans/2026-09-18-doe-holds-no-scripts.md, chunk W2-C5.
+
+Never imports `coordinator_core`: a stdlib-only CLI that runs with no engine-root
+bootstrap, so it keeps its own git spawns and is exempt from the shared git runner
+(`coordinator_core/tests/test_shared_git_runner.py :: _CONTRACT_EXEMPT_MODULES`).
 """
 
 from __future__ import annotations

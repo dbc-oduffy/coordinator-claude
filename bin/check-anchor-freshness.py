@@ -3,7 +3,7 @@
 WHY THIS EXISTS. `/workweek-complete` bumps the plugin triple anchor
 (`.version` in `coordinator/.claude-plugin/plugin.json`). Nothing notices when a week goes by
 without one, so a missed bump surfaces only if the operator happens to remember the last
-release — the discharge test (`docs/wiki/invisible-doctrine.md`) names that as unfinished work.
+release — the discharge test (`coordinator-content-repo coordinator/docs/wiki/claude-md-surfaces/invisible-doctrine.md`) names that as unfinished work.
 `/workweek-start` Step 1 reads this instead of running the query by hand.
 
 WHY `-G`, NOT A PATH-SCOPED LOG. A plain path-scoped `git log` counts any commit touching
@@ -16,6 +16,10 @@ pending a converged contract and is deliberately not checked here.
 Exit status is 0 whether or not the anchor is stale — a missed bump is a finding for the
 operator, not an error condition, and a non-zero exit would read as a broken ceremony step.
 Exit 2 is reserved for an unusable repo (git absent, not a work tree).
+
+Never imports `coordinator_core`: a stdlib-only CLI that runs with no engine-root
+bootstrap, so it keeps its own git spawns and is exempt from the shared git runner
+(`coordinator_core/tests/test_shared_git_runner.py :: _CONTRACT_EXEMPT_MODULES`).
 """
 from __future__ import annotations
 

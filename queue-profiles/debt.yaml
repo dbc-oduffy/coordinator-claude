@@ -19,6 +19,7 @@ verdicts:
   - yagni
   - unclear-direction
   - needs-judgment
+  - cross-repo
 
 
 hand_back_types:
@@ -27,6 +28,7 @@ hand_back_types:
   - yagni
   - unclear-direction
   - plan-substrate-collision
+  - cross-repo
 
 graph:
   triage:
@@ -38,6 +40,7 @@ graph:
       plan-weight: baton
       needs-judgment: needs-judgment
       plan-substrate-collision: plan-substrate-collision
+      cross-repo: cross-repo
       park: park
       wont-do: wont-do
       yagni: yagni
@@ -89,6 +92,8 @@ triage_policy: |
     - "already-fixed needs the pattern shown gone on HEAD."
     - "file-removed needs ls confirming absence."
     - "plan-substrate-collision needs a named file collision with an actively-rewriting plan."
+    - "cross-repo needs the commit that moved the cited surface out and the receiving repo named; moved code is not fixed code, so never already-fixed or file-removed."
+    - "A PM or APM deferral is a schedule, not a resolution: a deferred row is never refute-closed on that ground."
 
   not_defer_reasons:
     - "summary-form"

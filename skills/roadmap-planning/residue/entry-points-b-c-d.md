@@ -1,39 +1,41 @@
 ### Entry Point B — Pickup from `kind: roadmap-seed` stub (goal-seeded)
 
-When a `kind: roadmap-seed` stub is actioned via `/pickup`, the stub's `authoring_session` path contains the goal-setting context that spawned it (the goal artifact, upstream problem-set, and any KRs the goal-setting session produced). The stub represents a pre-scoped slice of work whose roadmap boundaries were already ratified during goal-setting.
+The stub's `authoring_session` path holds the goal-setting context; its roadmap boundaries were
+already ratified.
 
-**On pickup:**
-1. Read the stub's `authoring_session` path to load upstream context (goal artifact, problem-set, initiative).
-2. Use the stub body's scope description as the Phase 1 cluster seed — the stub is the single cluster that was already scoped; Phase 1 Synthesize refines it into sub-clusters.
-3. Set `run-id` from the stub's `stub_id` (e.g. a stub `roadmap-seed` with `stub_id: rc-04` → `run-id: rc-04`).
-4. The 5+ items precondition does NOT apply — a single roadmap-seed stub is a valid entry even if it describes a narrowly scoped roadmap.
-5. Proceed to Phase 1 (Synthesize) with the stub's scope as the input corpus anchor, then continue the normal pipeline.
+1. Read `authoring_session` (goal artifact, problem-set, initiative).
+2. The stub body's scope is the Phase 1 cluster seed; Phase 1 refines it into sub-clusters.
+3. `run-id` = the stub's `stub_id` (`rc-04` → `run-id: rc-04`).
+4. The 5+ items floor does NOT apply.
+5. Proceed to Phase 1 with the stub's scope as corpus anchor.
 
-**Stub lifecycle:** set `deployment_state: in_flight` on the roadmap-seed stub when Phase 1 begins; set `deployment_state: shipped` (via the normal `/workstream-complete` path) when Phase 2 completes and the resulting roadmap-baton stubs are committed.
+Lifecycle: `deployment_state: in_flight` when Phase 1 begins; `shipped` (via `/workstream-complete`)
+when Phase 2 completes and the baton stubs are committed.
 
-**Multi-seed pickup — one goal minted several coupled roadmap-seed stubs.** Run a single roadmap-planning pass across all of them, under one `run-id` (not one per stub): set it from the goal, not from any single stub's `stub_id`. Use each stub's scope description as its own Phase 1 cluster seed (item 2, repeated per stub); every resulting roadmap-baton stub's `covers:` traces back to the originating roadmap-seed stub id, so the coupling is recoverable from `covers:` alone, not from `run-id`. Apply the stub-lifecycle transitions (item above) to each seed stub independently — they complete together only if their batons ship together.
+**Multi-seed:** one goal minted several coupled seeds → one pass, one `run-id` set from the goal;
+each seed is its own cluster seed; every baton's `covers:` traces to its seed stub id; lifecycle per
+seed.
 
 ### Entry Point C — Chain from `/shape` (ratified problem-set, `estimated_horizon: week`)
 
-When `/shape` ratifies a problem-set whose `estimated_horizon` field is `week`, it routes here instead of `coordinator:plan`. The ratified problem-set (`docs/problems/<slug>.md`) is the oracle that replaces the research corpus as the cluster seed.
-
-**On chain-from-shape:**
-1. The ratified problem-set (`docs/problems/<slug>.md`) arrives as the `<input-corpus-path>` argument (or is cited explicitly in the invocation).
-2. Treat each problem listed under `## Problems` in the problem-set as a provisional cluster for Phase 1 Step 1.2. The problem-set's `## Out of scope` block pre-populates DROP verdicts.
-3. Phase 1.5 research corpus still applies — each KEEP cluster still needs a research-corpus scout to ground the OVERVIEW in primary sources, not just the problem-set prose.
-4. The plan's frontmatter inherits the problem-set reference: `problem_set: docs/problems/<slug>.md`.
-5. The 5+ items precondition applies to this path — if the problem-set has fewer than 5 items, the work is likely plan-shaped, not roadmap-shaped; confirm with the PM before proceeding (the `/shape` router routes here because `estimated_horizon: week` was set at ratification — the 5+ items check is this skill's own precondition, not a `/shape` filter; if the problem-set is genuinely week-sized but shallow, it may warrant a single `coordinator:plan` call instead).
-
-**Routing note (from `/shape`):** `/shape` sets `estimated_horizon: week` on the problem-set frontmatter at ratification. The EM confirms the routing at the fork (detect-then-confirm, never silent guess) before invoking this skill. See `coordinator/skills/shape/SKILL.md § Transition` for the router's outbound logic.
+1. The ratified problem-set (`docs/problems/<slug>.md`) arrives as `<input-corpus-path>`.
+2. Each problem under `## Problems` is a provisional Step 1.2 cluster; `## Out of scope` pre-populates
+   DROP verdicts.
+3. Phase 1.5 still applies: each KEEP cluster still needs a research-corpus scout.
+4. The plan frontmatter inherits `problem_set: docs/problems/<slug>.md`.
+5. The 5+ items floor applies; fewer → likely plan-shaped, confirm with the PM first.
 
 ### Entry Point D — Conform intake from a sizing-object (roadmap-routed)
 
-The sizing lobby (`coordinator:sizing`) resolves initiative-scale asks to the PM-decision route with an `xl_exit: roadmap` pick, or — on an older sizing-object — directly to `route: roadmap`, and hands roadmap-planning a `state/sizings/<id>.yaml` sizing-object as an optional entry contract either way. This is a conform intake, not a replacement for Entry Points A/B/C above — no sizing-object present means this skill's YAML-DAG/topo-numbering mechanics and Phase 1–3 pipeline run exactly as today; the sizing lobby never gates or refuses a `roadmap-planning` invocation absent one, by explicit anti-scope ruling ("do not build a wall").
+A `state/sizings/<id>.yaml` with `route: pm-decision` + `xl_exit: roadmap` (or legacy `route:
+roadmap` — accept both). Optional: with none present this skill runs exactly as today, and the
+sizing lobby never gates or refuses a `roadmap-planning` invocation absent one.
 
-Recognize the roadmap signal in either shape: `route: pm-decision` with `xl_exit: roadmap` (the PM chose the roadmap exit at the XL decision point — the current shape), or the legacy `route: roadmap` (sizing-objects already on disk in this shape remain valid — accept both, do not require migrating one to the other).
+1. Read `intent` (verbatim), `estimate`, `scout_evidence`, and `appetite` if present (usually
+   absent — read defensively; absence is not an incomplete artifact).
+2. It is extra Phase 1.1 inventory input, not a pre-built cluster set; Steps 1.1–1.4 run unchanged.
+3. Cite its path in `OVERVIEW.md`'s framing prose (Step 1.5.2); no new frontmatter field.
+4. If B or C also applies, resolve to whichever of A/B/C matches the input shape and note the
+   sizing-object alongside.
 
-**On sizing-routed entry:**
-1. Read the sizing-object's `intent` (the PM's ask, verbatim), `estimate`, `scout_evidence`, and `appetite` if present — `appetite` is optional and usually absent (it is not collected before sizing), so read it defensively and carry on when it is missing; never treat its absence as an incomplete artifact.
-2. The sizing-object seeds Phase 1 the same way Entry Point A's `<input-corpus-path>` does — it supplies the routing rationale and any `scout_evidence` pointers as additional Phase 1.1 inventory input, not a pre-built cluster set. Phase 1 Synthesize (Steps 1.1–1.4) still runs unchanged.
-3. Cite the sizing-object's path in `OVERVIEW.md`'s framing prose (Step 1.5.2) alongside the other Phase 1 outputs, for audit-trail continuity — no new frontmatter field is added; the schema is unchanged.
-4. If Entry Point B or C also applies (a goal-seeded stub or a `/shape` chain), the sizing-object is additional provenance context layered on top, not a competing entry — resolve to whichever of A/B/C matches the actual input shape, then note the sizing-object alongside it.
+Detail and routing rationale: wiki `roadmap-planning-residue.md` § Entry Points B, C, D.

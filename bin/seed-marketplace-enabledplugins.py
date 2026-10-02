@@ -45,7 +45,7 @@ Negative-spec: does NOT write committed `settings.json` (leaks
 machine-specific enablement fleet-wide — the `ecc81fb1c` precedent). Only
 `settings.local.json` (gitignored, per-machine) is ever written.
 Negative-spec: does NOT import `_machine_local.py` in-process (the
-dual-identity anti-pattern, `docs/wiki/dual-identity-module-hazard.md`) —
+dual-identity anti-pattern, `coordinator-content-repo coordinator/docs/wiki/skills-corpus/dual-identity-module-hazard.md`) —
 `registry.local.toml` is read directly here with stdlib `tomllib`, which is
 a plain file read, not a resolution-layer / write-path import.
 Negative-spec: does NOT resurrect `platform-localize.sh` — this reuses the

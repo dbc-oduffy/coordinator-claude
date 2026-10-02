@@ -237,6 +237,27 @@ Notebook C uses research_start — worker should use NLM discovery, not scout-pr
 [Human-readable summary of the notebook's findings]
 ```
 
+## Durable claims field mapping
+
+The sole statement of how `{letter}-claims.json` worker fields map to `research-claim.schema.json`. The sweep merges all workers' arrays into `{scratch-dir}/merged-claims.json` with this mapping; the EM emits the durable claims pair from it.
+
+| Worker field | `research-claim.schema.json` field | Rule |
+|---|---|---|
+| `id` | `id` | As-is (e.g. `A-001`) |
+| `finding` | `claim_text` | Direct |
+| `confidence` | `confidence` | Direct |
+| `type` | `type` | `capability` → `fact`; fact/limitation/pattern/recommendation direct |
+| `evidence_excerpt` | `evidence` | Direct |
+| `cross_notebook` | `contested_by` (contradiction) or `corroborated_by` (corroboration) | By value semantics |
+| `source_url` | `source_url` | Carried through when the worker supplied a non-null value |
+| `source_date` | `source_date` | Carried through when the worker supplied a non-null value |
+| (derived by sweep) | `topic_tags` | `["nlm", "notebook-{letter}", "{focus-area-slug}"]` |
+| `query`, `notebook_sources`, `transcription_suspect` | (dropped) | Scratch-only |
+
+**Null-omission rule:** omit the key entirely when the worker value is null — never emit `null` and never a placeholder. `claims-emit` rejects the whole batch on the first null, and a fabricated citation is worse than an absent one.
+
+`source_url` is consumed by external corpus readers; the sweep reports the count of claims lacking one in its completion message.
+
 ## Failure Handling
 
 - **Auth expiry (worker):** Call `refresh_auth`, retry once. If it fails again, write partial claims and send DONE with failure note.

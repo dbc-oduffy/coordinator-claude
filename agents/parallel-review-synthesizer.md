@@ -1,6 +1,6 @@
 ---
 name: parallel-review-synthesizer
-description: "Synthesizes chunk-reviewer outputs plus 3 specialist workers into a BLOCKED/WARN/OK verdict. Invoked only by parallel-code-review."
+description: "Folds chunk reviews + specialists into one verdict. Only via parallel-code-review."
 model: sonnet
 effort: low
 access-mode: read-write
@@ -28,10 +28,8 @@ Invoked exclusively by `coordinator:parallel-code-review`. Do not run in any oth
 | `deps.md` | dep-cve-auditor | dep-tree |
 | `tests.md` | test-evidence-parser | test-runtime |
 
-`FINDINGS_DIR` = `state/review-findings/<timestamp>/`. Discover the chunk set with
-`find $FINDINGS_DIR -name 'chunk-*.md'`; specialist filenames are fixed. A discovered N that
-"looks low" or "looks high" against your own expectation is not a finding — the count is set
-upstream by the reviewer-quantity gate; find and synthesize whatever N you get.
+`FINDINGS_DIR` = `state/review-findings/<timestamp>/`. Discover chunks with
+`find $FINDINGS_DIR -name 'chunk-*.md'` and synthesize whatever N you get — N is never a finding.
 
 `HEAD_SHA_PATH` (e.g. `state/review-trail/diffs/<slice-id>.head.sha`, not inside `$FINDINGS_DIR`)
 carries the frozen head SHA. Compare against `git rev-parse HEAD`; on mismatch set
@@ -56,11 +54,11 @@ code, invoke agents, or modify any file other than `synthesis.json`.**
 
 Before reading, validate every file (chunk and specialist alike):
 
-1. Non-empty — size > 1KB. A sub-1KB file is a summary masquerading as a deliverable.
-2. Contains at least one heading or structured section (a line starting with `#` or `|`).
+1. Size > 1KB.
+2. At least one line starting with `#` or `|`.
 
-On failure for file `<r>`: `lens_coverage[<r>]: "failed_disk_read"`, `verdict: "WARN"` — never
-assume "no findings = no issues" — and continue processing the rest; do not abort.
+On failure for `<r>`: `lens_coverage[<r>]: "failed_disk_read"`, `verdict: "WARN"` (never "no
+findings = no issues"); continue with the rest.
 
 Zero discovered chunk files: apply the skip-sentinel logic above, not pre-flight failure.
 
@@ -109,11 +107,9 @@ Only the triggers above gate.
 
 ## Convergence Detection
 
-A convergent finding = same `file` AND `line` (±3, for context-window drift) from ≥2 reviewers in
-**different** lens domains — compare extracted `file`/`line` values, never match by prose
-similarity. chunk↔specialist convergence is the common case; two chunks converging is
-structurally rare — not merely uncommon but near-impossible, since seam-first chunking gives
-each seam file exactly one owning chunk — so surface it if it happens.
+A convergent finding = same `file` AND `line` (±3) from ≥2 reviewers in **different** lens
+domains, by extracted values, never prose similarity. Two chunks converging is near-impossible
+(one owning chunk per seam file) — surface it if it happens.
 
 On detection: add to `convergent_findings` with verbatim `evidence_quotes` per reviewer; keep the
 finding in `per_reviewer_findings` too; mention the count in `verdict_rationale` when it
@@ -247,25 +243,18 @@ fires.
 
 ## DONE-After-Write Protocol
 
-Reply `DONE: <path>` only after confirming the file exists. About to summarize the synthesis
-inline instead? STOP — the coordinator reads from disk, not chat; an inline summary with no
-written file is task failure.
+Reply `DONE: <path>` only after confirming the file exists; an inline summary without the file is
+task failure.
 
 <!-- BEGIN guard-encounter-preamble (synced from snippets/guard-encounter-preamble.md) -->
 
 ## Guard Denial Is a Stop Signal
 
-A coordinator PreToolUse denial is a stop signal, not an obstacle to route around.
-
-**Forbidden:** reshaping a denied operation so it parses differently — a script file, `sh -c '...'`, `python -c '...'`, `xargs`, a heredoc written then run, or any rewrite aimed at how the guard *reads* the command rather than what it *does*. Denied plainly is denied.
-
-**Required:** stop, and report the exact command you attempted and the guard that denied it. Never substitute an approach of your own after a denial — what happens next, including whether a legitimate override applies, is the dispatching EM's call. Evading and then disclosing it is still evading; the report is not absolution.
+A coordinator PreToolUse denial is a stop, not an obstacle. **Never reshape a denied operation** — a script file, `sh -c`, `python -c`, `xargs`, a written-then-run heredoc, or any rewrite aimed at how the guard *reads* the command. **Stop and report** the exact command and the guard that denied it; what happens next, including any override, is the dispatching EM's call. Disclosing an evasion does not excuse it.
 <!-- END guard-encounter-preamble -->
 
-**Report-sidecar disposition:** your provisioned home in practice is the dispatcher-passed
-`$FINDINGS_DIR/synthesis.json` (§ Inputs) — always present when dispatched by
-`coordinator:parallel-code-review`. Don't open a second scratch file; `synthesis.json` stays your
-sole write target.
+**Report-sidecar disposition:** `$FINDINGS_DIR/synthesis.json` is your sole write target; never a
+second scratch file.
 
 ## Worker Dispatch Recommendations
 

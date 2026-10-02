@@ -225,7 +225,7 @@ _FILE_EXTENSION = re.compile(r"\.(md|ya?ml|py|json|jsonl|sh|txt)(?![\w-])")
 _PLACEHOLDER_CHARS = ("<", ">", "*", "{", "}", "$")
 _PATH_TOKEN = re.compile(r"[^\s`)\]\"'>]*")
 
-_DR_ID = re.compile(r"\bDR-\d{2,}\b|\bSC-DR-\d{2,}\b")
+_DR_ID = re.compile(r"\bDR-(?:PV1-)?\d{2,}\b|\bSC-DR-\d{2,}\b")
 
 #: An inline `code span`. A DR id in a bare code span is still an ordinary
 #: prose citation and is NOT exempt.

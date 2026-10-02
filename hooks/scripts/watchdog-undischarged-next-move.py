@@ -74,9 +74,12 @@ Five obligations:
                    as review-a1-a2 widened one step.
 
 ROUTE TERMINALS -- only routes with a machine-resolved next call get an
-obligation opened at all (`_ROUTE_TERMINAL` below): `dispatch`/
-`spec-dispatch` -> an executor dispatch (Agent tool); `plan`/`shape`/
-`roadmap` -> Skill(coordinator:plan) (the route mints a plan next).
+obligation opened at all (`_ROUTE_TERMINAL` below): `dispatch` -> an executor
+dispatch (Agent tool); `spec-dispatch` -> the light plan seam, Skill(coordinator:plan)
+or Skill(coordinator:execute-plan), never a bare executor dispatch (sizing 4b chains
+light plan -> /execute-plan -> executor, and execute-plan is what claims and stamps
+the plan); `plan`/`shape`/`roadmap` -> Skill(coordinator:plan) (the route mints a plan
+next).
 `pm-decision` and `goal-setting` are deliberately ABSENT from the table --
 their whole point is that the next move is a PM call, not a machine-
 resolved one, and `pm-decision` with `xl_exit: null` is additionally
@@ -151,12 +154,13 @@ _SEAM_REVIEW_A1_A2 = "review-a1-a2"
 _SEAM_EXECUTE_WAVE = "execute->wave"
 _SEAM_PICKUP_NEXT_MOVE = "pickup->next-move"
 
-# route -> the literal next_action a routed sizing object machine-resolves.
+# route -> the literal next_action a routed sizing object machine-resolves. A pipe-joined
+# Skill identity is a set of accepted skills (see `_matches_next_action`).
 # `pm-decision` and `goal-setting` are deliberately absent -- see module
 # docstring "ROUTE TERMINALS".
 _ROUTE_TERMINAL = {
     "dispatch": "Agent(coordinator:executor)",
-    "spec-dispatch": "Agent(coordinator:executor)",
+    "spec-dispatch": "Skill(coordinator:plan|coordinator:execute-plan)",
     "plan": "Skill(coordinator:plan)",
     "shape": "Skill(coordinator:plan)",
     "roadmap": "Skill(coordinator:plan)",
@@ -294,7 +298,7 @@ def _matches_next_action(next_action: str, tool_name, tool_input) -> bool:
         skill = tool_input.get("skill")
         if not isinstance(skill, str):
             skill = tool_input.get("command")
-        return skill == ident
+        return skill in tuple(part for part in ident.split("|") if part)
     if kind == "Agent":
         # The reviewer/executor persona is not a fixed subagent_type this module can verify
         # -- any Agent dispatch discharges an "Agent(...)" obligation.

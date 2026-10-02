@@ -1,39 +1,63 @@
 ---
-name: warp-speed-execute
-description: "The wide run. Forwards to /mise-en-place, which carries the same ceremony's body."
+name: fire-and-forget
+description: "\"fire and forget\" / \"fire and forget\": a raw ask or sizing to a reviewed commit in one fire."
 allowed-tools: ["Read", "Edit", "Write", "Bash", "Grep", "Glob", "Agent", "Skill"]
-argument-hint: "[baton-path [AND baton-path]...] [--hibernate]"
-disable-model-invocation: true
+argument-hint: "<raw ask | state/sizings/<id>.yaml>"
 ---
 
 # Warp-Speed-Execute
 
-The run named `warp-speed-execute` is `/mise-en-place`'s run. There is one wide-run ceremony, not
-two: certification entry, aggregate baton, Kira waves, subtractive adjudication and the exit-side
-orphan check are all phases of it.
+Fire-and-forget: one invocation takes an accepted sizing to a reviewed terminal commit. It is its
+own ceremony; it forwards to no other command and no autofire hook matches it. The engine emits the
+chained Workflow (`emit-dispatch-workflow --sizing`); this body runs that op once and fires the
+result.
 
-**Read `${CLAUDE_PLUGIN_ROOT}/commands/mise-en-place.md` and run it end to end.** Nothing in this
-file overrides a phase there.
+**Contract: one Workflow, start to finish. The EM is idle until the run reports completion or
+rescue-needed.** Past the mode's own touchpoints (below), the terminal judge is the only legitimate end of a run. Any other halt (gate
+refusal, blitz refusal, an external-gate row, a DR awaiting acceptance, or a hand-dispatched or
+hand-committed row) breaks this command, not a touchpoint to work through. When it happens, stop,
+report the halt as a defect, and never finish the work by hand-dispatching rows.
 
-## Either verb is a first-class invocation
+**Refuse cross-repo deliverables.** If the ask or sizing names a sibling repo as a write target, or the
+emitted plan carries any `external_gate: commit-in-owner-repo` row, refuse before firing. Say:
+"warp cannot carry a cross-repo deliverable yet; route via `coordinator:plan` and
+`/execute-plan`". The run pins to one repo root, and the engine drops sibling-repo rows without
+reporting them.
 
-Both autofire hooks match this verb as well as `mise-en-place` —
-`hooks/scripts/mise-autofire.py :: _MISE_COMMAND_NAMES` mints the Phase 1 run-id and briefs it,
-`hooks/scripts/pickup-autofire.py :: _BATON_GRAB_COMMAND_NAMES` claims the batons Phase 0a expects
-to be already claimed. Invoked by either name the run starts with the same inputs — **on either
-entry path.** A typed `/warp-speed-execute` fires both hooks under `UserPromptExpansion`; a
-model-invoked `Skill(coordinator:warp-speed-execute)` — a PM writing the verb inline, another
-skill forwarding to it, a skill fired under context pressure — fires the same two hooks' legs
-through `preuse-skill-dispatch.py`, the `PreToolUse`/`Skill` fan-in that hosts them.
+## Argument
 
-**Verify both arrived; there is no manual step only when they fire.** The registration's bootstrap
-fails OPEN on both entry paths, so a hook that did not run is silent rather than loud, and the run
-proceeds half-wired reporting success. No minted run-id in `additionalContext` →
-`backlog-grind-assemble mint-run-id mise-en-place` (Phase 1) — a subcommand, never a CLI of its
-own, so the bare verb exits 127. No claimed-baton list → claim by hand (Phase 0a). Do both and
-name them in the announcement rather than inferring the inputs were there.
+- **A sizing path** (`state/sizings/<id>.yaml`, accepted: `exit_criterion.accepted` present) — go to
+  *Fire*.
+- **A raw ask** — run `emit-dispatch-workflow --ask "<raw ask>"` (CLI resolved per
+  `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`) and fire the one printed
+  `Workflow({ scriptPath })` line in this session. That one Workflow sizes, gates and stages the
+  work, and the run returns next_action `dispatch.terminal_commit`. Never pass `--fire`; never run
+  it headless. A route the sizing gate refuses (`shape`, `roadmap`, `pm-decision`) is relayed to the
+  PM with the room it names. Do not size by hand.
 
-Engine vocabulary does not follow the verb: the sentinel mode, the cadence passed to
-`mint-run-id`/`brief` (`mise-autofire.py :: _CADENCE`), the run-id family and
-`handoff.schema.json`'s cadence key all spell it `mise-en-place`. A verb added to either frozenset
-is added to both, or the run starts half-wired and both hooks report success.
+## Fire
+
+Run `emit-dispatch-workflow --sizing <sizing path>` (resolve per
+`${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`), then fire each printed `Workflow({ scriptPath })` line in this session. Never pass `--fire`: it
+spawns a headless `claude -p` child, which the foreign-emission guard refuses and which runs
+without this session's roster. `--fire` is for headless and cron callers only.
+
+- **XS** — also pass `--writes <path>` once per file the work writes (a sizing carries no footprint)
+  and `--out state/scratch/warp/<sizing-stem>.workflow.mjs`. The op mints a one-row spine and
+  re-enters the plan route.
+- **S** — pass `--out` as for XS. One Workflow composes plan-agent, execute, review wave and
+  `dispatch.terminal_commit`.
+- **M and up** — the op delegates to `emit-wave-fire --from-sizing`; pass `--trail-dir <dir>` only
+  to name the trail. The reply carries `batons` and `uncommitted` (a `[baton, sizing]` pair): commit
+  exactly those paths, explicit pathspec, before the run proceeds.
+
+Every route ends in `dispatch.terminal_commit`. `--sizing` is exclusive of `--plan`, `--inventory`
+and `--queue`.
+
+Fire in the same turn, as an in-session Workflow, and end the turn. Where a run halts, by interaction mode, is
+`coordinator/contract/warp-touchpoints-fragment.json`; read it, never restate it. An accepted sizing
+has passed every `after:sizing` touchpoint, so the run starts at `plan`. At a halting touchpoint the
+run writes its state and stops; the resume is this command on the now-accepted sizing.
+
+A refusal names every missing field once. Relay it verbatim; never work around it by hand-running
+the stages. The closing report reads the run's completion receipt.

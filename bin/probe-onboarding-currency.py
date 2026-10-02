@@ -52,7 +52,7 @@ since every caller of this probe (lib/detect-onboarding-offer.py) treats a
 non-'current'/'source_is_live' status as advisory, never fatal.
 
 Spec backlink: docs/plans/2026-05-29-it-just-works-agentic-install-currency.md § Chunk 1.
-Doctrine: docs/wiki/doctor-probe-design.md § inconclusive Is a First-Class Probe Status.
+Doctrine: coordinator-content-repo coordinator/docs/wiki/install-playbook-rationale/doctor-probe-design.md § inconclusive Is a First-Class Probe Status.
 Port source: coordinator/bin/probe-onboarding-currency.py (this file; prior bash
 body retired on cutover — see git log).
 """

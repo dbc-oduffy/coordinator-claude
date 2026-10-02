@@ -13,9 +13,7 @@ measured start and a stated target, so estimate the distance the spine closes ag
 the prime exit criterion demands.
 
 **Distinct from divergence** (`coordinator/docs/wiki/coordinator-tripwires/a-green-plan-is-not-a-delivered-plan.md`):
-divergence is right size, wrong direction — every AC passes and the falsifier still doesn't move.
-Sufficiency is right direction, wrong size. The falsifier alone catches insufficiency only at
-close-out, after the execution is paid for; this check catches it before the spine is authored.
+sufficiency is right direction, wrong size; this check catches it before the spine is authored.
 
 Verdict is one of `sufficient` / `insufficient` / `cannot-tell` — always stated, never omitted.
 

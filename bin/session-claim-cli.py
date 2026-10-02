@@ -816,6 +816,11 @@ def _dispatch(argv: list[str]) -> int:
         cwd = rest[1] if len(rest) > 1 else None
         for class_, basename in mod.list_claims_by_session(sid, cwd):
             print(f"{class_}\t{basename}")
+        # The path-touch plane lives in a different store; list it too so one
+        # call answers "what do I hold?" (release: release-artifact artifact <path>).
+        scope_mod = _dispatch_import("coordinator_core.session.scope")
+        for held_path in scope_mod.own_path_claims(sid, cwd):
+            print(f"path\t{held_path}")
         return 0
 
     if subcmd == "is-session-live":

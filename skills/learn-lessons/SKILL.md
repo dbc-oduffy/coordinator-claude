@@ -1,6 +1,6 @@
 ---
 name: learn-lessons
-description: "Processes lessons/ entries as doctrine change-requests, local or central."
+description: "Process lessons/ entries as doctrine change-requests."
 version: 1.0.0
 allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskUserQuestion","TaskCreate","TaskUpdate","TaskGet","TaskList"]
 ---
@@ -9,11 +9,10 @@ allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskU
 
 `learn-lessons` runs the `lessons` family of queue-grind profiles over `state/lessons/*.yaml` (and
 `state/lessons-outbox/` in central mode) as change-requests against doctrine, agent prompts, hooks,
-scripts, wiki guides, and improvement queues — one destination + change-kind per lesson, tracking
-recurrence and archiving discards. Success metric: did doctrine and queues evolve, not did the file
-shrink. **Supersedes `coordinator:lesson-triage`** (renamed; no alias shim). The taxonomy,
-change-kind apply dispatch, the heavy-queue promotion-sprint procedure, and every phase mechanic
-the grind now performs: wiki.
+scripts, wiki guides, and improvement queues — one destination + change-kind per lesson. Success
+metric: did doctrine and queues evolve, not did the file shrink. **Supersedes
+`coordinator:lesson-triage`.** Taxonomy, change-kind apply dispatch, promotion-sprint procedure and
+phase mechanics: wiki.
 
 **Every coordinator CLI named on this page is engine-homed and has a settings-home launcher** —
 resolve each by absolute path per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` (Shape W on a PowerShell
@@ -34,51 +33,37 @@ this skill runs with cwd set to the consuming repo, where that path does not exi
 - **Wikis are the default destination.** `doctrine-edit`/`memory-pointer` are doctrine-plane-only
   — a worker NEVER emits either; downgrade to `wiki-*` + `doe_escalation: true` before the record
   reaches the PM gate.
-- **Extraction never runs through an LLM** (`extract-lessons` — a parse, not a
-  judgment call; an LLM extraction pass produced a real fabrication incident). Routing judgment
-  can, behind the verify gate.
+- **Extraction never runs through an LLM** (`extract-lessons` — a parse). Routing judgment can,
+  behind the verify gate.
 - **Mechanical-contract lessons need an executable witness** (a passing test, live tool behavior,
-  official docs) — discard if none can be found or one contradicts the claim; narrative confidence
-  alone never overrides a converging set of independent authorities.
-- **Domain-looking universals default to `retag-local`**, never a blind `[universal]` string
-  replace (corrupts retag history).
+  official docs) — discard if none can be found or one contradicts the claim.
+- **Domain-looking universals default to `retag-local`**, never a blind `[universal]` string replace.
 - **A `wiki-append`/`wiki-new` target must be reachable** from a real traversal surface (index,
   skill step, dispatch preamble) — not merely exist.
 - **Local mode auto-applies** `discard`/`wiki-append`/`retag-local`/dedupe/age-sweep, plus a
   tradeoff-free `agent-prompt-edit`, `hook-edit`, `script-edit`, `snippet-sync-update` or
-  `project-structural` row below plan weight — fixed in-run behind its downstream verify; the fire
-  already authorized it. The PM-surface list keeps only direction and taste calls: `doctrine-edit`,
-  `memory-pointer`, `doe_escalation`, and any row triage marks as a product or taste choice. The
-  `lessons` profile's `triage_policy` is the operative home for this line.
-- **Central mode needs a PM decision per record** (apply / defer / reject, batching OK) — never
-  auto-applied; the `lessons-central-route` profile's `pm-decision` hand-back is the operative
-  mechanism. The PM may rule per-cluster (a batched approve/defer/reject over every record sharing
-  a triage cluster id) as well as per-record.
-- **A strip run follows the apply run it cites** — its `promoted_to` list is the apply run's
-  settled list, so no row strips before its central commit exists; the age-sweep is the backstop.
+  `project-structural` row below plan weight. The PM-surface list keeps only direction and taste
+  calls: `doctrine-edit`, `memory-pointer`, `doe_escalation`, and product or taste choices.
+- **Central mode needs a PM decision per record** (apply / defer / reject, batching OK, per-cluster
+  allowed) — never auto-applied; the `lessons-central-route` `pm-decision` hand-back is the mechanism.
+- **A strip run follows the apply run it cites** — no row strips before its central commit exists.
 - **Fail-close:** a strip-list id with no routed sibling record blocks the run's `COMPLETE`
   sentinel — surface to the PM, don't push through.
-- **Universals-pending is a post-run count, not a pre-run stop.** A local run never acts on a
-  `universal` row directly; it hands back `route-to-central`. The command counts those hand-backs
-  and surfaces ≥ 20 in the Phase 8 report with a central-run recommendation.
-- **Never fabricate a routing `id`** — every cited id must exist in its extraction, or the
-  mechanical verify-gate hard-fails the apply. Never hand-correct a router's fabricated output;
-  re-dispatch it instead (launders the fabrication into the audit trail otherwise).
+- **Universals-pending is a post-run count, not a pre-run stop.** A local run hands back
+  `route-to-central`; surface ≥ 20 in the Phase 8 report with a central-run recommendation.
+- **Never fabricate a routing `id`** — every cited id must exist in its extraction. Never
+  hand-correct a router's fabricated output; re-dispatch it instead.
 - **An emit refusal is reported, not routed around.**
 
 ## Phase Flow (invocation pointers — mechanics: wiki)
 
-`coordinator_core.learn_lessons_pipeline`'s `brief`/`apply` entrypoints now emit the Phase 4.5
-cutoff derivation and the Phase 8 `COMPLETE` stamp as engine directives, not hand-run EM steps —
-read them from the fired decision object rather than deriving them by hand.
+`coordinator_core.learn_lessons_pipeline`'s `brief`/`apply` entrypoints emit the Phase 4.5 cutoff
+derivation and the Phase 8 `COMPLETE` stamp as engine directives — read them from the fired decision
+object, never derive them by hand.
 
 Discovery roots: `learn-lessons-roots` (machine-registry-derived, never a
 committed list). Baton lift source: batons joined to the plan under distillation by
-`deliverable_id`; each baton's `## What I Learned` section is a flat bullet list, one standalone
-lesson per line, no sub-headings and no nesting — that shape is fixed so a line survives being
-lifted out of the baton with nothing around it. Every line read this way is a candidate lesson,
-never an auto-promote: the EM still decides to promote, amend, or drop it through the same
-routing/gate mechanics as any other extracted lesson.
+`deliverable_id`, each `## What I Learned` bullet a candidate lesson, never an auto-promote.
 
 One flow per run kind, each `pre-run directives → emit → fire → consume hand-back → post-run
 directive`:
@@ -89,24 +74,18 @@ directive`:
   lessons --appetite <a> --out <scratch>`, fire with the `Workflow({scriptPath, args})` call it prints, never `--fire`.
 - **central route:** drain the outbox, then assert cross-plane emptiness first (a FAIL stops the
   run and goes to the PM). Emit `--queue state/lessons-outbox --profile lessons-central-route`,
-  fire, then present the `pm-decision` hand-back to the PM; the EM writes each ruling as
+  fire, then present the `pm_decision` hand-back to the PM; the EM writes each ruling as
   `pm_decision` and commits. `defer` rows go to `coordinator-queue-append --schema
-  improvement-queue` with `queue_scope: central`; `reject` rows close as `discarded` through the
-  engine's `grind-row close` verb, not a hand-performed EM closure — one closer owns closure. The
-  PM may rule per-cluster as well as per-record; the EM writes the cluster's `pm_decision` to every
-  record in that cluster and records the cluster id ruled on.
+  improvement-queue` with `queue_scope: central`; `reject` rows close as `discarded` through
+  `backlog-grind-assemble grind-row close`. Cluster rulings: wiki § Phase flow detail.
 - **central apply:** emit `--profile lessons-central-apply`, fire, then write the run stamp once
   every apply commit has landed and the fail-close holds.
 - **strip:** emit `--profile lessons-strip` per repository after the apply run, with `--where
-  promoted_to in [...]` copied from the apply run's settled list. A sibling launch needs the PM's cross-repo assent,
-  asked once per strip session, as a single bundled ask naming every sibling with rows in that
-  cycle — never once per sibling; without it the strip waits and the age-sweep stays the backstop.
+  promoted_to in [...]` copied from the apply run's settled list. A sibling launch needs the PM's
+  cross-repo assent, asked once per strip session as one bundled ask; without it the strip waits.
 
-**Actor per flow.** Whichever actor is executing this skill — the EM at the top level, or a
-dispatched lead with no `Agent` tool below it — runs each flow's pre-run directive, emits, fires,
-and consumes the hand-back; the grind itself performs extraction, routing, verify, fix and commit.
-Commit authority stays EM-only regardless of who ran a flow (Hard Rules, above) — a dispatched lead
-consumes hand-backs and writes records but never commits.
+**Actor per flow.** Whichever actor executes this skill (EM, or a dispatched lead) runs each flow's
+pre-run directive, emits, fires, and consumes the hand-back. Commit authority stays EM-only.
 
 **Post-run consumption, all runs.** `baton` → cluster and mint batons carrying triage's sizing
 evidence, with no second gate (the fire authorized them); `needs-judgment`, `doe-escalation` and
@@ -115,18 +94,13 @@ evidence, with no second gate (the fire authorized them); `needs-judgment`, `doe
 types → counted in Phase 8, rows left open.
 
 **Cross-repo write-without-commit channel (local mode, run in a sibling).** The sibling EM commits
-only its own row's `promoted_to` stamp, in its own tree. The central-mode EM commits the outbox
-file(s) before the central route run reads them.
+only its own row's `promoted_to` stamp; the central-mode EM commits the outbox file(s) before the
+central route run reads them. **No dry-run mode;** the Phase 8 report cites the run-cost record
+`state/queue-grind/<profile>/runs/<run-id>.json`.
 
-**No dry-run mode.** Cost is read after the run from the engine's run-cost record,
-`state/queue-grind/<profile>/runs/<run-id>.json`, and the Phase 8 report cites it as the yardstick
-for the next appetite choice.
-
-Emit the Phase 8 end-of-run report (exempt from the ≤200-word budget — the run's only audit trail;
-do not convert to report-by-exception), built from the engine's receipt and hand-back document, not
-hand-assembled from phase-by-phase notes, as that same actor's own run output — the lead's
-completion report to its dispatcher, or the EM's own summary — before writing the `COMPLETE`
-sentinel. `COMPLETE` is blocked while a route-run row carries no `pm_decision`, or the apply run
+Emit the Phase 8 end-of-run report (exempt from the ≤200-word budget — the run's only audit trail),
+built from the engine's receipt and hand-back document, as that same actor's own run output, before
+writing the `COMPLETE` sentinel. `COMPLETE` is blocked while a route-run row carries no `pm_decision`, or the apply run
 handed back an engine-originated type — surface those to the PM before writing the sentinel. The
 top-level EM writes the sentinel last, after every apply/commit lands, never a dispatched lead,
 which cannot commit and so cannot know the applies landed.
@@ -142,15 +116,10 @@ hook (`em-pm-comms-instrumentation.md` § The ceremony-mandated marker):
 
 ## Anti-Patterns
 
-Auto-applying central promotions without the PM gate. Bespoke extra parameters (modes are the
-parameter surface). `git add -A` for strips. True-deleting a discard instead of archiving first.
-Conflating the improvement queue with `state/lessons/` (capture queue vs. this periodic router).
-Same-session capture-and-validate a lesson as universal. Default-routing to CLAUDE.md instead of a
-wiki. Defer-chaining wiki promotions as "candidates for next pass" — every record is (a) applied,
-(b) PM-surfaced, or (c) mode-escalated, no fourth bucket. Declaring "no additional work needed"
-while project-specific (non-`[universal]`) entries remain un-routed. A hand-rolled fallback for
-"when the emitter is unavailable" — none exists; an emit refusal is reported. Full list + rationale:
-wiki.
+Auto-applying central promotions without the PM gate. `git add -A` for strips. True-deleting a
+discard instead of archiving first. Default-routing to CLAUDE.md instead of a wiki. Defer-chaining
+wiki promotions — every record is (a) applied, (b) PM-surfaced, or (c) mode-escalated. A hand-rolled
+fallback when the emitter is unavailable — none exists. Full list: wiki.
 
 ## Related
 

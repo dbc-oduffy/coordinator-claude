@@ -1,6 +1,6 @@
 ---
 name: plan-reviewer
-description: "Static-only Sonnet plan-body reviewer, never edits the plan: assumes the plan has gaps, runs the coverage checklist, persists findings to its sidecar, returns pointer + OK/WARN/BLOCKED verdict."
+description: "Static Sonnet plan-body reviewer: assumes gaps, runs the coverage checklist. Never edits."
 model: sonnet
 effort: low
 color: orange

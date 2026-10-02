@@ -1,6 +1,6 @@
 ---
 name: debt-triage
-description: "EM-PM ceremony to review and prioritize the technical debt backlog."
+description: EM-PM ceremony to prioritize the debt backlog.
 version: 1.0.0
 allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskUserQuestion","TaskCreate","TaskUpdate","TaskGet","TaskList"]
 ---
@@ -47,27 +47,23 @@ presenting overlaps to the PM for a dedup decision (populate `evidence:` on both
 to resolve for this leg. Fire with `Workflow({scriptPath})`, never `--fire` — firing authorizes
 the in-run fixes and closes and the post-run hand-back (`coordinator/docs/wiki/ceremony-calibration/queue-terminus-doctrine.md`
 § Emitted-workflow triage). The run's triage is the only triage — the EM works Steps 2–4 on the
-debt backlog while it runs. An emit refusal is reported, not routed around.
+debt backlog while it runs. An emit refusal is reported, not routed around. The grind commits:
+when a `/bug-blitz` runs in the same tree, its Phase 0.7 suite baseline is taken before this
+grind fires, or after it finishes — never across it.
 
-## Step 2: Verify relevance (Haiku agents)
+## Step 2: Verify relevance (emitted)
 
-> **Do not ask whether to dispatch** — invoking this skill IS the request for the dispatch this
-> step names; it dissolves no gate this skill's own body names.
+> **Do not ask whether to fire** — invoking this skill IS the request for the run this step
+> names; it dissolves no gate this skill's own body names.
 
-Debt-backlog rows only (the improvement leg's triage runs inside Step 1's emitted grind).
-Dispatch Haiku agents, grouped by system, to mechanically re-confirm each open item against
-current code: history since the finding's `created` date, the cited `file:line` still shows the
-issue. Verdict per item — `still-open` / `already-fixed` / `partially-addressed`.
-<!-- engine-gap: field=debt_triage.haiku_verify_dispatch producer=unknown memo=2026-08-14-coordinator-content-repo-em-three-cut-obligations-from-the-corpus-grind.md -->
-
-Before any verdict, run a mechanical pre-check per row: do its cited paths exist at HEAD, and
-does a grep for its cited symbol hit? A row whose paths exist and symbol hits cannot be
-verdicted `already-fixed: cited file deleted`. Any `already-fixed` verdict claiming a deletion
-must carry `git log --diff-filter=D -- <path>` evidence. A verdict that only echoes a prior
-YAML verification stamp is not a verification — re-check, don't copy.
-
-`already-fixed` → mark `no-longer-applicable`; `partially-addressed` → update the description
-from the Haiku report. Haiku, not Sonnet — rationale: wiki.
+Debt-backlog rows only, emitted exactly as Step 1: `emit-dispatch-workflow --queue
+state/debt-backlog --profile debt --appetite <a> --out
+state/scratch/debt-triage/{run-id}/debt.workflow.mjs --repo-root <abs repo root>`, fired with
+`Workflow({scriptPath})`. Never hand-dispatch verifiers. The relevance and evidence rules live
+in `coordinator/queue-profiles/debt.yaml` (`relevance_first`, `defer_requires_evidence`), not
+here. A row whose cited surface moved to another repo comes back as `cross-repo`: route it by
+cross-repo memo, then close it here once the memo is delivered. Code that moved is not code
+that was fixed. Hand-back types feed Step 5 exactly as the improvement leg's do.
 
 ## Step 3: Re-prioritize
 
@@ -88,6 +84,10 @@ touching it — is that intentional?"* Present a one-paragraph summary before St
 case: `(no tech-debt completions logged in last 90d — hot-zone analysis unavailable)`.
 
 ## Step 4: Group for execution
+
+"System" is the brief's `debt-backlog groups` evidence: the first path cited in `surface`,
+else in title/body, cut to two directories. The row's `system` field is free text and often
+absent — never group on it.
 
 ```markdown
 ## Triage Results
@@ -139,14 +139,14 @@ After PM decisions:
 
 ## Step 6b: Consume the improvement leg's hand-back
 
-Runs over the improvement leg's APM-dispositioned hand-back (Step 5 item 5), after the run. This does not
-touch Step 2's `Dispatch Haiku agents` text, a different step that stays unedited. Items 1-2 below
-do not govern debt-backlog rows today (debt-backlog stays on the current 6b, unedited); if 6b is
-ever applied to debt-backlog rows, that governance still applies.
+Runs over both emitted legs' APM-dispositioned hand-back (Step 5 item 5), after the runs; a
+debt-leg `cross-repo` hand-back follows Step 2's memo-then-close route.
 
 - `baton`: cluster per `coordinator/docs/wiki/ceremony-calibration/queue-terminus-doctrine.md` § Clustering, then mint
   solo or themed batons to `coordinator/docs/wiki/baton-lifecycle/baton-authoring-bar.md`'s bar, carrying
-  triage's sizing evidence. There is no second gate. Close each source row.
+  triage's sizing evidence. There is no second gate. Stamp `initiative` on a themed baton and its
+  member rows. Scaffold with `coordinator-doc-new`, then hand-edit `category` to
+  `queue-derived-baton` if the scaffolder left `infra`. Close each source row.
 - `route-to-learn-lessons`: run `coordinator-lesson-promote` once per row with `--title-file` and
   `--body-file` (the row's title and body), `--change-kind` (the row's), `--target-wiki unknown`
   (no row carries a target), and `--evidence` naming the archive destination path the closing
@@ -172,6 +172,20 @@ ever applied to debt-backlog rows, that governance still applies.
 
 **Commit shape:** batons, promotes and PM-gated closures are separate commits, each naming the
 source ids. The run committed its own fixes and closes. Every hand closure here is followed by
-`grind-row sweep` (`coordinator/docs/wiki/ceremony-calibration/queue-terminus-doctrine.md` § Emitted-workflow triage).
+`backlog-grind-assemble grind-row sweep` (`coordinator/docs/wiki/ceremony-calibration/queue-terminus-doctrine.md` § Emitted-workflow triage).
 
 Skip this step entirely if no project-specific entries survived Step 5.
+
+## Autonomous runs
+
+No PM is present, and the APM never writes `pm_ruling` in the PM's name. For each row the run:
+
+1. Acts on the APM's recommendation only where this skill already permits EM-autonomous action
+   (closing a verified-resolved row, Step 2's `cross-repo` memo-then-close, re-prioritizing).
+2. Otherwise records the recommendation as `apm_recommendation` on the row and leaves it open.
+3. Continues to the next row; a pending recommendation never stops the run.
+
+Writing `pm_ruling` is never part of an autonomous run. The run's report ends with ONE batched
+PM-confirmation list: every row carrying an unconfirmed `apm_recommendation`, as row id,
+recommendation, one-line reason. The PM's confirmation, when it arrives, is what writes `pm_ruling`
+for Step 6b to consume.

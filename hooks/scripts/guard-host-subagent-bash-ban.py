@@ -55,8 +55,10 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib"))
 
 from _message_envelope import Message, compose, render  # noqa: E402
+from frontmatter_scan import read_text, scan_frontmatter  # noqa: E402
 
 _BANNED_TOOL = "Bash"
 _POLICY_KEY = "subagent_bash_policy"
@@ -85,24 +87,11 @@ def _repo_config(cwd: str | None) -> Path | None:
 
 
 def _policy_is_deny(config: Path) -> bool:
-    # True only when the frontmatter explicitly declares the deny policy. A narrow string
+    # True only when the frontmatter explicitly declares the deny policy. A column-zero key
     # scan, not a YAML parse: this runs on the PreToolUse path for every Bash call, and an
     # unparseable config must read as "no policy declared" (allow) rather than raising.
-    try:
-        text = config.read_text(encoding="utf-8")
-    except OSError:
-        return False
-    if not text.startswith("---"):
-        return False
-    end = text.find("\n---", 3)
-    front = text[3:end] if end != -1 else text[3:4000]
-    for line in front.splitlines():
-        stripped = line.strip()
-        if not stripped.startswith(_POLICY_KEY):
-            continue
-        _, _, value = stripped.partition(":")
-        return value.split("#", 1)[0].strip().strip("\"'").lower() == _DENY_VALUE
-    return False
+    value = scan_frontmatter(read_text(config)).get(_POLICY_KEY)
+    return isinstance(value, str) and value.lower() == _DENY_VALUE
 
 
 def _compose_deny_message() -> Message:

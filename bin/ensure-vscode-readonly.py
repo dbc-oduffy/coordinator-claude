@@ -6,8 +6,8 @@ coordinator_core.ops.ensure_vscode_readonly.
 Idempotently, additively merges `files.readonlyInclude` globs for the two
 generated handoff-tracker renders into a repo's `.vscode/settings.json` — the
 EDITOR-side guard (layer 1) complementing the AGENT-side `block-tracker-edit.sh`
-PreToolUse hook (layer 2). See docs/wiki/handoff-tracker-system.md and
-docs/wiki/coordinator-tripwires.md § BLOCK-TRACKER-EDIT.
+PreToolUse hook (layer 2). See coordinator-content-repo coordinator/docs/wiki/baton-lifecycle/handoff-tracker-system.md and
+Coordinator-content-repo coordinator/docs/wiki/coordinator-tripwires.md § BLOCK-TRACKER-EDIT.
 
 Shebang note: the SHEBANG line above is `#!/usr/bin/env python3`, generator-
 owned by `gen-launcher-shim.py --ensure-unix`, and correct for this shape. On

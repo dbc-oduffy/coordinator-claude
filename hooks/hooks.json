@@ -6,20 +6,15 @@
         "matcher": "startup|resume|clear|compact|fork",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook/hooks.session_start_repin_cloud_engine_root",
+            "type": "command",
+            "command": "python3",
             "timeout": 10,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME",
-              "USERPROFILE"
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-start-repin-cloud-engine-root.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
         ]
@@ -28,20 +23,15 @@
         "matcher": "startup|resume|clear|compact|fork",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook/hooks.sessionstart_dispatch",
+            "type": "command",
+            "command": "python3",
             "timeout": 10,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME",
-              "USERPROFILE"
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/sessionstart-dispatch.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
         ]
@@ -50,20 +40,15 @@
         "matcher": "startup|resume|clear|compact|fork",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook/hooks.assert_em_role",
+            "type": "command",
+            "command": "python3",
             "timeout": 10,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME",
-              "USERPROFILE"
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/assert-em-role.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
         ]
@@ -72,20 +57,15 @@
         "matcher": "startup|resume|clear|compact|fork",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook/hooks.session_start_watch_presence",
+            "type": "command",
+            "command": "python3",
             "timeout": 10,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME",
-              "USERPROFILE"
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-start-watch-presence.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
         ]
@@ -94,20 +74,15 @@
         "matcher": "startup",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook/hooks.session_start_cloud_focus",
+            "type": "command",
+            "command": "python3",
             "timeout": 10,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME",
-              "USERPROFILE"
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-start-cloud-focus.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
         ]
@@ -116,20 +91,15 @@
         "matcher": "startup|compact",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook/hooks.sweep_boot",
+            "type": "command",
+            "command": "python3",
             "timeout": 30,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME",
-              "USERPROFILE"
+            "async": true,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/sweep-boot.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
         ]
@@ -138,20 +108,15 @@
         "matcher": "startup|resume|clear|compact|fork",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook/hooks.sessionstart_async_dispatch",
+            "type": "command",
+            "command": "python3",
             "timeout": 15,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME",
-              "USERPROFILE"
+            "async": true,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/sessionstart-async-dispatch.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
         ]
@@ -162,20 +127,15 @@
         "matcher": "",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook/hooks.stop_dispatch",
+            "type": "command",
+            "command": "python3",
             "timeout": 5,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME",
-              "USERPROFILE"
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/stop-dispatch.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
         ]
@@ -186,21 +146,10 @@
         "matcher": "",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook/hooks.sessionend_archive_session",
-            "timeout": 15,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME",
-              "USERPROFILE"
-            ]
+            "type": "command",
+            "command": "COORDINATOR_DOOR_STDIN_MODE=hook \"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/hook-run\" --advisory hooks.sessionend_archive_session 2>/dev/null; rc=$?; [ $rc -eq 2 ] && rc=0; exit $rc",
+            "shell": "bash",
+            "timeout": 15
           }
         ]
       }
@@ -210,20 +159,14 @@
         "matcher": "",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook/hooks.track_dispatched_agents",
+            "type": "command",
+            "command": "python3",
             "timeout": 5,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME",
-              "USERPROFILE"
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/track-dispatched-agents.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
         ]
@@ -234,20 +177,15 @@
         "matcher": "",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook/hooks.subagent_zero_tool_use_detect",
+            "type": "command",
+            "command": "python3",
             "timeout": 5,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME",
-              "USERPROFILE"
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/subagent-zero-tool-use-detect.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
         ]
@@ -258,20 +196,15 @@
         "matcher": "",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook/hooks.pickup_autofire",
+            "type": "command",
+            "command": "python3",
             "timeout": 40,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME",
-              "USERPROFILE"
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/pickup-autofire.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
         ]
@@ -280,20 +213,15 @@
         "matcher": "",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook/hooks.mise_autofire",
+            "type": "command",
+            "command": "python3",
             "timeout": 30,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME",
-              "USERPROFILE"
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/mise-autofire.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
         ]
@@ -302,20 +230,15 @@
         "matcher": "",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook/hooks.handoff_segment_inject",
+            "type": "command",
+            "command": "python3",
             "timeout": 30,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME",
-              "USERPROFILE"
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/handoff-segment-inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
         ]
@@ -324,20 +247,15 @@
         "matcher": "",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook/hooks.group_em_autofire",
+            "type": "command",
+            "command": "python3",
             "timeout": 40,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME",
-              "USERPROFILE"
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/group-em-autofire.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
         ]
@@ -348,20 +266,15 @@
         "matcher": "",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook/hooks.runtime_tripwire_em_check",
+            "type": "command",
+            "command": "python3",
             "timeout": 5,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME",
-              "USERPROFILE"
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/runtime-tripwire-em-check.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
         ]
@@ -372,21 +285,10 @@
         "matcher": "Bash|PowerShell",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook/hooks.preuse_bash_dispatch",
-            "timeout": 15,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME",
-              "USERPROFILE"
-            ]
+            "type": "command",
+            "command": "COORDINATOR_DOOR_STDIN_MODE=hook \"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/hook-run\" hooks.preuse_bash_dispatch",
+            "shell": "bash",
+            "timeout": 15
           }
         ]
       },
@@ -394,20 +296,26 @@
         "matcher": "Grep|Glob",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook/hooks.preuse_search_dispatch",
-            "timeout": 5,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME",
-              "USERPROFILE"
+            "type": "command",
+            "command": "COORDINATOR_DOOR_STDIN_MODE=hook \"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/hook-run\" --advisory hooks.preuse_search_dispatch 2>/dev/null; rc=$?; [ $rc -eq 2 ] && rc=0; exit $rc",
+            "shell": "bash",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "timeout": 18,
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/preuse-agent-dispatch.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
         ]
@@ -416,42 +324,15 @@
         "matcher": "Agent",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook/hooks.preuse_agent_dispatch",
+            "type": "command",
+            "command": "python3",
             "timeout": 18,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME",
-              "USERPROFILE"
-            ]
-          }
-        ]
-      },
-      {
-        "matcher": "Agent",
-        "hooks": [
-          {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook/hooks.nudge_named_agent_report_delivery",
-            "timeout": 18,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME",
-              "USERPROFILE"
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-named-agent-report-delivery.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
         ]
@@ -460,20 +341,15 @@
         "matcher": "Skill",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook/hooks.preuse_skill_dispatch",
+            "type": "command",
+            "command": "python3",
             "timeout": 45,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME",
-              "USERPROFILE"
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/preuse-skill-dispatch.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
         ]
@@ -482,20 +358,14 @@
         "matcher": "Workflow",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook/hooks.block_workflow_foreign_emission",
+            "type": "command",
+            "command": "python3",
             "timeout": 5,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME",
-              "USERPROFILE"
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-workflow-foreign-emission.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
         ]
@@ -504,20 +374,14 @@
         "matcher": "Workflow",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook/hooks.block_dispatch_suite_invocation",
+            "type": "command",
+            "command": "python3",
             "timeout": 5,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME",
-              "USERPROFILE"
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-dispatch-suite-invocation.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
         ]
@@ -526,20 +390,14 @@
         "matcher": "Workflow",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook/hooks.block_workflow_unmodeled_agent",
+            "type": "command",
+            "command": "python3",
             "timeout": 5,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME",
-              "USERPROFILE"
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-workflow-unmodeled-agent.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
         ]
@@ -548,20 +406,14 @@
         "matcher": "Workflow",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook/hooks.strip_worktree_isolation",
+            "type": "command",
+            "command": "python3",
             "timeout": 5,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME",
-              "USERPROFILE"
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/strip-worktree-isolation.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
         ]
@@ -570,20 +422,14 @@
         "matcher": "Workflow",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook/hooks.nudge_workflow_authoring_trampoline",
+            "type": "command",
+            "command": "python3",
             "timeout": 5,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME",
-              "USERPROFILE"
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-workflow-authoring-trampoline.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
         ]
@@ -592,20 +438,14 @@
         "matcher": "Workflow",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook/hooks.allow_emitted_workflow_fire",
+            "type": "command",
+            "command": "python3",
             "timeout": 5,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME",
-              "USERPROFILE"
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/allow-emitted-workflow-fire.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
         ]
@@ -614,20 +454,14 @@
         "matcher": "Write|Edit|MultiEdit|NotebookEdit",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook/hooks.preuse_write_dispatch",
+            "type": "command",
+            "command": "python3",
             "timeout": 10,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME",
-              "USERPROFILE"
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/preuse-write-dispatch.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
         ]
@@ -636,20 +470,14 @@
         "matcher": "EnterWorktree|ExitWorktree",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook/hooks.block_worktree_tool",
+            "type": "command",
+            "command": "python3",
             "timeout": 5,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME",
-              "USERPROFILE"
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-worktree-tool.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
         ]
@@ -658,23 +486,10 @@
         "matcher": "AskUserQuestion",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook/hooks.nudge_autonomous_askuserquestion",
-            "timeout": 5,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}",
-              "X-Coordinator-Env-COORDINATOR_AUTONOMOUS_ASK_OK": "${COORDINATOR_AUTONOMOUS_ASK_OK}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME",
-              "USERPROFILE",
-              "COORDINATOR_AUTONOMOUS_ASK_OK"
-            ]
+            "type": "command",
+            "command": "COORDINATOR_DOOR_STDIN_MODE=hook \"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/hook-run\" --advisory hooks.nudge_autonomous_askuserquestion 2>/dev/null; rc=$?; [ $rc -eq 2 ] && rc=0; exit $rc",
+            "shell": "bash",
+            "timeout": 5
           }
         ]
       },
@@ -682,21 +497,10 @@
         "matcher": "TaskList|TaskGet|TaskOutput|ListAgents|ReadNotifications",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook/hooks.flag_em_poll_in_flight",
-            "timeout": 5,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME",
-              "USERPROFILE"
-            ]
+            "type": "command",
+            "command": "COORDINATOR_DOOR_STDIN_MODE=hook \"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/hook-run\" --advisory hooks.flag_em_poll_in_flight 2>/dev/null; rc=$?; [ $rc -eq 2 ] && rc=0; exit $rc",
+            "shell": "bash",
+            "timeout": 5
           }
         ]
       }
@@ -722,20 +526,14 @@
         "matcher": "Write|Edit|MultiEdit|Bash|PowerShell",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook/hooks.postuse_stop_family_dispatch",
+            "type": "command",
+            "command": "python3",
             "timeout": 10,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME",
-              "USERPROFILE"
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/postuse-stop-family-dispatch.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
         ]
@@ -744,27 +542,10 @@
         "matcher": "ExitPlanMode",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook/hooks.plan_persistence_check",
-            "timeout": 15,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}",
-              "X-Coordinator-Env-CLAUDE_HOME": "${CLAUDE_HOME}",
-              "X-Coordinator-Env-HOME": "${HOME}",
-              "X-Coordinator-Env-USERPROFILE": "${USERPROFILE}",
-              "X-Coordinator-Env-CLAUDE_PROJECT_DIR": "${CLAUDE_PROJECT_DIR}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME",
-              "USERPROFILE",
-              "CLAUDE_HOME",
-              "CLAUDE_PROJECT_DIR"
-            ]
+            "type": "command",
+            "command": "COORDINATOR_DOOR_STDIN_MODE=hook \"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/hook-run\" --advisory hooks.plan_persistence_check 2>/dev/null; rc=$?; [ $rc -eq 2 ] && rc=0; exit $rc",
+            "shell": "bash",
+            "timeout": 15
           }
         ]
       },
@@ -772,38 +553,21 @@
         "matcher": "Agent",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook/hooks.postuse_agent_dispatch",
+            "type": "command",
+            "command": "python3",
             "timeout": 5,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME",
-              "USERPROFILE"
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/postuse-agent-dispatch.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           },
           {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook/hooks.runtime_tripwire_em_check",
-            "timeout": 5,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME",
-              "USERPROFILE"
-            ]
+            "type": "command",
+            "command": "COORDINATOR_DOOR_STDIN_MODE=hook \"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/hook-run\" --advisory hooks.runtime_tripwire_em_check 2>/dev/null; rc=$?; [ $rc -eq 2 ] && rc=0; exit $rc",
+            "shell": "bash",
+            "timeout": 5
           }
         ]
       },
@@ -811,20 +575,14 @@
         "matcher": "Write|Edit|MultiEdit|NotebookEdit|Agent|Workflow",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook/hooks.postuse_advisory_dispatch",
+            "type": "command",
+            "command": "python3",
             "timeout": 10,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME",
-              "USERPROFILE"
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/postuse-advisory-dispatch.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
         ]
@@ -833,21 +591,10 @@
         "matcher": "Skill|Agent|Workflow",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook/hooks.watchdog_undischarged_next_move",
-            "timeout": 5,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME",
-              "USERPROFILE"
-            ]
+            "type": "command",
+            "command": "COORDINATOR_DOOR_STDIN_MODE=hook \"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/hook-run\" --advisory hooks.watchdog_undischarged_next_move 2>/dev/null; rc=$?; [ $rc -eq 2 ] && rc=0; exit $rc",
+            "shell": "bash",
+            "timeout": 5
           }
         ]
       }
@@ -857,20 +604,14 @@
         "matcher": "",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook/hooks.context_pressure_precompact",
+            "type": "command",
+            "command": "python3",
             "timeout": 3,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME",
-              "USERPROFILE"
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/context-pressure-precompact.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
         ]
@@ -881,20 +622,14 @@
         "matcher": "",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook/hooks.postusefailure_cross_repo_memo_remediate",
+            "type": "command",
+            "command": "python3",
             "timeout": 5,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME",
-              "USERPROFILE"
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/postusefailure-cross-repo-memo-remediate.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
         ]
@@ -921,20 +656,14 @@
         "matcher": "",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook/hooks.nudge_cross_repo_cwd_boundary",
+            "type": "command",
+            "command": "python3",
             "timeout": 5,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME",
-              "USERPROFILE"
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-cross-repo-cwd-boundary.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
         ]
@@ -945,20 +674,14 @@
         "matcher": "",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:47623/hook/hooks.guard_config_change_hookstack_selfdefence",
+            "type": "command",
+            "command": "python3",
             "timeout": 5,
-            "headers": {
-              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
-              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
-              "X-Coordinator-Env-Channel": "1",
-              "X-Coordinator-Env-Canary": "${HOME}${USERPROFILE}"
-            },
-            "allowedEnvVars": [
-              "COORDINATOR_DOOR_KEY",
-              "COORDINATOR_CLONE_ROOT",
-              "HOME",
-              "USERPROFILE"
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard-config-change-hookstack-selfdefence.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
         ]

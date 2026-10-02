@@ -6,7 +6,7 @@ to resolve ACTIVE_PROBES for each run mode; tests call it directly to verify
 selector invariants.
 
 Spec backlink: archive/specs/2026-05-27-doctor-shape-doe-alignment.md § Chunk 4a.
-Doctrine: docs/wiki/doctor-probe-design.md § Single-Entry-Point Consolidation
+Doctrine: coordinator-content-repo coordinator/docs/wiki/install-playbook-rationale/doctor-probe-design.md § Single-Entry-Point Consolidation
 Must Stay Addressable.
 
 CARGO-CULT GUARD: this selector operates on the fired-probe manifest only.

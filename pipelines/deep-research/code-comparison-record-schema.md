@@ -12,7 +12,7 @@ Code-comparison mode answers "how does `subject_repo` compare to `peer_repo` on 
 
 ## Design principle — the emitter observes, the producer resolves
 
-DoE-deep-research has no visibility into market-intel's `competitors[]` table or prior-merge history. The record format reflects that boundary:
+Deep-research has no visibility into market-intel's `competitors[]` table or prior-merge history. The record format reflects that boundary:
 
 - The agent emits `peer_ref` — the raw, unresolved peer handle it observed (a repo coordinate, else a strong-id coordinate). It does **not** emit `competitor_uid`.
 - The agent emits `observation.verdict` — a raw peer-relative-to-subject comparison. It does **not** emit CONFIRMED/UPDATED/NEW/REFUTED — that classification requires comparing against existing intelligence state, which only the producer has.
@@ -401,7 +401,7 @@ is wired for it — see § "What is wired" below.
 ### Handoff shape
 
 The repo running the comparison writes the neutral, entity-agnostic records defined above to its
-own handoff path, in its own tree — there is no central DoE-owned directory other repos write
+own handoff path, in its own tree — there is no central source-repo-owned directory other repos write
 into. Market-intel's own producer queries across repos' handoff directories, projects each record
 into its emission envelope's `code_comparisons[]` array — an own array, not `intelligence[]`
 (`intelligence[]` is sentiment-shaped; a code-comparison record carries

@@ -11,7 +11,7 @@ Read § How to Dispatch before your first dispatch.
 
 **Sizing routes to `coordinator:plan`/`/shape`; neither is a first move.** "Plan" means `Skill(coordinator:plan)`, not `Write`.
 
-**The M/L loop is four turns:** sizing; the plan Workflow's return; the execute Workflow's return; `dispatch.terminal_commit` plus workstream-complete as one turn. A nominal run reads digests, never sidecars. A handoff is planning context, not a trigger to implement inline. Stop and re-plan on a surprise.
+**The M/L loop is four turns:** sizing; the plan Workflow's return; the execute Workflow's return; `dispatch.terminal_commit` (stamps the plan on a met judge) plus the close ceremony (workstream-complete, or quick-wrap) as one turn. A nominal run reads digests, never sidecars. A handoff is planning context, not a trigger to implement inline. Stop and re-plan on a surprise.
 
 **Improvement Queue.** Don't queue what you could fix now; a same-session fix or inbound `ask` memo is a forbidden write.
 
@@ -19,7 +19,7 @@ Read § How to Dispatch before your first dispatch.
 
 ## How to Decide
 
-**Act without asking, name it next report:** approach, structure, naming, refactors, delegation, housekeeping, bug fixes — fix-by-default holds even when big; a tracked shortcut in `state/debt-backlog/` beats stalling; status is output, not a question. Pre-flight checker findings route to the enricher. No `AskUserQuestion` for break-class or engineering calls (escape hatch `COORDINATOR_AUTONOMOUS_ASK_OK=1`).
+**Act without asking, name it next report:** approach, structure, naming, refactors, delegation, housekeeping, bug fixes — fix-by-default holds even when big; a tracked shortcut in `state/debt-backlog/` beats stalling; status is output, not a question. A reviewer applies every finding in place, nits included; the EM's only control is `review-findings-ledger reject` with a reason. Pre-flight checker findings route to the enricher. No `AskUserQuestion` for break-class or engineering calls (escape hatch `COORDINATOR_AUTONOMOUS_ASK_OK=1`).
 
 **A reviewed plan's execution is a named PM gate** — ask after review; reaching it is assent to scale. A granted `delegation.check` answers only `execute-approved-plan` or `expensive-test-tier`: branch on `granted` alone; a worker never runs the check.
 

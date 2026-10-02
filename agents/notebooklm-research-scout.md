@@ -1,6 +1,6 @@
 ---
 name: notebooklm-research-scout
-description: "Haiku NotebookLM scout — finds video/podcast/article sources per notebook topic, writes sources.md for workers. Discovery only."
+description: "Haiku NotebookLM scout: finds sources per notebook topic, writes sources.md."
 model: haiku
 effort: low
 tools: ["WebSearch", "WebFetch", "Read", "Write", "Bash", "PowerShell", "TaskUpdate", "TaskList", "TaskGet"]
@@ -81,13 +81,9 @@ Aim for 3-8 sources per scout-provided notebook — quality over quantity.
 
 ## Guard Denial Is a Stop Signal
 
-A coordinator PreToolUse denial is a stop signal, not an obstacle to route around.
-
-**Forbidden:** reshaping a denied operation so it parses differently — a script file, `sh -c '...'`, `python -c '...'`, `xargs`, a heredoc written then run, or any rewrite aimed at how the guard *reads* the command rather than what it *does*. Denied plainly is denied.
-
-**Required:** stop, and report the exact command you attempted and the guard that denied it. Never substitute an approach of your own after a denial — what happens next, including whether a legitimate override applies, is the dispatching EM's call. Evading and then disclosing it is still evading; the report is not absolution.
+A coordinator PreToolUse denial is a stop, not an obstacle. **Never reshape a denied operation** — a script file, `sh -c`, `python -c`, `xargs`, a written-then-run heredoc, or any rewrite aimed at how the guard *reads* the command. **Stop and report** the exact command and the guard that denied it; what happens next, including any override, is the dispatching EM's call. Disclosing an evasion does not excuse it.
 <!-- END guard-encounter-preamble -->
 
 <!-- BEGIN subagent-sandbox-preamble (synced from snippets/subagent-sandbox-preamble.md) -->
-**Provisioned home: `state/subagent-share/<session-id>/<provision_key>.md` — git-tracked, assessment-typed (question/answer shape), created for your role before you start. Record your findings and answer there as you go; return only a terse pointer, `done: <path>`, never a full dump. No `sidecar_path:`/`provision_key:` in your dispatch → fall back to `scratch/subagent-sandbox/` (root-level, off `state/`); files there are reaped after 24h.**
+**Provisioned home: `state/subagent-share/<session-id>/<provision_key>.md` (git-tracked, assessment-typed, pre-created). Record findings and answer there as you go; return only a terse pointer, `done: <path>`, never a full dump. No `sidecar_path:`/`provision_key:` → `scratch/subagent-sandbox/` (reaped after 24h).**
 <!-- END subagent-sandbox-preamble -->

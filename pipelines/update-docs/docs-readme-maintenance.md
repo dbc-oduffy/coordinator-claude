@@ -7,9 +7,6 @@ Plans (pointer + count + recent list, canonical home `docs/plans/`), Research (p
 `docs/superpowers/specs/`, or project-specific), Reference Documentation (table of top-level
 `docs/*.md`). Footer: `*Last updated: YYYY-MM-DD. Maintained by /update-docs.*`
 
-<!-- Review: review-integrator/overengineering-reviewer — invocation shape lives once at
-     detect-current-state.md § The updatedocs.gates invocation. -->
-
 **Detect first.** `updatedocs.gates` (`detect-current-state.md § The updatedocs.gates invocation`
 for the call shape) — the `docs-readme-index-drift` gate
 names the drifted sections, the unindexed files, and any dead links. It detects and never writes:

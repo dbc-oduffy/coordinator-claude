@@ -16,7 +16,7 @@ write.
 A sibling `.cmd` launcher (regenerated via `coordinator/bin/gen-launcher-shim.py`)
 preserves Windows bareword-invocation parity (DR-076).
 
-Spec: docs/plans/2026-05-21-plugin-source-live-mirror-doctrine.md § Chunk 5 / AC-7
+Spec: project-rag archive/specs/2026-05/2026-05-21-plugin-source-live-mirror-doctrine.md § Chunk 5 / AC-7
 """
 
 from __future__ import annotations

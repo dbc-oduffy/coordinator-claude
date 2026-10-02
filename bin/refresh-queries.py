@@ -32,7 +32,7 @@ from __future__ import annotations
 # this file's actual line-1 shebang (corrected 2026-07-22,
 # session-family-repoint C4a). `python3` not being on PATH on a clean
 # Windows install (only `python`/`py` are) remains a live Windows-portability
-# concern for OTHER scripts — see docs/wiki/bash-on-windows-gotchas.md
+# concern for OTHER scripts — see coordinator-content-repo coordinator/docs/wiki/portability/bash-on-windows-gotchas.md
 # § Windows exception — but is not this file's own shebang shape.
 #
 # Exit-code contract (mirrors coordinator_core.text.refresh_queries.main's

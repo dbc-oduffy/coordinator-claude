@@ -124,6 +124,8 @@ at all) — this gate is defense-in-depth regardless of whether resume ran.
 handoff eligibility list is retired with the cohort. Archived-handoff pruning is owned by
 `/update-docs` Phase 8b (`pipelines/update-docs/artifact-pruning.md`).
 
+**Completion records (`archive/completed/**`) are harvested, never delete-eligible, trimmed, or moved** — read inputs only; same bar as `pipelines/update-docs/artifact-pruning.md` § Never delete.
+
 The four guards below survive as the memo eligibility base:
 1. **Extraction-artifact present.** A DR or wiki entry cites it via provenance, OR it is
    empirically content-free. A `~/.claude` memory pointer does NOT satisfy this — durable capture
@@ -172,7 +174,7 @@ The broad-sweep path-heal executor (Phase 5d) repoints stale in-repo links after
 **No-rewrite classes — MUST NEVER be rewritten, regardless of how confidently a path resolves:**
 
 1. **Historical logs** — `state/week-changelog/*`, `wsc/*.json` receipts,
-   `review-trail/findings/*`. Each is a point-in-time record of what a prior run actually did;
+   `review-trail/findings/*` (retired closed corpus). Each is a point-in-time record of what a prior run actually did;
    rewriting its path references retroactively falsifies that record.
 2. **Inbox-path provenance** — a path captured to document where an artifact originated, not a
    live reference to be kept resolving.

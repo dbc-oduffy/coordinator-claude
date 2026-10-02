@@ -681,8 +681,7 @@ def main(argv: list[str]) -> int:
         # fallback above. When omitted, derive it from --sha presence exactly as
         # the choke point's own docstring describes for its two default-shaped
         # callers: a caller-supplied sha means "I have a specific commit in hand"
-        # (kind="ship-commit"; this is what reap-orphaned-in-flight-handoffs.py
-        # does), and no sha means the self-derivation path (kind="scope-derived").
+        # (kind="ship-commit"), and no sha means the self-derivation path (kind="scope-derived").
         kind = None
         if "--kind" in rest[1:]:
             idx = rest.index("--kind")

@@ -63,6 +63,7 @@ report_sidecar:
   - coordinator:coverage-auditor
   - coordinator:doc-link-checker
   - coordinator:plan-coverage-checker
+  - coordinator:plan-reviewer
   - coordinator:prior-art-checker
   - coordinator:research-sweep
   - coordinator:research-synthesizer
@@ -73,6 +74,7 @@ report_sidecar:
   - coordinator:dep-cve-auditor
   - coordinator:test-evidence-parser
   - coordinator:test-runner
+  - coordinator:exit-criterion-judge
   - coordinator:atlas-clarity-reviewer
   
   
@@ -85,6 +87,7 @@ report_type_map:
   coordinator:code-reviewer: review-findings
   coordinator:code-reviewer-weekly: review-findings
   coordinator:plan-coverage-checker: review-findings
+  coordinator:plan-reviewer: review-findings
   coordinator:parallel-review-synthesizer: review-findings
   coordinator:security-audit-worker: review-findings
   coordinator:dep-cve-auditor: review-findings
@@ -93,6 +96,7 @@ report_type_map:
   
   
   coordinator:test-runner: run-report
+  coordinator:exit-criterion-judge: run-report
   coordinator:staff-eng: staff-eng-review
   coordinator:staff-data-sci: staff-eng-review
   coordinator:senior-front-end: staff-eng-review
@@ -214,6 +218,7 @@ dispatch_tier:
   coordinator:docs-checker: review-execution
   coordinator:doc-link-checker: review-execution
   coordinator:plan-coverage-checker: review-execution
+  coordinator:plan-reviewer: review-execution
   coordinator:prior-art-checker: review-execution
   coordinator:repo-scout: review-execution
   coordinator:repo-specialist: review-execution
@@ -232,6 +237,7 @@ dispatch_tier:
   
   
   coordinator:test-runner: review-execution
+  coordinator:exit-criterion-judge: review-execution
   coordinator:dep-cve-auditor: review-execution
   
   coordinator:git-commit-agent: exploration
@@ -283,6 +289,7 @@ contract_blocks:
     - docs-checker-consumption
     - prior-art-check-consumption
     - plan-coverage-check-consumption
+    - sizing-object-consumption
     - quota-self-detect-preamble
     - provisioned-scaffold-precedence
     - sidecar-frontmatter-contract
@@ -294,6 +301,7 @@ contract_blocks:
     - docs-checker-consumption
     - prior-art-check-consumption
     - plan-coverage-check-consumption
+    - sizing-object-consumption
     - quota-self-detect-preamble
     - provisioned-scaffold-precedence
     - sidecar-frontmatter-contract
@@ -305,6 +313,7 @@ contract_blocks:
     - docs-checker-consumption
     - prior-art-check-consumption
     - plan-coverage-check-consumption
+    - sizing-object-consumption
     - quota-self-detect-preamble
     - provisioned-scaffold-precedence
     - sidecar-frontmatter-contract
@@ -316,6 +325,7 @@ contract_blocks:
     - docs-checker-consumption
     - prior-art-check-consumption
     - plan-coverage-check-consumption
+    - sizing-object-consumption
     - quota-self-detect-preamble
     - provisioned-scaffold-precedence
     - sidecar-frontmatter-contract
@@ -358,6 +368,7 @@ contract_blocks:
     - docs-checker-consumption
     - prior-art-check-consumption
     - plan-coverage-check-consumption
+    - sizing-object-consumption
     - quota-self-detect-preamble
     - provisioned-scaffold-precedence
     - sidecar-frontmatter-contract
@@ -368,6 +379,7 @@ contract_blocks:
     - docs-checker-consumption
     - prior-art-check-consumption
     - plan-coverage-check-consumption
+    - sizing-object-consumption
     - quota-self-detect-preamble
     - provisioned-scaffold-precedence
     - sidecar-frontmatter-contract
@@ -378,7 +390,13 @@ contract_blocks:
     - quota-self-detect-preamble
     - named-dispatch-relay
     - return-tldr
+    - sizing-object-consumption
   coordinator:plan-coverage-checker:
+    - provisioned-scaffold-precedence
+    - sidecar-emission-contract
+    - quota-self-detect-preamble
+    - return-tldr
+  coordinator:plan-reviewer:
     - provisioned-scaffold-precedence
     - sidecar-emission-contract
     - quota-self-detect-preamble
@@ -408,6 +426,7 @@ contract_blocks:
     - quota-self-detect-preamble
     - named-dispatch-class-3-backstop
     - return-tldr
+    - sizing-object-consumption
   coordinator:plan-author:
     - return-tldr
   
@@ -456,6 +475,10 @@ contract_blocks:
     - provisioned-scaffold-precedence
     - quota-self-detect-preamble
   coordinator:test-runner:
+    - provisioned-scaffold-precedence
+    - run-report-citizenship
+    - quota-self-detect-preamble
+  coordinator:exit-criterion-judge:
     - provisioned-scaffold-precedence
     - run-report-citizenship
     - quota-self-detect-preamble
@@ -582,15 +605,13 @@ contract_blocks:
   # atlassian-worker / drive-worker: SUPERSEDED 2026-07-30 (dispatch-tiering, Leg
   
   
-# DECLARED KEYS ARE LOAD-BEARING; DECLARED RULESETS ARE NOT. Editing a
-
-
-# `_DEFAULT_RULESET_TYPE_OVERRIDES` and does not read this table at all
-
-
-# exact-key SET MEMBERSHIP, so a confined type must remain a key whose value
-
-
+# DECLARED KEYS ARE LOAD-BEARING; DECLARED RULESETS ARE NOT. The keys of this
+# table decide WHO is confined, by exact-key SET MEMBERSHIP, so a confined type
+# must remain a key. The table carries no ruleset: what a confined type may run
+# is decided solely by coordinator_core.bash_guards.block_reviewer_bash_outside_allowlist
+# (`_resolve_ruleset`, `_default_ruleset`, `_DEFAULT_RULESET_TYPE_OVERRIDES`),
+# which does not read this table's values at all. A second copy of the allowed
+# set here is a trap.
 bash_policy:
   coordinator:code-reviewer:
     declaration_only: true

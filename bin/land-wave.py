@@ -55,7 +55,6 @@ import argparse
 import json
 import os
 import re
-import subprocess
 import sys
 from pathlib import Path
 
@@ -542,19 +541,31 @@ def _landing_candidates(fires: list, replies: list, repo_root: Path) -> set[str]
     return candidates
 
 
-def _dirty_among(candidates: set[str], repo_root: Path, run=subprocess.run) -> list[str]:
+def _engine_run_git():
+    import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_colocated_engine_on_path
+
+    require_colocated_engine_on_path(__file__)
+    from coordinator_core.git.run import run_git
+
+    return run_git
+
+
+def _dirty_among(candidates: set[str], repo_root: Path, run=None) -> list[str]:
     """`candidates` intersected with `git status`, renames resolved to their destination. `run`
-    is injectable so the porcelain parse is tested without spawning git."""
+    (a `run_git`-shaped callable) is injectable so the porcelain parse is tested without
+    spawning git."""
     if not candidates:
         return []
-    try:
-        out = run(
-            ["git", "status", "--porcelain", "--untracked-files=all", "--", *sorted(candidates)],
-            cwd=str(repo_root), capture_output=True, text=True, encoding="utf-8", check=True,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        ).stdout
-    except (OSError, subprocess.CalledProcessError):
+    if run is None:
+        run = _engine_run_git()
+    result = run(
+        ["status", "--porcelain", "--untracked-files=all", "--", *sorted(candidates)],
+        cwd=str(repo_root),
+    )
+    if result.returncode != 0:
         return []
+    out = result.stdout
     dirty = []
     for line in out.splitlines():
         path = line[3:].strip().strip('"')

@@ -170,8 +170,7 @@ _NON_SESSION_DIR_NAMES = {".git", "__pycache__"}
 def _resolve_session_live():
     """Import coordinator_core.session.liveness.session_live via the engine root.
 
-    In-process import (no subprocess, no bash) — same trampoline shape as
-    reap-orphaned-in-flight-handoffs.py's _resolve_session_live.
+    In-process import (no subprocess, no bash).
     """
     _bootstrap_imports()
     claude_klabauter_root = require_dispatch_engine_on_path()
@@ -180,11 +179,8 @@ def _resolve_session_live():
 
 
 def _fm_field(path: str, key: str) -> str:
-    """Single-key frontmatter scan — same idiom as
-    reap-orphaned-in-flight-handoffs.py's _fm_field (kept local/duplicated
-    rather than imported: that script's copy is not exported as a shared
-    lib function, and this op's frontmatter shape — sidecar docs, not
-    handoffs — is a different consumer of the same tiny primitive)."""
+    """Single-key frontmatter scan, kept local: this op's frontmatter shape
+    (sidecar docs, not handoffs) is its own consumer of the tiny primitive."""
     prefix = key + ":"
     val = ""
     try:
@@ -291,6 +287,51 @@ def _tracked_paths(repo_root: str, rel_paths: list, *, under) -> set:
     return {rel for rel, posix in posix_by_orig.items() if posix in tracked_posix}
 
 
+def classify_sidecars(share_dirs: list, session_live, *, repo_root: str, now: float, age_floor_days: int):
+    """The reap decision: ``(to_reap, preserved_live, preserved_status, preserved_too_young)``.
+
+    Pure over the filesystem and the injected ``session_live`` predicate —
+    no git, no mutation — so the stale-versus-live rule is testable on its own.
+    """
+    to_reap: list = []
+    preserved_live_session = 0
+    preserved_too_young = 0
+    preserved_status = 0
+
+    for share_dir in share_dirs:
+        for session_id in sorted(os.listdir(share_dir)):
+            if session_id in _NON_SESSION_DIR_NAMES:
+                continue
+            session_dir = os.path.join(share_dir, session_id)
+            if not os.path.isdir(session_dir):
+                continue
+
+            if session_live(session_id, cwd=repo_root):
+                # Entire directory preserved — an in-flight session's own
+                # sidecar(s) are never reaped out from under it, regardless of
+                # any individual file's status or age.
+                preserved_live_session += len(glob.glob(os.path.join(session_dir, "*.md")))
+                continue
+
+            for f in sorted(glob.glob(os.path.join(session_dir, "*.md"))):
+                if not os.path.isfile(f):
+                    continue
+
+                status = _fm_field(f, "status").lower()
+                if status in _STATUS_NEVER_REAP:
+                    preserved_status += 1
+                    continue
+
+                age = _age_days(f, now)
+                if age < age_floor_days:
+                    preserved_too_young += 1
+                    continue
+
+                to_reap.append(f)
+
+    return to_reap, preserved_live_session, preserved_status, preserved_too_young
+
+
 def main(argv: Optional[list] = None) -> int:
     _bootstrap_imports()
     argv = list(sys.argv[1:] if argv is None else argv)
@@ -345,43 +386,9 @@ def main(argv: Optional[list] = None) -> int:
         print("reap-stale-subagent-sidecars.py: no subagent-share root exists; nothing to do")
         return 0
 
-    now = time.time()
-
-    to_reap: list = []
-    preserved_live_session = 0
-    preserved_too_young = 0
-    preserved_status = 0
-
-    for share_dir in share_dirs:
-        for session_id in sorted(os.listdir(share_dir)):
-            if session_id in _NON_SESSION_DIR_NAMES:
-                continue
-            session_dir = os.path.join(share_dir, session_id)
-            if not os.path.isdir(session_dir):
-                continue
-
-            if session_live(session_id, cwd=repo_root):
-                # Entire directory preserved — an in-flight session's own
-                # sidecar(s) are never reaped out from under it, regardless of
-                # any individual file's status or age.
-                preserved_live_session += len(glob.glob(os.path.join(session_dir, "*.md")))
-                continue
-
-            for f in sorted(glob.glob(os.path.join(session_dir, "*.md"))):
-                if not os.path.isfile(f):
-                    continue
-
-                status = _fm_field(f, "status").lower()
-                if status in _STATUS_NEVER_REAP:
-                    preserved_status += 1
-                    continue
-
-                age = _age_days(f, now)
-                if age < age_floor_days:
-                    preserved_too_young += 1
-                    continue
-
-                to_reap.append(f)
+    to_reap, preserved_live_session, preserved_status, preserved_too_young = classify_sidecars(
+        share_dirs, session_live, repo_root=repo_root, now=time.time(), age_floor_days=age_floor_days,
+    )
 
     if not to_reap:
         print("nothing to reap")

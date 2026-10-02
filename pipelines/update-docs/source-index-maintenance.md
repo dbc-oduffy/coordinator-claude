@@ -7,9 +7,6 @@ exports, cross-dir deps) into a per-directory `DIRECTORY.md`; >2 dirs, stamp a
 file counts, cross-directory dependency chains, "Last refreshed" timestamp. Default location:
 project root; match project convention if different.
 
-<!-- Review: review-integrator/overengineering-reviewer — invocation shape + tri-state semantics
-     now live once, at detect-current-state.md § The updatedocs.gates invocation. -->
-
 **Detect first.** The `directory-md-staleness` gate of `updatedocs.gates`
 (`detect-current-state.md § The updatedocs.gates invocation` for the call shape and the
 `unavailable`/`clean` semantics) reports whether an index's asserted counts and refresh date still

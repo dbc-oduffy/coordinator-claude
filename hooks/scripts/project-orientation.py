@@ -124,6 +124,10 @@ _SCRIPTS_DIR = Path(__file__).resolve().parent
 _HOOKS_DIR = _SCRIPTS_DIR.parent
 _PLUGIN_ROOT = _HOOKS_DIR.parent  # <plugin_root>/coordinator
 _BIN_DIR = _PLUGIN_ROOT / "bin"
+_LIB_DIR = _PLUGIN_ROOT / "lib"
+if str(_LIB_DIR) not in sys.path:
+    sys.path.append(str(_LIB_DIR))
+from frontmatter_scan import scan_frontmatter, scan_mapping  # noqa: E402
 
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
@@ -1672,7 +1676,11 @@ def _copies_engine_verdicts(cc, ctx: CopiesContext, cache: Optional[dict]) -> li
     def compute():
         try:
             return eml.check_engine_mirror(
-                lambda: ctx.engine_root, lambda: ctx.claude_klabauter_root, lag, ctx.live_tree
+                lambda: ctx.engine_root,
+                lambda: ctx.claude_klabauter_root,
+                lag,
+                ctx.live_tree,
+                entry.get("import_origin") if entry and not moved else eml.UNCHECKED,
             )
         except _CopiesUnavailable as exc:
             return [cc.could_not_check(eml.COPY, cc.CURRENCY, exc.reason, exc.remedy), eml._completeness()]
@@ -2539,28 +2547,15 @@ def _cache_relevant_pathspecs(repo_root: str) -> list:
 
 
 def _extract_cache_field(cache_text: str, key: str) -> str:
-    """Frontmatter-line scraper shared by every `<key>: <value>` line-scrape across the
-    orientation-cache and peer-entry file families (schema table,
-    `coordinator/pipelines/workday-start-internals.md`, and
-    `coordinator/schemas/peer-set-entry.schema.json` respectively).
-
-    Deliberately line-oriented rather than a YAML parse — both families are flat,
-    single-line-per-field blocks by construction, and a full YAML dependency would be
-    disproportionate to reading one scalar.
-    """
-    prefix = f"{key}:"
-    for line in cache_text.splitlines():
-        if line.startswith(prefix):
-            val = line[len(prefix):]
-            val = val.strip()
-            val = val.strip("\"'")
-            # Strips all internal spaces too, not just the leading/trailing ones stripped
-            # above — fine for the scalar fields read so far, but a future caller reusing
-            # this helper against a field that legitimately contains spaces (e.g. a peer
-            # `notes` field) would get silently corrupted output.
-            val = val.replace(" ", "")
-            return val
-    return ""
+    """Scalar `key` of an orientation-cache (fenced frontmatter) or peer-entry (flat YAML)
+    text, or "" when absent, non-scalar, or the fence never closes. Fenced text reads only
+    its frontmatter block, so a body line spelling `key:` never answers."""
+    if cache_text.lstrip("\ufeff").startswith("---"):
+        fields = scan_frontmatter(cache_text)
+    else:
+        fields = scan_mapping(cache_text)
+    value = fields.get(key)
+    return value if isinstance(value, str) else ""
 
 
 def _extract_cache_head(cache_text: str) -> str:

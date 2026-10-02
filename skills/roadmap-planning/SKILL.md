@@ -1,6 +1,6 @@
 ---
 name: roadmap-planning
-description: "PM-GATED. Shape research into ratified, graphed roadmap batons."
+description: "PM-GATED. Shape research into ratified roadmap batons."
 version: 2.0.0
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent", "Skill"]
 argument-hint: "<input-corpus-path|problem-set-path|roadmap-seed-stub-path> [--run-id <slug>]"
@@ -51,7 +51,9 @@ stamp a plan that does not pass. `/mise-en-place` § Phase 0 is where the run co
 Every cluster gets exactly one verdict — no "we'll see". Inverse coverage (verdict → stub) is
 Step 2.6's job (below).
 
-1. Inventory every input file (title + summary) → `state/roadmap/<run-id>/inventory.md`.
+1. Inventory every input file (title + summary) → `state/roadmap/<run-id>/inventory.md`. Also read
+   `docs/architecture/systems-index.md` and the system pages the corpus touches, noting each
+   `last_attested`; every pass, sizing-object or not.
 2. Cluster into coverage units (typically 20–60/roadmap); a sub-floor cluster folds into a
    sibling here, pre-verdict (wiki: grain-fold vs. MERGE) → `state/roadmap/<run-id>/clusters.md`.
    **A cluster is a unit of coverage accounting, never a unit of dispatch** — how many batons
@@ -85,9 +87,10 @@ STOP those clusters, never substitute web scouts, surface to PM. Other clusters 
    > step names; it dissolves no gate this skill's own body names.
 1.5.2. Author `OVERVIEW.md`, one section per KEEP cluster, headed by NAME never number (wiki:
    why); each section cites its research-corpus file and carries `### Contested` (required, even
-   empty). Frontmatter template: wiki.
+   empty). Frontmatter template: wiki. It carries a `### Atlas consult` section (pages read,
+   `last_attested`, what changed).
 1.5.3. `peer-team-asks.md` — must be present, empty as `- None identified at authoring time.`
-   (template: `residue/peer-team-ask-format.md`).
+   (template: `residue/peer-team-ask-format.md`); the consumer-render probe for any cross-repo contract is answered here, before 1.5.4 — wiki: writing-plans.md § Consumer-Surface Enumeration Before Fixing Deliverable Shape.
 1.5.4. PM round 1 (shape approval) before reviewers run — framing template: wiki. On approval,
    `status: shape-approved`.
 1.5.5. Sequential reviews — the Staff Engineer, or the Director of Engineering on cross-repo/cross-team boundaries; domain reviewer

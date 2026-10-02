@@ -117,7 +117,6 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import subprocess
 import sys
 from pathlib import Path
 
@@ -139,6 +138,14 @@ def _cg():
     import coordinator_core.citation_graph as cg
 
     return cg
+
+
+def _run_git(args: "list[str]", cwd: Path):
+    if str(_REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(_REPO_ROOT))
+    from coordinator_core.git.run import run_git
+
+    return run_git(args, cwd=str(cwd))
 
 
 def __getattr__(name: str) -> object:
@@ -502,34 +509,14 @@ def run(
 def _git_dirty_paths(root: Path) -> "list[str] | None":
     """`git status --porcelain` paths, or `None` if git itself is
     unavailable (never treated as clean in that case -- caller refuses)."""
-    try:
-        result = subprocess.run(
-            ["git", "status", "--porcelain"],
-            cwd=root,
-            capture_output=True,
-            text=True,
-            timeout=10,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-    except Exception:
-        return None
+    result = _run_git(["status", "--porcelain"], root)
     if result.returncode != 0:
         return None
     return [line[3:] for line in result.stdout.splitlines() if line.strip()]
 
 
 def _git_head_sha(root: Path) -> "str | None":
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=root,
-            capture_output=True,
-            text=True,
-            timeout=10,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-    except Exception:
-        return None
+    result = _run_git(["rev-parse", "HEAD"], root)
     if result.returncode != 0:
         return None
     return result.stdout.strip() or None

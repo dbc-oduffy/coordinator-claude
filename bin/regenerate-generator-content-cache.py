@@ -45,8 +45,8 @@ WHAT THIS SCRIPT DOES, PRECISELY
     CONTENT is unchanged.
 
 REGENERATION — WHEN AND HOW SOMEONE FINDS OUT
-    Run this whenever `_SCHEMA_VERSION` in `generator_scan_cache.py` is
-    bumped (a scanner-semantics change) — that module's own comment beside
+    Run this whenever `_SCHEMA_VERSION` in `generator_scan_cache.py` moves
+    (any edit to `generator_provenance.py`, or a shape bump) — that module's own comment beside
     `_SCHEMA_VERSION` names this script as the required next step, in the
     same commit as the scanner change, and the version-gate in
     `load_content_cache` means a forgotten regeneration degrades SAFELY

@@ -19,6 +19,12 @@ coordinator-claude is a standard **Claude Code marketplace** — the single `coo
 installer script for the plugin half; a post-restart `/coordinator:install` finishes the
 environment.
 
+The install lands in the **settings home**, `~/.coordinator-claude-settings` (or
+`$COORDINATOR_SETTINGS_HOME`): `bin/` holds the resolver and CLI forwarders, `machine-local/` the
+registry, `coordinator-claude/` the plugin copy, `state/` runtime state. Confirm it was written
+with `ls -lt "$(dirname "$(machine-local dir)")/bin" | head`: fresh mtimes mean this install
+wrote it. Do not use `install-receipt.json` as the confirmation; it is not rewritten on re-runs.
+
 ## Requirements
 
 Only two things are needed to *begin* — `git` and the Claude Code CLI. The rest are resolved as
@@ -87,10 +93,10 @@ Use the literal commands, not `git rev-parse` — a home directory under dotfile
 - **`state=configured`** — any of the three printed. **Track B.**
 
 **Track B with the coordinator plugin already installed** (`has-plugins` names `coordinator@…`)
-**is the update track, not a cold install.** Run `/coordinator-update`, then
+**is the update track, not a cold install.** Run `/coordinator:coordinator-update` (a native-CLI install: `claude plugin update`), then
 `python3 <plugin-root>/lib/install/coordinator_install.py --plan`: it reports `track: update` and
 every step skips what is already configured, so re-running it is the way to pick up newly added
-steps (status lines, recommended extras). Skip Steps 1 and 2 and go to Step 3.
+steps (status lines, recommended extras). Skip Steps 1 and 2 and go to Step 3. The human types `/coordinator:install` (`disable-model-invocation`); the agent may run only the `--plan` form above through Bash.
 
 **Track B otherwise — proceed and report; do not stop.** The install merges config files rather than
 overwriting them, so an existing home is not by itself a reason to hold. Proceed, and tell the
@@ -268,8 +274,9 @@ Tell the human exactly this:
 >
 > (If `claude` isn't found, install the CLI first: `npm install -g @anthropic-ai/claude-code`.)
 >
-> A fresh session is required for plugin hooks and commands to load. Everything after it runs in
-> that one session; the install asks for a further restart only when a check proves one is needed.
+> Plugin hooks and commands load into a fresh session. Everything after it runs in that one
+> session; `bin/needs-restart.py` prints `none`, `/reload-plugins` or `restart`, and the
+> install asks for a further restart only when it prints `restart`.
 
 Do NOT describe the fresh session as "just restarting" — the human is handing off to a new
 session that runs `/coordinator:install` to finish the environment wiring.
@@ -278,7 +285,7 @@ session that runs `/coordinator:install` to finish the environment wiring.
 
 In the fresh session, the human runs:
 
-1. **`/coordinator:install`** — environment wiring, run as a script with declared choices
+1. **`/coordinator:install`** — typed by the human (the command is `disable-model-invocation`; an agent may run only `python3 <plugin-root>/lib/install/coordinator_install.py --plan` through Bash) — environment wiring, run as a script with declared choices
    (`lib/install/coordinator_install.py`: orientation first, then `--plan`, then `--answers`; safe
    to re-run; skips anything already configured; reports every step RAN, SKIPPED, INHERITED or
    FAILED). Checks prerequisites, sets the Agent Teams env var, lays down the machine-local
@@ -313,7 +320,7 @@ handoffs, memo resolution, coverage computation, and terminal stamping do not.
 1. **Install coordinator-claude** via the `claude plugin` CLI — § Step 1d.
 2. **Clone** the engine repo and register `repos.claude_klabauter` — *a clone, not an install*
    (§ Step 1e, still before the restart).
-3. **Restart Claude Code** — § Step 2. The one restart; it is what makes `/coordinator:install`
+3. **Load the plugin into a session** — § Step 2 (`needs-restart.py` names reload or restart). It is what makes `/coordinator:install`
    exist.
 4. **Run `/coordinator:install`** — § Step 3. This deposits the `machine-local` resolver.
 5. **Only then run the engine repo's own installer** — this step, from a shell started after (4)
@@ -358,9 +365,10 @@ substrate from a script that lives *in the engine repo*. Rationale, braid-defect
    line is prefixed `PASS`/`FAIL`; a non-zero exit or a traceback means the install did not
    complete, however many `PASS` lines preceded it.
 
-   `<klabauter-clone>/scripts/setup.py --check` is **not** an install verification. It smoke-tests that the script
-   itself is present and executable and exits 0 — it returns green on a box whose engine install
-   crashed. Do not report an install as verified on the strength of it.
+   `<klabauter-clone>/scripts/setup.py --check` verifies only what `setup_check.run_checks`
+   emits: the CLI forwarders, the door, the guards, the required `repos.*` pointers, and the
+   statusline. It does not verify dependency provisioning or that `coordinator_core` imports, so
+   it is not the install verdict. The PASS/FAIL output of step 5 is.
 
 **What NOT to do:**
 - **Do not run `pip install .` as the engine install.** It makes `coordinator_core` importable
@@ -505,13 +513,13 @@ it, and don't gate on code quality. See `CONTRIBUTING.md`.
 
 ## Keeping the install current
 
-After install, `/coordinator-update` is the PM-invoked way to update later: it checks the latest
+After install, `/coordinator:coordinator-update` is the PM-invoked way to update later: it checks the latest
 published version, computes a delta, and advises a path while preserving customizations by
 default — never a blind overwrite. `claude plugin install coordinator@coordinator-claude` also
-pulls the latest, but `/coordinator-update` is the safer, customization-aware path.
+pulls the latest, but `/coordinator:coordinator-update` is the safer, customization-aware path.
 
 `version.txt` in the installed plugin directory is the update baseline: the commit SHA of the
-source the install was made from, which `/coordinator-update` compares against upstream. It is not
+source the install was made from, which `/coordinator:coordinator-update` compares against upstream. It is not
 the plugin version; that lives in `.claude-plugin/plugin.json`. `docs/coordinator-currency.yaml`,
 written by the install's optional `coordinator_currency` step into a project repo, records which
 coordinator version that repo was set up against; commit it in the project repo and skip it in the

@@ -56,12 +56,11 @@ from __future__ import annotations
 import os
 import shutil
 import stat
-import subprocess
 import tempfile
 from pathlib import Path
 from typing import Optional
 
-_NO_CONSOLE = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+from coordinator_core.git.run import run_git
 
 
 class ThrowawayTreeError(RuntimeError):
@@ -210,20 +209,12 @@ def build_throwaway_tree(
     dest_repo_root = Path(dest_repo_root)
     tmp_dir = Path(tempfile.mkdtemp(prefix="claude-klabauter-throwaway-tree-"))
     try:
-        clone_cmd = [
-            "git",
-            "clone",
-            "--local",
-            "--no-checkout",
-            str(dest_repo_root),
-            str(tmp_dir),
-        ]
-        result = subprocess.run(
-            clone_cmd,
-            capture_output=True,
-            text=True,
-            check=False,
-            **_NO_CONSOLE,
+        # Both legs are publish-path bulk transfer (a whole-tree clone and
+        # checkout), which the brightline does not govern; `remote=True` gives
+        # them the runaway guard rather than the local-plumbing budget.
+        result = run_git(
+            ["clone", "--local", "--no-checkout", str(dest_repo_root), str(tmp_dir)],
+            remote=True,
         )
         if result.returncode != 0 and "failed to create link" in result.stderr:
             # Trap: the temp root and the dest sit on different volumes
@@ -244,14 +235,7 @@ def build_throwaway_tree(
                 f"(exit {result.returncode}): {result.stderr.strip()}"
             )
 
-        checkout_cmd = ["git", "-C", str(tmp_dir), "checkout", "-q", "HEAD"]
-        result = subprocess.run(
-            checkout_cmd,
-            capture_output=True,
-            text=True,
-            check=False,
-            **_NO_CONSOLE,
-        )
+        result = run_git(["-C", str(tmp_dir), "checkout", "-q", "HEAD"], remote=True)
         if result.returncode != 0:
             raise ThrowawayTreeError(
                 f"git checkout -q HEAD failed in throwaway clone of {dest_repo_root} "

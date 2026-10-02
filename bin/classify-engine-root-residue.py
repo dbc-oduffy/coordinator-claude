@@ -162,6 +162,9 @@ def main(argv: "list[str] | None" = None) -> int:
     if argv is not None:
         sys.argv = [sys.argv[0], *argv]
     try:
+        if "--help" in sys.argv[1:] or "-h" in sys.argv[1:]:
+            print("usage: classify-engine-root-residue [repo-path]  (default: current directory)")
+            return 0
         repo = Path(sys.argv[1] if len(sys.argv) > 1 else ".").resolve()
         examined = examined_paths(repo)
     

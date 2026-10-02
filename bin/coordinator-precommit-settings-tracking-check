@@ -87,7 +87,6 @@ from __future__ import annotations
 import fnmatch
 import os
 from pathlib import Path
-import subprocess
 import sys
 
 _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -163,28 +162,20 @@ _TRACKED_SIDECAR_GLOBS = (
 )
 
 
-def _no_console_kw() -> dict:
-    """Console-suppression kwargs for a captured spawn; empty off Windows."""
-    if os.name != "nt":
-        return {}
-    return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
-
-
 def _git_out(args: list, cwd: str = None) -> str:
+    """Stdout of `git <args>`, or "" on any failure -- including an engine
+    that cannot be imported, the same fail-open as `_import_engine`."""
+    claude_klabauter_root = os.path.abspath(os.path.join(_BIN_DIR, "..", ".."))
+    if claude_klabauter_root not in sys.path:
+        sys.path.insert(0, claude_klabauter_root)
     try:
-        out = subprocess.run(
-            ["git", *args],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            cwd=cwd,
-            **_no_console_kw(),
-        )
-    except Exception:
+        from coordinator_core.git.run import run_git
+    except Exception:  # noqa: BLE001 -- fail-open, never blocks git
         return ""
+    out = run_git(args, cwd=cwd)
     if out.returncode != 0:
         return ""
-    return out.stdout or ""
+    return out.stdout
 
 
 def _resolve_meta_repo() -> str:

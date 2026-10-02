@@ -2,9 +2,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://coordinator.local/schemas/review-stage.schema.json",
   "x-schema-name": "review-stage",
-  "x-schema-version": "1.0.0",
-  "x-bump-note": "New schema with ZERO SHAPE EFFECT on any existing consumer (no prior version), docs/plans/2026-09-27-review-inside-execute-plan.md C1. One $defs entry per structured return the execute-review stage's agents produce (review-prep-result, slice-review-result, whole-diff-review-result, delivery-verdict, review-integration-result, brief-conformance-row). Findings never appear inline: a return carries counts (integers) and sidecar anchors, never a findings array -- the findings live in the reviewer's own sidecar. Every prose string carries a maxLength: 200 for a one-liner, 300 for an anchor line/description pair, so a return cannot smuggle a findings body back through a long string.",
-  "description": "Structured returns for the execute-review stage (docs/plans/2026-09-27-review-inside-execute-plan.md § Contract). Claude-klabauter's compose_execute_review injects the relevant $def as each agent call's schema. Never applies_to a sidecar file directly -- these are dispatch RETURN shapes, validated in-process by the caller, not documents on disk.",
+  "x-schema-version": "1.2.0",
+  "x-bump-class": "nested-field-additive",
+  "x-bump-note": "1.1.0 -> 1.2.0 adds the additive $def terminal-judge-verdict-rules (the judge verdict if/then moved out of the tool input_schema; no existing $def changed). 1.0.0 -> 1.1.0 adds the additive $def terminal-judge-result (docs/plans/2026-10-01-execute-workflow-self-completes.md C0); no existing $def changed. Prior-version history: coordinator/schemas/SCHEMA-BUMP-HISTORY.md § review-stage.schema.json.",
+  "description": "Structured returns for the execute-review stage (docs/plans/2026-09-27-review-inside-execute-plan.md § Contract). the engine repo's compose_execute_review injects the relevant $def as each agent call's schema. Never applies_to a sidecar file directly -- these are dispatch RETURN shapes, validated in-process by the caller, not documents on disk.",
   "$defs": {
     "anchor": {
       "type": "object",
@@ -192,6 +193,110 @@
           ]
         }
       }
+    },
+    "terminal-judge-result": {
+      "type": "object",
+      "description": "The terminal exit-criterion judge's return. status, observation and sidecar_path are the three fields the engine's reader consumes. Counts and anchors only; the judge's full reasoning lives in its sidecar.",
+      "required": ["status", "observation", "sidecar_path", "observed", "clauses", "falsifier", "gated", "pm_words_read", "contamination"],
+      "additionalProperties": false,
+      "properties": {
+        "status": { "type": "string", "enum": ["met", "not_met", "indeterminate"] },
+        "observation": { "type": "string", "maxLength": 200 },
+        "sidecar_path": { "type": "string", "maxLength": 300 },
+        "observed": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["kind", "ref", "result"],
+            "additionalProperties": false,
+            "properties": {
+              "kind": { "type": "string", "enum": ["command", "path"] },
+              "ref": { "type": "string", "maxLength": 300 },
+              "result": { "type": "string", "maxLength": 200 }
+            }
+          }
+        },
+        "clauses": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["clause", "status", "observed_ref"],
+            "additionalProperties": false,
+            "properties": {
+              "clause": { "type": "string", "maxLength": 200 },
+              "status": { "type": "string", "enum": ["met", "not_met", "indeterminate"] },
+              "observed_ref": { "type": "string", "maxLength": 300 }
+            }
+          }
+        },
+        "falsifier": {
+          "type": "object",
+          "required": ["present", "ran", "verdict", "output_anchor"],
+          "additionalProperties": false,
+          "properties": {
+            "present": { "type": "boolean" },
+            "ran": { "type": "boolean" },
+            "verdict": { "type": "string", "enum": ["pass", "fail", "error", "not_present"] },
+            "output_anchor": { "type": "string", "maxLength": 300 }
+          }
+        },
+        "gated": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["brightline", "status", "evidence"],
+            "additionalProperties": false,
+            "properties": {
+              "brightline": {
+                "type": "string",
+                "enum": [
+                  "work-proportionate-to-question",
+                  "multi-os-first-class",
+                  "no-single-machine-assumptions",
+                  "work-vs-question-ratio",
+                  "right-not-merely-working"
+                ]
+              },
+              "status": { "type": "string", "enum": ["met", "not_met", "indeterminate"] },
+              "evidence": { "type": "string", "maxLength": 1024 }
+            }
+          }
+        },
+        "pm_words_read": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["source", "ref"],
+            "additionalProperties": false,
+            "properties": {
+              "source": { "type": "string", "enum": ["pm-brief", "execution-utterance", "sizing-intent", "accepted-pm-quote"] },
+              "ref": { "type": "string", "maxLength": 300 }
+            }
+          }
+        },
+        "contamination": {
+          "type": "array",
+          "items": { "type": "string", "maxLength": 300 }
+        },
+        "reason": { "type": "string", "maxLength": 200 }
+      }
+    },
+    "terminal-judge-verdict-rules": {
+      "description": "Cross-field rules over a terminal-judge-result, applied post hoc beside it. Kept out of terminal-judge-result because a tool input_schema may not carry a top-level allOf, anyOf or oneOf.",
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "met" } }, "required": ["status"] },
+          "then": {
+            "properties": {
+              "observed": { "minItems": 1 },
+              "falsifier": { "properties": { "verdict": { "enum": ["pass", "not_present"] } } },
+              "clauses": { "items": { "properties": { "status": { "const": "met" } } } }
+            }
+          },
+          "else": { "required": ["reason"] }
+        }
+      ]
     }
   }
 }

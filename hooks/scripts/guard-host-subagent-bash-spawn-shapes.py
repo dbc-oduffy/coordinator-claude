@@ -58,8 +58,10 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib"))
 
 from _message_envelope import Message, compose, render  # noqa: E402
+from frontmatter_scan import read_text, scan_frontmatter  # noqa: E402
 
 #: BOTH shells, and the asymmetry with `guard-host-subagent-bash-ban` is deliberate. That guard is
 #: scoped to Bash because PowerShell is the sanctioned alternative on this host and denying both
@@ -103,25 +105,12 @@ def _repo_config(cwd: str | None) -> "Path | None":
 def _policy_is_deny(config: Path) -> bool:
     """True only when the frontmatter explicitly declares the deny policy.
 
-    A narrow string scan over the frontmatter rather than a YAML parse: this sits on the
+    A column-zero key scan over the frontmatter rather than a YAML parse: this sits on the
     PreToolUse path, a YAML import is not free, and an unparseable config must read as "no policy"
     (allow) rather than raise.
     """
-    try:
-        text = config.read_text(encoding="utf-8")
-    except OSError:
-        return False
-    if not text.startswith("---"):
-        return False
-    end = text.find("\n---", 3)
-    front = text[3:end] if end != -1 else text[3:4000]
-    for line in front.splitlines():
-        stripped = line.strip()
-        if not stripped.startswith(_POLICY_KEY):
-            continue
-        _, _, value = stripped.partition(":")
-        return value.split("#", 1)[0].strip().strip("\"'").lower() == _DENY_VALUE
-    return False
+    value = scan_frontmatter(read_text(config)).get(_POLICY_KEY)
+    return isinstance(value, str) and value.lower() == _DENY_VALUE
 
 
 def _classify(cmd: str, dialect_name: str = "BASH") -> "list[str]":

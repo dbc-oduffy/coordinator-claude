@@ -31,7 +31,7 @@ Subcommands:
       `percolate-store.yaml` instead, and the pre-ci guard runs declaratively
       inside `publish.py` rather than via a shell hook-script loop.
 
-  scan-secrets --files <file-list-path> [--identity-file <path>]
+  scan-secrets --files <file-list-path> [--identity-file <path>] [--json]
                [--peer-repos-file <repo-registry.md path>] [--target <name>]
                [--percolate-root <path>]
       Run the three severity-tier grep-style scan (HIGH credential shapes,

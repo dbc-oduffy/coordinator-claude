@@ -23,7 +23,7 @@ coordinator_core.ops.orphan_branch_sweep; this file is a thin trampoline.
 # (associative arrays). This trampoline has NO bash-version dependency — it
 # execs straight into Python — so that guard is dropped, not silently lost:
 # the script now also runs cleanly under stock macOS bash 3.2 (an improvement,
-# not a scope-drop). docs/wiki/cross-platform-shell-portability.md's citation
+# not a scope-drop). Coordinator-content-repo coordinator/docs/wiki/portability/cross-platform-shell-portability.md's citation
 # of this file as a BASH_VERSINFO<4 exemplar is now stale (flagged, not fixed
 # here — out of scope for this port).
 #
@@ -35,6 +35,7 @@ coordinator_core.ops.orphan_branch_sweep; this file is a thin trampoline.
 #   --severity-min ok|warning|critical       Minimum severity to emit (default: ok)
 #   --include-remote / --no-include-remote   Include origin/* branches (default: on)
 #   --max-age-days N                         Ignore branches older than N days (default: 30)
+#   --repo-root DIR                          Repo to sweep (default: cwd)
 #   --help                                   Show this help
 #
 # Exit codes (parity-critical — matches ported main()'s actual returns):

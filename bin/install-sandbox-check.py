@@ -46,7 +46,7 @@ and hands it to that module.
 # of every run, unchanged from the bash oracle.
 # Spec backlink: coordinator-content-repo:pln-doe-maximalist-execution-plugi-6d808d § W4.1
 #   AC-W4.1: "Sandbox clean-install produces thin ~/.claude + cloned DoE + wired wrapper"
-# Doctrine: docs/wiki/install-surface-completeness.md § Running-in-Claude-Code
+# Doctrine: coordinator-content-repo coordinator/docs/wiki/install-playbook-rationale/install-surface-completeness.md § Running-in-Claude-Code
 #
 # Exit codes (unchanged contract from the bash oracle, PLUS a new dedicated
 # transport code — addendum rule 3b): 0 all assertions passed/skipped;

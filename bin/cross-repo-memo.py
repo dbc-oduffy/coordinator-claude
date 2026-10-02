@@ -72,7 +72,7 @@ Negative-spec (machine-local-registry.md anti-pattern): if you find yourself
 wanting to write to machine-local from a script, stop. Per-machine path
 values belong in the registry; they are NOT sidecar'd in local config files
 next to the script. The registry is the audited source; the script is a reader
-only. See: docs/wiki/machine-local-registry.md § 5a–5b (Reader only — never
+only. See: coordinator-content-repo coordinator/docs/wiki/hook-best-practices/machine-local-registry.md § 5a–5b (Reader only — never
 writes to machine-local. If you find yourself wanting to write to machine-local
 from a script, stop.)
 
@@ -433,6 +433,9 @@ def _receiver_repo_key(receiver_em_id: str) -> str:
     return "repos." + shortname.replace("-", "_")
 
 
+_PR_COMMENT_FALLBACK = "Fallback: post the memo as a comment on the session's PR."
+
+
 def _print_receiver_unresolved_error(to: str) -> int:
     """Shared 'receiver unresolved' diagnostic for both --dry-run and a real send.
 
@@ -445,7 +448,8 @@ def _print_receiver_unresolved_error(to: str) -> int:
         print(
             f"cross-repo-memo: cannot deliver to central ('{to}') — "
             f"repos.content_root is not registered on this machine.\n"
-            f"  Remediation: machine-local set repos.content_root <path-to-the-coordinator-doctrine-repo>.",
+            f"  Remediation: machine-local set repos.content_root <path-to-the-coordinator-doctrine-repo>.\n"
+            f"  {_PR_COMMENT_FALLBACK}",
             file=sys.stderr,
         )
         return 1
@@ -462,7 +466,7 @@ def _print_receiver_unresolved_error(to: str) -> int:
         f"  Remediation: if that repo lives on this machine, register it with "
         f"`machine-local set {repo_key} <path>`. Otherwise route this memo via "
         f"the PM's next session in that repo — there is no central-only "
-        f"fallback in the single-surface model.{hint}",
+        f"fallback in the single-surface model.{hint}\n  {_PR_COMMENT_FALLBACK}",
         file=sys.stderr,
     )
     return 1
@@ -928,7 +932,7 @@ def _render_receiver_listing(candidates: list) -> str:
     (the op returns `repos.*` sorted; central-ness is flagged via
     `is_central`, not positioned).
 
-    Doctrine: docs/wiki/cross-repo-communication.md § CLI (Discovering valid receivers).
+    Doctrine: coordinator-content-repo coordinator/docs/wiki/cross-repo-communication.md § CLI (Discovering valid receivers).
 
     Negative-spec: does NOT reproduce `_format_receiver_listing`'s prior
     "registry read FAILED — sibling list UNAVAILABLE" warn-and-CONTINUE
@@ -1780,8 +1784,8 @@ def _print_premise_check_advisory(
         print(
             f"Premise check ({effective_kind}): {receiver_em_id}'s clone is local at "
             f"{abs_receiver_path}, but this memo pins nothing checkable yet. Add "
-            f"scoped_to_artifact plus scoped_to_sha (or scoped_to_version) and "
-            f"scoped_to_seam to {location} now, or re-run `draft`/`compose` with "
+            f"a nested scoped_to: mapping (artifact, sha or version, seam) "
+            f"to {location} now, or re-run `draft`/`compose` with "
             f"--scoped-to-artifact/--scoped-to-sha/--scoped-to-seam — `send` will "
             f"then verify the pin against {receiver_em_id}'s clone for you.",
             file=stream,
@@ -1955,6 +1959,28 @@ def _split_artifact_line_pin(artifact: str) -> "tuple[str, str]":
     return artifact[: match.start()], match.group(0)
 
 
+def _seam_presence(abs_receiver_path: str, artifact_path: str, seam: str) -> "tuple[str, int]":
+    """Locate `seam` in the receiver's on-disk artifact.
+
+    Returns ("found", first_line_no), ("missing", 0) or ("unchecked", 0). A seam
+    written as `A / B` is found when any `/`-separated part appears (case- and
+    whitespace-insensitive) on some line. This locates the section for the
+    author to read; it does not verify any claim about its content.
+    """
+    if not artifact_path:
+        return "unchecked", 0
+    try:
+        with open(os.path.join(abs_receiver_path, artifact_path), encoding="utf-8", errors="replace") as fh:
+            lines = [" ".join(line.lower().split()) for line in fh]
+    except OSError:
+        return "unchecked", 0
+    parts = [" ".join(part.lower().split()) for part in seam.split(" / ")]
+    for number, line in enumerate(lines, start=1):
+        if any(part and part in line for part in parts):
+            return "found", number
+    return "missing", 0
+
+
 def _run_scoped_premise_checks(
     receiver_em_id: str,
     abs_receiver_path: str,
@@ -2069,7 +2095,23 @@ def _run_scoped_premise_checks(
             print(f"  sha {sha}: {where}.", file=file)
 
     if seam:
-        print(f"  seam {seam}: pinned (no automated oracle — reader-side context).", file=file)
+        seam_artifact = _split_artifact_line_pin(artifact)[0].replace("\\", "/") if artifact else ""
+        state, line_no = _seam_presence(abs_receiver_path, seam_artifact, seam)
+        if state == "found":
+            print(
+                f"  seam {seam}: text located at {seam_artifact}:{line_no} — locating is not "
+                f"reading; read that section end-to-end before asserting anything is "
+                f"missing from or unreconciled in it.",
+                file=file,
+            )
+        elif state == "missing":
+            print(f"  seam {seam}: NOT FOUND in {seam_artifact} on their disk.", file=file)
+        else:
+            print(
+                f"  seam {seam}: recorded, NOT checked (no readable artifact pinned); "
+                f"read the section yourself before asserting anything about it.",
+                file=file,
+            )
 
     if version:
         print(f"  version {version}: pinned (no automated oracle — reader-side context).", file=file)
@@ -2178,8 +2220,8 @@ def _scoped_to_errors(kind: str | None, scoped_to: dict[str, str | None] | None)
         return []
     return [
         "scoped_to is incomplete — when any of artifact/version/sha/seam is "
-        "set, all of scoped_to_artifact, exactly one of "
-        "scoped_to_version/scoped_to_sha, and scoped_to_seam are required. "
+        "set, all of scoped_to.artifact, exactly one of "
+        "scoped_to.version/scoped_to.sha, and scoped_to.seam are required. "
         f"Problems found: {'; '.join(problems)}."
     ]
 
@@ -2593,6 +2635,7 @@ def _cmd_draft(args: argparse.Namespace) -> int:
         # reported as two distinguishable outcomes with two distinct exit codes,
         # so no caller can receive "it may or may not have landed".
         print(f"cross-repo-memo draft: {exc}", file=sys.stderr)
+        print(f"cross-repo-memo draft: {_PR_COMMENT_FALLBACK}", file=sys.stderr)
         code, note = reconcile_indeterminate_draft(
             _draft_target, _draft_existed_before, topic
         )
@@ -3226,6 +3269,7 @@ def _cmd_send(args: argparse.Namespace) -> int:
     except RuntimeError as exc:
         print(f"cross-repo-memo send: {exc}", file=sys.stderr)
         _print_route_mutation_failure_reasons(exc)
+        print(f"cross-repo-memo send: {_PR_COMMENT_FALLBACK}", file=sys.stderr)
         return 1
 
     acted = result.get("acted") if isinstance(result, dict) else None

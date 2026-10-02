@@ -468,7 +468,7 @@ def _discover_extractions(extraction_dir: Path) -> dict[str, Path]:
     return out
 
 
-def verify(extraction_path: Path, routing_path: Path) -> int:
+def verify(extraction_path: Path, routing_path: Path, *, err=None, out=None) -> int:
     """Grounding gate on routing records against a trusted extraction.
 
     Grounding key is `id` (PRIMARY, unconditional, hard failure on mismatch) — `id`
@@ -520,7 +520,13 @@ def verify(extraction_path: Path, routing_path: Path) -> int:
     `<shortname>`). A record whose shortname has no matching extraction is reported as
     ungrounded with a clear "extraction missing for shortname X" message, NOT silently
     skipped. Use this when a single routing yaml spans N shortnames (the 2026-05-24
-    `records-net-new.yaml` from the second-pass router was the empirical case)."""
+    `records-net-new.yaml` from the second-pass router was the empirical case).
+
+    `err` / `out` are the diagnostic and verdict streams (default: the live
+    `sys.stderr` / `sys.stdout`). In-process callers pass their own buffers
+    rather than redirecting the process-global streams."""
+    err = sys.stderr if err is None else err
+    out = sys.stdout if out is None else out
 
     routing_records = _parse_records_file(routing_path)
     suspects: list[str] = []
@@ -530,11 +536,11 @@ def verify(extraction_path: Path, routing_path: Path) -> int:
         try:
             extractions = _discover_extractions(extraction_path)
         except RuntimeError as e:
-            print(f"verify: {e}", file=sys.stderr)
+            print(f"verify: {e}", file=err)
             return 2
         if not extractions:
             print(f"verify: no `*-extracted-full.{{yaml,json}}` files found in {extraction_path}",
-                  file=sys.stderr)
+                  file=err)
             return 2
         per_shortname: dict[str, tuple[dict, dict]] = {}
         for shortname, ext_path in extractions.items():
@@ -609,25 +615,25 @@ def verify(extraction_path: Path, routing_path: Path) -> int:
 
     if notes:
         print(f"GROUNDING GATE: {len(notes)} advisory note(s) (informational — do NOT "
-              f"affect the exit code):", file=sys.stderr)
+              f"affect the exit code):", file=err)
         for n in notes:
-            print(n, file=sys.stderr)
+            print(n, file=err)
 
     if suspects:
         print(f"GROUNDING GATE VERDICT: FAIL (exit 1) — {len(suspects)} routing record(s) "
-              f"failed grounding checks (id-existence / title-overlap):", file=sys.stderr)
+              f"failed grounding checks (id-existence / title-overlap):", file=err)
         for s in suspects:
-            print(s, file=sys.stderr)
+            print(s, file=err)
         return 1
     if extraction_path.is_dir():
         print(f"GROUNDING GATE VERDICT: PASS (exit 0) — {len(routing_records)} routing "
               f"records all grounded against {len(per_shortname)} extraction(s) in "
               f"{extraction_path.name}/ ({total_entries} entries with valid source_line, "
-              f"summed across extractions).")
+              f"summed across extractions).", file=out)
     else:
         print(f"GROUNDING GATE VERDICT: PASS (exit 0) — {len(routing_records)} routing "
               f"records all grounded against {extraction_path.name} "
-              f"({total_entries} entries with valid source_line).")
+              f"({total_entries} entries with valid source_line).", file=out)
     return 0
 
 

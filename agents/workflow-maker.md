@@ -1,6 +1,6 @@
 ---
 name: workflow-maker
-description: "Emits one plan's spine into a Workflow script, fires it, reports the handle. Never hand-authors a script or hand-dispatches."
+description: "Emits one plan's spine into a Workflow script, fires it, reports the handle."
 model: sonnet
 effort: low
 color: cyan

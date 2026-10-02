@@ -1963,7 +1963,7 @@ def _resolve_op_timeouts(claude_klabauter_root: str, env: dict[str, str], probe_
 
     try:
         proc = subprocess.run(
-            [sys.executable, "-m", "coordinator_core.invoke", "--dump-op-timeouts"],
+            [sys.executable, "-m", "coordinator_core.invoke", "--dump-op-timeouts"],  # popup-safe-env-suppressed
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -2630,7 +2630,7 @@ def cc_invoke(
 
         try:
             proc = subprocess.run(
-                argv,
+                argv,  # popup-safe-env-suppressed
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
@@ -2777,7 +2777,7 @@ def cc_invoke_bare(
             _argv += ["--repo", repo_root]
         try:
             proc = subprocess.run(
-                _argv,
+                _argv,  # popup-safe-env-suppressed
                 capture_output=True,
                 text=True,
                 encoding="utf-8",

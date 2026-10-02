@@ -86,7 +86,9 @@ not mean no rule exists.
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable, Optional
 
 # Named for what it SELECTS -- the environment about which nothing could be
@@ -228,29 +230,24 @@ def _read_registry_entry(registry_path: str, environment_id: str) -> Optional[st
     Duplicate keys: FIRST match wins, deliberately, and is not treated as a torn write -- the
     worst case is a wrong-but-valid story, never a core-omitting one, since validate_story
     still runs at the resolver's exit."""
-    try:
-        with open(registry_path, "r", encoding="utf-8") as handle:
-            lines = handle.readlines()
-    except OSError as exc:
-        raise _ResolutionFailure(str(exc)) from exc
-    except UnicodeDecodeError as exc:
-        raise _ResolutionFailure(str(exc)) from exc
+    # Imported here, not at module top: an import failure must land in the resolver's own
+    # fall-to-strictest catch, never crash a module whose fail-closed contract is unconditional.
+    lib_dir = str(Path(__file__).resolve().parents[2] / "lib")
+    if lib_dir not in sys.path:
+        sys.path.append(lib_dir)
+    from frontmatter_scan import read_text, scan_mapping
 
-    prefix = environment_id + ":"
-    for line in lines:
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        if stripped.startswith(prefix):
-            value = stripped[len(prefix):].strip()
-            if not value:
-                # A torn write can leave a key with no value -- treated as unreadable, never
-                # as "story name is empty string".
-                raise _ResolutionFailure(
-                    f"torn registry entry for {environment_id!r}"
-                )
-            return value
-    return None
+    text = read_text(registry_path)
+    if text is None:
+        raise _ResolutionFailure(f"registry unreadable: {registry_path}")
+    entry = scan_mapping(text).get(environment_id)
+    if entry is None:
+        return None
+    if not isinstance(entry, str) or not entry:
+        # A torn write can leave a key with no value -- treated as unreadable, never
+        # as "story name is empty string".
+        raise _ResolutionFailure(f"torn registry entry for {environment_id!r}")
+    return entry
 
 
 def _read_sentinel(sentinel_path: str) -> str:

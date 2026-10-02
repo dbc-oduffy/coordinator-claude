@@ -451,8 +451,8 @@ const PLAN_COVERAGE_SCHEMA = {
 
 const PLUGIN_AGENTS = parsedArgs.pluginAgentsAvailable === true
 
-function withRole(agentType, opts) {
-  return PLUGIN_AGENTS && agentType ? { ...opts, agentType } : opts
+function withRole(agentType) {
+  return PLUGIN_AGENTS && agentType ? { agentType } : {}
 }
 
 
@@ -496,7 +496,8 @@ and change nothing about it: ${sidecarPath}
 Return ONLY a \`return-tldr\` summary of what it already says: \`verdict\` (its own verdict word,
 mapped onto OK/WARN/BLOCKED/PIVOT/FAILED), up to 5 \`decisions\` ({item, anchor}) naming its most
 load-bearing findings or calls, \`counts\` of whatever it enumerates, and \`sidecar\` set to the
-path above. Do not re-run the check, do not open anything else, and do not edit the sidecar.`,
+path above. Do not re-run the check, do not open anything else, and do not edit the sidecar.
+${REPO_ROOT_RULE}`,
     { label: `tldr-fallback:${label}`, model: 'haiku', effort: 'low', schema: RETURN_TLDR_SCHEMA },
   )).catch(() => null)
 }
@@ -619,25 +620,17 @@ A premise check asks one question, over a plan's cited paths, symbols, refs, and
 behaviour claims: **does this plan's premise actually hold against the tree right now?** (Its
 sibling snippet, \`instrument-can-report-red.md\`, asks the companion question for a falsifier
 itself: is its verdict wired to its exit path?)
-It is written to be INLINED into a dispatch brief, never dispatched as its own agent — the
-\`PLUGIN_AGENTS\` default-off constraint means an \`agentType\` the harness cannot resolve silently
-degrades to a generic agent wearing the role's label, which reuses the persona and loses the
-check. Whatever consumes this text must inline it directly.
+INLINE it into a dispatch brief; never dispatch it as its own agent (an unresolvable \`agentType\`
+silently degrades to a generic agent and loses the check).
 
 **Classes 1 and 2 — paths and symbols (mechanical).** For every cited in-repo path: does it
 exist? For every cited \`file:line\` / \`file:symbol\` claim: does the symbol exist in that file? This
 is the same check plan-coverage-checker's Lens 3 already runs (\`ls\`-check cited paths,
 \`Read\`-verify cited claims, grep backtick-quoted in-repo constants) — it is not re-derived here.
 
-**Why \`ls\`/\`Read\`/\`grep\` and not the symbol-graph tools.** \`project_referencers\` and
-\`project_symbol_callers\` would answer classes 1 and 2 more precisely, and they are deliberately not
-used: this text is INLINED into a dispatch brief inside a workflow, and an MCP tool surface is not
-guaranteed to be present for the agent that receives it — a check that silently degrades when a tool
-is missing is worse than one built from primitives that are always there. The project-rag index is
-also a projection that can lag the tree (1494 commits behind at the time this shipped), and a premise
-check that reads a stale projection would report the tree as it was, which is the exact failure it
-exists to catch. Existing checker agents ARE reused: this contract carries plan-coverage-checker's
-Lens 3 calibration over verbatim rather than re-deriving it, and Lens 3 consumes this same text.
+**Primitives only — \`ls\`/\`Read\`/\`grep\`, never the symbol-graph tools** (an MCP surface may be
+absent where this is inlined, and the index can lag the tree). Rationale:
+\`docs/wiki/planning/plan-blitz.md\` § Premise-check instrument choice.
 
 **Tolerance rule, carried over verbatim, do not recalibrate:** same-file line-number drift alone
 (same file, same symbol, shifted line number) is tolerated and is NOT a finding; a missing file or
@@ -1172,19 +1165,16 @@ leave them alone. Change the BODY to answer what the reviews raised, and leave \
 you found it.`
     : `No plan exists yet. Author one.`
 
-const singleContextBlock = singleContext ? `
-SINGLE-PLAN MODE (§ Pinned interfaces / C4 body item 3). \`prime_exit_criterion.statement\` is the
-sizing's own \`exit_criterion\` verbatim: "${singleContext.exitCriterionStatement || '(the sizing carries none)'}".
-Set \`derived_from\` to the sizing path, \`${singleContext.sizingPath || '(no sizing path)'}\` — never the
-baton's handoff. Refine the statement ONLY when the sizing carries none at all; do not rephrase one
-that is already there, even to make it read better — the accepted wording is the PM's touchpoint,
-not yours to improve.
-${singleContext.priorArtSidecarPath ? `
-A prior-art pre-flight already ran over this baton's sizing intent, before you started. Read its
-sidecar before you write: ${singleContext.priorArtSidecarPath}
-A CONFLICT bucket there is prior art the plan must reconcile with, not information to skim past.` : ''}` : ''
+  const sizingAbsenceNote = decision.sizingObjectAbsence ? `
 
-const planBranchBlock = baton.planPath ? `You are revising, so the file already exists and the generator has no part in this: the
+     WHY THERE IS NONE, from the EM that sized you: ${decision.sizingObjectAbsence}
+     Carry that sentence into your summary verbatim. Without it the missing artifact surfaces later
+     as a schema refusal on \`prime_exit_criterion.derived_from\` — a field nobody mis-authored — and
+     the reader has no way back to what actually failed. Do NOT reach for the baton's handoff to
+     fill \`derived_from\` instead: \`plan.schema.json\` does not admit it, deliberately, because the
+     bar means "someone sized this" rather than "this plan came from somewhere".` : ''
+
+  const authoringBrief = baton.planPath ? `You are revising, so the file already exists and the generator has no part in this: the
 scaffold step below is for a plan being authored from nothing, and running it here is what
 produces the duplicate you were just told not to create. Read the existing plan first, then edit
 its body.
@@ -1204,14 +1194,7 @@ to skip, restated because skipping them here is invisible until much later:
      was routed. Use that path EXACTLY. If it reads "(none emitted)", the EM did not scaffold one:
      write \`sizing_object: null\` and say so in your summary. An explicit null is sanctioned and
      passes the gate; a path you invent to fill the field does not, and fails as a DANGLING
-     citation that looks connected.${decision.sizingObjectAbsence ? `
-
-     WHY THERE IS NONE, from the EM that sized you: ${decision.sizingObjectAbsence}
-     Carry that sentence into your summary verbatim. Without it the missing artifact surfaces later
-     as a schema refusal on \`prime_exit_criterion.derived_from\` — a field nobody mis-authored — and
-     the reader has no way back to what actually failed. Do NOT reach for the baton's handoff to
-     fill \`derived_from\` instead: \`plan.schema.json\` does not admit it, deliberately, because the
-     bar means "someone sized this" rather than "this plan came from somewhere".` : ''}` : `The coordinator plan tooling is NOT installed on this machine, so hand-author the plan file at
+     citation that looks connected.${sizingAbsenceNote}` : `The coordinator plan tooling is NOT installed on this machine, so hand-author the plan file at
 ${REPO_ROOT || '<repoRoot>'}/docs/plans/<YYYY-MM-DD>-<slug>.md. Frontmatter, exactly these keys and nothing invented:
 
     ---
@@ -1326,6 +1309,20 @@ Body: the problem in one paragraph; file scope; acceptance criteria that can eac
 true or false against the tree; the test surface; and an explicit Anti-scope naming what this
 plan does NOT do.`
 
+  const priorArtNote = singleContext && singleContext.priorArtSidecarPath ? `
+A prior-art pre-flight already ran over this baton's sizing intent, before you started. Read its
+sidecar before you write: ${singleContext.priorArtSidecarPath}
+A CONFLICT bucket there is prior art the plan must reconcile with, not information to skim past.` : ''
+
+  const singleContextBlock = singleContext ? `
+SINGLE-PLAN MODE (§ Pinned interfaces / C4 body item 3). \`prime_exit_criterion.statement\` is the
+sizing's own \`exit_criterion\` verbatim: "${singleContext.exitCriterionStatement || '(the sizing carries none)'}".
+Set \`derived_from\` to the sizing path, \`${singleContext.sizingPath || '(no sizing path)'}\` — never the
+baton's handoff. Refine the statement ONLY when the sizing carries none at all; do not rephrase one
+that is already there, even to make it read better — the accepted wording is the PM's touchpoint,
+not yours to improve.
+${priorArtNote}` : ''
+
   return trackAgent('planner', agent(
     `Write the implementation plan for ONE roadmap baton, in plan-blitz wave ${waveIndex}.
 
@@ -1335,7 +1332,7 @@ Finalised size: ${decision.tshirt}, route: ${decision.route}
 EM's sizing rationale: ${decision.rationale}
 
 ${revising}
-${planBranchBlock}
+${authoringBrief}
 
 The size above is FINAL for this wave. It was already interrogated by the EM. Do not re-litigate
 it — if the substrate contradicts it once you are in the body, say so in your returned summary
@@ -1357,7 +1354,7 @@ ${PM_BRIEF_RULE}
 ${NO_EXECUTION_RULE}
 ${REPO_ROOT_RULE}
 ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'planning-report'))}`,
-    { model: 'opus', ...withRole('coordinator:plan-author', {
+    { model: 'opus', ...withRole('coordinator:plan-author'),
       label: `plan:${baton.id}`,
       phase: 'Plan',
       // Planning is opus on EVERY route, and the wave does not offer a knob to
@@ -1374,7 +1371,7 @@ ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'planning-report'))}`,
       // was set to, which makes the wave's authoring depth an accident of who fired it.
       effort: 'medium',
       schema: PLAN_SCHEMA,
-    }) },
+    },
   ))
 }
 
@@ -1514,7 +1511,7 @@ ${REVIEW_SIDECAR_RULE(
       
       'review-findings',
     )}`,
-    { model: 'sonnet', ...withRole('coordinator:premise-checker', {
+    { model: 'sonnet', ...withRole('coordinator:premise-checker'),
       label: `premise:${baton.id}`,
       phase: 'Premise check',
       // Sonnet, pinned rather than inherited, and the pass's whole economic premise: these are
@@ -1525,7 +1522,7 @@ ${REVIEW_SIDECAR_RULE(
       // invites exactly the plan-level opinion the schema refuses to carry.
       effort: 'low',
       schema: PREMISE_SCHEMA,
-    }) },
+    },
   ))
 }
 
@@ -1675,12 +1672,12 @@ Exit criterion: ${baton.exitCriterion || '(none stated on the baton)'}
 ${NO_EXECUTION_RULE}
 ${REPO_ROOT_RULE}
 ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'prior-art-check'))}`,
-    { model: 'sonnet', ...withRole('coordinator:prior-art-checker', {
+    { model: 'sonnet', ...withRole('coordinator:prior-art-checker'),
       label: `prior-art:${baton.id}`,
       phase: 'Plan',
       effort: 'low',
       schema: PRIOR_ART_SCHEMA,
-    }) },
+    },
   ))
 }
 
@@ -1696,12 +1693,12 @@ the same freshly-written plan.
 ${NO_EXECUTION_RULE}
 ${REPO_ROOT_RULE}
 ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'plan-coverage-check'))}`,
-    { model: 'sonnet', ...withRole('coordinator:plan-coverage-checker', {
+    { model: 'sonnet', ...withRole('coordinator:plan-coverage-checker'),
       label: `plan-coverage:${baton.id}`,
       phase: 'Premise check',
       effort: 'low',
       schema: PLAN_COVERAGE_SCHEMA,
-    }) },
+    },
   ))
 }
 
@@ -1817,11 +1814,11 @@ from inside your own dispatch. If you believe a finding should NOT have been app
 so in your summary; you do not revert your own edit outside the ledger's own record.
 ${REPO_ROOT_RULE}
 ${REVIEW_SIDECAR_RULE(sidecarFor(trailDir, baton.id, `review-${reviewer}-pointer`), reviewer)}`,
-    { model: 'opus', ...withRole(reviewer, {
+    { model: 'opus', ...withRole(reviewer),
       label: `review:${baton.id}:${reviewer}`,
       phase: 'Review',
       schema: REVIEW_SCHEMA,
-    }) },
+    },
   ))
 }
 
@@ -1885,11 +1882,11 @@ Report honestly. \`completed: false\` with a reason is a first-class outcome and
 a partial reported as done costs whoever reads the trail next.
 ${REPO_ROOT_RULE}
 ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'execution'))}`,
-    { model: 'sonnet', ...withRole('coordinator:executor', {
+    { model: 'sonnet', ...withRole('coordinator:executor'),
       label: `dispatch:${baton.id}`,
       phase: 'Dispatch',
       schema: DISPATCH_SCHEMA,
-    }) },
+    },
   ))
 }
 
@@ -2298,11 +2295,11 @@ ${NO_EXECUTION_RULE}
 ${REPO_ROOT_RULE}
 ${CLI_RESOLUTION_RULE}
 ${TRAIL_RULE(sidecarFor(trailDir, waveSlot, 'em-size-review'))}`,
-  { model: 'opus', ...withRole('coordinator:blitz-em', {
+  { model: 'opus', ...withRole('coordinator:blitz-em'),
     label: `size-review:${waveSlot}`,
     phase: 'Size review',
     schema: WAVE_DISPATCH_SCHEMA,
-  }) },
+  },
 ))
 
 // Plannability follows the ROUTE, not a boolean. Only `plan` and `spec-dispatch`
@@ -2794,6 +2791,25 @@ const trailLines = chains
   })
   .join('\n')
 
+const dispatchedRows = dispatched.map((d) => `  - ${d.batonId}: ${d.completed ? 'completed' : 'INCOMPLETE'} — ${d.summary}${d.blockedReason ? ` [blocked: ${d.blockedReason}]` : ''}
+      files: ${(d.filesChanged || []).join(', ') || '(none — a closure, not a change)'}`).join('\n')
+const dispatchedSection = dispatched.length ? `XS batons DISPATCHED in this wave (no plan, work already done):
+${dispatchedRows}
+
+For each of these the question is different: did it do what the baton asked, and is the baton now
+closable? An INCOMPLETE one, or one that grew past XS, is a sizing defect to report — say so.
+
+**The word for a closable dispatch is \`ready\`, and only that word closes it.** There is no fourth
+verdict meaning "done" — the three below are the whole vocabulary, and \`ready\` on a \`dispatch\`
+route does not mean "ready to execute later", it means LAND IT: \`blitz_land\` stamps the baton
+\`shipped\` with the wave's \`shipped_in\` SHA, which is what makes it terminal (§ Three lanes).
+\`pulled\` on a completed dispatch is the recycling defect wearing a verdict: landing leaves the
+baton where it is, the gate returns it as a candidate, and the next wave re-scouts work that is
+already on disk. Measured 2026-09-10, wave 0 of run 20260910T000000Z: five dispatched batons came
+back \`pulled\` with reasons that each read "Complete and closable", and the landing closed none of
+them. If your reason says the baton is closable, the verdict is \`ready\`. Reserve \`pulled\` for a
+dispatch that did NOT finish its remit, and \`replan\` for one whose remit was wrong.` : ''
+
 // HOST AVAILABILITY is deliberately NOT reconciled below, and the absence is a decision rather
 // than an oversight. Two reasons, both structural:
 //
@@ -2813,23 +2829,6 @@ const trailLines = chains
 // was Linux while its own declared `external_gate` withheld 8 of 13 rows for the Windows corpus
 // host, and `cq-17` was pulled for serialising behind it. Both plans were ready to execute on the
 // host they name. Tripwire: THE-BOX-THE-WAVE-RAN-ON-IS-NOT-THE-BOX-THE-PLAN-RUNS-ON.
-const dispatchedBlock = dispatched.length ? `XS batons DISPATCHED in this wave (no plan, work already done):
-${dispatched.map((d) => `  - ${d.batonId}: ${d.completed ? 'completed' : 'INCOMPLETE'} — ${d.summary}${d.blockedReason ? ` [blocked: ${d.blockedReason}]` : ''}
-      files: ${(d.filesChanged || []).join(', ') || '(none — a closure, not a change)'}`).join('\n')}
-
-For each of these the question is different: did it do what the baton asked, and is the baton now
-closable? An INCOMPLETE one, or one that grew past XS, is a sizing defect to report — say so.
-
-**The word for a closable dispatch is \`ready\`, and only that word closes it.** There is no fourth
-verdict meaning "done" — the three below are the whole vocabulary, and \`ready\` on a \`dispatch\`
-route does not mean "ready to execute later", it means LAND IT: \`blitz_land\` stamps the baton
-\`shipped\` with the wave's \`shipped_in\` SHA, which is what makes it terminal (§ Three lanes).
-\`pulled\` on a completed dispatch is the recycling defect wearing a verdict: landing leaves the
-baton where it is, the gate returns it as a candidate, and the next wave re-scouts work that is
-already on disk. Measured 2026-09-10, wave 0 of run 20260910T000000Z: five dispatched batons came
-back \`pulled\` with reasons that each read "Complete and closable", and the landing closed none of
-them. If your reason says the baton is closable, the verdict is \`ready\`. Reserve \`pulled\` for a
-dispatch that did NOT finish its remit, and \`replan\` for one whose remit was wrong.` : ''
 
 const readiness = await trackAgent('readiness-gate', agent(
   `phase: readiness-gate
@@ -2858,7 +2857,7 @@ author has not finished writing it, and both read as ordinary output.
 
 ${trailLines}
 
-${dispatchedBlock}
+${dispatchedSection}
 
 One question per plan: is it ready to execute? Answer ready, pulled, or replan — and give a reason
 that names the evidence. "Looks off" is not a disposition. (A dispatched XS baton is not a plan and
@@ -2952,11 +2951,11 @@ thing the replan inherits: a brief holding only the pivot rationale throws away 
 that nobody will run again. Name each surviving finding and its reviewer.
 ${REPO_ROOT_RULE}
 ${NO_EXECUTION_RULE}`,
-  { model: 'opus', ...withRole('coordinator:blitz-em', {
+  { model: 'opus', ...withRole('coordinator:blitz-em'),
     label: `readiness:wave-${waveIndex}`,
     phase: 'Readiness gate',
     schema: READINESS_SCHEMA,
-  }) },
+  },
 ))
 
 // WAVE RESULT — the caller stamps `ready` plans to `approved` (which is what opens the NEXT
@@ -3178,11 +3177,11 @@ reads the ruling at the receipt.
 ${NO_EXECUTION_RULE}
 ${REPO_ROOT_RULE}
 ${TRAIL_RULE(sidecarFor(trailDir, entry.batonId, 'pm-adjudication'))}`,
-    { model: 'opus', ...withRole(agentType, {
+    { model: 'opus', ...withRole(agentType),
       label: `adjudicate:${entry.batonId}`,
       phase: 'Adjudicate',
       schema: ADJUDICATION_SCHEMA,
-    }) },
+    },
   )).then(
     (v) => ({ agentType, verdict: v, error: null }),
     (err) => ({ agentType, verdict: null, error: String((err && (err.message || err.error)) || err).slice(0, 500) }),

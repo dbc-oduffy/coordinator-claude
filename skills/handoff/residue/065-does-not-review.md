@@ -7,10 +7,7 @@ order: 65
 
 ## `/handoff` Does Not Review
 
-**No review step lives here, by ruling.** The reason is structural, not budgetary: the diff a handoff
-writes is **in flight**, and an in-flight diff is the state least worth reviewing — findings against
-half-finished work are noise the successor must re-adjudicate against whatever they actually finish.
-Read that as a reason **not** to review, not a deferral this skill needs to justify.
+**No review step lives here, by ruling.** The diff a handoff writes is **in flight**, and findings against half-finished work are noise the successor must re-adjudicate.
 
 Review ownership stays where it sits: `/workstream-complete`, `/quick-wrap`, and
 `/workweek-complete`'s parallel gate, each firing against a settled diff. Do not reintroduce a

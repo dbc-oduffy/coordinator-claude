@@ -47,7 +47,7 @@ that calls `command -v python3` at line 40 — not a trampoline, not in-class).
 Spec backlink: state/audits/2026-07-20-sh-suffixed-python-trampolines.md
   (coordinator doctrine repo clone — see the citation above for why this path does not
   resolve in this repo)
-Doctrine: docs/wiki/cross-platform-shell-portability.md § sh/python trampoline
+Doctrine: coordinator-content-repo coordinator/docs/wiki/portability/cross-platform-shell-portability.md § sh/python trampoline
 Companion check: coordinator/bin/check-bin-sh-polyglot.py (asserts every
   polyglot-class member — any suffix — has the correct shebang + trampoline,
   scoped to coordinator/bin/ only; this script asserts the inverse-direction

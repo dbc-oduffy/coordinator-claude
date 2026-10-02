@@ -13,4 +13,4 @@ Close the read-write loop with `/workstream-start` and `/workday-start` — best
 `& "$env:COORDINATOR_SETTINGS_HOME\bin\regenerate-orientation-cache.exe" --invoker handoff --pinboard-only "YYYY-MM-DD <writer-slug>: <one-line note>"`. Otherwise do nothing.
 - **Action items** (`ACTION-ITEMS.md` / `docs/active/ACTION-ITEMS.md` / `docs/ACTION-ITEMS.md`, first match) — check off any items this session resolved.
 
-Targeted patches to what this session touched, not regeneration — concurrency-safe.
+Targeted patches only, not regeneration.

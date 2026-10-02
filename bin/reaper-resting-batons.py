@@ -3,7 +3,7 @@ resting handoff batons.
 
 Purpose (sedge-19, "Resting batons no reaper covers"): all existing
 reaper/sweep passes (`sweep-shipped-handoffs.py`,
-`handoff-gate-aging`, `reap-orphaned-in-flight-handoffs.py`, `baton-drift-sweep.py`)
+`handoff-gate-aging`, `baton-drift-sweep.py`)
 start their own selection predicate from `status: consumed` or a terminal
 `deployment_state` (verified by reading each one's own module docstring/scope
 statement, not the research consult's summary — see

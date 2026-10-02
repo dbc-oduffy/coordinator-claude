@@ -73,7 +73,7 @@ Environment (populated by Step 1 and Step 5 of /workday-complete):
                     populates
                     Validation: validate=...   Default when UNSET: "not-run" (Step 1 never
                     ran) -- deliberately NOT "skipped", which means Step 1 ran and found
-                    no fast-test configured. See docs/wiki/workday-workweek-cadence.md
+                    no fast-test configured. See coordinator-content-repo coordinator/docs/wiki/ceremony-calibration/workday-workweek-cadence.md
                     § Week-changelog Validation: schema.
   RC_PLUGIN_SUITE   Numeric exit code; populates plugin-suite=...   Default: "n/a" if unset.
   COORDINATOR_ROOT  TEST-ONLY override for the repo root (must not be set in a live

@@ -144,7 +144,7 @@ the DR-058 failure mode. Two facts retired that premise:
     contain a Tier-F or Tier-U command," and that "a brief carrying one is
     malformed regardless of what the agent subsequently does with it." A
     directory positional IS the fast tier for the repos in this fleet
-    (this doctrine-plane repo's own `fast_test_cmd` is `<runner> coordinator/tests`), so the
+    (this doctrine-plane repo's own `fast_test_cmd` is `<runner> coordinator/tests coordinator/bin/tests setup`), so the
     nudge left the guard silent on precisely the shape the ratified rule
     names as malformed. The layer enforced the half of R9 that was cheap
     and left the half that mattered to prose.

@@ -136,21 +136,25 @@ def _no_fallback() -> None:
     )
 
 
-def _usage(prog: str) -> int:
+def _usage(prog: str, stream=None) -> int:
     print(
         f"{prog}: usage: {prog} launch --key <k> [--repo-root <path>]\n"
         f"       {prog} census [--key <k>] [--repo-root <path>]\n"
         f"       {prog} teardown --key <k> [--repo-root <path>]",
-        file=sys.stderr,
+        file=stream or sys.stderr,
     )
     return _USAGE_FAIL
 
 
 def main(argv: list[str] | None = None) -> int:
-    _bootstrap_engine()
-
     argv = sys.argv[1:] if argv is None else argv
     prog = "app-session"
+
+    if "--help" in argv or "-h" in argv:
+        _usage(prog, stream=sys.stdout)
+        return 0
+
+    _bootstrap_engine()
 
     if not argv:
         return _usage(prog)

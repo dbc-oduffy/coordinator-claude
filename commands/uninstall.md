@@ -1,6 +1,6 @@
 ---
 name: uninstall
-description: "Reverses the coordinator install — full removal or revert to marketplace."
+description: "Reverses the coordinator install, fully or back to marketplace."
 allowed-tools: ["Read", "Bash"]
 argument-hint: "[--keep-marketplace] [--purge-operator-config [--force]] [--dry-run]"
 disable-model-invocation: true

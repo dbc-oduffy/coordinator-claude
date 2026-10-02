@@ -2789,8 +2789,17 @@ def dispatch_preswap_payload_parity_gate(
         if totals is not None:
             totals.warnings += 1
 
-    if not report.ok:
-        for finding in report.violations:
+    for finding in report.test_path_violations:
+        print(
+            f"  Warning: payload parity gate for {target.name}: test path "
+            f"{finding.call_file}:{finding.lineno} calling {finding.callee!r} — {finding.message}",
+            file=sys.stderr,
+        )
+        if totals is not None:
+            totals.warnings += 1
+
+    if report.refusing_violations:
+        for finding in report.refusing_violations:
             print(
                 f"  Error: payload parity gate FAILED for {target.name}: "
                 f"{finding.call_file}:{finding.lineno} calling {finding.callee!r} — {finding.message}",
@@ -5748,11 +5757,21 @@ def check_version_consistency(
         print("", file=out)
         return False
 
+    # Captured and re-emitted, not inherited: with CREATE_NO_WINDOW and no
+    # stream kwarg the gate's disagreement report is lost on Windows.
     result = subprocess.run(
         [sys.executable, str(vc_gate), "--root", str(source_dir), "--quiet"],
         check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
+    if result.stdout:
+        print(result.stdout, end="", file=out)
+    if result.stderr:
+        print(result.stderr, end="", file=err)
     if result.returncode != 0:
         if override:
             print(
@@ -9443,7 +9462,8 @@ _PUBLISH_MIRROR_TRACK_REF_SUFFIX = ".track_ref"
 # namespace (`publish.mirrors.<key>.*`); `_engine_declaring_mirror_keys`
 # reads the former (raw rows) and yields keys in the latter's namespace.
 _PUBLISH_MIRROR_SIGIL_PREFIX = "publish-mirror:"
-# LAST-RESORT default for an absent `track_ref`, matching the live
+# LAST-RESORT default for an absent `track_ref` when the source branch HEAD
+# is unreadable (`_publish_expected_branch`), matching the live
 # `plugin.mirrors.<key>.track_ref` precedent's own parsers (`read_mirrors.py`,
 # `coordinator_core/plugin_health/drift.py`) byte-for-byte. Reached only when
 # `_resolve_remote_default_branch` also can't answer (no `origin` remote, or
@@ -9453,15 +9473,19 @@ _PUBLISH_MIRROR_SIGIL_PREFIX = "publish-mirror:"
 # rather than an assumed one (state/subagent-share/93578a3d.../
 # coordinatorcode-reviewer-e094bd79.md P1).
 _DEFAULT_PUBLISH_TRACK_REF = "origin/main"
-# The one branch an ENGINE-carrying mirror (`_engine_declaring_mirror_keys`)
-# may publish to (DR-314: candidate is what we run, main is what we ship, and
-# only promotion moves main). Absent a declared `track_ref`, such a mirror
-# resolves HERE, never to the remote default -- the remote default of a fresh
+# The default channel of an ENGINE-carrying mirror
+# (`_engine_declaring_mirror_keys`) (DR-314: candidate is what we run, main is
+# what we ship, and only promotion moves main). Absent a declared `track_ref`, such a mirror
+# follows the source branch HEAD but resolves HERE whenever that HEAD is
+# main or unreadable, never to the remote default -- the remote default of a fresh
 # clone is `main`, and every box without this machine's registry (a cloud
 # container, a new workstation) otherwise published straight onto it
 # (klabauter main, 2026-09-08..10). Same literal as
 # `percolate-push.py::_RELEASE_CHANNELS`.
 _ENGINE_MIRROR_RELEASE_CHANNEL = "candidate"
+# The engine mirror's shipped branch: moved by promotion only, never by a
+# publish round, whatever the source branch or declared track_ref says.
+_ENGINE_MIRROR_PROMOTION_ONLY_BRANCH = "main"
 
 
 def _publish_mirror_key_for_repo_root(repo_root: Path) -> Optional[str]:
@@ -9785,19 +9809,79 @@ def assert_dest_engine_root_viable(
     return True
 
 
+def _source_branch_head(source_dir: Path) -> Optional[str]:
+    """The branch the percolation source repo has checked out, read from its
+    `HEAD` file -- no git spawn. `None` for a detached HEAD or no repo."""
+    from coordinator_core.git.repo_root import git_dir
+
+    resolved = git_dir(str(source_dir)) if source_dir.exists() else None
+    if not resolved:
+        return None
+    try:
+        head = (Path(resolved) / "HEAD").read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    prefix = "ref: refs/heads/"
+    return head[len(prefix) :] or None if head.startswith(prefix) else None
+
+
+def _dest_has_branch(repo_root: Path, branch: str) -> bool:
+    """True when the dest knows `branch` locally or on `origin`, read from
+    loose refs and `packed-refs` -- no git spawn. A source work branch the
+    mirror has never carried is not a branch it can be told to check out."""
+    from coordinator_core.git.repo_root import git_dir
+
+    resolved = git_dir(str(repo_root))
+    if not resolved:
+        return False
+    gdir = Path(resolved)
+    common = gdir
+    try:
+        common = (gdir / (gdir / "commondir").read_text(encoding="utf-8").strip()).resolve()
+    except OSError:
+        pass
+    refs = (f"refs/heads/{branch}", f"refs/remotes/origin/{branch}")
+    if any((common / r).is_file() for r in refs):
+        return True
+    try:
+        packed = (common / "packed-refs").read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return any(line.split(" ", 1)[-1] in refs for line in packed.splitlines())
+
+
 def _publish_expected_branch(
-    key: str, repo_root: Path, setup_dir: Optional[Path]
+    key: str, repo_root: Path, source_dir: Optional[Path], setup_dir: Optional[Path]
 ) -> Tuple[str, bool]:
     """The local branch a publish into mirror `key` must land on, and whether
-    `key` carries the engine payload. An engine mirror resolves an absent
-    `track_ref` to `_ENGINE_MIRROR_RELEASE_CHANNEL`; any other mirror to its
-    remote default, then `_DEFAULT_PUBLISH_TRACK_REF`."""
+    `key` carries the engine payload.
+
+    A declared `track_ref` wins. Absent, the dest follows the HEAD of the
+    source branch being percolated -- never a fixed `main` -- when the dest
+    carries that branch; a branch it has never carried counts as unreadable,
+    so the dest keeps its standing channel. An engine mirror
+    never resolves onto its promotion-only branch: a source on that branch
+    (or one whose HEAD is unreadable) maps to `_ENGINE_MIRROR_RELEASE_CHANNEL`.
+    A non-engine mirror with an unreadable source HEAD (detached CI checkout)
+    falls back to the dest's remote default, then `_DEFAULT_PUBLISH_TRACK_REF`.
+    `source_dir=None` asks for the mirror's standing channel, ignoring any
+    source branch -- the divergence report's question, not a round's."""
     from coordinator_core.machine_resolver import registry_get
 
     declared = registry_get(f"{_PUBLISH_MIRRORS_PREFIX}{key}{_PUBLISH_MIRROR_TRACK_REF_SUFFIX}")
-    if key in _engine_declaring_mirror_keys(setup_dir):
-        return (_expected_local_branch(declared) if declared else _ENGINE_MIRROR_RELEASE_CHANNEL), True
-    track_ref = declared or _resolve_remote_default_branch(repo_root) or _DEFAULT_PUBLISH_TRACK_REF
+    engine_mirror = key in _engine_declaring_mirror_keys(setup_dir)
+    if declared:
+        return _expected_local_branch(declared), engine_mirror
+    source_branch = _source_branch_head(source_dir) if source_dir is not None else None
+    if source_branch is not None and not _dest_has_branch(repo_root, source_branch):
+        source_branch = None
+    if engine_mirror:
+        if source_branch is None or source_branch == _ENGINE_MIRROR_PROMOTION_ONLY_BRANCH:
+            return _ENGINE_MIRROR_RELEASE_CHANNEL, True
+        return source_branch, True
+    if source_branch is not None:
+        return source_branch, False
+    track_ref = _resolve_remote_default_branch(repo_root) or _DEFAULT_PUBLISH_TRACK_REF
     return _expected_local_branch(track_ref), False
 
 
@@ -9809,9 +9893,9 @@ def assert_dest_on_declared_ref(
     out: IO[str] = sys.stdout,
 ) -> bool:
     """Refuse this row when the dest's checked-out branch does not match its
-    declared `publish.mirrors.<key>.track_ref` (C9), or when an engine
-    mirror would land anywhere but `_ENGINE_MIRROR_RELEASE_CHANNEL` --
-    declared or not. Returns True (proceed) for a dest with no `.git`
+    `publish.mirrors.<key>.track_ref` (C9) -- absent, the source branch
+    HEAD (`_publish_expected_branch`) -- or when an engine mirror would land
+    on `_ENGINE_MIRROR_PROMOTION_ONLY_BRANCH`, declared or not. Returns True (proceed) for a dest with no `.git`
     ancestor at all (`_ensure_dest_ready` owns that refusal) and for a dest
     outside the `publish.mirrors.*` namespace (no declared ref exists to
     assert against)."""
@@ -9822,12 +9906,14 @@ def assert_dest_on_declared_ref(
     if key is None:
         return True
 
-    expected_branch, engine_mirror = _publish_expected_branch(key, repo_root, setup_dir)
-    if engine_mirror and expected_branch != _ENGINE_MIRROR_RELEASE_CHANNEL:
+    expected_branch, engine_mirror = _publish_expected_branch(
+        key, repo_root, target.source_dir, setup_dir
+    )
+    if engine_mirror and expected_branch == _ENGINE_MIRROR_PROMOTION_ONLY_BRANCH:
         print(
-            f"  Error: '{key}' carries the engine and publishes to "
-            f"'{_ENGINE_MIRROR_RELEASE_CHANNEL}' only, but its track_ref names "
-            f"'{expected_branch}' -- set it to origin/{_ENGINE_MIRROR_RELEASE_CHANNEL}.",
+            f"  Error: '{key}' carries the engine and never publishes to "
+            f"'{_ENGINE_MIRROR_PROMOTION_ONLY_BRANCH}' (only promotion moves it), but its "
+            f"track_ref names it -- set it to origin/{_ENGINE_MIRROR_RELEASE_CHANNEL}.",
             file=sys.stderr,
         )
         _print_row_refusal(target.name, err=sys.stderr)
@@ -9976,7 +10062,7 @@ def report_candidate_divergence(repo_root: Path, *, out: IO[str] = sys.stdout) -
         if key is None:
             return
 
-        candidate_branch, _engine_mirror = _publish_expected_branch(key, repo_root, None)
+        candidate_branch, _engine_mirror = _publish_expected_branch(key, repo_root, None, None)
         if candidate_branch == _expected_local_branch(_DEFAULT_PUBLISH_TRACK_REF):
             return  # this mirror tracks main itself -- no candidate channel to diverge
 
@@ -10266,6 +10352,12 @@ class _StagingProgress:
             pass
 
 
+#: Staging dirs this process minted. The stale sweep never removes one: a
+#: later row for the same mirror runs while an earlier row's tree still
+#: waits for the round's throwaway overlay.
+_MINTED_STAGING_DIRS: "set[Path]" = set()
+
+
 def _create_publish_staging_dir(dest_dir: Path) -> Path:
     """Materializes a fresh, destination-ADJACENT staging directory seeded
     with a copy of `dest_dir`'s current on-disk content (`.git` excluded),
@@ -10387,13 +10479,13 @@ def _create_publish_staging_dir(dest_dir: Path) -> Path:
                 copy_function=progress.copy,
             )
             progress.finish()
-            # Trap: copytree ends with copystat(dest_dir, staging_dir), back-dating
-            # the live staging root to dest_dir's mtime; a sibling row's
-            # `_sweep_stale_publish_staging_dirs` would then delete it as stale.
-            os.utime(staging_dir)
+        # copytree's copystat stamps the dest root's (often hours-old) mtime
+        # onto staging_dir, which the age-keyed stale sweep reads as orphaned.
+        os.utime(staging_dir)
     except BaseException:
         shutil.rmtree(staging_dir, onerror=_rmtree_clear_readonly_onerror)
         raise
+    _MINTED_STAGING_DIRS.add(staging_dir.resolve())
     return staging_dir
 
 
@@ -10469,7 +10561,7 @@ def _sweep_stale_publish_staging_dirs(
         for candidate in staging_parent.glob(f"{escaped_prefix}*"):
             if candidate.name.endswith(".prior"):
                 continue
-            if not candidate.is_dir():
+            if not candidate.is_dir() or candidate.resolve() in _MINTED_STAGING_DIRS:
                 continue
             try:
                 age = now - candidate.stat().st_mtime

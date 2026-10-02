@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """mise-census-revalidate — the census leg of fire-time revalidation. Writes nothing.
 
-WHY THIS EXISTS. `docs/wiki/mise-prepped-attest.md` § "Fire-time revalidation is ONE step, not
+WHY THIS EXISTS. `coordinator-content-repo coordinator/docs/wiki/lesson-triage/mise-prepped-attest.md` § "Fire-time revalidation is ONE step, not
 two" specifies two ordered legs: recompute the plan body sha, and — only if that passes — re-run
 each `census[].command` and diff against `result`. The first leg is `mise-prep-gate.py` and the
 engine's `prep_gate`. The second was specified, assigned to "the RUNNER", and never built, so

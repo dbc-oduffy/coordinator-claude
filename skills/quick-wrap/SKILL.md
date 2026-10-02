@@ -1,6 +1,6 @@
 ---
 name: quick-wrap
-description: "Short session close: commit, handle loose ends, stop. Not workstream-complete."
+description: "Short session close: commit, loose ends, stop. Not workstream-complete."
 version: 1.0.0
 allowed-tools: ["Read", "Edit", "Bash", "Grep", "Glob", "Skill"]
 argument-hint: "[optional context]"
@@ -111,20 +111,18 @@ it, report what the op's `rendered` field says landed. `"message": "<subject>"` 
 exclusive with `message`. A path outside the computed safe pathspec is silently dropped, never
 caller-widened.
 
-
 **2. Close loose ends.** The judgment step — sweep what this session actually touched:
 
-- A **queue entry** (bug/debt/improvement) resolved this session: closure is a move, never
-  in-place — `git mv state/<queue>/<slug>.yaml archive/<queue>/<YYYY-MM>/<slug>.yaml`, set
+- A **queue entry** resolved this session: closure is a move, never in-place — `git mv state/<queue>/<slug>.yaml archive/<queue>/<YYYY-MM>/<slug>.yaml`, set
   `status: closed`, `closed_at:`, `closed_by:`.
-- An **inbound cross-repo memo** actioned this session → resolve, don't leave inboxed.
+- An **inbound cross-repo memo** actioned this session → resolve it.
 - **A residual surfaced but not closed**, recorded only in prose: file via
-  `coordinator-queue-append --schema bug-backlog|debt-backlog|improvement-queue` — naming it in
-  step 4 and filing nothing is dumping it.
+  `coordinator-queue-append --schema bug-backlog|debt-backlog|improvement-queue` — naming it
+  in step 4 alone is dumping it.
 - A `scope_mode: spec-dispatch` plan authored/executed this session: tick ACs, set `plan-tasks`
-  dispositions; `status: implemented` is `d-stamp-plan-implemented`'s write, fired by the
-  full-plan-shipped close-out — read the sizing status back to confirm it landed, never edit the
-  field directly.
+  dispositions; a met terminal judge stamps `status: implemented` inside `terminal_commit`
+  ([terminal-judge](../../docs/wiki/reviewer-pipeline/terminal-judge.md)); verify, never restamp. Where it did not stamp, the `d-stamp-plan-implemented` directive owns it.
+  `A-PLAN-SELF-COMPLETES-ONLY-ON-A-MET-TERMINAL-JUDGE`.
   `[[the-deliverable-cascade-has-never-written-a-terminal-status]]`
 - A plan this session executed whose `exit_criterion_met` is absent blocks the close — no
   directive can compute this. `asserted: false` is a legitimate, first-class outcome and does not
@@ -143,8 +141,10 @@ caller-widened.
   directly — no plan means this is its only write path.
 - **Every terminal sizing-object** (`shipped`/`declined`/`superseded`), cited or not:
   `close_gate.terminal_sizings` <!-- engine-gap: field=close_gate.terminal_sizings producer=claude_klabauter:quick_wrap_assemble.brief memo=2026-08-14-coordinator-content-repo-em-quick-wrap-has-no-assembler-at-all.md -->
-  `git mv` each to `archive/sizings/<YYYY-MM>/` unmodified — no `closed_at`/`closed_by` (schema
-  disallows both). A record still at `sized`, `routed`, or `draft` is untouched no matter how
+  archive with `coordinator-invoke fleet.archive_terminal_sizings '{"dry_run":false}'` — it moves
+  each to `archive/sizings/<YYYY-MM>/` unmodified and commits the move itself, so a sizing this
+  session did not author still lands (a hand `git mv` is refused by `safe_commit_offer` as
+  unattributable). No `closed_at`/`closed_by` (schema disallows both). A record still at `sized`, `routed`, or `draft` is untouched no matter how
   finished it looks — only what a prior step already marked terminal moves.
   **A citation does NOT pin a record in place, and archiving a cited one does not dangle.**
   `plan.schema.json` does constrain `sizing_object` to `^state/sizings/.+\.yaml$` and the plan is
@@ -155,8 +155,9 @@ caller-widened.
   is correct, not broken — the sizings sibling of the existing handoff FK fallback. So archive
   every terminal record; `close_gate.terminal_sizings` filters on status alone, which is correct as
   built rather than a producer gap.
-- `coordinator-fold-execution-record` sidecars this session produced — read each `divergence`
-  block (surface any crashed-executor marker), then delete.
+- `coordinator-fold-execution-record` sidecars this session produced — a diverged sidecar's prose
+  is already in the envelope (judgment point `j-diverged-sidecars`; a failed scan surfaces as
+  `j-diverged-sidecars-degraded`), so settle that point, then delete. Never open sidecars to read.
 
 **Then drain — MANDATORY, and the last act of this step.** Run `sweep-terminal-handoffs` once,
 after every stamp above is written. A record stamped archivable and left in `state/handoffs/` is an

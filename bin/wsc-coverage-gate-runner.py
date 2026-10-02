@@ -130,7 +130,7 @@ def _run_session_claim_cli(slug: str) -> tuple[int, str]:
         text=True,
         check=False,
         env=child_env,
-        **no_console_creationflags(),
+        **no_console_creationflags(),  # popup-safe-env-suppressed
     )
     return proc.returncode, proc.stdout
 

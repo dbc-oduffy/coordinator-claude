@@ -114,6 +114,17 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 _PORTABLE_PATH = _REPO_ROOT / "setup" / "publish-targets.portable"
 _DECLARATIONS_PATH = _REPO_ROOT / "setup" / "publish-allowlist-declarations.yaml"
 
+# Field 7 of `setup/publish-targets.portable` is regenerated from the declarations
+# yaml; the pipe-delimited table has no place for a stamp.
+GENERATES = [
+    {
+        "artifact": "setup/publish-targets.portable",
+        "stamp_key": "generated_at",
+        "sources": ["setup/publish-allowlist-declarations.yaml"],
+    },
+]
+UNSTAMPED_BY_DESIGN = ["setup/publish-targets.portable"]
+
 #: `(row_name, source_subdir)` — the two rows this script derives field 7 for.
 _ROWS: List[Tuple[str, str]] = [
     ("claude-klabauter", "coordinator_core"),

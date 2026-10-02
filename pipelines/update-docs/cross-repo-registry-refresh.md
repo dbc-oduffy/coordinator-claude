@@ -2,7 +2,7 @@
 
 Invoked from `/update-docs` Phase 15 when `pwd` is `~/.claude`. EM-only — Sonnet sub-agent skips.
 
-**Purpose:** Maintain `$(python3 <claude-klabauter>/coordinator/lib/coordinator-state-root.py --central)/repo-registry.md` (claude-klabauter-resident) — the cross-repo inventory powering peer-repo prior-art lookup. Schema and conventions: the `<!-- BEGIN repo-registry -->`/`<!-- BEGIN repo-registry-candidates -->` blocks and their fields, per the Steps below.
+**Purpose:** Maintain `$(python3 <claude-klabauter>/coordinator/lib/coordinator-state-root.py --central)/repo-registry.md` (held by the engine) — the cross-repo inventory powering peer-repo prior-art lookup. Schema and conventions: the `<!-- BEGIN repo-registry -->`/`<!-- BEGIN repo-registry-candidates -->` blocks and their fields, per the Steps below.
 
 ## Steps
 

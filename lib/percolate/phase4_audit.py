@@ -254,7 +254,7 @@ def bare_identifier(allow_tokens: list[str], explicit: str | None = None) -> str
     an allow-token shaped `<org-prefix>-<surname>` the fallback yields the org
     prefix, not the surname this net is meant to catch.
 
-    E.g. `bare_identifier(['foo-delphi', 'Foo Bar'])` → `'foo'`. Returns `None`
+    E.g. `bare_identifier(['foo-example-studio', 'Foo Bar'])` → `'foo'`. Returns `None`
     when there is no explicit override, no allow tokens, and the first token
     has no leading alphabetic run.
     """

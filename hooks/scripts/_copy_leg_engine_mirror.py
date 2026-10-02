@@ -11,6 +11,9 @@ Invariants:
       `cc.ENGINE_CONSUMED_SYMBOLS`; never a bare import.
     - `None` from `publish_lag`, an unresolved symbol, or an absent stamp is
       could-not-check, never current.
+    - `import_origin` (the cached `coordinator_core` package dir and interpreter) left
+      at `UNCHECKED` skips the origin question; given, it must lie under the engine root
+      or currency is drift, and an absent or errored field is could-not-check.
     - Completeness reads no manifest, allowlist or rename map.
     - No engine-source clone is could-not-check on both axes; the live-tree env
       override is currency current (no copy in play) and leaves completeness
@@ -18,6 +21,7 @@ Invariants:
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from typing import Callable
@@ -30,6 +34,8 @@ COPY = "engine-mirror"
 OWNER = "claude-klabauter"
 PUBLISH_LAG_SYMBOL = cc.ENGINE_CONSUMED_SYMBOLS[0]
 STAMP_RELPATH = "coordinator_core/_engine_stamp"
+
+UNCHECKED = object()
 
 _NO_CLONE = "no claude-klabauter clone registered"
 _LIVE_TREE_EVIDENCE = "session executes the live tree; no copy in play"
@@ -68,14 +74,49 @@ def _both_unchecked(reason: str) -> list[cc.CopyVerdict]:
     ]
 
 
+def _under(child: str, root: str | Path) -> bool:
+    try:
+        return Path(os.path.realpath(child)).is_relative_to(os.path.realpath(root))
+    except (OSError, ValueError):
+        return False
+
+
+def _origin_verdict(engine_root: str | Path, origin: object) -> cc.CopyVerdict | None:
+    """None when the import origin lies under the engine root; otherwise the verdict to return."""
+    if not isinstance(origin, dict):
+        return cc.could_not_check(COPY, cc.CURRENCY, "coordinator_core import origin not recorded")
+    if origin.get("error"):
+        return cc.could_not_check(COPY, cc.CURRENCY, str(origin["error"]))
+    package_dir = origin.get("package_dir")
+    if not isinstance(package_dir, str) or not package_dir:
+        return cc.could_not_check(COPY, cc.CURRENCY, "coordinator_core import origin not recorded")
+    if _under(package_dir, engine_root):
+        return None
+    return cc.CopyVerdict(
+        COPY,
+        cc.CURRENCY,
+        cc.DRIFT,
+        detail=(
+            f"coordinator_core imports from {package_dir} "
+            f"(interpreter {origin.get('executable') or 'unknown'}), outside engine root {engine_root}"
+        ),
+        remedy=_remedy(),
+    )
+
+
 def check_currency(
     engine_root: str | Path,
     claude_klabauter_root: str | Path,
     publish_lag: Callable[[Path, Path], object] | None = None,
+    import_origin: object = UNCHECKED,
 ) -> cc.CopyVerdict:
     """Currency verdict. `publish_lag` overrides the resolved engine symbol (tests)."""
     if not (Path(engine_root) / STAMP_RELPATH).is_file():
         return cc.could_not_check(COPY, cc.CURRENCY, "engine stamp absent")
+    if import_origin is not UNCHECKED:
+        verdict = _origin_verdict(engine_root, import_origin)
+        if verdict is not None:
+            return verdict
     fn = publish_lag
     if fn is None:
         fn, reason = cc.resolve_engine_symbol(PUBLISH_LAG_SYMBOL, engine_root)
@@ -115,6 +156,7 @@ def check_engine_mirror(
     claude_klabauter_root: Callable[[], str | None] | str | Path | None = None,
     publish_lag: Callable[[Path, Path], object] | None = None,
     live_tree: Callable[[], bool] | bool | None = None,
+    import_origin: object = UNCHECKED,
 ) -> list[cc.CopyVerdict]:
     """[currency, completeness] verdicts; any argument left None resolves from the registry."""
     is_live = live_tree() if callable(live_tree) else live_tree
@@ -138,7 +180,7 @@ def check_engine_mirror(
             cc.could_not_check(COPY, cc.CURRENCY, "no published engine root resolved"),
             _completeness(),
         ]
-    return [check_currency(engine, claude_klabauter, publish_lag), _completeness()]
+    return [check_currency(engine, claude_klabauter, publish_lag, import_origin), _completeness()]
 
 
 def legs(

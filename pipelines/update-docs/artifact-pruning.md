@@ -31,9 +31,6 @@ Every `/update-docs` invocation, after Phase 8 (handoff archival) completes. Con
 
 ### Step 1: Inventory
 
-<!-- Review: review-integrator/overengineering-reviewer — invocation shape lives once at
-     detect-current-state.md § The updatedocs.gates invocation. -->
-
 **Detect first.** `updatedocs.gates` (`detect-current-state.md § The updatedocs.gates invocation`
 for the call shape) — `plans-prune-candidates` and
 `archive-memo-prune-candidates` emit candidate sets for the `docs/plans/` and `cross-repo/archive/`
@@ -92,7 +89,7 @@ maps to this pipeline's KEEP, same as the ripeness guard's absent-`status:` rule
 Before any deletions, snapshot current state:
 
 ```bash
-CLAUDE_INVOKING_COMMAND=update-docs "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-safe-commit" --blanket "pre-prune checkpoint (update-docs Phase 8b)"
+"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-safe-commit" --blanket --invoking-command update-docs "pre-prune checkpoint (update-docs Phase 8b)"
 ```
 
 This makes the entire prune operation revertible as a single `git revert`.
@@ -110,7 +107,7 @@ Remove any empty directories left behind on the filesystem.
 ### Step 4: Commit
 
 ```bash
-CLAUDE_INVOKING_COMMAND=update-docs "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-safe-commit" --blanket "artifact pruning: pruned N plans, N handoffs, N task dirs (update-docs Phase 8b)"
+"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-safe-commit" --blanket --invoking-command update-docs "artifact pruning: pruned N plans, N handoffs, N task dirs (update-docs Phase 8b)"
 ```
 
 ### Step 5: Record Counts

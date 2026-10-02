@@ -59,6 +59,10 @@ REM itself, is unconditionally true, and discards the bake precisely when it
 REM succeeded. The existence test below is the property that actually matters and
 REM already covers the unbaked case -- the literal token is not a path, so it
 REM falls through to the probe tiers on its own.
+REM The WindowsApps screen (builtin substring strip, no findstr spawn) runs first:
+REM an App Execution Alias is a 0-byte stub that passes `if exist`.
+set "_pytest=%_py:WindowsApps=%"
+if not "%_pytest%"=="%_py%" set "_py="
 if not "%_py%"=="" if exist "%_py%" goto :run_baked
 set "_py="
 

@@ -1,31 +1,45 @@
 # Review-roster fragment
 
 `review-roster-fragment.json` names which reviewers a plan's emitted **execute-review** stage
-dispatches, and in what order. `dispatch.emit` (claude-klabauter) reads the `execute_review` block
+dispatches, and in what order. `dispatch.emit` (the engine) reads the `execute_review` block
 from here and composes it as stages of the same emitted workflow every executed plan gets — size
 no longer selects a roster; every plan is reviewed, at every t-shirt size.
 
 ## Consumer version
 
 `schema_version: 5` replaces v4's size-selected `tiers` with a single `execute_review` block. The
-stage-aware consumer is claude-klabauter's `review_mint/execute_review.py ::
+stage-aware consumer is the engine's `review_mint/execute_review.py ::
 compose_execute_review`, which turns `stages` into: one mechanical prep call, one `parallel()`
-review wave, and one single-agent integration call. A v4-shaped reader (`list(tier)`) has nothing
+review wave; the engine's `bookkeep_wave` then writes the wave record. A v4-shaped reader (`list(tier)`) has nothing
 to key on here — there is no `tiers` key left to misread.
+
+## Required on every code-landing emit
+
+`execute_review.required_for_emit` names every emit route that lands code: `plan`
+(`/execute-plan`), `inventory` (mise-en-place), `queue` (queue-grind / improvement triage) and
+`wave-fire-dispatch` (plan-blitz's XS `dispatch` lane). Each composes this review wave into the
+emitted script unconditionally — at least one reviewer, partitioned at PARTITION-MANDATORY — and
+refuses to emit when the fragment or its stage schemas do not load. No caller input yields a
+code-landing script without it, and the terminal commit refuses a run with no review output.
+Review is guaranteed by the emitted script, never by an EM or a ceremony remembering it.
 
 ## Stages
 
-`execute_review.stages` is an ORDERED list of exactly three kinds: `prep`, `review-wave`,
-`integration`. Prep runs first (it partitions the diff and provisions every sidecar the rest read).
+`execute_review.stages` is an ORDERED list of exactly three kinds: `prep`, `review-wave`, then
+`judge`. Prep runs first (it partitions the diff and provisions every sidecar the rest read).
 The review wave is **one parallel stage**: every agent in it — the per-slice code reviewers, Kira,
 each signal-named persona, and the delivery verifier — runs concurrently. There is no second
 review round and no sequential ordering among reviewers; that already-parallel invariant from v4
 ("two or more agents in one stage run in parallel — that is what a stage means") carries over
-unchanged. Integration runs alone, after the wave, and applies only what no slice owner could.
+unchanged. Each slice reviewer applies and verifies its own findings; the whole-diff lenses
+(`applies: none`) report only. No `integration` stage exists, and
+`tests/test_review_roster_fragment.py` enforces that.
 
-**At most one `integration` stage may exist, and it holds exactly one agent.** N integrations
-would not be "one integration pass"; `tests/test_review_roster_fragment.py` enforces this
-structurally, not just as an accident of the shipped fixture.
+`judge` is last and holds exactly one agent, `coordinator:exit-criterion-judge`, returning
+`terminal-judge-result`. It reads the plan's prime exit criterion against the tree and the PM's
+recorded words, and writes into the run record's `criterion` leg. It never halts the wave: a
+`not_met` or `indeterminate` verdict leaves the plan `executing`. It has no `blocking_verdicts`
+row because the composer reads none for it.
 
 `per: slice` fans the `coordinator:code-reviewer` review-wave entry out over prep's own slice
 list at run time — the fragment names one entry, the run dispatches one call per slice.
@@ -69,10 +83,19 @@ agents (per-slice code-reviewer, Kira, delivery-verifier) plus nothing extra; a 
 never charged a domain specialist it didn't ask for. `coordinator:vp-product` stays PM-directed,
 never signal-matched, and is not part of this fragment.
 
+## `plan-reviewer` is unrostered
+
+`coordinator:plan-reviewer` is deliberately unrostered in `review-roster-fragment.json`. It is a
+plan-altitude lens dispatched by the plan lanes (accepted-XL ahead of the named persona; `spec-dispatch`
+ahead of emit-and-dispatch), and this fragment names execute-review code review only. Nothing here
+dispatches it, and rostering it would put a plan-stage agent into a diff-review wave. A later session
+that finds an unrostered plan-stage reviewer here should not roster it, and should not conclude the
+doctrine is fiction: `plan-reviewer` is live, wired in `skills/plan/residue/plan-corpus.md` and
+`spec-dispatch-corpus.md`. The `.json` carries no entry for it by design.
+
 ## Changing it
 
 Every entry carrying an `agentType` must be a real dispatchable one — a name that does not
 resolve to `agents/<name>.md` composes a stage that dispatches nobody, and the run reads as
 reviewed when it wasn't. `tests/test_review_roster_fragment.py` pins each name against `agents/`,
-the stage-kind/order constraints above, and that exactly one single-agent integration stage
-exists.
+the stage-kind/order constraints above, and that no integration stage exists.

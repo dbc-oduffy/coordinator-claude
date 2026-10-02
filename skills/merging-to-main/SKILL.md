@@ -1,6 +1,6 @@
 ---
 name: merging-to-main
-description: "Keyword-gated by name. Merges a ready branch to main: PR, local validation, cleanup."
+description: Keyword-gated by name. Merge a ready branch to main via PR.
 argument-hint: "[--force] [--force-merge-active-branch]"
 version: 2.0.0
 allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskUserQuestion","TaskCreate","TaskUpdate","TaskGet","TaskList"]
@@ -11,11 +11,9 @@ allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskU
 ## Overview
 
 Merge a work or feature branch to main via PR, gated by local validation — GitHub Actions is not in
-the loop. `merge-assemble` computes the node
-ceremony hard-gate, tag-prefix resolution, release-tag cut, coverage gate, PR body, portability
-sweep, illegal-path scan, completion-log flip, and orphan-branch sweep. What follows is what it
-cannot precompute: your judgment calls, plus the steps depending on live PR/merge state (branch
-recovery, PR creation, the merge, local cleanup).
+the loop. `merge-assemble` computes the gates and
+directives (`d0`-`d8`). What follows is what it cannot precompute: your judgment calls, plus the
+steps depending on live PR/merge state.
 
 **Announce at start:** "I'm using the coordinator:merging-to-main skill to merge this branch to main."
 
@@ -36,9 +34,7 @@ merging-to-main`.
 `d0` (`node --test tests/plugin-ecosystem/run.js`, halt-on-fail) runs first, then detect and run
 the project's own test runner (`pnpm test`/`npm test`, `pytest`/`python3 -m pytest`, `/validate`, or
 project-specific from `CLAUDE.md`/`package.json`). **This is the most expensive step in the whole
-ceremony** — the project's full suite is a machine-wide event, not a cheap check; its actual
-magnitude is whatever `python3 coordinator/tests/_spawn_budget.py` reports for this repo, never a
-hardcoded figure here, but treat "run the suite" as heavy every time you grant it. Fail on either →
+ceremony** — a machine-wide event (magnitude: `python3 coordinator/tests/_spawn_budget.py`). Fail on either →
 halt: _"Test suite failed. Fix first, or use `/merging-to-main --force` to bypass for hotfixes."_
 
 **`--force`** (skill flag, distinct from `apply`'s): skips this step including the Tier-U grant and
@@ -51,9 +47,8 @@ halt: _"Test suite failed. Fix first, or use `/merging-to-main --force` to bypas
 Commit only paths this session touched, on the commit invocation itself (detail: wiki).
 
 On a work/feature branch → continue. On main with unpushed commits ahead of `origin/main` →
-auto-recover via `merge-recovery-and-tag-cut recovery-branch` (syncs local main, cuts a fresh
-`work/<host>/<date>` branch off the pre-sync state, pushes, hard-resets main, returns to the new
-branch, prints `BRANCH=<name>`), then continue there. On main with nothing unpushed → abort:
+auto-recover via `merge-recovery-and-tag-cut recovery-branch` (cuts a fresh `work/<host>/<date>`
+branch off the pre-sync state, pushes, resets main, prints `BRANCH=<name>`), then continue there. On main with nothing unpushed → abort:
 _"Already on main with nothing to merge. Switch to a work or feature branch first."_
 
 Resolve the branch via `coordinator-current-branch`, compare against its remote (`git log
@@ -81,11 +76,12 @@ tag-prefix resolution, release-tag cut). Judgment:
 | split | Two changes land separately — name them |
 | spike-only | Informative only, don't merge |
 
-**Release-note framing.** Prefer the most recent `state/week-changelog/*-pending-release.md`
-accumulator; absent, draft inline grouped by impact (Added/Changed/Fixed/Deps/Internal, omit
-empty — even a trivial merge gets one line; template: wiki). Prepend to a repo-root `CHANGELOG.md`
-if one exists, committed before Step 5. Skip only for `tasks/`/`tmp/`-only merges (still get an
-"Internal" line).
+**Release-note framing.** Prefer the latest `state/week-changelog/*-pending-release.md`
+accumulator; absent, draft inline by impact (Added/Changed/Fixed/Deps/Internal; template: wiki).
+When a tag is being cut, run `merge-release-notes-derive missed-releases <tag> $ENTRY_PATHS` first:
+each entry it names shipped in an earlier release that never flipped, so leave it out of these notes.
+Prepend to a repo-root `CHANGELOG.md` if one exists, committed before Step 5. `tasks/`/`tmp/`-only
+merges get an "Internal" line only.
 
 **Demo path** (user-visible merges) — append a Demo Path section (template: wiki) to the PR body.
 
@@ -100,17 +96,11 @@ a per-finding PM disposition (options: wiki). Not a merge blocker;
 
 ## Step 4: UE-specific checks (`project_type: game-dev`, `project_subtypes: unreal`)
 
-Otherwise skip. Full table: wiki. UBT gate and reverse-drift gate have live producers
-(`scan_unresolved_ubt_records.py`, `list_reverse_drift_cmds.py`) — non-zero halts with remediation
-(`/workday-complete` / `example_game_repo_recover --step reverse-drift`, or the matching
-`COORDINATOR_OVERRIDE_*`). Plugin-version-matrix, structural-index-schema, and
-customer-facing-install-path touches still need eyeball diff-path classification — no producer yet
-<!-- engine-gap: field=merge.touched_path_classes producer=unknown memo=2026-08-14-coordinator-content-repo-em-three-cut-obligations-from-the-corpus-grind.md -->.
-- **Plugin version matrix** — detection: touches under `control/plugin/**`. Action: verify the
-  5-version plugin matrix passes locally.
-- **Customer-facing install path** — detection: touches under `scripts/install-*.{sh,ps1}`.
-  Action: verify doc parity and replay `tests/install/`.
-
+Otherwise skip. Detection table (all five checks): wiki. UBT and reverse-drift gates have live
+producers — non-zero halts with remediation (or the matching `COORDINATOR_OVERRIDE_*`). Plugin-
+version-matrix, structural-index-schema, and install-path touches need eyeball diff-path
+classification — no producer yet
+<!-- engine-gap: field=merge.touched_path_classes producer=unknown memo=engine-gap-markers-name-a-memo-that-was-never-filed.md -->.
 A schema bump needs `schema-migration-auditor` dispatched, the Staff Engineer review before merge.
 
 ---
@@ -120,11 +110,9 @@ A schema bump needs `schema-migration-auditor` dispatched, the Staff Engineer re
 Compose the PR body via `merge-gate-and-pr pr-body --ship-verdict "$SHIP_VERDICT" --summary
 "$SUMMARY" --release-notes "$RELEASE_NOTES" --verification "$VERIFICATION" --risk "$RISK" --links
 "$LINKS" --commit-range main..HEAD` (`d4`), then `gh pr create --base main --head "$BRANCH" --title
-"$TITLE" --body "$BODY"`. The flags are the fleet PR template's sections
-(`templates/github-pull-request-template.md`), which `gh pr create --body` bypasses. Pass
-`--release-notes` and `--demo-path` without headings of their own, and keep release-note version
-headings at `###` or lower. An engine that predates the section flags exits 2 with
-`unrecognized arguments`: rerun without `--summary`, `--verification`, `--risk`, `--links`.
+"$TITLE" --body "$BODY"`. Pass `--release-notes` and `--demo-path` without headings of their own,
+release-note version headings at `###` or lower. Exit 2 `unrecognized arguments` (older engine):
+rerun without `--summary`, `--verification`, `--risk`, `--links`.
 
 If a version bump was suggested but not yet PM-confirmed, surface it in the PR body: _"Suggested
 bump: patch ({old} → {new}) — confirm before tagging."_
@@ -133,9 +121,8 @@ bump: patch ({old} → {new}) — confirm before tagging."_
 
 ## Step 6: Local Validation Confirmation
 
-No remote checks exist; the PR carries none. Step 1's local run is the gate — confirm it passed on
-the exact head being merged (re-run `/validate` if commits landed since). Cross-platform validation
-is the PM's own Windows/Mac/Linux boxes, not a runner. A failure blocks merge — _"Validation failed
+Step 1's local run is the gate — confirm it passed on the exact head being merged (re-run
+`/validate` if commits landed since). A failure blocks merge — _"Validation failed
 on {test}. Fix and re-run `/merging-to-main`, or investigate via `coordinator:systematic-debugging`."_
 
 ---
@@ -145,7 +132,9 @@ on {test}. Fix and re-run `/merging-to-main`, or investigate via `coordinator:sy
 Pre-merge quiet check: `merge-gate-and-pr active-branch-guard --pr "$PR"` halts if the PR's newest
 commit is younger than 300 seconds. Override with the skill's own `--force-merge-active-branch`.
 
-Merge via `gh pr merge` with `--delete-branch`, merge commit (never squash). Recovery recipes for
+Merge via `gh pr merge` (no `--delete-branch`), merge commit (never squash). The head branch is
+deleted only when its remote tip is an ancestor of the base — a merged PR merges a snapshot, not
+the branch's later pushes; otherwise keep it and report the tip and its unmerged-commit count. Recovery recipes for
 "base branch policy prohibits" and "head not up to date": wiki. **Merge conflicts** — do not force
 through; offer the PM merge-main-in-and-resolve (recommended) or rebase; stop and wait.
 
@@ -159,24 +148,10 @@ The PR requirement (0 approvals) and Step 1's local validation are the gates.
 against the merge commit `gh pr merge` produced and force-push with a pinned lease; do not proceed
 to Step 8 until it reads 0.
 
-This check exists because `d2` fires in **Step 3** while the merge lands **here**, and the tag-cut
-core (`merge-recovery-and-tag-cut.py`, engine plane) resolves `origin/main` at call time and names
-the result `merge_sha` — the variable name encodes the assumption that it runs *after* the merge.
-Called from Step 3 it tags main *without* the branch, so the release tag contains **none** of the
-release. Confirmed in `project-rag`: `v0.17.2` shipped pointing at zero of its 82
-commits.
+`d2` fires in Step 3 but the merge lands here, so the tag can point at main without the branch;
+nothing else catches it. Run the check every time. Why: wiki § Tag-contains-release guard.
 
-**Nothing else catches it.** Every directive returns 0, the ceremony report says
-`release_tag_cut: <tag>`, and `d2`'s own `MERGE_SHA=... / TAG_CUT=...` stdout is the evidence of
-the bug rendered as a success line. `cut_tag`'s only guard is an idempotence check comparing the
-tag against the same wrong ref, so it confirms itself. Step 10's completion-log flip then reads
-that tag and is quietly wrong the same way.
-
-This is the interim guard, not the fix — the ordering is what is wrong, and moving `d2` after the
-merge is tracked separately. Run the check every time until `d2` moves.
-
-Once the merge lands, best-effort trigger project-rag's SCIP rebuild in the background — never
-waits, never blocks this ceremony: `"$_py"
+Once the merge lands, trigger the SCIP rebuild best-effort in the background (never blocks): `"$_py"
 "${CLAUDE_PLUGIN_ROOT:-<content-root>/coordinator}/bin/scip-rebuild-at-ceremony.py" --ceremony
 merge-to-main` (§ Plugin-local `coordinator/bin/`, `resolve-coordinator-bin.md`).
 
@@ -185,15 +160,14 @@ merge-to-main` (§ Plugin-local `coordinator/bin/`, `resolve-coordinator-bin.md`
 ## Step 8: Post-Merge Re-Verify Shared Infra
 
 After a conflict-resolved or concurrently-edited merge, confirm each touched file still carries a
-canonical phrase from your change at `HEAD` — last-writer-wins can silently revert a naively
-resolved hunk. Highest risk: shared infra. Missing phrase → re-apply and push a follow-up commit.
+canonical phrase from your change at `HEAD`; missing → re-apply and push a follow-up commit.
 
 ---
 
 ## Step 9: Local Cleanup
 
-Check out main (`COORDINATOR_OVERRIDE_BRANCH=1`), pull, delete the local branch. Any stray worktree
-found here is debris to clear (`git worktree remove <path>`), not state to keep.
+Check out main (`COORDINATOR_OVERRIDE_BRANCH=1`), pull, delete the local branch. Clear any stray
+worktree (`git worktree remove <path>`).
 
 ---
 
@@ -201,10 +175,7 @@ found here is debris to clear (`git worktree remove <path>`), not state to keep.
 
 Runs when a release tag was cut (`d2` landed); skip otherwise. `mkdir -p
 archive/release-notes/`, then `d7` (`merge-release-notes-derive flip-tags <tag> <sha> <date>
-$ENTRY_PATHS`) flips every matching entry to the earliest release tag whose history contains it. The
-`reconcile-sweep` verb that once preceded the flip is retired with the rest of the completion-
-reconcile family; the CLI carries `flip-tags` alone, so there is no unaccounted-commit pass here.
-Best-effort `git mv` the pending-release accumulator to `archive/release-notes/`, scoped-commit
+$ENTRY_PATHS`) flips every matching entry to the earliest release tag whose history contains it. Best-effort `git mv` the pending-release accumulator to `archive/release-notes/`, scoped-commit
 `$ENTRY_PATHS` + accumulator + release notes file, push to main.
 
 ---
@@ -223,9 +194,8 @@ Best-effort `git mv` the pending-release accumulator to `archive/release-notes/`
 in-flight branches: _"Multiple work branches in flight — verify these don't carry work intended for
 this PR."_
 
-**Negative-spec — the auto-memory drain gate is gone from this ceremony, do not restore it.** PM
-directive, 2026-08-07: the gate's cadence at every merge was too aggressive. It stays live at
-`/workday-complete` and `/workweek-complete` only.
+**Negative-spec — the auto-memory drain gate is gone from this ceremony, do not restore it.**
+Why: wiki § Retired: auto-memory drain gate.
 
 ## Red Flags
 
@@ -235,5 +205,4 @@ directive, 2026-08-07: the gate's cadence at every merge was too aggressive. It 
 ## Integration
 
 **Called by:** `coordinator:finishing-a-development-branch` (Option 1); PM/EM directly, never
-`/workday-complete`. **Pairs with:** `finishing-a-development-branch` (its Step 5 handles stray
-worktree removal the same way).
+`/workday-complete`.

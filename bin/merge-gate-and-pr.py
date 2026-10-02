@@ -22,7 +22,8 @@ in-process — no subprocess/IPC hop, no second coverage computation, no
 second review-trail reader. This is a CONSUMER of that seam; see the
 dimension module's own docstring for the coverage contract itself.
 
-Subcommands (argv[1] selects):
+Subcommands (argv[1] selects). Each accepts `--repo-root <dir>` (default: cwd) naming the repo it
+operates on:
 
   pr-body --ship-verdict <text> --release-notes <text> [--summary <text>]
            [--verification <text>] [--risk <text>] [--demo-path <text>]
@@ -100,12 +101,20 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import contextvars
 import datetime
 import os
 import subprocess
 import sys
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# The repo this invocation operates on, set by `main` from `--repo-root`. A ContextVar,
+# never `os.chdir`: the script runs in-process inside a shared engine, where cwd is
+# process-global. None means the caller's cwd.
+_REPO_ROOT: "contextvars.ContextVar[str | None]" = contextvars.ContextVar(
+    "merge_gate_and_pr_repo_root", default=None
+)
 
 
 def _no_console_flags() -> dict:
@@ -125,6 +134,7 @@ def _commit_log(commit_range: str) -> str:
         capture_output=True,
         text=True,
         check=False,
+        cwd=_REPO_ROOT.get(),
         **_no_console_flags(),
     )
     return proc.stdout.rstrip("\n")
@@ -183,6 +193,7 @@ def _changed_files(commit_range: str) -> list[str]:
         capture_output=True,
         text=True,
         check=False,
+        cwd=_REPO_ROOT.get(),
         **_no_console_flags(),
     )
     return [line for line in proc.stdout.splitlines() if line]
@@ -270,7 +281,7 @@ def _cmd_coverage_gate_post_status(args: argparse.Namespace, repo_root: str) -> 
 
 
 def cmd_coverage_gate(args: argparse.Namespace) -> int:
-    repo_root = os.getcwd()
+    repo_root = _REPO_ROOT.get() or os.getcwd()
     if args.post_status:
         return _cmd_coverage_gate_post_status(args, repo_root)
     changed_files = _changed_files(args.commit_range)
@@ -335,6 +346,7 @@ def _gh_pr_view_json(pr: str, jq_field: str) -> tuple[int, str]:
         capture_output=True,
         text=True,
         check=False,
+        cwd=_REPO_ROOT.get(),
         **_no_console_flags(),
     )
     return proc.returncode, proc.stdout.strip()
@@ -385,8 +397,14 @@ def cmd_active_branch_guard(args: argparse.Namespace) -> int:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="merge-gate-and-pr.py")
     sub = parser.add_subparsers(dest="subcommand", required=True)
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument(
+        "--repo-root",
+        default=None,
+        help="Repo to operate on (default: cwd).",
+    )
 
-    p_body = sub.add_parser("pr-body")
+    p_body = sub.add_parser("pr-body", parents=[common])
     p_body.add_argument("--ship-verdict", required=True)
     p_body.add_argument("--summary", default=None)
     p_body.add_argument("--release-notes", required=True)
@@ -397,12 +415,12 @@ def _build_parser() -> argparse.ArgumentParser:
     p_body.add_argument("--commit-range", default="main..HEAD")
     p_body.set_defaults(func=cmd_pr_body)
 
-    p_guard = sub.add_parser("active-branch-guard")
+    p_guard = sub.add_parser("active-branch-guard", parents=[common])
     p_guard.add_argument("--pr", required=True)
     p_guard.add_argument("--force", action="store_true")
     p_guard.set_defaults(func=cmd_active_branch_guard)
 
-    p_cov = sub.add_parser("coverage-gate")
+    p_cov = sub.add_parser("coverage-gate", parents=[common])
     p_cov.add_argument("--commit-range", default="main..HEAD")
     p_cov.add_argument("--post-status", action="store_true")
     p_cov.add_argument("--sha", default=None)
@@ -418,7 +436,11 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     if getattr(args, "post_status", False) and not args.sha:
         parser.error("coverage-gate --post-status requires --sha")
-    return args.func(args)
+    token = _REPO_ROOT.set(args.repo_root)
+    try:
+        return args.func(args)
+    finally:
+        _REPO_ROOT.reset(token)
 
 
 if __name__ == "__main__":

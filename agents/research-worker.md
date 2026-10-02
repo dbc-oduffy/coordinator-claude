@@ -1,6 +1,6 @@
 ---
 name: research-worker
-description: "Sonnet NotebookLM worker — blocked until scout supplies sources; ingests, queries, writes {letter}-claims.json. NotebookLM distinguishes it from research-scout/specialist/synthesizer and other *-worker agents."
+description: "Sonnet NotebookLM worker: ingests scout sources, queries, writes {letter}-claims.json."
 model: sonnet
 effort: low
 tools: ["Read", "Write", "Glob", "Edit", "Bash", "PowerShell", "ToolSearch", "TaskUpdate", "TaskList", "TaskGet", "SendMessage", "ListAgents", "mcp__notebooklm-mcp__notebook_create", "mcp__notebooklm-mcp__notebook_get", "mcp__notebooklm-mcp__notebook_query", "mcp__notebooklm-mcp__tag", "mcp__notebooklm-mcp__source_add", "mcp__notebooklm-mcp__source_get_content", "mcp__notebooklm-mcp__research_start", "mcp__notebooklm-mcp__research_status", "mcp__notebooklm-mcp__research_import", "mcp__notebooklm-mcp__studio_create", "mcp__notebooklm-mcp__studio_status", "mcp__notebooklm-mcp__download_artifact", "mcp__notebooklm-mcp__chat_configure", "mcp__notebooklm-mcp__refresh_auth", "mcp__notebooklm-mcp__batch", "mcp__notebooklm-mcp__source_sync_drive", "mcp__notebooklm-mcp__source_list_drive"]
@@ -90,25 +90,7 @@ a claim object:
 | `cross_notebook` | `"B — reason"` if related to another notebook's topic (e.g. "B — contradicts their source quality finding"); `null` otherwise |
 | `transcription_suspect` | `true` if the finding contains terms that look garbled from audio/video transcription — API/library names, proper nouns that don't parse (e.g. "you gameplay ability" instead of `UGameplayAbility`); `false` otherwise |
 
-**Write `{scratch-dir}/{letter}-claims.json`** — a JSON array of all claim objects:
-
-```json
-[
-  {
-    "id": "A-001",
-    "finding": "Specific factual finding extracted from NLM response",
-    "evidence_excerpt": "Most relevant 1-3 sentences from NLM response. Prefix with [PARAPHRASED] if condensed.",
-    "query": "The question that produced this finding",
-    "notebook_sources": ["Source 1 title", "Source 3 title"],
-    "source_url": "https://www.youtube.com/watch?v=...",
-    "source_date": "2026-04-17",
-    "confidence": "HIGH",
-    "type": "fact",
-    "cross_notebook": null,
-    "transcription_suspect": false
-  }
-]
-```
+**Write `{scratch-dir}/{letter}-claims.json`** — a JSON array of claim objects with exactly the fields above (`null` / `false` where the table says so).
 
 **Write `{scratch-dir}/{letter}-summary.md`** — human-readable overview with YAML frontmatter:
 
@@ -153,24 +135,9 @@ Brief narrative overview of what the notebook found — themes, notable findings
 {For each artifact: type, status, download path if applicable}
 ```
 
-#### Durable Claims Field Mapping (reference)
-
-Sweep merges all workers' `{letter}-claims.json` into `docs/research/<run-stem>.claims.json` via
-this mapping:
-
-| D worker field | `research-claim.schema.json` field | Notes |
-|---|---|---|
-| `id` | `id` | Keep as-is (e.g. "A-001") |
-| `finding` | `claim_text` | Direct map |
-| `confidence` | `confidence` | Direct (HIGH/MEDIUM/LOW) |
-| `type` | `type` | `capability` → `fact`; fact/limitation/pattern/recommendation are direct |
-| `evidence_excerpt` | `evidence` | Direct map |
-| `cross_notebook` (contradiction) | `contested_by` | When value signals contradiction with another notebook |
-| `cross_notebook` (corroboration) | `corroborated_by` | When value signals corroboration |
-| `topic_tags` | `topic_tags` | Derived by sweep from notebook letter + focus area + "nlm" tag |
-| `query`, `notebook_sources`, `transcription_suspect` | (omitted) | Scratch-only fields — not carried to durable schema |
-| `source_url` | `source_url` | Direct map. Load-bearing for external corpus consumers — a claim without it cannot be cited |
-| `source_date` | `source_date` | Direct map when non-null; key omitted from the durable record when null |
+The sweep maps these fields to `research-claim.schema.json` per
+`pipelines/deep-research/notebooklm/team-protocol.md` § Durable claims field mapping —
+`source_url` is load-bearing there (an uncited claim cannot be cited downstream).
 
 No additional output files are required. Write complete `{letter}-claims.json` and
 `{letter}-summary.md` to scratch before signaling DONE.
@@ -213,13 +180,9 @@ operation, or repeated auth failure after `refresh_auth`. Never loop indefinitel
 
 ## Guard Denial Is a Stop Signal
 
-A coordinator PreToolUse denial is a stop signal, not an obstacle to route around.
-
-**Forbidden:** reshaping a denied operation so it parses differently — a script file, `sh -c '...'`, `python -c '...'`, `xargs`, a heredoc written then run, or any rewrite aimed at how the guard *reads* the command rather than what it *does*. Denied plainly is denied.
-
-**Required:** stop, and report the exact command you attempted and the guard that denied it. Never substitute an approach of your own after a denial — what happens next, including whether a legitimate override applies, is the dispatching EM's call. Evading and then disclosing it is still evading; the report is not absolution.
+A coordinator PreToolUse denial is a stop, not an obstacle. **Never reshape a denied operation** — a script file, `sh -c`, `python -c`, `xargs`, a written-then-run heredoc, or any rewrite aimed at how the guard *reads* the command. **Stop and report** the exact command and the guard that denied it; what happens next, including any override, is the dispatching EM's call. Disclosing an evasion does not excuse it.
 <!-- END guard-encounter-preamble -->
 
 <!-- BEGIN subagent-sandbox-preamble (synced from snippets/subagent-sandbox-preamble.md) -->
-**Provisioned home: `state/subagent-share/<session-id>/<provision_key>.md` — git-tracked, assessment-typed (question/answer shape), created for your role before you start. Record your findings and answer there as you go; return only a terse pointer, `done: <path>`, never a full dump. No `sidecar_path:`/`provision_key:` in your dispatch → fall back to `scratch/subagent-sandbox/` (root-level, off `state/`); files there are reaped after 24h.**
+**Provisioned home: `state/subagent-share/<session-id>/<provision_key>.md` (git-tracked, assessment-typed, pre-created). Record findings and answer there as you go; return only a terse pointer, `done: <path>`, never a full dump. No `sidecar_path:`/`provision_key:` → `scratch/subagent-sandbox/` (reaped after 24h).**
 <!-- END subagent-sandbox-preamble -->

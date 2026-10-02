@@ -1,6 +1,6 @@
 ---
 name: autonomous
-description: "Toggle autonomous mode — suppresses handoff nudges near compaction."
+description: "Toggle autonomous mode — no handoff nudges near compaction."
 allowed-tools: ["Bash"]
 argument-hint: "[on|off]"
 ---

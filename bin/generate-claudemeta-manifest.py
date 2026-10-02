@@ -79,6 +79,19 @@ def _repo_root() -> Path:
     return Path(resolved)
 
 
+def _git_stdout(args: list[str]) -> str:
+    if str(_ENGINE_ROOT) not in sys.path:
+        sys.path.insert(0, str(_ENGINE_ROOT))
+    from coordinator_core.git.run import run_git
+
+    result = run_git(args, cwd=str(_repo_root()))
+    if not result.ok:
+        # A manifest built from a failed read is silently wrong; refuse instead.
+        print(f"ERROR: git {args[0]} failed (rc={result.returncode})", file=sys.stderr)
+        raise SystemExit(2)
+    return result.stdout
+
+
 def _p_index_path() -> Path:
     if P_INDEX_PATH is not None:
         return P_INDEX_PATH
@@ -162,14 +175,7 @@ def read_status(path: Path) -> str | None:
 
 def last_commit_times() -> dict[str, int]:
     """One `git log` pass — per-file spawns would be ~200 processes on a shared machine."""
-    out = subprocess.run(
-        ["git", "log", "--no-merges", "--name-only", "--format=@%ct"],
-        cwd=_repo_root(),
-        capture_output=True,
-        text=True,
-        errors="replace",
-        **_no_console_creationflags(),
-    ).stdout
+    out = _git_stdout(["log", "--no-merges", "--name-only", "--format=@%ct"])
     times: dict[str, int] = {}
     stamp = 0
     for line in out.splitlines():
@@ -181,25 +187,11 @@ def last_commit_times() -> dict[str, int]:
 
 
 def git_head() -> str:
-    return subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=_repo_root(),
-        capture_output=True,
-        text=True,
-        errors="replace",
-        **_no_console_creationflags(),
-    ).stdout.strip()
+    return _git_stdout(["rev-parse", "HEAD"]).strip()
 
 
 def p_index_sha() -> str:
-    return subprocess.run(
-        ["git", "hash-object", str(_p_index_path())],
-        cwd=_repo_root(),
-        capture_output=True,
-        text=True,
-        errors="replace",
-        **_no_console_creationflags(),
-    ).stdout.strip()
+    return _git_stdout(["hash-object", str(_p_index_path())]).strip()
 
 
 def derive_keep_set(

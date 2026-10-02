@@ -1,6 +1,6 @@
 ---
 name: code-health
-description: "Night-shift code review — dispatch reviewer, apply findings, track."
+description: "Night-shift code review: dispatch, apply findings, track."
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent"]
 argument-hint: (no arguments needed)
 ---

@@ -1,6 +1,6 @@
 ---
 name: cloud-spawn
-description: "Cloud-only: spawn a worker or probe cloud session from a cloud EM, with a brief the auto-mode classifier admits and a report channel back."
+description: "Cloud-only: spawn a worker/probe cloud session with an admissible brief and report channel."
 version: 1.0.0
 allowed-tools: ["Read", "Bash", "ToolSearch"]
 ---
@@ -12,6 +12,9 @@ MCP). That call works in auto mode. What the classifier refuses is the **brief**
 the child to create triggers aimed at the parent, publish artifacts, or push speculative branches
 reads as an external write, and the whole spawn is denied. Tripwire:
 `A-SPAWN-BRIEF-THAT-ASKS-FOR-SIDE-CHANNELS-IS-REFUSED-WHOLE`.
+
+Children sit behind the same egress proxy: they add build throughput, never publish capability
+(binary release uploads are refused from cloud). Don't spawn children for publish-bound work.
 
 ## Spawn it
 

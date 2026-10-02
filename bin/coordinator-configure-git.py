@@ -24,7 +24,7 @@ exactly):
       coordinator_core.ops.configure_git was not importable.
 
 Spec backlink: cross-repo/inbox/2026-05-30-index-lock-leak-concurrent-em.md
-               (example-game-repo consult); docs/wiki/concurrent-em-hazards.md § H21.
+               (example-game-repo consult); coordinator-content-repo coordinator/docs/wiki/concurrent-em-git-operations/concurrent-em-hazards.md § H21.
 Prior bash implementation: see git log (coordinator/bin/coordinator-configure-git,
                            81 lines, retired on this cutover).
 """

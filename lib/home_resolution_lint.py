@@ -1397,7 +1397,7 @@ class HomeResolutionLintEngine:
     def _rung_order_is_violation(cls, kinds: list[str | None]) -> bool:
         """A literal `"~"` terminal, or a transposed rung (a later-order
         rung appearing before an earlier-order one), is a FAIL per spec
-        (`docs/wiki/portability-gates-spec.md` spec_version 1.3.0, "Terminal
+        (`coordinator-content-repo coordinator/docs/wiki/portability/portability-gates-spec.md` spec_version 1.3.0, "Terminal
         rung": `"~"` -- violation; `Path.home()` -- correct). An unguarded
         `expanduser` rung is deliberately NOT judged here -- see
         `_rung_order_is_warn` -- the spec downgrades it to warn, a literal

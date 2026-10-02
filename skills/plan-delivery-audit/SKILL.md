@@ -1,6 +1,6 @@
 ---
 name: plan-delivery-audit
-description: "Triangulate plan claims against code and reviews for delivery status."
+description: Triangulate plan claims against code and reviews.
 version: 1.0.0
 allowed-tools: ["Read", "Grep", "Glob", "Bash", "Agent"]
 argument-hint: "[plan-glob — default: docs/plans/*.md]"
@@ -36,7 +36,7 @@ notes. A claim, not a verdict.
 
 (a) *Cited-artifact existence* — for every file/path/symbol/schema-field the plan claims to have
 created or changed, confirm it exists at HEAD in the claimed shape.
-<!-- engine-gap: field=oracle2.artifact_claim_verification producer=unknown memo=2026-08-14-coordinator-content-repo-em-three-cut-obligations-from-the-corpus-grind.md -->
+<!-- engine-gap: field=oracle2.artifact_claim_verification producer=unknown memo=engine-gap-markers-name-a-memo-that-was-never-filed.md -->
 Dispatch shape: for ≥4 plans, one parallel read-only Sonnet scout per plan — reads the plan's
 scope/chunks/AC prose, extracts concrete artifact claims, checks each, reports PRESENT / ABSENT /
 UNVERIFIABLE. No file modification, commit, or push during Oracle 2. If a plan names no concrete

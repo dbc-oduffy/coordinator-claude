@@ -1,6 +1,6 @@
 ---
 name: code-reviewer-weekly
-description: "Weekly-gate reviewer, static-only, never executes. Writes chunk-<k>.md incrementally, surviving compaction. Only via parallel-code-review."
+description: "Static weekly-gate chunk reviewer, compaction-safe. Only via parallel-code-review."
 model: sonnet
 effort: low
 color: yellow
@@ -194,6 +194,6 @@ The Staff Engineer runs a separate Layer-2 pass fed by your `escalate_to_archite
 verdict line — no inline narration; an inline summary with no written file is task failure.
 
 <!-- BEGIN subagent-sandbox-preamble (synced from snippets/subagent-sandbox-preamble.md) -->
-**Provisioned home: `state/subagent-share/<session-id>/<provision_key>.md` — git-tracked, review-findings-typed (one disposition slot per finding), created for your role before you start. Record each finding's disposition there as you go; return only a terse pointer, `done: <path>`, never a full dump. No `sidecar_path:`/`provision_key:` in your dispatch → fall back to `scratch/subagent-sandbox/` (root-level, off `state/`); files there are reaped after 24h.**
+**Provisioned home: `state/subagent-share/<session-id>/<provision_key>.md` (git-tracked, review-findings-typed, pre-created). Record each finding's disposition there as you go; return only a terse pointer, `done: <path>`, never a full dump. No `sidecar_path:`/`provision_key:` → `scratch/subagent-sandbox/` (reaped after 24h).**
 **Named dispatch?** A teammate's return text never arrives — `SendMessage` this pointer to `"main"`.
 <!-- END subagent-sandbox-preamble -->

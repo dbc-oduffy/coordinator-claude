@@ -31,7 +31,7 @@ walks the machine-local registry and heals both hook families in every registere
 
 Same failure class, one hook family later, and worse in its consequences. `~/.claude` was found
 carrying a `.git/hooks/pre-commit` whose two gates were guarded `if [ -x "$_helper" ]` against
-`plugins/coordinator/bin/` paths that stopped existing when the engine moved to
+`plugins/coordinator-claude/coordinator/bin/` paths that stopped existing when the engine moved to
 the klabauter mirror. A missing helper under that guard is not an error — it is a skip, so the hook
 was present, looked installed, and enforced nothing.
 

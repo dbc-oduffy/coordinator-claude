@@ -1,12 +1,12 @@
 {
   "x-effective-delivery": {
     "version": 1,
-    "generated_from_sha": "788324789bf39fd87e5b435f281cd846b9abce17",
-    "generated_at": "2026-09-28T05:30:13Z",
-    "generated_from_dirty_tree": true,
-    "engine_source_sha": "7c7ce5bea5d77153e2a1ef44cf0389bc6e813dfb",
+    "generated_from_sha": "ff5702dbf7eda60a61113a37c67d5f428cbea21b",
+    "generated_at": "2026-10-01T22:52:22Z",
+    "generated_from_dirty_tree": false,
+    "engine_source_sha": "a39a3d5e7b575f42860a0a088e10f8bad2ede23e",
     "engine_source_dirty_tree": true,
-    "engine_source_resolution": "live-working-tree/env-override",
+    "engine_source_resolution": "resolved-engine/published-target",
     "carriers": {
       "scripts/preuse-write-dispatch.py": {
         "script": "scripts/preuse-write-dispatch.py",
@@ -105,6 +105,16 @@
           {
             "id": "guard_handoff_summary_cap_on_write",
             "script": "scripts/guard-handoff-summary-cap-on-write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "guard_autonomous_sentinel_write",
+            "script": "scripts/guard-autonomous-sentinel-write.py",
             "tool_names": [
               "Write",
               "Edit",
@@ -670,7 +680,9 @@
             "tool_names": [
               "Write",
               "Edit",
-              "MultiEdit"
+              "MultiEdit",
+              "Bash",
+              "PowerShell"
             ]
           },
           {
@@ -679,7 +691,9 @@
             "tool_names": [
               "Write",
               "Edit",
-              "MultiEdit"
+              "MultiEdit",
+              "Bash",
+              "PowerShell"
             ]
           },
           {
@@ -688,7 +702,9 @@
             "tool_names": [
               "Write",
               "Edit",
-              "MultiEdit"
+              "MultiEdit",
+              "Bash",
+              "PowerShell"
             ]
           }
         ]
@@ -928,6 +944,14 @@
             ]
           },
           {
+            "id": "block-venv-creation",
+            "script": "bash_guards/block_venv_creation.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
             "id": "stash-apply-verification-advisory",
             "script": "bash_guards/block_stash_destruction.py",
             "tool_names": [
@@ -956,6 +980,14 @@
             "script": "bash_guards/guard_offer_git_c.py",
             "tool_names": [
               "Bash"
+            ]
+          },
+          {
+            "id": "background-publish",
+            "script": "bash_guards/guard_background_publish.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
             ]
           },
           {
@@ -1282,6 +1314,11 @@
             "tool_names": []
           },
           {
+            "id": "guard_agent_model_pin",
+            "script": "scripts/guard-agent-model-pin.py",
+            "tool_names": []
+          },
+          {
             "id": "enforce_agent_dispatch_mode",
             "script": "scripts/enforce-agent-dispatch-mode.py",
             "tool_names": []
@@ -1394,8 +1431,18 @@
         ]
       },
       {
+        "id": "postuse-subagent-compaction-warning.py",
+        "script": "scripts/postuse-subagent-compaction-warning.py",
+        "tool_names": []
+      },
+      {
         "id": "postusefailure-cross-repo-memo-remediate.py",
         "script": "scripts/postusefailure-cross-repo-memo-remediate.py",
+        "tool_names": []
+      },
+      {
+        "id": "postusefailure-path-fault-advisory.py",
+        "script": "scripts/postusefailure-path-fault-advisory.py",
         "tool_names": []
       },
       {

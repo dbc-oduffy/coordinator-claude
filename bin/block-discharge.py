@@ -87,7 +87,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -97,11 +96,12 @@ _CLI_ROOT = Path(__file__).resolve().parents[2]
 
 _show_toplevel = None  # type: ignore[assignment]
 bd = None  # type: ignore[assignment]
+_run_git = None  # type: ignore[assignment]
 _bootstrap_done = False
 
 
 def _bootstrap() -> None:
-    global _show_toplevel, bd, _bootstrap_done
+    global _show_toplevel, bd, _run_git, _bootstrap_done
     if _bootstrap_done:
         return
     try:
@@ -111,15 +111,16 @@ def _bootstrap() -> None:
         cc_invoke.require_engine_on_path(__file__)
         from coordinator_core.git.repo_root import show_toplevel as _st
         from coordinator_core import block_discharge as _bd
+        from coordinator_core.git.run import run_git as _rg
 
         _show_toplevel = _st
         bd = _bd
+        _run_git = _rg
     except Exception:  # noqa: BLE001 -- see main(): a usage-error exit, not a crash
         _show_toplevel = None
         bd = None
+        _run_git = None
     _bootstrap_done = True
-
-_NO_CONSOLE = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
 
 
 def _resolve_ledger_root(explicit_repo_root: Optional[str] = None) -> Path:
@@ -196,16 +197,8 @@ def _session_id_from_ledger_path(path: Path) -> str:
 
 
 def _git_add(path: Path) -> None:
-    try:
-        subprocess.run(
-            ["git", "add", "--", str(path)],
-            cwd=str(REPO_ROOT),
-            capture_output=True,
-            check=False,
-            **_NO_CONSOLE,
-        )
-    except OSError:
-        pass
+    _bootstrap()
+    _run_git(["add", "--", str(path)], cwd=str(REPO_ROOT))
 
 
 def _iter_ledger_files() -> list:
@@ -335,20 +328,9 @@ def cmd_archive(args: argparse.Namespace) -> int:
     dest = dest_dir / f"{session_id}.jsonl"
     dest_dir.mkdir(parents=True, exist_ok=True)
     _git_add(source)
-    try:
-        result = subprocess.run(
-            ["git", "mv", "--", str(source), str(dest)],
-            cwd=str(REPO_ROOT),
-            capture_output=True,
-            check=False,
-            **_NO_CONSOLE,
-        )
-    except OSError as exc:
-        print(f"block-discharge archive: git mv failed to invoke: {exc}", file=sys.stderr)
-        return 1
+    result = _run_git(["mv", "--", str(source), str(dest)], cwd=str(REPO_ROOT))
     if result.returncode != 0:
-        stderr_text = result.stderr.decode("utf-8", errors="replace") if result.stderr else ""
-        print(f"block-discharge archive: git mv failed: {stderr_text}", file=sys.stderr)
+        print(f"block-discharge archive: git mv failed: {result.stderr}", file=sys.stderr)
         return 1
     print(f"block-discharge archive: moved {source} -> {dest}")
     return 0

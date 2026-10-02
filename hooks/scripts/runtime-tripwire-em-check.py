@@ -488,6 +488,7 @@ def _unpushed_commit_count(git_root: str, session_id: str | None = None) -> int 
     try:
         import subprocess
 
+        # popup-intentional-last-resort
         result = subprocess.run(
             ["git", "rev-list", "--count", "@{upstream}..HEAD"],
             cwd=git_root,
@@ -513,6 +514,8 @@ def _own_session_unpushed_commit_count(git_root: str, session_id: str) -> int | 
     try:
         import subprocess
 
+        # popup-intentional-last-resort -- same 3s ceiling as
+        # `_unpushed_commit_count`'s own subprocess.
         result = subprocess.run(
             [
                 "git",
