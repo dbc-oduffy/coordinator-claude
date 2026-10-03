@@ -178,7 +178,7 @@ const APPROVAL_SCHEMA = {
 
 const RECORD_SCHEMA = {
   type: 'object',
-  required: ['recordPath', 'tldr'],
+  required: ['recordPath', 'recordedAt', 'tldr'],
   properties: { recordPath: { type: 'string' }, recordedAt: { type: 'string' }, tldr: RETURN_TLDR_SCHEMA },
 }
 
@@ -243,7 +243,9 @@ ${REPO_ROOT_RULE}`,
   )).catch(() => null)
 }
 
-function trackAgent(label, call) {
+// `tldrOptional` is for pure data-read steps whose schema carries no `tldr` and writes no record the
+// Haiku fallback could summarise; without it they log a spurious missing-tldr incident.
+function trackAgent(label, call, { tldrOptional = false } = {}) {
   return Promise.resolve(call).then(
     async (result) => {
       if (result === null || result === undefined) {
@@ -254,7 +256,7 @@ function trackAgent(label, call) {
         })
         return result
       }
-      if (typeof result === 'object' && !result.tldr) {
+      if (!tldrOptional && typeof result === 'object' && !result.tldr) {
         const path = ['sidecarPath', 'overviewPath', 'recordPath', 'corpusPath']
           .map((k) => result[k]).find((v) => typeof v === 'string') || null
         const fallbackTldr = await tldrFallback(label, path)
@@ -313,16 +315,19 @@ Canonical rule: \`snippets/resolve-coordinator-bin.md\`. A CLI that still does n
 resolving it this way is a finding: report the failure verbatim, never invent a substitute or
 hand-author the record the CLI would have written.`
 
-const SIDECAR_RULE = (agentType) => PROVISION_SIDECAR_CLI
+// provision-sidecar refuses a bare role: --agent-type must be the plugin-qualified identity.
+const qualifyAgentType = (t) => (t.includes(':') ? t : `coordinator:${t}`)
+
+const SIDECAR_RULE = (role) => PROVISION_SIDECAR_CLI
   ? `Get your findings sidecar path by running this EXACT resolved invocation, and do not construct
 one by hand:
 
-    ${PROVISION_SIDECAR_CLI} --type review-findings --agent-type ${agentType}
+    ${PROVISION_SIDECAR_CLI} --type review-findings --agent-type ${qualifyAgentType(role)}
 
 It prints the repo-relative sidecar path on stdout. Use what it prints; on failure, report the
 failure verbatim and stop.`
   : `Provision your findings sidecar with the resolved \`coordinator-doc-new --type review-findings
---agent-type ${agentType}\` (resolution rule above) and use the path it prints; never invent a path.`
+--agent-type ${qualifyAgentType(role)}\` (resolution rule above) and use the path it prints; never invent a path.`
 
 const WRITE_SCOPE_RULE = `
 Write only inside the roadmap directory and the trail named in this brief, and the one record this
@@ -394,7 +399,7 @@ if (APPROVAL_PATH) {
    live plans under docs/plans/ it marks as source plans. Empty when none.
 ${REPO_ROOT_RULE}`,
     { model: 'sonnet', effort: 'low', ...withRole('coordinator:executor'), label: 'resume:read-approval', phase: 'Approve', schema: RESUME_SCHEMA },
-  ))
+  ), { tldrOptional: true })
   if (!resumed || !resumed.found || !resumed.approval) {
     return emptyResult({ refused: [{ reason: 'approvalPath ' + APPROVAL_PATH + ' holds no readable approval record' }] })
   }
@@ -507,6 +512,7 @@ ${COMMON}`,
   if (DOMAIN_REVIEWER[flavor]) reviewers.push(DOMAIN_REVIEWER[flavor])
 
   const missingReviews = []
+  const blockedReviews = []
   for (const reviewer of reviewers) {
     const role = reviewer.split(':')[1]
     const review = await trackAgent(`review:${role}`, agent(
@@ -528,6 +534,12 @@ return the provisioned findings sidecar path as \`sidecarPath\`:
       { model: 'opus', ...withRole(reviewer), label: `review:${role}`, phase: 'Review', schema: REVIEW_SCHEMA },
     ))
     if (!review) missingReviews.push(role)
+    else if (review.verdict === 'BLOCKED') blockedReviews.push(role)
+  }
+  // A BLOCKED review is a halt: the Approve gate must never see a roadmap a reviewer refused.
+  if (blockedReviews.length) {
+    agentIncidents.push({ role: `review:${blockedReviews.join(',')}`, kind: 'review-blocked', detail: 'reviewer returned BLOCKED; the run halts before the approval gate' })
+    return emptyResult({ owedRetirements, refused: [{ reason: 'review returned BLOCKED for ' + blockedReviews.join(', ') + '; nothing is approved or staged' }] })
   }
   if (missingReviews.length) {
     return emptyResult({ owedRetirements, refused: [{ reason: 'review returned nothing for ' + missingReviews.join(', ') + '; the gate never clears an unreviewed roadmap' }] })
@@ -594,12 +606,23 @@ if (approval.verdict !== 'approved') {
 // Stage: one engine call.
 // ---------------------------------------------------------------------------
 
+// Only the EM or coordinator:git-commit-agent commits (via ceremony.commit_v2 with an explicit
+// pathspec); the executor steps never do.
+await trackAgent('commit:roadmap-artifacts', agent(
+  `Commit the roadmap directory ${ROADMAP_DIR}/ with the message "roadmap-blitz: ${RUN_ID} roadmap
+artifacts". The pathspec is every uncommitted file under ${ROADMAP_DIR}/ (see \`git status --porcelain
+-- ${ROADMAP_DIR}\`), listed by name: never a directory, \`-A\` or \`.\`. If nothing under it is
+uncommitted, that is not an error: return \`committed: false\`. Return \`committed: true\` only when
+the commit landed.
+${REPO_ROOT_RULE}`,
+  { model: 'sonnet', effort: 'low', ...withRole('coordinator:git-commit-agent'), label: 'commit:roadmap-artifacts', phase: 'Stage', schema: COMMIT_SCHEMA },
+))
+
 const staged = await trackAgent('executor:stage', agent(
   `Stage the approved roadmap ${ROADMAP_DIR}/ in two steps, in order.
 
-1. Commit the directory with explicit paths: \`git add\` each file under ${ROADMAP_DIR}/ by name (never
-   \`-A\`, \`.\` or a directory sweep), then commit with the message "roadmap-blitz: ${RUN_ID} roadmap
-   artifacts". If nothing under it is uncommitted, that is not an error.
+1. You never commit or stage: the Executor Commit Gate forbids it. Skip to step 2; the directory is
+   committed by the git-commit-agent step that runs before you.
 2. Run the engine op and return its JSON reply verbatim as \`reply\`:
 
        <resolved coordinator-invoke> roadmap.blitz_stage '{"roadmap": "${ROADMAP_DIR}"}'
@@ -612,7 +635,12 @@ ${REPO_ROOT_RULE}`,
   { model: 'sonnet', ...withRole('coordinator:executor'), label: 'executor:stage', phase: 'Stage', schema: STAGE_SCHEMA },
 ))
 
-const stageReply = staged && !staged.refused && staged.reply ? staged.reply : null
+// The engine op may reply bare or wrapped as { result: {...} }; the staged fields live in the payload.
+const rawStageReply = staged && !staged.refused && staged.reply ? staged.reply : null
+const stageReply = rawStageReply && rawStageReply.gate_report_path === undefined
+  && rawStageReply.result && typeof rawStageReply.result === 'object'
+  ? rawStageReply.result
+  : rawStageReply
 if (!stageReply || !stageReply.gate_report_path) {
   if (staged && staged.refused) {
     agentIncidents.push({ role: 'executor:stage', kind: 'stage-refused', detail: String(staged.refusal || '').slice(0, 500) })
@@ -655,15 +683,15 @@ Return \`paths\`: every repo-relative path you wrote, and \`filled\`: the count 
 ))
 
 if (fill && fill.paths && fill.paths.length) {
-  await trackAgent('executor:commit-fill', agent(
-    `Commit exactly these paths and nothing else, with explicit \`git add\` per path (never \`-A\`, \`.\`
-or a sweep) and the message "roadmap-blitz: ${RUN_ID} stub bodies":
+  await trackAgent('commit:fill', agent(
+    `Commit exactly these paths and nothing else, as an explicit pathspec (never a directory,
+\`-A\`, \`.\` or a sweep), with the message "roadmap-blitz: ${RUN_ID} stub bodies":
 
 ${fill.paths.map((p) => `  - ${p}`).join('\n')}
 
 Never include ${stageReply.gate_report_path}. Return \`committed: true\` only when the commit landed.
 ${REPO_ROOT_RULE}`,
-    { model: 'sonnet', effort: 'low', ...withRole('coordinator:executor'), label: 'executor:commit-fill', phase: 'Fill stubs', schema: COMMIT_SCHEMA },
+    { model: 'sonnet', effort: 'low', ...withRole('coordinator:git-commit-agent'), label: 'commit:fill', phase: 'Fill stubs', schema: COMMIT_SCHEMA },
   ))
 } else {
   agentIncidents.push({ role: 'roadmap-planner:fill-stubs', kind: 'no-fill', detail: 'the planner returned no written paths; the staged stubs stay skeletal' })
@@ -671,6 +699,7 @@ ${REPO_ROOT_RULE}`,
 
 return {
   gate_report_path: stageReply.gate_report_path,
+  staged: true,
   roadmapId: stageReply.roadmap_id || RUN_ID,
   roadmapDir: ROADMAP_DIR,
   approver: APPROVER,

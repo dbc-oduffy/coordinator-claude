@@ -241,6 +241,15 @@ def _gate_payload(path: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def _wave_id_lists(waves: list) -> list[list[str]]:
+    """`waves` as `roadmap.plan_gate` freezes it: lists of baton ids. Raises ValueError on a
+    wave that is not one."""
+    for pos, wave in enumerate(waves):
+        if not isinstance(wave, list) or not all(isinstance(i, str) for i in wave):
+            raise ValueError(f"wave {pos} is not a list of baton ids")
+    return [list(w) for w in waves]
+
+
 def _pack_by_plan(entries: list[dict], per: int) -> list[list[dict]]:
     """Split a wave into fires of at most `per` batons, never across a shared `planPath`.
 
@@ -1398,7 +1407,10 @@ def main(argv=None) -> int:
         )
 
     payload = _gate_payload(report_path)
-    waves = payload.get("waves") or []
+    try:
+        waves = _wave_id_lists(payload.get("waves") or [])
+    except ValueError as exc:
+        return refuse(f"malformed gate report: {exc}")
     if args.wave_index >= len(waves):
         return refuse(
             f"the report has {len(waves)} wave(s); wave {args.wave_index} is not one of them"

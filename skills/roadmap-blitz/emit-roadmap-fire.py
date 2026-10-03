@@ -21,6 +21,7 @@ no interaction mode, malformed frozen candidates); 3 sweep found no candidates; 
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import re
@@ -163,6 +164,20 @@ def _abs_dir(value: str) -> Path:
     return p
 
 
+def _provision_sidecar_cli(value: str) -> Path:
+    p = _abs_dir(value)
+    stem = p.name.lower()
+    for ext in (".exe", ".py"):
+        if stem.endswith(ext):
+            stem = stem[: -len(ext)]
+            break
+    if stem != "provision-sidecar":
+        raise argparse.ArgumentTypeError(
+            f"must be the provision-sidecar CLI, got {p.name!r} (not coordinator-invoke or another CLI): {value}"
+        )
+    return p
+
+
 def _write_json(path: Path, doc: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(doc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -185,10 +200,20 @@ def build_args(cand: dict, repo_root: Path, run_dir: Path, mode: str | None, plu
     return args
 
 
-def emit_fire(invoke: Path, source: Path, run_dir: Path, args: dict) -> str:
+def _write_receipt(fire: Path, reemit: list[str]) -> None:
+    """Land `<fire>.emitted.json` so the Workflow PreToolUse hook sees an emitted, not hand-rolled, fire."""
+    path = Path(__file__).resolve().parents[2] / "bin" / "emit-dispatch-workflow.py"
+    spec = importlib.util.spec_from_file_location("emit_dispatch_workflow", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    mod._write_emission_receipt(fire, None, receipt_extras={"reemit": reemit})
+
+
+def emit_fire(invoke: Path, source: Path, run_dir: Path, args: dict, reemit: list[str]) -> str:
     script = bind(invoke, source, args)
     fire = run_dir / FIRE_NAME
     fire.write_text(script, encoding="utf-8")
+    _write_receipt(fire, reemit)
     return f"Workflow({{ scriptPath: {json.dumps(str(fire))} }})"
 
 
@@ -207,7 +232,7 @@ def check_approval(run_dir: Path) -> Path:
     return path
 
 
-def resume(run_dir: Path, invoke: Path, source: Path) -> str:
+def resume(run_dir: Path, invoke: Path, source: Path, reemit: list[str]) -> str:
     cand_path = run_dir / CANDIDATES_NAME
     if not cand_path.is_file():
         raise Refusal(2, f"resume refused: no frozen {cand_path}")
@@ -218,7 +243,7 @@ def resume(run_dir: Path, invoke: Path, source: Path) -> str:
         raise Refusal(2, f"resume refused: {cand_path} carries no frozen candidate args")
     approval = check_approval(run_dir)
     args["approvalPath"] = str(approval)
-    return emit_fire(invoke, source, run_dir, args)
+    return emit_fire(invoke, source, run_dir, args, reemit)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -228,11 +253,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--sizing", default=None, help="targeted: repo-relative sizing path")
     ap.add_argument("--resume", action="store_true", help="re-bind the frozen args in --trail-dir with approvalPath")
     ap.add_argument("--interaction-mode", choices=MODES, default=None)
-    ap.add_argument("--provision-sidecar-cli", type=_abs_dir, default=None)
+    ap.add_argument("--provision-sidecar-cli", type=_provision_sidecar_cli, default=None)
     ap.add_argument("--plugin-root", type=_abs_dir, default=Path(__file__).resolve().parents[2])
     ap.add_argument("--coordinator-invoke", type=_abs_dir, default=None)
     ap.add_argument("--no-plugin-agents", action="store_true")
     ns = ap.parse_args(argv)
+    reemit = list(sys.argv[1:] if argv is None else argv)
 
     repo_root: Path = ns.repo_root
     source = ns.plugin_root / "workflows" / "roadmap-blitz.mjs"
@@ -242,7 +268,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if ns.resume:
-            print(resume(ns.trail_dir, invoke, source))
+            print(resume(ns.trail_dir, invoke, source, reemit))
             return 0
 
         if ns.sizing is not None:
@@ -270,7 +296,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"skipped {cand['sizing']}: {exc}", file=sys.stderr)
                 continue
             _write_json(run_dir / CANDIDATES_NAME, {"mode": mode, "candidates": [{**cand, "args": args}]})
-            print(emit_fire(invoke, source, run_dir, args), flush=True)
+            print(emit_fire(invoke, source, run_dir, args, reemit), flush=True)
             fired += 1
         if not fired:
             print("every candidate was skipped; nothing to fire", file=sys.stderr)

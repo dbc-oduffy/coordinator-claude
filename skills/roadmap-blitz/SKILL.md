@@ -40,7 +40,9 @@ Resolve the launcher per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin
 
     python3 "${CLAUDE_PLUGIN_ROOT}/skills/roadmap-blitz/emit-roadmap-fire.py" \
         --repo-root <abs> --trail-dir <abs repo>/state/scratch/roadmap-blitz \
-        --provision-sidecar-cli <abs> [--sizing <path>] [--interaction-mode <mode>]
+        --provision-sidecar-cli <abs provision-sidecar> [--sizing <path>] [--interaction-mode <mode>]
+
+`--provision-sidecar-cli` is the `provision-sidecar` CLI (basename checked; never `coordinator-invoke`), resolved per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`.
 
 Targeted with `--sizing`, else a sweep of sizings with `xl_exit: roadmap`, `status: routed` and no
 `state/roadmap/<run-id>/` yet. It freezes `<trail>/candidates.json`, binds the args through the

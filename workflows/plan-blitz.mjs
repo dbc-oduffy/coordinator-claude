@@ -886,10 +886,11 @@ the CLI would have written.`
 // A PLACEHOLDER A DISPATCHED AGENT CANNOT RESOLVE IS A PATH IT WILL INVENT. `<machinery_root>` is
 
 
+// provision-sidecar refuses a bare identity: a bare reviewer name is qualified here, once.
 const PROVISION_CLI_RULE = (agentType) => parsedArgs.provisionSidecarCli
   ? `Get that path by running this EXACT resolved invocation, and do not construct one by hand:
 
-    ${parsedArgs.provisionSidecarCli} --agent-type ${agentType}
+    ${parsedArgs.provisionSidecarCli} --agent-type ${agentType.includes(':') ? agentType : `coordinator:${agentType}`}
 
 It prints the repo-relative sidecar path on stdout and exits 0; on any failure it names the
 precondition that failed and exits non-zero. Use what it prints.

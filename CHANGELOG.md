@@ -4,6 +4,17 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.4.11] — 2026-10-03
+
+A blitz-reliability release.
+
+- **roadmap-blitz.** Reviewer sidecars provision with qualified agent types; a BLOCKED review
+  halts before the Approve gate; approval records require `recordedAt`; commits route through the
+  commit agent; the staged gate report surfaces at top level; the emitted fire carries its receipt;
+  `--provision-sidecar-cli` is validated.
+- **plan-blitz.** Reviewer sidecar agent types are qualified.
+- **Tests.** Doctrine: no test writes outside its repo or scratch; a containment guard contract.
+
 ## [4.4.10] — 2026-10-02
 
 A batched-planning release.

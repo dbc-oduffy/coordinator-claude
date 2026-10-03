@@ -387,8 +387,7 @@ def _wave_ids(gate_report: Path, wave_index: int):
     data = _gate_body(gate_report)
     waves = data.get("waves") or []
     wave = waves[wave_index] if wave_index < len(waves) else []
-    ids = [b["id"] for b in wave.get("batons", [])] if isinstance(wave, dict) else list(wave)
-    return ids, _live_map(data)
+    return list(wave), _live_map(data)
 
 
 def _live_map(data) -> dict:
