@@ -4,6 +4,11 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.4.17] — 2026-10-06
+
+- **Warp usage-limit halt.** A run that hits a usage limit reports `halted_by: usage_limit` with
+  `resets_at`; resume with `TaskStop`, then `Workflow({scriptPath, resumeFromRunId})`.
+
 ## [4.4.16] — 2026-10-06
 
 - **Sizing.** In pm or ceo mode, `sizing-accept-exit-criterion --apm-ruling` records the APM's

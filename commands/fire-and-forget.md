@@ -18,9 +18,8 @@ refusal, blitz refusal, a DR awaiting acceptance, or a hand-dispatched row) brea
 report the halt as a defect, and never finish the work by hand-dispatching rows.
 
 **On return the EM commits, in the turn the return arrives.** The Workflow returns `next_action` and never commits: run
-`coordinator-invoke dispatch.terminal_commit` with its `params`, then read the receipt. A run killed
-by a usage limit still shows as running: `TaskStop` it, then `Workflow({ scriptPath, resumeFromRunId })`
-once the limit resets; a dead run is committed by that op with its `script_path`.
+`coordinator-invoke dispatch.terminal_commit` with its `params`, then read the receipt. A run that
+hits a usage limit reports `halted_by: usage_limit` with `resets_at`: after that, `TaskStop` it, then `Workflow({ scriptPath, resumeFromRunId })`; a dead run is committed by that op with its `script_path`.
 
 **Cross-repo deliverables.** Each row writes in the repo its path names, and
 `dispatch.terminal_commit` lands one scoped commit per repo (`sibling_commits`). Cloud
