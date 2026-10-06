@@ -144,6 +144,8 @@ for the denominator-carrying, capped render.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import re
 import subprocess
@@ -497,6 +499,63 @@ def _subprocess_env() -> "dict[str, str]":
     return env
 
 
+_VERDICT_CACHE_FILE = "assembled-mirror-gate-verdicts.json"
+_VERDICT_CACHE_MAX_ENTRIES = 8
+
+
+def _verdict_cache_key(tree_root: Path, executable: str) -> "str | None":
+    """Hash of every file under `tree_root` (never `.git`) plus the
+    interpreter and pytest versions. `None` when pytest's version cannot be
+    read, so an unkeyable run is never cached."""
+    from importlib import metadata
+
+    try:
+        pytest_version = metadata.version("pytest")
+    except metadata.PackageNotFoundError:
+        return None
+    digest = hashlib.sha256()
+    digest.update(f"{executable}\0{sys.version}\0{pytest_version}\0".encode())
+    for dirpath, dirnames, filenames in os.walk(tree_root):
+        dirnames[:] = sorted(d for d in dirnames if d != ".git")
+        for name in sorted(filenames):
+            path = Path(dirpath) / name
+            digest.update(path.relative_to(tree_root).as_posix().encode() + b"\0")
+            try:
+                digest.update(hashlib.sha256(path.read_bytes()).digest())
+            except OSError:
+                digest.update(b"unreadable")
+    return digest.hexdigest()
+
+
+def _read_cached_verdict(cache_dir: Path, key: str) -> "int | None":
+    try:
+        entries = json.loads((cache_dir / _VERDICT_CACHE_FILE).read_text(encoding="utf-8"))
+        count = entries.get(key)
+    except (OSError, ValueError, AttributeError):
+        return None
+    return count if isinstance(count, int) else None
+
+
+def _write_cached_verdict(cache_dir: Path, key: str, collected_count: int) -> None:
+    """Only clean verdicts are ever stored; a failed write is dropped (the
+    cache is an optimisation, never a gate input)."""
+    path = cache_dir / _VERDICT_CACHE_FILE
+    try:
+        entries = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(entries, dict):
+            entries = {}
+    except (OSError, ValueError):
+        entries = {}
+    entries.pop(key, None)
+    entries[key] = collected_count
+    entries = dict(list(entries.items())[-_VERDICT_CACHE_MAX_ENTRIES:])
+    try:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(entries), encoding="utf-8")
+    except OSError:
+        pass
+
+
 def _verify_isolation_precondition(tree_root: Path) -> bool:
     return (tree_root / "coordinator_core").is_dir()
 
@@ -507,6 +566,7 @@ def run_assembled_mirror_gate(
     python_executable: "str | None" = None,
     timeout_s: float = DEFAULT_TIMEOUT_S,
     coordinator_core_in_declared_scope: bool = True,
+    cache_dir: "Path | str | None" = None,
 ) -> MirrorCollectionResult:
     """Run the tree's own documented fast-tier command, in `--collect-only
     -q` form, as a subprocess with `cwd=tree_root` and `PYTHONPATH`
@@ -610,6 +670,26 @@ def run_assembled_mirror_gate(
             verdict_obtained=False,
         )
 
+    cache_key = _verdict_cache_key(tree_root, executable) if cache_dir is not None else None
+    if cache_key is not None:
+        cached_count = _read_cached_verdict(Path(cache_dir), cache_key)
+        if cached_count is not None:
+            print(f"assembled-mirror-gate: cached clean verdict for {tree_root}", file=sys.stderr)
+            return MirrorCollectionResult(
+                passed=True,
+                collected_count=cached_count,
+                errored=False,
+                exit_code=0,
+                timed_out=False,
+                elapsed_s=0.0,
+                command=command,
+                tree_root=str(tree_root),
+                stdout_tail="cached",
+                stderr_tail="",
+                timeout_s=timeout_s,
+                verdict_obtained=True,
+            )
+
     start = time.perf_counter()
     try:
         result = subprocess.run(
@@ -662,6 +742,8 @@ def run_assembled_mirror_gate(
     if not verdict_obtained:
         errored = True
     passed = verdict_obtained and result.returncode == 0 and not errored
+    if passed and cache_key is not None:
+        _write_cached_verdict(Path(cache_dir), cache_key, collected_count)
 
     return MirrorCollectionResult(
         passed=passed,

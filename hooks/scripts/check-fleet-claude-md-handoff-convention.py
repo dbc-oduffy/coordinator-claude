@@ -1,14 +1,14 @@
-#!/usr/bin/env python3
 """Advisory fleet lint: project CLAUDE.md files that teach hand-authored handoffs.
 
 Flags any fleet repo's CLAUDE.md naming the retired `.claude/handoffs` path, or telling the agent
-to write a handoff file manually. Repos come from `machine-local keys` (`repos.*`). One line per
+to write a handoff file manually. Repos come from one `machine-local dump` read (`repos.*`). One line per
 offending repo and line number, plus the remedy. Always exits 0; unreadable repos are skipped.
 
 Contract: coordinator/docs/wiki/coordinator-tripwires/a-handoff-written-by-hand-is-not-a-handoff.md.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -48,15 +48,10 @@ def fleet_repos() -> Dict[str, Path]:
     """`repos.*` registry entries that are existing directories, de-duplicated by resolved path."""
     out: Dict[str, Path] = {}
     seen: set[Path] = set()
-    for key in _machine_local("keys").splitlines():
-        key = key.strip()
+    for key, val in json.loads(_machine_local("dump")).items():
         if not key.startswith("repos."):
             continue
-        try:
-            val = _machine_local("get", key)
-        except RuntimeError:
-            continue
-        if val and Path(val).is_dir() and Path(val).resolve() not in seen:
+        if isinstance(val, str) and val and Path(val).is_dir() and Path(val).resolve() not in seen:
             seen.add(Path(val).resolve())
             out[key[len("repos."):]] = Path(val)
     return out

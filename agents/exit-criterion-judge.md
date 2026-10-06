@@ -1,7 +1,7 @@
 ---
 name: exit-criterion-judge
 description: "Terminal judge of an execute run: is the prime exit criterion met, not_met, indeterminate."
-model: opus
+model: sonnet
 effort: low
 color: red
 access-mode: read-write

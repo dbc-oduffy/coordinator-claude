@@ -19,7 +19,7 @@ steps depending on live PR/merge state.
 
 On a PowerShell host, invoke the `.exe` launcher by absolute path through the call operator
 (Shape W) — ladder and shapes: `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`.
-Compute and apply are one verb — `brief` was removed (K-114): `merge-assemble apply [--session-id <id>] [--force] [--decisions-file <path>]`, resolved per that ladder. Resolve every `judgment_points[]` entry it returns, via `--decisions-file`, before its gated directive(s) proceed. `--force` bypasses only the node ceremony hard-gate (`d0`).
+Compute and apply are one verb (`brief` is removed): `merge-assemble apply [--session-id <id>] [--force] [--decisions-file <path>]`, resolved per that ladder. Resolve every `judgment_points[]` entry it returns, via `--decisions-file`, before its gated directive(s) proceed. `--force` bypasses only the node ceremony hard-gate (`d0`).
 
 **First Officer Doctrine:** EM may refuse to merge and alert the PM on a branch with known issues.
 
@@ -39,6 +39,11 @@ halt: _"Test suite failed. Fix first, or use `/merging-to-main --force` to bypas
 
 **`--force`** (skill flag, distinct from `apply`'s): skips this step including the Tier-U grant and
 `d0`. Log: _"Force-merge requested — test suite gate bypassed."_
+
+**Accepted red.** A suite that ran red on a baseline predating the branch, with the PM's merge
+order: run it (never `--force`, which skips the run), write the red set to
+`state/audits/<date>-<branch>-red-set.md`, cite that path in the PR body's verification line, and
+merge. A failure not in that set, or a red set the branch introduced, still halts.
 
 ---
 
@@ -68,13 +73,7 @@ until Step 7. Judgment:
 **Ship verdict:** [ship | ship-behind-flag | hold | split | spike-only] — [one-sentence rationale]
 ```
 
-| Verdict | Meaning |
-|---|---|
-| ship | AC satisfied/waived, evidence supports merge |
-| ship-behind-flag | Ready but gated — name the flag |
-| hold | Don't merge — name the concern |
-| split | Two changes land separately — name them |
-| spike-only | Informative only, don't merge |
+Verdict meanings: wiki § Ship verdict table.
 
 **Release-note framing.** Prefer the latest `state/week-changelog/*-pending-release.md`
 accumulator; absent, draft inline by impact (Added/Changed/Fixed/Deps/Internal; template: wiki).
@@ -110,9 +109,9 @@ A schema bump needs `schema-migration-auditor` dispatched, the Staff Engineer re
 Compose the PR body via `merge-gate-and-pr pr-body --ship-verdict "$SHIP_VERDICT" --summary
 "$SUMMARY" --release-notes "$RELEASE_NOTES" --verification "$VERIFICATION" --risk "$RISK" --links
 "$LINKS" --commit-range main..HEAD` (`d4`), then `gh pr create --base main --head "$BRANCH" --title
-"$TITLE" --body "$BODY"`. Pass `--release-notes` and `--demo-path` without headings of their own,
-release-note version headings at `###` or lower. Exit 2 `unrecognized arguments` (older engine):
-rerun without `--summary`, `--verification`, `--risk`, `--links`.
+"$TITLE" --body "$BODY"`. Pass `--release-notes` and `--demo-path` without headings of their own, version headings at `###`
+or lower. Exit 2 `unrecognized arguments` (older engine): rerun without `--summary`,
+`--verification`, `--risk`, `--links`.
 
 If a version bump was suggested but not yet PM-confirmed, surface it in the PR body: _"Suggested
 bump: patch ({old} → {new}) — confirm before tagging."_
@@ -121,9 +120,9 @@ bump: patch ({old} → {new}) — confirm before tagging."_
 
 ## Step 6: Local Validation Confirmation
 
-Step 1's local run is the gate — confirm it passed on the exact head being merged (re-run
-`/validate` if commits landed since). A failure blocks merge — _"Validation failed
-on {test}. Fix and re-run `/merging-to-main`, or investigate via `coordinator:systematic-debugging`."_
+Confirm Step 1's run passed on the exact head being merged (re-run `/validate` if commits landed
+since). A failure blocks merge — _"Validation failed on {test}. Fix and re-run `/merging-to-main`,
+or investigate via `coordinator:systematic-debugging`."_
 
 ---
 
@@ -137,8 +136,6 @@ deleted only when its remote tip is an ancestor of the base — a merged PR merg
 the branch's later pushes; otherwise keep it and report the tip and its unmerged-commit count. Recovery recipes for
 "base branch policy prohibits" and "head not up to date": wiki. **Merge conflicts** — do not force
 through; offer the PM merge-main-in-and-resolve (recommended) or rebase; stop and wait.
-
-The PR requirement (0 approvals) and Step 1's local validation are the gates.
 
 **IF `d2` PLANNED A RELEASE TAG, CUT IT NOW, AT THE MERGE COMMIT:**
 
@@ -157,8 +154,8 @@ merge-to-main` (§ Plugin-local `coordinator/bin/`, `resolve-coordinator-bin.md`
 
 ## Step 8: Post-Merge Re-Verify Shared Infra
 
-After a conflict-resolved or concurrently-edited merge, confirm each touched file still carries a
-canonical phrase from your change at `HEAD`; missing → re-apply and push a follow-up commit.
+After a conflict-resolved or concurrently-edited merge, confirm each touched file keeps a canonical
+phrase from your change at `HEAD`; missing → re-apply, push a follow-up.
 
 ---
 
@@ -166,8 +163,8 @@ canonical phrase from your change at `HEAD`; missing → re-apply and push a fol
 
 First run `<plugin-root>/bin/structural-index-refresh.py` (non-blocking, always exit 0; `COORDINATOR_STRUCTURAL_INDEX_REFRESH_OFF=1` disables) — report its line if it prints one.
 
-Check out main (`COORDINATOR_OVERRIDE_BRANCH=1`), pull, delete the local branch. Clear any stray
-worktree (`git worktree remove <path>`).
+Check out main (`COORDINATOR_OVERRIDE_BRANCH=1`), pull, delete the local branch (a follow-on
+`/bug-blitz` cuts a fresh day branch from main). Clear any stray worktree (`git worktree remove <path>`).
 
 ---
 
@@ -194,8 +191,8 @@ $ENTRY_PATHS`) flips every matching entry to the earliest release tag whose hist
 in-flight branches: _"Multiple work branches in flight — verify these don't carry work intended for
 this PR."_
 
-**Negative-spec — the auto-memory drain gate is gone from this ceremony, do not restore it.**
-Why: wiki § Retired: auto-memory drain gate.
+**The auto-memory drain gate is gone from this ceremony; do not restore it** (wiki § Retired:
+auto-memory drain gate).
 
 ## Red Flags
 
@@ -204,5 +201,4 @@ Why: wiki § Retired: auto-memory drain gate.
 
 ## Integration
 
-**Called by:** `coordinator:finishing-a-development-branch` (Option 1); PM/EM directly, never
-`/workday-complete`.
+**Called by:** `coordinator:finishing-a-development-branch` (Option 1); PM/EM, never `/workday-complete`.

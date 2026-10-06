@@ -95,12 +95,7 @@ operator (Shape W, `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` �
 
 POSIX-host form (Shape A/B) dials the same op through the bare `coordinator-invoke` door.
 
-**Pass `session_id` explicitly — the op refuses without it.** Scope is "none", so identity is
-never taken from the environment, and `cwd` does not supply it either: `cwd` selects which tree is
-scanned, nothing more. With no explicit `params.session_id` and no carried identity on the wire the
-op returns `caller identity could not be established`, rather than falling back to the environment
-of whoever spawned the warm server and committing one session's paths under another's claim. Both
-params are required in practice: `cwd` for the tree, `session_id` for the identity.
+**Pass `session_id` explicitly — the op refuses without it** (`caller identity could not be established`): scope is "none", identity is never taken from the environment, and `cwd` only selects the tree scanned.
 
 **Payload is one positional JSON string, not `k=v`** — `cwd=<repo> message="<subject>"` does not
 parse. **Never pass `--repo`**: this op is scope "none" and refuses it (`-32603`). Add `"dry_run": true` to preview; omit it to commit.
@@ -130,13 +125,7 @@ caller-widened.
   § Phase 5).
 - **The chain-root baton this session claimed and finished** (the only kind test 3 admits): stamp
   `deployment_state: shipped` + `shipped_in: <this session's commit>`; `status` stays `claimed`
-  (the schema enum admits only `open`/`claimed`). Same first-hand-observer ground as the
-  `dispatch`-routed sizing below — the session that did the work observes its own completion.
-  Leaving it unstamped strands a claim no successor will ever release, and
-  `sweep-terminal-handoffs` never archives it — it classifies an unstamped record `not-terminal`
-  and walks past. Nothing downstream catches this: there is no boot-time sweep behind it. Both
-  keys, or the baton sits in `state/handoffs/` indefinitely and every roadmap that counts it reads
-  behind its real state. The stamp makes it archivable; the drain below is what files it.
+  (the schema enum admits only `open`/`claimed`). Both keys, or the baton is stranded in `state/handoffs/` — `sweep-terminal-handoffs` walks past an unstamped record and nothing else catches it. The stamp makes it archivable; the drain below files it.
 - **A `dispatch`-routed sizing that routed this session:** the close stamps it `shipped` when
   this session committed the sizing file and non-bookkeeping work; stamp by hand on a
   `j-dispatch-sizing-ship-failed` judgment point or when the sizing file was not in this session's commits. A second XS
@@ -149,15 +138,7 @@ caller-widened.
   session did not author still lands (a hand `git mv` is refused by `safe_commit_offer` as
   unattributable). No `closed_at`/`closed_by` (schema disallows both). A record still at `sized`, `routed`, or `draft` is untouched no matter how
   finished it looks — only what a prior step already marked terminal moves.
-  **A citation does NOT pin a record in place, and archiving a cited one does not dangle.**
-  `plan.schema.json` does constrain `sizing_object` to `^state/sizings/.+\.yaml$` and the plan is
-  never repointed — but the FK is archive-agnostic by design:
-  `coordinator_core/ops/_sizing_citation.py::resolve_sizing_citation` resolves live-then-archive,
-  probing `archive/sizings/**` by basename, and both consumers call it
-  (`assert_plan_sizing_citation`, `dispatch_emit/emit.py`). A value resolving only under `archive/`
-  is correct, not broken — the sizings sibling of the existing handoff FK fallback. So archive
-  every terminal record; `close_gate.terminal_sizings` filters on status alone, which is correct as
-  built rather than a producer gap.
+  **A citation does not pin a record:** the sizing FK resolves live-then-archive (`resolve_sizing_citation`), so a value resolving only under `archive/` is correct. Archive every terminal record.
 - `coordinator-fold-execution-record` sidecars this session produced — a diverged sidecar's prose
   is already in the envelope (judgment point `j-diverged-sidecars`; a failed scan surfaces as
   `j-diverged-sidecars-degraded`), so settle that point, then delete. Never open sidecars to read.

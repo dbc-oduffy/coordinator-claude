@@ -355,7 +355,10 @@ No \`pluginRoot\` was bound: a path written \`<plugin-root>/...\` in this brief 
 coordinator plugin root, which \`snippets/resolve-coordinator-bin.md\` explains how to resolve. A
 repo-relative \`coordinator/...\` path does not exist in a consumer repo; never read one.`
 
-const COMMON = `${REPO_ROOT_RULE}\n${CLI_RESOLUTION_RULE}${PLUGIN_ROOT_RULE}`
+const FRICTION_RULE = `
+Close the record you write with one line \`Friction: <what this brief should have told you>\` (\`none\` is a fine answer).`
+
+const COMMON = `${REPO_ROOT_RULE}\n${CLI_RESOLUTION_RULE}${PLUGIN_ROOT_RULE}${FRICTION_RULE}`
 
 function emptyResult(extra) {
   return {
@@ -617,6 +620,23 @@ if (approval.verdict !== 'approved') {
 // ---------------------------------------------------------------------------
 // Stage: one engine call.
 // ---------------------------------------------------------------------------
+
+// The PM's approval lives in the trail's approval.json; plan authors read the roadmap's OVERVIEW,
+// so a resumed PM approval is stamped there exactly as the APM branch stamps its own.
+if (approval.approver === 'pm') {
+  await trackAgent('record:pm-approval', agent(
+    `Stamp the PM's recorded approval onto the roadmap so plan authors can see it. Edit
+${ROADMAP_DIR}/OVERVIEW.md frontmatter to \`status: final-approved\`, adding \`approver: pm\` and
+\`approval_utterance:\` set to this utterance as a quoted string, verbatim:
+
+${JSON.stringify(approval.utterance)}
+
+Change nothing else. Return the OVERVIEW path as \`recordPath\` and the current UTC time, ISO-8601,
+as \`recordedAt\`.
+${REPO_ROOT_RULE}`,
+    { model: 'sonnet', effort: 'low', ...withRole('coordinator:executor'), label: 'record:pm-approval', phase: 'Approve', schema: RECORD_SCHEMA },
+  ))
+}
 
 // Only the EM or coordinator:git-commit-agent commits (via ceremony.commit_v2 with an explicit
 // pathspec); the executor steps never do.

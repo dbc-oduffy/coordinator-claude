@@ -7,10 +7,7 @@ order: 880
 
 - **None, and `scope_mode` is `feature`/`architecture`/`spike`** → produce the forced-articulation block before drafting tasks, surfacing its material items to the PM: **(1)** restate the problem(s) in the PM's vocabulary, falsifiably; **(2)** name your single biggest uncertainty; **(3)** flag any intent you inferred that the PM did not state.
 
-**Un-gaming clauses for step (2)** — a yes/no "I have the shape ✓" is banned:
-1. The least-certain item must be **the scope boundary whose wrong guess costs the most rework**, not merely "something you're unsure about."
-2. State the **probability-weighted consequence** ("if I'm wrong about X, chunks C2–C4 are rework"). A trivial selection self-evidently fails this.
-3. It must be a **PM-altitude question** (product intent, scope boundary, success criteria). Tactical uncertainties (naming, test framework, commit shape, file structure) are **disqualified as off-altitude**, not merely low-stakes — resolve them, never surface them.
+**Step (2) un-gaming:** a yes/no "I have the shape" is banned. The item must be the scope boundary whose wrong guess costs the most rework, with its probability-weighted consequence ("if I'm wrong about X, C2–C4 are rework"), at PM altitude (intent, scope boundary, success criteria) — tactical uncertainties are disqualified, resolve them.
 
 ## Branch C — Compose the plan body
 
@@ -23,15 +20,7 @@ OBSERVE is doctrine, not the falsifier's choice: artifact state the work leaves 
 content, a field's value, a row's status, a test's result. Never process residue about the work:
 commit subjects or messages, branch names, PR titles, ceremony logs.**
 
-**If the criterion is not observable in artifact state, the CRITERION is wrong — never add a chunk
-to make it observable.** Rewrite it against what the work actually produces, or accept a narrower
-one you can observe.
-
-**An artifact-state check must respect a ratified absence** — a plan may rule an artifact out of
-scope (no migration, no shim, no row). **Where the plan has ratified an absence, the instrument
-observes THAT — the absence is the expected state, and its appearance is the failure.** Check what
-the plan decided before writing a presence assertion. Measured failure tells behind these three
-rules, and the review cycle their absence cost: writing-plans.md § Prime Exit Criterion.
+**A criterion not observable in artifact state is the wrong criterion** — rewrite it, never add a chunk to make it observable. **Where the plan ratified an absence (no migration, no shim, no row), the instrument observes THAT; the absence's appearance is the failure.** Evidence: writing-plans.md § Prime Exit Criterion.
 - _Composing exit criteria?_ -> Name the plan's own targeted tests plus its acceptance oracle; a fast/full suite going green is never the criterion. See writing-plans.md Test Surface.
 - _Full-coverage check: does the task list cover the COMPLETE problem set, or only the slice fitting this session?_
   → **Consume the computed evidence.** `plan-coverage-checker`'s Lens 1 (Phase 2, Oracle-vs-Slate Cross-Reference) reports the set-difference; run it, or read its sidecar, before asserting coverage by inspection. Disposing of any gap is the EM's call.
@@ -46,11 +35,7 @@ rules, and the review cycle their absence cost: writing-plans.md § Prime Exit C
   → That volume means the plan is mis-scoped, not that each cut needs individual disposition. Stop enumerating IDs; describe the shape the cuts form, bucket them, and propose one spinoff per bucket — the `plan⇄sizing` return edge, not a push-through.
 
 - _Writing `## Anti-scope`, or any prose about how the plan gets executed?_
-  → **Name no execution vehicle.** Anti-scope binds the change; the vehicle is the executing EM's
-  call at dispatch time, default a background Workflow. *"Do not fan this out"* / *"EM-sequenced,
-  chunk at a time"* will be overridden, so write the real constraint instead: a shared write target
-  is a `depends_on` edge on the spine, a Workflow-inexpressible shape is a named carve-out
-  (`coordinator/docs/wiki/em-operating-model/workflow-orchestration.md`). Tripwire: `A-PLAN-DOES-NOT-PICK-THE-EXECUTION-VEHICLE`.
+  → **Name no execution vehicle.** The executing EM picks it at dispatch (default a background Workflow); a "do not fan this out" line gets overridden — write the real constraint instead: a shared write target is a `depends_on` edge, a Workflow-inexpressible shape is a named carve-out (`coordinator/docs/wiki/em-operating-model/workflow-orchestration.md`). Tripwire: `A-PLAN-DOES-NOT-PICK-THE-EXECUTION-VEHICLE`.
 - _Wave shape depends on something this plan has not established ("do X, then decide")?_
   → That is a **spike chunk before execution**, not a licence to grind chunk-at-a-time. An
   unresolved decision left in the body bounces at `/execute-plan` Phase 1.4 anyway.

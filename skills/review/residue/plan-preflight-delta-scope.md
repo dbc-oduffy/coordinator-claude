@@ -9,18 +9,10 @@ order: 1
 
 **Delta-scope on re-runs.** The Pre-Dispatch Verification rule "Re-run mechanical pre-flights after material plan amendments" is a re-run trigger, NOT a re-run-everything trigger. When re-running these checks on an *amended* plan (not a first pass), scope each checker to the delta:
 
-- **prior-art-checker** — re-run only if the amendment changed a claim, added a new
-  subsystem, or introduced a new external reference. A pure wording/typo amendment does
-  not re-trigger it.
-- **docs-checker** — re-run only over the *newly cited or changed* external APIs, not
-  the full citation set already verified in the prior pass.
-- **plan-coverage-checker** — re-run when the oracle or slate table changed (rows
-  added/removed/edited). A prior sidecar exists; the checker renames it (Phase 0) and the
-  EM diffs the new sidecar against it to see what the amendment moved.
-- **plan-reviewer** (XL lane only, lens suffix `plan-review-check`) — re-run on an amended
-  accepted-XL plan, then integrate via `review-integrator` before the pre-flights. Scope the
-  brief to the amended sections; a pure wording/typo amendment does not re-trigger it. It is a
-  chain reviewer, not a pre-flight, but its sidecar belongs to the plan-sidecar family below.
+- **prior-art-checker** — only if the amendment changed a claim, added a subsystem, or introduced a new external reference.
+- **docs-checker** — only over newly cited or changed external APIs.
+- **plan-coverage-checker** — when the oracle or slate table changed; the checker renames the prior sidecar (Phase 0) and the EM diffs the new one against it.
+- **plan-reviewer** (XL lane only, lens suffix `plan-review-check`) — on an amended accepted-XL plan, scoped to the amended sections, then integrate via `review-integrator` before the pre-flights. A chain reviewer, not a pre-flight; its sidecar belongs to the plan-sidecar family below. A pure wording/typo amendment re-triggers none of these.
 
 **A delta re-run writes the canonical path, never a delta-suffixed one.** The plan-sidecar
 family has exactly one path per `(plan-stem, lens)` pair — `.coordinator-local/plan-sidecars/<plan-stem>.<lens>.md`
@@ -28,9 +20,7 @@ family has exactly one path per `(plan-stem, lens)` pair — `.coordinator-local
 by inserting `.<UTC-mtime>` before its final `.md` (hyphens for colons) and
 writes the fresh findings at the canonical path. A `<plan-stem>.<lens>-delta.md` name is invisible to consumers: reject it.
 
-Name the delta in the re-dispatch brief ("amendment touched §X and the slate table;
-scope your check to those"). A full re-run is correct only when the amendment was
-structural enough that the prior pass's coverage fails to hold.
+Name the delta in the re-dispatch brief; a full re-run is correct only when the amendment was structural enough that the prior pass's coverage fails.
 
 Both checks below fire independently — a non-trivial plan that also cites C++/UE APIs runs both workers.
 

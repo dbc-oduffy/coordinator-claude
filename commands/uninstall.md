@@ -186,7 +186,7 @@ engine-computable fact.
     `# --- coordinator claude-author shim [generated] ---` /
     `# --- end coordinator claude-author shim ---`. Delete that block and the shim file by hand.
 34. **`claude-author` wrapper (`install-claude-author-wrapper.py`)** — CANNOT-REVERSE-SAFELY.
-    Copies `claude-author.py` to `${CLAUDE_HOME:-$HOME}/.local/bin/claude-author`; the directory
+    Copies `claude-author.py` to `~/.local/bin/claude-author` (under `$CLAUDE_HOME` when set); the directory
     is the operator's, so delete only that one file by hand.
 
 ## Uninstall boundary

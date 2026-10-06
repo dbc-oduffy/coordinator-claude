@@ -40,19 +40,13 @@ this skill runs with cwd set to the consuming repo, where that path does not exi
 - **Domain-looking universals default to `retag-local`**, never a blind `[universal]` string replace.
 - **A `wiki-append`/`wiki-new` target must be reachable** from a real traversal surface (index,
   skill step, dispatch preamble) — not merely exist.
-- **Local mode auto-applies** `discard`/`wiki-append`/`retag-local`/dedupe/age-sweep, plus a
-  tradeoff-free `agent-prompt-edit`, `hook-edit`, `script-edit`, `snippet-sync-update` or
-  `project-structural` row below plan weight. The PM-surface list keeps only direction and taste
-  calls: `doctrine-edit`, `memory-pointer`, `doe_escalation`, and product or taste choices.
+- **Local mode auto-applies** `discard`/`wiki-append`/`retag-local`/dedupe/age-sweep plus tradeoff-free `agent-prompt-edit`, `hook-edit`, `script-edit`, `snippet-sync-update`, `project-structural` rows below plan weight; the PM surface keeps `doctrine-edit`, `memory-pointer`, `doe_escalation`, and product/taste choices.
 - **Central mode needs a PM decision per record** (apply / defer / reject, batching OK, per-cluster
   allowed) — never auto-applied; the `lessons-central-route` `pm-decision` hand-back is the mechanism.
 - **A strip run follows the apply run it cites** — no row strips before its central commit exists.
-- **Fail-close:** a strip-list id with no routed sibling record blocks the run's `COMPLETE`
-  sentinel — surface to the PM, don't push through.
-- **Universals-pending is a post-run count, not a pre-run stop.** A local run hands back
-  `route-to-central`; surface ≥ 20 in the Phase 8 report with a central-run recommendation.
-- **Never fabricate a routing `id`** — every cited id must exist in its extraction. Never
-  hand-correct a router's fabricated output; re-dispatch it instead.
+- **Fail-close:** a strip-list id with no routed sibling record blocks the `COMPLETE` sentinel — surface to the PM.
+- **Universals-pending is a post-run count, not a pre-run stop:** a local run hands back `route-to-central`; surface ≥ 20 in the Phase 8 report with a central-run recommendation.
+- **Never fabricate a routing `id`** (every cited id must exist in its extraction), and never hand-correct a router's output — re-dispatch it.
 - **An emit refusal is reported, not routed around.**
 
 ## Phase Flow (invocation pointers — mechanics: wiki)

@@ -60,12 +60,11 @@ A spinoff carries only what `handoff.author_fork` derives for it: `origin_*` pro
 
 ## Anti-scope
 
-- **`reviewed_at_workstream_complete:` does NOT apply to spinoffs.** Spinoffs are forks authored mid-session, not continuations of a session's own work — the workstream-complete review marker tracks what the *current* EM reviewed before handing off a workstream they were executing. A spinoff has no executed diff to review; it is a brief for someone else's future session. Do not add `reviewed_at_workstream_complete:` to spinoff frontmatter.
-- **Don't bake content generation into this skill.** No heuristic templates that fill `## Specification` from the slug. The body is the value — the scaffold provides the shape, the EM provides the content.
-- **Don't auto-delete or auto-merge spinoffs that get picked up.** Spinoffs follow the standard handoff lifecycle on consumption: `/pickup` mutates frontmatter in place, then the picking-up session's `/handoff` (chain-archival) or `/workstream-complete` moves the file to `archive/handoffs/`. The `<!-- consumed: -->` marker is deprecated — do not write it.
+- **`reviewed_at_workstream_complete:` does NOT apply to spinoffs** — a spinoff has no executed diff to review; never add it to spinoff frontmatter.
+- **Don't bake content generation into this skill** — the scaffold provides the shape, the EM the content.
+- **Don't auto-delete or auto-merge picked-up spinoffs.** They follow the standard handoff lifecycle (`/pickup` mutates frontmatter; the picker's `/handoff` or `/workstream-complete` archives). The `<!-- consumed: -->` marker is deprecated — never write it.
 - **Don't extend `kind:` to other values speculatively.** Further extension requires a documented recurring shape, not speculation — the hand-authorable set is deliberately narrower than the schema enum (see `schemas/handoff.schema.json` for the full list, including engine-only kinds no human or EM may scaffold).
-- **Don't replace `/handoff` with `/spinoff`.** They serve different needs. The writer-of-spinoff still ends their own session with `/handoff`.
-- **Don't migrate prior orphan-promotion handoffs.** Their lifecycle is over; renaming retroactively is churn. New spinoffs use the `kind:` field; old ones stay as-is.
+- **Don't replace `/handoff` with `/spinoff`** — the spinoff writer still ends their own session with `/handoff`. Don't migrate prior orphan-promotion handoffs.
 
 `venue: workstation` marks a spinoff that needs a human or a workstation session at a terminal — a cloud pickup sweep lists it as not-claimable instead of auto-claiming it. Absent, or `venue: any`, means either venue may claim it.
 

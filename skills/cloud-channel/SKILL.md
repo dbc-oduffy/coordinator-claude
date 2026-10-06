@@ -29,13 +29,7 @@ and base. Every step is idempotent, so re-running after a compaction is safe.
    `GIT_AUTHOR_EMAIL=noreply@anthropic.com GIT_COMMITTER_EMAIL=noreply@anthropic.com`. Then
    `git update-ref refs/heads/<branch> <new> <head>`, a compare-and-swap that never touches the
    index or working tree; never use `git commit` here.
-1. **Record the operator.** Cloud commits are authored `Claude <noreply@anthropic.com>` and carry
-   no trace of the human whose session made them. That is what makes `/consolidate-git`
-   hold them for a verdict instead of absorbing them. Load the GitHub MCP tools with
-   `ToolSearch`, call `get_me`, and run
-   `git config --global coordinator.operator "<id>+<login>@users.noreply.github.com"`. The
-   `prepare-commit-msg` hook stamps it on every later commit as an `Operator:` trailer. If
-   `get_me` is unavailable, skip this step; nothing else depends on it.
+1. **Record the operator.** Cloud commits are authored `Claude <noreply@anthropic.com>` with no trace of the human, so `/consolidate-git` holds them for a verdict. Load the GitHub MCP tools with `ToolSearch`, call `get_me`, and run `git config --global coordinator.operator "<id>+<login>@users.noreply.github.com"`; the `prepare-commit-msg` hook stamps it as an `Operator:` trailer. If `get_me` is unavailable, skip.
 2. **Push.** `git -C <checkout> push -u origin <branch>`; on a network failure retry up to four
    times at 2s, 4s, 8s, 16s.
 3. **Reuse before creating.** List open PRs on `<owner>/<repo>` with head `<owner>:<branch>`. If

@@ -3031,6 +3031,8 @@ def _scaffold_spinoff(
     specification: str | None = None,
     acceptance: Sequence[str] = (),
     kind: str = "spinoff",
+    governing_plan: str | None = None,
+    next_steps: Sequence[str] = (),
 ) -> str:
     """Generate validator-clean spinoff frontmatter + canonical section skeleton.
 
@@ -3248,6 +3250,8 @@ def _scaffold_spinoff(
         lines.append(_sizing_object_line(sizing_object))
     if handoff_id:
         lines.append(f"handoff_id: {_yaml_quote(handoff_id)}")
+    if governing_plan:
+        lines.append(f"governing_plan: {_yaml_quote(governing_plan)}")
     if predecessor_id:
         lines.append(f"predecessor_id: {_yaml_quote(predecessor_id)}")
     if _blocked_by:
@@ -3293,7 +3297,7 @@ def _scaffold_spinoff(
         "",
         "## Recommended next steps for the picking-up EM",
         "",
-        "<!-- 3-7 numbered steps, each verifiable. -->",
+        *(list(next_steps) if next_steps else ["<!-- 3-7 numbered steps, each verifiable. -->"]),
         "",
         "## Anti-scope",
         "",
@@ -4922,6 +4926,60 @@ def _prefill_baton_sections(baton_abs: str, fills: dict[str, list[str]], repo_ro
     return _names
 
 
+def _repo_relative_posix(value: str, repo_root: str) -> str:
+    """``value`` as a repo-relative POSIX path when it is an absolute path under ``repo_root``; else with POSIX separators."""
+    root = os.path.abspath(repo_root)
+    if os.path.isabs(value):
+        probe = os.path.abspath(value)
+        if os.path.normcase(probe) == os.path.normcase(root) or os.path.normcase(probe).startswith(
+            os.path.normcase(root) + os.sep
+        ):
+            return os.path.relpath(probe, root).replace("\\", "/")
+        return value
+    return value.replace("\\", "/")
+
+
+def _relativize_repo_paths(text: str, repo_root: str) -> str:
+    """Strip every spelling of ``repo_root`` (backslash, slash, drive-letter case) from persisted ``text``."""
+    root = os.path.abspath(repo_root)
+    for spelling in {root, root.replace("\\", "/")}:
+        text = re.sub(re.escape(spelling) + r"[\/]?", "", text, flags=re.IGNORECASE)
+    return text
+
+
+def _sizing_remit_and_steps(
+    meta: dict, intent: str, sizing_rel: str, plan_rel: str | None,
+) -> tuple[str, list[str]]:
+    """Return (what-this-covers text, numbered next steps) built only from the sizing's own fields."""
+    estimate = meta.get("estimate")
+    tshirt = estimate.get("tshirt") if isinstance(estimate, dict) else None
+    criterion = meta.get("exit_criterion")
+    statement = criterion.get("statement") if isinstance(criterion, dict) else None
+    covers = [intent]
+    if tshirt:
+        covers.append(f"- Estimate: {tshirt}")
+    if meta.get("interaction_mode"):
+        covers.append(f"- Interaction mode: {meta['interaction_mode']}")
+    if not _is_placeholder_text(statement):
+        covers.append(f"- Exit criterion: {' '.join(statement.split())}")
+    covers.append(f"- Sizing: {sizing_rel}")
+    if plan_rel:
+        covers.append(f"- Plan: {plan_rel}")
+    route = meta.get("route")
+    steps = []
+    if route == "plan":
+        steps.append(
+            f"1. Read the plan at {plan_rel}." if plan_rel
+            else f"1. Author the plan for the intent above (route: plan; sizing {sizing_rel})."
+        )
+        steps.append("2. Execute the plan chunk by chunk, gating each on its acceptance criteria.")
+    elif route:
+        steps.append(f"1. Act on the sizing's route: {route} (sizing {sizing_rel}).")
+    if not _is_placeholder_text(statement):
+        steps.append(f"{len(steps) + 1}. Verify the exit criterion: {' '.join(statement.split())}")
+    return "\n".join([covers[0], "", *covers[1:]]), steps
+
+
 def mint_baton_from_sizing(sizing_rel: str, repo_root: str) -> dict:
     """Mint the baton for an M+ sizing, or return the one its `baton:` edge already names.
 
@@ -4935,6 +4993,7 @@ def mint_baton_from_sizing(sizing_rel: str, repo_root: str) -> dict:
     from coordinator_core.frontmatter.primitives import read_fm_field_unquoted  # noqa: PLC0415
     from coordinator_core.ops.deliverable_cascade import _read_sizing_meta  # noqa: PLC0415
 
+    sizing_rel = _repo_relative_posix(sizing_rel, repo_root)
     _parts = sizing_rel.replace("\\", "/").split("/")
     if os.path.isabs(sizing_rel) or ".." in _parts or _parts[:2] != ["state", "sizings"]:
         raise SizingMintRefused(
@@ -4971,6 +5030,10 @@ def mint_baton_from_sizing(sizing_rel: str, repo_root: str) -> dict:
         )
 
     specification, acceptance, reference_materials = _sizing_baton_sections(meta)
+    if specification:
+        specification = _relativize_repo_paths(specification, repo_root)
+    acceptance = [_relativize_repo_paths(_a, repo_root) for _a in acceptance]
+    reference_materials = [_relativize_repo_paths(_r, repo_root) for _r in reference_materials]
     if existing_abs is not None:
         prefilled = _prefill_baton_sections(
             existing_abs,
@@ -4993,8 +5056,12 @@ def mint_baton_from_sizing(sizing_rel: str, repo_root: str) -> dict:
             "prefilled": prefilled,
         }
 
+    intent = _relativize_repo_paths(intent, repo_root)
     title = " ".join(str(meta.get("name") or intent).split())
     one_line = " ".join(intent.split())
+    _plan = meta.get("plan")
+    plan_rel = _repo_relative_posix(_plan, repo_root) if isinstance(_plan, str) and _plan.strip() else None
+    covers_text, next_steps = _sizing_remit_and_steps(meta, intent, sizing_rel, plan_rel)
     summary = _fit_summary(one_line)
     dlv_source = meta.get("deliverable_id")
     if dlv_source:
@@ -5017,11 +5084,13 @@ def mint_baton_from_sizing(sizing_rel: str, repo_root: str) -> dict:
         handoff_id=handoff_id,
         sizing_object=sizing_rel,
         summary=summary,
-        what_this_covers=intent,
+        what_this_covers=covers_text,
         reference_materials=reference_materials,
         specification=specification,
         acceptance=acceptance,
         kind="session-handoff",
+        governing_plan=plan_rel,
+        next_steps=next_steps,
     )
     _assert_no_archived_handoff_twin(out_abs, handoff_id, repo_root)
     try:

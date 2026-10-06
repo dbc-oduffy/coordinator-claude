@@ -49,9 +49,9 @@ snapshot; a concurrent `git reset` can fork local from origin invisibly to a tre
 side holds a commit the other lacks (`<branch>` vs `origin/<branch>`), the brief is stale — re-run
 it before absorbing, deleting, or merging.
 
-**A commit that looks orphaned mid-run can be a transient merge-base read.** Re-run the
-merge-base check after the tree settles and look for a recovering merge commit before treating it
-as lost; try the cherry-pick first — an empty result means already applied, never force it.
+**`consolidate-assemble apply` executes with no preview** — every unconditional directive (deletes,
+worktree removals, prune) fires. Read `brief` first and pass `--decisions-file`; never run a bare
+`apply` to see what it would do. A commit that looks orphaned mid-run: wiki § Consolidate-git.
 
 Each judgment point below carries its own evidence and per-option guidance in the decision
 object — decide from it, never invent a verdict the evidence doesn't support.
@@ -69,17 +69,19 @@ file the current branch never touched must be absorbed, not skipped. Choosing **
 the computed cherry-pick/merge selection (cherry-pick for small counts, merge for large)
 via the closed CLI table — you are not hand-choosing the git verb.
 
+**keep.** A branch the PM wants left alive (e.g. committed to within N hours) is neither absorbed
+nor deleted: **skip** is a delete verdict, so leave that point unresolved (no directive depending
+on it fires) and report the branch as `kept` with the PM's stated reason.
+
 **A ref can exist to hold objects rather than changes.** Never resolve a `backup/`- or
 `pre-*`-named ref on unique-commit count: name what it insures against, and if unknown, report and
 leave it. "Merged into HEAD" is not "safe to lose".
 
 **Conflict resolution (surfaces mid-directive-apply, not as a separate judgment point).**
-Inspect conflicting files — if the current branch already supersedes the change, abort and skip
-(note it in the report); if needed, resolve and continue. Never force through conflicts blindly.
+If the current branch already supersedes the change, abort and skip (note it); else resolve and
+continue. Never force through conflicts.
 
-**Post-absorb re-verify on conflict-resolved shared infra.** For a conflict-resolved file with a
-known specific change, confirm its canonical phrase survived; if missing, re-apply it in a
-follow-up commit. Weight toward shared files touched by multiple branches.
+**Post-absorb:** confirm a conflict-resolved shared file kept its canonical phrase; re-apply if lost.
 
 **`j-worktree-dirty-<path>`.** Worktrees are forbidden, so a dirty one is stray debris to drain,
 never state to keep; the question is how to remove it without destroying uncommitted work. Surface
@@ -97,7 +99,7 @@ or flagged dirty worktrees) — otherwise **stop-here**. Phrase it as a recommen
 ## Report
 
 Summarize per the `branches`/`worktrees` gates: absorbed, skipped (with the
-superseding evidence named), deleted (branches + worktrees), and left untouched (other owners).
+superseding evidence named), kept, deleted (branches + worktrees), and left untouched (other owners).
 Close with current branch, ahead-of-main count, and the merge-ready disposition.
 
 ## Edge Cases
@@ -105,10 +107,7 @@ Close with current branch, ahead-of-main count, and the merge-ready disposition.
 **On main with no other branches:** abort early — nothing to consolidate.
 
 **Remote branches with no local counterpart:** fetch first, so their commits are inspected
-before a remote delete is proposed.
-
-**Cross-device branch reconciliation:** merge, never cherry-pick; verify the merged tree against
-EACH parent from a pre-merge baseline.
+before a remote delete is proposed. Cross-device reconciliation: wiki § Consolidate-git.
 
 ## What This Does NOT Do
 

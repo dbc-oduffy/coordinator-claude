@@ -4029,9 +4029,12 @@ def dispatch_end_of_run_assembled_mirror_gate(
                 if _declared_scope_root not in all_declared_roots
                 else _declared_scope_root in engine_roots
             )
+        from coordinator_core.session.machinery_paths import cache_dir as _machinery_cache_dir
+
         result = run_assembled_mirror_gate(
             repo_root,
             coordinator_core_in_declared_scope=coordinator_core_in_declared_scope,
+            cache_dir=_machinery_cache_dir(str(_REPO_ROOT)),
         )
         if result.not_applicable:
             # Gate does not refuse; the round proceeds. Never reaches the
@@ -5498,6 +5501,16 @@ def _contributing_roots(target: ResolvedTarget) -> List[Path]:
 _AUTHORED_PARITY_GLOBS = ("bin/*statusline*.py",)
 
 
+def _is_engine_forward_stub(path: Path) -> bool:
+    """True when `path` is a doctrine-side `_engine_forward` stub: the engine tree is the
+    author, so there is no authored copy to hold parity against."""
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return "_engine_forward" in text and "Edit in claude-klabauter" in text
+
+
 def assert_authored_parity(target: ResolvedTarget) -> None:
     """Fail the row when a file matching `_AUTHORED_PARITY_GLOBS` in `target.source_dir`
     differs from (or is missing at) the contributing root its entry is routed to by
@@ -5512,6 +5525,8 @@ def assert_authored_parity(target: ResolvedTarget) -> None:
             continue
         for authored in sorted(target.source_dir.glob(pattern)):
             rel = authored.relative_to(target.source_dir).as_posix()
+            if _is_engine_forward_stub(authored):
+                continue
             shipped = root / rel
             if not shipped.is_file():
                 drift.append(f"{rel}: absent from {root}")

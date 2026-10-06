@@ -31,15 +31,13 @@ _Runs first: verifying you understood the problem precedes verifying the file pa
   → **GREEN (no unproven mechanism):** proceed to Branch C. **GREEN (resumed from trampoline):** cite the `viable` verdict record (`docs/research/spike-verdicts/`); re-enter Branch C.
   → **RED:** viability hinges on a mechanism not yet empirically demonstrated. **Action:** trampoline to `coordinator:spike` instead of drafting contingent chunks that assume it works.
   → **Trampoline mechanism** (the `plan⇄spike` back-edge; its spike-side half lives in `coordinator/skills/spike/SKILL.md` § The `plan⇄spike` back-edge):
-    - **(a) Timing.** Fires HERE, before Branch C begins; the deferred plan-authoring intent is captured in the verdict record's **`gated route`** field, never a plan-body stub or parked chunk list.
-    - **(b) Dispatch.** Invoke `coordinator:spike` on the specific mechanism, carrying the DEC-4 structural `trampoline: true` signal, which the Branch B entry path supplies; a bare `/spike` without it is always PM-gated — do not fabricate the signal outside this entry path.
-    - **(c) Resume.** On a `viable` verdict, **resume re-enters Branch B — NOT a fresh Branch A triage, NOT a full seven-dimension re-run.** Only the eighth dimension flips; carry the other seven forward. Continue into Branch C.
+    - Fires HERE, before Branch C; the deferred intent lives in the verdict record's **`gated route`** field. Dispatch `coordinator:spike` carrying the `trampoline: true` signal this entry path supplies (never fabricate it elsewhere). On `viable`, resume re-enters Branch B with only the eighth dimension flipped.
     - **(d) `not-viable`.** Does NOT loop back into Branch B — it goes to `coordinator:shape` / PM for a mechanism reconsider.
 - _Verified-scope collapse — does Branch B's own verification show the ask is materially smaller than what was sized?_
   → **A TYPED LOOP-BACK to `coordinator:sizing` (the `plan⇄sizing` back-edge), not a third exit.**
   → **Fires only when ALL hold:** (1) the seven-dimension checklist is all-green; (2) the eighth dimension is green; (3) the drafted `scope:` list is ≤2 files (count it), no new abstraction, an existing test surface already covers it, and no cross-repo contract (no scope path crosses a repo root).
   → **Action:** invoke `coordinator:sizing` with `--probe-signal collapse` and the Branch B findings as `--scout-evidence`.
-  → **Resume — all seven routes disposed:** **`plan`** → resumes at **Branch C**, not Branch B; full terminal. **`spec-dispatch`** → Branch C at S-lane weight; light terminal. **`dispatch`** → abandon the pass and dispatch directly. **`shape`** → leave `plan`, shape's exit chains back here. **`roadmap`/`pm-decision`/`goal-setting`** → **unreachable by construction** (the probe signal only moves the t-shirt down); one returning anyway means the probe signal was mis-fed — stop and re-read the Branch B evidence.
+  → **Resume:** `plan` → Branch C (full terminal); `spec-dispatch` → Branch C at S-lane weight; `dispatch` → abandon the pass; `shape` → leave `plan`; `roadmap`/`pm-decision`/`goal-setting` are unreachable (mis-fed probe signal: stop and re-read the evidence).
   → **Termination.** Fires at most once per pass; do not add a cycle guard.
 - _Fix-locus discrimination — is this the right layer to fix the bug?_
   → **Green:** the upper-layer registry/dispatch/extension site is identified by `file:line` (one level above each proposed edit site) AND you can name a concrete reason patching it is wrong (registry already gates this case; it is a closed contract; it is hot-path with unrelated callers).
@@ -92,9 +90,7 @@ hook — a non-empty `## Distill pass` referenced from the closing handoff or th
 - _A single chunk would hand ONE executor multiple independent deliverables?_ (N modules or disjoint files whose **write** targets do not overlap — check it as a pairwise intersection over each deliverable's own write-target file list; an empty intersection between any two is the fan-out signal)
   → **Decompose into N chunks at plan-write time — fan-out chunking is a plan-author obligation, not an execution-time afterthought.** Only two justifications keep them together: (a) genuine write-overlap — even then a *sequence* of small dispatches, not one fat executor — or (b) an unpinnable shared interface. **A shared read-only source and a pinned import contract are NOT serialization reasons** — both are `reads_at_head:`, and only WRITE-overlap gates parallelism. Size each chunk to ~5-10 min, 15 min ceiling. **`writes:` is REQUIRED on every non-deferred row** (`deferred: true` rows are exempt). **`depends_on:` (array of `{chunk, gate_kind}`) is required wherever the author imposes a gate the write graph cannot compute** — never for write-overlap, which the wave-builder derives on its own; consult `plan-tasks.schema.json`'s `gate_kind` NEGATIVE SPEC first, three of six kinds are unwritable there. `dispatch.emit` cannot fire on an undeclared array. _Late-correction: [`skills/execute-plan/SKILL.md`](../execute-plan/SKILL.md) Phase 1.6; the ledger schema lives only there._
 - **Read `gates.composition.path_rename_or_move`** (`fires`/`paths[]`, any `git mv`, rename, relocation, or directory restructure — **the trigger is path movement, not `scope_mode`**).
-  → **Schedule a post-execution `doc-link-checker` dispatch as the closeout chunk, subject to the precondition below.**
-  → **Precondition, checkable inline:** grep the repo for inbound links to each moved path (`grep -rn "<old-path>" --include=*.md`), then diff against what `validate-references` already covers. Schedule the closeout chunk ONLY when the residual is non-empty. **Skip, and note why, when** inbound links are private-repo absolute self-URLs or already covered by `run-all-checks`.
-  → **When the gate fires and the plan hands the move to an executor**, the chunk brief MUST carry the rename procedure (`coordinator/agents/executor.md` § Moving or Renaming Files — plain `mv`, not `git mv`; report both path sets to the EM), and the chunk's `writes:` MUST enumerate BOTH sides — old paths and new. `writes:` takes plain strings, no glob syntax (`coordinator/schemas/plan-tasks.schema.json:107-110`); a directory-shaped move is enumerated path-by-path.
+  → **Schedule a post-execution `doc-link-checker` dispatch as the closeout chunk**, only when you grep the repo for inbound links to each moved path (`grep -rn "<old-path>" --include=*.md`), diff against what `validate-references` covers, and the residual is non-empty; note why when skipped. When an executor does the move, the brief carries the rename procedure (`coordinator/agents/executor.md` § Moving or Renaming Files — plain `mv`) and `writes:` enumerates BOTH old and new paths as plain strings (no globs).
 
 - A row that creates or modifies a module directory's barrel file (e.g. `index.ts`) declares that
   barrel path in its own `writes:` — a re-exporting entry point is a write like any other, and
@@ -110,12 +106,8 @@ hook — a non-empty `## Distill pass` referenced from the closing handoff or th
 
 → **Do not ask the PM whether to proceed to whichever terminal the route selected.** Asking "want me to invoke review now?" is a doctrine violation — the answer is always yes.
 
-Plan review altitude is graded by lane: a named Opus persona on the `plan` route, a Sonnet
-`plan-reviewer` lens ahead of it on the accepted-XL lane, and on the `spec-dispatch` lane a
-single pre-dispatch `plan-reviewer` pass and no Opus review. The lane's compensating control is
-the light terminal's own mandatory scoped `code-reviewer` pass (§ `spec-dispatch` row), binding
-on every exit; the pre-dispatch pass reviews the plan body and does not replace `code-reviewer`'s
-post-hoc review of the executor's diff.
+Plan review altitude is graded by lane (named Opus persona on `plan`; Sonnet `plan-reviewer` lens first on accepted-XL; a single pre-dispatch `plan-reviewer` pass on `spec-dispatch`, whose light terminal's mandatory scoped `code-reviewer` pass still binds; the pre-dispatch pass does not replace `code-reviewer`'s post-hoc review of the executor's diff). Detail: `coordinator/docs/wiki/planning/writing-plans.md` § Plan skill residue.
+
 
 The `plan`-route terminal runs a pipeline of substrate verification, four-lens composition, (accepted-XL only)
 `plan-reviewer`, three pre-flights, and a named Opus reviewer who applies and verifies its own findings.

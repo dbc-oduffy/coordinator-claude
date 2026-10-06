@@ -10,7 +10,7 @@ Invariants:
     - `run_leg` converts any exception into could-not-check, never current.
     - A `drift` remedy is a confirmed-reachable command or the literal
       `no local remedy -- <owner> publish`; never `setup.py`.
-    - File completeness joins the publisher's `.coordinator/expected-manifest.json`
+    - File completeness joins the publisher's expected-manifest (`MANIFEST_RELPATH`)
       (`{"schema": 1, "source_head": .., "paths": {posix: blob_sha1}}`) against the
       mirror checkout's own `.git/index`, parsed in-process: a missing, mismatched or
       size-dirty path is drift. No manifest, an unparseable one, or an index this

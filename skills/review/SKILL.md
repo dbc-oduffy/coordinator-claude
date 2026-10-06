@@ -65,14 +65,7 @@ This is unchanged: only code review over a diff runs as a parallel wave.
 
 **Pre-flight sidecars are consumed alongside the plan**, never inserted into that chain; on a non-XL plan the Sonnet pre-flights (`docs-checker`, `prior-art-checker`, `plan-coverage-checker`) gate before the Opus reviewer; on the accepted-XL lane a `plan-reviewer` pass runs ahead of them, so four Sonnet-tier passes precede the Opus persona. `plan-coverage-checker` has no EM opt-out.
 
-**Angelique (apm) trigger — size-gated, plan-review-only.** Wired into the `full` review tier's
-final stage (`contract/review-roster-fragment.json`), sequenced last — after `code-reviewer`/the Staff Engineer
-and the Director of Engineering (`eng-director`). No `review-signals.json` entry: SIZE-gated on the plan's `sizing_object`
-(`estimate.tshirt`), reachable via the roster's tier walk. **They never gate:** `blocking_verdicts`
-is `null`, like `coordinator:docs-checker`.
-
-**They fire at M and above.** Rostered in **both** `standard` and `full`; the roster membership IS
-the threshold. Never add a second threshold surface here to carve M back out.
+**Angelique (apm) trigger — size-gated, plan-review-only.** Wired into the `full` tier's final stage (`contract/review-roster-fragment.json`), after `code-reviewer`/the Staff Engineer and the Director of Engineering; SIZE-gated on the plan's `sizing_object` (`estimate.tshirt`). Rostered in both `standard` and `full`, so roster membership IS the M-and-above threshold — add no second threshold surface. They never gate: `blocking_verdicts` is `null`, like `coordinator:docs-checker`.
 
 ---
 
@@ -81,20 +74,14 @@ the threshold. Never add a second threshold surface here to carve M back out.
 _A reviewer has returned output, having already applied every finding in place and verified its
 own findings ledger. The EM checks whether anything should come back out._
 
-**The double-check is a disagreement scan, not a re-adjudication.** Findings reaching the EM have
-already been applied by the reviewer itself and logged to its ledger, so re-judging each one
-repeats the pipeline's work. Read the applied diff and the reviewer's findings ledger, and reject
-what you disagree with via `review-findings-ledger reject --sidecar <path> --finding <id> --reason
-"<one line>"` — only the EM may run `reject`; a subagent invoking it is denied.
+**The double-check is a disagreement scan, not a re-adjudication.** Findings reaching the EM are already applied and ledgered by the reviewer. Read the applied diff and the findings ledger and reject what you disagree with via `review-findings-ledger reject --sidecar <path> --finding <id> --reason "<one line>"` — only the EM may run `reject`.
 
 **Application is not measured by count.** Rejecting a nit you disagree with is a correct outcome.
 The reviewer applies everything under an `OK`/`WARN`/`BLOCKED` verdict; under `REJECTED`/`PIVOT`
 (premise failure) or a Kira `rebuild_recommended: true`, it applies nothing and logs every row
 `suspended`.
 
-**Forbidden:** defer-to-later, capture-for-backlog, time-estimate-as-rationale. Any of these →
-surface to PM, the EM does not decide to defer. Rejecting a finding you disagree with is none of
-those — it is a disposition, and it needs a reason via `reject`.
+**Forbidden:** defer-to-later, capture-for-backlog, time-estimate-as-rationale — surface to PM; the EM does not decide to defer. Rejecting a disagreeable finding is a disposition, and needs a `reject` reason.
 
 **Provenance gate — resolve before triage.** Reviewer (persona/`code-reviewer`) sidecar at
 `state/subagent-share/<session>/<key>.md`? → the ledger contract above applies. Pre-flight lens
@@ -113,14 +100,7 @@ raises one — the reviewer applying the edit does not resolve who owns that cal
 EM dispatches), feed output back into EM context. Surface-specific eligibility and the
 test-evidence-parser capture-before-dispatch rule are assembled by the op.
 
-**Rejecting a finding from a plan body invalidates its mise-prep stamp** the same way applying one
-did. `mise_prepped_sha` is `canonical_body_sha` of the plan BODY, so a reviewer's or the EM's edit
-makes any existing `mise_prepped_*` attest STALE — not absent. Say STALE and route to a re-gate
-(`<settings-home>/bin/mise-prep-gate <plan>`), never to a re-stamp: re-stamping records a
-pass the bar was never re-run for. Never read `mise_prepped_by` for presence; the predicate is a
-recomputed sha, at every caller. Tripwire:
-`A-PRESENT-MISE-PREPPED-STAMP-IS-NOT-A-CERTIFICATION`; four states, four repairs:
-`coordinator/docs/wiki/lesson-triage/mise-prepped-attest.md`.
+**Rejecting a finding from a plan body invalidates its mise-prep stamp** as applying one did: `mise_prepped_sha` is `canonical_body_sha` of the plan BODY, so any edit makes an existing `mise_prepped_*` attest STALE, not absent. Say STALE and route to a re-gate (`<settings-home>/bin/mise-prep-gate <plan>`), never a re-stamp; the predicate is a recomputed sha, never `mise_prepped_by` presence. Tripwire: `A-PRESENT-MISE-PREPPED-STAMP-IS-NOT-A-CERTIFICATION`; four states, four repairs: `coordinator/docs/wiki/lesson-triage/mise-prepped-attest.md`.
 
 **`/review` fires on exiting `/plan`, not after an announcement.** The EM invokes it in the same
 turn, without waiting to be asked.

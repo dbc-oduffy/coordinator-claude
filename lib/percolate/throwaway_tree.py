@@ -56,7 +56,9 @@ from __future__ import annotations
 import os
 import shutil
 import stat
+import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -207,7 +209,13 @@ def build_throwaway_tree(
     raise so a failed build never orphans one.
     """
     dest_repo_root = Path(dest_repo_root)
-    tmp_dir = Path(tempfile.mkdtemp(prefix="claude-klabauter-throwaway-tree-"))
+    build_start = time.perf_counter()
+    # Same volume as the dest, so the `--local` clone hardlinks its object
+    # store instead of failing and copying a whole `.git`.
+    try:
+        tmp_dir = Path(tempfile.mkdtemp(prefix="claude-klabauter-throwaway-tree-", dir=dest_repo_root.resolve().parent))
+    except OSError:
+        tmp_dir = Path(tempfile.mkdtemp(prefix="claude-klabauter-throwaway-tree-"))
     try:
         # Both legs are publish-path bulk transfer (a whole-tree clone and
         # checkout), which the brightline does not govern; `remote=True` gives
@@ -232,7 +240,15 @@ def build_throwaway_tree(
                 f"(exit {result.returncode}): {result.stderr.strip()}"
             )
 
-        result = run_git(["-C", str(tmp_dir), "checkout", "-q", "HEAD"], remote=True)
+        # Trap: a clone does not inherit the dest's local line-ending config, so
+        # it would check out under the machine's global autocrlf and every
+        # pristine comparison against dest-shaped staging would miss.
+        eol_args: "list[str]" = []
+        for key in ("core.autocrlf", "core.eol"):
+            got = run_git(["-C", str(dest_repo_root), "config", "--get", key], remote=True)
+            if got.returncode == 0 and got.stdout.strip():
+                eol_args += ["-c", f"{key}={got.stdout.strip()}"]
+        result = run_git(["-C", str(tmp_dir), *eol_args, "checkout", "-q", "HEAD"], remote=True)
         if result.returncode != 0:
             raise ThrowawayTreeError(
                 f"git checkout -q HEAD failed in throwaway clone of {dest_repo_root} "
@@ -269,6 +285,10 @@ def build_throwaway_tree(
         else:
             victim.unlink()
 
+    print(
+        f"[timing] build_throwaway_tree: {time.perf_counter() - build_start:.3f}s ({dest_repo_root})",
+        file=sys.stderr,
+    )
     return tmp_dir
 
 

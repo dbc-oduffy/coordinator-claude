@@ -4,6 +4,19 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.4.13] — 2026-10-06
+
+A test-suite and dogfood-fix release.
+
+- **Exit-criterion judge** runs on Sonnet: a well-written criterion needs no Opus to resolve.
+- **Warp execute.** The EM runs the terminal commit on return, and the command names the
+  recovery for a run the usage limit killed.
+- **Blitz skills.** Bug blitz takes a captured suite log as its baseline; merging-to-main gains
+  an accepted-red path; roadmap blitz records the PM's approval on the overview; plan blitz routes
+  `review_signals` to the matching reviewers.
+- **Schemas.** Handoff 10.11.0 adds the `goal-blitz` and `roadmap-blitz` kinds; bug-backlog 1.3.0
+  adds the `resolved` status.
+
 ## [4.4.12] — 2026-10-06
 
 A consolidation and hook-weight release.

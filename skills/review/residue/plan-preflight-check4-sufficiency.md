@@ -7,13 +7,9 @@ order: 6
 
 **Check 4 — Sufficiency (does the spine reach the prime exit criterion?)** _(runs independently of Checks 1, 2, 2b, and 3)_
 
-This is a magnitude question, not a shape one: if every chunk in the spine executes exactly as
-written and perfectly, does the falsifier go green? The baseline makes it answerable — there is a
-measured start and a stated target, so estimate the distance the spine closes against the distance
-the prime exit criterion demands.
+A magnitude question: if every chunk executes perfectly, does the falsifier go green? Estimate the distance the spine closes against the baseline-to-target distance the prime exit criterion demands.
 
-**Distinct from divergence** (`coordinator/docs/wiki/coordinator-tripwires/a-green-plan-is-not-a-delivered-plan.md`):
-sufficiency is right direction, wrong size; this check catches it before the spine is authored.
+**Distinct from divergence** (`coordinator/docs/wiki/coordinator-tripwires/a-green-plan-is-not-a-delivered-plan.md`): sufficiency is right direction, wrong size.
 
 Verdict is one of `sufficient` / `insufficient` / `cannot-tell` — always stated, never omitted.
 
@@ -23,8 +19,5 @@ Verdict is one of `sufficient` / `insufficient` / `cannot-tell` — always state
 | `insufficient` | Names the shortfall in the prime exit criterion's own units where they exist — e.g. "closes ~15 of the ~205 required." |
 | `cannot-tell` | Itself a finding: a plan whose delivered magnitude cannot be reasoned about before execution is a plan nobody can steer. |
 
-**Routing is the point.** `insufficient` and `cannot-tell` are RE-PLAN triggers, not findings to
-note and pass. Resizing upward via the `plan⇄sizing` return edge is unremarkable — never a failure,
-and never the default either: a check that routinely returns `insufficient` is a reviewer inflating
-sizes rather than estimating them. Narrowing the prime exit criterion to fit the spine is
+**Routing is the point.** `insufficient` and `cannot-tell` are RE-PLAN triggers, not findings to note and pass. Resizing upward via the `plan⇄sizing` return edge is unremarkable but never the default (a check that routinely returns `insufficient` inflates sizes). Narrowing the prime exit criterion to fit the spine is
 forbidden — that is the vacuous AC one altitude up.

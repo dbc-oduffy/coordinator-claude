@@ -112,21 +112,9 @@ Needs-Attention warning, non-fatal.
 deliverables from ratified Phase 2 input), `## Branch`, empty `## Pinboard`. The heading set is
 closed and verifier-enforced — never invent a heading; no project-summary/status section.
 
-**Extended substrate seeds** (Shape W trampolines, run as subprocesses — each is fail-loud, so
-`source`-ing would kill the shell): test-command detection (`setup-detect-test-cmd.py --root`,
-writes `fast_test_cmd`/`full_test_cmd`, fails loud on ambiguous candidates, never silent-picks);
-health-ledger seed (`setup-seed-health-ledger.py`, every row `?`, never fabricates a grade);
-RAG-index decision (`setup-rag-decision.py --root`, *author box only* — UE + daemon present →
-offer to index; everything else → `un-indexed; use Tier-3` written to CLAUDE.md; a consumer box
-skips the step and CLAUDE.md carries no RAG text); fnm pin-resolution (`setup-fnm-pin.py` — acts
-only when `.node-version`/`.nvmrc` present; fails loud if `fnm` is missing, never installs it).
-`coordinator:new-project` inherits all four via delegation.
+**Extended substrate seeds** (Shape W trampolines, run as subprocesses — each is fail-loud): `setup-detect-test-cmd.py --root` (writes `fast_test_cmd`/`full_test_cmd`, never silent-picks an ambiguous candidate); `setup-seed-health-ledger.py` (every row `?`); `setup-rag-decision.py --root` (*author box only* — UE + daemon present → offer to index, else `un-indexed; use Tier-3` in CLAUDE.md; a consumer box skips it and writes no RAG text); `setup-fnm-pin.py` (only when `.node-version`/`.nvmrc` present; never installs `fnm`). `coordinator:new-project` inherits all four.
 
-**Agent-install-manifest.json seed** (if absent, never overwritten): minimal compliant shape per
-the schema — `agent_install_contract_version: 3`, `repo_id`, `setup_skill`,
-`standalone_setup_script` with `entry_point_contract`, empty `direct_deps`/`required_env_vars`/
-`tested_platforms`, one `configurable_locations` example, `packageability_compliance.declared:
-true`. Substitute `[REPO_NAME]` from the ratified Phase 2 name.
+**Agent-install-manifest.json seed** (if absent, never overwritten): minimal schema-compliant shape — `agent_install_contract_version: 3`, `repo_id`, `setup_skill`, `standalone_setup_script` with `entry_point_contract`, empty `direct_deps`/`required_env_vars`/`tested_platforms`, one `configurable_locations` example, `packageability_compliance.declared: true`; `[REPO_NAME]` from the ratified Phase 2 name.
 
 **Strategic self-description skeleton** (if absent): scaffold
 `state/strategic/self-description.yaml` with every field provenance `asserted` or null. The
@@ -146,14 +134,7 @@ directory. Copy, no-clobber, every ALWAYS template from that directory:
 are collected by the repo's own `fast_test_cmd`.
 
 **Widened spawn tripwire — `.py`/`.ps1`, ALWAYS, not offered; same `tests/templates/` condition.**
-Copy `test_no_bare_python_spawn.py` + `spawn_detect.py` (verbatim vendored copy, stdlib-only) + the
-`no_console_creationflags()` helper (`_win_portability.py` for hooks, `win_portability.py` for
-lib/bin) into `<scope>/guards/`. Adjust the repo-root hop count via the template's `SCOPE_SUBDIR`
-constant; extend `spawn_detect.DEFAULT_EXCLUDE` with the repo's own ephemera dirname, naming a
-vendored tree by path, never a bare `dist`-shaped dirname. Exemptions are keyed on a stable marker,
-never `file:line`: inline `# guard-allow: <rule-id> <rationale>`, or the central
-`spawn_exemption_register.yaml` + monotonic `RATCHET_MAX` for bulk legacy trees.
-`# popup-intentional-last-resort` is honoured identically to `guard-allow`.
+Copy `test_no_bare_python_spawn.py` + `spawn_detect.py` (verbatim, stdlib-only) + the `no_console_creationflags()` helper (`_win_portability.py` for hooks, `win_portability.py` for lib/bin) into `<scope>/guards/`; set `SCOPE_SUBDIR` and extend `spawn_detect.DEFAULT_EXCLUDE` with the repo's ephemera dirname (a vendored tree by path). Exemptions key on a stable marker (`# guard-allow: <rule-id> <rationale>`, `# popup-intentional-last-resort`, or `spawn_exemption_register.yaml` + monotonic `RATCHET_MAX`), never `file:line`.
 
 **Fleet memo-destination registration — mechanical half (*author box only*).** On accept (lane- or
 PM-answered), only-if-absent register via `repo-setup-args-and-register register-repo` (Shape W;

@@ -278,6 +278,7 @@ const PLAN_SCHEMA = {
 
     blockedReason: { type: 'string' },
     exitCriterion: { type: 'string' },
+    reviewSignals: { type: 'array', items: { type: 'string' } },
     tldr: RETURN_TLDR_SCHEMA,
   },
 }
@@ -553,6 +554,17 @@ const REVIEWER_ROSTER = new Set([
   'coordinator:overengineering-reviewer',
 ])
 
+// A plan's own `review_signals` select the domain reviewer; these are reachable only through a
+// signal, never named by the size-review EM, so they sit outside REVIEWER_ROSTER. architecture,
+// backend and security resolve to the default staff-eng; the vocabulary is single-sourced in
+// contract/review-signals.json.
+const SIGNAL_REVIEWERS = {
+  'data-science': 'coordinator:staff-data-sci',
+  'front-end': 'coordinator:senior-front-end',
+  'ux-flow': 'coordinator:staff-ux',
+  'cross-repo-seam': 'coordinator:eng-director',
+}
+
 
 const REVIEWER_ALIASES = new Map([
   ['patrik', 'coordinator:staff-eng'],
@@ -574,14 +586,18 @@ const SINGLE_PLAN_REVIEWERS = {
 }
 
 
-function resolveReviewers(named) {
-  const wanted = Array.isArray(named) && named.length ? named : [DEFAULT_REVIEWER]
+const SIGNAL_ROSTER = new Set(Object.values(SIGNAL_REVIEWERS))
+
+function resolveReviewers(named, signals) {
+  const signalled = (Array.isArray(signals) ? signals : []).map((sig) => SIGNAL_REVIEWERS[sig]).filter(Boolean)
+  const base = Array.isArray(named) && named.length ? named : [DEFAULT_REVIEWER]
+  const wanted = [...base, ...signalled]
   const substitutions = []
   const resolved = []
 
   for (const raw of wanted) {
     const text = String(raw || '').trim()
-    if (REVIEWER_ROSTER.has(text)) {
+    if (REVIEWER_ROSTER.has(text) || SIGNAL_ROSTER.has(text)) {
       resolved.push(text)
       continue
     }
@@ -1350,6 +1366,9 @@ Getting this wrong does not fail loudly on your side: every reviewer is aimed at
 return here, so a sidecar path sends more agents at a file that is not the plan, and the baton
 spends a wave slot producing nothing.
 ${singleContextBlock}
+Return \`reviewSignals\`: the \`review_signals\` ids you declared in the plan's frontmatter (empty when
+none). They select the plan's domain reviewers; the roadmap's own OVERVIEW.md frontmatter
+(\`approver\`, \`approval_utterance\`) is the PM's Approve record — read it before writing that none exists.
 ${MISE_PREP_RULE}
 ${PM_BRIEF_RULE}
 ${NO_EXECUTION_RULE}
@@ -2270,6 +2289,8 @@ batons you let into it, not by how thinly you staff the authoring of one.
       'coordinator:staff-eng'                 general engineering rigour
       'coordinator:eng-director'              the baton crosses a repo or team boundary
       'coordinator:overengineering-reviewer'  the size came down and you want the plan held to it
+    A domain reviewer (data-science, front-end, ux) is never yours to name: the plan's own
+    \`review_signals\` add it once the plan is written.
 
     Emit these EXACT strings. This repo's own docs may name reviewers by persona first name
     ("add the Game Dev Reviewer or the Data Science Reviewer", "have the Staff Engineer look at it") — that is human shorthand and it is NOT an
@@ -2622,7 +2643,7 @@ const chains = await pipeline(
     const coverageResult = planCoverageAsReview(baton, coverage)
     const coverageVerdict = coverageResult ? resolveVerdict(coverageResult) : null
 
-    const { reviewers, substitutions } = resolveReviewers(decision.reviewers)
+    const { reviewers, substitutions } = resolveReviewers(decision.reviewers, plan.reviewSignals)
     // SEQUENTIAL, never parallel — § Design decisions 2. Two reviewers editing one artifact would
     // race, so this baton's reviewers apply and verify one at a time, each reading the ones before
     // it. `pipeline()` with one stage IS a sequential loop; used here (not `parallel()`) because
@@ -2918,6 +2939,12 @@ id.
 Open the sidecars. A summary line saying OK is not evidence anyone checked — a reviewer can
 confirm an author's prose without opening the code that would falsify it. Spot-check one
 substantive claim per plan against the tree.
+
+**Cross-plan seams are yours; no reviewer sees across plans.** Over this wave's plans and their
+approved blockers, check two things: every export one plan needs from another is promised by that
+other plan, and no two plans' spine \`writes:\` collide (nor does a plan write a file a sibling
+declares without declaring it). A hit is a pull naming both plans, the file or export, and the
+one-line repair; the pulled plan is revised in place, not rewritten.
 
 The premise check makes no claim about the plan. The \`premise-check\` verdict on the reviews line
 is the wave's routing of its rows, not the checker's opinion: BLOCKED means citations did not

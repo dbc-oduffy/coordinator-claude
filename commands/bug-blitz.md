@@ -33,8 +33,10 @@ restate it.
 ## Arguments
 
 `--appetite=hunt|standard|sweep` (default `standard`) — passed through to the emitter; its
-meaning is the profile's `appetite` block, not restated here. `--max=N` → `--limit N` on the
-emit call. `--budget-tokens=N` — passed through to the emit call unchanged.
+meaning is the profile's `appetite` block. `standard` stops at 40 agent calls and its `where`
+excludes P3: name `sweep` for a large TF set. `--max=N` → `--limit N`. `--budget-tokens=N` — passed through.
+To subset rows add `--where '<JSON DNF>'` (or `--where-file`) to the emit call: an OR of AND-lists
+of `[field, op, value]`, ops `==`/`in`; state in the report any rows it excluded.
 
 ## Out of Scope
 
@@ -47,7 +49,7 @@ Note backlog presence/count; confirm `git branch --show-current` is the day bran
 as `BLITZ_BRANCH`: the `coordinator.dayBranch` designation when the repo has one (a cloud session
 records its harness-assigned branch there at SessionStart), else `work/{machine}/{date-or-span}`.
 Halt on anything else, always on `main`, the default branch, or a detached HEAD — fail-closed, no
-override. Mint run ID; scratch `state/scratch/bug-blitz/{run-id}/`. Mechanics: wiki.
+override. After `/merging-to-main` deleted the day branch, cut a fresh `work/{machine}/{date}` from main first. Mint run ID; scratch `state/scratch/bug-blitz/{run-id}/`. Mechanics: wiki.
 
 ## Phase 0.6 — Tier-U Authorization
 
@@ -60,13 +62,16 @@ nothing, backlog-only leg, note the decline in the report.
 
 ## Phase 0.7 — Suite Baseline (no-op unless granted)
 
-The baseline is taken before any committing grind fires in this tree — including
-`/debt-triage` Step 1's improvement grind — or waits for that grind to finish; a baseline
-straddling another run's commits attributes its regressions to this one.
+Take the baseline before any committing grind fires in this tree (including `/debt-triage`
+Step 1's) or wait for it to finish; a baseline straddling another run's commits misattributes.
 
-**Cloud session: no baseline.** The cloud environment block bars every broad suite, and no
-in-container invocation tests the tree under test. Skip the grant ask and this phase, report
+**Cloud session: no baseline.** The cloud environment bars every broad suite. Skip the grant ask and this phase, report
 `suite: not-run (cloud)`, and prove each fix with the tests covering its surface.
+
+**Existing evidence is the baseline.** A captured suite log or red-set audit record the PM or a
+prior run named (a `state/test-runs/` record, `state/audits/*red-set*`) replaces a fresh run: hand
+it to `test-evidence-parser` as the captured output. When the machine-wide suite mutex is held, proceed
+on that record and take the confirm-green suite when the lock frees.
 
 `coordinator-resolve-validation-cmd --full` resolves `TEST_CMD`: exit 0 full suite; exit 3
 fast-tier fallback, report as `fast-fallback`, never call it the full suite; exit 2 unconfigured,
@@ -87,14 +92,12 @@ After Phase 0.7, emit through C4's queue route and fire it interactively:
 Run `emit-dispatch-workflow --queue state/bug-backlog --profile bug --appetite <a> --limit <N> --budget-tokens <N> --out state/scratch/bug-blitz/{run-id}/blitz.workflow.mjs --repo-root <abs repo root>`, resolving the CLI per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`.
 
 Resolve `j-bug-blitz-commit-readiness` before firing — firing IS the emitted grind's first
-commit. Fire with the `Workflow({scriptPath, args})` call the emitter prints on stderr; firing is interactive, never `--fire` — the
-wrapper docstring (`emit-dispatch-workflow`) says why. Firing this Workflow is
-the PM's standing approval for every safe fix, refute-confirmed close and plan-weight baton the
-run produces — no further per-item ask.
+commit. Fire with the `Workflow({scriptPath, args})` call the emitter prints on stderr; firing is
+interactive, never `--fire` (the wrapper docstring says why). Firing is the PM's standing approval
+for every safe fix, refute-confirmed close and plan-weight baton the run produces — no per-item ask.
 
-**Cost reporting.** Read the engine's run-cost record, `state/queue-grind/bug/runs/<run-id>.json`,
-beside the hand-back, and report its spend next to the hand-back counts. This command makes no
-pre-run cost estimate.
+**Cost.** Report the spend in `state/queue-grind/bug/runs/<run-id>.json` beside the hand-back
+counts; no pre-run estimate.
 
 ## Spinoff Gate — Mint Themed Batons from the Baton Hand-Back After the Run
 
@@ -115,17 +118,14 @@ command from the receipt.
 
 The four outcome classes of `coordinator/docs/wiki/ceremony-calibration/queue-terminus-doctrine.md` — cite, don't
 restate: dispatch (`small`/`fix`), solo spinoff (`big`, PM-authorized), close
-(already-fixed/file-removed/wontfix), themed baton (N `small` items sharing a thesis, clustered
-via `detect-initiative-candidates`, authored to `coordinator/docs/wiki/baton-lifecycle/baton-authoring-bar.md`'s
-bar as one multi-item handoff). Firing the emitted grind is the run-authority act: it stands in
-for the PM-authorization gate a themed baton or a `big` item would otherwise need, per the Spinoff
-Gate above. Bug-specific dispositions — severity, repro, the `wontfix` status value — are
-preserved; the four classes are the terminus, not a replacement for bug triage's own semantics.
+(already-fixed/file-removed/wontfix), themed baton (N `small` items sharing a thesis). Firing the
+emitted grind is the run-authority act standing in for the PM-authorization a themed baton or
+`big` item would otherwise need (Spinoff Gate). Bug-specific dispositions — severity, repro, the
+`wontfix` status value — are preserved; the four classes are the terminus, not a replacement.
 
-**Partition.** File footprint governs wave dispatch; theme governs baton authorship only. A themed
-baton whose members land in different footprint waves is one baton citing each wave, never
-force-dispatched together. **Gate.** A themed baton is never dispatched as a `small` immediate fix,
-whatever its members' size: it is minted at the Spinoff Gate under the run authority above.
+**Partition.** File footprint governs wave dispatch; theme governs baton authorship only: a baton
+whose members land in different footprint waves is one baton citing each wave. **Gate.** A themed
+baton is never dispatched as a `small` immediate fix; it is minted at the Spinoff Gate.
 Mechanics: wiki.
 
 ## Phase 4 — Archive and Report
@@ -151,13 +151,11 @@ halt, fixes left uncommitted
 
 Re-run the suite (mandatory if any fix dispatched, only if Tier-U was granted). All clear → PASS.
 **Disposition splits on whether the failure was already red at baseline:** a pre-existing failure
-still red after one corrective wave means stop chasing in-wave — either leave it reverted to
-baseline (acceptable) or, if the attempted fix is committed and not working, `git revert` that
-non-working fix commit — then surface it as a spinoff candidate; a NEW failure that was green at
-baseline is a self-inflicted regression and its revert is **mandatory, not optional**: `git revert
-<introducing-sha>` (never `git reset` — branch is pushed), confirm green, name it in the report.
-**Loop bound: one corrective wave only, then the forced terminal state above — never a second
-corrective wave, in either branch.** Never report green with a known-red suite. Clean scratch
+still red after one corrective wave: stop chasing — leave it reverted to baseline, or `git revert`
+a committed non-working fix — and surface it as a spinoff candidate; a NEW failure green at
+baseline is a self-inflicted regression: `git revert <introducing-sha>` is **mandatory** (never
+`git reset` — branch is pushed), confirm green, name it in the report. **One corrective wave only,
+in either branch.** Never report green with a known-red suite. Clean scratch
 after the archive commit succeeds. Full mechanics: wiki.
 
 **Report by exception** — two lines always, rest only when not clean:
@@ -169,7 +167,7 @@ after the archive commit succeeds. Full mechanics: wiki.
 **Resolved this run:** F items (backlog: Fb, failing tests fixed: Ft)
 ```
 
-Add `**Spun off (need plan):**` / `**Re-attempted (still blocked):**` / `**Suite gate:**` /
+Add `**Fix correct, commit refused:**` (id, reason) / `**Spun off (need plan):**` / `**Re-attempted (still blocked):**` / `**Suite gate:**` /
 `**Suite noise (not chased):**` / `**Closed already-fixed:** R ran / I inspected` only when
 non-empty — that last one splits by evidence rung because one number over two standards hides
 the weaker half from the reader, and from you. Never restore a run-id line, a silent

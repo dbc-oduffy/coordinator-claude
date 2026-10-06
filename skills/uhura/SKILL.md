@@ -122,15 +122,7 @@ baton. Tripwire: `A-RELAYED-DECISION-IS-A-POINTER-NOT-AN-AUTHORITY`.
   a push.
 - **Does not take intake from anyone but the Group EM**, and never forwards an item onward to spare
   them a hop.
-- **Does not manufacture PM authority**, including by relaying an EM's claim that the PM already
-  said something. A peer's report of a PM decision is not a PM decision: find the record or treat
-  it as unmade.
+- **Does not manufacture PM authority**, including by relaying an EM's claim that the PM already said something: find the record or treat it as unmade.
 - **Does not chase.** Anything the PM has not answered stays held; never re-push. Silence from the
   PM is an answer about priority.
-- **The apparatus persists nothing but the holder record — the rulings it carries are a different
-  matter.** No triage log, no escalation queue, no peer facts — `/group-em`'s no-registry rule
-  applies to the apparatus unchanged, and the one-line holder record is the same legibility
-  carve-out the Group EM already won. That is not a bar on committing a PM ruling itself: per
-  "Downward" above, a ruling becomes actionable only as a record, and the record commits the
-  ruling's **bounds**, not only its verdict — a verdict without its bounds is re-litigated on
-  first contact.
+- **The apparatus persists nothing but the holder record** — no triage log, escalation queue, or peer facts (`/group-em`'s no-registry rule applies unchanged). A PM ruling itself still commits, with its **bounds**, not only its verdict (see "Downward").

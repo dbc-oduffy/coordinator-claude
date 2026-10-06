@@ -1109,6 +1109,12 @@ def _emit_single_from_sizing(
         )
 
     sizing_rel = args.from_sizing
+    if os.path.isabs(sizing_rel):
+        try:
+            sizing_rel = Path(sizing_rel).resolve().relative_to(repo_root.resolve()).as_posix()
+        except ValueError:
+            return _refuse_from_sizing(f"{sizing_rel} is outside --repo-root {repo_root}")
+    sizing_rel = sizing_rel.replace("\\", "/")
     sizing_path = repo_root / sizing_rel
     if not sizing_path.is_file():
         return _refuse_from_sizing(f"no sizing object at {sizing_path}")

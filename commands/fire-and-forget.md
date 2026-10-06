@@ -14,20 +14,21 @@ result.
 
 **Contract: one Workflow, start to finish. The EM is idle until the run reports completion or
 rescue-needed.** The terminal judge is the only legitimate end of a run. A run never stops to obtain the PM's own words: every exit-criterion, scope or mode ruling goes to `coordinator:apm` (below). Any other halt (gate
-refusal, blitz refusal, a DR awaiting acceptance, or a hand-dispatched or
-hand-committed row) breaks this command, not a touchpoint to work through. When it happens, stop,
+refusal, blitz refusal, a DR awaiting acceptance, or a hand-dispatched row) breaks this command, not a touchpoint to work through. When it happens, stop,
 report the halt as a defect, and never finish the work by hand-dispatching rows.
 
-**Cross-repo deliverables.** A run may write into sibling checkouts beside its repo root: each
-row writes in the repo its path names, and `dispatch.terminal_commit` lands one scoped commit per
-repo (`sibling_commits` in its reply). In a cloud session (`CLAUDE_CODE_REMOTE=true`) the run
-proceeds without asking. On a local box the emit halts at `approve_cross_repo_write` and names the
-sibling repos: ask the PM whether the cross-repo write is okay; on approval re-emit with
-`--cross-repo-approved`. That approval is this session's cross-repo commit assent. Never refuse a
-cross-repo ask outright. A write outside every git checkout is refused at emit, since no commit
-can land it. A row carrying an `external_gate` is not a refusal: the engine withholds a
-`blocks: execution` row, runs the rest, and lists the withheld rows as incomplete at
-`dispatch.terminal_commit`.
+**On return the EM commits, in the turn the return arrives.** The Workflow returns `next_action` and never commits: run
+`coordinator-invoke dispatch.terminal_commit` with its `params`, then read the receipt. A run killed
+by a usage limit still shows as running: `TaskStop` it, then `Workflow({ scriptPath, resumeFromRunId })`
+once the limit resets; a dead run is committed by that op with its `script_path`.
+
+**Cross-repo deliverables.** Each row writes in the repo its path names, and
+`dispatch.terminal_commit` lands one scoped commit per repo (`sibling_commits`). Cloud
+(`CLAUDE_CODE_REMOTE=true`) proceeds without asking. On a local box the emit halts at
+`approve_cross_repo_write` naming the sibling repos: ask the PM; on approval re-emit with
+`--cross-repo-approved` (this session's cross-repo commit assent). Never refuse a cross-repo ask
+outright. A write outside every git checkout is refused at emit. A row with an `external_gate` is
+withheld and listed as incomplete at `dispatch.terminal_commit`.
 
 ## Argument
 
@@ -36,9 +37,8 @@ can land it. A row carrying an `external_gate` is not a refusal: the engine with
 - **A raw ask** — run `emit-dispatch-workflow --ask "<raw ask>"` (CLI resolved per
   `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`) and fire the one printed
   `Workflow({ scriptPath })` line in this session. That one Workflow sizes, gates and stages the
-  work, and the run returns next_action `dispatch.terminal_commit`. Never pass `--fire`; never run
-  it headless. A route the sizing gate refuses (`shape`, `roadmap`, `pm-decision`) is relayed with the room it
-  names; a `pm-decision` goes to `coordinator:apm` first. Do not size by hand.
+  work. A route the sizing gate refuses (`shape`, `roadmap`, `pm-decision`) is relayed with the room it
+  names; a `pm-decision` goes to `coordinator:apm` first.
 
 ## Fire
 

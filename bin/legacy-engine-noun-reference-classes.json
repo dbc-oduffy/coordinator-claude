@@ -434,6 +434,7 @@
     "coordinator/bin/tests/test_prepare_commit_msg_multi_pickup_ambiguity.py",
     "coordinator/bin/tests/test_publish_allowlist_entries_resolve.py",
     "coordinator/bin/tests/test_publish_argv_parity_gate.py",
+    "coordinator/bin/tests/test_publish_authored_parity.py",
     "coordinator/bin/tests/test_publish_batch_delta_honest_reporting.py",
     "coordinator/bin/tests/test_publish_channel_divergence_report.py",
     "coordinator/bin/tests/test_publish_commit_subject_names_source_sha.py",
@@ -2206,5 +2207,5 @@
       "line": 99
     }
   ],
-  "repo_sha": "4905cac858d926031099f9e866679977a68705d9"
+  "repo_sha": "f4b9391ed9a28acf237bd8cec310c71139a91a24"
 }
