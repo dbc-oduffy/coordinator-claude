@@ -87,7 +87,8 @@ Read-only groundwork goes in a file `--premise-evidence` cites; the roadmap run 
 sizing (this one), the plan Workflow's return, the execute Workflow's return, and
 `dispatch.terminal_commit` plus the close ceremony. Touchpoints are read from `interaction_mode` (hands-on, pm, ceo). Pass `--exit-criterion` and `--interaction-mode` to `sizing-assemble`, and record the PM's
 answer with `sizing-accept-exit-criterion --sizing <path> --pm-quote "<words>" [--statement "<amended>"]
---mode <mode>` (op `sizing.accept_exit_criterion`), never by hand-editing the sizing object. In pm and ceo modes the ask says plainly that accepting
+--mode <mode>` (op `sizing.accept_exit_criterion`), never by hand-editing the sizing object. In pm or ceo mode, `--apm-ruling <bug-row or
+ruling path>` in place of `--pm-quote` records the APM's ruling; hands-on needs the quote. In pm and ceo modes the ask says plainly that accepting
 it authorizes execution without a further ask. A picker label is EM text, not PM words. Per-mode asks: wiki § Step 5c. For XL, Step 5b is unchanged.
 After acceptance, `emit-wave-fire --from-sizing <repo-relative sizing path> --repo-root <abs repo>
 --trail-dir <abs trail dir>` mints the baton itself (never via /spinoff or /handoff) and prints one

@@ -4,6 +4,11 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.4.16] — 2026-10-06
+
+- **Sizing.** In pm or ceo mode, `sizing-accept-exit-criterion --apm-ruling` records the APM's
+  ruling in place of the PM quote; hands-on still needs `--pm-quote`.
+
 ## [4.4.15] — 2026-10-06
 
 - **Costed slice before fan-out.** Before fanning out past ~50 agents, run a 2–13 agent slice and
