@@ -59,6 +59,8 @@ without this session's roster. `--fire` is for headless and cron callers only.
 
 Warp consumes the baton without a prior lobby emission: it mints or reuses the baton and emits and fires its own script.
 
+Fan-out past ~50 agents needs a costed 2-13 agent slice first: `coordinator/docs/wiki/dispatching-parallel-agents/costed-slice-before-fan-out.md`.
+
 Every route ends in `dispatch.terminal_commit`. `--sizing` is exclusive of `--plan`, `--inventory`
 and `--queue`.
 

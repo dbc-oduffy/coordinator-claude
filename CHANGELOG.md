@@ -4,6 +4,14 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.4.15] — 2026-10-06
+
+- **Costed slice before fan-out.** Before fanning out past ~50 agents, run a 2–13 agent slice and
+  project the full token cost; reader inputs carry real line breaks, and coverage and validation
+  are checked per batch, not at the end.
+- **Doctrine-edit gate on cloud.** On a cloud host the gate accepts the PM's own transcript turn
+  naming the edit, since no workstation sentinel can be made there.
+
 ## [4.4.14] — 2026-10-06
 
 A guard and backlog-clearing release.
