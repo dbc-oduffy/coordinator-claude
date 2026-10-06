@@ -682,7 +682,7 @@ def _missing_out_message(type_label: str) -> str:
 #
 # Resolution order:
 #   1. cwd git-root → reverse-lookup against machine-local repos.* table
-#   2. Coordinator-content-repo repo (repos.content_root) path-match → "claude-central-em"
+#   2. content root (repos.content_root) path-match → the central EM id
 #   3. Unregistered git repo → basename of git root + "-em"
 #   4. Not in a git repo → "unknown-sender-em"
 #
@@ -1318,8 +1318,8 @@ def _resolve_from_repo() -> str:
     _bootstrap_engine()
     root = _current_repo_root()
     paths_dict = _machine_local_dump_repos()
-    # Ensure repos.content_root is present so the central-identity path-match in
-    # em_id_for_root fires even when the machine-local keys enumeration omits it.
+    # The content root is the central-identity anchor even when the machine-local
+    # keys enumeration omits it.
     paths_dict.setdefault("repos.content_root", _machine_local_get("repos.content_root"))
     return _em_id_for_root(root, paths_dict)
 
@@ -1401,8 +1401,8 @@ def _resolve_minted_by_line() -> str | None:
     every consumer. Unresolvable identity omits the key entirely (no null, no
     sentinel), matching ``handoff_normalize``.
     """
+    _bootstrap_engine()
     try:
-        _ensure_engine_on_path()
         from coordinator_core.person_resolver import resolve_operating_person
         alias = resolve_operating_person().get("github")
     except Exception:  # noqa: BLE001 -- identity seam absent; omit the key
@@ -2372,6 +2372,34 @@ def _require_session_ledger_block() -> list[str]:
     return _SESSION_LEDGER_BLOCK
 
 
+_SUMMARY_TYPES = frozenset({"handoff", "goal-seed", "roadmap-seed"})
+
+
+def _refuse_unschematic_summary(summary: str | None) -> None:
+    """Exit 1 on a --summary the handoff schema's cross-field rules reject.
+
+    Blank (_cf_summary_required_post_cutoff) or over 140 chars
+    (_cf_summary_length_cap) is refused fail-loud, never truncated; None
+    (flag absent) passes.
+    """
+    if summary is not None and not summary.strip():
+        print(
+            "coordinator-doc-new: --summary was supplied an empty or whitespace-only "
+            "value. Omit --summary entirely to keep the placeholder summary, or pass "
+            "real summary text.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    if summary is not None and len(summary) > 140:
+        print(
+            f"coordinator-doc-new: --summary exceeds 140 characters (got {len(summary)}). "
+            "The handoff schema's _cf_summary_length_cap rejects it outright; shorten "
+            "it before scaffolding.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
 def _scaffold_handoff(
     title: str,
     branch: str,
@@ -2600,27 +2628,7 @@ def _scaffold_handoff(
             file=sys.stderr,
         )
         sys.exit(1)
-    # --summary is refused fail-loud (not silently truncated/emitted) when it
-    # would author frontmatter the handoff schema's own cross-field rules
-    # reject outright — blank (_cf_summary_required_post_cutoff) or over 140
-    # chars (_cf_summary_length_cap). The caller fixes it here rather than
-    # discovering the rejection downstream.
-    if summary is not None and not summary.strip():
-        print(
-            "coordinator-doc-new: --summary was supplied an empty or whitespace-only "
-            "value. Omit --summary entirely to keep the placeholder summary, or pass "
-            "real summary text.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-    if summary is not None and len(summary) > 140:
-        print(
-            f"coordinator-doc-new: --summary exceeds 140 characters (got {len(summary)}). "
-            "The handoff schema's _cf_summary_length_cap rejects it outright; shorten "
-            "it before scaffolding.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    _refuse_unschematic_summary(summary)
     # --gated-open declares the blocker (blocked_by), not the readiness (see
     # docstring) — blank is refused for the same reason as --summary above:
     # blocked_by must be a non-empty id naming what this baton is blocked by.
@@ -2943,9 +2951,6 @@ class SpinoffOrigin(NamedTuple):
     workstream: str | None
 
 
-_NO_SPINOFF_ORIGIN = SpinoffOrigin(None, None, None)
-
-
 def _resolve_spinoff_origin() -> SpinoffOrigin:
     """READ-ONLY resolve of a spinoff's origin baton and `workstream` off the
     baton this session currently holds.
@@ -2971,13 +2976,13 @@ def _resolve_spinoff_origin() -> SpinoffOrigin:
         )
         from coordinator_core.ops._fm_util import extract_frontmatter_scalar  # noqa: PLC0415
     except Exception:  # noqa: BLE001 -- best-effort; unresolvable engine degrades to None
-        return _NO_SPINOFF_ORIGIN
+        return SpinoffOrigin(None, None, None)
     session_id = _resolve_session_id()
     if session_id == "em-unknown":
-        return _NO_SPINOFF_ORIGIN
+        return SpinoffOrigin(None, None, None)
     repo_root_str = _current_repo_root()
     if not repo_root_str:
-        return _NO_SPINOFF_ORIGIN
+        return SpinoffOrigin(None, None, None)
     from pathlib import Path as _Path  # noqa: PLC0415
 
     worktree_root = _Path(repo_root_str)
@@ -2987,7 +2992,7 @@ def _resolve_spinoff_origin() -> SpinoffOrigin:
             handoffs_dir, session_id, repo_root=worktree_root
         )
     except OSError:
-        return _NO_SPINOFF_ORIGIN
+        return SpinoffOrigin(None, None, None)
     except RuntimeError as exc:
         # Negative-spec: does NOT re-raise and does NOT pick a candidate.
         print(
@@ -2995,9 +3000,9 @@ def _resolve_spinoff_origin() -> SpinoffOrigin:
             f"origin_handoff left null ({exc}). Run /spinoff to stamp provenance.",
             file=sys.stderr,
         )
-        return _NO_SPINOFF_ORIGIN
+        return SpinoffOrigin(None, None, None)
     if not origin_handoff:
-        return _NO_SPINOFF_ORIGIN
+        return SpinoffOrigin(None, None, None)
     try:
         text = (worktree_root / origin_handoff).read_text(encoding="utf-8", errors="replace")
     except OSError:
@@ -3023,8 +3028,19 @@ def _scaffold_spinoff(
     summary: str | None = None,
     what_this_covers: str | None = None,
     reference_materials: Sequence[str] = (),
+    specification: str | None = None,
+    acceptance: Sequence[str] = (),
+    kind: str = "spinoff",
 ) -> str:
     """Generate validator-clean spinoff frontmatter + canonical section skeleton.
+
+    kind="session-handoff" emits the same work-spec sections under a
+    session-handoff header: no origin_* fields, no "What travels with this
+    spinoff" section, no spinoff marker.
+
+    specification / acceptance, when supplied, replace the comments under
+    `## Specification` / `## Acceptance criteria`; each acceptance entry
+    renders as an unchecked `- [ ] <text>` box. Absent, output is unchanged.
 
     summary / what_this_covers, when supplied, replace the placeholder
     `summary:` line and the `## What this covers` comment; absent, the
@@ -3098,6 +3114,7 @@ def _scaffold_spinoff(
     """
     _bootstrap_engine()
     today = _today()
+    _is_session = kind == "session-handoff"
     placeholder_summary = f"PLACEHOLDER — replace with one-line spinoff summary (≤140 chars)"
     _dlv = _yaml_quote(deliverable_id) if deliverable_id else "null"
     _ini = _yaml_quote(initiative) if initiative else "null"
@@ -3198,7 +3215,8 @@ def _scaffold_spinoff(
         f"branch: {_yaml_quote(branch)}",
         "status: open",
         "predecessor: none",
-        "kind: spinoff",
+        f"kind: {kind}",
+        *(["handoff_phase: continuation"] if _is_session else []),
         "baton_role: work",
         f"deployment_state: {_deployment_state}",
         f"category: {_category}",
@@ -3206,21 +3224,22 @@ def _scaffold_spinoff(
         f"pickup_ready: {_pickup_ready}",
         _authoring_session_line,
     ]
-    _origin = _resolve_spinoff_origin()
-    _origin_handoff_id = origin_handoff_id or _origin.origin_handoff_id
-    lines.append(f"origin_session: {_yaml_quote(_authoring_session_value)}")
-    lines.append(
-        f"origin_handoff: {_yaml_quote(_origin.origin_handoff)}"
-        if _origin.origin_handoff
-        else "origin_handoff: null"
-    )
-    lines.append(
-        f"origin_handoff_id: {_yaml_quote(_origin_handoff_id)}"
-        if _origin_handoff_id
-        else "origin_handoff_id: null"
-    )
-    if _origin.workstream:
-        lines.append(f"workstream: {_yaml_quote(_origin.workstream)}")
+    if not _is_session:
+        _origin = _resolve_spinoff_origin()
+        _origin_handoff_id = origin_handoff_id or _origin.origin_handoff_id
+        lines.append(f"origin_session: {_yaml_quote(_authoring_session_value)}")
+        lines.append(
+            f"origin_handoff: {_yaml_quote(_origin.origin_handoff)}"
+            if _origin.origin_handoff
+            else "origin_handoff: null"
+        )
+        lines.append(
+            f"origin_handoff_id: {_yaml_quote(_origin_handoff_id)}"
+            if _origin_handoff_id
+            else "origin_handoff_id: null"
+        )
+        if _origin.workstream:
+            lines.append(f"workstream: {_yaml_quote(_origin.workstream)}")
     lines.extend([
         f"deliverable_id: {_dlv}",
         f"initiative: {_ini}  # FK to state/initiatives/<id>.yaml; null when no named initiative",
@@ -3254,15 +3273,23 @@ def _scaffold_spinoff(
         "",
         "## Specification",
         "",
-        "<!-- The actual work spec. Be concrete enough that a context-less EM can act. -->",
+        specification
+        if specification
+        else "<!-- The actual work spec. Be concrete enough that a context-less EM can act. -->",
         "",
         "## Acceptance criteria",
         "",
-        "<!-- Checklist the picking-up EM gates completion against. -->",
-        "<!-- `- [ ]`/`- [x]` checkboxes only — the consumed-handoff completeness -->",
-        "<!-- gate counts boxes and reads a prose list as indeterminate. -->",
-        "",
-        "- [ ] ",
+        *(
+            [f"- [ ] {_item}" for _item in acceptance]
+            if acceptance
+            else [
+                "<!-- Checklist the picking-up EM gates completion against. -->",
+                "<!-- `- [ ]`/`- [x]` checkboxes only — the consumed-handoff completeness -->",
+                "<!-- gate counts boxes and reads a prose list as indeterminate. -->",
+                "",
+                "- [ ] ",
+            ]
+        ),
         "",
         "## Recommended next steps for the picking-up EM",
         "",
@@ -3272,15 +3299,24 @@ def _scaffold_spinoff(
         "",
         "<!-- Failure modes a context-less EM might hit. Negative scope. -->",
         "",
-        "## What travels with this spinoff",
-        "",
-        "<!-- Sizings, plans, or components leaving this EM's hands with the -->",
-        "<!-- spinoff. Ask, don't search or guess -- nothing to log? Leave this -->",
-        "<!-- section empty; that absence stays truthful. -->",
-        "",
+        *(
+            []
+            if _is_session
+            else [
+                "## What travels with this spinoff",
+                "",
+                "<!-- Sizings, plans, or components leaving this EM's hands with the -->",
+                "<!-- spinoff. Ask, don't search or guess -- nothing to log? Leave this -->",
+                "<!-- section empty; that absence stays truthful. -->",
+                "",
+            ]
+        ),
         *_require_session_ledger_block(),
-        "",
-        _spinoff_marker(today, _authoring_session_value, _display_name),
+        *(
+            []
+            if _is_session
+            else ["", _spinoff_marker(today, _authoring_session_value, _display_name)]
+        ),
     ])
     return "\n".join(lines)
 
@@ -3558,6 +3594,7 @@ def _scaffold_goal_seed(
     origin_handoff_id: str | None = None,
     predecessor_id: str | None = None,
     category: str | None = None,
+    summary: str | None = None,
 ) -> str:
     """Generate validator-clean goal-seed frontmatter + canonical section skeleton.
 
@@ -3620,6 +3657,7 @@ def _scaffold_goal_seed(
     _bootstrap_engine()
     today = _today()
     placeholder_summary = "PLACEHOLDER — replace with one-line vision-slice summary (≤140 chars)"
+    _refuse_unschematic_summary(summary)
     _category = category if category else "infra"
     _validate_category(_category)
     lines = [
@@ -3632,7 +3670,7 @@ def _scaffold_goal_seed(
         "kind: goal-seed",
         "deployment_state: awaiting_gate",
         f"category: {_category}",
-        f"summary: {_yaml_quote(placeholder_summary)}",
+        f"summary: {_yaml_quote(summary if summary else placeholder_summary)}",
     ]
     # 2026-08-21 extension (same baton as _scaffold_spinoff's authoring_session
     # fix): resolved off `_resolve_session_id()` when the engine can supply it,
@@ -3719,6 +3757,7 @@ def _scaffold_roadmap_seed(
     origin_handoff_id: str | None = None,
     predecessor_id: str | None = None,
     category: str | None = None,
+    summary: str | None = None,
 ) -> str:
     """Generate validator-clean roadmap-seed frontmatter + section skeleton.
 
@@ -3785,6 +3824,7 @@ def _scaffold_roadmap_seed(
     _bootstrap_engine()
     today = _today()
     placeholder_summary = "PLACEHOLDER — replace with one-line capability-arc summary (≤140 chars)"
+    _refuse_unschematic_summary(summary)
     _dlv = _yaml_quote(deliverable_id) if deliverable_id else "null"
     _ini = _yaml_quote(initiative) if initiative else "null"
     _category = category if category else "roadmap"
@@ -3799,7 +3839,7 @@ def _scaffold_roadmap_seed(
         "kind: roadmap-seed",
         "deployment_state: awaiting_gate",
         f"category: {_category}",
-        f"summary: {_yaml_quote(placeholder_summary)}",
+        f"summary: {_yaml_quote(summary if summary else placeholder_summary)}",
     ]
     # 2026-08-21 extension (same baton as _scaffold_spinoff's authoring_session
     # fix): resolved off `_resolve_session_id()` when the engine can supply it.
@@ -4320,7 +4360,7 @@ def _scaffold_plan(
         "2. <REPLACE: the plan's acceptance oracle, named and run — or \"none — no acceptance oracle in",
         "   play,\" a positive claim, not an omission.>",
         "3. <REPLACE: any further plan-specific exit steps, e.g. gated_exit_criteria rows carrying",
-        "   close-out evidence and flipping met: true.>",
+        "   close-out evidence and flipping met: true (op plan.gated_criteria_met).>",
         "",
         "The repo's fast tier and full suite are **never** a criterion for this plan — not the prime exit",
         "criterion, not a gated exit criterion, not a chunk's test surface, and not a plan deliverable.",
@@ -4688,8 +4728,14 @@ class SizingMintRefused(Exception):
         self.fields = fields
 
 
-def _mutate_sizing_baton_edge(old_text: str, baton_repo_rel_path: str) -> str:
-    """Return sizing YAML text with `baton:` set; touches no other key."""
+def _mutate_sizing_baton_edge(
+    old_text: str, baton_repo_rel_path: str, deliverable_id: str | None = None,
+) -> str:
+    """Return sizing YAML text with `baton:` set; touches no other key.
+
+    A supplied ``deliverable_id`` is written only when the sizing's own is
+    null or absent; a non-null value is never overwritten.
+    """
     _bootstrap_engine()
     from coordinator_core.frontmatter.primitives import (  # noqa: PLC0415
         insert_fm_field_raw,
@@ -4703,12 +4749,33 @@ def _mutate_sizing_baton_edge(old_text: str, baton_repo_rel_path: str) -> str:
     else:
         _after = "plan" if read_fm_field_unquoted(old_text, "plan") is not None else "status"
         new_text = insert_fm_field_raw(old_text, "baton", _raw, _after)
+    if deliverable_id:
+        new_text = _fill_null_deliverable_id(new_text, deliverable_id)
     _validate_mutated_sizing(old_text, new_text)
     return new_text
 
 
+def _fill_null_deliverable_id(text: str, deliverable_id: str) -> str:
+    """Return sizing text with a null/absent `deliverable_id` set; a non-null value is left as is."""
+    from coordinator_core.frontmatter.primitives import (  # noqa: PLC0415
+        insert_fm_field_raw,
+        read_fm_field_unquoted,
+        replace_fm_field_raw,
+    )
+
+    _current = read_fm_field_unquoted(text, "deliverable_id")
+    if not _is_null_scalar(_current):
+        return text
+    _raw = _yaml_quote(deliverable_id)
+    if _current is not None:
+        return replace_fm_field_raw(text, "deliverable_id", _raw)
+    _after = "baton" if read_fm_field_unquoted(text, "baton") is not None else "status"
+    return insert_fm_field_raw(text, "deliverable_id", _raw, _after)
+
+
 def _write_sizing_baton_edge(
     sizing_abs_path: str, baton_repo_rel_path: str, repo_root: str,
+    deliverable_id: str | None = None,
 ) -> str:
     """Write the sizing->baton edge under ``locked_rmw``; return the pre-mutation text."""
     _ensure_engine_on_path()
@@ -4719,10 +4786,42 @@ def _write_sizing_baton_edge(
 
     def _mutate(old_text: str) -> str:
         _captured["old_text"] = old_text
-        return _mutate_sizing_baton_edge(old_text, baton_repo_rel_path)
+        return _mutate_sizing_baton_edge(old_text, baton_repo_rel_path, deliverable_id)
 
     _locked_rmw(_Path(sizing_abs_path), _mutate, repo_root=_Path(repo_root))
     return _captured.get("old_text", "")
+
+
+def _backfill_sizing_deliverable_id(
+    sizing_abs_path: str, deliverable_id: str, repo_root: str,
+) -> None:
+    """Set a null/absent sizing `deliverable_id` under ``locked_rmw``; a non-null value is left as is."""
+    _bootstrap_engine()
+    from pathlib import Path as _Path  # noqa: PLC0415
+    from coordinator_core.locked_write import locked_rmw as _locked_rmw  # noqa: PLC0415
+
+    def _mutate(old_text: str) -> str:
+        new_text = _fill_null_deliverable_id(old_text, deliverable_id)
+        if new_text != old_text:
+            _validate_mutated_sizing(old_text, new_text)
+        return new_text
+
+    _locked_rmw(_Path(sizing_abs_path), _mutate, repo_root=_Path(repo_root))
+
+
+def _is_null_scalar(raw: str | None) -> bool:
+    """True for an absent key or a YAML-null raw scalar (``""``, ``null``, ``~``)."""
+    return raw is None or raw.strip() in ("", "null", "~")
+
+
+_PLACEHOLDER_RE = re.compile(r"(?:PLACEHOLDER|TBD|TODO)\b", re.IGNORECASE)
+
+
+def _is_placeholder_text(value: object) -> bool:
+    """True for an absent, blank, or PLACEHOLDER/TBD/TODO-led scalar (whole word only)."""
+    if not isinstance(value, str) or not value.strip():
+        return True
+    return _PLACEHOLDER_RE.match(value.strip()) is not None
 
 
 def _write_baton_file(out_abs: str, content: str) -> None:
@@ -4764,10 +4863,69 @@ def _evidence_bullets(scout_evidence: object) -> list[str]:
     return bullets
 
 
+_BATON_SECTION_HEADS = {
+    "Specification": "## Specification",
+    "Acceptance criteria": "## Acceptance criteria",
+    "Reference materials": "## Reference materials",
+}
+_SKELETON_ONLY_RE = re.compile(r"(?:\s|<!--.*?-->|-\s\[\s\]\s*$)*", re.DOTALL | re.MULTILINE)
+
+
+def _sizing_baton_sections(meta: dict) -> tuple[str | None, list[str], list[str]]:
+    """Return the sizing-derived (specification, acceptance items, reference bullets)."""
+    _premise = meta.get("premise")
+    _evidence = _premise.get("evidence") if isinstance(_premise, dict) else None
+    specification = None if _is_placeholder_text(_evidence) else " ".join(_evidence.split())
+    _criterion = meta.get("exit_criterion")
+    _statement = _criterion.get("statement") if isinstance(_criterion, dict) else None
+    acceptance = [] if _is_placeholder_text(_statement) else [" ".join(_statement.split())]
+    return specification, acceptance, _evidence_bullets(meta.get("scout_evidence"))
+
+
+def _fill_skeleton_sections(text: str, fills: dict[str, list[str]]) -> tuple[str, list[str]]:
+    """Fill each named section whose body is only whitespace, comments and empty boxes.
+
+    A section with any authored text, or an empty fill, is left byte-for-byte.
+    Returns (new text, names filled in ``fills`` order).
+    """
+    filled: list[str] = []
+    for name, lines in fills.items():
+        if not lines:
+            continue
+        head = re.search(rf"^{re.escape(_BATON_SECTION_HEADS[name])}[^\n]*\n", text, re.MULTILINE)
+        if head is None:
+            continue
+        nxt = re.search(r"^## ", text[head.end():], re.MULTILINE)
+        end = head.end() + nxt.start() if nxt else len(text)
+        if _SKELETON_ONLY_RE.fullmatch(text[head.end():end]) is None:
+            continue
+        tail = "\n" if nxt else ""
+        text = text[:head.end()] + "\n" + "\n".join(lines) + "\n" + tail + text[end:]
+        filled.append(name)
+    return text, filled
+
+
+def _prefill_baton_sections(baton_abs: str, fills: dict[str, list[str]], repo_root: str) -> list[str]:
+    """Pre-fill skeleton-only baton sections under ``locked_rmw``; return the names filled."""
+    _bootstrap_engine()
+    from pathlib import Path as _Path  # noqa: PLC0415
+    from coordinator_core.locked_write import locked_rmw as _locked_rmw  # noqa: PLC0415
+
+    _names: list[str] = []
+
+    def _mutate(old_text: str) -> str:
+        new_text, _filled = _fill_skeleton_sections(old_text, fills)
+        _names[:] = _filled
+        return new_text
+
+    _locked_rmw(_Path(baton_abs), _mutate, repo_root=_Path(repo_root))
+    return _names
+
+
 def mint_baton_from_sizing(sizing_rel: str, repo_root: str) -> dict:
     """Mint the baton for an M+ sizing, or return the one its `baton:` edge already names.
 
-    Returns ``{"id", "path", "title", "created"}``; ``path`` is repo-relative POSIX.
+    Returns ``{"id", "path", "title", "created"}`` (an existing baton adds ``prefilled``); ``path`` is repo-relative POSIX.
     Raises ``SizingMintRefused`` naming every failing field (`estimate.tshirt`,
     `intent`, `baton`). Write order: sizing edge first, then the baton, with the
     edge reverted when the baton write fails. ``repo_root`` is the caller's.
@@ -4812,13 +4970,27 @@ def mint_baton_from_sizing(sizing_rel: str, repo_root: str) -> dict:
             fields, f"--from-sizing refused for {sizing_rel}: " + "; ".join(reasons)
         )
 
+    specification, acceptance, reference_materials = _sizing_baton_sections(meta)
     if existing_abs is not None:
+        prefilled = _prefill_baton_sections(
+            existing_abs,
+            {
+                "Specification": [specification] if specification else [],
+                "Acceptance criteria": [f"- [ ] {_item}" for _item in acceptance],
+                "Reference materials": reference_materials,
+            },
+            repo_root,
+        )
         text = open(existing_abs, encoding="utf-8").read()
+        _baton_dlv = read_fm_field_unquoted(text, "deliverable_id")
+        if not meta.get("deliverable_id") and not _is_null_scalar(_baton_dlv):
+            _backfill_sizing_deliverable_id(sizing_abs, _baton_dlv, repo_root)
         return {
             "id": read_fm_field_unquoted(text, "handoff_id"),
             "path": existing,
             "title": read_fm_field_unquoted(text, "title"),
             "created": False,
+            "prefilled": prefilled,
         }
 
     title = " ".join(str(meta.get("name") or intent).split())
@@ -4830,8 +5002,8 @@ def mint_baton_from_sizing(sizing_rel: str, repo_root: str) -> dict:
             deliverable_id=dlv_source, carry_source="cited sizing-object (--from-sizing)"
         )
     else:
-        deliverable_id = _mint_deliverable_id_from_title(title, "spinoff", repo_root)
-    handoff_id = _mint_artifact_id_from_title("hnd", title, "spinoff", "handoff_id")
+        deliverable_id = _mint_deliverable_id_from_title(title, "session-handoff", repo_root)
+    handoff_id = _mint_artifact_id_from_title("hnd", title, "session-handoff", "handoff_id")
     out_rel = f"state/handoffs/{_today()}-{_slug_from_title(title)}.md"
     out_abs = os.path.join(repo_root, out_rel)
     if os.path.exists(out_abs):
@@ -4846,7 +5018,10 @@ def mint_baton_from_sizing(sizing_rel: str, repo_root: str) -> dict:
         sizing_object=sizing_rel,
         summary=summary,
         what_this_covers=intent,
-        reference_materials=_evidence_bullets(meta.get("scout_evidence")),
+        reference_materials=reference_materials,
+        specification=specification,
+        acceptance=acceptance,
+        kind="session-handoff",
     )
     _assert_no_archived_handoff_twin(out_abs, handoff_id, repo_root)
     try:
@@ -4856,7 +5031,7 @@ def mint_baton_from_sizing(sizing_rel: str, repo_root: str) -> dict:
             ["intent"], f"--from-sizing refused for {sizing_rel}: baton scaffold failed validation ({exc})"
         ) from exc
 
-    old_text = _write_sizing_baton_edge(sizing_abs, out_rel, repo_root)
+    old_text = _write_sizing_baton_edge(sizing_abs, out_rel, repo_root, deliverable_id)
     try:
         _write_baton_file(out_abs, content)
     except Exception:
@@ -8271,9 +8446,11 @@ def main(argv: "list[str] | None" = None) -> int:
     # and is the field ordered spinoff chains (architecture-audit Step 4) now
     # declare their predecessor leg on.
     if (
-        args.summary or args.gate_note or args.gated_predicate
+        (args.summary and doc_type not in _SUMMARY_TYPES)
+        or args.gate_note
+        or args.gated_predicate
     ) and doc_type != "handoff":
-        if args.summary:
+        if args.summary and doc_type not in _SUMMARY_TYPES:
             _bad_flag = "--summary"
         elif args.gate_note:
             _bad_flag = "--gate-note"
@@ -8281,7 +8458,8 @@ def main(argv: "list[str] | None" = None) -> int:
             _bad_flag = "--gated-predicate"
         print(
             f"coordinator-doc-new: {_bad_flag} is not accepted for --type {doc_type}. "
-            "--summary, --gate-note, and --gated-predicate are handoff-only fields.",
+            "--gate-note and --gated-predicate are handoff-only fields; --summary is "
+            "accepted for --type handoff, goal-seed, and roadmap-seed only.",
             file=sys.stderr,
         )
         return 1
@@ -8476,6 +8654,7 @@ def main(argv: "list[str] | None" = None) -> int:
             origin_handoff_id=args.origin_handoff_id,
             predecessor_id=args.predecessor_id,
             category=args.category,
+            summary=args.summary,
         )
     elif doc_type == "roadmap-seed":
         _goals_list = [g.strip() for g in args.goals.split(",") if g.strip()] if args.goals else None
@@ -8490,6 +8669,7 @@ def main(argv: "list[str] | None" = None) -> int:
             origin_handoff_id=args.origin_handoff_id,
             predecessor_id=args.predecessor_id,
             category=args.category,
+            summary=args.summary,
         )
     elif doc_type == "memo":
         content = _scaffold_memo(

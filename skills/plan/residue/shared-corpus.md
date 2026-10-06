@@ -57,7 +57,7 @@ _Runs first: verifying you understood the problem precedes verifying the file pa
   → **Verify the call shape (positional vs keyword) before scoping the cut — not after.** Grep each call site (`git grep '<callee>('`) for its literal arg list. **On a positional hit:** the chunk that removes `X` MUST also pin a keyword-rebind of the surviving trailing arg(s) at that call site, in the same edit.
 - _Plan reverses a prior teardown / re-introduces a removed pattern?_
   → Run the negative-search procedure: grep `state/lessons/` and the wiki for the central nouns plus prohibition vocabulary.
-- _Native-code (C++/UE/Rust) plan?_ → Add 2–3 in-tree `file:line` citations to the dispatch brief.
+- _Native-code (C++/UE/Rust) plan?_ → Add 2–3 in-tree `file:line` citations to the dispatch brief, and declare `row_build_gate` frontmatter (`[{when: {change_kind, surface_glob}, command}]`) so each compiled row's executor must build before returning DONE.
 - _Plan renumbers or rekeys a published API (constants, error codes, route numbers, step indices)?_
   → The reverse-reference scan must grep ≥3 shapes per value: bare number, quoted (`'N'`/`"N"`), fmt-string (`{n}`/`%d`), and comment form (`# step N`).
 - _Plan adds a new dispatch / handler / op / job to a surface with registered entries?_

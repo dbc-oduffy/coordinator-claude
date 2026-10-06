@@ -237,6 +237,8 @@ A residual discovered mid-execution never counts in the harvest — `Queued 0` r
 
 **Spinoff overlap re-check, same step.** `/pickup`'s "no overlapping handoff" reconcile is point-in-time — a concurrent peer can fork a handoff for the same scope while this session planned, reviewed, and executed, so the pickup-time finding does not stay true through to close. Before reporting complete, list every open (`kind: spinoff`) handoff this session or its chain authored, and for each, <!-- VERBATIM -->`git log --since=<its authored-at> -- <its named scope/paths>` against `state/handoffs/` and the scope paths themselves. A hit means the scope landed (by this session or a peer) since the spinoff was forked — surface it to the PM as a candidate for `superseded`/`consumed` rather than leaving a stale spinoff open for a peer to pick up. No hit is the ordinary case — omit the line. `coordinator/docs/wiki/ceremony-calibration/workstream-complete-review.md` § Re-check for overlapping peer spinoffs at workstream-complete.
 
+**Structural index, same step.** Run `<plugin-root>/bin/structural-index-refresh.py` (never blocks, always exit 0; `COORDINATOR_STRUCTURAL_INDEX_REFRESH_OFF=1` disables) — report its line if it prints one.
+
 ---
 
 ## Completion verdict

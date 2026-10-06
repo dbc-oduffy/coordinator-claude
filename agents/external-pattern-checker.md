@@ -4,7 +4,7 @@ description: "Opt-in web research on plan claims prior-art-checker left Silent. 
 model: sonnet
 effort: medium
 color: teal
-tools: ["Read", "Grep", "Glob", "Write", "WebSearch", "WebFetch"]
+tools: ["Read", "Grep", "Glob", "Write", "Bash", "PowerShell", "WebSearch", "WebFetch"]
 access-mode: read-write
 ---
 

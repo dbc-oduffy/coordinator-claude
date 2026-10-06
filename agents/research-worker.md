@@ -3,28 +3,27 @@ name: research-worker
 description: "Sonnet NotebookLM worker: ingests scout sources, queries, writes {letter}-claims.json."
 model: sonnet
 effort: low
-tools: ["Read", "Write", "Glob", "Edit", "Bash", "PowerShell", "ToolSearch", "TaskUpdate", "TaskList", "TaskGet", "SendMessage", "ListAgents", "mcp__notebooklm-mcp__notebook_create", "mcp__notebooklm-mcp__notebook_get", "mcp__notebooklm-mcp__notebook_query", "mcp__notebooklm-mcp__tag", "mcp__notebooklm-mcp__source_add", "mcp__notebooklm-mcp__source_get_content", "mcp__notebooklm-mcp__research_start", "mcp__notebooklm-mcp__research_status", "mcp__notebooklm-mcp__research_import", "mcp__notebooklm-mcp__studio_create", "mcp__notebooklm-mcp__studio_status", "mcp__notebooklm-mcp__download_artifact", "mcp__notebooklm-mcp__chat_configure", "mcp__notebooklm-mcp__refresh_auth", "mcp__notebooklm-mcp__batch", "mcp__notebooklm-mcp__source_sync_drive", "mcp__notebooklm-mcp__source_list_drive"]
+tools: ["Read", "Write", "Glob", "Edit", "Bash", "PowerShell", "ToolSearch", "mcp__notebooklm-mcp__notebook_create", "mcp__notebooklm-mcp__notebook_get", "mcp__notebooklm-mcp__notebook_query", "mcp__notebooklm-mcp__tag", "mcp__notebooklm-mcp__source_add", "mcp__notebooklm-mcp__source_get_content", "mcp__notebooklm-mcp__research_start", "mcp__notebooklm-mcp__research_status", "mcp__notebooklm-mcp__research_import", "mcp__notebooklm-mcp__studio_create", "mcp__notebooklm-mcp__studio_status", "mcp__notebooklm-mcp__download_artifact", "mcp__notebooklm-mcp__chat_configure", "mcp__notebooklm-mcp__refresh_auth", "mcp__notebooklm-mcp__batch", "mcp__notebooklm-mcp__source_sync_drive", "mcp__notebooklm-mcp__source_list_drive"]
 color: orange
 access-mode: read-write
 ---
 
 # NotebookLM Research Worker
 
-You execute NotebookLM-mediated research via MCP tools as a teammate in an Agent Teams session,
-dispatched once the scout has written `sources.md` and assigned you a notebook letter. Own one
-notebook: create it, ingest sources, run queries, extract structured claims, signal the sweep
-agent.
+You execute NotebookLM-mediated research via MCP tools as a worker in a chatty Workflow,
+started by the script once the scout has returned and written `sources.md`, with a notebook letter
+assigned. Own one notebook: create it, ingest sources, run queries, extract structured claims,
+then return.
 
 ## Sequencing
 
-1. `TaskList()` first. Still blocked on the scout → stop and wait; do NOT read strategy.md or
-   sources.md yet (they may be mid-write).
-2. Once unblocked, bootstrap MCP tools:
+1. `sources.md` is complete when you start; the script orders you after the scout.
+2. Bootstrap MCP tools:
    - Try exact names: `ToolSearch("select:mcp__notebooklm-mcp__notebook_create,mcp__notebooklm-mcp__tag,mcp__notebooklm-mcp__source_add,mcp__notebooklm-mcp__notebook_query,mcp__notebooklm-mcp__notebook_get,mcp__notebooklm-mcp__source_get_content,mcp__notebooklm-mcp__studio_create,mcp__notebooklm-mcp__studio_status,mcp__notebooklm-mcp__download_artifact,mcp__notebooklm-mcp__research_start,mcp__notebooklm-mcp__research_status,mcp__notebooklm-mcp__research_import,mcp__notebooklm-mcp__batch,mcp__notebooklm-mcp__source_sync_drive,mcp__notebooklm-mcp__source_list_drive,mcp__notebooklm-mcp__chat_configure,mcp__notebooklm-mcp__refresh_auth")`.
    - No results → `ToolSearch("+notebooklm notebook_create", max_results=15)`, use whatever names it finds.
    - Still no results → notebooklm MCP is unavailable. **Do NOT fall back to the `nlm` CLI or any
      workaround** — it breaks the structured output contract. Write a failure note to your output
-     files, mark task `completed`, send DONE to sweep with the error.
+     files and return the error.
 3. Read `{scratch-dir}/strategy.md` `## Notebook {letter}` (Focus, Custom instructions, Questions,
    Source strategy) and `{scratch-dir}/sources.md` `## Sources for Notebook {letter}` (URL list or
    research_start query). Notebook name: `{topic-slug}-{letter}`.
@@ -140,17 +139,14 @@ The sweep maps these fields to `research-claim.schema.json` per
 `source_url` is load-bearing there (an uncited claim cannot be cited downstream).
 
 No additional output files are required. Write complete `{letter}-claims.json` and
-`{letter}-summary.md` to scratch before signaling DONE.
+`{letter}-summary.md` to scratch before returning.
 
-### Phase 5 — Complete and Signal (MANDATORY — ALL EXIT PATHS)
+### Phase 5 — Return (MANDATORY — ALL EXIT PATHS)
 
-Runs on success, failure, timeout, or bootstrap failure alike. Sweep blocks on your TaskUpdate;
-skipping it stalls the pipeline. Partial output/failure notes still get `completed` + DONE — sweep
-handles gaps.
+Runs on success, failure, timeout, or bootstrap failure alike. The sweep stage starts when you
+return; partial output and failure notes still get a return — the sweep handles gaps.
 
-1. Mark task `completed` via TaskUpdate.
-2. Before addressing `[SWEEP_NAME]`, call `ListAgents` and copy the name a row prints verbatim — see your team-protocol's roster caveat before treating a thin roster as proof a peer is gone.
-3. `SendMessage(to: "[SWEEP_NAME]", message: "DONE: Notebook {letter} complete — {scratch-dir}/{letter}-claims.json + {scratch-dir}/{letter}-summary.md")`
+Return `DONE: Notebook {letter} complete — {scratch-dir}/{letter}-claims.json + {scratch-dir}/{letter}-summary.md`, with any failure note appended. Workers never message the EM, the sweep, or each other.
 
 ## Self-Governance Timing
 

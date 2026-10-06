@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import sys
 
-# Generator-provenance declaration (C2, generator_provenance.py's AST reader).
+# Generator-provenance declaration (C2, coordinator_core/ops/generator_census reader).
 # THIS file is a thin CLI trampoline (see module docstring) -- `sources` names
 # the real implementation locus, `coordinator/bin/repomap/generate-repomap.py`
 # (the vendored repomap tool this trampoline shells out to via

@@ -84,23 +84,23 @@ def _plugin_root() -> str:
     <content_root()>/coordinator.
 
     This does NOT derive from this script's own __file__ location. That
-    used to be correct when this executable lived in coordinator-content-repo
+    used to be correct when this executable lived in the content repo
     (coordinator/bin/.. IS the plugin root there), but this file has since
     migrated to claude-klabauter (b644d5a9 there, 8a28a6ca here) while
     coordinator/dist/publish-repo-{toplevel,docs}/ stayed put in
-    coordinator-content-repo — self-location now resolves to <claude-klabauter>/coordinator, which
+    the content repo — self-location now resolves to <claude-klabauter>/coordinator, which
     has no dist/ at all, silently producing spurious MISSING/ERROR lines
     over a tree that never existed instead of a loud failure. Content_root()
-    is the correct authority for "where is the coordinator-content-repo repo,"
+    is the correct authority for "where is the content repo,"
     independent of where THIS script happens to run from. A future reader
     must not "restore" __file__-based resolution to regain the old bash
     oracle's SCRIPT_DIR/.. shape — that is precisely what caused this
     break. The claude-klabauter op cannot derive this itself — it does not live in
-    the DoE tree — so the trampoline resolves and forwards it via the
+    the content tree — so the trampoline resolves and forwards it via the
     environment.
 
     Fails loud (sys.exit(3)) if content_root() cannot resolve: this is a gate
-    script, not a never-block hook, so an unresolvable DoE root must not
+    script, not a never-block hook, so an unresolvable content root must not
     degrade to an exit-0 no-op. Exit code 3 (not 1 or 2) keeps this failure
     distinct from the op's own 0/1/2 business codes, matching this
     trampoline's existing engine-root-resolution-failure convention below.
@@ -116,9 +116,9 @@ def _plugin_root() -> str:
         root = content_root()
     except _DoeUnresolvable as exc:
         print(
-            "verify-dist-publish-repo-sync.py: cannot resolve the coordinator-content-repo repo root "
-            f"({exc}). Set repos.content_root in the machine-local registry, or set "
-            "the CONTENT_ROOT env var, or set CLAUDE_PLUGIN_ROOT directly.",
+            "verify-dist-publish-repo-sync.py: cannot resolve the content repo root "
+            f"({exc}). Set repos.content_root in the machine-local registry, "
+            "or set CLAUDE_PLUGIN_ROOT directly.",
             file=sys.stderr,
         )
         sys.exit(3)

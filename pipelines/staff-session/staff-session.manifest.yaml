@@ -1,0 +1,65 @@
+schema_version: 1
+pipeline: staff-session
+description: Staff session debate over a scope document, plan or review mode, one rebuttal round, then synthesis
+inputs:
+  brief: required
+  scratch_dir: optional
+  flags:
+    mode: [plan, review]
+  lists:
+    roster:
+      kind: roster
+stages:
+  - id: round1-plan
+    phase: Round 1
+    agent_type_from: inputs.roster
+    model: opus
+    template: planner-prompt-template.md
+    fan_out:
+      over: inputs.roster
+    when:
+      flag: mode
+      equals: plan
+    output: "{{scratch_dir}}/{{item}}-position.md"
+  - id: round1-review
+    phase: Round 1
+    agent_type_from: inputs.roster
+    model: opus
+    template: reviewer-prompt-template.md
+    fan_out:
+      over: inputs.roster
+    when:
+      flag: mode
+      equals: review
+    output: "{{scratch_dir}}/{{item}}-position.md"
+  - id: mailcheck
+    phase: Rebuttal
+    agent_type: general-purpose
+    model: haiku
+    template: mailcheck-prompt-template.md
+    depends_on: [round1-plan, round1-review]
+    output: "{{scratch_dir}}/mailcheck.json"
+    schema:
+      type: object
+      required: [slugs]
+      properties:
+        slugs:
+          type: array
+          items:
+            type: string
+  - id: rebuttal
+    phase: Rebuttal
+    agent_type_from: inputs.roster
+    model: opus
+    template: continuation-prompt-template.md
+    fan_out:
+      over: stage.mailcheck.return.slugs
+    depends_on: [mailcheck]
+    output: "{{scratch_dir}}/{{item}}-position.md"
+  - id: synthesizer
+    phase: Synthesis
+    agent_type: coordinator:eng-director
+    model: opus
+    template: synthesizer-prompt-template.md
+    depends_on: [rebuttal]
+    output: "{{scratch_dir}}/synthesis.md"

@@ -23,6 +23,11 @@ for a Mechanism):
    `coordinator/docs/wiki/dispatching-parallel-agents/group-em-standing/group-em-escalation-threshold.md`
    § Point for the resolution route.
 
+**Identity is the routable from-name.** A session names itself and every peer only by the
+from-name a `SendMessage` can address, never an invented alias; a receiver quotes the inbound
+message's `from-name`, never a self-label in its body. Tripwire:
+`A-SESSION-IS-NAMED-BY-ITS-ROUTABLE-FROM-NAME`.
+
 ## Excluded classes
 
 Named so they cannot be re-entered under another label:

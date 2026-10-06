@@ -11,9 +11,9 @@ assertion. A fail-closed pre-flight gate: on transport failure it exits loud
 rather than silently passing. Gate logic lives engine-side in
 coordinator_core.ops.percolate_preflight_scratch_publish;
 this file supplies the --coordinator-root path knowledge, resolved via
-cc_invoke._resolve_claude_klabauter_root() + "/coordinator" (NOT content_root() -- see
-_resolve_coordinator_root() below for why the DoE-pointing resolver this
-file used before DR-261 is now the wrong target).
+cc_invoke._resolve_claude_klabauter_root() + "/coordinator" (NOT a content-repo
+resolver -- see _resolve_coordinator_root() below for why the content-repo-pointing
+resolver this file used before DR-261 is now the wrong target).
 
 Port of: percolate-preflight-scratch-publish.sh (DoE b5a4192c, 2026-07-20).
 The engine module now spawns ONLY native Python — the non-dry-run publish is
@@ -26,7 +26,7 @@ resolved via _resolve_coordinator_root() below (CLAUDE_PLUGIN_ROOT env, else
 See _resolve_coordinator_root()'s docstring for why __file__-based
 resolution is STILL avoided even though this script itself now lives inside
 the correct root post-DR-261 (it would happen to work today, but would
-silently re-break under exactly the invocation shapes content_root()-style
+silently re-break under exactly the invocation shapes content-repo-style
 indirection exists to survive).
 
 Shebang note: the SHEBANG line above is `#!/usr/bin/env python3`, generator-
@@ -85,11 +85,11 @@ def _resolve_coordinator_root() -> str:
     DR-261 (docs/decisions/DR-261-claude-klabauter-owns-klabauter-publishing-end-to.md) moved
     klabauter publishing ownership -- the publish.py driver, the two leak guards, and
     the row/store config -- into the engine repo end to end. Before DR-261 this resolved
-    via coordinator_registry.content_root() (coordinator-content-repo's repo root), because publish.py /
+    via the content repo's root (coordinator_registry.content_root()), because publish.py /
     the guards / the portable-targets file all lived DoE-side. That is no longer true:
     both `coordinator/bin/{publish,check-registry-codename-leak,check-persona-slug-leak}.py`
     AND the sibling `setup/publish-targets.portable` / `setup/percolate-hooks/
-    percolate-store.yaml` now live in THIS repo. Content_root() pointed at
+    percolate-store.yaml` now live in THIS repo. The content repo's root pointed at
     the wrong repo post-move; this resolver was fixed to point at this repo instead.
 
     This still does NOT derive from this script's own __file__ location, even though
@@ -144,11 +144,9 @@ def _import_main():
     with exit 3. A plain in-process import: no RPC hop.
     """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    from cc_invoke import _resolve_claude_klabauter_root
+    from cc_invoke import require_dispatch_engine_on_path
 
-    root = _resolve_claude_klabauter_root()
-    if root not in sys.path:
-        sys.path.insert(0, root)
+    require_dispatch_engine_on_path()
     from coordinator_core.cli_entry import run_op_main
 
     return run_op_main

@@ -93,8 +93,11 @@ of the configure steps:
 predicate that box is `fresh`. The entry is the engine installer's cold path:
 `python3 <klabauter-clone>/scripts/setup.py --i-am-agent` (Step 4). Proceed to Step 1.
 
-The human types `/coordinator:install` (`disable-model-invocation`); the agent may run only the
-`--plan` form above through Bash.
+The human types `/coordinator:install` (`disable-model-invocation`). On every track the agent may
+run through Bash only the `--plan` form above and `python3 <klabauter-clone>/scripts/setup.py
+--i-am-agent` (the `engine_setup` and `engine_check` leg). `plugin_update` runs only inside the
+human-typed `/coordinator:install`; an agent never hand-runs `claude plugin update`. On `update`,
+the agent hands the human that command.
 
 ### Existing home — disclosure, not routing
 
@@ -166,7 +169,7 @@ unprompted, say so before proceeding; do not do it unilaterally.
 
 | Tier | Plugins | Default |
 |---|---|---|
-| **core** | `coordinator` (deep-research folded in) | Always on. Full multi-agent pipelines require `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` (Step 2 sets this). |
+| **core** | `coordinator` (deep-research folded in) | Always on. Multi-agent pipelines run as chatty Workflows; `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` is retired and must not be set. |
 | **specialized** | UE/example-game-repo plugins, game-dev plugin, project-rag | Only relevant for Unreal Engine / example-game-repo workflows. Do NOT offer to a generic user. |
 
 **Offer granularity is the add-on level, never the component level** — no install-time per-skill
@@ -519,13 +522,17 @@ it, and don't gate on code quality. See `CONTRIBUTING.md`.
 ## Keeping the install current
 
 After install, re-run `--plan` (Step 0): `track: update` means the installer performs the update
-itself, and a re-run picks up newly added steps. `/coordinator:coordinator-update` stays as the
+itself, and a re-run picks up newly added steps. The agent/human split is Step 0's: the agent may
+run `--plan` and `setup.py --i-am-agent`; the human types `/coordinator:install` for `plugin_update`. `/coordinator:coordinator-update` stays as the
 customization-aware advisory — it checks the latest published version, computes a delta, and
 advises a path while preserving customizations by default — but it never performs the update.
 
 `version.txt` in the installed plugin directory is the update baseline: the commit SHA of the
-source the install was made from, which `/coordinator:coordinator-update` compares against upstream. It is not
-the plugin version; that lives in `.claude-plugin/plugin.json`. `docs/coordinator-currency.yaml`,
+published `coordinator-claude` clone the install was last updated from, which
+`/coordinator:coordinator-update` looks up in that public history. Only a completed
+`/coordinator:coordinator-update` apply writes it. A copy that arrives with a fresh clone is a
+source-repo SHA absent from the public history; until the first apply rewrites it, the update
+check reports the baseline unreachable and compares two-way. It is not the plugin version; that lives in `.claude-plugin/plugin.json`. `docs/coordinator-currency.yaml`,
 written by the install's optional `coordinator_currency` step into a project repo, records which
 coordinator version that repo was set up against; commit it in the project repo and skip it in the
 plugin clone.

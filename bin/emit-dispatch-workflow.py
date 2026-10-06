@@ -20,6 +20,8 @@ Usage:
   python emit-dispatch-workflow.py --ask "PROMPT" [--out OUT] [--repo-root PATH]
   python emit-dispatch-workflow.py --ask --sizing STATE/SIZINGS/X.yaml [--out OUT] [--repo-root PATH]
   (--sizing alone is the same entry; --fire is refused with --ask/--sizing)
+  python emit-dispatch-workflow.py --pipeline NAME (--brief TEXT | --brief-file PATH) [--subjects FILE|a,b] [--flag NAME=VALUE ...] [--scratch-dir PATH] [--out OUT] [--repo-root PATH]
+  (--pipeline is emit-only; --fire, --writes and every other route selector are refused with it)
   python emit-dispatch-workflow.py --restamp SCRIPT
 
 Exit codes (`coordinator_core.ops.dispatch_emit.cli`):

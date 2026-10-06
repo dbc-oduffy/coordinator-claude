@@ -69,7 +69,6 @@ every `coordinator:install`).
 
 | Variable | In `settings.json` | Purpose | Machine-specific? |
 |----------|--------------------|---------|--------------------|
-| `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` | `"1"` | Agent Teams + deep-research | No — all machines |
 | `CLAUDE_CODE_ENABLE_TODO_TOOLS` | `"1"` | Makes Task* tools available to a main session on models that don't get them by default (v2.1.233+) | No — all machines |
 | `CLAUDE_CODE_USE_POWERSHELL_TOOL` | `"1"` on a Windows host under a no-Bash directive; unset elsewhere | Pin the PowerShell tool's availability instead of inheriting a progressive rollout | **Yes** — see the warning below. Never blanket-set `"0"` |
 | `CLAUDE_HOME` | *(not in settings.json)* | Override the **home directory** the `.claude` root hangs off — resolvers join it with `.claude` themselves, so it is a `$HOME` override, not a path to `.claude` | Yes — every resolver in this tree honors it. Default: `$HOME`, giving `$HOME/.claude` |

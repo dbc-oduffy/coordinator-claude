@@ -32,7 +32,7 @@ def _resolve_root() -> str:
     port invents).
 
     Absent CLAUDE_HOME, resolves via `coordinator_registry.content_root()`
-    (CONTENT_ROOT / REPO_CONTENT_ROOT env -> machine-local `repos.content_root` ->
+    (REPO_CONTENT_ROOT env -> machine-local `repos.content_root` ->
     raise).
 
     THIS DOES NOT DERIVE FROM __file__. b644d5a9 migrated this executable
@@ -69,7 +69,7 @@ def _resolve_root() -> str:
         print(
             f"{PROG}: cannot resolve the coordinator doctrine repo root ({exc}). "
             "Set repos.content_root in the machine-local registry, or set the "
-            "CONTENT_ROOT/REPO_CONTENT_ROOT env var, or set CLAUDE_HOME directly.",
+            "REPO_CONTENT_ROOT env var, or set CLAUDE_HOME directly.",
             file=sys.stderr,
         )
         sys.exit(1)

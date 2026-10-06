@@ -225,7 +225,7 @@ The plugin ships **46** commands. Listed below are the 45 that are useful in a c
 | `/pickup` | Resume from a handoff or action a cross-repo memo — grab the baton |
 | `/handoff` | Mid-workstream save-state under context pressure — always a continuation |
 | `/spinoff` | PM-gated: fork a mid-session topic into its own handoff |
-| `/autonomous` | Toggle autonomous mode — suppresses handoff nudges near compaction |
+| `/autonomous` | Toggle autonomous mode — the PM-away premise for what counts as a legitimate stop |
 
 **Intake — sizing, shaping, planning**
 

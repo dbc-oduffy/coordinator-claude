@@ -1,0 +1,177 @@
+# Pipeline B (repo research) stage graph. Contract: coordinator/schemas/pipeline-manifest.schema.json.
+# Brief: the EM's scope.md. Fire flags select stages through `when`; chunk and scout lists are inputs.
+schema_version: 1
+pipeline: repo
+description: "Pipeline B repo research: scouts, disk gate, specialists, rebuttal, synthesizer"
+inputs:
+  brief: required
+  scratch_dir: optional
+  flags:
+    deepest: [true, false]
+    compare: [true, false]
+    sonnet_scouts: [true, false]
+  lists:
+    chunks:
+      kind: strings
+    haiku_scouts:
+      kind: strings
+stages:
+  - id: scout-haiku
+    phase: Scouts
+    agent_type: coordinator:repo-scout
+    template: repo-scout-prompt-template.md
+    fan_out:
+      over: inputs.haiku_scouts
+    when:
+      flag: sonnet_scouts
+      equals: false
+    output: "{{scratch_dir}}/scout-{{item}}.md"
+  - id: scout-sonnet
+    phase: Scouts
+    agent_type: general-purpose
+    model: sonnet
+    template: repo-scout-prompt-template.md
+    fan_out:
+      over: inputs.chunks
+    when:
+      flag: sonnet_scouts
+      equals: true
+    output: "{{scratch_dir}}/{{item}}-inventory.md"
+  - id: gate
+    phase: Gate
+    agent_type: general-purpose
+    model: sonnet
+    effort: low
+    template: repo-gate-prompt-template.md
+    depends_on: [scout-haiku, scout-sonnet]
+    schema:
+      type: object
+      required: [failed]
+      properties:
+        failed:
+          type: array
+          items:
+            type: string
+    output: "{{scratch_dir}}/gate.json"
+  - id: rescout
+    phase: Gate
+    agent_type: general-purpose
+    model: sonnet
+    template: repo-scout-prompt-template.md
+    fan_out:
+      over: stage.gate.return.failed
+    when:
+      nonempty: stage.gate.return.failed
+    depends_on: [gate]
+    output: "{{scratch_dir}}/{{item}}-inventory.md"
+  - id: regate
+    phase: Gate
+    agent_type: general-purpose
+    model: sonnet
+    effort: low
+    template: repo-gate-prompt-template.md
+    when:
+      nonempty: stage.gate.return.failed
+    depends_on: [rescout]
+    schema:
+      type: object
+      required: [failed]
+      properties:
+        failed:
+          type: array
+          items:
+            type: string
+    output: "{{scratch_dir}}/regate.json"
+  - id: stub
+    phase: Gate
+    agent_type: general-purpose
+    model: sonnet
+    template: repo-stub-prompt-template.md
+    when:
+      nonempty: stage.regate.return.failed
+    depends_on: [regate]
+    output: "{{scratch_dir}}/stub-report.md"
+  - id: atlas-sketch
+    phase: Atlas sketch
+    agent_type: general-purpose
+    model: haiku
+    template: repo-atlas-sketch-prompt-template.md
+    when:
+      flag: deepest
+      equals: true
+    optional: true
+    depends_on: [gate, rescout, regate, stub]
+    output: "{{scratch_dir}}/atlas-sketch-file-index.md"
+  - id: specialists
+    phase: Specialists
+    agent_type: coordinator:repo-specialist
+    model: sonnet
+    template: repo-specialist-prompt-template.md
+    fan_out:
+      over: inputs.chunks
+    depends_on: [atlas-sketch, stub]
+    output: "{{scratch_dir}}/{{item}}-assessment.md"
+  - id: mailcheck
+    phase: Rebuttal
+    agent_type: general-purpose
+    model: haiku
+    template: repo-mailcheck-prompt-template.md
+    depends_on: [specialists]
+    schema:
+      type: object
+      required: [failed]
+      properties:
+        failed:
+          type: array
+          items:
+            type: string
+    output: "{{scratch_dir}}/mailcheck.json"
+  - id: rebuttal
+    phase: Rebuttal
+    agent_type: coordinator:repo-specialist
+    model: sonnet
+    template: repo-continuation-prompt-template.md
+    fan_out:
+      over: stage.mailcheck.return.failed
+    depends_on: [mailcheck]
+    output: "{{scratch_dir}}/{{item}}-rebuttal.md"
+  - id: sweep
+    phase: Sweep
+    agent_type: general-purpose
+    model: sonnet
+    template: repo-comparison-sweep-prompt-template.md
+    when:
+      flag: compare
+      equals: true
+    optional: true
+    depends_on: [rebuttal]
+    output: "{{scratch_dir}}/comparison-target-sweep.md"
+  - id: synthesize
+    phase: Synthesis
+    agent_type: coordinator:research-synthesizer
+    model: opus
+    template: repo-synthesizer-prompt-template.md
+    depends_on: [sweep]
+    output: "{{scratch_dir}}/synthesis.md"
+  - id: relay
+    phase: Synthesis
+    agent_type: coordinator:repo-specialist
+    model: sonnet
+    template: repo-continuation-prompt-template.md
+    fan_out:
+      over: inputs.chunks
+    when:
+      flag: deepest
+      equals: true
+    depends_on: [synthesize]
+    output: "{{scratch_dir}}/{{item}}-relay.md"
+  - id: synthesize-2
+    phase: Synthesis
+    agent_type: coordinator:research-synthesizer
+    model: opus
+    template: repo-synthesizer-prompt-template.md
+    when:
+      flag: deepest
+      equals: true
+    depends_on: [relay]
+    output: "{{scratch_dir}}/synthesis-pass-2.md"

@@ -192,15 +192,19 @@ def _remount_command(publish_ref: str, band: str, repo_slug: str) -> str:
     `CORPUS_MANIFEST_SCHEMA_VERSION` is 1, so the default refuses every artifact the current
     exporter writes. Memo'd to project-rag as their defect; until they rule, omitting the flag
     makes the pasted command fail.
+
+    Both scripts are addressed under a `<project-rag-root>` PLACEHOLDER: they live in the
+    project-rag checkout, and a bare relative path resolves only when the operator's cwd happens
+    to be that checkout.
     """
     staging_dir = f"<staging>/{band}"
     return (
-        f"python project_rag_scripts/lib/download_corpus.py "
+        f"python <project-rag-root>/project_rag_scripts/lib/download_corpus.py "
         f"--release-url {publish_ref} "
         f"--target-dir {staging_dir} "
         f"--expected-sha256 <sha256-from-publish> "
         f"--min-schema 1 "
-        f"&& python project_rag_cli.py import-lance-parquet-consumer "
+        f"&& python <project-rag-root>/project_rag_cli.py import-lance-parquet-consumer "
         f"--parquet-dir {staging_dir} "
         f"--repo-slug {repo_slug}"
     )
@@ -293,7 +297,13 @@ def run_probe(
 
 def _write_sentinel(sentinel_path: Path, sentinel: dict[str, Any]) -> None:
     sentinel_path.parent.mkdir(parents=True, exist_ok=True)
-    sentinel_path.write_text(json.dumps(sentinel, indent=2) + "\n", encoding="utf-8", newline="\n")
+    tmp = sentinel_path.with_name(f".{sentinel_path.name}.tmp{os.getpid()}")
+    try:
+        tmp.write_text(json.dumps(sentinel, indent=2) + "\n", encoding="utf-8", newline="\n")
+        os.replace(tmp, sentinel_path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def build_parser() -> argparse.ArgumentParser:

@@ -39,7 +39,7 @@ def _resolve_plugin_root() -> str:
 
     Env var CLAUDE_PLUGIN_ROOT wins if set, returned verbatim. Otherwise
     resolves via content_root() (see that function's own docstring for its
-    env-var/machine-local resolution chain) and returns
+    registry/pointer resolution chain) and returns
     <content_root()>/coordinator.
 
     This does NOT derive from this script's own __file__ location: this
@@ -50,7 +50,7 @@ def _resolve_plugin_root() -> str:
     on the sibling script — this function mirrors its shape).
 
     Fails loud (sys.exit(1)) if content_root() cannot resolve: this is a gate
-    script, not a never-block hook, so an unresolvable DoE root must not
+    script, not a never-block hook, so an unresolvable content root must not
     degrade to an exit-0 no-op.
     """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
@@ -64,10 +64,9 @@ def _resolve_plugin_root() -> str:
         root = content_root()
     except _DoeUnresolvable as exc:
         print(
-            "verify-templates-setup-sync.py: cannot resolve the coordinator doctrine "
-            f"repo root ({exc}). Set repos.content_root in the machine-local "
-            "registry, or set the CONTENT_ROOT env var, or set "
-            "CLAUDE_PLUGIN_ROOT directly.",
+            "verify-templates-setup-sync.py: cannot resolve the coordinator "
+            f"content root ({exc}). Set repos.content_root in the machine-local "
+            "registry, or set CLAUDE_PLUGIN_ROOT directly.",
             file=sys.stderr,
         )
         sys.exit(1)

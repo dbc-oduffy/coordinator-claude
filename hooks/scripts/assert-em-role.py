@@ -331,22 +331,20 @@ _GEM_CLAUSE = "G-EM active: {name} ({session}) -- see wiki group-em-standing.md\
 
 
 def _group_em_nomination_module():
-    """Load group-em-nomination.py by path -- hyphens make its filename
-    unimportable. Same loader as coordinator/bin/statusline.py::
-    _group_em_nomination_module. Best-effort by contract: ANY failure
-    returns None and the caller omits the clause; a broken nomination
-    module must never cost this hook its one job.
+    """The engine's `coordinator_core.group_em.nomination`, or None. Best-effort by
+    contract: ANY failure returns None and the caller omits the clause; a broken
+    nomination module must never cost this hook its one job.
     """
     try:
-        import importlib.util
+        import _engine_root
 
-        path = _PLUGIN_ROOT / "bin" / "group-em-nomination.py"
-        spec = importlib.util.spec_from_file_location("_assert_em_gem_nomination", path)
-        if spec is None or spec.loader is None:
+        root = _engine_root.resolve_claude_klabauter_root()
+        if not root:
             return None
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        return module
+        _engine_root.place_engine_root_on_path(root)
+        from coordinator_core.group_em import nomination
+
+        return nomination
     except Exception:
         return None
 
@@ -398,8 +396,7 @@ def _group_em_clause(repo_root, timeout: float = 0.3) -> str:
             record = gem.read_record(str(repo_root))
             if not isinstance(record, dict):
                 return
-            live, _row = gem.is_live(record)
-            if not live:
+            if not gem.is_live(record).live:
                 return
             holder = str(record.get("session_id") or "")
             name = _gem_display_name(repo_root, holder, record.get("peer_name"))

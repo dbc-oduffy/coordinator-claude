@@ -4,6 +4,27 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.4.12] — 2026-10-06
+
+A consolidation and hook-weight release.
+
+- **Hooks.** SessionStart folds from seven entries to three and UserPromptExpansion from four to
+  one; the folded legs run in-process, with no git spawns at boot.
+- **Deep research.** The web, repo, structured and NotebookLM pipelines run as Workflows emitted by
+  the engine, replacing Agent Teams.
+- **Copies banner.** Engine-mirror completeness checks the publisher's expected-manifest against
+  the mirror's git index.
+- **Group EM.** PM authority comes only from a human-typed `/group-em`, verified from the
+  transcript; box-wide start and end notices.
+- **Handoffs.** A handoff written by hand is refused by the engine; an advisory `/workday-start`
+  lint flags any project `CLAUDE.md` that teaches the retired `.claude/handoffs/` convention.
+- **Guards.** A Stop leg blocks a new drive-root directory; a plugin-shipped workflow is no longer
+  warned as hand-rolled.
+- **Engine scripts.** 53 engine-owned `coordinator/bin` scripts forward to the published engine.
+- **Fixes.** goal-blitz fire receipts, fire-and-forget batons, execute-plan reverify,
+  merging-to-main's plugin-ecosystem gate, and a 31-bug sweep (atomic writes, subprocess
+  timeouts, encodings).
+
 ## [4.4.11] — 2026-10-03
 
 A blitz-reliability release.

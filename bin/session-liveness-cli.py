@@ -140,6 +140,14 @@ def _run_incident(subcmd: str, rest: list[str]) -> int:
     except (RuntimeError, ImportError) as exc:
         print(f"session-liveness-cli: incident_claims not importable: {exc}", file=sys.stderr)
         return _TRANSPORT_FAIL
+    if subcmd == "incident-claim":
+        from coordinator_core.argv_fidelity import ArgvFidelityError, refuse_newline_argv
+
+        try:
+            refuse_newline_argv(opts.get("--note"), flag_name="--note", remedy="keep the note to one line.")
+        except ArgvFidelityError as exc:
+            print(f"session-liveness-cli: {subcmd}: {exc}", file=sys.stderr)
+            return 2
     repo = opts.get("--repo") or core.git_root()
     if not repo:
         print(f"session-liveness-cli: {subcmd}: not in a git repo; pass --repo", file=sys.stderr)

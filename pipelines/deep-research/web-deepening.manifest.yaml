@@ -1,0 +1,73 @@
+# Web research, pass 2 (the Deepening Protocol): a separate fire after the EM reads pass 1's gap report.
+# Gap letters are lowercase and continue after pass 1's last topic letter: {{item}} is bound verbatim.
+schema_version: 1
+pipeline: web-deepening
+description: Optional scout, gap-specialists fill pass 1's coverage gaps, a rebuttal round, then a merge-mode Opus sweep writes the deepening delta.
+inputs:
+  brief: required
+  scratch_dir: optional
+  flags:
+    needs_scout: [true, false]
+  lists:
+    gaps:
+      kind: strings
+stages:
+  - id: scout-t2
+    phase: Scout
+    agent_type: coordinator:research-scout
+    model: haiku
+    template: scout-prompt-template.md
+    when:
+      flag: needs_scout
+      equals: true
+    optional: true
+    web_caller: true
+    output: "{{scratch_dir}}/gap-corpus.md"
+  - id: gap-specialists
+    phase: Gap-specialists
+    agent_type: coordinator:research-specialist
+    model: sonnet
+    template: gap-specialist-prompt-template.md
+    fan_out:
+      over: inputs.gaps
+    web_caller: true
+    depends_on: [scout-t2]
+    output: "{{scratch_dir}}/D-{{item}}-claims.json"
+    schema:
+      type: object
+      properties:
+        letter:
+          type: string
+        challenged:
+          type: array
+          items:
+            type: string
+        claimsPath:
+          type: string
+      required: [letter, challenged, claimsPath]
+  - id: rebuttal
+    phase: Rebuttal
+    agent_type: coordinator:research-specialist
+    model: sonnet
+    template: web-rebuttal-prompt-template.md
+    fan_out:
+      over: stage.gap-specialists.return.challenged
+    web_caller: true
+    depends_on: [gap-specialists]
+    output: "{{scratch_dir}}/D-{{item}}-claims.json"
+  - id: sweep-t2
+    phase: Sweep
+    agent_type: coordinator:research-synthesizer
+    model: opus
+    template: web-sweep-prompt-template.md
+    web_caller: true
+    depends_on: [rebuttal]
+    output: "{{scratch_dir}}/deepening-delta.md"
+    schema:
+      type: object
+      properties:
+        deepeningRecommended:
+          type: boolean
+        summary:
+          type: string
+      required: [deepeningRecommended, summary]

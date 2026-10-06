@@ -61,11 +61,15 @@ import argparse
 import json
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, NamedTuple, Optional
 
 SCHEMA_VERSION = 1
+
+# Delivery lag (send returning -> delivery record in the peer transcript) is unmeasured, so the
+# 60 s default stands. Also covers the 0.1 min content-age rendering step.
+OCCURRENCE_TOLERANCE_SECONDS = 60
 
 
 def _resolve_modules():
@@ -150,6 +154,8 @@ def claim(
             elif holder_sid == session_id:
                 displaced_from = existing.get("displaced_from")
             else:
+                # A corrupt record with no session_id must report a displacement: a sentinel, not
+                # "", which the message branch below treats as falsy and would swallow.
                 displaced_from = "(malformed prior record)"
 
         record = {
@@ -247,16 +253,36 @@ def poke_mark(
     return ClaimResult(True, f"marked {peer} as poked by {session_id}", 0, ledger["entries"][_ledger_key(session_id, peer)])
 
 
+def _parse_iso(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
 def poke_check(
     atomic_record,
     session_id: str,
     peer: str,
     *,
+    as_of: str,
+    content_age_minutes: float,
     directory: Optional[Path] = None,
 ) -> ClaimResult:
+    """Report whether the stall occurrence starting at `as_of - content_age` was already poked.
+
+    One-sided: a start at or before `poked_at + OCCURRENCE_TOLERANCE_SECONDS` reads poked, and so
+    does an entry whose `poked_at` does not parse. Raises ValueError on an unparseable `as_of`.
+    """
     ledger = read_ledger(atomic_record, directory)
     entry = ledger["entries"].get(_ledger_key(session_id, peer))
-    already = entry is not None
+    already = False
+    if entry is not None:
+        occurrence_start = _parse_iso(as_of) - timedelta(minutes=content_age_minutes)
+        try:
+            poked_at = _parse_iso(str(entry.get("poked_at")))
+        except (ValueError, TypeError):
+            already = True
+        else:
+            already = occurrence_start <= poked_at + timedelta(seconds=OCCURRENCE_TOLERANCE_SECONDS)
     message = (
         f"{peer} already poked by {session_id}" if already else f"{peer} not yet poked by {session_id}"
     )
@@ -291,6 +317,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     p_check = sub.add_parser("poke-check", help="ask whether a peer was already poked")
     p_check.add_argument("--session-id", help="session id asking; default $CLAUDE_SESSION_ID")
     p_check.add_argument("--peer", required=True, help="peer session id or name to check")
+    p_check.add_argument("--as-of", required=True, help="idle report as_of, ISO-8601")
+    p_check.add_argument(
+        "--content-age", required=True, type=float, help="the peer row's content-age, in minutes"
+    )
     p_check.add_argument("--json", action="store_true", help="emit the result as JSON")
 
     args = parser.parse_args(argv if argv is not None else sys.argv[1:])
@@ -302,6 +332,12 @@ def main(argv: Optional[list[str]] = None) -> int:
         return 2
 
     if args.verb == "claim":
+        from coordinator_core.argv_fidelity import ArgvFidelityError, refuse_newline_argv
+
+        try:
+            refuse_newline_argv(args.note, flag_name="--note", remedy="keep the note to one line.")
+        except ArgvFidelityError as exc:
+            parser.error(str(exc))
         session_id = _resolve_session_id(args.session_id)
         if not session_id:
             parser.error("give --session-id or set $CLAUDE_SESSION_ID")
@@ -335,7 +371,16 @@ def main(argv: Optional[list[str]] = None) -> int:
         session_id = _resolve_session_id(args.session_id)
         if not session_id:
             parser.error("give --session-id or set $CLAUDE_SESSION_ID")
-        result = poke_check(atomic_record, session_id, args.peer)
+        try:
+            result = poke_check(
+                atomic_record,
+                session_id,
+                args.peer,
+                as_of=args.as_of,
+                content_age_minutes=args.content_age,
+            )
+        except ValueError:
+            parser.error(f"--as-of is not an ISO-8601 timestamp: {args.as_of!r}")
         if args.json:
             print(json.dumps(result.record))
         else:

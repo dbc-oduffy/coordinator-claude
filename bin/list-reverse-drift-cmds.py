@@ -16,7 +16,7 @@
 #   root so a CONSUMER repo's release never gates on a SIBLING plugin's
 #   live-install drift. The meta-repo (${HOME}/.claude) is the explicit
 #   check-all case. Paths are normalized before comparison (Windows
-#   `<drive>:/` vs MSYS `/<drive>/` vs $HOME) so the meta-repo and source_path
+#   drive-letter vs MSYS drive-prefixed vs home-relative) so the meta-repo and source_path
 #   matches survive cross-platform path forms.
 #   Spec backlink: cross-repo/inbox/2026-06-01-reverse-drift-gate-per-repo-scoping.md
 #

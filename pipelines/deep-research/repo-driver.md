@@ -1,25 +1,25 @@
 ---
-description: "PM-GATED — only invoke when the PM explicitly asks; EM must ask first if it thinks it's warranted; NEVER invoke from a subagent. Pipeline B (Repo Research) using Agent Teams — optional Opus survey for holistic orientation, scouts (Haiku for small repos, Sonnet for large) build file inventories, 4 Sonnet specialists analyze and optionally compare, 1 Opus synthesizer produces the final document. In --deepest mode: three-phase pipeline with atlas sketch and refinement."
-allowed-tools: ["Agent", "Read", "Write", "Bash", "Glob", "Grep", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "SendMessage"]
+description: "PM-GATED — only invoke when the PM explicitly asks; EM must ask first if it thinks it's warranted; NEVER invoke from a subagent. Pipeline B (Repo Research) as a chatty Workflow — optional Opus survey for holistic orientation, scouts (Haiku for small repos, Sonnet for large) build file inventories, 4 Sonnet specialists analyze and optionally compare, 1 Opus synthesizer produces the final document. In --deepest mode: three-phase pipeline with atlas sketch and refinement."
+allowed-tools: ["Agent", "Workflow", "Read", "Write", "Bash", "Glob", "Grep"]
 argument-hint: "<repo-path> [--compare <project-path>] [--code-compare <peer-target> --axes <axis-list>] [--survey] [--deeper] [--deepest] [--scout-model {haiku|sonnet}]"
 ---
 
-# Deep Research — Pipeline B (Repo Research) Agent Teams Driver
+# Deep Research — Pipeline B (Repo Research) Chatty-Workflow Driver
 
-The EM scopes the repository, creates a team, spawns all teammates, and is **freed**. The team works autonomously:
+The EM scopes the repository, writes `{scratch-dir}/scope.md`, fires ONE background `Workflow` whose script runs the stages in order, and is **freed**. The workflow runs autonomously:
 - **Haiku scouts** (2) — inventory all files in their assigned chunks, build structured file maps
-- **Sonnet specialists** (4) — blocked until all scouts complete (2 on the Haiku tier, 4 on the Sonnet tier), then deep-read files, analyze, optionally compare
-- **Opus synthesizer** (1) — blocked until all specialists complete, then reads findings and writes final document(s)
+- **Sonnet specialists** (4) — start after the scout stage and its disk gate return (2 scouts on the Haiku tier, 4 on the Sonnet tier), then deep-read files, analyze, optionally compare, and exchange challenges through mailbox files
+- **Opus synthesizer** (1, the overseer) — starts after the specialists' stage returns, then reads findings and writes final document(s)
 
-Scouts produce the shared thoroughness artifact that Sonnets would naturally skim past. Specialists self-govern their timing (floor, diminishing returns, ceiling). The EM does not monitor or broadcast WRAP_UP. When the synthesizer marks its task complete, the EM receives a notification and does quick cleanup.
+Scouts produce the shared thoroughness artifact that Sonnets would naturally skim past. Specialists self-govern their timing (floor, diminishing returns, ceiling). The EM does not monitor. When the Workflow completes, the EM receives its task notification, carrying the synthesizer's return value, and does quick cleanup.
 
 ## Arguments
 
 `$ARGUMENTS`:
 - `<repo-path>` — path to the repository to research (required)
 - `--compare <project-path>` — optional path to a project to compare against
-- `--code-compare <peer-target> --axes <axis-list>` — routes to the single-agent Code-Comparison mode (see `## Mode Dispatch — --code-compare` below) instead of the Pipeline B scout→specialist→synthesizer team. Distinct from `--compare`: `--compare` runs the Pipeline B prose gap-analysis team; `--code-compare` dispatches one self-contained agent per (subject, peer) pair via fan-out and does NOT invoke the team protocol at all — no scouts, no specialists, no synthesizer.
-- `--survey` — dispatch a solo Opus agent to produce a holistic 20-30KB narrative overview before the team runs. Useful when the EM is cold on the repo. The survey becomes both a standalone deliverable and a specialist input artifact. Implied by `--deepest` unless the EM already has context.
+- `--code-compare <peer-target> --axes <axis-list>` — routes to the single-agent Code-Comparison mode (see `## Mode Dispatch — --code-compare` below) instead of the Pipeline B scout→specialist→synthesizer workflow. Distinct from `--compare`: `--compare` runs the Pipeline B prose gap-analysis workflow; `--code-compare` dispatches one self-contained agent per (subject, peer) pair via fan-out and does NOT invoke the workflow at all — no scouts, no specialists, no synthesizer.
+- `--survey` — dispatch a solo Opus agent to produce a holistic 20-30KB narrative overview before the workflow runs. Useful when the EM is cold on the repo. The survey becomes both a standalone deliverable and a specialist input artifact. Implied by `--deepest` unless the EM already has context.
 - `--deeper` — generate a dependency-weighted repomap during scoping, giving specialists structural centrality rankings to prioritize deep-reads
 - `--deepest` — all of `--deeper` and `--survey`, plus generate architecture atlas artifacts in two passes: a preliminary sketch from scout data (pre-specialist) and a refined atlas from the full research (post-synthesis). Three-phase pipeline.
 - `--scout-model {haiku|sonnet}` — override the size-derived scout tier (Step 5 Phase A). Default is size-derived (Sonnet for large or high-volume repos, Haiku for small). The tier selects the dispatch vehicle, not a `model:` parameter — see Step 5 Phase A's tier table.
@@ -27,7 +27,7 @@ Scouts produce the shared thoroughness artifact that Sonnets would naturally ski
 ## Mode Dispatch — `--code-compare`
 
 If `--code-compare <peer-target> --axes <axis-list>` is supplied, this run does NOT follow the
-Agent Teams flow below (Steps 1-7.5) — skip straight to a single-agent dispatch:
+Workflow flow below (Steps 1-7.5) — skip straight to a single-agent dispatch:
 
 1. Read the single-agent prompt template from
    `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/code-comparison-agent-prompt-template.md`.
@@ -38,8 +38,7 @@ Agent Teams flow below (Steps 1-7.5) — skip straight to a single-agent dispatc
    `{run-id}` is generated fresh (`YYYY-MM-DD-HHhMM`, current timestamp) — Mode Dispatch skips
    Step 1, so this mode generates its own run-id rather than reusing one. Each repo writes its
    own records into its own tree — this is not a central directory shared across repos.
-3. Dispatch one `Agent(...)` call per `(subject, peer)` pair (fan-out shape, NOT `TaskCreate`/team
-   formation) — no scouts, no specialists, no synthesizer.
+3. Dispatch one `Agent(...)` call per `(subject, peer)` pair (fan-out shape, NOT the Workflow) — no scouts, no specialists, no synthesizer.
 4. Each agent emits structured comparison records per the schema at
    `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/code-comparison-record-schema.md`, writing the
    output file itself.
@@ -53,7 +52,7 @@ Full mode description, architecture rationale, and record-schema detail:
 2. Verify the repo path exists and contains files. **Note:** the path may have been resolved from a repo-target name by the entry point (via `machine-local get repos.<name>`, `~/Documents/Code_Reference/<name>`, or an opt-in shallow clone); if a shallow clone was created by the entry point, record its path in `scope.md` under `## Clone Disposition` for explicit cleanup consideration — do NOT auto-delete; only a pipeline-created shallow clone is cleanup-eligible, and even then surface-don't-auto-rm.
 3. Generate run ID: `YYYY-MM-DD-HHhMM` (current timestamp)
 4. Generate topic slug from repo name (e.g., `onnxruntime`, `langchain`)
-5. Record spawn timestamp: `date +%s` (Unix epoch seconds — passed to teammates for timing)
+5. Record spawn timestamp: `date +%s` (Unix epoch seconds — the survey's `[SPAWN_TIMESTAMP]`; scouts, specialists, and later stages start their own clock)
 6. Create working directory — **accept-if-passed:** if `{scratch-dir}` is already bound (supplied by `research.md` Step 0), skip the `mkdir` and use the supplied value; otherwise create it (`mkdir -p docs/research/{run-id}-{topic-slug}-workdir`).
    Set `{scratch-dir}` = `docs/research/{run-id}-{topic-slug}-workdir`
 7. Set output path: `docs/research/YYYY-MM-DD-repo-{topic-slug}.md` — the `repo-` infix distinguishes this pipeline's artifacts from web/structured pipeline outputs on the same date.
@@ -64,7 +63,7 @@ Full mode description, architecture rationale, and record-schema detail:
 12. If `--deepest`: set atlas sketch (scratch) and refined-output (docs/research/) paths — see `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/repo-research-internals.md` § Atlas Path Conventions for the 3 sketch + 4 final artifact paths.
 13. Set claims path: `docs/research/YYYY-MM-DD-repo-{topic-slug}.claims.json` — durable queryable index of per-specialist claim records merged by the synthesizer.
 
-Announce: "Running Pipeline B (repo research, Agent Teams{', deepest mode' if --deepest}{', deeper mode' if --deeper and not --deepest}{', survey mode' if --survey and not --deepest}{', comparison mode' if --compare}) on {repo-path}."
+Announce: "Running Pipeline B (repo research, chatty Workflow{', deepest mode' if --deepest}{', deeper mode' if --deeper and not --deepest}{', survey mode' if --survey and not --deepest}{', comparison mode' if --compare}) on {repo-path}."
 
 ## Step 2 — Holistic Survey (only if `--survey`)
 
@@ -86,14 +85,14 @@ If `--survey` is set and the EM judges a holistic overview is warranted:
      prompt: <filled survey prompt>
    )
    ```
-   This is a regular subagent — not a teammate. 30-minute ceiling.
+   This is a regular subagent, dispatched before the Workflow. 30-minute ceiling.
 
 4. **Read the survey** at `{scratch-dir}/survey.md`
 
 5. **Decision gate — present to PM:**
    > "Survey complete — [brief 2-3 sentence summary of key findings]. Two options:
    > 1. **Survey is sufficient** — we have the overview we need. I'll save this as the deliverable.
-   > 2. **Proceed with team pipeline** — use this survey as specialist context and go deep.
+   > 2. **Proceed with the research workflow** — use this survey as specialist context and go deep.
    > Which approach?"
 
 6. **If PM chooses option 1:**
@@ -129,15 +128,15 @@ Generate a dependency-weighted repomap before defining chunks — gives structur
 
 ### Phase 2: Scoping (informed by orientation{' and repomap' if --deeper})
 
-6. **Define exactly 4 chunks** — domain-aligned, based on the repo's own architecture as understood from orientation. (4 chunks because the 4 specialists are teammates and the ceiling is 7: 7 - 2 teammate scouts - 1 synthesizer = 4 specialist slots. **The `- 2 scouts` term is Haiku-tier arithmetic only** — see Step 5 Phase A: Sonnet-tier scouts dispatch as non-teammate `general-purpose` agents and consume no slot, so the scout count is free there. The chunk count stays 4 on both tiers, because it is the specialist count that fixes it.) If `--deeper` produced a repomap, review Tier 1 file distribution across chunks — avoid concentrating all core files in a single chunk.
-7. **Assign chunks to scouts** — the mapping is tier-dependent (derive the tier at Step 5 Phase A; the estimates in step 8 feed it). **Haiku tier: 2 scouts, Scout 1 gets chunks A+B, Scout 2 gets chunks C+D** — teammate slots are scarce. **Sonnet tier: one scout per chunk (4 scouts, 1 chunk each)** — they are not teammates, so nothing is bought by pairing, and halving each scout's load attacks the exact failure mode the tier exists to avoid.
+6. **Define exactly 4 chunks** — domain-aligned, based on the repo's own architecture as understood from orientation. (4 chunks because the workflow's specialist stage runs one specialist per chunk, four in all, on both scout tiers.) If `--deeper` produced a repomap, review Tier 1 file distribution across chunks — avoid concentrating all core files in a single chunk.
+7. **Assign chunks to scouts** — the mapping is tier-dependent (derive the tier at Step 5 Phase A; the estimates in step 8 feed it). **Haiku tier: 2 scouts, Scout 1 gets chunks A+B, Scout 2 gets chunks C+D. Sonnet tier: one scout per chunk (4 scouts, 1 chunk each)** — halving each scout's load attacks the exact failure mode the tier exists to avoid.
 8. **Estimate file counts per chunk** — rough counts from the survey (these become `[EXPECTED_FILE_COUNT]` in specialist prompts, used as a tripwire for detecting thin scout output)
 9. **Write focus questions using execution-trace framing** — instead of "describe the architecture of X", prefer "trace the request from [entry] to [exit]" or "how does data flow from [input] to [output]?" Execution-trace questions produce more accurate specialist output than structural questions.
 10. **If `--compare`:** identify the project's domain keywords per chunk for comparison file identification. For comparison mode: specialists will analyze each codebase independently first, then compare answers against the focus questions — not compare code directly.
 11. **Ask the PM for timing preferences:**
     > "Research timing: default is 5-15 min specialist window with 3-file minimum deep-read. For a small repo, I'd suggest 3-10 min / 3 files. For a large repo, 5-20 min / 5 files. What ceiling works for you?"
 
-Write scope to `{scratch-dir}/scope.md`:
+Write scope to `{scratch-dir}/scope.md`. This file is the run's **brief**: the stage templates read every per-run parameter from it, so nothing about the run lives anywhere else. Field names are fixed — the templates name them:
 
 ```markdown
 # Repo Research Scope
@@ -146,9 +145,25 @@ Write scope to `{scratch-dir}/scope.md`:
 **Path:** {repo-path}
 **Version:** {version}
 **Date:** {date}
-**Comparison:** {project-path or "none"}
+**Run ID:** {run-id}
+**Comparison:** {project-name and project-path, or "none"}
+**Survey:** {true/false}
 **Deeper mode:** {true/false}
+**Deepest mode:** {true/false}
 **Repomap:** {repomap path or "skipped — thin import graph" or "N/A"}
+
+## Run Parameters
+
+**Output path:** {output-path from Step 1}
+**Advisory path:** {advisory path from Step 1}
+**Gap analysis path:** {gap analysis path, or "N/A"}
+**Claims path:** {claims path from Step 1}
+**Scout tier:** {haiku or sonnet — Step 5 Phase A}
+**Scout ceiling (minutes):** {5, or 8-12 on the Sonnet tier — Step 5 Phase A}
+**Large-chunk breadth:** {true/false — Step 5 Phase A}
+**Min minutes:** {specialist floor, default 5}
+**Max minutes:** {specialist ceiling, default 15}
+**Min deep-read files:** {default 3}
 
 ## Structural Orientation
 
@@ -160,12 +175,14 @@ Write scope to `{scratch-dir}/scope.md`:
 
 ## Chunks
 
-| Chunk | Scout | Directories/Files | Est. Files | Focus Question |
-|-------|-------|-------------------|-----------|----------------|
-| A | 1 | {dirs} | ~{count} | {question} |
-| B | 1 | {dirs} | ~{count} | {question} |
-| C | 2 | {dirs} | ~{count} | {question} |
-| D | 2 | {dirs} | ~{count} | {question} |
+| Chunk | Scout | System | Description | Directories/Files | Est. Files | Focus Question |
+|-------|-------|--------|-------------|-------------------|-----------|----------------|
+| A | 1 | {system name} | {one line} | {dirs} | ~{count} | {question} |
+| B | 1 | {system name} | {one line} | {dirs} | ~{count} | {question} |
+| C | 2 | {system name} | {one line} | {dirs} | ~{count} | {question} |
+| D | 2 | {system name} | {one line} | {dirs} | ~{count} | {question} |
+
+The Scout column holds the scout key: `1`/`2` on the Haiku tier. On the Sonnet tier it holds the chunk letter itself. Step 5 Phase A fixes the tier.
 
 {If --compare:}
 ## Comparison Targets
@@ -175,228 +192,113 @@ Write scope to `{scratch-dir}/scope.md`:
 | B | {keywords} |
 | C | {keywords} |
 | D | {keywords} |
+
+## Sweep Worklist
+{Optional. Facts that entered the run from outside it — a peer's claim, a PM steer, a cross-repo memo — for the comparison-target sweep to verify. Omit when there are none.}
 ```
 
-## Step 4 — Create Team and All Tasks
+## Step 4 — Stage Order and Mailboxes
 
-### Spawn the First Teammate
+The run is ONE background `Workflow` the engine emits from `repo.manifest.yaml` (Step 5); the EM never writes the script. Doctrine: `coordinator/docs/wiki/dispatching-parallel-agents/chatty-workflows.md`.
 
-Spawn the first teammate via the `Agent` tool — the team auto-forms (session-derived name); no explicit create step.
+- **Ordering replaces `blockedBy`.** Stage N+1 starts when stage N's `agent()` calls return (`await`, or `parallel()` for a fan-out). Nothing else gates a stage.
+- **No `SendMessage`** — between agents or to the EM. Peers exchange findings through mailbox files, `{scratch-dir}/mail/<role>.jsonl`. A line is `{"from": "<role>", "text": "..."}`; to message peer X, append to X's file. A reader appends `{"read": true}` after reading its file; it has unread mail when lines follow its last read marker. Roles: `scout-1`/`scout-2` (Haiku tier) or `scout-a`…`scout-d` (Sonnet tier), `specialist-a`…`specialist-d`, `sweep`, `synthesizer`.
+- **Challenge and relay rounds are continuation rounds.** Round 1: specialists write their outputs, append challenges to peers' mailboxes, and return. Round 2, after all of round 1 returns: the script probes the mailboxes and dispatches a fresh continuation agent for each specialist with unread mail. A wake is a dispatch, never a resume (`SendMessage` cannot resume a returned workflow agent). One rebuttal round by default.
+- **The synthesizer is the overseer** — the only agent whose return value reaches the EM. Workers return a one-line pointer to the script and never address the EM.
+- Model tiers are set per stage in `repo.manifest.yaml`; every disk check is an `agent()` call, because the script has no filesystem access.
 
-### Create Tasks (explicit ordering — blocking chain depends on this)
+## Step 5 — Fire the Workflow
 
-**Order matters.** Task IDs from earlier steps are referenced in later steps.
+Set the brief parameters (Phases A–D below), then emit and fire. Stage order is fixed by the manifest: scouts → gate → [atlas sketch] → specialists → rebuttal → [sweep] → synthesizer (→ relay → pass 2).
 
-**1. Synthesizer task** (created first — will be blocked later):
-```
-TaskCreate(subject: "Synthesize all findings into final document(s)", description: "Read all specialist assessments from {scratch-dir}/, cross-reference, write synthesis to {output-path} and {scratch-dir}/synthesis.md. If comparison mode: also write gap analysis to {gap-analysis-path}.")
-```
+Resolve `emit-dispatch-workflow` per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` and run:
 
-**2. Scout tasks** (no blockers):
-```
-TaskCreate(subject: "Scout 1: Inventory chunks A and B", description: "Read and inventory all files in chunks A and B. Write to {scratch-dir}/A-inventory.md and {scratch-dir}/B-inventory.md. {If compare: also identify comparison file candidates in project.}")
-
-TaskCreate(subject: "Scout 2: Inventory chunks C and D", description: "Read and inventory all files in chunks C and D. Write to {scratch-dir}/C-inventory.md and {scratch-dir}/D-inventory.md. {If compare: also identify comparison file candidates in project.}")
+```bash
+"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/emit-dispatch-workflow" --pipeline repo --brief {scratch-dir}/scope.md --subjects {repo-name} --list chunks=A,B,C,D --list haiku_scouts=1,2 --flag deepest=BOOL --flag compare=BOOL --flag sonnet_scouts=BOOL --scratch-dir {scratch-dir} --out {scratch-dir}/workflow.mjs
 ```
 
-**2.5. Atlas sketch task** (only if `--deepest`, blocked by BOTH scouts):
-```
-TaskCreate(subject: "Atlas sketch: produce preliminary structural artifacts from scout data", description: "Read scout inventories and repomap, produce preliminary file index, system map, and connectivity matrix to {scratch-dir}/atlas-sketch-*.md")
-TaskUpdate(taskId: "{atlas-sketch-id}", addBlockedBy: [<every scout task id>])   # 2 on the Haiku tier, 4 on the Sonnet tier
-```
+Each `BOOL` is `true` or `false`.
 
-**3. Specialist tasks** (each blocked by BOTH scouts; also by atlas sketch if `--deepest`):
-For each chunk (A, B, C, D):
-```
-TaskCreate(subject: "Analyze chunk {letter}: {description}", description: "Deep-read files, write assessment to {scratch-dir}/{letter}-assessment.md. {If compare: also write comparison to {scratch-dir}/{letter}-comparison.md.}")
-TaskUpdate(taskId: "{specialist-id}", addBlockedBy: [<every scout task id>])   # 2 on the Haiku tier, 4 on the Sonnet tier
-```
-If `--deepest`:
-```
-TaskUpdate(taskId: "{specialist-id}", addBlockedBy: ["{atlas-sketch-id}"])
-```
+`--brief` is the path of `scope.md` (a missing file is refused). `--list chunks` and the three `--flag`s come from Step 3 and Phase A; the Sonnet tier still takes `--list chunks=A,B,C,D` and `sonnet_scouts=true`. Fire the printed `Workflow({ scriptPath: ... })` line as a background `Workflow` (`run_in_background: true`). Never hand-write the script: the engine writes the receipt the Workflow hook checks, and re-running emit rewrites both.
 
-**Note:** In `--deepest` mode, specialist tasks are created upfront with blockers (same as other modes), but specialist agents are spawned LATER — after the atlas sketch completes (see Step 5 phased spawning). The `blockedBy` on atlas-sketch is belt-and-suspenders; the real gate is that specialist agents don't exist yet.
+The stage templates are filled by the engine from `repo.manifest.yaml`, not by the EM: the EM's whole contribution is `scope.md` (Step 3). A specialist's role is `specialist-{letter, lowercase}`, its peers are the other rows of the Chunks table, and the synthesizer's mailbox is `synthesizer`. The mailbox protocol text lives in each template that uses it.
 
-**3.5. Comparison-target sweep task** (only if `--compare`, blocked by all four specialists):
-```
-TaskCreate(subject: "Sweep the comparison target for questions no chunk owns", description: "Read all four comparisons and their open questions, sweep {compare-project-path} for the cross-lane facts chunking could not assign, write {scratch-dir}/comparison-target-sweep.md.")
-TaskUpdate(taskId: "{sweep-id}", addBlockedBy: ["{specialist-A-id}", "{specialist-B-id}", "{specialist-C-id}", "{specialist-D-id}"])
-```
-
-**4. Block synthesizer on all specialists** (and on the sweep, if `--compare`):
-```
-TaskUpdate(taskId: "{synthesizer-id}", addBlockedBy: ["{specialist-A-id}", "{specialist-B-id}", "{specialist-C-id}", "{specialist-D-id}"])
-```
-If `--compare`:
-```
-TaskUpdate(taskId: "{synthesizer-id}", addBlockedBy: ["{sweep-id}"])
-```
-
-<!-- BEGIN task-tool-availability (synced from snippets/task-tool-availability.md) -->
-`TaskCreate` absent from this session's surface (`ToolSearch("select:TaskCreate")` returns nothing)
-→ fall back to `coordinator-tasks-mirror` for the same flight-recorder role; do not assume either
-state without checking. When Task* is unavailable, dispatch the phases in order, waiting on each
-completion notification — that is the ordering a `blockedBy` chain would otherwise express.
-<!-- END task-tool-availability -->
-
-## Step 5 — Spawn Teammates
-
-**Spawning model depends on mode:**
-- **Default / `--deeper` / `--survey`:** Spawn all 7 teammates in one message (parallel). EM is freed immediately.
-- **`--deepest`:** Phased spawning — spawn scouts + synthesizer first, wait for scouts, run atlas sketch, then spawn specialists. EM is freed after specialists are spawned (~7 min delay).
-
-### Phase A: Spawn Scouts + Synthesizer
+### Phase A: Scouts
 
 #### Scouts (model scales with repo size)
 
-**Scout model selection — the tier picks the VEHICLE, not a `model:` parameter.** `coordinator:repo-scout` pins `model: haiku` and the engine-plane guard `enforce_agent_model_pin` hard-rejects any dispatch that passes `model:` alongside it. **Never pass `model:` to `coordinator:repo-scout`** — the dispatch is refused outright, and it is refused identically on the Step 5.5 recovery path, when a failed run can least afford it. Scaling up means dispatching a *different agent* carrying the same filled scout prompt:
+**Scout model selection — the tier picks the VEHICLE, not a `model:` parameter.** `coordinator:repo-scout` pins `model: haiku` and the engine-plane guard `enforce_agent_model_pin` hard-rejects any dispatch that passes `model:` alongside it. **Never pass `model:` to `coordinator:repo-scout`** — the dispatch is refused outright, and it is refused identically on the Step 5.5 recovery path, when a failed run can least afford it. Scaling up means dispatching a *different agent* carrying the same scout template — the manifest's `scout-haiku` and `scout-sonnet` stages, selected by the `sonnet_scouts` flag:
 
-| Tier | Dispatch | Ceiling |
-|------|----------|---------|
-| Haiku (default) | `subagent_type: "coordinator:repo-scout"`, **no `model:` parameter** | 5 min |
-| Sonnet (escalated) | `subagent_type: "general-purpose"`, `model: "sonnet"`, prompt = the same filled scout template | 8–12 min |
+| Tier | Manifest stage | Ceiling |
+|------|----------------|---------|
+| Haiku (default) | `scout-haiku`: `coordinator:repo-scout`, **no `model`**; scout keys `1` and `2` | 5 min |
+| Sonnet (escalated) | `scout-sonnet`: `general-purpose`, `model: sonnet`; scout keys `A`…`D` | 8–12 min |
 
 Haiku scouts reliably inventory small chunks but fail at large scope — silently, and with confabulated DONE messages (empirically 2/2 Haiku scouts failed on a ~2500-file repo at ~250 files/chunk, 2026-06-27; see Step 5.5). Derive the tier from the Step 3 estimates:
 
-- **`--scout-model {haiku|sonnet}` override (parsed in Step 1) wins if present.** State it: "Scout tier forced to {tier} via --scout-model." If `--scout-model sonnet` forces the Sonnet tier on a small repo, use the Haiku-tier ceiling (5 min) and OMIT the `[IF LARGE_CHUNK_BREADTH:]` block — the tier is the override, not the chunk size.
+- **`--scout-model {haiku|sonnet}` override (parsed in Step 1) wins if present.** State it: "Scout tier forced to {tier} via --scout-model." If `--scout-model sonnet` forces the Sonnet tier on a small repo, use the Haiku-tier ceiling (5 min) and set `Large-chunk breadth: false` in the brief — the tier is the override, not the chunk size.
 - **Else default by size:** **Sonnet tier** if the repo exceeds **~1000 files total**, OR any single scout's combined chunk load exceeds **~150 files**, OR any single scout's combined chunk load exceeds **~1.5MB of source**; **Haiku tier** otherwise.
 - **File count is a weak proxy for scout load — check volume too.** A 216-file repo whose single largest file is 6,000+ lines and holds a third of its source loads a scout harder than a 900-file repo of small modules. Get both numbers during Step 3 orientation (`find {repo-path} -type f -name '*.{ext}' | wc -l` and `du -sh` over the chunk's directories) and escalate on whichever crosses first.
 - State the derivation: "Repo ~{N} files / ~{S}MB, max scout load ~{M} files (~{V}MB) → scouts run on the {tier} tier."
 
-**Ceiling scales too.** The 5-minute scout ceiling is unachievable at ~250 files/chunk even for a non-hallucinating scout. Fill `[CEILING_MINUTES]` in the scout prompt: **5** for Haiku-tier small chunks, **8–12** for Sonnet-tier large chunks (within 8–12: ~8 min for ~100–150 files/chunk, ~10 for ~150–200, ~12 for 200+). AND for large (Sonnet-tier) chunks, include the template's `[IF LARGE_CHUNK_BREADTH:]` block so the scout prioritizes record/contract-bearing files (schemas, public APIs, entry points) with full entries and inventories the rest by signature — breadth over exhaustive deep-read.
+**Ceiling scales too.** The 5-minute scout ceiling is unachievable at ~250 files/chunk even for a non-hallucinating scout. Set the brief's `Scout ceiling (minutes)` to **5** for Haiku-tier small chunks, **8–12** for Sonnet-tier large chunks (within 8–12: ~8 min for ~100–150 files/chunk, ~10 for ~150–200, ~12 for 200+). AND for large (Sonnet-tier) chunks set `Large-chunk breadth: true` so the scout prioritizes record/contract-bearing files (schemas, public APIs, entry points) with full entries and inventories the rest by signature — breadth over exhaustive deep-read.
 
-Read the scout prompt template from:
-`${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/repo-scout-prompt-template.md`
+The scout template is `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/repo-scout-prompt-template.md`. Its chunk assignment follows the tier (Step 3 item 7) and comes from the brief's Chunks table: on the Haiku tier set the Scout column to `1` (chunks A+B) and `2` (chunks C+D), and the scouts take Variant A; on the Sonnet tier the Scout column is the chunk letter, one chunk each, the scouts take Variant B, and the `sonnet_scouts` flag is true. The template picks its variant from the scout key (number: A, letter: B). A Sonnet-tier scout carrying Variant A is the documented refusal case. The Step 5.5 recovery re-runs failed chunks through the same template with a chunk-letter key, so it takes Variant B.
 
-Fill in template fields for each scout (including `[CEILING_MINUTES]`, and the `[IF LARGE_CHUNK_BREADTH:]` block on the Sonnet tier). Chunk assignment follows the tier (Step 3 item 7): Haiku tier pairs chunks across 2 scouts; Sonnet tier gives each of 4 scouts a single chunk.
+#### Synthesizer (Opus) — the overseer
 
-**Haiku tier (default) — no `model:` parameter:**
-```
-Agent(
-  name: "scout-1",
-  subagent_type: "coordinator:repo-scout",   # pinned haiku; passing model: is REFUSED
-  prompt: <filled scout prompt for chunks A+B, Variant A preamble>
-)
-TaskUpdate(taskId: "{scout-1-id}", owner: "scout-1")
+The synthesizer template is `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/repo-synthesizer-prompt-template.md`. It reads the brief's `Repository`, `Output path`, `Advisory path`, `Claims path`, `Gap analysis path` and `Comparison` fields, so those must be set in Step 3. Its fidelity-relay passes are selected by the brief's `Deepest mode` field and by whether the specialists' relay lines are in the synthesizer mailbox; nothing is dropped by hand.
 
-Agent(
-  name: "scout-2",
-  subagent_type: "coordinator:repo-scout",
-  prompt: <filled scout prompt for chunks C+D, Variant A preamble>
-)
-TaskUpdate(taskId: "{scout-2-id}", owner: "scout-2")
-```
-
-**Sonnet tier — a different vehicle carrying the same prompt, one scout per chunk:**
-```
-Agent(
-  name: "scout-a",
-  model: "sonnet",
-  subagent_type: "general-purpose",       # NOT a teammate — no team_name, no slot consumed
-  prompt: <filled scout prompt for chunk A, Variant B preamble>
-)
-TaskUpdate(taskId: "{scout-a-id}", owner: "scout-a")
-```
-…and likewise `scout-b`, `scout-c`, `scout-d` for chunks B, C, D — all four in a single message. Because these are not teammates, **the 7-teammate ceiling does not constrain scout count on this tier**; one chunk each keeps every load inside the reliable range rather than pairing it back out of range. Create one scout task per scout and add all four to the specialists' (and, if `--deepest`, the atlas sketch's) `addBlockedBy` list, in place of the two `scout-1`/`scout-2` ids shown at Step 4.
-Swap the TEXT-ONLY preamble variant with the tier: Variant A (forceful) for Haiku, Variant B (plain) for Sonnet. A Sonnet-tier scout carrying Variant A is the documented refusal case.
-
-#### Synthesizer (Opus)
-
-Read the synthesizer prompt template from:
-`${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/repo-synthesizer-prompt-template.md`
-
-Fill in ALL template fields:
-- `[REPO_NAME]`, `[SCRATCH_DIR]`, `[OUTPUT_PATH]`, `[TASK_ID]`
-- `[ADVISORY_PATH]` → advisory path computed in Step 1
-- `[CLAIMS_PATH]` → claims path computed in Step 1 (= `docs/research/YYYY-MM-DD-repo-{topic-slug}.claims.json`)
-- `[COMPARE_MODE]` → true/false
-- If compare: `[COMPARE_PROJECT_NAME]`, `[GAP_ANALYSIS_PATH]`
-
-```
-Agent(
-  name: "synthesizer",
-  model: "opus",
-  subagent_type: "coordinator:research-synthesizer",
-  prompt: <filled synthesizer prompt>
-)
-TaskUpdate(taskId: "{synthesizer-id}", owner: "synthesizer")
-```
+The synthesizer runs as `{ agentType: 'coordinator:research-synthesizer', model: 'opus' }`. Its return value is the run's completion message to the EM.
 
 ### Phase B: Atlas Sketch (only if `--deepest`)
 
-**If NOT `--deepest`:** Skip this phase — spawn specialists immediately in Phase C alongside scouts and synthesizer (all in one message).
+**If NOT `--deepest`:** Skip this phase.
 
-**If `--deepest`:** After spawning scouts + synthesizer, **run the Step 5.5 Scout Completion Gate now** — it is the wait-for-scouts-and-verify-disk mechanism. Do NOT dispatch the atlas sketch until the gate returns GATE PASS (or you have completed Step 5.5 recovery). Only then dispatch a Haiku atlas-sketch subagent (NOT a teammate — preserves the 7-teammate limit) using `pipelines/repo-atlas-sketch-prompt-template.md`. Verify the 3 sketch artifacts exist in `{scratch-dir}/`, mark the atlas-sketch task completed. On failure, specialists fall back to `--deeper` mode (repomap only).
+**If `--deepest`:** The stage starts after the Step 5.5 gate (and any recovery) returns — the script's ordering is the wait. It dispatches a Haiku atlas-sketch agent (`general-purpose`, `model: 'haiku'`) using `pipelines/repo-atlas-sketch-prompt-template.md`; the prompt requires it to verify the 3 sketch artifacts exist in `{scratch-dir}/` before returning. On failure the script logs and the specialists fall back to `--deeper` mode (repomap only).
 
-**Template fields, dispatch syntax, verification details:** see `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/repo-research-internals.md` § Phase B.
+The sketch reads the brief's Chunks table (the System and Description columns) and `Repomap` field. **Verification details:** see `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/repo-research-internals.md` § Phase B.
 
 ### Phase C: Spawn Specialists
 
-For each chunk, read the specialist prompt template from:
-`${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/repo-specialist-prompt-template.md`
+The specialist template is `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/repo-specialist-prompt-template.md`, one specialist per chunk. Every parameter it needs is a brief field, set in Step 3:
+- The chunk's description, directories and `Est. Files` (from the scoping survey) in the Chunks table; peers are the other rows
+- `Min minutes`, `Max minutes`, `Min deep-read files` — from PM timing preferences (or defaults: 5 min, 15 min, 3 files)
+- `Comparison` — the project name and path when `--compare`, else "none"
+- `Repomap` — a path only when `--deeper` generated one (not skipped)
+- `Deepest mode` — true only on `--deepest`; the specialist reads the atlas sketch files if they exist
+- `Survey` — true only when a survey was produced, and `{scratch-dir}/survey.md` exists
 
-Fill in ALL template fields — including:
-- `[SYNTHESIZER_NAME]` → `"synthesizer"`
-- `[PEER_LIST]` → the other 3 specialists with their teammate names and chunk descriptions
-- `[EXPECTED_FILE_COUNT]` → from the scoping survey
-- `[MIN_MINUTES]`, `[MAX_MINUTES]`, `[MIN_SOURCES]` → from PM timing preferences (or defaults: 5 min, 15 min, 3 files)
-- If `--compare`: include `[COMPARE_PROJECT_PATH]` and `[COMPARE_PROJECT_NAME]`
-- If `--deeper` and repomap was generated (not skipped): include the `[IF DEEPER MODE]` section with `[SCRATCH_DIR]/repomap.md`
-- If `--deepest` and atlas sketch artifacts exist: include the `[IF DEEPEST MODE]` section with atlas sketch paths
-- If `--survey` and survey was produced: include the `[IF SURVEY MODE]` section with `[SCRATCH_DIR]/survey.md`
-
-```
-Agent(
-  name: "chunk-{letter}",
-  model: "sonnet",
-  subagent_type: "coordinator:repo-specialist",
-  prompt: <filled specialist prompt>
-)
-TaskUpdate(taskId: "{specialist-id}", owner: "chunk-{letter}")
-```
-
-**Dispatch all 4 specialists in a single message (parallel).**
+All four run in one fan-out as `{ agentType: 'coordinator:repo-specialist', model: 'sonnet' }`. Specialists start their own clock, so the EM's Step 1 timestamp does not apply to them.
 
 ## Step 5.5 — Scout Completion Gate (hard, disk-first)
 
-Scouts can hit the documented "TEXT-ONLY" hallucination (see `coordinator/snippets/em-operating-doctrine.md` § Extensions to coordinator defaults ▸ Fan-out dispatch extras ¶ "Scouts: disk-first"; formerly `coordinator/CLAUDE.md` § "Scouts and Disk-First Verification", retired 2026-07-27): they go idle without ever calling Write, leaving specialists blocked on inventories that don't exist. **Worse — a scout can mark its task `completed` AND send a confabulated DONE message with fabricated line counts and a detailed fake findings summary for files it never wrote** (observed 2026-06-27: scout-2 reported *"both inventories written and verified on disk (8.9K/149 lines, 11K/227 lines)"* with a detailed findings summary, while `find` confirmed zero files on disk). **A `completed` task status and a plausible DONE message are NOT evidence of work — only disk is.** This gate is structural, not EM-diligence-dependent: it runs on every repo run and blocks downstream spawn until inventories are verified on disk.
+Scouts can hit the documented "TEXT-ONLY" hallucination (see `coordinator/snippets/em-operating-doctrine.md` § Extensions to coordinator defaults ▸ Fan-out dispatch extras ¶ "Scouts: disk-first"): they return without ever calling Write, leaving specialists with inventories that don't exist. **Worse — a scout can return a confabulated DONE with fabricated line counts and a detailed fake findings summary for files it never wrote** (observed 2026-06-27: scout-2 reported *"both inventories written and verified on disk (8.9K/149 lines, 11K/227 lines)"* with a detailed findings summary, while `find` confirmed zero files on disk). **A return value and a plausible DONE message are NOT evidence of work — only disk is.** The gate is structural: it is a stage of the script, runs on every repo run, and the specialist stage cannot start until it returns.
 
-**When this gate runs (mode-dependent):**
-- **`--deepest`:** the gate runs at the END of Phase A — after every scout completes and **before** Phase B (atlas sketch) dispatches. Phase B's wait-for-all-scout-tasks clause IS this gate; do not dispatch the atlas sketch until GATE PASS (or a completed recovery).
-- **Default / `--deeper` / `--survey`:** specialists were spawned upfront in Phase C, held by the scout task's `blockedBy` status. The gate runs here, before the EM is freed (Step 6), and re-opens the scout task to re-arm that block on failure.
-
-Wait until every scout task reports `completed`, every scout emits `idle_notification`, or ~6 minutes have elapsed since spawn (whichever comes first) — "every", not "both": the Sonnet tier runs 4 scouts. Then run the automated disk-first gate:
+**When this gate runs:** after every scout `agent()` call returns, in every mode — before the atlas sketch under `--deepest`, before the specialists otherwise. The script's `gate()` dispatches a Sonnet agent that runs:
 
 ```bash
 "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/stub-file-gate" --min-lines 30 {scratch-dir}/A-inventory.md {scratch-dir}/B-inventory.md {scratch-dir}/C-inventory.md {scratch-dir}/D-inventory.md
 ```
 
-**GATE PASS (all 4 files exist, ≥30 lines each):** Scouts succeeded. Proceed — default mode → Step 6 (EM Freed); `--deepest` → Phase B (Atlas Sketch).
+and returns the chunk letters whose inventories the CLI reports missing or short (`repo-gate-prompt-template.md`).
 
-**GATE FAIL (any file missing or <30 lines):** Do NOT proceed — a `completed` scout task with no/stub disk output is a **false completion**. First **re-open the scout task to re-arm the block** (`TaskUpdate(taskId: "{scout-N-id}", status: "in_progress")`) so atlas-sketch/specialist spawn stays gated, then recover in this preference order:
+**GATE PASS (all 4 files exist, ≥30 lines each):** Scouts succeeded; the script proceeds.
 
-> **First, halt any already-running teammates.** In default/`--deeper`/`--survey` mode the specialists were spawned upfront and a false `completed` may have cleared their `blockedBy` before this gate fired — re-opening the scout task does NOT stop a teammate that is already executing. For each specialist (and `atlas-sketch` if `--deepest`) whose task shows `in_progress`, `SendMessage`: *"Gate detected scout false-completion — your inventory at `{path}` does not exist on disk. Pause: do not analyze or self-discover yet. Wait for a follow-up message pointing you to a valid inventory."* Then proceed with recovery below; the post-recovery wake step re-activates them.
+**GATE FAIL (any file missing or <30 lines):** a returned scout with no/stub disk output is a **false completion**. The script recovers in this preference order, with no EM involvement:
 
-**Preferred recovery — Sonnet-escalation (per coordinator "never re-Haiku" doctrine).** Coordinator CLAUDE.md § "Scouts and Disk-First Verification": *"Haiku TEXT-ONLY on a write-capable worker: escalate or self-execute, never re-Haiku (~30% recurrence)."* If the failed scout(s) ran on Haiku, redispatch the missing chunk(s) to a **non-teammate Sonnet scout** — the scout task is already gate-cleared, so a plain `Agent(...)`: no `team_name`, `model: "sonnet"`, **`subagent_type: "general-purpose"`** carrying the filled scout prompt with the Variant B preamble, `run_in_background: true`. **Do NOT pass `model: "sonnet"` to `coordinator:repo-scout`** — that agent pins Haiku and the engine-plane pin guard refuses the call, which would strand this recovery at exactly the moment it is needed (see Step 5 Phase A's tier table). Apply the same breadth-scoping (record/contract-bearing files first) and a size-derived ceiling (8–12 min). When the Sonnet scout's inventory lands, **re-run the gate `bash` block above**; only on PASS proceed to the post-recovery steps.
+**Preferred recovery — Sonnet escalation (per coordinator "never re-Haiku" doctrine).** Coordinator CLAUDE.md § "Scouts and Disk-First Verification": *"Haiku TEXT-ONLY on a write-capable worker: escalate or self-execute, never re-Haiku (~30% recurrence)."* The manifest's `rescout` stage redispatches each missing chunk: `agentType: 'general-purpose'`, `model: 'sonnet'`, the filled scout prompt with the Variant B preamble. **Never pass `model: 'sonnet'` to `coordinator:repo-scout`** — that agent pins Haiku and the engine-plane pin guard refuses the call, which would strand this recovery at exactly the moment it is needed (see Phase A's tier table). Apply the same breadth-scoping (record/contract-bearing files first) and a size-derived ceiling (8–12 min). When the Sonnet scouts return, the script re-runs the gate on the failed paths.
 
-**Fallback — EM-stub (only when Sonnet redispatch also fails, or the scouts already ran on Sonnet).** Write stub inventories yourself for each still-missing chunk at the expected path. A stub is a structured file list pulled from `scope.md`'s chunk definitions, prefixed with:
+**Fallback — stub (only when the Sonnet redispatch also fails, or the scouts already ran on Sonnet).** The manifest's `stub` stage writes a stub inventory for each still-missing chunk at the expected path. A stub is a structured file list pulled from `scope.md`'s chunk definitions, prefixed with:
    ```markdown
-   > **Stub inventory** — written by EM after scout failure (TEXT-ONLY hallucination + failed/exhausted Sonnet redispatch).
+   > **Stub inventory** — written after scout failure (TEXT-ONLY hallucination + failed/exhausted Sonnet redispatch).
    > Treat as a file list. Self-discover via Glob/Read; do not assume coverage is exhaustive.
    ```
-List the chunk's directories/files from `scope.md`. If `--compare`, include the chunk's domain keywords as comparison hints.
+The stub lists the chunk's directories/files from `scope.md`; if `--compare`, it includes the chunk's domain keywords as comparison hints. The recovery scout (`repo-scout-prompt-template.md`) and the stub agent (`repo-stub-prompt-template.md`) also append a `## Recovery Notes` section to `scope.md` listing which inventories were Sonnet-re-run vs stubbed, so the synthesizer's advisory captures the degraded/recovered run.
 
-**After either recovery path:**
+No wake step exists: the specialist stage starts after the gate stage returns.
 
-1. **Mark scout tasks completed:** `TaskUpdate(taskId: "{scout-N-id}", status: "completed")` — clears the `blockedBy` gate on specialists and (if `--deepest`) atlas-sketch. For Sonnet-escalation, only after the gate `bash` block re-PASSES; for the EM-stub fallback, immediately after stubbing.
-2. **Wake the blocked teammates** — `blockedBy` is a gate, not a trigger. `SendMessage` to each specialist (and `atlas-sketch` if `--deepest`):
-   > "Scout recovery for the inventory at `{path}` — {re-ran on Sonnet / EM wrote a stub}. You are unblocked. {If stub: the stub is a file list, not a structured inventory; treat it accordingly and Read/Glob the named files yourself.}"
-3. **Note the recovery in scope.md** so the synthesizer's advisory captures the degraded/recovered run: append a `## Recovery Notes` section listing which inventories were Sonnet-re-run vs stubbed.
-
-After recovery, proceed to Step 6 (or Phase B if `--deepest`).
-
-> **Generalizing the gate (note).** A specialist can false-complete the same way a scout can. The synthesizer's `blockedBy` on specialists is a status gate; the analogous structural guard is a hard disk check on `{scratch-dir}/{letter}-assessment.md` (≥30 lines each) before treating the synthesizer as ready. Apply this Step 5.5 gate pattern at that seam if specialist false-completion is observed.
+> **The specialists' seam is guarded by the synthesizer.** It treats a missing or under-30-line `{letter}-assessment.md` as a `[COVERAGE GAP]` (`repo-synthesizer-prompt-template.md`).
 
 ## Step 5.7 — Comparison-Target Sweep (only if `--compare`)
 
@@ -414,18 +316,9 @@ surfaces outright.
 **The expensive failure is a wrong-direction recommendation, not a missing one.** An unwithdrawn
 spurious `ADOPT` becomes someone's sprint building what they already have.
 
-After all four specialists have written their assessments and comparisons and cleared the disk
-gate, and **before** the synthesizer runs, dispatch a single **plain background `Agent`** (not a
-teammate — this preserves the 7-teammate limit; same pattern as the survey and the atlas sketch):
-
-```
-Agent(
-  model: "sonnet",
-  subagent_type: "general-purpose",
-  run_in_background: true,
-  prompt: <filled sweep prompt — see below>
-)
-```
+After all four specialists have returned (rebuttal round included) and cleared the disk
+gate, and **before** the synthesizer runs, the script dispatches a single **sweep agent** — the
+stage after the specialist stage in the script's order:
 
 The sweep agent gets:
 
@@ -434,8 +327,8 @@ The sweep agent gets:
 - **Plus any EM-supplied worklist items.** A fact can enter a run from outside it — a peer session
   messaging a specific claim mid-run, a PM steer, a cross-repo memo — and no marker anywhere in the
   chunk outputs will carry it, because it was never a specialist's open question. Pass such items
-  in explicitly so they land in the same verification machinery instead of depending on the EM
-  remembering to chase them. One optional input, not a mechanism
+  in explicitly (the brief's `## Sweep Worklist` section) so they land in the same verification machinery instead of depending
+  on the EM remembering to chase them. One optional input, not a mechanism
 - The four `{letter}-assessment.md` files as context for what the studied repo does
 - `scope.md`, including § Comparison Targets
 - Read access to the **comparison project**, and a standing instruction that the comparison
@@ -459,44 +352,43 @@ Its job, stated as three questions:
    path — these turn a proposed build into a parameter flip, and they are systematically invisible
    to a specialist reading the *other* repo.
 
-It writes `{scratch-dir}/comparison-target-sweep.md` and replies `DONE: <path>`. Gate it on disk
-(`stub-file-gate --min-lines 20`) exactly as scouts are gated; a false completion here silently
+It writes `{scratch-dir}/comparison-target-sweep.md` and returns `DONE: <path>`. The sweep agent gates its own file on disk
+(`stub-file-gate --min-lines 20`, `repo-comparison-sweep-prompt-template.md`) before it returns; a false completion here silently
 returns the pipeline to the pre-sweep behaviour.
 
-Add the sweep file to the synthesizer's input list, and instruct the synthesizer that **where the
+The synthesizer's input list includes the sweep file, and the synthesizer is instructed that **where the
 sweep contradicts a specialist verdict, the sweep wins on questions of fact about the comparison
 target** — it read the target directly and with the whole worklist in view, which no specialist
 did. The synthesizer still presents genuine judgment disagreements as trade-offs.
 
 ## Step 6 — EM Is Freed
 
-After spawning all teammates (including specialists), announce:
+After firing the Workflow, announce:
 
 **If `--deepest`:**
-> "Research team running — scouts completed, atlas sketch produced, now 4 specialists + 1 synthesizer working autonomously on '{repo-name}'. Specialists analyze {MIN_MINUTES}-{MAX_MINUTES} min ({MIN_SOURCES}-file minimum). I'm available for other work — I'll be notified when the synthesizer completes."
+> "Research workflow running in the background on '{repo-name}': scouts → atlas sketch → 4 specialists (rebuttal round) → synthesizer with fidelity relay. Specialists analyze {MIN_MINUTES}-{MAX_MINUTES} min ({MIN_SOURCES}-file minimum). I'm available for other work — I'll be notified when the workflow completes."
 
 **Otherwise:**
-> "Research team is running autonomously on '{repo-name}' with 2 scouts + 4 specialists + 1 synthesizer. Scouts inventory files (~5 min), then specialists analyze {MIN_MINUTES}-{MAX_MINUTES} min ({MIN_SOURCES}-file minimum). I'm available for other work — I'll be notified when the synthesizer completes."
+> "Research workflow running in the background on '{repo-name}': {2 or 4} scouts → 4 specialists (rebuttal round) → synthesizer. Scouts inventory files (~5 min), then specialists analyze {MIN_MINUTES}-{MAX_MINUTES} min ({MIN_SOURCES}-file minimum). I'm available for other work — I'll be notified when the workflow completes."
 
-**You are now free to continue the conversation with the PM.** Do not poll, do not monitor, do not broadcast WRAP_UP. The team handles everything.
+**You are now free to continue the conversation with the PM.** Do not poll, do not monitor, do not message workflow agents. The script handles everything; completion is the Workflow's task notification.
 
 ## Step 6.5 — Before Treating the Synthesizer as Stalled
 
-If a check-in (PM question, unrelated notification) ever surfaces the synthesizer idle with its
-task still `in_progress`, idle alone is not evidence of a stall — Phase 1's adversarial coverage
-read (`agents/research-synthesizer.md` § Phase 1) can run long and silent over large specialist
+If a check-in (PM question, unrelated notification) finds the Workflow still running long in its synthesis stage, a long silent run is not evidence of a stall — Phase 1's adversarial coverage
+read (`agents/research-synthesizer.md` § Phase 1) can run long over large specialist
 outputs before anything is written to disk.
 
 **Before writing any EM self-synth fallback** (assembling the document yourself from raw
 specialist outputs), disk-check the canonical output path first: Read `{output-path}` and
 `{scratch-dir}/synthesis.md`, and note whether each exists and how long it is.
 
-**Idle *and* zero output past a generous read window — not idle alone — is the redispatch
-signal.** A self-synth on idle alone overwrites an in-progress synthesis.
+**A Workflow that ended without a synthesis, or a synthesis stage with zero output past a generous read window, is the redispatch
+signal.** A self-synth on a slow stage alone overwrites an in-progress synthesis.
 
 ## Step 7 — On Completion Notification
 
-When you receive a notification that the synthesis task is complete:
+When you receive the Workflow's completion notification (its result is the synthesizer's return value):
 
 1. Read the synthesis document at `{output-path}`
 2. Verify it has substantive content (not just headers)
@@ -541,7 +433,7 @@ When you receive a notification that the synthesis task is complete:
    ```
    `--out` takes the stem (`{claims-path}` minus `.claims.json`); the CLI writes `{run-stem}.claims.json` and `{run-stem}.claims.meta.json` together. `--ran-at` must be RFC3339 and timezone-aware (naive, date-only, or empty is rejected — day precision recovered from the run-stem does not satisfy it); `--pipeline` must be non-blank and is never derived from `--producer`. Exit 0 = both written, 1 = producer-side failure, 2 = invalid invocation. A failed emission is a no-op on disk — an occupied stem is restored byte-for-byte, so re-running over an existing run-stem is safe.
 
-5. **Dispatch the coverage auditor** — always-on for repo. Read the auditor prompt template from `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/coverage-auditor-prompt-template.md`, select the Pipeline B input block, fill in `[SYNTHESIS_PATH]`, `[RUN_STEM]` (strip `docs/research/` prefix and `.md` suffix from `{output-path}`), and `[SCRATCH_DIR]`, then dispatch as a **non-teammate Agent** (same pattern as the survey at Step 2, atlas-sketch at Step 5 Phase B, and atlas-refinement at Step 7.5 — all plain `Agent(...)` without `team_name`):
+5. **Dispatch the coverage auditor** — always-on for repo. Read the auditor prompt template from `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/coverage-auditor-prompt-template.md`, select the Pipeline B input block, fill in `[SYNTHESIS_PATH]`, `[RUN_STEM]` (strip `docs/research/` prefix and `.md` suffix from `{output-path}`), and `[SCRATCH_DIR]`, then dispatch as a plain `Agent(...)` (same pattern as the survey at Step 2 and atlas-refinement at Step 7.5):
    ```
    Agent(
      model: "sonnet",
@@ -550,9 +442,9 @@ When you receive a notification that the synthesis task is complete:
    ```
    The auditor reads `{scratch-dir}/*-claims.json` and `*-summary.md`, cross-references against the synthesis, and writes `{output-path minus .md}-coverage-audit.md`. It does not write the synthesis output path. Wait for `DONE: {sidecar-path}` before proceeding.
 
-6. **Fidelity relay — `--deepest` only.** If `--deepest` was set, the synthesizer runs a gated internal fidelity-relay phase **before it marks its task complete** (the team is still alive at that point — the team is torn down automatically on session exit). This is a Team-1 internal sweep phase: the synthesizer wakes idle specialists via SendMessage, collects corrections scoped strictly to misrepresentation of existing synthesis prose, integrates, and runs a second pass. The relay mechanics live in `agents/research-synthesizer.md` (C5). repo-driver's role is only to state the gate: **the relay runs if and only if `--deepest`**. For `--deeper`-only or default runs, the relay does not fire.
+6. **Fidelity relay — `--deepest` only.** If `--deepest` was set, the Workflow ran the relay before it returned: the synthesizer's pass 1 drafted the document and returned, the script dispatched a continuation agent for each specialist carrying the `FIDELITY_RELAY` request, each answered `FIDELITY_OK` or `FIDELITY_CORRECTION` in `mail/synthesizer.jsonl`, and the synthesizer's pass 2 integrated corrections scoped strictly to misrepresentation of existing synthesis prose. The relay mechanics live in `agents/research-synthesizer.md` (C5). repo-driver's role is only to state the gate: **the relay runs if and only if `--deepest`**. For `--deeper`-only or default runs, the relay does not fire.
 
-7. The team auto-cleans on session exit — no explicit teardown step. The scratch directory persists.
+7. Workflow agents end when they return — no teardown step. The scratch directory persists.
 8. If `--deepest`: proceed to **Step 7.5** before archiving. Otherwise, skip to step 9.
 9. Commit:
    ```bash
@@ -568,7 +460,7 @@ When you receive a notification that the synthesis task is complete:
 
 ## Step 7.5 — Atlas Refinement (only if `--deepest`)
 
-**Phase 3:** After the team is deleted and the assessment is verified, dispatch a Sonnet subagent (NOT a teammate — team is deleted) to refine the preliminary atlas using specialist analysis and synthesis findings, producing the 4th artifact (architecture summary) which requires specialist data. Use `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/repo-atlas-prompt-template.md`. Verify all 4 artifacts (`atlas-file-index.md`, `atlas-system-map.md`, `atlas-connectivity-matrix.md`, `atlas-architecture-summary.md`) exist and have substantive content; on success, copy from scratch to the docs/research/ paths set in Step 1; on failure, note to PM and proceed (atlas is additive). Return to Step 7 item 9 (Commit).
+**Phase 3:** After the Workflow completes and the assessment is verified, dispatch a Sonnet subagent to refine the preliminary atlas using specialist analysis and synthesis findings, producing the 4th artifact (architecture summary) which requires specialist data. Use `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/repo-atlas-prompt-template.md`. Verify all 4 artifacts (`atlas-file-index.md`, `atlas-system-map.md`, `atlas-connectivity-matrix.md`, `atlas-architecture-summary.md`) exist and have substantive content; on success, copy from scratch to the docs/research/ paths set in Step 1; on failure, note to PM and proceed (atlas is additive). Return to Step 7 item 9 (Commit).
 
 **Note on the copy step:** The atlas-refinement step copies artifacts from the workdir into `docs/research/` (using `cp` since both paths are sibling directories); the workdir's atomic `mv` to `archive/` happens at Step 7 item 10 and carries the cross-FS precondition guard there. No separate guard is needed at Step 7.5 because both src and dst are under `docs/research/` by construction.
 

@@ -13,16 +13,21 @@ chained Workflow (`emit-dispatch-workflow --sizing`); this body runs that op onc
 result.
 
 **Contract: one Workflow, start to finish. The EM is idle until the run reports completion or
-rescue-needed.** Past the mode's own touchpoints (below), the terminal judge is the only legitimate end of a run. Any other halt (gate
-refusal, blitz refusal, an external-gate row, a DR awaiting acceptance, or a hand-dispatched or
+rescue-needed.** The terminal judge is the only legitimate end of a run. A run never stops to obtain the PM's own words: every exit-criterion, scope or mode ruling goes to `coordinator:apm` (below). Any other halt (gate
+refusal, blitz refusal, a DR awaiting acceptance, or a hand-dispatched or
 hand-committed row) breaks this command, not a touchpoint to work through. When it happens, stop,
 report the halt as a defect, and never finish the work by hand-dispatching rows.
 
-**Refuse cross-repo deliverables.** If the ask or sizing names a sibling repo as a write target, or the
-emitted plan carries any `external_gate: commit-in-owner-repo` row, refuse before firing. Say:
-"warp cannot carry a cross-repo deliverable yet; route via `coordinator:plan` and
-`/execute-plan`". The run pins to one repo root, and the engine drops sibling-repo rows without
-reporting them.
+**Cross-repo deliverables.** A run may write into sibling checkouts beside its repo root: each
+row writes in the repo its path names, and `dispatch.terminal_commit` lands one scoped commit per
+repo (`sibling_commits` in its reply). In a cloud session (`CLAUDE_CODE_REMOTE=true`) the run
+proceeds without asking. On a local box the emit halts at `approve_cross_repo_write` and names the
+sibling repos: ask the PM whether the cross-repo write is okay; on approval re-emit with
+`--cross-repo-approved`. That approval is this session's cross-repo commit assent. Never refuse a
+cross-repo ask outright. A write outside every git checkout is refused at emit, since no commit
+can land it. A row carrying an `external_gate` is not a refusal: the engine withholds a
+`blocks: execution` row, runs the rest, and lists the withheld rows as incomplete at
+`dispatch.terminal_commit`.
 
 ## Argument
 
@@ -32,8 +37,8 @@ reporting them.
   `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`) and fire the one printed
   `Workflow({ scriptPath })` line in this session. That one Workflow sizes, gates and stages the
   work, and the run returns next_action `dispatch.terminal_commit`. Never pass `--fire`; never run
-  it headless. A route the sizing gate refuses (`shape`, `roadmap`, `pm-decision`) is relayed to the
-  PM with the room it names. Do not size by hand.
+  it headless. A route the sizing gate refuses (`shape`, `roadmap`, `pm-decision`) is relayed with the room it
+  names; a `pm-decision` goes to `coordinator:apm` first. Do not size by hand.
 
 ## Fire
 
@@ -43,21 +48,31 @@ spawns a headless `claude -p` child, which the foreign-emission guard refuses an
 without this session's roster. `--fire` is for headless and cron callers only.
 
 - **XS** — also pass `--writes <path>` once per file the work writes (a sizing carries no footprint)
-  and `--out state/scratch/warp/<sizing-stem>.workflow.mjs`. The op mints a one-row spine and
+  and `--out scratch/warp/<sizing-stem>.workflow.mjs`. The op mints a one-row spine and
   re-enters the plan route.
 - **S** — pass `--out` as for XS. One Workflow composes plan-agent, execute, review wave and
   `dispatch.terminal_commit`.
-- **M and up** — the op delegates to `emit-wave-fire --from-sizing`; pass `--trail-dir <dir>` only
-  to name the trail. The reply carries `batons` and `uncommitted` (a `[baton, sizing]` pair): commit
-  exactly those paths, explicit pathspec, before the run proceeds.
+- **M and up** — the op delegates to `emit-wave-fire --from-sizing`. The reply carries `batons` and
+  `uncommitted` (a `[baton, sizing]` pair). The minted baton is a skeleton holding only the sizing's
+  intent: fill its Specification, Reference materials and Acceptance criteria, then commit exactly
+  those paths, explicit pathspec, before the run proceeds.
+
+Warp consumes the baton without a prior lobby emission: it mints or reuses the baton and emits and fires its own script.
 
 Every route ends in `dispatch.terminal_commit`. `--sizing` is exclusive of `--plan`, `--inventory`
 and `--queue`.
 
-Fire in the same turn, as an in-session Workflow, and end the turn. Where a run halts, by interaction mode, is
+Fire in the same turn, as an in-session Workflow, and end the turn. Where the engine places a touchpoint, by interaction mode, is
 `coordinator/contract/warp-touchpoints-fragment.json`; read it, never restate it. An accepted sizing
-has passed every `after:sizing` touchpoint, so the run starts at `plan`. At a halting touchpoint the
-run writes its state and stops; the resume is this command on the now-accepted sizing.
+has passed every `after:sizing` touchpoint, so the run starts at `plan`.
+
+## Touchpoints
+
+A warp run is `ceo` mode, never hands-on. At any touchpoint that asks for the PM's words (an exit
+criterion, a scope clarification, a mode), dispatch `coordinator:apm` with the question, record its
+ruling where the PM quote would go, labelled `APM ruling`, never as PM words, and resume this
+command on the now-accepted sizing in the same turn. Gates that stay with the PM: merge to main,
+publish, cross-repo commit.
 
 A refusal names every missing field once. Relay it verbatim; never work around it by hand-running
 the stages. The closing report reads the run's completion receipt.

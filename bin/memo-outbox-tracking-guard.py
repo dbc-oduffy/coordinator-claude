@@ -9,7 +9,7 @@ has the path, which git renders as a staged deletion). This is the DETECTOR, our
 place whether or not that fix lands: it catches the class regardless of which mechanism produced
 it, and it fires on the first orphan rather than the ninth.
 
-THREE LEGS, AND THE OBVIOUS ONE IS THE WEAKEST. The leg ORDER is load-bearing. An implementer
+FOUR LEGS, AND THE OBVIOUS ONE IS THE WEAKEST. The leg ORDER is load-bearing. An implementer
 reaching for the state check first — as the original proposal did — ships the one leg that is
 worse than no guard at all.
 
@@ -26,7 +26,10 @@ worse than no guard at all.
   untracked (`??`). A genuine staged deletion never does: the file is actually gone, so there is
   nothing to report untracked. The pair is a contradiction git will happily print, a positive
   fingerprint rather than an inference from absence, and it fires while the landmine is still armed.
-  Repo-wide, not scoped to memo-outbox — the fingerprint generalises to any path in the tree.
+  Repo-wide, not scoped to memo-outbox — the fingerprint generalises to any path's DELETION shape in
+  the tree. It does NOT generalise to a path that stays tracked while its blob is truncated instead
+  of deleted (`sent-ledger.jsonl`'s failure mode) — that shape has no `D `/`??` pair to fingerprint
+  and needs leg 4.
 
   LEG 3, STATE (backstop, DEMOTED — do not re-promote). A path git has EVER tracked under `sent/`
   is tracked at HEAD now, unless it was relocated rather than lost. Shipping this leg ALONE would
@@ -48,6 +51,16 @@ worse than no guard at all.
   ~120 phantom orphans while the nine real ones sit indistinguishable among them. Deriving the set
   from git history instead asks the one question that is always sound: a file git once had under
   `sent/` and does not have now is either relocated or lost, and nothing else.
+
+  LEG 4, LEDGER (preventive). Legs 1-3 all key on paths under `sent/`; every one is blind to
+  `sent-ledger.jsonl` because the ledger is never deleted, it is TRUNCATED — staged as MODIFIED to
+  an older, shorter blob (` M`, not `D `+`??`), so leg 2's fingerprint does not pair, and the path
+  stays tracked throughout, so leg 3's "ever tracked, not tracked now" is false too. The ledger is
+  append-only, so a staged or committed blob with FEWER lines than HEAD is a defect regardless of
+  cause — that is the whole signal: one `git show` per side (`HEAD:<path>` and the staged `:<path>`)
+  and a line count, no ledger parse, no row-identity matching. Content comparison or row-identity
+  matching is a second thing to get wrong; the line-count monotonicity check alone is what this leg
+  asserts, deliberately.
 
 NOT EXPECTED TO CATCH: an empty-tree commit (`git write-tree` against a missing GIT_INDEX_FILE
 returns git's canonical empty-tree sha with exit 0). That is a private index that VANISHED, a
@@ -78,6 +91,7 @@ from pathlib import Path
 
 SENT_DIR = "state/memo-outbox/sent"
 BASELINE = "state/memo-outbox/acknowledged-sweeps.json"
+LEDGER = "state/memo-outbox/sent-ledger.jsonl"
 
 # Deletions under sent/ that are the memo lifecycle doing its job, not a sweep. Kept deliberately
 # short: a subject pattern added here is a class of deletion this guard stops seeing forever, so it
@@ -96,10 +110,13 @@ def _git(repo_root: Path, *args: str) -> str | None:
             cwd=repo_root,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=10,
             check=False,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
-    except (OSError, ValueError):
+    except (OSError, ValueError, subprocess.SubprocessError):
         return None
     return done.stdout if done.returncode == 0 else None
 
@@ -272,6 +289,34 @@ def leg_state(repo_root: Path) -> list[str]:
     return sorted(gone)
 
 
+def _ledger_line_count(repo_root: Path, spec: str) -> int | None:
+    """Line count of `LEDGER` at the git object `spec`, or None when that blob does not exist.
+
+    `spec` is `"HEAD:<path>"` for the committed blob or `":<path>"` for the staged (index) one —
+    the same `git show` covers both, so this stays a single git process per side rather than one
+    per leg-4 call site.
+    """
+    out = _git(repo_root, "show", spec)
+    return None if out is None else len(out.splitlines())
+
+
+def leg_ledger(repo_root: Path) -> tuple[bool, int, int]:
+    """(truncated?, head_lines, staged_lines) for `sent-ledger.jsonl`.
+
+    The ledger is append-only, so a staged blob shorter than HEAD's is a defect regardless of cause
+    — this is the truncation the other three legs cannot see: the path is staged MODIFIED, not
+    deleted (leg 2's `D `+`??` pair never forms), and it stays tracked throughout (leg 3's "ever
+    tracked, not tracked now" is false). When either side has no blob yet (a fresh repo, or the
+    ledger not yet staged) there is nothing to compare, so this reads clean rather than fabricating
+    a shortfall from a missing side.
+    """
+    head = _ledger_line_count(repo_root, f"HEAD:{LEDGER}")
+    staged = _ledger_line_count(repo_root, f":{LEDGER}")
+    if head is None or staged is None:
+        return False, head or 0, staged or 0
+    return staged < head, head, staged
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="memo-outbox-tracking-guard")
     parser.add_argument("repo_root", nargs="?", default=".")
@@ -285,6 +330,7 @@ def main(argv: list[str]) -> int:
     sweeps, acknowledged = leg_log(repo_root)
     armed = leg_armed(repo_root)
     orphans = leg_state(repo_root)
+    truncated, head_lines, staged_lines = leg_ledger(repo_root)
 
     if sweeps:
         print(f"LEG 1 (log) — {len(sweeps)} unacknowledged commit(s) deleted delivered memos:")
@@ -308,7 +354,18 @@ def main(argv: list[str]) -> int:
         for path in orphans:
             print(f"  {path}")
 
-    if sweeps or armed or orphans:
+    if truncated:
+        shortfall = head_lines - staged_lines
+        print(
+            f"\nLEG 4 (ledger) — {LEDGER} staged is {shortfall} row(s) short of HEAD "
+            f"({staged_lines} staged vs {head_lines} at HEAD):"
+        )
+        print(
+            "  The ledger is append-only; a staged blob shorter than HEAD is a truncation about to "
+            "be committed. `git restore --staged` it and re-append the missing rows before committing."
+        )
+
+    if sweeps or armed or orphans or truncated:
         return 1
 
     print(

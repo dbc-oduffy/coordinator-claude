@@ -94,7 +94,7 @@ Behaviour:
      ``.git``, which never receives that write — so step 4's lookup always
      misses for a cross-repo commit, not merely on rare occasion. When step 4
      resolves nothing, re-resolve against coordinator-content-repo's own git-dir, located
-     via the identical ``.content-root`` pointer convention already used above
+     via the identical ``.coordinator-content-root`` pointer convention already used above
      (step "SCRIPT" fallback) to locate this very script — no new resolution
      mechanism introduced, no subprocess spawn (two plain file reads at
      most). Same omit-rather-than-guess contract: no match there either →
@@ -373,8 +373,8 @@ def _resolve_content_root() -> str:
         home, ".coordinator-claude-settings"
     )
     for candidate in (
-        os.path.join(settings_home, "machine-local", ".content-root"),
-        os.path.join(home, ".claude", ".content-root"),
+        os.path.join(settings_home, "machine-local", ".coordinator-content-root"),
+        os.path.join(home, ".claude", ".coordinator-content-root"),
     ):
         try:
             with open(candidate, encoding="utf-8") as fh:
@@ -959,26 +959,9 @@ def main(argv: list) -> int:
     if not _UUID_RE.fullmatch(session_id):
         return 0
 
-    try:
-        need_session_id = not _has_trailer_line(commit_msg_file, "Session-Id:")
-        need_deliverable_id_check = not _has_trailer_line(commit_msg_file, "Deliverable-Id:")
-        need_operator = not _has_trailer_line(commit_msg_file, "Operator:")
-    except Exception:
-        return 0
-
-    trailer_args: list = []
-    if need_session_id:
-        trailer_args += ["--trailer", f"Session-Id: {session_id}"]
-    if need_operator:
-        operator = _resolve_operator(git_dir)
-        if operator:
-            trailer_args += ["--trailer", f"Operator: {operator}"]
-    if need_deliverable_id_check:
-        staged_paths = _resolve_staged_paths()
-        deliverable_id = _resolve_deliverable_id(git_dir, session_id, staged_paths)
-        if deliverable_id:
-            trailer_args += ["--trailer", f"Deliverable-Id: {deliverable_id}"]
-
+    trailer_args = _engine_trailer_args(commit_msg_file, git_dir)
+    if trailer_args is None:
+        trailer_args = _mirrored_trailer_args(commit_msg_file, git_dir, session_id)
     if not trailer_args:
         return 0
 
@@ -992,6 +975,62 @@ def main(argv: list) -> int:
     except Exception:
         pass
     return 0
+
+
+def _engine_trailer_args(commit_msg_file: str, git_dir: str) -> "list | None":
+    """The engine's `compute_missing_trailer_args` -- the one decision both
+    commit routes share -- plus the hook-only `Operator:` trailer. `None`
+    when the engine cannot be imported, so the caller falls back to the
+    mirrored ladder."""
+    if not _ensure_claude_klabauter_on_syspath():
+        return None
+    try:
+        from coordinator_core.git.commit_trailers import compute_missing_trailer_args
+
+        paths = None if _has_trailer_line(commit_msg_file, "Deliverable-Id:") else _resolve_staged_paths()
+        trailer_args = compute_missing_trailer_args(commit_msg_file, os.getcwd(), paths)
+    except Exception:
+        return None
+    return trailer_args + _operator_trailer_args(commit_msg_file, git_dir)
+
+
+def _operator_trailer_args(commit_msg_file: str, git_dir: str) -> list:
+    try:
+        if _has_trailer_line(commit_msg_file, "Operator:"):
+            return []
+    except Exception:
+        return []
+    operator = _resolve_operator(git_dir)
+    return ["--trailer", f"Operator: {operator}"] if operator else []
+
+
+def _mirrored_trailer_args(commit_msg_file: str, git_dir: str, session_id: str) -> list:
+    """Fallback when the engine is unreachable: the hand-mirrored ladder,
+    plus the same constant attribution the engine attaches."""
+    try:
+        need_session_id = not _has_trailer_line(commit_msg_file, "Session-Id:")
+        need_deliverable_id_check = not _has_trailer_line(commit_msg_file, "Deliverable-Id:")
+        need_attribution = not _has_trailer_line(commit_msg_file, "Co-Authored-By:")
+    except Exception:
+        return []
+
+    trailer_args: list = []
+    if need_session_id:
+        trailer_args += ["--trailer", f"Session-Id: {session_id}"]
+    trailer_args += _operator_trailer_args(commit_msg_file, git_dir)
+    if need_deliverable_id_check:
+        staged_paths = _resolve_staged_paths()
+        deliverable_id = _resolve_deliverable_id(git_dir, session_id, staged_paths)
+        if deliverable_id:
+            trailer_args += ["--trailer", f"Deliverable-Id: {deliverable_id}"]
+    if need_attribution:
+        trailer_args += ["--trailer", f"Co-Authored-By: {ATTRIBUTION_TRAILER_VALUE}"]
+    return trailer_args
+
+
+#: Must equal `coordinator_core.git.commit_trailers.ATTRIBUTION_TRAILER_VALUE`;
+#: pinned by test_prepare_commit_msg_attribution_parity.
+ATTRIBUTION_TRAILER_VALUE = "Claude <noreply@anthropic.com>"
 
 
 if __name__ == "__main__":

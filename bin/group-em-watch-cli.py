@@ -57,6 +57,9 @@ def main(argv: Optional[list] = None) -> int:
     watch_heartbeat = _resolve_module()
     liveness = watch_heartbeat.read_liveness(repo_root)
     print(f"GROUP EM WATCH: {watch_heartbeat.human_verdict(liveness)}")
+    trace = watch_heartbeat.destroyed_tick_trace(liveness)
+    if trace:
+        print(trace)
     return 0
 
 

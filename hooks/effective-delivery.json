@@ -1,11 +1,11 @@
 {
   "x-effective-delivery": {
     "version": 1,
-    "generated_from_sha": "ff5702dbf7eda60a61113a37c67d5f428cbea21b",
-    "generated_at": "2026-10-01T22:52:22Z",
-    "generated_from_dirty_tree": false,
-    "engine_source_sha": "a39a3d5e7b575f42860a0a088e10f8bad2ede23e",
-    "engine_source_dirty_tree": true,
+    "generated_from_sha": "58c0df79b91b62f692c9a499a53d40ca093b1ed0",
+    "generated_at": "2026-10-05T01:06:55Z",
+    "generated_from_dirty_tree": true,
+    "engine_source_sha": "f99c8d71bf5c828694e38e0e7f3a1b19e47f359e",
+    "engine_source_dirty_tree": false,
     "engine_source_resolution": "resolved-engine/published-target",
     "carriers": {
       "scripts/preuse-write-dispatch.py": {
@@ -428,6 +428,15 @@
               "Edit",
               "MultiEdit",
               "NotebookEdit"
+            ]
+          },
+          {
+            "id": "nudge_authoring_leak",
+            "script": "write_guards/nudge_authoring_leak.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
             ]
           },
           {
@@ -1135,6 +1144,14 @@
             ]
           },
           {
+            "id": "headless-claude-plugin-dir",
+            "script": "bash_guards/guard_headless_claude_plugin_dir.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
             "id": "multiprobe-banner",
             "script": "bash_guards/guard_multiprobe_banner.py",
             "tool_names": [
@@ -1165,6 +1182,21 @@
         "script": "scripts/sessionstart-dispatch.py",
         "matcher": "startup|resume|clear|compact|fork",
         "guards": [
+          {
+            "id": "session_start_repin_cloud_engine_root",
+            "script": "scripts/session-start-repin-cloud-engine-root.py",
+            "tool_names": []
+          },
+          {
+            "id": "session_start_watch_presence",
+            "script": "scripts/session-start-watch-presence.py",
+            "tool_names": []
+          },
+          {
+            "id": "session_start_cloud_focus",
+            "script": "scripts/session-start-cloud-focus.py",
+            "tool_names": []
+          },
           {
             "id": "project_orientation",
             "script": "scripts/project-orientation.py",
@@ -1245,6 +1277,11 @@
             "id": "session_start_ensure_precommit_hook",
             "script": "scripts/session-start-ensure-precommit-hook.py",
             "tool_names": []
+          },
+          {
+            "id": "sweep_boot",
+            "script": "scripts/sweep-boot.py",
+            "tool_names": []
           }
         ]
       },
@@ -1324,16 +1361,71 @@
             "tool_names": []
           }
         ]
+      },
+      "scripts/preuse-workflow-dispatch.py": {
+        "script": "scripts/preuse-workflow-dispatch.py",
+        "matcher": "Workflow",
+        "guards": [
+          {
+            "id": "block_workflow_foreign_emission",
+            "script": "scripts/block-workflow-foreign-emission.py",
+            "tool_names": []
+          },
+          {
+            "id": "block_dispatch_suite_invocation",
+            "script": "scripts/block-dispatch-suite-invocation.py",
+            "tool_names": []
+          },
+          {
+            "id": "block_workflow_unmodeled_agent",
+            "script": "scripts/block-workflow-unmodeled-agent.py",
+            "tool_names": []
+          },
+          {
+            "id": "strip_worktree_isolation",
+            "script": "scripts/strip-worktree-isolation.py",
+            "tool_names": []
+          },
+          {
+            "id": "nudge_workflow_authoring_trampoline",
+            "script": "scripts/nudge-workflow-authoring-trampoline.py",
+            "tool_names": []
+          },
+          {
+            "id": "allow_emitted_workflow_fire",
+            "script": "scripts/allow-emitted-workflow-fire.py",
+            "tool_names": []
+          }
+        ]
+      },
+      "scripts/userpromptexpansion-dispatch.py": {
+        "script": "scripts/userpromptexpansion-dispatch.py",
+        "matcher": "",
+        "guards": [
+          {
+            "id": "pickup_autofire",
+            "script": "scripts/pickup-autofire.py",
+            "tool_names": []
+          },
+          {
+            "id": "mise_autofire",
+            "script": "scripts/mise-autofire.py",
+            "tool_names": []
+          },
+          {
+            "id": "handoff_segment_inject",
+            "script": "scripts/handoff-segment-inject.py",
+            "tool_names": []
+          },
+          {
+            "id": "group_em_autofire",
+            "script": "scripts/group-em-autofire.py",
+            "tool_names": []
+          }
+        ]
       }
     },
     "direct": [
-      {
-        "id": "allow-emitted-workflow-fire.py",
-        "script": "scripts/allow-emitted-workflow-fire.py",
-        "tool_names": [
-          "Workflow"
-        ]
-      },
       {
         "id": "assert-em-role.py",
         "script": "scripts/assert-em-role.py",
@@ -1343,27 +1435,6 @@
           "fork",
           "resume",
           "startup"
-        ]
-      },
-      {
-        "id": "block-dispatch-suite-invocation.py",
-        "script": "scripts/block-dispatch-suite-invocation.py",
-        "tool_names": [
-          "Workflow"
-        ]
-      },
-      {
-        "id": "block-workflow-foreign-emission.py",
-        "script": "scripts/block-workflow-foreign-emission.py",
-        "tool_names": [
-          "Workflow"
-        ]
-      },
-      {
-        "id": "block-workflow-unmodeled-agent.py",
-        "script": "scripts/block-workflow-unmodeled-agent.py",
-        "tool_names": [
-          "Workflow"
         ]
       },
       {
@@ -1380,23 +1451,8 @@
         "tool_names": []
       },
       {
-        "id": "group-em-autofire.py",
-        "script": "scripts/group-em-autofire.py",
-        "tool_names": []
-      },
-      {
         "id": "guard-config-change-hookstack-selfdefence.py",
         "script": "scripts/guard-config-change-hookstack-selfdefence.py",
-        "tool_names": []
-      },
-      {
-        "id": "handoff-segment-inject.py",
-        "script": "scripts/handoff-segment-inject.py",
-        "tool_names": []
-      },
-      {
-        "id": "mise-autofire.py",
-        "script": "scripts/mise-autofire.py",
         "tool_names": []
       },
       {
@@ -1410,18 +1466,6 @@
         "tool_names": [
           "Agent"
         ]
-      },
-      {
-        "id": "nudge-workflow-authoring-trampoline.py",
-        "script": "scripts/nudge-workflow-authoring-trampoline.py",
-        "tool_names": [
-          "Workflow"
-        ]
-      },
-      {
-        "id": "pickup-autofire.py",
-        "script": "scripts/pickup-autofire.py",
-        "tool_names": []
       },
       {
         "id": "postuse-agent-dispatch.py",
@@ -1446,6 +1490,13 @@
         "tool_names": []
       },
       {
+        "id": "preuse-sendmessage-dispatch.py",
+        "script": "scripts/preuse-sendmessage-dispatch.py",
+        "tool_names": [
+          "SendMessage"
+        ]
+      },
+      {
         "id": "preuse-skill-dispatch.py",
         "script": "scripts/preuse-skill-dispatch.py",
         "tool_names": [
@@ -1458,53 +1509,9 @@
         "tool_names": []
       },
       {
-        "id": "session-start-cloud-focus.py",
-        "script": "scripts/session-start-cloud-focus.py",
-        "tool_names": [
-          "startup"
-        ]
-      },
-      {
-        "id": "session-start-repin-cloud-engine-root.py",
-        "script": "scripts/session-start-repin-cloud-engine-root.py",
-        "tool_names": [
-          "clear",
-          "compact",
-          "fork",
-          "resume",
-          "startup"
-        ]
-      },
-      {
-        "id": "session-start-watch-presence.py",
-        "script": "scripts/session-start-watch-presence.py",
-        "tool_names": [
-          "clear",
-          "compact",
-          "fork",
-          "resume",
-          "startup"
-        ]
-      },
-      {
-        "id": "strip-worktree-isolation.py",
-        "script": "scripts/strip-worktree-isolation.py",
-        "tool_names": [
-          "Workflow"
-        ]
-      },
-      {
         "id": "subagent-zero-tool-use-detect.py",
         "script": "scripts/subagent-zero-tool-use-detect.py",
         "tool_names": []
-      },
-      {
-        "id": "sweep-boot.py",
-        "script": "scripts/sweep-boot.py",
-        "tool_names": [
-          "compact",
-          "startup"
-        ]
       },
       {
         "id": "track-dispatched-agents.py",

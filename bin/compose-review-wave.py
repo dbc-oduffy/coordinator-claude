@@ -95,11 +95,18 @@ CLI:
         --manifest <path-to-slice-manifest.json> \\
         --run-id <YYYYMMDD-HHMMSS>
         [--policy <path-to-subagent-sandbox-policy.yaml>]
-        [--claude-klabauter-root <path>]
+        [--engine-root-override <path>]
 
 Manifest shape (JSON):
     { "slices": [ { "id": "<slice-id>", "diffPath": "<repo-relative-path>" }
-                   | { "id": "<slice-id>", "range": "<git-range>" }, ... ] }
+                   | { "id": "<slice-id>", "range": "<git-range>" }, ... ],
+      "plans": [ "<repo-relative-plan-path>", ... ] }
+
+`plans` is optional. Each plan's PM brief is rendered reviewer-framed and
+appended to every slice's REVIEWER `contractBlocks` after the role framing.
+With no `plans` key or an empty list, the line "No plan PM brief was
+supplied for this review." is appended instead. A listed plan that resolves
+no brief is a `ComposeError`.
 
 A slice entry carries EITHER a pre-frozen `diffPath` (passed through
 verbatim) OR a `range`, which this script freezes itself by delegating to
@@ -126,9 +133,39 @@ _COORDINATOR_ROOT = _SCRIPT_DIR.parent
 _REPO_ROOT = _COORDINATOR_ROOT.parent
 _WASTE_SIGNAL_SCRIPT = _SCRIPT_DIR / "waste-signal.py"
 
+#: Declared-absence line appended to the reviewer's contractBlocks when the
+#: manifest carries no `plans` key, or an empty one -- a plan-less review is
+#: not a failure, but the absence must be visible, never silent.
+_NO_PLAN_BRIEF_LINE = "No plan PM brief was supplied for this review."
+
 #: Wall-clock ceiling for one slice's attribution child. Generous relative to a
 #: normal covering-test run; it exists to bound a HANG, not to police slow tests.
 _WASTE_ATTRIBUTION_TIMEOUT_S = 600
+
+
+def _call_bounded(label: str, fn, *args, **kwargs):
+    """Run `fn` on a daemon thread and raise ComposeError past `_WASTE_ATTRIBUTION_TIMEOUT_S`.
+
+    The in-process replacement for the subprocess `timeout=` backstop: a hung call is
+    abandoned (the daemon thread dies with the process) and the compose fails loud."""
+    import threading
+
+    box: dict[str, Any] = {}
+
+    def _target() -> None:
+        try:
+            box["value"] = fn(*args, **kwargs)
+        except BaseException as exc:  # noqa: BLE001 -- re-raised on the caller's thread
+            box["error"] = exc
+
+    worker = threading.Thread(target=_target, daemon=True)
+    worker.start()
+    worker.join(_WASTE_ATTRIBUTION_TIMEOUT_S)
+    if worker.is_alive():
+        raise ComposeError(f"{label} exceeded {_WASTE_ATTRIBUTION_TIMEOUT_S}s")
+    if "error" in box:
+        raise box["error"]
+    return box.get("value")
 
 
 def _require_dispatch_engine() -> str:
@@ -292,7 +329,7 @@ def _resolve_report_type(policy: dict, agent_type: str) -> str:
 def _resolve_engine_root(explicit_root: Optional[str]) -> str:
     """Resolve the engine root, explicit override first.
 
-    `--claude-klabauter-root`, when given, is validated the same way the hook's own
+    `--engine-root-override`, when given, is validated the same way the hook's own
     rung-0 override is (must exist and contain `coordinator_core/`) --
     an unhealthy explicit override is exactly as unreachable as no root at
     all. Otherwise delegates to the shared `cc_invoke.require_dispatch_engine_on_path`
@@ -376,7 +413,7 @@ def _freeze_slices_batch(requests: list[dict[str, str]]) -> list[dict]:
     from coordinator_core.ops.review_freeze_diff import freeze_diffs_batch
 
     try:
-        return freeze_diffs_batch(_REPO_ROOT, requests)
+        return _call_bounded("freeze_diffs_batch", freeze_diffs_batch, _REPO_ROOT, requests)
     except Exception as exc:
         raise ComposeError(f"freeze_diffs_batch failed for this wave: {exc}") from exc
 
@@ -477,15 +514,21 @@ def _provision_phase(
         payload["contract_blocks"] = contract_block_names
 
     try:
-        sidecar_path = _provision(payload, str(policy_file), str(_REPO_ROOT))
+        sidecar_path = _call_bounded(
+            "provision_report._provision", _provision, payload, str(policy_file), str(_REPO_ROOT)
+        )
     except Exception as exc:
         raise ComposeError(
             f"provision_report._provision failed for {agent_type}/{provision_key}: {exc}"
         ) from exc
 
     try:
-        injected_blocks = assemble_contract_blocks_for_payload(
-            payload, cwd=None, report_sidecar_path=sidecar_path
+        injected_blocks = _call_bounded(
+            "provision_report.assemble_contract_blocks_for_payload",
+            assemble_contract_blocks_for_payload,
+            payload,
+            cwd=None,
+            report_sidecar_path=sidecar_path,
         )
     except Exception as exc:
         raise ComposeError(
@@ -682,8 +725,46 @@ def _write_waste_report(report: dict, run_id: str, slice_id: str) -> Path:
     out_dir = _REPO_ROOT / "state" / "review-trail" / "waste-reports"
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{run_id}.{slice_id}.json"
-    out_path.write_text(json.dumps(report, indent=2), encoding="utf-8", newline="\n")
+    tmp = out_path.with_name(f".{out_path.name}.tmp{os.getpid()}")
+    try:
+        tmp.write_text(json.dumps(report, indent=2), encoding="utf-8", newline="\n")
+        os.replace(tmp, out_path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
     return out_path
+
+
+def _resolve_plan_path(plan_str: str, repo_root: Path) -> Path:
+    """Repo-relative or absolute -- mirrors `pm-brief.py`'s own CLI resolution
+    so a caller passing either shape behaves identically through both seams."""
+    candidate = Path(plan_str)
+    return candidate if candidate.is_absolute() else repo_root / candidate
+
+
+def _reviewer_plan_brief_block(manifest: dict, repo_root: Path) -> str:
+    """The text appended to the REVIEWER role's contractBlocks only, after
+    `role_append` -- the declared-absence line with no `plans` key or an
+    empty list, or one `render_block(brief, "reviewer")` per listed plan,
+    joined verbatim. A plan that resolves no brief is a `ComposeError`,
+    same fail-loud rule as every other precondition in this module."""
+    plans = manifest.get("plans")
+    if not isinstance(plans, list) or not plans:
+        return _NO_PLAN_BRIEF_LINE
+    import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
+    from pm_brief import NoPmBriefError, render_block, resolve as resolve_pm_brief
+
+    blocks: list[str] = []
+    for plan_str in plans:
+        if not isinstance(plan_str, str) or not plan_str:
+            raise ComposeError(f"manifest 'plans' entry is not a non-empty string: {plan_str!r}")
+        plan_path = _resolve_plan_path(plan_str, repo_root)
+        try:
+            brief = resolve_pm_brief(plan_path, repo_root)
+        except NoPmBriefError as exc:
+            raise ComposeError(str(exc)) from exc
+        blocks.append(render_block(brief, "reviewer"))
+    return "\n\n".join(blocks)
 
 
 def compose(
@@ -705,6 +786,10 @@ def compose(
     slices_in = manifest.get("slices")
     if not isinstance(slices_in, list) or not slices_in:
         raise ComposeError("manifest carries no slices")
+
+    # Resolved once for the whole wave: every slice's reviewer gets the same
+    # plan-scoped PM brief text.
+    reviewer_plan_brief_block = _reviewer_plan_brief_block(manifest, _REPO_ROOT)
 
     # The sidecar directory MUST be the session the fired phases actually run
     # under, never a synthetic one. `provision_report` resolves a sidecar to
@@ -837,6 +922,8 @@ def compose(
             # enforce-agent-dispatch-mode.py's own ordering (content repo)
             # (sidecar offer -> injected contract -> role framing).
             contract_blocks_text = injected_blocks.rstrip("\n") + "\n\n" + role_append
+            if role == "reviewer":
+                contract_blocks_text += "\n\n" + reviewer_plan_brief_block
             role_payloads[role] = {
                 "sidecarPath": sidecar_path,
                 "contractBlocks": contract_blocks_text,
@@ -874,8 +961,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="The session id the FIRED phases will run under -- for a workflow "
         "spawn that is the EM's own session, since a workflow-spawned agent "
         "inherits it. Required, never synthesized: the Edit confinement guard "
-        "confines each agent's writes to state/subagent-share/<its own session "
-        "id>/, so a sidecar provisioned anywhere else is one no fired phase can "
+        "confines each agent's writes to <machinery_root>/subagent-share/<its own "
+        "session id>/, so a sidecar provisioned anywhere else is one no fired phase can "
         "write to, and the wave is lost on the reviewer leg.",
     )
     parser.add_argument(
@@ -885,7 +972,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="policy path (default: resolved through the coordinator-claude plugin root)",
     )
     parser.add_argument(
-        "--claude-klabauter-root",
+        "--engine-root-override",
+        dest="engine_root_override",  # neutral: the publish transform renames codename identifiers
         default=None,
         help="Explicit override for engine-root resolution (testing/CI use). "
         "Defaults to the shared cc_invoke dispatch-engine resolution ladder.",
@@ -914,7 +1002,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             run_id=args.run_id,
             session_id=args.session_id,
             policy_file=args.policy,
-            claude_klabauter_root_override=args.claude_klabauter_root,
+            claude_klabauter_root_override=args.engine_root_override,
         )
     except ComposeError as exc:
         print(f"compose-review-wave: {exc}", file=sys.stderr)

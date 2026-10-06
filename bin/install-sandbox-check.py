@@ -36,8 +36,8 @@ and hands it to that module.
 # "${BASH_SOURCE[0]}")" && pwd)"` self-location was correct only while this
 # executable and coordinator/templates/ lived in the same repo; that
 # assumption no longer holds post-migration. The default now resolves via
-# `_resolve_coordinator_root()` -> the shared `content_root()` registry helper
-# (env var -> machine-local `repos.content_root` -> fail loud), never a
+# `_resolve_coordinator_root()` -> `coordinator_core.content_root.read_content_root()`
+# (registry `repos.content_root` -> pointer files -> fail loud), never a
 # hardcoded or __file__-derived path. An explicit --coordinator-root on argv
 # still wins verbatim and skips this resolution entirely.
 #
@@ -52,7 +52,7 @@ and hands it to that module.
 # transport code — addendum rule 3b): 0 all assertions passed/skipped;
 # 1 one or more assertions FAILed (business outcome); 3 TRANSPORT/
 # ORCHESTRATION failure — the engine root unresolvable, the default
-# COORDINATOR_ROOT unresolvable (content_root() raised _DoeUnresolvable),
+# COORDINATOR_ROOT unresolvable (read_content_root() returned empty),
 # coordinator_core not importable, or an unhandled exception inside the
 # claude-klabauter module. The bash oracle had no dedicated transport code (an
 # unhandled `set -euo pipefail` abort just propagated whatever exit status
@@ -78,28 +78,26 @@ def _resolve_coordinator_root() -> str:
     stayed in coordinator-content-repo — self-location (dirname(script_dir)) now resolves
     to <claude-klabauter>/coordinator, which has no templates/ tree at all, and the
     downstream sandbox_check module would silently read from a directory
-    that never existed. Content_root() is the correct authority for "where is
-    the coordinator-content-repo repo," independent of where THIS script happens to run
-    from. A future reader must not "restore" __file__-based resolution to
+    that never existed. read_content_root() is the correct authority for
+    "where is the content repo," independent of where THIS script happens to
+    run from. A future reader must not "restore" __file__-based resolution to
     regain oracle parity with the retired bash script — that is precisely
     what caused this break.
 
-    Fails loud (sys.exit(_TRANSPORT_FAILURE_RC)) if content_root() cannot
+    Fails loud (sys.exit(_TRANSPORT_FAILURE_RC)) if read_content_root() cannot
     resolve — this is a gate script, not a never-block hook, so an
-    unresolvable DoE root must not degrade to a silent no-op default.
+    unresolvable content root must not degrade to a silent no-op default.
+    Must run after `_import_main()` has put the engine on sys.path.
     """
-    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from coordinator_core.content_root import read_content_root
     from coordinator_data_root import content_root_or_private
-    from coordinator_registry import _DoeUnresolvable, content_root
 
-    try:
-        root = content_root()
-    except _DoeUnresolvable as exc:
+    root = read_content_root()
+    if not root:
         print(
-            f"install-sandbox-check: cannot resolve the coordinator doctrine repo root ({exc}). "
-            "Set repos.content_root in the machine-local registry, or set the "
-            "REPO_CONTENT_ROOT (or legacy CONTENT_ROOT) env var, or pass --coordinator-root "
-            "explicitly.",
+            "install-sandbox-check: cannot resolve the coordinator content root. "
+            "Set repos.content_root in the machine-local registry, or pass "
+            "--coordinator-root explicitly.",
             file=sys.stderr,
         )
         sys.exit(_TRANSPORT_FAILURE_RC)
@@ -131,7 +129,7 @@ def main(argv: "list[str] | None" = None) -> int:
         print(f"install-sandbox-check: coordinator_core.install.sandbox_check not importable: {exc}", file=sys.stderr)
         return _TRANSPORT_FAILURE_RC
 
-    # Resolve the default COORDINATOR_ROOT via content_root() (see
+    # Resolve the default COORDINATOR_ROOT via read_content_root() (see
     # _resolve_coordinator_root() docstring) — the claude-klabauter module cannot do
     # this itself since it does not live inside the DoE clone. This is NOT
     # self-location: this file lives in claude-klabauter (coordinator/bin/),

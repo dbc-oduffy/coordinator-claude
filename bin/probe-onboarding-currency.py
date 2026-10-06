@@ -66,13 +66,13 @@ _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 def _resolve_plugin_root() -> str | None:
-    """Resolve the coordinator-content-repo coordinator plugin root (coordinator-schema-version's home).
+    """Resolve the coordinator plugin root (coordinator-schema-version's home).
 
     COORDINATOR_CURRENCY_PLUGIN_ROOT wins verbatim when the caller already set
     it (e.g. coordinator_core/plugin_health/sentinel.py's in-process P-13
     caller always does — see that module's _currency_plugin_root()). Otherwise
     resolves via content_root() (coordinator/bin/lib/coordinator_registry.py:
-    CONTENT_ROOT env -> REPO_CONTENT_ROOT env -> machine-local repos.content_root) and
+    machine-local repos.content_root and its pointer rungs) and
     returns the coordinator content root inside it, either layout
     (coordinator_data_root.content_root_for).
 
@@ -115,9 +115,9 @@ def main(argv: "list[str] | None" = None) -> int:
     plugin_root = _resolve_plugin_root()
     if plugin_root is None:
         print(
-            "probe-onboarding-currency: cannot resolve the coordinator doctrine repo's "
+            "probe-onboarding-currency: cannot resolve the coordinator "
             "plugin root (content_root() unresolvable). Set repos.content_root in the "
-            "machine-local registry, or set CONTENT_ROOT / REPO_CONTENT_ROOT, or set "
+            "machine-local registry, or set "
             "COORDINATOR_CURRENCY_PLUGIN_ROOT directly.",
             file=sys.stderr,
         )

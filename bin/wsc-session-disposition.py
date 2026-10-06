@@ -840,6 +840,20 @@ def _session_claim_cli_argv(cli_path: Path) -> list[str]:
 
 
 def list_stale_claim_handoffs(cli_path: Path, repo_root: Path) -> tuple[list[tuple[str, str]] | None, int]:
+    """Stale-claim enumeration, in-process; `cli_path` is spawned only when the
+    engine module cannot be imported here. Failure maps to the CLI's exit code
+    (an enumeration crash is rc 1, never an empty list)."""
+    try:
+        from coordinator_core.session.stale_claims import (  # noqa: PLC0415
+            list_stale_claim_handoffs as _engine_list_stale,
+        )
+    except ImportError:
+        _engine_list_stale = None
+    if _engine_list_stale is not None:
+        try:
+            return [(e.path, e.claimer_sid) for e in _engine_list_stale(str(repo_root))], 0
+        except Exception:
+            return None, 1
     proc = subprocess.run(
         [*_session_claim_cli_argv(cli_path), "list-stale-claim-handoffs", str(repo_root)],
         capture_output=True,

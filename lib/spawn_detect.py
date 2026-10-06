@@ -35,6 +35,7 @@ import ast
 import dataclasses
 import enum
 import hashlib
+import os
 import pathlib
 import re
 
@@ -751,15 +752,21 @@ class _SiteCollector(ast.NodeVisitor):
         self.generic_visit(node)
 
 
-def sites_in_source(text: str, path: str) -> list[SpawnSite]:
+def sites_in_source(
+    text: str, path: str, tree: ast.Module | None = None
+) -> list[SpawnSite]:
     """Core API. Pure — text in, sites out. No disk access.
+
+    `tree`, when given, must be `ast.parse(text)`; it is read-only here and is reused so a
+    caller that already parsed `text` does not pay for a second parse.
 
     Raises SpawnParseError if `text` will not parse.
     """
-    try:
-        tree = ast.parse(text)
-    except SyntaxError as exc:
-        raise SpawnParseError(path, str(exc)) from exc
+    if tree is None:
+        try:
+            tree = ast.parse(text)
+        except SyntaxError as exc:
+            raise SpawnParseError(path, str(exc)) from exc
 
     resolver = _ImportResolver(tree)
     module_consts = _module_level_constants(tree)
@@ -903,6 +910,86 @@ def _is_python_source(file_path: pathlib.Path, rel: pathlib.Path | None = None) 
     return False
 
 
+@dataclasses.dataclass(frozen=True)
+class CandidateFile:
+    """A non-excluded regular file under the walk root, with its stat."""
+
+    rel_posix: str
+    path: pathlib.Path
+    size: int
+    mtime_ns: int
+
+
+def walk_candidate_files(
+    root: pathlib.Path,
+    *,
+    exclude: tuple[str, ...] = DEFAULT_EXCLUDE,
+    count_excluded: bool = False,
+) -> tuple[list[CandidateFile], ExcludedReport | None]:
+    """The one traversal definition: every non-excluded regular file under `root`.
+
+    Ordered as `sorted(root.rglob("*"))` orders files. A name in `exclude`
+    excludes the file or directory it names. With `count_excluded=False`
+    excluded directories are pruned unread and the report is None; with True
+    they are descended only to collect `ExcludedReport` (files are counted,
+    never opened). No file is classified here: a candidate is not yet known
+    to be Python.
+    """
+    root = pathlib.Path(root)
+    found: list[tuple[pathlib.Path, CandidateFile]] = []
+    excluded_dirs: set[str] = set()
+    suppressed = 0
+
+    def walk(directory: pathlib.Path, rel_parts: tuple[str, ...], excluded_at: str | None) -> None:
+        nonlocal suppressed
+        try:
+            with os.scandir(directory) as it:
+                entries = list(it)
+        except OSError:
+            return
+        for entry in entries:
+            name = entry.name
+            parts = rel_parts + (name,)
+            hit = excluded_at
+            if hit is None and name in exclude:
+                hit = "/".join(parts)
+            try:
+                is_dir = entry.is_dir(follow_symlinks=False)
+            except OSError:
+                continue
+            if is_dir:
+                if hit is not None and not count_excluded:
+                    continue
+                walk(directory / name, parts, hit)
+                continue
+            try:
+                if not entry.is_file():
+                    continue
+                if hit is not None:
+                    if not count_excluded:
+                        continue
+                    excluded_dirs.add(hit)
+                    if pathlib.PurePath(name).suffix == ".py":
+                        suppressed += 1
+                    continue
+                st = entry.stat()
+            except OSError:
+                continue
+            path = directory / name
+            found.append(
+                (path, CandidateFile("/".join(parts), path, st.st_size, st.st_mtime_ns))
+            )
+
+    walk(root, (), None)
+    found.sort(key=lambda pair: pair[0])
+    report = (
+        ExcludedReport(paths=sorted(excluded_dirs), suppressed_site_count=suppressed)
+        if count_excluded
+        else None
+    )
+    return [c for _, c in found], report
+
+
 def discover_source_files(
     root: pathlib.Path,
     *,
@@ -922,40 +1009,14 @@ def discover_source_files(
     pins byte-identical output between its serial and parallel paths.
     """
     root = pathlib.Path(root)
-    discovered: list[tuple[str, pathlib.Path]] = []
-    excluded_dirs: set[str] = set()
-    suppressed_count = 0
-
-    for file_path in sorted(root.rglob("*")):
-        if not file_path.is_file():
-            continue
-
-        rel = file_path.relative_to(root)
-        parts = rel.parts
-        excluded_at: str | None = None
-        for idx, part in enumerate(parts):
-            if part in exclude:
-                excluded_at = "/".join(parts[: idx + 1])
-                break
-
-        if excluded_at is not None:
-            excluded_dirs.add(excluded_at)
-            # suppressed_site_count counts excluded *.py files only, matching
-            # the pre-existing contract (an excluded file is never opened to
-            # check for a shebang either — this is directory-level skip, not
-            # per-file classification).
-            if file_path.suffix == ".py":
-                suppressed_count += 1
-            continue
-
-        if not _is_python_source(file_path, rel):
-            continue
-
-        discovered.append((rel.as_posix(), file_path))
-
-    return discovered, ExcludedReport(
-        paths=sorted(excluded_dirs), suppressed_site_count=suppressed_count
-    )
+    candidates, report = walk_candidate_files(root, exclude=exclude, count_excluded=True)
+    assert report is not None
+    discovered = [
+        (c.rel_posix, c.path)
+        for c in candidates
+        if _is_python_source(c.path, pathlib.PurePosixPath(c.rel_posix))
+    ]
+    return discovered, report
 
 
 def walk_repo(

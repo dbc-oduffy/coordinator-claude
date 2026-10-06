@@ -12,6 +12,9 @@ manifest entries it implements, and `check_manifest_drift` fails on an entry no 
 step that implements nothing without a stated reason.
 
 Stdlib only; runs on macOS, Linux and Windows.
+
+Never imports coordinator_core: the installer runs before an engine is importable, so
+its git calls stay on its own bounded `subprocess.run`.
 """
 from __future__ import annotations
 
@@ -113,6 +116,18 @@ STATUS_LINE_CMD = (
     'S="$(cat "$HOME/.claude/.coordinator-plugin-root" 2>/dev/null)/bin/{script}"; '
     'python3 "$S" || python "$S"'
 )
+
+
+def _is_coordinator_status_line(command: str) -> bool:
+    """A statusLine command that already runs a coordinator statusline: the breadcrumb form, or
+    an older install's plugin-cache glob (`…/coordinator-claude/coordinator/*/bin/statusline.py`).
+    Either is replaced in place; relocating one into statusline-inner.json would make the
+    statusline delegate to a stale cache copy of itself."""
+    normalized = command.replace("\\", "/")
+    return ".coordinator-plugin-root" in normalized or (
+        "coordinator" in normalized and "/bin/statusline.py" in normalized)
+
+
 CONTEXT7_PLUGIN = "context7@claude-plugins-official"
 CONTEXT7_MARKETPLACE = "anthropics/claude-plugins-official"
 NOTEBOOKLM_NAMES = ("notebooklm-mcp", "Gemini Notebook MCP")
@@ -422,7 +437,7 @@ def _read_json_strict(path: Path) -> dict | None:
 def _write_json(path: Path, obj: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(obj, indent=2) + "\n", encoding="utf-8")
+    tmp.write_text(json.dumps(obj, indent=2) + "\n", encoding="utf-8", newline="\n")
     os.replace(tmp, path)
 
 
@@ -430,8 +445,12 @@ def _machine_local_set(key: str, value: str) -> StepResult:
     fwd = forwarder("machine-local")
     if not fwd:
         return StepResult(FAILED, "machine-local forwarder absent (run the substrate step first)")
-    rc, out = run([fwd, "get", key], timeout=30)
-    if rc == 0 and out.strip() == value:
+    try:
+        from coordinator_core.machine_resolver import registry_get
+        current = registry_get(key)
+    except Exception:  # an engine not yet importable reads as unset; the set below decides
+        current = None
+    if current == value:
         return StepResult(INHERITED, f"{key} already {value}")
     rc, out = run([fwd, "set", key, value], timeout=30)
     return StepResult(RAN if rc == 0 else FAILED, f"{key}={value}" if rc == 0 else out)
@@ -670,7 +689,7 @@ def step_status_lines(ctx: Ctx) -> StepResult:
         if current == value:
             continue
         if key == "statusLine" and isinstance(current, dict) and current.get("command") \
-                and ".coordinator-plugin-root" not in str(current["command"]):
+                and not _is_coordinator_status_line(str(current["command"])):
             inner = settings_home() / "statusline-inner.json"
             if not inner.exists():
                 _write_json(inner, current)
@@ -997,6 +1016,20 @@ def step_engine_check(ctx: Ctx) -> StepResult:
     return StepResult(RAN if ok else FAILED, detail)
 
 
+# Who runs each track step. A human step names the exact command the agent hands over; the agent
+# never runs it itself (plugin_update reaches the harness's plugin store).
+TRACK_STEP_RUNNERS = {
+    "plugin_install": {"runner": "human", "handover": "/plugin marketplace add dbc-oduffy/coordinator-claude, then /plugin install coordinator@coordinator-claude"},
+    "plugin_update": {"runner": "human", "handover": "/coordinator:install"},
+    "engine_setup": {"runner": "agent", "handover": None},
+    "engine_check": {"runner": "agent", "handover": None},
+}
+
+
+def track_step_runners(steps: list[str]) -> list[dict]:
+    return [{"id": i, **TRACK_STEP_RUNNERS[i]} for i in steps if i in TRACK_STEP_RUNNERS]
+
+
 TRACK_STEP_FNS = {"plugin_install": step_plugin_install, "plugin_update": step_plugin_update,
                   "engine_setup": step_engine_setup, "engine_check": step_engine_check}
 
@@ -1022,8 +1055,9 @@ def build_plan(permission_mode: str | None) -> dict:
     return {
         "schema": SCHEMA,
         "orientation": ORIENTATION,
-        "environment": {"platform": platform.system(), "plugin_root": str(plugin_root()),
-                        **detect_track()},
+        "environment": (env := {"platform": platform.system(), "plugin_root": str(plugin_root()),
+                                **detect_track()}),
+        "track_step_runners": track_step_runners(env["track_steps"]),
         "mode_policy": mode_policy(permission_mode),
         "decisions": [decision_json(d) for d in build_decisions(permission_mode)],
         "tour": list(TOUR),

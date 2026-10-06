@@ -1,57 +1,36 @@
 # Deep Research Structured Team Protocol (v2.1)
 
-> Referenced by agent definitions and `structured.md` command.
+> Referenced by agent definitions and the structured-research driver.
 
 ## Overview
 
-Agent Teams-based structured research: the EM reads a spec YAML, pre-processes it into a scout brief, creates a team of a Haiku scout + Sonnet verifiers + an Opus synthesizer, spawns all teammates, and is **freed**. The team handles everything autonomously — spec-driven source discovery, schema-mapped verification, adversarial cross-pollination between verifiers, cross-topic reconciliation, and schema-conforming output. The EM is notified when synthesis completes, validates schema conformance via a hard file-existence gate, then cleans up.
+Chatty-Workflow structured research: the EM reads a spec YAML, pre-processes it into a scout brief, fires ONE background `Workflow` whose script runs a Haiku scout, Sonnet verifiers, a rebuttal round, and an Opus synthesizer in order, and is **freed**. The agents handle everything autonomously — spec-driven source discovery, schema-mapped verification, adversarial cross-pollination between verifiers, cross-topic reconciliation, and schema-conforming output. The Workflow's task notification carries the synthesizer's return value; the EM validates schema conformance via a hard file-existence gate, then cleans up.
 
-Pipeline C is spec-driven and schema-conforming. Unlike Pipeline A (free-form internet research), every finding maps to an output schema field, every verifier self-checks acceptance criteria and gate rules embedded in their prompts, verifiers actively challenge each other's schema field values, and the final output is validated against the spec before the team is torn down.
+Pipeline C is spec-driven and schema-conforming. Unlike Pipeline A (free-form internet research), every finding maps to an output schema field, every verifier self-checks acceptance criteria and gate rules embedded in their prompts, verifiers actively challenge each other's schema field values, and the final output is validated against the spec before archival.
 
-## Team Roles
+## Roles
 
 | Role | Model | Count | Responsibility |
 |------|-------|-------|----------------|
-| **Scout** | Haiku | 1 | Execute spec-derived search queries from scout-brief.md, map findings to schema fields, write per-topic discovery files |
-| **Verifier** | Sonnet | 1-5 | Verify scout's per-topic discovery, compare against existing data, produce schema field tables with change types (CONFIRMED/UPDATED/NEW/REFUTED/CONTESTED), self-check acceptance criteria and gate rules, challenge peers' field values |
-| **Synthesizer** | Opus | 1 | Cross-topic reconciliation, resolve CONTESTED fields, schema validation, produce YAML/JSON output conforming to output_schema |
+| **Scout** (`scout`) | Haiku | 1 | Execute spec-derived search queries from scout-brief.md, map findings to schema fields, write per-topic discovery files |
+| **Verifier** (`verifier-{topic_id}`) | Sonnet | 1-5 | Verify scout's per-topic discovery, compare against existing data, produce schema field tables with change types (CONFIRMED/UPDATED/NEW/REFUTED/CONTESTED), self-check acceptance criteria and gate rules, challenge peers' field values through mailbox files |
+| **Synthesizer** (`synthesizer`, overseer) | Opus | 1 | Cross-topic reconciliation, resolve CONTESTED fields, schema validation, produce YAML/JSON output conforming to output_schema. Its return value is the only one that reaches the EM. |
 
-## Team Lifecycle
-
-```
-EM: Read spec → pre-process into scout-brief.md → Create team → Spawn all teammates → FREED
-Scout: Read scout-brief.md → WebSearch → WebFetch (vet accessibility) → Map to schema fields → Write per-topic discovery files → Mark complete → [idle]
-Verifiers: [blocked by scout] → Read discovery files → Verify + compare existing data → Challenge peers → Produce schema field tables → Self-check gate rules → Converge → Mark complete → DONE to synthesizer
-Synthesizer: [blocked by verifiers, waiting for DONE msgs] → Verify all complete → Write skeleton to OUTPUT_PATH → Cross-reconcile → Resolve CONTESTED → Validate schema → Overwrite OUTPUT_PATH with final → Write annotations → Mark complete
-```
-
-## Blocking Chain
+## Stage Lifecycle
 
 ```
-Scout (no blockers) ──────→ task completion unblocks verifiers
-Verifiers (blockedBy: scout) ──→ DONE messages wake synthesizer
-Synthesizer (blockedBy: all verifiers) ──→ mark complete notifies EM
+EM: Read spec → pre-process into scout-brief.md → Fire Workflow → FREED
+Stage 1  Scout: Read scout-brief.md → WebSearch → WebFetch (vet accessibility) → Map to schema fields → Write per-topic discovery files → Return
+Stage 2  Verifiers (parallel): Read discovery files → Verify + compare existing data → Append challenges to peers' mailboxes → Produce schema field tables → Self-check gate rules → Write findings → Return {topic, challenged}
+Stage 3  Rebuttal (parallel, only roles with unread mail): Fresh continuation reads its mailbox + own findings + predecessor's return → Answers challenges → Revises findings → Return
+Stage 4  Synthesizer: Read all findings → Write skeleton to OUTPUT_PATH → Cross-reconcile → Resolve CONTESTED → Validate schema → Overwrite OUTPUT_PATH with final → Write annotations → Return summary to EM
 ```
 
-- **Scout → Verifiers:** Task-gated via `blockedBy`. Verifiers unblock when scout marks its task complete. No messaging needed — verifiers haven't started yet (confirmed empirically 2026-03-21).
-- **Verifiers → Synthesizer:** Task-gated via `blockedBy` + DONE messages as wake-up signals. The synthesizer is already running but idle — it needs explicit DONE messages to trigger its next poll cycle (confirmed empirically 2026-03-21).
+## Stage Ordering
 
-### How Agent Teams Blocking Actually Works (empirical + sourced)
+Ordering gates the stages: stage N+1 starts when stage N's `agent()` calls return (`await`, or `parallel()` for a fan-out). A returned agent is never resumed — `SendMessage` cannot wake it. Each later stage is a fresh dispatch, so the rebuttal round is a continuation agent per role, briefed with its mailbox path, its prior output files, and its predecessor's return value.
 
-Agent Teams uses **file-based polling, not callbacks**. Task state is managed by the platform in `~/.claude/tasks/{team-name}/N.json` (platform-internal; do not read/write these files directly). Agents discover available work by calling `TaskList()`, which re-evaluates `blockedBy` arrays fresh on each call. There is no active push/callback when a blocker completes.
-
-**Two distinct scenarios with different wake-up behavior:**
-
-| Scenario | Agent State | Wake-Up Mechanism | Message Needed? |
-|----------|-------------|-------------------|-----------------|
-| **Task-blocked (pending)** | Not yet started — `pending` status, waiting for blockers | `TaskList()` re-evaluates `blockedBy` on next poll; agent auto-starts when unblocked | No — auto-wake works |
-| **Message-blocked (idle)** | Started, checked status, went idle waiting | Needs an inbox message to trigger the next poll cycle | Yes — explicit DONE message required |
-
-The scout→verifier transition is scenario 1 (auto-wake). The verifier→synthesizer transition is scenario 2 (DONE messages needed). Both confirmed empirically 2026-03-21.
-
-**Shutdown behavior:** Teammates prioritize completing their current work loop over acknowledging shutdown requests. Expect convergence protocol (CONVERGING → wait → write → mark complete → DONE) to run before shutdown acknowledgment. This is good for data integrity but means team teardown takes 30-60 seconds after shutdown requests are sent.
-
-**Sources:** [Claude Code official docs](https://code.claude.com/docs/en/agent-teams), [reverse-engineering analysis (nwyin.com)](https://nwyin.com/blogs/claude-code-agent-teams-reverse-engineered.html), [swarm orchestration guide (kieranklaassen gist)](https://gist.github.com/kieranklaassen/4f2aba89594a4aea4ad64d753984b2ea).
+The script has no filesystem, so it cannot read mailboxes. Each verifier's return value names the peers it wrote to (`challenged`: topic ids); the script dispatches a rebuttal continuation for exactly those roles. The default is one rebuttal round.
 
 ## Scout Protocol
 
@@ -62,25 +41,16 @@ The scout builds **per-topic discovery files** — schema-mapped findings, one f
 - Mechanically vets each result via WebFetch: accessible? paywall? date? source type?
 - Maps each finding to schema fields (as listed in scout-brief.md)
 - Writes one discovery file per topic: `{scratch-dir}/{subject}-scout-{topic_id}.md`
-- **No messaging** — scout has no SendMessage tool. Task completion is the only signal.
+- **No messaging** — the scout's return starts the verifier stage.
 - **Timing:** No floor. Ceiling: 3 minutes. This is mechanical work — go fast.
 
-## Message Protocol
+## Mailbox Protocol
 
-<!-- BEGIN listagents-roster-caveat (synced from snippets/listagents-roster-caveat.md) -->
-## ListAgents Roster Is A View, Not The Registry
-
-Discover a peer's address by calling `ListAgents` and copying the name a row prints verbatim, then
-`SendMessage` to that name. But the roster it renders can UNDER-REPORT — a thin or empty roster is
-never proof a peer is gone. The durable source is the session registry
-(`~/.claude/sessions/<pid>.json`), not this view; a peer missing from `ListAgents` is evidence about
-that view, not about the peer. See
-`coordinator/docs/wiki/coordinator-tripwires/a-thin-listagents-roster-is-not-proof-a-peer-is-gone.md`.
-<!-- END listagents-roster-caveat -->
+Peer exchange goes through mailbox files `{scratch-dir}/mail/<role>.jsonl`. A line is `{"from": "<role>", "text": "..."}`. To message peer X, append to X's file. A reader appends `{"read": true}` after reading its file; it has unread mail when lines follow its last read marker. Roles are `scout`, `verifier-{topic_id}`, `synthesizer`. No agent messages the EM.
 
 ### Verifier → Verifier (Adversarial Cross-Pollination)
 
-Send targeted messages to specific peers by name. Challenges are **expected**, not just permitted — verifiers should actively test each other's schema field values.
+Append targeted messages to specific peers' mailboxes. Challenges are **expected**, not just permitted — verifiers should actively test each other's schema field values. The `text` of each line follows these formats:
 
 | Category | Format | When |
 |---|---|---|
@@ -90,28 +60,21 @@ Send targeted messages to specific peers by name. Challenges are **expected**, n
 | **SOURCE** | `"Source for {peer}: {URL} — covers {aspect} relevant to your topic / field {field_name}."` | Useful source for a peer's topic or schema field |
 | **SCHEMA_OVERLAP** | `"Schema overlap with {peer}: While researching {my_field}, I found evidence relevant to your field {their_field}: {value} from {source}. Flagging for your verification."` | Evidence found for a schema field owned by a different verifier |
 
-**Resolution protocol:** When a peer challenges a schema field value, the challenged verifier must respond with evidence or concede. Unresolved challenges (2-minute timeout) produce `CONTESTED` change type with both sides' evidence — the synthesizer resolves these.
+**Resolution protocol:** Round-1 verifiers write their findings, append challenges, and return. In the rebuttal round, a verifier whose mailbox holds challenges answers each with evidence or concedes, revising its findings file. A challenge still unanswered after the rebuttal round produces `CONTESTED` change type with both sides' evidence — the synthesizer resolves these.
 
-### Verifier → Synthesizer (Wake-Up Signal)
+### Verifier → Synthesizer
 
-`blockedBy` is a status gate, not an event trigger — completing a blocker task does NOT automatically wake the blocked teammate. Verifiers must explicitly message the synthesizer after completing their task:
-
-| Category | Format | When |
-|---|---|---|
-| **DONE** | `"DONE: {topic_id} findings written to {scratch-dir}/{topic_id}-findings.md"` | After marking own task `completed` |
-
-This is the synthesizer's wake-up mechanism. Each DONE message causes the synthesizer to re-check `TaskList`. When all verifier tasks show `completed`, it proceeds with synthesis.
+No signal message. The synthesizer stage starts after the verifier and rebuttal stages return; the script passes it the verifiers' return values, and it reads `{scratch-dir}/*-findings.md`.
 
 ### Volume Governance
 
-- **Peer messages: max 3 per peer** (max 12 total for a 5-verifier team)
-- **DONE message: exactly 1 per verifier** (sent to synthesizer only)
-- **Scout: no messages** (task completion handles unblocking)
+- **Peer messages: max 3 per peer** (max 12 total for a 5-verifier run)
+- **Scout: no messages**
 - Quality over quantity — **no acknowledgment-only messages** ("got it", "thanks", "acknowledged"). Every message must contain a finding, challenge, source, or schema-field overlap.
 
 ## Self-Governance Timing
 
-Verifiers manage their own timing. No EM broadcasts WRAP_UP.
+Verifiers manage their own timing. The EM does not intervene.
 
 ### Three-Part Model
 
@@ -126,7 +89,7 @@ Verifiers manage their own timing. No EM broadcasts WRAP_UP.
    - Note in Investigation Log: "Converging: diminishing returns after source N"
 
 3. **Ceiling (maximum research time)**
-   - Configurable by the EM at team creation (default: 15 minutes)
+   - Configurable by the EM when filling the verifier prompts (default: 15 minutes)
    - Begin convergence regardless of state
    - Check time via `date +%s` in Bash, compare against spawn timestamp
 
@@ -145,16 +108,10 @@ Begin convergence when ANY of these conditions are met (AND the floor is satisfi
 1. **Self-check acceptance criteria** — verify minimum sources met and required schema fields covered
 2. **Self-check gate rules** — verify embedded quality gate rules pass (e.g., source recency, source type requirements)
 3. **Self-check adversarial coverage** — "Have I challenged at least one peer's schema field value?" Note the answer.
-4. Send `CONVERGING` to all peers (informational — peers should NOT reply with acknowledgments)
-5. Wait ~30 seconds for final challenges
-6. Answer any substantive challenges
-7. Write complete output file (schema field table with change types)
-8. Mark task `completed`
-9. Send `DONE` to synthesizer (wake-up signal)
+4. Write complete output file (schema field table with change types)
+5. Return `{topic, challenged}` — the peers whose mailboxes it appended to
 
-**Early convergence note:** Verifiers who converge early remain alive — late-arriving peer messages may warrant a quick update to findings before the agent terminates.
-
-**Timeout:** If a CHALLENGE goes unanswered for 2 minutes → mark finding as `CONTESTED` with both sides' evidence.
+**Timeout:** A challenge not answered in the rebuttal round is marked `CONTESTED` with both sides' evidence.
 
 ## Output Format
 
@@ -217,14 +174,13 @@ Begin convergence when ANY of these conditions are met (AND the floor is satisfi
 - **Scout times out (partial discovery files):** Verifiers use what's there + supplement with own searches for missing topics
 - **Self-timed convergence (ceiling):** Verifiers begin convergence autonomously after max time, without EM intervention
 - **WebSearch/WebFetch failures:** If 3 consecutive fetch attempts fail, converge with what you have and note failures in Investigation Log
-- **Gate rule failure at convergence:** Note in output as `GATE_FAIL: {rule}` — verifier still completes and sends DONE; synthesizer and EM handle escalation
-- **Synthesizer writes prose but no structured data file:** EM file-existence check catches this. Keep team alive, send correction message listing the expected output path and format. Re-validate on revised output.
-- **All verifiers fail:** EM is notified (no completed verifier tasks), reports to PM
-- **Agents stuck in idle loops:** Known platform issue — agents may enter idle loops that resist shutdown. Commit and archive results; agents auto-clean on session exit. Do NOT block on stuck agents — read available outputs and present to PM
+- **Gate rule failure at convergence:** Note in output as `GATE_FAIL: {rule}` — verifier still completes and returns; synthesizer and EM handle escalation
+- **Synthesizer writes prose but no structured data file:** EM file-existence check catches this. The EM fires a correction Workflow (a synthesizer continuation) listing the expected output path and format, then re-validates the revised output.
+- **All verifiers fail:** The synthesizer finds no findings files and says so in its return value; the EM reports to PM
 
 ## Coverage-Auditor Lifecycle
 
-Pipeline C uses a **reduced** coverage auditor — dispatched by the EM as a non-teammate Agent **after** the synthesizer completes and **before the run concludes** (teardown is automatic on session exit). The auditor answers one question for structured output: did every verifier finding get mapped to an output schema field, or if dropped, was it annotated?
+Pipeline C uses a **reduced** coverage auditor — dispatched by the EM as a plain `Agent` **after** the Workflow completes and **before the run concludes**. The auditor answers one question for structured output: did every verifier finding get mapped to an output schema field, or if dropped, was it annotated?
 
 **Drop-justification oracle:** `{scratch-dir}/synthesis-annotations.md` (written by the synthesizer alongside the structured output). The auditor reads this file as the authoritative record of intentional drops. A finding absent from both the YAML output and `synthesis-annotations.md` is an unacknowledged silent drop — this is what the reduced auditor catches.
 
@@ -237,7 +193,7 @@ Pipeline C uses a **reduced** coverage auditor — dispatched by the EM as a non
 The fidelity relay (waking idle specialists to verify their content was faithfully represented in synthesis prose) is **not applicable to Pipeline C.** Two architectural reasons compose:
 
 1. **No prose synthesis to distort.** The structured synthesizer produces schema-conforming YAML/JSON (`agents/structured-synthesizer.md:59`). Fidelity drift means flattening or misrepresenting a finding in prose — that mechanism does not exist when the output is a typed schema field value.
-2. **CONTESTED pre-empts relay need.** Verifiers challenge each other's field values before synthesis via the adversarial cross-pollination protocol. Any value contested across verifiers is explicitly flagged `CONTESTED` and resolved by the synthesizer with both sides' evidence. There is no "author is dead before synthesis runs" gap for relay to close.
+2. **CONTESTED pre-empts relay need.** Verifiers challenge each other's field values before synthesis via the mailbox cross-pollination protocol. Any value contested across verifiers is explicitly flagged `CONTESTED` and resolved by the synthesizer with both sides' evidence. There is no "author is gone before synthesis runs" gap for relay to close.
 
 The relay is revisited only if Pipeline C adds a prose-synthesis output mode. It is not an appetite call — it is absent because the problem it solves structurally cannot occur here.
 

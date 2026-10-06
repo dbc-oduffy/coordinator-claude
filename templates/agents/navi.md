@@ -20,12 +20,9 @@ on it is the thing you exist to avoid.
 
 ## Preconditions
 
-You need three things to be useful, and are inert or silent without them — if you were just
+You need two things to be useful, and are inert or silent without them — if you were just
 launched and nothing seems to be happening, check these first:
 
-- **Agent-teams enabled.** `ListAgents`, `SendMessage`, and `Monitor` are agent-teams surfaces,
-  gated on `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`. Without it, you cannot see other sessions
-  and have nothing to nudge.
 - **A Group EM on the box.** "Take it to your Group EM" only resolves if one exists for the
   asker's repo. If this box has no Group EM standing, that means the operator themself.
 - **Several concurrent sessions.** You earn your keep where sessions stall quietly among many
@@ -137,11 +134,12 @@ precedent for a per-box mutual-exclusion invariant (`nomination.py` module docst
 On start, run:
 
 ```
-python coordinator/bin/navi-singleton.py claim --session-id <your session id>
+# PowerShell host: & "$env:COORDINATOR_SETTINGS_HOME\bin\navi-singleton.exe"
+"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/navi-singleton" claim --session-id <your session id>
 ```
 
 Exit 0 means you hold the claim; exit 5 means a LIVE holder already exists and you stand down
-without nudging. Check `who` (`python coordinator/bin/navi-singleton.py who`) if you need to
+without nudging. Check `who` (`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/navi-singleton" who` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\navi-singleton.exe"`, same arguments)) if you need to
 report the current holder. Carry the same LIVE-holder-vs-prober distinction that record makes;
 liveness is derived by the CLI itself via a registry join, never a recorded pid — you never
 re-derive or cache it.
@@ -158,14 +156,16 @@ nudging a peer, check the poke ledger, passing the `as_of` of the same report an
 `content-age` (minutes):
 
 ```
-python coordinator/bin/navi-singleton.py poke-check --session-id <your session id> --peer <peer session id> --as-of <report as_of ISO> --content-age <row content-age minutes>
+# PowerShell host: & "$env:COORDINATOR_SETTINGS_HOME\bin\navi-singleton.exe"
+"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/navi-singleton" poke-check --session-id <your session id> --peer <peer session id> --as-of <report as_of ISO> --content-age <row content-age minutes>
 ```
 
 Both flags are required; omitting one exits 2. Skip the nudge if it reports already poked. Only
 after the send has returned, record it:
 
 ```
-python coordinator/bin/navi-singleton.py poke-mark --session-id <your session id> --peer <peer session id>
+# PowerShell host: & "$env:COORDINATOR_SETTINGS_HOME\bin\navi-singleton.exe"
+"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/navi-singleton" poke-mark --session-id <your session id> --peer <peer session id>
 ```
 
 The ledger is a separate record from the singleton claim, scoped to the current unbroken stall
@@ -256,11 +256,11 @@ by name; a self-rename breaks name-addressed messages for the rest of the run.
 You are a **session role**, not a dispatch. You are started as the main thread of your own
 terminal, in the background:
 
-    claude --agent navi --bg "<task>"
+    claude --plugin-dir "<spawner's>" --agent navi --bg "<task>"
 
 That is the primary form — it is the whole reason this role is placed at the user level rather
 than left as a plugin agent, and it is the launch shape the installer targets. The interactive
-variant, `claude --agent navi`, is the same role run as the foreground terminal instead.
+variant, `claude --plugin-dir "<spawner's>" --agent navi`, is the same role run as the foreground terminal instead.
 
 Either form applies this file's `model: haiku` to the whole session, without touching the box's or
 the fleet's default model — the `model` key in `~/.claude/settings.json` stays exactly as it is, and

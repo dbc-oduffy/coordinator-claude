@@ -1,0 +1,27 @@
+{
+  "contract": "websearch-ledger",
+  "row_version": 1,
+  "path": {
+    "root_env": "COORDINATOR_SETTINGS_HOME",
+    "root_default": "~/.coordinator-claude-settings",
+    "relative": "state/websearch-ledger.jsonl"
+  },
+  "tool_name": "WebSearch",
+  "row_keys": [
+    {"name": "v", "type": "int", "meaning": "row schema version; 1"},
+    {"name": "ts", "type": "str", "meaning": "UTC ISO-8601, seconds precision, Z suffix"},
+    {"name": "session_id", "type": "str", "meaning": "payload session_id; a subagent call carries its parent session's id"},
+    {"name": "agent_id", "type": "str|null", "meaning": "payload agent_id; null for a main-session call"},
+    {"name": "outcome", "type": "str", "meaning": "ok (PostToolUse) or failure (PostToolUseFailure)"},
+    {"name": "cwd", "type": "str|null", "meaning": "payload cwd"}
+  ],
+  "outcome_values": ["ok", "failure"],
+  "writers": [
+    "coordinator/hooks/scripts/postuse-subagent-compaction-warning.py (outcome ok)",
+    "coordinator/hooks/scripts/postusefailure-path-fault-advisory.py (outcome failure)",
+    "coordinator/hooks/scripts/_websearch_ledger.py::record"
+  ],
+  "doe_reader": "coordinator/hooks/scripts/_websearch_ledger.py::count_by_session",
+  "write_discipline": "append-only, one os.write per line, O_APPEND; readers skip unparseable lines",
+  "retention_owner": "engine"
+}

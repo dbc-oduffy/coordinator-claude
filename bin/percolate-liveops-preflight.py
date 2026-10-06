@@ -116,6 +116,21 @@ def _normalize_path(path: str) -> str:
     return os.path.normcase(os.path.normpath(os.path.realpath(path)))
 
 
+def _path_identity(path: str) -> "str | tuple[int, int]":
+    """Directory identity for census grouping and source-tree comparison.
+
+    `realpath` + `normcase` does not fold case on a case-insensitive POSIX
+    filesystem (macOS APFS default): two spellings of one directory stay
+    distinct strings, so one repo would be censused twice and misclassified
+    against the source tree. (st_dev, st_ino) names the directory itself;
+    a path that does not stat falls back to the normalized string."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return _normalize_path(path)
+    return (st.st_dev, st.st_ino)
+
+
 def _load_registry_prefix(machine_resolver_mod, prefix: str) -> "dict[str, str]":
     """Merge `registry.toml` (tracked baseline) then `registry.local.toml`
     (per-machine, wins on collision — same precedence order
@@ -253,7 +268,7 @@ def _run(liveness_mod, peer_roster_mod, machine_resolver_mod) -> int:
     # every repo then classifies AFFECTED, since nothing resolves the live
     # tree for anyone to be unaffected via.
     try:
-        source_tree_path = _normalize_path(
+        source_tree_path = _path_identity(
             _resolve_claude_klabauter_source_root(_claude_klabauter_ml_dir())
         )
     except ClaudeKlabauterResolutionError:
@@ -263,11 +278,11 @@ def _run(liveness_mod, peer_roster_mod, machine_resolver_mod) -> int:
     candidates: "dict[str, str]" = dict(repos)
     candidates.setdefault("_this_repo", here)
 
-    groups: "dict[str, list[str]]" = {}
+    groups: "dict[str | tuple[int, int], list[str]]" = {}
     for name in candidates:
-        norm = _normalize_path(candidates[name])
+        norm = _path_identity(candidates[name])
         groups.setdefault(norm, []).append(name)
-    by_path: "dict[str, str]" = {}
+    by_path: "dict[str | tuple[int, int], str]" = {}
     for norm, names in groups.items():
         real_names = sorted(n for n in names if n != "_this_repo")
         by_path[norm] = real_names[0] if real_names else "_this_repo"
@@ -286,7 +301,7 @@ def _run(liveness_mod, peer_roster_mod, machine_resolver_mod) -> int:
         if not live_ids:
             continue
 
-        is_working = source_tree_path is not None and _normalize_path(path) == source_tree_path
+        is_working = source_tree_path is not None and _path_identity(path) == source_tree_path
         affected_here = not is_working
         id_to_address = _build_id_to_address(peer_roster_mod, path)
 

@@ -4,6 +4,7 @@ Hook payloads carry no token counts, so the subagent's context size is estimated
 `message.usage` row in its own transcript tail and compared with the compaction threshold from
 `_compaction_defaults.py` (a byte-identical sibling of `lib/compaction_defaults.py`; a hook never reaches into `lib/`, which the served plugin does not carry). The warning fires once per agent per band, as `additionalContext`.
 Main sessions (no `agent_id`) are skipped; the status line and PreCompact bridge cover them.
+Second duty: every WebSearch call appends an `ok` row to the spend ledger (coordinator/contract/websearch-ledger.md).
 
 Contract: stdin PostToolUse JSON; stdout empty or one `hookSpecificOutput` JSON object; exit 0
 on every path -- a broken advisory must never fail a tool call.
@@ -118,6 +119,12 @@ def evaluate(payload: dict) -> str | None:
 def main() -> int:
     try:
         payload = json.loads(sys.stdin.read())
+        if isinstance(payload, dict) and payload.get("tool_name") == "WebSearch":
+            try:
+                import _websearch_ledger
+                _websearch_ledger.record(payload, "ok")
+            except Exception:
+                pass
         text = evaluate(payload) if isinstance(payload, dict) else None
     except Exception:
         return 0

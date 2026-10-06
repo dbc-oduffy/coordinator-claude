@@ -64,7 +64,7 @@ No world exists in which `how` yields the criterion's negation. Three sub-shapes
 3. `how` constructs its own input in a way that guarantees the match.
 
 Mirror: a FALSE baseline says nothing about whether the instrument could recognise the criterion
-holding. Report both directions here. **Cannot produce red → BROKEN regardless of aim.**
+holding. Report both directions here. **An instrument that cannot produce a red result is BROKEN regardless of aim.**
 
 ### WRONG-DENOMINATOR
 
@@ -74,7 +74,7 @@ store is not a count of objects declaring the property.
 
 ### VERDICT-NOT-WIRED-TO-EXIT-PATH
 
-A pass/fail value no branch of the exit or report path consumes. **Translate
+An instrument that computes a pass/fail value that no branch of its exit or report path consumes. **Translate
 `can_report_red_report`** (`instrument-can-report-red.py` `verdict_reaches_exit`) — never walk the
 instrument yourself.
 

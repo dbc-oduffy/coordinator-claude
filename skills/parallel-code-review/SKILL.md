@@ -91,7 +91,7 @@ test-evidence-parser (it surfaces as `failed_disk_read`).
 > **Do not ask whether to dispatch** — invoking this skill IS the request for the dispatch this
 > step names; it dissolves no gate this skill's own body names.
 
-**Dispatch the whole span as one Workflow — `Workflow({scriptPath: "coordinator/workflows/review-wave.mjs", args: {...}})`.** It encodes this
+**Dispatch the whole span as one Workflow — `Workflow({scriptPath: "${CLAUDE_PLUGIN_ROOT}/workflows/review-wave.mjs", args: {pluginRoot: "${CLAUDE_PLUGIN_ROOT}", ...}})`** (both resolved to absolute paths; never a repo-relative `coordinator/...`). It encodes this
 section and the synthesizer dispatch below; its `args` contract is in the script's own header.
 Pre-provision each dispatched agent's sidecar first, resolved per
 `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` (Shape A/B on POSIX hosts, Shape W on PowerShell) —
@@ -104,9 +104,7 @@ oversight is on disk and after the fact (findings files, sidecars), reverted lik
 
 **Hand-dispatch is the fallback for a broken vehicle, not a preference.** If the Workflow refuses,
 dispatch all active reviewers in one multi-tool-call batch and say why. Each reviewer reads its own
-frozen input and writes only its own findings file. The fallback's named `Agent` dispatch requires
-agent teams (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`, session-start-only); the `Workflow` path
-does not.
+frozen input and writes only its own findings file.
 
 - **Chunk reviewers** (`agents/code-reviewer-weekly.md`, skip all if `SKIP_CODE_SEMANTICS=1`): one
   per chunk, its file-scope list plus `$DIFF_PATH`, writing **only** `$FINDINGS_DIR/chunk-<k>.md`

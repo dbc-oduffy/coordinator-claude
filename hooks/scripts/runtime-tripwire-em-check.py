@@ -228,6 +228,21 @@ _ID_CHARSET_RE = re.compile(r"^[A-Za-z0-9_@-]+$")
 # ---------------------------------------------------------------------------
 
 
+def _atomic_write_text(path: str, text: str) -> None:
+    """Write via a sibling temp file and os.replace so a concurrent reader never sees a torn cursor."""
+    tmp = "%s.tmp-%d" % (path, os.getpid())
+    try:
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
 def _ensure_session_cursor_dir(cursor_dir: str, session_id: str) -> bool:
     """Create this session's hub directory for a per-session cursor write.
     Returns True when `cursor_dir` exists and is safe to write a cursor into,
@@ -833,8 +848,7 @@ def _check_hooks_json_staleness(git_root: str, session_id: str, common_dir: str)
         if not _ensure_session_cursor_dir(cursor_dir, session_id):
             return None
         try:
-            with open(cursor_path, "w", encoding="utf-8") as fh:
-                fh.write(current_hash)
+            _atomic_write_text(cursor_path, current_hash)
         except Exception:
             pass
         return None
@@ -843,8 +857,7 @@ def _check_hooks_json_staleness(git_root: str, session_id: str, common_dir: str)
         return None
 
     try:
-        with open(cursor_path, "w", encoding="utf-8") as fh:
-            fh.write(current_hash)
+        _atomic_write_text(cursor_path, current_hash)
     except Exception:
         pass
 
@@ -1027,8 +1040,7 @@ def _check_push_failures(git_root: str, session_id: str):
         if not _ensure_session_cursor_dir(cursor_dir, session_id):
             return None, None
         try:
-            with open(cursor_path, "w", encoding="utf-8") as fh:
-                fh.write(str(log_size))
+            _atomic_write_text(cursor_path, str(log_size))
         except Exception:
             pass
         return None, None
@@ -1046,8 +1058,7 @@ def _check_push_failures(git_root: str, session_id: str):
 
     def _advance_cursor() -> None:
         try:
-            with open(cursor_path, "w", encoding="utf-8") as fh:
-                fh.write(str(log_size))
+            _atomic_write_text(cursor_path, str(log_size))
         except Exception:
             pass
 
@@ -1210,8 +1221,7 @@ def _write_zero_tool_use_cursor(cursor_path: str, surfaced: int, size: int) -> N
         pass
     try:
         os.makedirs(os.path.dirname(cursor_path), exist_ok=True)
-        with open(cursor_path, "w", encoding="utf-8") as fh:
-            fh.write(json.dumps({"surfaced": surfaced, "size": size}))
+        _atomic_write_text(cursor_path, json.dumps({"surfaced": surfaced, "size": size}))
     except Exception:
         pass
 

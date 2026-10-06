@@ -240,10 +240,10 @@ cluster = "system-prereq"
 weight = "cheap"
 interactivity = "silent"
 fix = "none"
-symptom_keywords = ["content-root missing", "settings-home content-root absent", ".content-root pointer", "durable coordinator root pointer", "DR-072", "coordinator root unresolvable"]
+symptom_keywords = ["content-root missing", "settings-home content-root absent", ".coordinator-content-root pointer", "durable coordinator root pointer", "DR-072", "coordinator root unresolvable"]
 triage = true
 severity_if_fail = "error"
-remediation = "No <settings-home>/machine-local/.content-root pointer found (DR-072 durable location) and no legacy ~/.claude/.content-root fallback either — re-run /coordinator:install to re-seed the durable coordinator-root pointer."
+remediation = "No <settings-home>/machine-local/.coordinator-content-root pointer found (DR-072 durable location) and no ~/.claude/.coordinator-content-root fallback either — re-run /coordinator:install to re-seed the durable coordinator-root pointer."
 
 
 # install copy (usually ${CLAUDE_HOME:-$HOME}/.claude/setup/, PERCOLATE_ROOT

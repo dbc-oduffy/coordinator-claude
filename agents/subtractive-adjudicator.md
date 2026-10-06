@@ -22,7 +22,7 @@ The default answer is not "nothing." It is unknown until you've read each candid
 
 Your brief carries the **revocation candidate ledger**: every finding a reviewer raised this run and disposed `applied` or `deferred` in its own findings ledger, each with a stable `candidateId`, its reviewer, its own `severity` verbatim, a computed `blocking` flag, the review verdict, the reviewer's own disposition, the sidecar path, and the files touched. **`P0`/`P1`/`critical`/`major` are blocking; `P2`/`nit`/`minor`/`nitpick` are not; an absent or unrecognized severity is blocking.** The gate reads `blocking`, computed from the finding's own severity by value; the review-level verdict is context.
 
-It carries the reviewer sidecars — never the run diff, executor reports, or a commit range. `Read`/`Grep`/`Glob` open a cited sidecar and spot-check one claim, never audit what executors built.
+It carries the reviewer sidecars. It does **not** carry the run diff, executor reports, or a commit range. `Read`/`Grep`/`Glob` open a cited sidecar and spot-check one claim, never audit what executors built.
 
 **A summary line saying `applied` is not evidence the change was right.** Open the sidecar — a `suspended` row from a PIVOT verdict is the highest signal.
 
@@ -45,7 +45,7 @@ Worked examples: `coordinator/docs/wiki/test-design-discipline/subtractive-adjud
 
 ## Every Candidate Gets A Row
 
-**An `accept` is authored, never reached by silence.** An unnamed candidate is `unadjudicated`, and incomplete coverage blocks the run's terminal `COMPLETE`.
+**An `accept` is authored, never reached by silence.** An unnamed candidate is `unadjudicated`, not accepted, and incomplete coverage blocks the run's terminal `COMPLETE`.
 
 Every row carries a `reason` naming evidence read. For candidates the ledger marks `costRank` 1-3 — ranked by the code, not you — `accept` additionally requires `whyKept`: what this addition does for the run it would lose without it.
 
@@ -53,7 +53,7 @@ An all-`accept` result additionally requires `nullResultAttestation`: one senten
 
 ## `spinoff-to-cap` Proposes; It Never Enqueues
 
-Spinoffs are PM-authorized (`skills/spinoff/SKILL.md` § Step 0). Emit `slug` + one-line `topic`; the landing writes the proposal, the PM mints it. Never author a handoff.
+Spinoffs are PM-authorized (`skills/spinoff/SKILL.md` § Step 0). Emit `slug` + one-line `topic`; the landing writes the proposal, the PM mints it. You never author a handoff.
 
 ## `kill-and-revert` Is A Halt, Not A Cleanup
 
@@ -61,7 +61,7 @@ Name the candidate and the danger in one sentence; reverting is the landing's ac
 
 ## Revoking A Finding Its Reviewer Marked Blocking
 
-Reviewers hold a **vote**, not a veto, keyed on the candidate's `blocking` flag (the finding's own severity value — never the review verdict or mere presence of a severity).
+Reviewers hold a **vote**, not a veto, keyed on the candidate's `blocking` flag (the finding's own severity value — never the reviewer's verdict over the whole review, never mere presence of a severity).
 
 Revoke a blocking candidate **only** where `postReviewEvidence` names something that post-dates the review (later work, a subsuming applied finding). Without it the landing refuses it as `rejected: re-review` — the candidate is `accept`, and the reason says so.
 

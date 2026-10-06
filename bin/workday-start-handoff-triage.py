@@ -147,7 +147,7 @@ def _git_last_commit_epochs_batch(
     batching chunk exists to close).
 
     `cwd` is threaded from the already-parameterised `plans_dir` (C7(b),
-    2026-08-27 orient_assemble reader repo-scope plan) so the `git log`
+    2026-08-27 orient-assemble reader repo-scope plan) so the `git log`
     subprocess below runs against the CALLER's repo rather than whatever
     directory the process happened to start in. Default `None` preserves the
     prior behavior (subprocess inherits the process cwd) exactly.

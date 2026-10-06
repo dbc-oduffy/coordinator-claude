@@ -50,10 +50,16 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+def _ensure_engine() -> None:
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+    from cc_invoke import ensure_engine_on_path
+
+    ensure_engine_on_path(__file__)
+
 _HERE = Path(__file__).resolve().parent
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
-# Generator-provenance declaration (generator_provenance.py).
+# Generator-provenance declaration (coordinator_core/ops/generator_census).
 # cmd_scaffold_goal writes state/goals/<date>-<slug>-<sid>.yaml;
 # cmd_commit_priorities/cmd_commit_archive_reset commit
 # state/week-changelog/HEADER*.md and archive/week-changelogs/<prior-week>/ --
@@ -602,6 +608,7 @@ _SUBCOMMAND_VALIDATORS = {
 
 
 def main(argv: list[str]) -> int:
+    _ensure_engine()
     parser = _build_parser()
     args = parser.parse_args(argv)
     validator = _SUBCOMMAND_VALIDATORS.get(args.subcommand)

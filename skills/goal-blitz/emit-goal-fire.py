@@ -122,6 +122,31 @@ def bind(invoke: Path, source: Path, args: dict) -> str:
     return reply["result"]["script"]
 
 
+def write_fire_receipt(fire: Path) -> str | None:
+    """Write `<fire>.emitted.json` via the engine's `dispatch_emit.op._write_emission_receipt`.
+
+    The engine's writer is the one receipt shape `block_workflow_foreign_emission` verifies.
+    Best-effort: returns the receipt path, or None (narrated on stderr) so the fire stays the
+    deliverable.
+    """
+    try:
+        hooks = str(Path(__file__).resolve().parents[2] / "hooks" / "scripts")
+        if hooks not in sys.path:
+            sys.path.insert(0, hooks)
+        import _engine_root
+
+        root = _engine_root.resolve_claude_klabauter_root()
+        if root is None:
+            raise RuntimeError("engine root unresolved")
+        _engine_root.place_engine_root_on_path(root)
+        from coordinator_core.ops.dispatch_emit.op import _write_emission_receipt
+
+        return _write_emission_receipt(fire, None, {})
+    except Exception as exc:  # noqa: BLE001 -- the receipt never fails the emit
+        print(f"WARNING: could not write emission receipt for {fire.name}: {exc}", file=sys.stderr)
+        return None
+
+
 def _abs_dir(value: str) -> Path:
     p = Path(value)
     if not p.is_absolute():
@@ -185,6 +210,7 @@ def main(argv: list[str] | None = None) -> int:
 
     fire = trail_dir / FIRE_NAME
     fire.write_text(script, encoding="utf-8")
+    write_fire_receipt(fire)
     print(f"Workflow({{ scriptPath: {json.dumps(str(fire))} }})")
     return 0
 

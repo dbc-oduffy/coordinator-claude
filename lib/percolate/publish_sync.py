@@ -122,6 +122,21 @@ def _is_structural_build_artifact(rel_path: str) -> bool:
     return parts[-1].endswith(_STRUCTURAL_BUILD_ARTIFACT_SUFFIXES)
 
 
+def _holds_only_build_artifacts(directory: Path) -> bool:
+    """True iff `directory` holds no file other than structural build artifacts
+    (bytecode caches) — it carries nothing publishable, so it is never an
+    orphan. The residue of a source directory deleted upstream: the mirror
+    keeps an untracked shell holding only `__pycache__` that anything running
+    Python there recreated."""
+    root = directory.as_posix()
+    for entry in directory.rglob("*"):
+        if entry.is_file() and not _is_structural_build_artifact(
+            entry.as_posix()[len(root) + 1:]
+        ):
+            return False
+    return True
+
+
 def _archived_or_orphan(rel_path: str) -> bool:
     """Defense-in-depth filters that match bash logic verbatim.
 
@@ -942,6 +957,7 @@ def sync_mirror(
         non_dot_dst = [
             p for p in sorted(dst_dir.iterdir())
             if p.is_dir() and not p.name.startswith(".") and not _is_structural_build_artifact(p.name)
+            and ((src_dir / p.name).is_dir() or not _holds_only_build_artifacts(p))
         ]
         orphans = [
             p for p in non_dot_dst

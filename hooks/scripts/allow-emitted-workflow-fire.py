@@ -50,6 +50,9 @@ Per-payload-shape decision table (`tool_input` key -> decision):
     IS the hand-rolled case, and it must never be auto-approved.
   - `name` (a saved workflow)           -> silent. Resolved by the tool from
     its own store, not from an emitted path; nothing to verify here.
+  - `scriptPath` under the plugin's own `workflows/` -> silent. A shipped
+    workflow is reviewed plugin source, the file-path twin of a saved `name`;
+    it is never auto-approved, only spared the hand-rolled warning.
   - `resumeFromRunId`                   -> whatever `scriptPath` says. A
     resume that also names the script gets the ordinary receipt check (the
     emitted path is deterministic, so a resume re-reads the same file); a
@@ -106,6 +109,16 @@ def _compose_hand_rolled_warning() -> str:
     return "Hand-rolled Workflow, no receipt. Emit it: `emit-dispatch-workflow --plan <plan>`."
 
 
+_PLUGIN_WORKFLOWS = Path(__file__).resolve().parents[2] / "workflows"
+
+
+def _is_shipped_workflow(script: Path) -> bool:
+    try:
+        return script.resolve().is_relative_to(_PLUGIN_WORKFLOWS)
+    except (OSError, ValueError):
+        return False
+
+
 def _is_hand_rolled(payload: dict) -> bool:
     """A fire with no receipt to check at all. A present-but-stale receipt is
     NOT hand-rolled: it is an edited emission, refused with its own route by
@@ -121,6 +134,8 @@ def _is_hand_rolled(payload: dict) -> bool:
     script = Path(script_path)
     if not script.is_absolute():
         script = Path(payload.get("cwd") or ".") / script
+    if _is_shipped_workflow(script):
+        return False
     return not script.with_name(script.name + ".emitted.json").is_file()
 
 

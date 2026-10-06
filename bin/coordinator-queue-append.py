@@ -27,7 +27,7 @@ Output path: state/<output_dir from schema>/<ISO-date>-<slug>.yaml
 from_repo resolution order (same convention as cross-repo-memo and
 coordinator-lesson-promote):
   1. cwd git-root → reverse-lookup against machine-local repos.* table
-  2. Coordinator-content-repo repo (repos.content_root) → "claude-central-em"
+  2. content root (repos.content_root) → the central EM id
   3. Unregistered git repo → basename of git root + "-em"
   4. Not in a git repo → "unknown-sender-em"
   Never uses `git remote get-url origin` — that yields a URL, not a shortname.
@@ -2560,7 +2560,7 @@ def main(argv: "list[str] | None" = None) -> int:
     if _native_result.get("skipped"):
         # Contract pt 5 (AC12): map skipped:true → legacy WARN + exit 0 (no path printed).
         # Parity with the legacy path's _ClaudeKlabauterUnresolvable WARN messages — both routes
-        # degrade on unresolvable engine root, not CONTENT_ROOT (see coordinator-content-repo coordinator/docs/wiki/hook-best-practices/state-placement-law.md
+        # degrade on unresolvable engine root, not the content root (see coordinator-content-repo coordinator/docs/wiki/hook-best-practices/state-placement-law.md
         # § Taxonomy "Central/global state"). The native op's _output_path (coordinator_core/ops/
         # queue_append.py) raises _ClaudeKlabauterUnresolvable on THREE branches — central-scope,
         # meta-repo-cwd, and the caller_worktree-is-None fallback — not central-scope alone, so

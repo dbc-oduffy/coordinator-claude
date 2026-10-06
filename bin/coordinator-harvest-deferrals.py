@@ -133,7 +133,7 @@ drift from write-root under either machine-local-registry-resolved case (the
 expected steady state on any installed machine) any more than under the
 respective env-var case. (Review: code-reviewer slice2 Finding 1 — an earlier
 revision of this docstring/comment claimed env-override-precedence parity while
-the implementation only reproduced the CONTENT_ROOT-env leg of content_root()'s
+the implementation only reproduced the env-override leg of content_root()'s
 three-step resolution for BOTH legs, silently dropping the machine-local-registry
 leg; a later fix closed that gap but scanned content_root() for the central-scope
 improvement-queue leg too, missing commit 5b908173's repoint of that leg's
@@ -810,7 +810,7 @@ def _candidate_search_dirs(row: dict) -> list[str]:
     falls back to coordinator_registry.content_root() (repos.content_root); central-scope
     improvement-queue falls back to cli_shared.claude_klabauter_root() (repos.claude_klabauter,
     since commit 5b908173). An earlier version of this function only reproduced
-    the CONTENT_ROOT-env leg of content_root()'s chain for BOTH legs (missing the
+    the env-override leg of content_root()'s chain for BOTH legs (missing the
     machine-local-registry leg, the expected steady state on any installed
     machine) — that gap is closed here by importing and calling the real seam
     functions directly (Review: code-reviewer slice2 Finding 1 — option (a): call

@@ -171,6 +171,24 @@ _DEPRECATED_ALIASES = {
     "unconsume-handoff": "unclaim-handoff",
 }
 
+_DISPOSITION_HELP = (
+    "  disposition-flags:\n"
+    "    --decision <accepted|partial|declined>  verdict on the memo. Required with\n"
+    "                                  --decision-note; defaults to 'accepted' when\n"
+    "                                  --realized-by is given without it\n"
+    "    --decision-note <text>        why that verdict (needs --decision)\n"
+    "    --realized-by <value>         commit/artifact that realized the memo\n"
+    "    --actioned-note <text>        free-form closure note (instead of --decision)\n"
+    "    --distill-fate <value>        ephemeral | commitment | ratification\n"
+    "    --in-repo-capture <value>     where the content was captured in-repo\n"
+    "    --superseded-by <memo_path>   superseded by another memo (mutually exclusive\n"
+    "                                  with --decision/--actioned-note)\n"
+    "    --supersede-note <text>       append-only reversal note (with the next flag)\n"
+    "    --supersede-realized-by <value>  realization backing the reversal\n"
+    "    --supersede-at <ISO-date>     reversal timestamp (default: now)\n"
+    "    --correct-realization         re-stamp realized_by/decision_note, same decision\n"
+)
+
 _SUBCOMMAND_USAGE = {
     "stamp-shipped-in": (
         "archive-stamp-cli stamp-shipped-in <handoff_path> "
@@ -188,22 +206,13 @@ _SUBCOMMAND_USAGE = {
         "archive-stamp-cli action-memo <memo_path> [disposition-flags...]\n"
         "  NOTE — the prose-bearing disposition flags each take a lossless\n"
         "  file sibling: --decision-note-file / --actioned-note-file /\n"
-        "  --supersede-note-file <path>. The remaining flags are the ENGINE's\n"
-        "  (coordinator_core/archive_stamp.py :: _DISPOSITION_FLAGS); this\n"
-        "  file forwards its tail verbatim and does not restate them."
+        "  --supersede-note-file <path>.\n" + _DISPOSITION_HELP
     ),
     "resolve-memo": (
-        "archive-stamp-cli resolve-memo <memo_path> [disposition-flags...]\n"
-        "  NOTE — same prose file siblings as action-memo.\n"
-        "  disposition-flags (engine's, coordinator_core/archive_stamp.py ::\n"
-        "  _DISPOSITION_FLAGS/_DISPOSITION_BOOL_FLAGS): --decision <value>,\n"
-        "  --decision-note <text>, --realized-by <value>, --actioned-note <text>,\n"
-        "  --distill-fate <value>, --in-repo-capture <value>,\n"
-        "  --superseded-by <memo_path>, --supersede-note <text>,\n"
-        "  --supersede-realized-by <value>, --supersede-at <ISO-date>,\n"
-        "  --correct-realization (no value). --superseded-by is mutually exclusive\n"
-        "  with --decision/--actioned-note — alternative terminal shapes, not\n"
-        "  combinable."
+        "archive-stamp-cli resolve-memo <memo_path>... [disposition-flags...]\n"
+        "  Several <memo_path> args stamp every memo with the same disposition in\n"
+        "  ONE commit; a single path behaves as before.\n"
+        "  NOTE — same prose file siblings as action-memo.\n" + _DISPOSITION_HELP
     ),
     "release-memo-revert": "archive-stamp-cli release-memo-revert <memo_path>",
     "stamp-plan-implemented": (
@@ -814,6 +823,13 @@ def main(argv: list[str]) -> int:
             if token.startswith("-"):
                 break
             extras.append(token)
+        disposition_start = 1 + len(extras)
+        if extras and subcmd == "resolve-memo":
+            disposition, err = _resolve_disposition_prose(rest[disposition_start:])
+            if err is not None:
+                print(err, file=sys.stderr)
+                return 2
+            return mod.cs_resolve_memos([rest[0], *extras], *disposition)
         if extras:
             print(
                 f"archive-stamp-cli {subcmd}: takes ONE memo, and "

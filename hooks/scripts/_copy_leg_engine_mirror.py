@@ -3,8 +3,9 @@ _copy_leg_engine_mirror -- engine-mirror leg of the Copies line.
 
 Two verdicts for the one copy: currency (the resolved engine's `_engine_stamp`
 against live engine-source HEAD, via `warm.skew.publish_lag`) and completeness (the
-shared constant `could-not-check (no expected-manifest emitted)`). Spawn-free
-here; the only git work is inside the injectable `publish_lag` callable.
+publisher's expected-manifest joined against the engine root's git index, via
+`cc.manifest_completeness_verdict`). Spawn-free here; the only git work is inside
+the injectable `publish_lag` callable.
 
 Invariants:
     - `publish_lag` is reached only through `cc.resolve_engine_symbol` over
@@ -14,10 +15,11 @@ Invariants:
     - `import_origin` (the cached `coordinator_core` package dir and interpreter) left
       at `UNCHECKED` skips the origin question; given, it must lie under the engine root
       or currency is drift, and an absent or errored field is could-not-check.
-    - Completeness reads no manifest, allowlist or rename map.
+    - Completeness reads only the engine root's expected-manifest and git index;
+      no allowlist or rename map.
     - No engine-source clone is could-not-check on both axes; the live-tree env
       override is currency current (no copy in play) and leaves completeness
-      at the shared constant.
+      at the no-manifest constant.
 """
 from __future__ import annotations
 
@@ -63,8 +65,10 @@ def _remedy() -> str:
     return cc.no_local_remedy(OWNER)
 
 
-def _completeness() -> cc.CopyVerdict:
-    return cc.file_completeness_verdict(COPY, OWNER)
+def _completeness(engine_root: str | Path | None = None) -> cc.CopyVerdict:
+    if not engine_root:
+        return cc.file_completeness_verdict(COPY, OWNER)
+    return cc.manifest_completeness_verdict(COPY, engine_root, OWNER)
 
 
 def _both_unchecked(reason: str) -> list[cc.CopyVerdict]:
@@ -180,7 +184,7 @@ def check_engine_mirror(
             cc.could_not_check(COPY, cc.CURRENCY, "no published engine root resolved"),
             _completeness(),
         ]
-    return [check_currency(engine, claude_klabauter, publish_lag, import_origin), _completeness()]
+    return [check_currency(engine, claude_klabauter, publish_lag, import_origin), _completeness(engine)]
 
 
 def legs(

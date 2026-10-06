@@ -33,7 +33,7 @@
 | 21 | Sweep | D NotebookLM | judgment | `notebooklm/sweep-prompt-template.md:41-44` — assess, resolve cross-notebook contradictions, frame | refute | |
 | 22 | Claims merge | D NotebookLM | mechanical | `notebooklm/sweep-prompt-template.md:47` hands off to the single `claims-emit` writer; `coordinator/commands/notebooklm-research.md:125` | **ported** (live) | |
 | 23 | Coverage auditor | A, B, C, D | mechanical (binary cross-reference) | `coverage-auditor-prompt-template.md:29-35,77-92` — present/absent only, "not an editorial judgment"; per-pipeline blocks `:184,203,218,247` | hybrid: claim-presence matching is scriptable; the "why a reader would go deeper" sentence per absent cluster (`:94-109`) is not | A pure script can match claim ids but not paraphrase; a pure model leg spends a Sonnet dispatch on a binary check (cost floor below) |
-| 24 | Repo-scout extractor | B repo | owned elsewhere | `docs/plans/2026-09-11-repo-scout-extraction-verdict.md`; plan `status:` read at writing: `draft`; its verdict document `docs/research/2026-09-11-repo-scout-extraction-verdict.md` does not exist at this writing | see that plan | |
+| 24 | Repo-scout extractor | B repo | owned elsewhere | the repo-scout extraction verdict plan; plan `status:` read at writing: `draft`; its verdict document does not exist at this writing | see that plan | |
 
 ## Already answered by the tree
 

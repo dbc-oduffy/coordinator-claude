@@ -20,7 +20,38 @@ import time
 from pathlib import Path
 from typing import Callable, Optional
 
-_SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "hooks" / "scripts"
+# Writes the machine-local copies cache under settings home, outside the tracked tree.
+GENERATES = []
+
+#: Pointer files naming the doctrine checkout. Trap: the engine mirror ships
+#: coordinator/bin without coordinator/hooks, so self-location alone fails there.
+_ROOT_POINTERS = (
+    Path.home() / ".claude" / ".coordinator-content-root",
+    Path.home() / ".coordinator-claude-settings" / ".coordinator-content-root",
+)
+
+
+def resolve_scripts_dir() -> Path:
+    """hooks/scripts holding project-orientation.py: plugin-root env, self-location, then pointers."""
+    candidates = []
+    env_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
+    if env_root:
+        candidates.append(Path(env_root) / "hooks" / "scripts")
+    candidates.append(Path(__file__).resolve().parents[1] / "hooks" / "scripts")
+    for pointer in _ROOT_POINTERS:
+        try:
+            root = pointer.read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        if root:
+            candidates.append(Path(root) / "coordinator" / "hooks" / "scripts")
+    for candidate in candidates:
+        if (candidate / "project-orientation.py").is_file():
+            return candidate
+    return candidates[1]
+
+
+_SCRIPTS_DIR = resolve_scripts_dir()
 
 
 def load_orientation():
@@ -52,7 +83,9 @@ def _engine_entry(po, ctx, publish_lag: Optional[Callable], now_epoch: float, or
     eml = po._copies_mod("_copy_leg_engine_mirror")
     key = po.copies_engine_key(ctx)
     entry: dict = {"key": key, "computed_at": now_epoch, "lag": None}
-    if ctx.live_tree or not ctx.claude_klabauter_root or not ctx.engine_root or not key["stamp"]:
+    # `authoring_root` is the contract name: the publish transform renames codename identifiers.
+    authoring_root = getattr(ctx, "authoring_root", None)
+    if ctx.live_tree or not authoring_root or not ctx.engine_root or not key["stamp"]:
         return entry
     entry["import_origin"] = (origin or find_import_origin)()
     try:
@@ -62,7 +95,7 @@ def _engine_entry(po, ctx, publish_lag: Optional[Callable], now_epoch: float, or
             if fn is None:
                 entry["error"] = reason
                 return entry
-        lag = fn(Path(ctx.engine_root), Path(ctx.claude_klabauter_root))
+        lag = fn(Path(ctx.engine_root), Path(authoring_root))
         if lag is not None:
             entry["lag"] = {
                 "engine_commits_behind": getattr(lag, "engine_commits_behind", None),
@@ -130,7 +163,7 @@ def write_cache_atomic(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     try:
-        tmp.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+        tmp.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8", newline="\n")
         os.replace(tmp, path)
     except BaseException:
         try:

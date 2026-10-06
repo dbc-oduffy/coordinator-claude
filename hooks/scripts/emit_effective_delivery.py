@@ -222,14 +222,11 @@ _DUAL_DELIVERY_REASONS["scripts/watchdog-undischarged-next-move.py"] = (
     "ledger -- emission without a read, or a read with nothing recorded."
 )
 _DUAL_DELIVERY_REASONS["scripts/block-dispatch-suite-invocation.py"] = (
-    "TWO EVENTS, ONE SCRIPT: directly registered on PreToolUse(Workflow) (hooks.json's "
-    "own _comment on that entry: 'C8 -- Layer 2 of the DR-088 ladder', ordered before "
-    "block-workflow-unmodeled-agent.py so its deny wins first), and separately carried "
-    "by preuse-agent-dispatch.py's PreToolUse(Agent) fan-in (hooks.json's PRETOOLUSE-AGENT "
-    "FAN-IN _comment: folded in as one of the four guards that used to be standalone "
-    "Agent-matcher registrations). Workflow and Agent are different tool events -- this "
-    "is the same DR-088 suite-invocation deny reused on both, not a leftover duplicate "
-    "registration."
+    "TWO EVENTS, ONE SCRIPT: carried by two fan-in carriers, "
+    "preuse-agent-dispatch.py on PreToolUse(Agent) and preuse-workflow-dispatch.py on "
+    "PreToolUse(Workflow); it holds no direct registration. Workflow and Agent are "
+    "different tool events -- this is the same DR-088 suite-invocation deny reused on "
+    "both, not a leftover duplicate registration."
 )
 _DECLARED_DUAL_DELIVERY = {
     "scripts/runtime-tripwire-em-check.py": 2,

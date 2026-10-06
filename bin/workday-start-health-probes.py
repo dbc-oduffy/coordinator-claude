@@ -141,7 +141,7 @@ Subcommands (argv[1] selects):
       to `machine-local`. Stays safe to call in-process from the
       zero-spawn-budgeted orientation assembler (that assembler only ever
       calls the bare form, never `--fix` — see
-      `coordinator_core/orient_assemble/readers_health_reaper.py`'s reader).
+      `orient-assemble brief --cadence day`'s health reader).
       Never raises: any read/parse/resolution failure degrades to pass (0)
       — a health probe on the session boot path must never itself block
       that path. Only a positively-determined absent-or-mismatched value
@@ -601,7 +601,7 @@ def cmd_working_repo_registration(argv: list[str]) -> int:
     ONE place in this subcommand a subprocess is spawned; do not add a
     spawn to the bare-form path above (the zero-spawn-budgeted orientation
     assembler calls only the bare form — see
-    `coordinator_core/orient_assemble/readers_health_reaper.py`).
+    `orient-assemble brief --cadence day`'s health reader).
     """
     _ensure_repo_root_on_path()
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
@@ -627,7 +627,7 @@ def cmd_working_repo_registration(argv: list[str]) -> int:
     if identity != "engine-authoring":
         # foreign-identity: NOT-REACHABLE — basis: DELIBERATE INVOCATION, not true
         # unreachability. The session-start hot path calls only the bare (fix=False)
-        # form via readers_health_reaper.py; this fix-branch print only fires when an
+        # form via `orient-assemble brief --cadence day`'s health reader; this fix-branch print only fires when an
         # operator deliberately runs `working-repo-registration --fix` and went looking
         # for it — a third-repo session cannot hit this ambiently, but a foreign-repo
         # operator CAN reach it by typing the command.
@@ -674,8 +674,8 @@ def cmd_working_repo_registration(argv: list[str]) -> int:
     # --fix from here down. `cli_shared` is imported HERE, not at function top:
     # the bare form above promises it never raises, and a top-level import of a
     # module that needs coordinator/bin/lib bootstrapped onto sys.path breaks
-    # that promise on the orient path, where `readers_health_reaper.collect()`
-    # calls the bare form.
+    # that promise on the orient path, where `orient-assemble brief --cadence day`'s
+    # health reader calls the bare form.
     from cli_shared import machine_local_impl, resolve_python
 
     if matches:
@@ -735,7 +735,7 @@ def cmd_hook_currency(argv: list[str]) -> int:
 
     Exit 1 when anything was repaired (or, under `--check-only`, would need
     repair) or the walk could not run; 0 when the fleet was already current.
-    That code is the signal `orient_assemble/readers_health_reaper.py` keys on
+    That code is the signal `orient-assemble brief --cadence day`'s health reader keys on
     to emit its directive; a probe that returned 0 unconditionally would make a
     broken walk indistinguishable from a healthy fleet, which is the same
     silence-reads-as-health shape as the dead auto-push above.

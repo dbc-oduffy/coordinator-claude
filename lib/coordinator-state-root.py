@@ -6,7 +6,7 @@ root. Replaces the sourced bash oracle that paid the bash-invocation tax on
 every call and degrades Windows. Its
 5-rule routing logic is NOT reimplemented here — the claude-klabauter side already
 carries a native peer, `coordinator_core.state_root` (COMPOSED over the
-already-native `coordinator_core.ops.coordinator_content_root`,
+already-native `coordinator_core.content_root`,
 `coordinator_core.engine_root`, `coordinator_core.artifact_subject`, and
 `coordinator_core.meta_repo_identity`), so this file is a thin argv/exit-code
 + importable bridge over that seam — mirroring `coordinator-is-meta-repo.py`'s

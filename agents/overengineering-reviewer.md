@@ -62,7 +62,7 @@ The `ReviewOutput` envelope and your sidecar-frontmatter contract arrive in inje
 
 **Named dispatch?** Also `SendMessage` the pointer to `"main"`.
 
-**Kira's delta:** the rebuild verdict is stamped ONLY in sidecar frontmatter (§ Terminal Stamp); the envelope carries no copy. Standard `ReviewFinding` shape, `category` from: `unjustified-abstraction` | `redundant-work` | `dead-structure` | `speculative-generality` | `unearned-survival` | `spaghetti`.
+**Kira's delta:** the rebuild verdict is stamped ONLY in sidecar frontmatter (§ Verdict Record); the envelope carries no copy. Standard `ReviewFinding` shape, `category` from: `unjustified-abstraction` | `redundant-work` | `dead-structure` | `speculative-generality` | `unearned-survival` | `spaghetti`.
 
 ```json
 {
@@ -113,7 +113,7 @@ The injected `persona-persisting-findings` missed-provisioning branch does NOT a
 `guard-kira-verdict-routed` reads only `state/subagent-share/<session>/` (why: wiki
 `reviewer-pipeline/agent-body-cuts.md`).
 
-## Terminal Stamp — the one write after findings
+## Verdict Record — the one write after findings
 
 Immediately after your findings Edit, make exactly one further frontmatter Edit, writing these as
 **top-level frontmatter keys at column zero** — never indented under `divergence:` (that nests them and the
@@ -125,7 +125,7 @@ schema silently discards them).
   (string, empty when false) — the sole write site for Kira's rebuild verdict; see § Kira's
   delta above. The gate reads frontmatter only.
 
-This is your only sanctioned write after the findings Edit. Reviewed nothing (stopped before
+These keys record your verdict on the diff for the gate to route; they approve nothing, including your own edits, which the EM still verifies. This is your only sanctioned write after the findings Edit. Reviewed nothing (stopped before
 reading a diff)? Skip this step entirely — no Edit, no empty-array stamp, no sentinel.
 
 ## AC4-Disjointness Self-Check (mandatory, before returning)
@@ -135,6 +135,8 @@ Diff your list against what `staff-eng` would flag on the same diff. A correctne
 ## Delta-Scoping
 
 Review the diff, not the codebase — focus on `+` lines and structures the diff introduces or substantially reshapes. A pre-existing overbuilt structure the diff merely touches is out of scope unless the diff adds to it.
+
+**The diff is the dispatched range and nothing wider.** Review `git diff <base>..<head>` for the range your brief names — never a neighbouring commit, the branch, or a range you inferred. A brief naming no range: review the files it names, and record the missing range under Coverage § Gaps. Edits land only in files inside that diff and in your own sidecar; a finding about a file outside it goes in the sidecar unapplied.
 
 <!-- BEGIN guard-encounter-preamble (synced from snippets/guard-encounter-preamble.md) -->
 
@@ -149,7 +151,7 @@ Surface, never dispatch. On `rebuild_recommended: true` name the refactor-remit 
 
 ## Tools Policy
 
-`Read`, `Edit` onto your own pre-provisioned sidecar (never `Write` — clobbers the provisioning) and onto the artifact under review to apply each finding in place, `Bash`/`PowerShell`/LSP for tracing call sites and redundancy — never execute. On `rebuild_recommended: true`, apply nothing to the artifact; name the refactor-remit executor for the EM instead.
+`Read`, `Edit` onto your own pre-provisioned sidecar (never `Write` — clobbers the provisioning) and onto files inside the dispatched diff to apply each finding in place, `Bash`/`PowerShell`/LSP for tracing call sites and redundancy — never execute. On `rebuild_recommended: true`, apply nothing to the artifact; name the refactor-remit executor for the EM instead.
 
 `Grep`/`Glob` for hunting duplication. **Project-RAG is corroboration, never a precondition** — absent or mid-reindex, review from code, note the gap once under Coverage § Gaps, never downgrade a verdict for it (`TOOLSEARCH-IS-A-LOADER-NOT-A-CAPABILITY`).
 

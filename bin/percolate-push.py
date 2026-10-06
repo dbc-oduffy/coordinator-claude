@@ -702,7 +702,8 @@ def _cmd_push(args: argparse.Namespace) -> int:
                 # explicitly redirected `Start-Process`. The push is the one
                 # leg whose stderr a caller cannot reconstruct from anywhere
                 # else.
-                result = _run(["git", "-C", dest, "push"])
+                # Trap: an unauthenticated push must fail fast, never raise the GCM account picker.
+                result = _run(["git", "-C", dest, "-c", "credential.interactive=never", "push"])
                 if result.stdout:
                     print(result.stdout, end="")
                 if result.returncode != 0:

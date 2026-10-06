@@ -46,9 +46,8 @@ from pathlib import Path
 
 # Ordered most-severe first. `verdict` is the first entry that fires; every finding is still
 # reported, because a caller reading only the headline would lose the ones underneath it.
-# DANGLING_VERDICT cut: 155 findings across 167 files,
-# changes no downstream verdict (falsifier-integrity-reviewer.md already maps it to CLEAR), and
-# the module's own docstring called it "a question for a reader, not a defect claim."
+# There is no DANGLING_VERDICT: it would change no downstream verdict
+# (falsifier-integrity-reviewer.md already maps it to CLEAR).
 VERDICTS = (
     "UNCHECKABLE",
     "NO_EXIT_PATH",
@@ -91,18 +90,15 @@ def _names_in(node: ast.AST) -> set[str]:
     return {n.id for n in ast.walk(node) if isinstance(n, ast.Name)}
 
 
-# Pulled out of
-# `_Scan._is_entrypoint_trampoline` so the "wrapped" idiom (`sys.exit(asyncio.run(main(...)))`)
-# is one case rather than one fixed depth.
+# Used by `_Scan._is_entrypoint_trampoline` so the "wrapped" idiom
+# (`sys.exit(asyncio.run(main(...)))`) is one case rather than one fixed depth.
 #
-# BLOCKER) — the
-# first version of this recursed through ANY single-argument call. That is not what "wrapper"
-# means here: excluding a site as plumbing asserts the wrapper forwards `main`'s value unchanged,
-# and an arbitrary single-arg call does not. `sys.exit(jitter(main(argv)))` where `jitter` adds
-# `random.randint(...)` was read as plumbing, the site dropped from analysis, and the file
-# reported CONSTANT_EXIT over a genuinely varying exit — the same false-clean the fix removed,
-# one level of generality out. Only named async runners qualify now; they are the idiom that
-# motivated the case, and they return their coroutine's value untouched. An unrecognised wrapper
+# Recursing through ANY single-argument call is wrong: excluding a site as plumbing asserts the
+# wrapper forwards `main`'s value unchanged, and an arbitrary single-arg call does not.
+# `sys.exit(jitter(main(argv)))` where `jitter` adds `random.randint(...)` would be read as
+# plumbing, the site dropped from analysis, and the file reported CONSTANT_EXIT over a genuinely
+# varying exit. Only named async runners qualify; they return their coroutine's value
+# untouched. An unrecognised wrapper
 # is NOT plumbing, so its site counts and the file falls to ARMED: loud and wrong beats quiet
 # and wrong for an instrument whose whole job is refusing to certify a check that cannot fail.
 _TRAMPOLINE_WRAPPERS = frozenset({
@@ -272,16 +268,12 @@ class _Scan(ast.NodeVisitor):
             self.exits.append((node.lineno, list(node.args), list(self._conditions)))
         self.generic_visit(node)
 
-    # The trampoline
-    # exclusion recognized only the single literal shape `sys.exit(main(...))`. Two ordinary
-    # idioms fell through it and, because CONSTANT_EXIT/SEALED_EXIT are each one verdict over the
-    # union of every exit site, poisoned the WHOLE file to ARMED: the call split across a variable
-    # (`code = main(...); sys.exit(code)`) and the call wrapped in another call
-    # (`sys.exit(asyncio.run(main(...)))`). Widened to a call-chain check (`_is_entrypoint_call`,
-    # for the wrapped shape, arbitrarily deep) plus a flat-assigns lookback (for the split shape).
-    # The union-over-all-sites computation itself is the amplifier and the next unrecognized
-    # idiom will hit it again the same way — escalated as an ASK rather than restructured inline;
-    # see the integration report for `2026-09-08-hoexec-close/premise-check`.
+    # The trampoline exclusion must recognize more than the literal `sys.exit(main(...))`:
+    # CONSTANT_EXIT/SEALED_EXIT are each one verdict over the union of every exit site, so an
+    # unrecognized idiom poisons the WHOLE file to ARMED. Two more idioms are recognized: the
+    # call split across a variable (`code = main(...); sys.exit(code)`) and the call wrapped in
+    # another call (`sys.exit(asyncio.run(main(...)))`), via a call-chain check
+    # (`_is_entrypoint_call`, arbitrarily deep) plus a flat-assigns lookback.
     def _is_entrypoint_trampoline(self, node: ast.Call) -> bool:
         """`sys.exit(main(sys.argv))`, and the two idioms that forward the same value without
         writing that exact line, are plumbing, not a verdict site.

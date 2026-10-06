@@ -856,6 +856,18 @@ def main(argv: list[str] | None = None) -> int:
     if args.subcommand == "supersede":
         return cmd_supersede(args.handoff_path, args.continued_into, args.exclude)
     if args.subcommand == "abandon":
+        import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+        from cc_invoke import require_engine_on_path
+
+        require_engine_on_path(__file__)
+
+        from coordinator_core.argv_fidelity import ArgvFidelityError, refuse_newline_argv
+
+        try:
+            refuse_newline_argv(args.reason, flag_name="--reason", remedy="pass one of the listed reasons.")
+        except ArgvFidelityError as exc:
+            print(f"{PROG}: {exc}", file=sys.stderr)
+            return 2
         return cmd_abandon(args.handoff_path, args.reason)
 
     print(f"{PROG}: unknown subcommand {args.subcommand!r}", file=sys.stderr)

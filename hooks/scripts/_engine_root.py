@@ -1569,6 +1569,19 @@ def warn_on_engine_import_divergence(where: str) -> str:
     return verdict
 
 
+def resolve_engine_bin_script(name: str) -> Path | None:
+    """`<engine root>/coordinator/bin/<name>`, or None when the root or the script is absent.
+
+    `coordinator/bin/<name>` in this repo is a forwarder for every engine-owned script, so an
+    in-process load by path must target this copy, never the forwarder. Zero-spawn.
+    """
+    root = resolve_claude_klabauter_root()
+    if not root:
+        return None
+    target = Path(root) / "coordinator" / "bin" / name
+    return target if target.is_file() else None
+
+
 if __name__ == "__main__":
     # CLI entrypoint so a `.md` command/skill fence (which cannot `import`
     # this module) resolves the engine root by shelling out to this SAME

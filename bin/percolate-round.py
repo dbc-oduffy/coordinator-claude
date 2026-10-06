@@ -2888,7 +2888,8 @@ def _dest_ahead_count(dest: str) -> Optional[int]:
 
 
 def _push_dest(dest: str) -> subprocess.CompletedProcess:
-    return _run(["git", "-C", dest, "push"], timeout=_GIT_PUSH_TIMEOUT_SECS)
+    # Trap: an unauthenticated push must fail fast, never raise the GCM account picker.
+    return _run(["git", "-C", dest, "-c", "credential.interactive=never", "push"], timeout=_GIT_PUSH_TIMEOUT_SECS)
 
 
 def _publish_unpushed_dest_commits(
@@ -3010,6 +3011,9 @@ def _cmd_round_default(
             real_cmd = [
                 sys.executable, str(_PUBLISH), target, "--no-commit",
                 "--progress-file", str(progress_path),
+                # The child otherwise re-resolves the root from its own cwd,
+                # which names a different tree when the round runs from DoE.
+                "--percolate-root", percolate_root,
             ]
             if not args.delta:
                 real_cmd.append("--no-delta")

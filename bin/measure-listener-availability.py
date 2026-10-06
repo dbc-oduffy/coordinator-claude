@@ -170,6 +170,8 @@ def _resolve_engine_root() -> Path:
 SUBJECT_UP = "up"
 SUBJECT_DOWN = "down"
 
+#: Transport-only op with no side effects; the value itself is arbitrary, this one is
+#: deliberately inert.
 _PROBE_METHOD = "cli.parse_flag"
 _PROBE_PARAMS = {"arguments": "--probe listener-availability", "flag_names": ["--probe"]}
 
@@ -616,6 +618,9 @@ def build_report(output_path: Path, interval_secs: float, gap_threshold_multipli
 
     timestamps = [_parse_ts(s["ts"]) for s in samples]
 
+    # Keyed on the cadence the samples actually show, never on the configured
+    # interval_secs -- a sampler that drifted, was throttled, or restarted at a
+    # different flag would otherwise be scored against a cadence it never ran at.
     _deltas = sorted(
         d for d in ((timestamps[i + 1] - timestamps[i]).total_seconds()
                     for i in range(len(samples) - 1))
@@ -690,6 +695,7 @@ def build_report(output_path: Path, interval_secs: float, gap_threshold_multipli
         "sampler_gap_secs": round(gap_secs, 1),
         "sampler_gap_count": gap_count,
         "outage_count": len(outage_durations_secs),
+        # Ranked on the UPPER bound, never accumulated wall time.
         "longest_outage_at_most_secs": (
             round(max(outage_at_most_secs), 1) if outage_at_most_secs else 0.0
         ),

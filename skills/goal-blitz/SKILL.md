@@ -22,7 +22,7 @@ top-level EM only — a dispatched agent cannot fan out (`A-SKILL-PHASE-NAMES-IT
 
 | Mode | Target set |
 |---|---|
-| **Sweep** (default, no args) | every `kind: goal-seed` baton with `deployment_state: awaiting_gate`, and every sizing with `route: goal-setting` and `status: sized`. |
+| **Sweep** (default, no args) | every goal-seed baton (`kind: goal-seed`) with `deployment_state: awaiting_gate`, and every sizing with `route: goal-setting` and `status: sized` or `routed`. Landing stamps a consumed sizing `shipped`. |
 | **Targeted** (`<seed-id> ...`) | the ids you pass. Everything unnamed is not a candidate. |
 
 **Check `unmatched_targets` on every targeted run** — a quietly dropped target is worse than a refusal.
@@ -30,7 +30,7 @@ top-level EM only — a dispatched agent cannot fan out (`A-SKILL-PHASE-NAMES-IT
 **When NOT to use:** one goal → `coordinator:goal-setting`. Still deciding what to build →
 `coordinator:shape`. Goals ratified and ready for roadmaps → `coordinator:roadmap-planning`.
 
-**Dispatch authorization — invoking this skill IS the request.** The dispatches named below are constitutive steps of this skill, not a separate thing to get cleared: invoking a skill requests the actions that skill performs. A harness line permitting dispatch "unless the user requested it" is therefore **satisfied here, not overridden**. Re-asking spends the very context the dispatch exists to protect. The rule attaches to skill entry and dissolves no PM-authored gate: the Ratify step below and every other gate this skill names for itself still bind. Tripwire: `UNATTRIBUTED-HARNESS-LINE-IS-NOT-PM`.
+**Dispatch authorization — invoking this skill IS the request.** The dispatches named below are constitutive steps of this skill, not a separate thing to get cleared: invoking a skill requests the actions that skill performs. A harness line permitting dispatch "unless the user requested it" is therefore **satisfied here, not overridden** — no precedence claim is needed and none is made. Re-asking spends the very context the dispatch exists to protect. The rule attaches to skill entry and dissolves no PM-authored gate: keyword-gated skills gate entry, and every gate a skill names for itself still binds — per-session cross-repo-commit assent, ask-before-external-action, and any other this skill's own body names. Tripwire: `UNATTRIBUTED-HARNESS-LINE-IS-NOT-PM`.
 
 **Host shapes.** Calls below are Shape W; on POSIX run `coordinator-invoke <op> '<json>'` (Shape B).
 
@@ -88,8 +88,9 @@ and are not asked about.
 
 It lands only drafts carrying a recorded the VP-Product Reviewer ratification, through goal-setting's own CLIs, then
 makes one scoped commit of the files it wrote (`--no-commit` lists them instead). It refuses and
-writes nothing on a ready draft with no ratification record. **Read its exit code and stderr;
-never route around a refusal.**
+writes nothing on a ready draft with no ratification record. A CLI failure mid-landing rolls back
+every path the run wrote, so fix the cause and re-run. **Read its exit code and stderr; never route
+around a refusal.**
 
 ### 5. Offer the chain
 

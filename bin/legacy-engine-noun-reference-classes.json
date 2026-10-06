@@ -1,6 +1,4 @@
 {
-  "claude_klabauter_sha": "a39a3d5e7b575f42860a0a088e10f8bad2ede23e",
-  "content_root_sha": "9c38d814da6a9f5f12d1065234328d8a9a84161b",
   "exempt_files": [
     "bin/distill-delete-guard.py",
     "bin/distill-harvest-debt.py",
@@ -46,13 +44,13 @@
     "coordinator/bin/archive-auto-memory-rows.py",
     "coordinator/bin/archive-stamp-cli.py",
     "coordinator/bin/assert-no-terminal-plans-in-live.py",
-    "coordinator/bin/atlas-citation-check.py",
     "coordinator/bin/audit-enabled-plugins.py",
     "coordinator/bin/audit-roadmap.py",
     "coordinator/bin/autonomous-verb.py",
     "coordinator/bin/backfill-week-changelog-gaps.py",
     "coordinator/bin/backlog-grind-assemble.py",
     "coordinator/bin/baton-assemble.py",
+    "coordinator/bin/baton-chain-closure.py",
     "coordinator/bin/baton-drift-sweep.py",
     "coordinator/bin/block-discharge.py",
     "coordinator/bin/blocked.py",
@@ -89,7 +87,6 @@
     "coordinator/bin/check-sidecar-fill.py",
     "coordinator/bin/check-surface-inline-budget.py",
     "coordinator/bin/check-version-consistency.py",
-    "coordinator/bin/check-watch-state-gitignore-fleet.py",
     "coordinator/bin/check-weekly-staleness.py",
     "coordinator/bin/check-workstream-complete-deletion-blocks.py",
     "coordinator/bin/check-wsc-inline-budget.py",
@@ -154,7 +151,6 @@
     "coordinator/bin/emit-goal-from-artifact.py",
     "coordinator/bin/emit-guard-enforcement-join.py",
     "coordinator/bin/emit-wave-fire.py",
-    "coordinator/bin/ensure-doe-clone.py",
     "coordinator/bin/ensure-vscode-readonly.py",
     "coordinator/bin/execute-plan-assemble.py",
     "coordinator/bin/export-catering-resolution.py",
@@ -165,10 +161,8 @@
     "coordinator/bin/frontmatter-parse-check.py",
     "coordinator/bin/gen-claude-author-launcher.py",
     "coordinator/bin/gen-claude-author-shim.py",
-    "coordinator/bin/gen-content-root-pointer.py",
     "coordinator/bin/gen-launcher-shim.py",
     "coordinator/bin/gen-settings-hooks.py",
-    "coordinator/bin/generate-claudemeta-manifest.py",
     "coordinator/bin/generate-doctrine-surface-split.py",
     "coordinator/bin/generate-doctrine-surfaces.py",
     "coordinator/bin/generate-exec-summary.py",
@@ -188,7 +182,6 @@
     "coordinator/bin/handoff-stamp-phase.py",
     "coordinator/bin/harvest-exit-interviews.py",
     "coordinator/bin/install-claude-author-wrapper.py",
-    "coordinator/bin/install-coordinator-content-repo-precommit-hook.py",
     "coordinator/bin/install-health-run.py",
     "coordinator/bin/install-health/seed-skill-overrides.py",
     "coordinator/bin/install-meta-repo-precommit-hook.py",
@@ -251,6 +244,7 @@
     "coordinator/bin/percolate-sweep-scope-probe.py",
     "coordinator/bin/plan-capture-persist.py",
     "coordinator/bin/plan-reversibility-eligibility.py",
+    "coordinator/bin/plan-status-transition.py",
     "coordinator/bin/plan-tasks-grouping-digest.py",
     "coordinator/bin/pre_commit_corpus_artifact_guard.py",
     "coordinator/bin/priority-set.py",
@@ -284,13 +278,12 @@
     "coordinator/bin/reap-stale-subagent-sidecars.py",
     "coordinator/bin/reassess-goal-krs.py",
     "coordinator/bin/record-platform-outcome.py",
+    "coordinator/bin/red-set-report.py",
     "coordinator/bin/refresh-plugin-live-install.py",
     "coordinator/bin/refresh-queries.py",
     "coordinator/bin/refresh-roadmap-callout.py",
     "coordinator/bin/regen-cockpit-schema.py",
-    "coordinator/bin/regenerate-generator-content-cache.py",
     "coordinator/bin/regenerate-orientation-cache.py",
-    "coordinator/bin/regenerate-unresolved-writers.py",
     "coordinator/bin/remove-claude-klabauter-precommit-hook.py",
     "coordinator/bin/render-posture-overlay.py",
     "coordinator/bin/render-template-tree.py",
@@ -303,6 +296,7 @@
     "coordinator/bin/review-exec-auth-stamp.py",
     "coordinator/bin/review-findings-ledger.py",
     "coordinator/bin/review-stamp.py",
+    "coordinator/bin/roadmap-blitz-stage.py",
     "coordinator/bin/roadmap-number-stubs.py",
     "coordinator/bin/roadmap-planning-assemble.py",
     "coordinator/bin/rollup-derive.py",
@@ -321,6 +315,7 @@
     "coordinator/bin/sprint-planning-assemble.py",
     "coordinator/bin/staff-session-assemble.py",
     "coordinator/bin/standup.py",
+    "coordinator/bin/statusline.py",
     "coordinator/bin/stitch-observer-sidecar.py",
     "coordinator/bin/stub-file-gate.py",
     "coordinator/bin/survey-consume-gate.py",
@@ -373,6 +368,7 @@
     "coordinator/bin/tests/test_cc_invoke_py.py",
     "coordinator/bin/tests/test_cc_invoke_rung_parity.py",
     "coordinator/bin/tests/test_cc_invoke_self_location_rung.py",
+    "coordinator/bin/tests/test_cc_invoke_stamped_in_process.py",
     "coordinator/bin/tests/test_cc_invoke_timeout_remedy.py",
     "coordinator/bin/tests/test_check_persona_names_escape_adjacent.py",
     "coordinator/bin/tests/test_check_persona_names_protected_literals_parity.py",
@@ -380,6 +376,7 @@
     "coordinator/bin/tests/test_checked_repo_resolver_c4.py",
     "coordinator/bin/tests/test_cli_shared_dump_repos_parity.py",
     "coordinator/bin/tests/test_cmd_rem_line_metacharacters.py",
+    "coordinator/bin/tests/test_content_root_routing.py",
     "coordinator/bin/tests/test_coordinator_doc_new_minted_by_field.py",
     "coordinator/bin/tests/test_coordinator_doc_new_plan_author_session.py",
     "coordinator/bin/tests/test_coordinator_doc_new_roadmap_baton_self_validation.py",
@@ -397,7 +394,6 @@
     "coordinator/bin/tests/test_denied_package_importers_are_locator_axis.py",
     "coordinator/bin/tests/test_doc_new_sizing_object_joins_baton_deliverable.py",
     "coordinator/bin/tests/test_doctor_probe_ladder_parity.py",
-    "coordinator/bin/tests/test_content_root_routing.py",
     "coordinator/bin/tests/test_entry_point_shim_warm_route.py",
     "coordinator/bin/tests/test_entry_point_shim_warm_route_spawns.py",
     "coordinator/bin/tests/test_function_gate_parse_sweep.py",
@@ -407,8 +403,8 @@
     "coordinator/bin/tests/test_hand_rolled_cli_help_sweep.py",
     "coordinator/bin/tests/test_handoff_housekeeping_liveness_stamp.py",
     "coordinator/bin/tests/test_handoff_loe_summary.py",
-    "coordinator/bin/tests/test_harvest_deferrals_dedup_scan_memoized.py",
     "coordinator/bin/tests/test_harvest_content_root_machine_local_leg.py",
+    "coordinator/bin/tests/test_harvest_deferrals_dedup_scan_memoized.py",
     "coordinator/bin/tests/test_harvest_idempotency_env_override.py",
     "coordinator/bin/tests/test_identity_file_populated_gate.py",
     "coordinator/bin/tests/test_install_doc_payload_gate_wiring.py",
@@ -459,6 +455,7 @@
     "coordinator/bin/tests/test_publish_names_percolate_push_next_step.py",
     "coordinator/bin/tests/test_publish_order_dr445.py",
     "coordinator/bin/tests/test_publish_partial_round_commits_succeeded_rows.py",
+    "coordinator/bin/tests/test_publish_paths_carry_no_codename_token.py",
     "coordinator/bin/tests/test_publish_percolate_import_provenance.py",
     "coordinator/bin/tests/test_publish_preswap_payload_gate.py",
     "coordinator/bin/tests/test_publish_provenance_record.py",
@@ -488,6 +485,7 @@
     "coordinator/bin/tests/test_shebang_removal_ordering_ratchet.py",
     "coordinator/bin/tests/test_spinoff_deliverable_and_commit.py",
     "coordinator/bin/tests/test_stub_file_gate.py",
+    "coordinator/bin/tests/test_survey_consume_gate_churn_excluded_dirs.py",
     "coordinator/bin/tests/test_sweep_terminal_handoffs_cli.py",
     "coordinator/bin/tests/test_sweep_terminal_sizings_consumer_mismatch.py",
     "coordinator/bin/tests/test_testing_helper_wrappers_resolve_colocated.py",
@@ -509,7 +507,6 @@
     "coordinator/bin/verify-arch-audit-atlas-refresh.py",
     "coordinator/bin/verify-coverage.py",
     "coordinator/bin/verify-dist-publish-repo-sync.py",
-    "coordinator/bin/verify-content-root-seam-sync.py",
     "coordinator/bin/verify-no-console-flash.py",
     "coordinator/bin/verify-no-powershell-flash.py",
     "coordinator/bin/verify-orientation-cache-sync.py",
@@ -560,6 +557,7 @@
     "coordinator/lib/bootstrap-orchestrate.py",
     "coordinator/lib/bootstrap-repo.py",
     "coordinator/lib/check-install-singularity.py",
+    "coordinator/lib/check-provisional-expiry.py",
     "coordinator/lib/coordinator-artifact-subject.py",
     "coordinator/lib/coordinator-is-meta-repo.py",
     "coordinator/lib/coordinator-state-root.py",
@@ -573,6 +571,7 @@
     "coordinator/lib/install-substrate.py",
     "coordinator/lib/percolate/allowlist.py",
     "coordinator/lib/percolate/assembled_mirror_gate.py",
+    "coordinator/lib/percolate/doc_path_refs.py",
     "coordinator/lib/percolate/ensure_required_targets.py",
     "coordinator/lib/percolate/publish_sync.py",
     "coordinator/lib/percolate/resolve_target.py",
@@ -585,6 +584,7 @@
     "coordinator/lib/percolate/tests/test_publish_sync_renamed_dir_exemption.py",
     "coordinator/lib/percolate/tests/test_step_zero_scripts_reachable.py",
     "coordinator/lib/percolate/throwaway_tree.py",
+    "coordinator/lib/receiver_state_reader.py",
     "coordinator/lib/register-coordinator-mirror.py",
     "coordinator/lib/register-discovered-repos.py",
     "coordinator/lib/resolve-coordinator-clone.py",
@@ -600,6 +600,7 @@
     "coordinator/lib/setup-fnm-pin.py",
     "coordinator/lib/setup-rag-decision.py",
     "coordinator/lib/setup-seed-health-ledger.py",
+    "coordinator/lib/spawn_detect.py",
     "coordinator/lib/test_coordinator_artifact_subject.py",
     "coordinator/lib/test_home_resolution_lint_engine.py",
     "coordinator/lib/tests/test_install_rendezvous_sweep_fixture.py",
@@ -958,6 +959,7 @@
     "coordinator_core/contract/decision_object/tests/test_reportable_partition.py",
     "coordinator_core/contract/emit_memo_schema.py",
     "coordinator_core/contract/test_emit_memo_schema.py",
+    "coordinator_core/contract/tests/test_emit_memo_schema_message_text.py",
     "coordinator_core/dag.py",
     "coordinator_core/data_root.py",
     "coordinator_core/distill/_common.py",
@@ -1018,6 +1020,7 @@
     "coordinator_core/frontmatter/tests/test_roadmap_approval_identity_claude_klabauter_corpus.py",
     "coordinator_core/frontmatter/tests/test_roadmap_schema_glob.py",
     "coordinator_core/frontmatter/tests/test_schema_bump_adds_self_consistency.py",
+    "coordinator_core/frontmatter/tests/test_schema_drift.py",
     "coordinator_core/frontmatter/tests/test_schema_drift_watch.py",
     "coordinator_core/frontmatter/tests/test_schema_validate.py",
     "coordinator_core/frontmatter/tests/test_validate_frontmatter_obj.py",
@@ -1046,7 +1049,6 @@
     "coordinator_core/group_em/tests/test_watch_heartbeat_race.py",
     "coordinator_core/group_em/watch.py",
     "coordinator_core/group_em/watch_heartbeat.py",
-    "coordinator_core/handoff_creation_guard.py",
     "coordinator_core/hooks/__init__.py",
     "coordinator_core/hooks/auto_push.py",
     "coordinator_core/hooks/block_dispatch_suite_invocation.py",
@@ -1114,7 +1116,6 @@
     "coordinator_core/install/ensure_venv.py",
     "coordinator_core/install/first_run.py",
     "coordinator_core/install/forwarder_self_heal.py",
-    "coordinator_core/install/hook_plane_verdict.py",
     "coordinator_core/install/manifest_reader.py",
     "coordinator_core/install/maximalist.py",
     "coordinator_core/install/path_resolution_report.py",
@@ -1133,6 +1134,7 @@
     "coordinator_core/install/test_detect_test_cmd.py",
     "coordinator_core/install/test_ensure_venv.py",
     "coordinator_core/install/test_first_run.py",
+    "coordinator_core/install/test_forwarder_resolver_pair.py",
     "coordinator_core/install/test_forwarder_self_heal.py",
     "coordinator_core/install/test_forwarder_trust_guard.py",
     "coordinator_core/install/test_gen_settings_hooks.py",
@@ -1263,7 +1265,6 @@
     "coordinator_core/ops/commit_anchors.py",
     "coordinator_core/ops/completion_ops.py",
     "coordinator_core/ops/coordinator_complete_entry.py",
-    "coordinator_core/ops/coordinator_content_root.py",
     "coordinator_core/ops/coordinator_render_rollup.py",
     "coordinator_core/ops/coordinator_setup_state.py",
     "coordinator_core/ops/crossrepo_closure_status.py",
@@ -1273,13 +1274,16 @@
     "coordinator_core/ops/deliverable_rollup.py",
     "coordinator_core/ops/detect_onboarding_offer.py",
     "coordinator_core/ops/dev_sync.py",
+    "coordinator_core/ops/dispatch_emit/ask_stage.py",
     "coordinator_core/ops/dispatch_emit/emit.py",
     "coordinator_core/ops/dispatch_emit/op.py",
+    "coordinator_core/ops/dispatch_emit/plan_blitz_args.py",
     "coordinator_core/ops/dispatch_emit/tests/test_cross_repo_write_refusal.py",
     "coordinator_core/ops/dispatch_emit/tests/test_emitted_prompts_anchor_their_repo.py",
     "coordinator_core/ops/dispatch_emit/tests/test_external_gate_shapes.py",
     "coordinator_core/ops/dispatch_emit/tests/test_mint_rows_keeps_overlap_edges.py",
     "coordinator_core/ops/dispatch_emit/tests/test_plan_context_strips_review_annotations_claude_klabauter_corpus.py",
+    "coordinator_core/ops/dispatch_emit/tests/test_resume_delivery_hygiene.py",
     "coordinator_core/ops/dispatch_emit/tests/test_row_prompt_names_its_spec.py",
     "coordinator_core/ops/dispatch_emit/tests/test_spine_read_external_gate_shapes.py",
     "coordinator_core/ops/dispatch_shape_classify.py",
@@ -1373,13 +1377,16 @@
     "coordinator_core/ops/fleet/tests/test_memo_send.py",
     "coordinator_core/ops/fleet/tests/test_memo_send_cc_delivery.py",
     "coordinator_core/ops/fleet/tests/test_memo_send_citation_lint.py",
+    "coordinator_core/ops/fleet/tests/test_memo_send_discharge_prompt.py",
     "coordinator_core/ops/fleet/tests/test_memo_send_distill_fate_carried.py",
     "coordinator_core/ops/fleet/tests/test_memo_send_duplicate_reply_warning.py",
+    "coordinator_core/ops/fleet/tests/test_memo_send_wire_contract.py",
     "coordinator_core/ops/fleet/tests/test_memo_sender_identity.py",
     "coordinator_core/ops/fleet/tests/test_record_history_real_git.py",
     "coordinator_core/ops/fleet/tests/test_retired_central_receiver_suggestion.py",
     "coordinator_core/ops/fleet/tests/test_setup_error_stderr_channel.py",
     "coordinator_core/ops/fleet/tests/test_supersedes_portability.py",
+    "coordinator_core/ops/fleet/tests/test_unique_nearest_no_sibling_redirect.py",
     "coordinator_core/ops/fleet_machinery_sweep.py",
     "coordinator_core/ops/fold_execution_record.py",
     "coordinator_core/ops/gate_liveness/resolve.py",
@@ -1387,7 +1394,6 @@
     "coordinator_core/ops/gate_liveness/tests/test_reconcile.py",
     "coordinator_core/ops/gate_liveness/tests/test_resolve.py",
     "coordinator_core/ops/gen_claude_author_shim.py",
-    "coordinator_core/ops/gen_content_root_pointer.py",
     "coordinator_core/ops/generate_exec_summary.py",
     "coordinator_core/ops/generate_repomap.py",
     "coordinator_core/ops/goal_append.py",
@@ -1403,7 +1409,6 @@
     "coordinator_core/ops/handoff_stamp.py",
     "coordinator_core/ops/handoff_transition.py",
     "coordinator_core/ops/initiatives_serve.py",
-    "coordinator_core/ops/install_content_root_precommit_hook.py",
     "coordinator_core/ops/install_health_run.py",
     "coordinator_core/ops/install_meta_repo_precommit_hook.py",
     "coordinator_core/ops/install_shell_init_guard_seam.py",
@@ -1504,7 +1509,6 @@
     "coordinator_core/ops/test_doc_content_verify.py",
     "coordinator_core/ops/test_emit_artifact_shape_contract.py",
     "coordinator_core/ops/test_generate_exec_summary.py",
-    "coordinator_core/ops/test_install_content_root_precommit_hook.py",
     "coordinator_core/ops/test_install_meta_repo_hook_engine_root_refusal.py",
     "coordinator_core/ops/test_install_shell_init_guard_seam.py",
     "coordinator_core/ops/test_migrate_state_to_claude_klabauter.py",
@@ -1528,6 +1532,7 @@
     "coordinator_core/ops/tests/conftest.py",
     "coordinator_core/ops/tests/test_backfill_deliverable_spine.py",
     "coordinator_core/ops/tests/test_campaign_enumerate.py",
+    "coordinator_core/ops/tests/test_cascade_terminal_op.py",
     "coordinator_core/ops/tests/test_changelog_parity.py",
     "coordinator_core/ops/tests/test_check_native_door_interpreter_handoff.py",
     "coordinator_core/ops/tests/test_completion_nature.py",
@@ -1557,8 +1562,6 @@
     "coordinator_core/ops/tests/test_gate_cascade_clear_terminal_states.py",
     "coordinator_core/ops/tests/test_gate_recheck_cleared_readiness.py",
     "coordinator_core/ops/tests/test_gate_recheck_retires_blocked_by.py",
-    "coordinator_core/ops/tests/test_generator_provenance.py",
-    "coordinator_core/ops/tests/test_generator_provenance_ratchet.py",
     "coordinator_core/ops/tests/test_goal_close_day.py",
     "coordinator_core/ops/tests/test_goal_kr_status.py",
     "coordinator_core/ops/tests/test_goals_match.py",
@@ -1654,21 +1657,9 @@
     "coordinator_core/ops/workflow_scaffold.py",
     "coordinator_core/ops/workweek_trail_scope.py",
     "coordinator_core/ops/write_identity_file.py",
-    "coordinator_core/orient_assemble/readers_branch_reconcile.py",
-    "coordinator_core/orient_assemble/readers_handoff_triage.py",
-    "coordinator_core/orient_assemble/readers_health_reaper.py",
-    "coordinator_core/orient_assemble/tests/test_cadence_matrix.py",
-    "coordinator_core/orient_assemble/tests/test_directive_cli_resolvability.py",
-    "coordinator_core/orient_assemble/tests/test_envelope_schema_conformance.py",
-    "coordinator_core/orient_assemble/tests/test_read_only_guarantee.py",
-    "coordinator_core/orient_assemble/tests/test_readers_handoff_triage_claim.py",
-    "coordinator_core/orient_assemble/tests/test_readers_health_reaper.py",
-    "coordinator_core/orient_assemble/tests/test_readers_perform_no_disk_mutation.py",
-    "coordinator_core/orient_assemble/tests/test_round_trip_parity.py",
-    "coordinator_core/orient_assemble/tests/test_scan_scope_regression.py",
+    "coordinator_core/orient_brief/_health.py",
     "coordinator_core/orientation/regenerate_cache.py",
     "coordinator_core/orientation/route_unreachable_signal.py",
-    "coordinator_core/orientation/test_abandoned_claim_signal.py",
     "coordinator_core/orientation/test_regenerate_cache.py",
     "coordinator_core/p4/register.py",
     "coordinator_core/p4/tests/test_register.py",
@@ -1856,9 +1847,11 @@
     "coordinator_core/testing/collect.py",
     "coordinator_core/testing/content_root.py",
     "coordinator_core/testing/fake_engine_root.py",
+    "coordinator_core/testing/fs_containment.py",
     "coordinator_core/testing/golden.py",
     "coordinator_core/testing/suite_mutex.py",
     "coordinator_core/testing/test_collect.py",
+    "coordinator_core/testing/test_content_root_fixture.py",
     "coordinator_core/tests/_baton_dag_oracle.py",
     "coordinator_core/tests/conftest.py",
     "coordinator_core/tests/gate_verdict/test_replay_vendored_drift_advertisement.py",
@@ -1890,6 +1883,7 @@
     "coordinator_core/tests/test_engine_root_two_tier_claude_klabauter_corpus.py",
     "coordinator_core/tests/test_engine_stamp_predicate_pin.py",
     "coordinator_core/tests/test_every_register_resolves_or_declares_claude_klabauter_corpus.py",
+    "coordinator_core/tests/test_fleet_mode_reader_set.py",
     "coordinator_core/tests/test_foreign_identity_subject_exemptions.py",
     "coordinator_core/tests/test_guard_enforcement_join_covers_every_registered_guard.py",
     "coordinator_core/tests/test_handoff_backfill_claim_stamp.py",
@@ -1935,6 +1929,8 @@
     "coordinator_core/tests/test_op_classification_manifest.py",
     "coordinator_core/tests/test_op_scope_parity.py",
     "coordinator_core/tests/test_operator_cli_engine_contact_claude_klabauter_corpus.py",
+    "coordinator_core/tests/test_orient_brief_brightline.py",
+    "coordinator_core/tests/test_orient_brief_health.py",
     "coordinator_core/tests/test_pickup_assemble_git_readmodel_parity.py",
     "coordinator_core/tests/test_published_mirror_carries_shipped_symbols.py",
     "coordinator_core/tests/test_repo_identity_picks_one_registry_key.py",
@@ -1986,6 +1982,7 @@
     "coordinator_core/warm/tests/test_no_path_yields_unstamped_engine_root_claude_klabauter_corpus.py",
     "coordinator_core/warm/tests/test_oversized_request_frame.py",
     "coordinator_core/warm/tests/test_process_global_characterization.py",
+    "coordinator_core/warm/tests/test_process_global_characterization_fast.py",
     "coordinator_core/warm/tests/test_skew_eviction.py",
     "coordinator_core/warm/tests/test_warm_off_parity.py",
     "coordinator_core/warm/warm_guard_result.py",
@@ -2055,6 +2052,7 @@
     "scripts/setup.py",
     "scripts/test_cloud_setup.py",
     "scripts/test_setup.py",
+    "scripts/test_setup_receipt_route.py",
     "scripts/tests/test_arrival_install_templates.py",
     "scripts/tests/test_cloud_setup_orchestration.py",
     "scripts/tests/test_cloud_setup_path_resilience.py",
@@ -2068,28 +2066,116 @@
       "line": 73
     },
     {
-      "file": "coordinator/tests/test_emit_artifact_shape_contract_golden.py",
-      "line": 125
+      "file": "coordinator/bin/plan-status-transition.py",
+      "line": 51
     },
     {
-      "file": "coordinator/tests/test_install_class_engine_default.py",
-      "line": 166
+      "file": "coordinator/bin/roadmap-blitz-stage.py",
+      "line": 35
     },
     {
-      "file": "coordinator/tests/test_install_class_engine_default.py",
-      "line": 186
+      "file": "coordinator/bin/tests/test_content_root_routing.py",
+      "line": 180
     },
     {
-      "file": "coordinator/tests/test_install_class_engine_default.py",
+      "file": "coordinator/bin/tests/test_content_root_routing.py",
+      "line": 195
+    },
+    {
+      "file": "coordinator/bin/tests/test_content_root_routing.py",
+      "line": 196
+    },
+    {
+      "file": "coordinator/bin/tests/test_content_root_routing.py",
+      "line": 200
+    },
+    {
+      "file": "coordinator/bin/tests/test_content_root_routing.py",
+      "line": 201
+    },
+    {
+      "file": "coordinator/bin/tests/test_content_root_routing.py",
       "line": 206
     },
     {
-      "file": "coordinator/tests/test_install_class_engine_default.py",
-      "line": 287
+      "file": "coordinator/bin/tests/test_content_root_routing.py",
+      "line": 217
+    },
+    {
+      "file": "coordinator/bin/tests/test_content_root_routing.py",
+      "line": 315
+    },
+    {
+      "file": "coordinator/bin/tests/test_content_root_routing.py",
+      "line": 317
+    },
+    {
+      "file": "coordinator/bin/tests/test_content_root_routing.py",
+      "line": 480
+    },
+    {
+      "file": "coordinator/bin/tests/test_content_root_routing.py",
+      "line": 531
+    },
+    {
+      "file": "coordinator/bin/tests/test_harvest_content_root_machine_local_leg.py",
+      "line": 173
+    },
+    {
+      "file": "coordinator/bin/tests/test_harvest_content_root_machine_local_leg.py",
+      "line": 179
+    },
+    {
+      "file": "coordinator/bin/tests/test_harvest_content_root_machine_local_leg.py",
+      "line": 204
+    },
+    {
+      "file": "coordinator/bin/tests/test_harvest_content_root_machine_local_leg.py",
+      "line": 211
+    },
+    {
+      "file": "coordinator/bin/tests/test_harvest_content_root_machine_local_leg.py",
+      "line": 222
+    },
+    {
+      "file": "coordinator/bin/tests/test_harvest_content_root_machine_local_leg.py",
+      "line": 229
+    },
+    {
+      "file": "coordinator/bin/tests/test_harvest_content_root_machine_local_leg.py",
+      "line": 245
+    },
+    {
+      "file": "coordinator/bin/tests/test_publish_timing_prints_survive_raise.py",
+      "line": 42
+    },
+    {
+      "file": "coordinator/bin/tests/test_publish_timing_prints_survive_raise.py",
+      "line": 71
+    },
+    {
+      "file": "coordinator_core/orient_brief/_health.py",
+      "line": 168
+    },
+    {
+      "file": "coordinator_core/orient_brief/_health.py",
+      "line": 176
+    },
+    {
+      "file": "coordinator_core/orient_brief/_health.py",
+      "line": 179
+    },
+    {
+      "file": "coordinator_core/orient_brief/_health.py",
+      "line": 740
     },
     {
       "file": "coordinator_core/testing/content_root.py",
-      "line": 63
+      "line": 19
+    },
+    {
+      "file": "coordinator_core/testing/content_root.py",
+      "line": 20
     },
     {
       "file": "coordinator_core/tests/test_hard_dep_coordinator_claude_c1.py",
@@ -2112,9 +2198,13 @@
       "line": 134
     },
     {
-      "file": "coordinator_core/trusted_root_guard.py",
-      "line": 269
+      "file": "coordinator_core/tests/test_orient_brief_health.py",
+      "line": 91
+    },
+    {
+      "file": "coordinator_core/tests/test_orient_brief_health.py",
+      "line": 99
     }
   ],
-  "repo_sha": "0ca6e36803ef31550d4b27512e5710bc92518cf0"
+  "repo_sha": "4905cac858d926031099f9e866679977a68705d9"
 }

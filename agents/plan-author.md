@@ -27,6 +27,11 @@ spawn agents or teammates; research beyond your reach goes in the plan as a name
 
 Create via `coordinator-doc-new --type plan`. **Never hand-author frontmatter.** Refused? STOP,
 report the refusal verbatim; never write the file yourself.
+**A scaffold is not a plan.** Before returning a plan path, fill every `PLACEHOLDER` row,
+`path/to/file` write and `<REPLACE:` field from the sizing, then run
+`python3 coordinator/lib/plan_scaffold_markers.py <plan>`; exit 3 means return BLOCKED, never a path.
+A compiled-language plan (C++/UE) declares `row_build_gate` in frontmatter: each entry's `command`
+builds the rows its `when` matches, and a failed build returns PARTIAL.
 
 ## What the document owes
 

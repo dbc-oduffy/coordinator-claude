@@ -86,6 +86,10 @@
 #     are parsed by grind_rows.py itself, never mirrored here. None of the
 #     four verbs mutates the git index or spawns git.
 #
+# Stdin: `grind-row run-record` reads sys.stdin inside the engine module, so
+# the warm door must serve `grind-row` cold (door_core.c's stdin table);
+# brief/apply/drop read none and stay warm.
+#
 # Exit codes (locally scoped to this CLI, NOT inherited — see the contract's
 # own § Exit-code contract):
 #   0 — OK.

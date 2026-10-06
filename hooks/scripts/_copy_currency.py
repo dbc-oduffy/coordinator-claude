@@ -10,13 +10,19 @@ Invariants:
     - `run_leg` converts any exception into could-not-check, never current.
     - A `drift` remedy is a confirmed-reachable command or the literal
       `no local remedy -- <owner> publish`; never `setup.py`.
-    - File completeness of both mirrors is the constant
-      `could-not-check (no expected-manifest emitted)` until a publisher
-      manifest exists; no manifest reader or join lives here.
+    - File completeness joins the publisher's `.coordinator/expected-manifest.json`
+      (`{"schema": 1, "source_head": .., "paths": {posix: blob_sha1}}`) against the
+      mirror checkout's own `.git/index`, parsed in-process: a missing, mismatched or
+      size-dirty path is drift. No manifest, an unparseable one, or an index this
+      parser cannot read is could-not-check, never current. A same-size working-tree
+      edit is invisible to this check.
 """
 from __future__ import annotations
 
 import importlib.util
+import json
+import os
+import struct
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,6 +38,8 @@ COMPLETENESS = "completeness"
 AXES = (CURRENCY, COMPLETENESS)
 
 NO_MANIFEST_REASON = "no expected-manifest emitted"
+MANIFEST_RELPATH = ".coordinator/expected-manifest.json"
+_DRIFT_NAMES_SHOWN = 5
 
 ENGINE_CONSUMED_SYMBOLS = ("coordinator_core.warm.skew.publish_lag",)
 
@@ -73,9 +81,121 @@ def could_not_check(copy: str, axis: str, reason: str, remedy: str = "") -> Copy
 
 
 def file_completeness_verdict(copy: str, owner: str = "claude-klabauter") -> CopyVerdict:
-    """Shared constant completeness verdict both mirror legs return."""
+    """Completeness verdict for a copy whose publisher emits no manifest."""
     return could_not_check(
         copy, COMPLETENESS, NO_MANIFEST_REASON, remedy=no_local_remedy(owner)
+    )
+
+
+def read_index_entries(git_dir: Path) -> dict[str, tuple[str, int]] | None:
+    """{posix path: (blob sha1, size)} from a version 2 or 3 `index`; None if unreadable.
+
+    Version 4 path-prefix compression is not parsed. Stage-nonzero (conflicted) entries
+    are skipped, so a conflicted path reads as missing.
+    """
+    try:
+        data = (git_dir / "index").read_bytes()
+    except OSError:
+        return None
+    if len(data) < 12 or data[:4] != b"DIRC":
+        return None
+    version, count = struct.unpack(">II", data[4:12])
+    if version not in (2, 3):
+        return None
+    entries: dict[str, tuple[str, int]] = {}
+    pos = 12
+    for _ in range(count):
+        start = pos
+        if pos + 62 > len(data):
+            return None
+        size = struct.unpack(">I", data[pos + 36 : pos + 40])[0]
+        sha = data[pos + 40 : pos + 60].hex()
+        flags = struct.unpack(">H", data[pos + 60 : pos + 62])[0]
+        pos += 62
+        if flags & 0x4000:
+            pos += 2
+        end = data.find(b"\0", pos)
+        if end < 0:
+            return None
+        path = data[pos:end].decode("utf-8", "surrogateescape")
+        pos = start + ((end - start + 8) & ~7)
+        if (flags >> 12) & 0x3 == 0:
+            entries[path] = (sha, size)
+    return entries
+
+
+def _git_dir(root: Path) -> Path | None:
+    dot = root / ".git"
+    if dot.is_dir():
+        return dot
+    try:
+        text = dot.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    if not text.startswith("gitdir:"):
+        return None
+    target = Path(text[len("gitdir:") :].strip())
+    return target if target.is_absolute() else (root / target)
+
+
+def _names(paths: list[str]) -> str:
+    shown = ", ".join(sorted(paths)[:_DRIFT_NAMES_SHOWN])
+    more = len(paths) - _DRIFT_NAMES_SHOWN
+    return shown + (f" (+{more} more)" if more > 0 else "")
+
+
+def manifest_completeness_verdict(
+    copy: str, mirror_root: str | Path, owner: str = "claude-klabauter"
+) -> CopyVerdict:
+    """Completeness of a mirror checkout against its publisher's expected-manifest."""
+    root = Path(mirror_root)
+    try:
+        manifest = json.loads((root / MANIFEST_RELPATH).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return file_completeness_verdict(copy, owner)
+    except (OSError, ValueError) as exc:
+        return could_not_check(copy, COMPLETENESS, f"expected-manifest unreadable: {exc}")
+    if not isinstance(manifest, dict):
+        manifest = {}
+    paths = manifest.get("paths")
+    if manifest.get("schema") != 1 or not isinstance(paths, dict) or not paths:
+        return could_not_check(copy, COMPLETENESS, "expected-manifest is not schema 1 with paths")
+    git_dir = _git_dir(root)
+    entries = read_index_entries(git_dir) if git_dir else None
+    if entries is None:
+        return could_not_check(copy, COMPLETENESS, "mirror git index unreadable")
+    missing, mismatched, dirty = [], [], []
+    for path, blob in paths.items():
+        entry = entries.get(path)
+        if entry is None:
+            missing.append(path)
+        elif entry[0] != blob:
+            mismatched.append(path)
+        else:
+            try:
+                if os.stat(root / path).st_size != entry[1]:
+                    dirty.append(path)
+            except OSError:
+                missing.append(path)
+    head = str(manifest.get("source_head") or "")[:10]
+    if not (missing or mismatched or dirty):
+        return CopyVerdict(
+            copy,
+            COMPLETENESS,
+            CURRENT,
+            evidence=f"{len(paths)} manifest paths match the checkout (source {head})",
+        )
+    parts = [
+        f"{label} {len(group)}: {_names(group)}"
+        for label, group in (("missing", missing), ("mismatched", mismatched), ("dirty", dirty))
+        if group
+    ]
+    return CopyVerdict(
+        copy,
+        COMPLETENESS,
+        DRIFT,
+        detail=f"against manifest source {head}: " + "; ".join(parts),
+        remedy=no_local_remedy(owner),
     )
 
 

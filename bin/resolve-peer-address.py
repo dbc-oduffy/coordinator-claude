@@ -11,7 +11,7 @@ that join for free -- a computed claim decision hands them `send_message_address
 id read off a commit, a queue entry, or a plan body, where no claim decision exists to consult and
 the alternative is guessing.
 
-The registry is `~/.claude/sessions/<pid>.json` (or `$CLAUDE_CONFIG_DIR/sessions/`), one record per
+The registry is the `sessions/` directory under the Claude config dir (CLAUDE_CONFIG_DIR, else the home `.claude`), one file per pid, one record per
 live session carrying `name`, `pid`, `cwd`, `status` and `sessionId`. This module's on-disk reader
 is `coordinator_core.group_em.session_registry` (ported from DoE's own `bin/lib/session_registry.py`
 at W2-C1) -- the same primitive `group-em-nomination.py`, `navi-singleton.py` and `uhura-mode.py`

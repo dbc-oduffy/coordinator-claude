@@ -66,14 +66,20 @@ _HOOKS_JSON_PATH = "coordinator/hooks/hooks.json"
 
 
 def _git(*args: str) -> "subprocess.CompletedProcess[bytes]":
-    return subprocess.run(
-        ["git", "--no-optional-locks", *args],
-        capture_output=True,
-        check=False,
-        # Suppresses the console window a spawned child otherwise flashes on
-        # headless Windows shells.
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-    )
+    cmd = ["git", "--no-optional-locks", *args]
+    try:
+        return subprocess.run(
+            cmd,
+            capture_output=True,
+            check=False,
+            # Suppresses the console window a spawned child otherwise flashes on
+            # headless Windows shells.
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        # returncode != 0 is the callers' fail-open signal.
+        return subprocess.CompletedProcess(cmd, 124, b"", b"")
 
 
 def main() -> int:

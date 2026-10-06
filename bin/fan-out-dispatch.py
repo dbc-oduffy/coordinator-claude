@@ -86,7 +86,7 @@ def _resolve_plugin_root() -> str:
     broke once the 2026-07-22 executable-surface migration split snippets/ (DoE-resident)
     away from this script (claude-klabauter-resident) — see coordinator_data_root.py's
     module docstring. Resolved via the shared two-rung resolver instead of reimplementing
-    the CONTENT_ROOT chain here (negative-spec in that module).
+    the content-root chain here (negative-spec in that module).
     """
     env = os.environ.get("CLAUDE_PLUGIN_ROOT")
     if env:

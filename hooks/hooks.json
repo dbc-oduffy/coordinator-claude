@@ -1,5 +1,5 @@
 {
-  "description": "Coordinator hooks \u2014 session guardrails and cost optimization. REGISTRATIONS IN THIS FILE ARE READ AT SESSION START AND CACHED: adding or removing an entry here reaches NO already-running session until it runs /reload-plugins or restarts, and a deleted entry keeps firing until then. Run /reload-plugins in this session before testing your change, and expect peer sessions on this machine to keep their booted roster regardless. Hook SCRIPT bodies are unaffected \u2014 those resolve live per tool call. Measurement: docs/wiki/install-playbook-rationale/external-plugin-live-resolution.md \u00a7 Hook REGISTRATION staleness; tripwire HOOKS-JSON-REGISTRATION-STALENESS.",
+  "description": "Coordinator hooks — session guardrails and cost optimization. REGISTRATIONS IN THIS FILE ARE READ AT SESSION START AND CACHED: adding or removing an entry here reaches NO already-running session until it runs /reload-plugins or restarts, and a deleted entry keeps firing until then. Run /reload-plugins in this session before testing your change, and expect peer sessions on this machine to keep their booted roster regardless. Hook SCRIPT bodies are unaffected — those resolve live per tool call. Measurement: docs/wiki/install-playbook-rationale/external-plugin-live-resolution.md § Hook REGISTRATION staleness; tripwire HOOKS-JSON-REGISTRATION-STALENESS.",
   "hooks": {
     "SessionStart": [
       {
@@ -8,24 +8,7 @@
           {
             "type": "command",
             "command": "python3",
-            "timeout": 10,
-            "async": false,
-            "args": [
-              "-c",
-              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-start-repin-cloud-engine-root.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
-            ]
-          }
-        ]
-      },
-      {
-        "matcher": "startup|resume|clear|compact|fork",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3",
-            "timeout": 10,
+            "timeout": 15,
             "async": false,
             "args": [
               "-c",
@@ -59,58 +42,7 @@
           {
             "type": "command",
             "command": "python3",
-            "timeout": 10,
-            "async": false,
-            "args": [
-              "-c",
-              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-start-watch-presence.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
-            ]
-          }
-        ]
-      },
-      {
-        "matcher": "startup",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3",
-            "timeout": 10,
-            "async": false,
-            "args": [
-              "-c",
-              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-start-cloud-focus.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
-            ]
-          }
-        ]
-      },
-      {
-        "matcher": "startup|compact",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3",
-            "timeout": 30,
-            "async": true,
-            "args": [
-              "-c",
-              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/sweep-boot.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
-            ]
-          }
-        ]
-      },
-      {
-        "matcher": "startup|resume|clear|compact|fork",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3",
-            "timeout": 15,
+            "timeout": 45,
             "async": true,
             "args": [
               "-c",
@@ -198,63 +130,12 @@
           {
             "type": "command",
             "command": "python3",
-            "timeout": 40,
+            "timeout": 45,
             "async": false,
             "args": [
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/pickup-autofire.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
-            ]
-          }
-        ]
-      },
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3",
-            "timeout": 30,
-            "async": false,
-            "args": [
-              "-c",
-              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/mise-autofire.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
-            ]
-          }
-        ]
-      },
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3",
-            "timeout": 30,
-            "async": false,
-            "args": [
-              "-c",
-              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/handoff-segment-inject.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
-            ]
-          }
-        ]
-      },
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3",
-            "timeout": 40,
-            "async": false,
-            "args": [
-              "-c",
-              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/group-em-autofire.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/userpromptexpansion-dispatch.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
@@ -321,6 +202,23 @@
         ]
       },
       {
+        "matcher": "SendMessage",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "timeout": 10,
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/preuse-sendmessage-dispatch.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
+          }
+        ]
+      },
+      {
         "matcher": "Agent",
         "hooks": [
           {
@@ -360,18 +258,18 @@
           {
             "type": "command",
             "command": "python3",
-            "timeout": 5,
+            "timeout": 15,
             "args": [
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-workflow-foreign-emission.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/preuse-workflow-dispatch.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
         ]
       },
       {
-        "matcher": "Workflow",
+        "matcher": "mcp__.*example-game-repo.*",
         "hooks": [
           {
             "type": "command",
@@ -380,71 +278,7 @@
             "args": [
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-dispatch-suite-invocation.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
-            ]
-          }
-        ]
-      },
-      {
-        "matcher": "Workflow",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3",
-            "timeout": 5,
-            "args": [
-              "-c",
-              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-workflow-unmodeled-agent.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
-            ]
-          }
-        ]
-      },
-      {
-        "matcher": "Workflow",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3",
-            "timeout": 5,
-            "args": [
-              "-c",
-              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/strip-worktree-isolation.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
-            ]
-          }
-        ]
-      },
-      {
-        "matcher": "Workflow",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3",
-            "timeout": 5,
-            "args": [
-              "-c",
-              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-workflow-authoring-trampoline.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
-            ]
-          }
-        ]
-      },
-      {
-        "matcher": "Workflow",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3",
-            "timeout": 5,
-            "args": [
-              "-c",
-              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/allow-emitted-workflow-fire.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard-p4-no-submit-mcp.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }

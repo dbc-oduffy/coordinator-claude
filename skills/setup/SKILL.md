@@ -155,6 +155,7 @@ FAIL after a config write with no subsequent restart is restart-gated-expected; 
 configured-but-broken.
 **Probe 0 governs this one.** On `PASS (live-resolved)`, Probe 1 degrades to `[WARN]`/exit 0 —
 absence from enabledPlugins is that shape's expected state.
+Retired `<name>@coordinator-claude` keys (not in the marketplace manifest) `[WARN]`; `--prune-retired` removes them.
 
 **Probe 2 — Hooks registered and live on disk.**
 `& "$env:COORDINATOR_SETTINGS_HOME\bin\setup-verify.exe" check-hooks --plugin-root "<PLUGIN_ROOT>"`
@@ -172,7 +173,7 @@ Use this skill itself as the representative: `<PLUGIN_ROOT>/skills/setup/SKILL.m
 configured-but-broken, never restart-gated. Probe 1's WARN propagates here.
 
 **Probe 4 — Windows launch shape (dogfood shape only).**
-`python3 "<PLUGIN_ROOT>/bin/check-launch-shape.py"`.
+`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/check-launch-shape"` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\check-launch-shape.exe"`, same arguments).
 Asserts the interactive `claude.exe` would be a DIRECT child of the invoking shell (no `claude-author`
 shadowing the real launcher on PATH; shim and launcher shapes intact). `PASS`/exit 0, `FAIL`
 (names the offender)/exit 1, `SKIP`/exit 0 on non-Windows or with no rendered launcher pair on

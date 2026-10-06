@@ -1312,8 +1312,77 @@ def corpus_currency_banner(repo_root: Optional[str]) -> None:
         _w(f"── Corpus currency: {name} is behind — refresh: {remount_command} ──\n")
 
 
+def _structural_index_refresh_failure_line(repo_root: str) -> None:
+    """Print one line when `.structural-index/refresh-last.json` records a non-zero exit."""
+    try:
+        rec = json.loads(
+            (Path(repo_root) / ".structural-index" / "refresh-last.json").read_text(encoding="utf-8")
+        )
+        code = rec["exit_code"]
+    except Exception:
+        return
+    if not isinstance(code, int) or isinstance(code, bool) or code in (0, 3):  # 3: refresh already in progress (benign)
+        return
+    age = "age unknown"
+    try:
+        done = datetime.strptime(rec.get("finished_at", ""), _GENERATED_AT_FORMAT).replace(
+            tzinfo=timezone.utc)
+        hours = (datetime.now(timezone.utc) - done).total_seconds() / 3600.0
+        age = f"{hours:.0f}h ago" if hours >= 1 else f"{max(hours * 60, 0):.0f}m ago"
+    except Exception:
+        pass
+    tail = rec.get("stderr_tail")
+    last = str(tail[-1]).strip() if isinstance(tail, list) and tail else "no stderr captured"
+    _w(f"── Structural index: last refresh failed (exit {code}, {age}): {last[:200]} ──\n")
+
+
+def structural_index_banner(repo_root: Optional[str]) -> None:
+    """Print one `Structural index:` line from `<repo>/.structural-index/status.json`.
+
+    Reads only that cached file (project-rag's `structural_index_refresh.py` writes it); no
+    subprocess, so the boot path stays spawn-free. Absent or unparseable file == never checked
+    == `missing`. Silent only when `state` is `fresh` AND `checked_at` is younger than
+    `_CURRENCY_BANNER_STALE_HOURS`; an old `fresh` is unknown, so it prints with its age. The
+    remedy resolves project-rag through the registry at paste time rather than hardcoding it.
+    """
+    if os.environ.get("COORDINATOR_CURRENCY_STATUS_OFF") or not repo_root:
+        return
+
+    state = "missing"
+    age_hours: Optional[float] = None
+    try:
+        parsed = json.loads(
+            (Path(repo_root) / ".structural-index" / "status.json").read_text(encoding="utf-8")
+        )
+    except Exception:
+        parsed = None
+    if isinstance(parsed, dict):
+        raw_state = parsed.get("state")
+        state = raw_state if raw_state in ("missing", "stale", "fresh") else "missing"
+        try:
+            checked = datetime.strptime(
+                parsed.get("checked_at", ""), _GENERATED_AT_FORMAT
+            ).replace(tzinfo=timezone.utc)
+            age_hours = (datetime.now(timezone.utc) - checked).total_seconds() / 3600.0
+        except Exception:
+            age_hours = None
+
+    _structural_index_refresh_failure_line(repo_root)
+
+    young = age_hours is not None and age_hours < _CURRENCY_BANNER_STALE_HOURS
+    if state == "fresh" and young:
+        return
+
+    age = f"checked {age_hours:.0f}h ago" if age_hours is not None else "never checked"
+    remedy = (
+        'python "$(machine-local get repos.project_rag)/project_rag_scripts/'
+        'structural_index_refresh.py" ensure'
+    )
+    _w(f"── Structural index: {state} ({age}) — refresh from repo root: {remedy} ──\n")
+
+
 def _load_tier_last_run_module():
-    """Import `coordinator/bin/tier-last-run.py` by file path and return the loaded module.
+    """Import the engine copy of `tier-last-run.py` by file path and return the loaded module.
 
     Hyphenated filename, so `import tier-last-run` is not valid Python — this mirrors the
     existing dynamic-import pattern in this file (`_resolve_claude_klabauter_root_native`) but uses
@@ -1328,7 +1397,9 @@ def _load_tier_last_run_module():
     try:
         import importlib.util
 
-        module_path = Path(__file__).resolve().parent.parent.parent / "bin" / "tier-last-run.py"
+        module_path = _copies_mod("_engine_root").resolve_engine_bin_script("tier-last-run.py")
+        if module_path is None:
+            return None
         spec = importlib.util.spec_from_file_location("_tier_last_run_c2", module_path)
         if spec is None or spec.loader is None:
             return None
@@ -1497,14 +1568,14 @@ class CopiesContext:
         source_root: Optional[Path] = None,
         mirror_plugin_root: Optional[Path] = None,
         publish_mirror: Optional[Path] = None,
-        claude_klabauter_root: Optional[str] = None,
+        authoring_root: Optional[str] = None,
         engine_root: Optional[str] = None,
         live_tree: bool = False,
     ):
         self.source_root = source_root
         self.mirror_plugin_root = mirror_plugin_root
         self.publish_mirror = publish_mirror
-        self.claude_klabauter_root = claude_klabauter_root
+        self.authoring_root = authoring_root
         self.engine_root = engine_root
         self.live_tree = live_tree
 
@@ -1531,7 +1602,7 @@ def default_copies_context() -> CopiesContext:
         source_root=safe(pml._default_source_root),
         mirror_plugin_root=safe(pml._default_mirror_plugin_root),
         publish_mirror=safe(publish_mirror),
-        claude_klabauter_root=safe(eml._default_claude_klabauter_root),
+        authoring_root=safe(eml._default_claude_klabauter_root),
         engine_root=safe(eml._default_engine_root),
         live_tree=bool(safe(eml._default_live_tree)),
     )
@@ -1577,7 +1648,7 @@ def copies_engine_key(ctx: CopiesContext) -> dict:
             stamp = ""
     return {
         "stamp": stamp,
-        "claude_klabauter_head": _head_of(ctx.claude_klabauter_root),
+        "claude_klabauter_head": _head_of(ctx.authoring_root),
         "engine_head": _head_of(ctx.engine_root),
     }
 
@@ -1675,7 +1746,7 @@ def _copies_engine_verdicts(cc, ctx: CopiesContext, cache: Optional[dict]) -> li
         try:
             return eml.check_engine_mirror(
                 lambda: ctx.engine_root,
-                lambda: ctx.claude_klabauter_root,
+                lambda: ctx.authoring_root,
                 lag,
                 ctx.live_tree,
                 entry.get("import_origin") if entry and not moved else eml.UNCHECKED,
@@ -1752,7 +1823,7 @@ def copies_banner(
     verdicts = [
         *_copies_engine_verdicts(cc, ctx, cache),
         *_copies_plugin_verdicts(cc, ctx, cache, now.timestamp()),
-        cil.leg(claude_klabauter_root=lambda: ctx.claude_klabauter_root, now=now),
+        cil.leg(claude_klabauter_root=lambda: ctx.authoring_root, now=now),
     ]
     _w("\n".join(cc.render_copies_lines(verdicts)) + "\n")
 
@@ -2961,6 +3032,10 @@ def main(argv: list) -> int:
         except Exception:
             pass
         try:
+            structural_index_banner(repo_root)
+        except Exception:
+            pass
+        try:
             tier_currency_banner(repo_root)
         except Exception:
             pass
@@ -3021,6 +3096,10 @@ def main(argv: list) -> int:
         pass
     try:
         corpus_currency_banner(repo_root)
+    except Exception:
+        pass
+    try:
+        structural_index_banner(repo_root)
     except Exception:
         pass
     try:

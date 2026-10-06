@@ -34,9 +34,12 @@ Subcommands (one per ported fence):
         Parse a SKILL.md's YAML frontmatter and validate a non-empty
         description: field is present (skill-discovery precondition).
 
-    check-settings-membership [--settings PATH]
+    check-settings-membership [--settings PATH] [--prune-retired]
+                              [--marketplace-manifest PATH]
         Check that "coordinator" appears in settings.json's enabledPlugins
-        (or legacy plugins) list.
+        (or legacy plugins) list. Also WARNs on any
+        `<name>@coordinator-claude` enabledPlugins key the marketplace no
+        longer ships; --prune-retired removes them (atomic write-back).
 
     check-plugin-registered --plugin NAME --marketplace NAME
                              [--marketplace-source SOURCE]
@@ -86,7 +89,7 @@ from pathlib import Path
 # Step 1 (SKILL.md) — layout detection (flat publish-repo vs. nested working-repo)
 # ---------------------------------------------------------------------------
 
-GENERATES = []  # cmd_visited_init writes the chain-walk visited-set under <settings-home>/coordinator-claude/chain-walk-<uuid>.json (settings-home, outside claude-klabauter's own tree); every other subcommand is read-only
+GENERATES = []  # cmd_visited_init writes the chain-walk visited-set under <settings-home>/coordinator-claude/chain-walk-<uuid>.json (settings-home, outside claude-klabauter's own tree); check-settings-membership --prune-retired rewrites the named settings.json; every other subcommand is read-only
 
 
 def cmd_layout(args: argparse.Namespace) -> int:
@@ -387,6 +390,80 @@ def cmd_check_skill_description(args: argparse.Namespace) -> int:
 # Step 6 Probe 1 (SKILL.md) — settings.json enabledPlugins membership check
 # ---------------------------------------------------------------------------
 
+_COORDINATOR_MARKETPLACE = "coordinator-claude"
+# Fallback when no marketplace manifest is reachable: the one plugin the
+# marketplace ships. Retired siblings (deep-research, web-dev, game-dev,
+# data-science, notebooklm) must never be re-added here.
+_FALLBACK_SHIPPED_PLUGINS = frozenset({"coordinator"})
+
+
+def _shipped_marketplace_plugins(args: argparse.Namespace) -> frozenset:
+    """Plugin names the coordinator-claude marketplace currently ships.
+
+    Source order: --marketplace-manifest, then the registered marketplace's
+    installLocation from known_marketplaces.json, then the fallback set.
+    """
+    candidates = []
+    if getattr(args, "marketplace_manifest", None):
+        candidates.append(Path(args.marketplace_manifest))
+    else:
+        known = _default_claude_plugins_dir() / "known_marketplaces.json"
+        try:
+            entry = json.loads(known.read_text()).get(_COORDINATOR_MARKETPLACE) or {}
+            loc = entry.get("installLocation")
+            if loc:
+                candidates.append(Path(loc) / ".claude-plugin" / "marketplace.json")
+        except (OSError, json.JSONDecodeError, AttributeError):
+            pass
+    for manifest in candidates:
+        try:
+            names = {
+                p["name"]
+                for p in json.loads(manifest.read_text()).get("plugins", [])
+                if isinstance(p, dict) and isinstance(p.get("name"), str)
+            }
+        except (OSError, json.JSONDecodeError, AttributeError, TypeError):
+            continue
+        if names:
+            return frozenset(names)
+    return _FALLBACK_SHIPPED_PLUGINS
+
+
+def _report_retired_plugins(settings_path: Path, data: dict, args: argparse.Namespace) -> None:
+    """WARN on `<name>@coordinator-claude` enabledPlugins keys the marketplace
+    no longer ships; with --prune-retired, remove them and write back atomically
+    (temp file + os.replace), preserving every other key."""
+    enabled = data.get("enabledPlugins") if isinstance(data, dict) else None
+    if not isinstance(enabled, dict):
+        return
+    suffix = "@" + _COORDINATOR_MARKETPLACE
+    shipped = _shipped_marketplace_plugins(args)
+    retired = [
+        k for k in enabled
+        if isinstance(k, str) and k.endswith(suffix) and k[: -len(suffix)] not in shipped
+    ]
+    if not retired:
+        return
+    if not getattr(args, "prune_retired", False):
+        print(
+            f"[WARN] {settings_path} enables retired plugin(s) the marketplace no "
+            f"longer ships: {', '.join(retired)} — re-run with --prune-retired to remove.",
+            file=sys.stderr,
+        )
+        return
+    for k in retired:
+        del enabled[k]
+    tmp = settings_path.with_name(f".{settings_path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8", newline="\n")
+        os.replace(tmp, settings_path)
+    except OSError as exc:
+        tmp.unlink(missing_ok=True)
+        print(f"[WARN] failed to prune {settings_path}: {exc}", file=sys.stderr)
+        return
+    print(f"PRUNED — removed retired plugin(s) from {settings_path}: {', '.join(retired)}")
+
+
 def cmd_check_settings_membership(args: argparse.Namespace) -> int:
     settings_path = Path(args.settings or os.path.join(os.path.expanduser("~"), ".claude", "settings.json"))
 
@@ -403,6 +480,8 @@ def cmd_check_settings_membership(args: argparse.Namespace) -> int:
     except (OSError, json.JSONDecodeError) as exc:
         print(f"[WARN] failed to parse {settings_path}: {exc}", file=sys.stderr)
         return 0
+
+    _report_retired_plugins(settings_path, data, args)
 
     plugins = data.get("enabledPlugins", data.get("plugins", []))
     enabled = any("coordinator" in str(p) for p in plugins)
@@ -727,6 +806,18 @@ def build_parser() -> argparse.ArgumentParser:
         "same route-2 live-resolved evidence holds there, absence from enabledPlugins "
         "degrades to WARN/exit 0 instead of FAIL — the dev/--plugin-dir install shape "
         "never populates enabledPlugins.",
+    )
+    p_settings.add_argument(
+        "--prune-retired",
+        action="store_true",
+        help="Remove <name>@coordinator-claude enabledPlugins keys the marketplace "
+        "no longer ships (default: warn only). Atomic write-back.",
+    )
+    p_settings.add_argument(
+        "--marketplace-manifest",
+        default=None,
+        help="marketplace.json naming the shipped plugins; defaults to the registered "
+        "coordinator-claude marketplace, else {coordinator}.",
     )
     p_settings.set_defaults(func=cmd_check_settings_membership)
 

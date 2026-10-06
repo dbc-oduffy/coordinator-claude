@@ -136,8 +136,9 @@ def _resolve_this_repo_root() -> str | None:
             capture_output=True,
             text=True,
             creationflags=no_window,
+            timeout=10,
         )
-    except OSError:
+    except (OSError, subprocess.TimeoutExpired):
         return None
     root = result.stdout.strip()
     if result.returncode != 0 or not root:

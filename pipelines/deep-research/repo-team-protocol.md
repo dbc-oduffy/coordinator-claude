@@ -4,72 +4,74 @@
 
 ## Overview
 
-Agent Teams-based repo research: the EM scopes the target repository into 4 domain-aligned chunks, creates a team of 2 size-derived scouts (Haiku small / Sonnet large) + 4 Sonnet specialists + 1 Opus synthesizer, spawns all teammates, and is **freed**. The team handles everything autonomously — file inventory, analysis, optional comparison, cross-pollination, and synthesis. The EM is notified when synthesis completes.
+Chatty-Workflow repo research: the EM scopes the target repository into 4 domain-aligned chunks, writes `{scratch-dir}/scope.md`, and fires ONE background `Workflow` whose script runs 2–4 size-derived scouts (Haiku small / Sonnet large), 4 Sonnet specialists, and 1 Opus synthesizer in order. The EM is **freed**. The workflow handles everything autonomously — file inventory, analysis, optional comparison, cross-pollination, and synthesis. The EM is notified by the Workflow's task notification, whose result is the synthesizer's return value. The engine emits the script from `repo.manifest.yaml` (`repo-driver.md` Step 5, `emit-dispatch-workflow --pipeline repo`); doctrine is `coordinator/docs/wiki/dispatching-parallel-agents/chatty-workflows.md`.
 
 Optional `--deeper` mode adds a dependency-weighted repomap during EM scoping, giving specialists structural centrality rankings to prioritize deep-reads.
 
-## Team Roles
+## Roles
 
 | Role | Model | Count | Responsibility |
 |------|-------|-------|----------------|
 | **Scout** | Haiku | 2 | Read and inventory all files in assigned chunks; if comparison mode, identify equivalent project files |
-| **Specialist** | Sonnet | 4 | Deep-read files, analyze architecture/patterns/data flow, optionally compare against project, cross-pollinate |
-| **Synthesizer** | Opus | 1 | Cross-reference all specialist findings, produce ASSESSMENT.md + GAP-ANALYSIS.md (if comparison) |
+| **Specialist** | Sonnet | 4 | Deep-read files, analyze architecture/patterns/data flow, optionally compare against project, cross-pollinate by mailbox |
+| **Synthesizer** (overseer) | Opus | 1 | Cross-reference all specialist findings, produce ASSESSMENT.md + GAP-ANALYSIS.md (if comparison); the only agent whose return value reaches the EM |
 
-## Team Lifecycle
+Role names are stable mailbox names: `scout-1`/`scout-2` (or `scout-a`…`scout-d` on the Sonnet tier), `specialist-a`…`specialist-d`, `sweep`, `synthesizer`.
 
-```
-EM: Scope into 4 chunks → write scope → Create team → Spawn all teammates → FREED
-Scout 1: Read chunks A,B → Inventory files → [If compare: identify project files] → Write inventories → Mark complete → [idle]
-Scout 2: Read chunks C,D → Inventory files → [If compare: identify project files] → Write inventories → Mark complete → [idle]
-Specialists: [blocked by BOTH scouts] → Read inventories → Deep-read files → Assessment → [If compare: Comparison] → Cross-pollinate → Converge → Mark complete → DONE to synthesizer
-Synthesizer: [blocked by all specialists, waiting for DONE msgs] → Verify all complete → Read findings → Synthesize → Mark complete
-```
-
-## Blocking Chain
+## Workflow Lifecycle
 
 ```
-Scout 1 (chunks A, B, no blockers) ─┐
-                                      ├──→ [if --deepest: Atlas Sketch (Haiku subagent)] ──→ Specialists A, B, C, D
-Scout 2 (chunks C, D, no blockers) ─┘                                                          │
-                                                                                                 ├──→ DONE messages wake synthesizer
-                                                                                                 │
-                                                                                      Synthesizer (blocked by all 4 specialists)
-                                                                                                 │
-                                                                              [if --deepest: Atlas Refinement (post-synth)]
+EM: Scope into 4 chunks → write scope → fire Workflow → FREED
+Scout 1: Read chunks A,B → Inventory files → [If compare: identify project files] → Write inventories → return
+Scout 2: Read chunks C,D → Inventory files → [If compare: identify project files] → Write inventories → return
+Gate: [after both scouts return] verify inventories on disk → recover failures
+Specialists (round 1): Read inventories → Deep-read files → Assessment → [If compare: Comparison] → append challenges to peers' mailboxes → return
+Specialists (round 2): [continuation agent per specialist with unread mail] → answer challenges → revise outputs → return
+Synthesizer: [after all specialists return] Read findings → Synthesize → return (EM notified)
 ```
 
-**Why all specialists blocked by both scouts:** Cross-subsystem connections. Scout 1's chunks may have data flow into scout 2's chunks. Specialists need the COMPLETE inventory across all chunks to understand these connections. The latency cost is minimal — Haiku scouts have a 5-minute ceiling.
+## Stage Order
 
-- **Scouts → Specialists:** Task-gated via `blockedBy`. Specialists unblock when BOTH scouts mark their tasks complete. No messaging needed — specialists haven't started yet.
-- **Specialists → Synthesizer:** Task-gated via `blockedBy` + DONE messages as wake-up signals. `blockedBy` is a status gate, not an event trigger — the synthesizer needs explicit DONE messages to know when to re-check task status.
+```
+Scout 1 (chunks A, B) ─┐
+                        ├──→ Gate ──→ [if --deepest: Atlas Sketch (Haiku)] ──→ Specialists A, B, C, D (round 1)
+Scout 2 (chunks C, D) ─┘                                                              │
+                                                                          Rebuttal round (continuations)
+                                                                                      │
+                                                                      [if --compare: Sweep] ──→ Synthesizer
+                                                                                      │
+                                                                  [if --deepest: relay wake → Synthesizer pass 2]
+                                                                                      │
+                                                                      [if --deepest: Atlas Refinement (EM, post-run)]
+```
+
+**Why all specialists start after all scouts return:** Cross-subsystem connections. Scout 1's chunks may have data flow into scout 2's chunks. Specialists need the COMPLETE inventory across all chunks to understand these connections. The latency cost is minimal — Haiku scouts have a 5-minute ceiling.
+
+- **Ordering, not gating.** The script starts stage N+1 when stage N's `agent()` calls return (`await`, or `parallel()` for a fan-out). No task list, `blockedBy`, or task status gates anything.
+- **Wake = continuation dispatch.** A returned agent cannot be resumed. Any hand-off that needs a finished agent's attention — a challenge, a fidelity relay — is a mailbox line plus a fresh continuation agent dispatched by the script after the writers have returned.
 
 ## Scout Protocol
 
-Each scout inventories 2 chunks of the target repository. Scouts produce **structured file inventories** — not analysis, not recommendations, just thorough mechanical cataloging.
+Each scout inventories its assigned chunks of the target repository. Scouts produce **structured file inventories** — not analysis, not recommendations, just thorough mechanical cataloging.
 
 - Reads every file in their assigned chunks via Read tool
 - Produces: file paths, line counts, key structs/functions with signatures, actual constant values, data flow, cross-subsystem connections
 - If `--compare` mode: also globs the user's project for files matching chunk domain keywords, reads first 30 lines to check signatures, writes `{repo-file} → {project-file-candidate}` mappings
-- **No messaging** — scout has no SendMessage tool. Task completion is the only signal.
+- **No messaging** — scouts neither read nor write mailboxes. Returning is the only signal, and it is not evidence: the script's disk gate verifies the inventories.
 - **Timing:** No floor. Ceiling: 5 minutes. This is mechanical work — go fast. (Pipeline A uses 3 minutes for web scouts; 5 minutes here because repo file reading is heavier.)
 
 ## Message Protocol
 
-<!-- BEGIN listagents-roster-caveat (synced from snippets/listagents-roster-caveat.md) -->
-## ListAgents Roster Is A View, Not The Registry
+Agents never use `SendMessage` — not to peers, not to the EM. Peer exchange goes through mailbox files at `{scratch-dir}/mail/<role>.jsonl`.
 
-Discover a peer's address by calling `ListAgents` and copying the name a row prints verbatim, then
-`SendMessage` to that name. But the roster it renders can UNDER-REPORT — a thin or empty roster is
-never proof a peer is gone. The durable source is the session registry
-(`~/.claude/sessions/<pid>.json`), not this view; a peer missing from `ListAgents` is evidence about
-that view, not about the peer. See
-`coordinator/docs/wiki/coordinator-tripwires/a-thin-listagents-roster-is-not-proof-a-peer-is-gone.md`.
-<!-- END listagents-roster-caveat -->
+- A line is `{"from": "<role>", "text": "..."}`. To message peer X, append a line to X's file (create the directory and file if absent).
+- A reader appends `{"read": true}` after reading its file. It has unread mail when lines follow its last read marker.
+- Every specialist reads its own mailbox before it returns, then appends the read marker.
+- The synthesizer is the overseer: its return value is the only one that reaches the EM. Workers return a one-line pointer (`DONE: <paths>`) to the script and never address the EM.
 
 ### Specialist → Specialist (Adversarial Cross-Pollination)
 
-Send targeted messages to specific peers by name. Challenges are **expected**, not just permitted — specialists should actively test each other's claims.
+Append targeted messages to specific peers' mailboxes. Challenges are **expected**, not just permitted — specialists should actively test each other's claims.
 
 | Category | Format | When |
 |---|---|---|
@@ -78,28 +80,18 @@ Send targeted messages to specific peers by name. Challenges are **expected**, n
 | **CHALLENGE** | `"Challenge to {peer}: Your chunk's {X} at {file}:{line} conflicts with {Y} at {file}:{line}. Which is the intended flow?"` | Direct factual conflict — resolution expected |
 | **SOURCE** | `"Source for {peer}: {file-path} — covers {aspect} relevant to your chunk."` | Useful file for a peer's analysis |
 
-**Resolution protocol:** When a peer challenges a finding, the challenged specialist must respond with evidence or concede. Unresolved challenges (2-minute timeout) produce `[CONTESTED]` findings with both sides' evidence.
-
-### Specialist → Synthesizer (Wake-Up Signal)
-
-`blockedBy` is a status gate, not an event trigger — completing a blocker task does NOT automatically wake the blocked teammate. Specialists must explicitly message the synthesizer after completing their task:
-
-| Category | Format | When |
-|---|---|---|
-| **DONE** | `"DONE: {chunk-letter} assessment written to {scratch-dir}/{chunk-letter}-assessment.md [+ comparison written to {chunk-letter}-comparison.md]"` | After marking own task `completed` |
-
-This is the synthesizer's wake-up mechanism. Each DONE message causes the synthesizer to re-check `TaskList`. When all specialist tasks show `completed`, it proceeds with synthesis.
+**Resolution protocol (rebuttal round):** Round 1 specialists write their outputs, append challenges to peers' mailboxes, and return. After all of round 1 returns, the script probes the mailboxes and dispatches a fresh continuation agent for each specialist with unread mail. The continuation's brief names its mailbox, its own prior output files, and its predecessor's return value. It answers each challenge with evidence or concedes, revises its outputs, and returns. A challenge still unresolved after the rebuttal round produces a `[CONTESTED]` finding with both sides' evidence. One rebuttal round is the default; the round count is bounded by the script, never by messaging until converged.
 
 ### Volume Governance
 
-- **Peer messages: max 3 per peer** (max 9 total for a 4-specialist team since you don't message yourself)
-- **DONE message: exactly 1 per specialist** (sent to synthesizer only)
-- **Scouts: no messages** (task completion handles unblocking)
+- **Peer messages: max 3 per peer** (max 9 total for a 4-specialist run since you don't message yourself)
+- **Completion signal: none** — a specialist's return is its completion; the synthesizer stage starts after all specialists return
+- **Scouts: no messages**
 - Quality over quantity
 
 ## Self-Governance Timing
 
-Specialists manage their own timing. No EM broadcasts WRAP_UP.
+Specialists manage their own timing. The EM does not broadcast WRAP_UP.
 
 ### Three-Part Model
 
@@ -114,13 +106,13 @@ Specialists manage their own timing. No EM broadcasts WRAP_UP.
    - Note in output: "Converging: diminishing returns after file N"
 
 3. **Ceiling (maximum research time)**
-   - Configurable by the EM at team creation (default: 15 minutes)
+   - Configurable by the EM when it fills the specialist prompts (default: 15 minutes)
    - Begin convergence regardless of state
-   - Check time via `date +%s` in Bash, compare against spawn timestamp
+   - Check time via `date +%s` in Bash, compare against the specialist's own start timestamp
 
 ### Clock Mechanism
 
-Spawn timestamp is provided in the specialist prompt as `[SPAWN_TIMESTAMP]` (Unix epoch seconds). Specialists check elapsed time via `date +%s` in Bash after every 2-3 file reads and compare.
+A specialist records its own start with `date +%s` as its first action (the script's brief says so) and re-checks after every 2-3 file reads. The EM's Step 1 timestamp does not apply: the specialist stage starts after the scouts and the gate.
 
 ## Convergence Protocol
 
@@ -130,32 +122,29 @@ Begin convergence when ANY of these conditions are met (AND the floor is satisfi
 - Ceiling time reached
 
 **Steps:**
-1. Send `CONVERGING` to all peers
-2. Wait ~30 seconds for final challenges
-3. Answer any challenges
-4. Write complete output files (assessment + comparison if enabled)
-5. Mark task `completed`
-6. Send `DONE` to synthesizer (wake-up signal — see Message Protocol above)
+1. Append any remaining challenges and findings to peers' mailboxes (within the 3-per-peer cap)
+2. Read your own mailbox; answer any challenge already in it
+3. Write complete output files (assessment, claims, and comparison if enabled)
+4. Append `{"read": true}` to your mailbox
+5. Return `DONE: <paths written>` — the script's ordering wakes the synthesizer stage
 
-**Early convergence note:** Specialists who converge early remain alive — late-arriving peer messages may warrant a quick update to findings before the agent terminates.
-
-**Timeout:** If a CHALLENGE goes unanswered for 2 minutes → mark finding as `[UNVERIFIED]`.
+**Timeout:** A challenge that arrives after a peer has returned is answered by that peer's continuation agent in the rebuttal round. A challenge still unanswered after that round → mark the finding `[UNVERIFIED]`.
 
 ## Failure Handling
 
-- **Scout fails (no inventory):** Specialists fall back to self-directed file discovery (Glob + Read workflow). Budget 3 extra minutes.
+- **Scout fails (no inventory):** The script's gate redispatches the chunk to a Sonnet scout, then stubs it; specialists fall back to self-directed file discovery (Glob + Read workflow) on a stub. Budget 3 extra minutes.
 - **Scout times out (partial inventory):** Specialists use what's there + supplement with own Glob/Read for missing directories.
 - **Self-timed convergence (ceiling):** Specialists begin convergence autonomously after max time, without EM intervention.
 - **Read failures:** If a file can't be read (binary, permissions), skip it and note in output.
-- **All specialists fail:** EM is notified (no completed specialist tasks), reports to PM.
+- **All specialists fail:** The synthesizer stage finds no assessments and the Workflow's result says so; the EM reports to PM.
 
 ## Working Directory
 
 `docs/research/{run-id}-{topic-slug}-workdir/`
 
-- Scout 1 writes to: `{scratch-dir}/A-inventory.md`, `{scratch-dir}/B-inventory.md`
-- Scout 2 writes to: `{scratch-dir}/C-inventory.md`, `{scratch-dir}/D-inventory.md`
+- Scouts write to: `{scratch-dir}/{chunk-letter}-inventory.md` for their assigned chunks (Haiku tier: scout-1 → A, B; scout-2 → C, D)
 - Each specialist writes to: `{scratch-dir}/{chunk-letter}-assessment.md` (always) + `{scratch-dir}/{chunk-letter}-comparison.md` (if comparison mode)
+- Mailboxes: `{scratch-dir}/mail/<role>.jsonl`
 - Synthesizer writes to: `{output-path}` + `{scratch-dir}/synthesis.md`
 
 ## Deeper Mode
@@ -175,13 +164,13 @@ When `--deeper` is provided, the EM generates a dependency-weighted repomap duri
 
 ## Survey Mode
 
-When `--survey` is provided (or implied by `--deepest`), the EM dispatches a solo Opus subagent before the team to produce a holistic 20-30KB narrative overview. The survey:
+When `--survey` is provided (or implied by `--deepest`), the EM dispatches a solo Opus subagent before the Workflow to produce a holistic 20-30KB narrative overview. The survey:
 
 1. Reads the entire repo in one context window
 2. Catches cross-cutting insights that chunked analysis structurally misses
-3. Produces a decision gate: PM can accept the survey as the deliverable or proceed with the team
+3. Produces a decision gate: PM can accept the survey as the deliverable or proceed with the workflow
 
-If the team proceeds, the survey is passed to specialists as their first context artifact, read before repomap and scout inventories.
+If the workflow proceeds, the survey is passed to specialists as their first context artifact, read before repomap and scout inventories.
 
 **Survey caching:** If a prior survey exists at the output path and is less than 7 days old, the EM may reuse it instead of regenerating.
 
@@ -189,19 +178,19 @@ If the team proceeds, the survey is passed to specialists as their first context
 
 When `--deepest` is provided, Pipeline B runs as a **three-phase pipeline**. `--deepest` implies both `--deeper` and `--survey`.
 
-**Phase 1 (Scouts + Atlas Sketch):** EM creates team with scouts + synthesizer (3 teammates initially). Scouts inventory files (~5 min). After scouts complete, EM dispatches a Haiku atlas sketch subagent (regular subagent, NOT a teammate — preserves 7-teammate limit) that reads scout inventories + repomap and produces 3 preliminary atlas artifacts: file index, system map, connectivity matrix. NOT the architecture summary — that requires specialist analysis.
+**Phase 1 (Scouts + Atlas Sketch):** The script runs the scouts and the gate. After the gate returns, it dispatches a Haiku atlas sketch agent that reads scout inventories + repomap and produces 3 preliminary atlas artifacts: file index, system map, connectivity matrix. NOT the architecture summary — that requires specialist analysis.
 
-**Phase 2 (Specialists + Synthesis):** EM spawns 4 specialists into the existing team (total 7 teammates). Specialists receive: survey (if produced) + repomap + atlas sketch + scout inventory. They validate atlas sketch connections with `[CONFIRMED]`/`[REFUTED]`/`[MISSING]` markers. Synthesizer cross-references and produces assessment + gap analysis (with deduplication — assessment describes what IS, gap analysis describes what to CHANGE).
+**Phase 2 (Specialists + Synthesis):** The script dispatches the 4 specialists. Specialists receive: survey (if produced) + repomap + atlas sketch + scout inventory. They validate atlas sketch connections with `[CONFIRMED]`/`[REFUTED]`/`[MISSING]` markers. The synthesizer cross-references and produces assessment + gap analysis (with deduplication — assessment describes what IS, gap analysis describes what to CHANGE), then runs the fidelity relay (see below).
 
-**Phase 3 (Atlas Refinement — post-synthesis):** After the team is torn down (auto, on session exit), a Sonnet subagent refines the preliminary atlas using specialist validation data and synthesis findings, and produces the architecture summary (the 4th artifact). This is the only artifact not in the sketch.
+**Phase 3 (Atlas Refinement — post-synthesis):** After the Workflow completes, the EM dispatches a Sonnet subagent that refines the preliminary atlas using specialist validation data and synthesis findings, and produces the architecture summary (the 4th artifact). This is the only artifact not in the sketch.
 
 ```
 Scout 1 (chunks A, B) ─┐
-                         ├──→ Atlas Sketch (Haiku subagent) ──→ Specialists A,B,C,D
+                        ├──→ Gate ──→ Atlas Sketch (Haiku) ──→ Specialists A,B,C,D
 Scout 2 (chunks C, D) ─┘                                          │
-                                                                    ├──→ Synthesizer
+                                                                    ├──→ Synthesizer (+ relay)
                                                                     │
-                                                         Atlas Refinement (post-synth)
+                                                         Atlas Refinement (post-run)
 ```
 
 **System taxonomy:** Systems map to EM-defined chunks (A, B, C, D) with their chunk descriptions as system names. The atlas agent does not invent its own groupings.
@@ -216,39 +205,36 @@ Scout 2 (chunks C, D) ─┘                                          │
 
 **When this fires:** Repo runs only — gated to `--deepest` flag. `--deeper` and non-flag runs skip this phase entirely.
 
-**Relay locus: Team 1, before the synthesizer marks its task complete.** This is an internal synthesizer phase that runs after Phase 3 framing is complete but **before the synthesizer marks its task complete** and **before the team is torn down (auto, on session exit)**. Specialists are alive-but-idle at this point (see Convergence Protocol § Early convergence note above) — they have completed their tasks but the team has not been torn down. No extra teammate slots are consumed. The relay fits cleanly within the 7-teammate ceiling.
+**Relay locus: inside the Workflow, between the synthesizer's two passes.** The synthesizer's pass 1 writes the draft and returns without messaging anyone. The script then dispatches a fresh continuation agent for each specialist, carrying the relay request, and after they return dispatches the synthesizer's pass 2. Specialists have returned by then, so a continuation agent answers for each; no live agent is woken.
 
-**Relay sequence (synthesizer responsibility — see `agents/research-synthesizer.md § Fidelity Relay`):**
+**Relay sequence (see `agents/research-synthesizer.md § Fidelity Relay`):**
 
-1. For each specialist, send a `FIDELITY_RELAY` message (wake-up mechanism — same wake-via-SendMessage pattern as specialist→synthesizer DONE at :75 above):
+1. Synthesizer pass 1: write the synthesis draft, then return.
+
+2. Script: dispatch a continuation agent per specialist (naming its mailbox, its own prior outputs, and its predecessor's return value) with this request:
    ```
    FIDELITY_RELAY: [CHUNK_LETTER]
    Please verify that YOUR contributed findings are faithfully represented in the
    synthesis draft at {output-path}. Check ONLY for misrepresentation, flattening,
    or distortion of your existing findings — NOT for missing content you wish were added.
-   Reply with FIDELITY_CORRECTION or FIDELITY_OK (see your Fidelity Relay section).
-   You have 2 minutes to respond.
+   Reply by appending FIDELITY_CORRECTION or FIDELITY_OK to mail/synthesizer.jsonl.
    ```
+   Each continuation answers and returns.
 
-2. **Per-specialist bounded timeout:** mirror the 2-minute CHALLENGE timeout from Convergence Protocol above. Specialists who converge early remain alive-but-idle but re-poll responsiveness after task-complete is not guaranteed.
-
-3. **On non-response:** proceed without that specialist's confirmation. The synthesizer notes the non-response explicitly in the synthesis (`[RELAY: {CHUNK_LETTER} specialist did not respond within timeout — relay unconfirmed for this chunk]`). **Never hang the pipeline waiting for a non-responding specialist.**
+3. **Bounded:** one relay round. **On non-response:** a specialist whose continuation wrote no reply is unconfirmed. Synthesizer pass 2 notes it explicitly in the synthesis (`[RELAY: {CHUNK_LETTER} specialist did not respond — relay unconfirmed for this chunk]`). **Never hang the pipeline waiting for a non-responding specialist.**
 
 4. **Bloat-guard (structural discriminator):** A valid fidelity correction must reference an **existing synthesis sentence** and assert it misrepresents the source. A correction that only asks to ADD a sentence is out of scope by construction — the relay is scoped to misrepresentation, not coverage inflation. Reject add-content requests under the synthesizer's existing preserve-don't-inflate mandate.
 
-5. Integrate valid corrections, then do a second pass for coherence on touched prose only.
+5. Synthesizer pass 2: read `mail/synthesizer.jsonl`, integrate valid corrections, do a second pass for coherence on touched prose only, finish the durable index artifacts, and return.
 
-6. Only after completing steps 1–5: synthesizer marks its task complete.
-
-**Author-scoped check (for specialists):** When you receive `FIDELITY_RELAY`:
+**Author-scoped check (for specialist continuations):** When your continuation brief carries `FIDELITY_RELAY`:
 - Check ONLY: is YOUR finding faithfully represented, or was it flattened/distorted/over-stated?
 - Do NOT request additions of content you wish were included — that is out of scope by construction.
-- Reply `FIDELITY_CORRECTION: [CHUNK_LETTER]` with the existing synthesis sentence and the misrepresentation, OR `FIDELITY_OK: [CHUNK_LETTER]`.
-- You have 2 minutes. If you cannot respond in time, the synthesizer proceeds without your confirmation.
+- Append `FIDELITY_CORRECTION: [CHUNK_LETTER]` with the existing synthesis sentence and the misrepresentation, OR `FIDELITY_OK: [CHUNK_LETTER]`, to `mail/synthesizer.jsonl`.
 
 ## Coverage-Auditor Lifecycle
 
-The coverage auditor is a **non-teammate Agent** dispatched by the EM **after the synthesis is complete** (at the "On Completion Notification" step in `pipelines/repo-driver.md`), before the run concludes. It is a fresh-eyes Sonnet cross-reference pass — not the synthesizer grading its own homework.
+The coverage auditor is a plain `Agent` dispatched by the EM **after the Workflow completes** (at the "On Completion Notification" step in `pipelines/repo-driver.md`), before the run concludes. It is a fresh-eyes Sonnet cross-reference pass — not the synthesizer grading its own homework.
 
 **What it does:** Cross-references specialist `*-claims.json` and `*-summary.md` records against the synthesis. Emits one sidecar: `{output-path minus .md}-coverage-audit.md`. Never writes the synthesis output path.
 
@@ -257,7 +243,7 @@ The coverage auditor is a **non-teammate Agent** dispatched by the EM **after th
 - `-coverage-audit.md` — "Did the synthesis carry the research?" (output coverage, reader-facing completeness, auditor-owned)
 
 **Auditor lifecycle notes:**
-- Dispatched as a plain `Agent(...)` call, not under the team — preserves the 7-teammate ceiling (precedent: Atlas Sketch and Atlas Refinement in `--deepest` mode are also non-teammate subagents for the same reason).
+- Dispatched by the EM as a plain `Agent(...)` call after the Workflow's completion notification (precedent: Atlas Refinement in `--deepest` mode is also EM-dispatched after the run).
 - Input universe: specialist claim records only (`*-claims.json`, `*-summary.md`). `[SWEEP ADDITION]` content is excluded from the denominator (no upstream claim record; including it causes false-absent noise).
 - Coverage classification is binary: **present-with-pointer** or **absent**. "Under-represented" is a judgment beyond a Sonnet cross-reference pass.
 - `[UNFILLED GAP]` inline markers in the synthesis remain in synthesis prose (reader-facing); the auditor's Completeness Map consolidates and references them — it does not delete them.

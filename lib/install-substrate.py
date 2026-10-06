@@ -29,7 +29,7 @@ debt in `state/posix-exec-baseline.json`.
 Env:
     CLAUDE_PLUGIN_ROOT — required; the coordinator plugin install root (the DoE-owned
                           coordinator/ tree holding lib/ AND templates/). Resolved via
-                          content_root() when unset — NOT from this file's own location.
+                          read_content_root() when unset — NOT from this file's own location.
     CLAUDE_HOME        — optional; $HOME substitute (see lib/claude-home).
     COORDINATOR_NON_INTERACTIVE — optional; "1" suppresses the AppX stub deletion
                           consent prompt. Any other value is treated as unset.
@@ -58,7 +58,6 @@ if _BIN_LIB_DIR not in sys.path:
     sys.path.insert(0, _BIN_LIB_DIR)
 from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 from coordinator_data_root import content_root_or_private  # noqa: E402
-from coordinator_registry import _DoeUnresolvable, content_root  # noqa: E402
 
 
 def _derive_plugin_root() -> str:
@@ -73,26 +72,27 @@ def _derive_plugin_root() -> str:
     below rejected it on every run — `python <claude-klabauter>/coordinator/lib/
     install-substrate.py` could not execute from its own documented fence.
     A script whose required root is always a DIFFERENT repo's tree must not
-    infer it from its own path; content_root() is the authority for "where is the
-    coordinator-content-repo clone." A future reader must not "restore" __file__-based
+    infer it from its own path; read_content_root() is the authority for "where
+    is the content clone." A future reader must not "restore" __file__-based
     derivation to regain oracle parity — that is exactly what broke it. Same
     reasoning, same fix as install-sandbox-check.py::_resolve_coordinator_root.
     """
     existing = os.environ.get("CLAUDE_PLUGIN_ROOT", "")
     if existing:
         return existing
-    try:
-        resolved = content_root()
-    except _DoeUnresolvable as exc:
+    require_dispatch_engine_on_path()
+    from coordinator_core.content_root import read_content_root
+
+    resolved = read_content_root()
+    if not resolved:
         print(
-            f"install-substrate: cannot resolve the coordinator plugin root ({exc}).",
+            "install-substrate: cannot resolve the coordinator plugin root.",
             file=sys.stderr,
         )
         print(
             "  Set CLAUDE_PLUGIN_ROOT explicitly (the remedy that works for an OSS "
-            "installer, which has no repos.content_root to resolve), or set "
-            "repos.content_root in the machine-local registry, or set REPO_CONTENT_ROOT "
-            "(or legacy CONTENT_ROOT).",
+            "installer, which has no content root to resolve), or set "
+            "repos.content_root in the machine-local registry.",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -122,7 +122,7 @@ def main() -> None:
         )
         print(f"  Resolved root: {plugin_root}", file=sys.stderr)
         print(
-            "  Set CLAUDE_PLUGIN_ROOT explicitly to override the content_root() resolution.",
+            "  Set CLAUDE_PLUGIN_ROOT explicitly to override the read_content_root() resolution.",
             file=sys.stderr,
         )
         sys.exit(1)

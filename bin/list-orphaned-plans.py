@@ -84,7 +84,7 @@ def _bootstrap_engine() -> None:
 
     global list_orphaned, AGING_THRESHOLD_DAYS, truncate_external_text, show_toplevel
     from coordinator_core.ops.draft_plan_aging import AGING_THRESHOLD_DAYS, list_orphaned
-    from coordinator_core.orient_assemble.reader_result import truncate_external_text
+    from coordinator_core.contract.decision_object.reader_result import truncate_external_text
     from coordinator_core.git.repo_root import show_toplevel
 
     _BOOTSTRAP_DONE = True

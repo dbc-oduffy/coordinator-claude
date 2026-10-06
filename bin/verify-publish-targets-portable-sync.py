@@ -283,7 +283,7 @@ def _claude_klabauter_tracked_path() -> Path:
 def _doe_tracked_path() -> Path:
     """Return the DoE-tracked publish-targets.portable path.
 
-    Resolved via content_root() (env CONTENT_ROOT/REPO_CONTENT_ROOT -> machine-local
+    Resolved via content_root() (env REPO_CONTENT_ROOT -> machine-local
     repos.content_root -> raise), not this script's own __file__ location:
     this executable lives in claude-klabauter while setup/ stayed in
     coordinator-content-repo per DR-047 (see verify-templates-bin-sync.py's
@@ -303,8 +303,8 @@ def _doe_tracked_path() -> Path:
         # command.
         print(
             "verify-publish-targets-portable-sync.py: cannot resolve the "
-            f"coordinator-content-repo repo root ({exc}). Set repos.content_root in the "
-            "machine-local registry, or set the CONTENT_ROOT env var.",
+            f"content repo root ({exc}). Set repos.content_root in the "
+            "machine-local registry.",
             file=sys.stderr,
         )
         sys.exit(1)

@@ -15,7 +15,7 @@ Output path: state/lessons-outbox/<ISO-ts>-<slug>.yaml
 
 from_repo resolution order (same convention as cross-repo-memo):
   1. cwd git-root → reverse-lookup against machine-local repos.* table
-  2. repos.content_root (coordinator-content-repo repo) → "claude-central-em"
+  2. repos.content_root (the content root) → the central EM id
   3. Unregistered git repo → basename of git root + "-em"
   4. Not in a git repo → "unknown-sender-em"
   Never uses `git remote get-url origin` — that yields a URL, not a shortname.
@@ -40,7 +40,7 @@ Exit-code contract:
   1  unexpected error (schema load failure, filesystem error, unexpected op result shape).
   2  invalid arguments — argparse-detected (missing/unknown flag, invalid --change-kind),
      or --target-wiki not found in the central wiki inventory (see § A7 below).
-  3  coordinator-content-repo root unresolvable — the write (or the --target-wiki inventory check) was
+  3  content root unresolvable — the write (or the --target-wiki inventory check) was
      SKIPPED, not silently treated as success. Remediate per the stderr message
      (`machine-local set repos.content_root /path/to/coordinator-content-repo`).
      Also used when the DISPATCH engine root (claude-klabauter) itself is
@@ -48,7 +48,7 @@ Exit-code contract:
      ever runs — remediate per the stderr message ('machine-local set
      repos.claude_klabauter /path/to/claude-klabauter').
 
-Negative-spec (A13): a skipped write due to an unresolvable coordinator-content-repo root is NEVER
+Negative-spec (A13): a skipped write due to an unresolvable content root is NEVER
 exit 0. A caller checking only `returncode == 0` must be able to trust that outcome —
 exit 0 means an entry was actually written.
 
@@ -117,12 +117,6 @@ _PUBLISH_MIRROR_MARKERS = (
 def _is_publish_mirror_root(resolved_root: str) -> bool:
     normalized = os.path.normpath(resolved_root)
     return any(marker in normalized for marker in _PUBLISH_MIRROR_MARKERS)
-
-# Env var for CONTENT_ROOT override — mirrors CLAUDE_KLABAUTER_ROOT §4b idempotency gate.
-# Honoured by coordinator_registry.content_root() (bound by _bootstrap_imports()) —
-# kept here as a local constant for documentation and error-message reference.
-# Spec backlink: docs/plans/2026-07-06-gate2-w23-state-seam-caller-switch.md § C1
-_CONTENT_ROOT_ENV = "CONTENT_ROOT"
 
 
 _BOOTSTRAPPED_NAMES = (
@@ -337,7 +331,7 @@ def _outbox_root() -> str:
     _DoeUnresolvable handler in main()).
 
     Negative-spec: does NOT fall back to cwd-relative state/ or to claude-klabauter when
-    CONTENT_ROOT is unresolvable — silent fallback is a write-plane landmine.
+    the content root is unresolvable — silent fallback is a write-plane landmine.
 
     Negative-spec (klabauter#39): does NOT write into an OSS publish-mirror install
     (a scrubbed/marketplace copy of the doctrine repo) even when content_root() resolves
@@ -355,7 +349,7 @@ def _outbox_root() -> str:
         return override
     # Central state (lessons-outbox) routes to DoE — doctrine class.
     # content_root() raises _DoeUnresolvable when repos.content_root is unregistered and
-    # CONTENT_ROOT env var is not set; _DoeUnresolvable propagates to legacy_fn() catch.
+    # no override env var is set; _DoeUnresolvable propagates to legacy_fn() catch.
     # Spec backlink: gate2-w23-state-seam-caller-switch.md § C1 / AC2
     resolved_content_root = content_root()
     if _is_publish_mirror_root(resolved_content_root):
@@ -364,7 +358,7 @@ def _outbox_root() -> str:
             f"an OSS publish-mirror install ({resolved_content_root!r}) — the private "
             f"coordinator content repo is unresolvable via env/registry. Remediation: "
             f"run 'machine-local set repos.content_root /path/to/the-coordinator-doctrine-repo' "
-            f"or set CONTENT_ROOT=/path/to/the-coordinator-doctrine-repo before invoking this CLI."
+            f"or set REPO_CONTENT_ROOT=/path/to/the-coordinator-doctrine-repo before invoking this CLI."
         )
     return os.path.join(resolved_content_root, "state", "lessons-outbox")
 
@@ -446,7 +440,7 @@ def _validate_target_wiki(
         )
         print(
             "  Remediation: run 'machine-local set repos.content_root /path/to/the-coordinator-doctrine-repo'\n"
-            "  or set CONTENT_ROOT=/path/to/the-coordinator-doctrine-repo before invoking this CLI.\n"
+            "  or set REPO_CONTENT_ROOT=/path/to/the-coordinator-doctrine-repo before invoking this CLI.\n"
             "  Reference: plugins/coordinator-claude/coordinator/docs/wiki/machine-local-registry.md §4c",
             file=sys.stderr,
         )
@@ -815,7 +809,7 @@ def main(argv: list[str] | None = None) -> int:
                 from_repo=from_repo,
             )
         except _DoeUnresolvable as exc:
-            # A13 fix: graceful-skip on unresolvable CONTENT_ROOT is WARN + skip, but the
+            # A13 fix: graceful-skip on an unresolvable content root is WARN + skip, but the
             # skip is NEVER silent success — exit _EXIT_DOE_UNRESOLVABLE (3), not 0.
             # A coordinator install without repos.content_root registered (pre-fleet-clone
             # or non-DoE machine) WARNs, writes nothing, and reports that honestly via
@@ -825,13 +819,13 @@ def main(argv: list[str] | None = None) -> int:
             # registered evaporated while the exit code claimed success.
             # Spec backlink: docs/plans/2026-07-06-gate2-w23-state-seam-caller-switch.md § C1 / AC2
             print(
-                f"warn: coordinator-lesson-promote: CONTENT_ROOT unresolvable — "
+                f"warn: coordinator-lesson-promote: content root unresolvable — "
                 f"skipping central lessons-outbox write: {exc}",
                 file=sys.stderr,
             )
             print(
                 "  Remediation: run 'machine-local set repos.content_root /path/to/the-coordinator-doctrine-repo'\n"
-                "  or set CONTENT_ROOT=/path/to/the-coordinator-doctrine-repo before invoking this CLI.\n"
+                "  or set REPO_CONTENT_ROOT=/path/to/the-coordinator-doctrine-repo before invoking this CLI.\n"
                 "  Reference: plugins/coordinator-claude/coordinator/docs/wiki/machine-local-registry.md §4c",
                 file=sys.stderr,
             )
@@ -903,8 +897,8 @@ def main(argv: list[str] | None = None) -> int:
         "evidence": args.evidence if args.evidence else None,
         "from_repo": from_repo,
     }
-    # The native op must write under the SAME DoE root --target-wiki was validated
-    # against (CONTENT_ROOT honoured), not re-resolve it from the warm server's own env
+    # The native op must write under the SAME content root --target-wiki was validated
+    # against, not re-resolve it from the warm server's own env
     # and registry (claude-klabauter#33). Unresolvable here → omit, and the op's own
     # resolution reports the skip.
     try:
@@ -924,20 +918,6 @@ def main(argv: list[str] | None = None) -> int:
     ):
         return _run_legacy_with_write_declaration()
 
-    # CONTENT_ROOT gate (klabauter#33): CONTENT_ROOT is documented (module docstring, § from_repo
-    # resolution / _CONTENT_ROOT_ENV) as this CLI's steering lever for the coordinator-content-repo root, and
-    # this CLI's OWN content_root() (coordinator_registry.content_root(), used by --target-wiki
-    # validation above and by the legacy write path) trusts it as rung 1a. The NATIVE
-    # queue.promote op's resolver (coordinator_core.ops.coordinator_content_root) has no CONTENT_ROOT
-    # rung at all — only REPO_CONTENT_ROOT — so an operator who set CONTENT_ROOT (without also
-    # setting REPO_CONTENT_ROOT) would see --target-wiki validation obey it while the native
-    # write silently fell through to a different resolution (up to and including an OSS
-    # publish-mirror install — see _is_publish_mirror_root). Force the legacy in-process
-    # write, which resolves through THIS module's own CONTENT_ROOT-aware content_root(), whenever
-    # CONTENT_ROOT is the only lever the operator has pulled.
-    if os.environ.get(_CONTENT_ROOT_ENV, "").strip() and not os.environ.get("REPO_CONTENT_ROOT", "").strip():
-        return _run_legacy_with_write_declaration()
-
     result = _cc_route("queue.promote", params, repo_root, _run_legacy_with_write_declaration)
 
     if isinstance(result, dict):
@@ -948,15 +928,15 @@ def main(argv: list[str] | None = None) -> int:
             # silent-success hole to the legacy path, just reached via the native
             # queue.promote op's {"skipped": true, "reason": ...} result shape instead
             # of a raised _DoeUnresolvable exception.
-            reason = result.get("reason", "CONTENT_ROOT unresolvable")
+            reason = result.get("reason", "content root unresolvable")
             print(
-                f"warn: coordinator-lesson-promote: CONTENT_ROOT unresolvable — "
+                f"warn: coordinator-lesson-promote: content root unresolvable — "
                 f"skipping central lessons-outbox write: {reason}",
                 file=sys.stderr,
             )
             print(
                 "  Remediation: run 'machine-local set repos.content_root /path/to/the-coordinator-doctrine-repo'\n"
-                "  or set CONTENT_ROOT=/path/to/the-coordinator-doctrine-repo before invoking this CLI.\n"
+                "  or set REPO_CONTENT_ROOT=/path/to/the-coordinator-doctrine-repo before invoking this CLI.\n"
                 "  Reference: plugins/coordinator-claude/coordinator/docs/wiki/machine-local-registry.md §4c",
                 file=sys.stderr,
             )
@@ -973,7 +953,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 1
         # Echo the write destination on success (claude-klabauter#33) — the one
-        # cheap check that would have made the CONTENT_ROOT/native-write mismatch
+        # cheap check that would have made a content-root/native-write mismatch
         # self-evident in a single invocation, matching legacy_fn's own labelled
         # stdout contract below.
         print(f"Lesson outbox entry written: {_repo_relative_outbox_path(out_path)}")

@@ -13,7 +13,7 @@ no second interpreter spawn, matching AC15's "no per-item process spawn" budget
 invocation).
 
 Usage:
-    doc-index.py --target-root <path> [--index-path <repo-relative path>] [--write]
+    doc-index.py --target-root <path> [--index-path <repo-relative path>] [--write] [--rebaseline]
 
     --target-root <path>  Required. Root of the tree to resolve/discover
                            self-declared indexes under.
@@ -23,6 +23,9 @@ Usage:
                            root.
     --write                Optional. Rewrite every resolved index whose
                            comparison is ordinary drift (never a hand-edit).
+    --rebaseline           Optional. Repair a hand-edit refusal: rewrite the
+                           region from source, discarding the hand-edit; the
+                           result reports rebaselined: true.
                            Default: report only, write nothing (AC9).
 
 Output: `json.dumps(result, ensure_ascii=False)` — the bare "docindex.emit"
@@ -50,7 +53,10 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+from cc_invoke import require_colocated_engine_on_path  # noqa: E402
+
+require_colocated_engine_on_path(__file__)
 
 from coordinator_core.ops.docindex_emit import _docindex_emit  # noqa: E402
 
@@ -72,6 +78,8 @@ def _parse_argv(argv: list[str]) -> dict:
             params["index_path"] = argv[i]
         elif arg == "--write":
             params["write"] = True
+        elif arg == "--rebaseline":
+            params["rebaseline"] = True
         else:
             raise ValueError(f"unknown argument: {arg!r}")
         i += 1

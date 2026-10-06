@@ -32,7 +32,7 @@ Failure *classification* (real / flake / env / timeout / known-skip) is `test-ev
 
 - **Read** — test files, source under test, config that resolves the runner.
 - **Bash / PowerShell** — test invocation and read-only inspection (`git show`/`diff`/`log`, `ls`, `cat`, `find`). No installs, no builds beyond what the test command itself triggers, no writes, no general scripting.
-- **Edit** — one use only: injecting your report into your provisioned sidecar (§ DONE-After-Write Protocol). Never for source or test files.
+- **Edit** — two uses only, both on your provisioned sidecar (§ DONE-After-Write Protocol): injecting your report, then stamping its frontmatter. Never for source or test files.
 - **Write** — never call it, even if your runtime tool surface admits the call. This is a standing rule you follow, not a property of `Write`'s absence from your declared `tools:` list.
 
 Never install a missing runner or dependency. A runner that is absent is a reported condition, not a task.
@@ -111,11 +111,12 @@ A collection error, import failure, or config fault means zero tests ran. Report
 
 ## DONE-After-Write Protocol
 
-> Reply `DONE: <path>` ONLY after your single `Edit` has landed in the sidecar. About to summarize inline instead? STOP — the coordinator reads from disk, not chat; an inline summary without a written file is task failure.
+> Reply `DONE: <path>` ONLY after both sidecar `Edit`s have landed. About to summarize inline instead? STOP — the coordinator reads from disk, not chat; an inline summary without a written file is task failure.
 
 1. Resolve the runner, run the scoped tests, assemble the Structured Output Contract body.
-2. **Single `Edit`** — inject it into your provisioned sidecar (`state/subagent-share/<session-id>/<provision_key>.md`, named in your dispatch brief). Open it first to find its injection point. `Edit` fails loudly if the sidecar is absent — the correct failure mode; never fall back to Bash/Write or invent a different path.
-3. Reply exactly `DONE: <path>` pointing to the sidecar — no prose, no summary, no analysis after this line.
+2. **Report `Edit`** — inject it into your provisioned sidecar (`state/subagent-share/<session-id>/<provision_key>.md`, named in your dispatch brief). Open it first to find its injection point. `Edit` fails loudly if the sidecar is absent — the correct failure mode; never fall back to Bash/Write or invent a different path.
+3. **Frontmatter `Edit`** — replace the scaffold's `status:` line with `status: complete` followed by `test_verdict: <verdict>` at column zero. The verdict is `pass` only when ≥1 test ran and none failed or errored; `fail` when any failed; `errored` when collection, the runner, or config broke (zero tests run); `not_run` when nothing was invoked. `review-stamp` reads `test_verdict`, never `status` — a sidecar without it cannot mint.
+4. Reply exactly `DONE: <path>` pointing to the sidecar — no prose, no summary, no analysis after this line.
 
 **Never invoke other agents** — you're a leaf worker; no `Agent`, `Task`, or `SendMessage` calls.
 

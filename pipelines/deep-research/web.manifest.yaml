@@ -1,0 +1,96 @@
+# Web research, pass 1. The deepening pass is its own fire: web-deepening.manifest.yaml.
+# Topic letters are lowercase: {{item}} is bound verbatim into role names and file names.
+schema_version: 1
+pipeline: web
+description: Scout builds a corpus, specialists research and challenge through mailboxes, a rebuttal round answers challenges, an Opus sweep synthesizes.
+inputs:
+  brief: required
+  scratch_dir: optional
+  lists:
+    topics:
+      kind: strings
+stages:
+  - id: scout
+    phase: Scout
+    agent_type: coordinator:research-scout
+    model: haiku
+    template: scout-prompt-template.md
+    web_caller: true
+    output: "{{scratch_dir}}/source-corpus.md"
+  - id: specialists
+    phase: Specialists
+    agent_type: coordinator:research-specialist
+    model: sonnet
+    template: specialist-prompt-template.md
+    fan_out:
+      over: inputs.topics
+    web_caller: true
+    depends_on: [scout]
+    output: "{{scratch_dir}}/{{item}}-claims.json"
+    schema:
+      type: object
+      properties:
+        letter:
+          type: string
+        challenged:
+          type: array
+          items:
+            type: string
+        claimsPath:
+          type: string
+      required: [letter, challenged, claimsPath]
+  - id: rebuttal
+    phase: Rebuttal
+    agent_type: coordinator:research-specialist
+    model: sonnet
+    template: web-rebuttal-prompt-template.md
+    fan_out:
+      over: stage.specialists.return.challenged
+    web_caller: true
+    depends_on: [specialists]
+    output: "{{scratch_dir}}/{{item}}-claims.json"
+  - id: sweep
+    phase: Sweep
+    agent_type: coordinator:research-synthesizer
+    model: opus
+    template: web-sweep-prompt-template.md
+    web_caller: true
+    depends_on: [rebuttal]
+    output: "{{scratch_dir}}/synthesis.md"
+    schema:
+      type: object
+      properties:
+        deepeningRecommended:
+          type: boolean
+        summary:
+          type: string
+      required: [deepeningRecommended, summary]
+  - id: relay
+    phase: Relay
+    agent_type: coordinator:research-specialist
+    model: sonnet
+    template: web-relay-prompt-template.md
+    when:
+      return: stage.sweep.return.deepeningRecommended
+    fan_out:
+      over: inputs.topics
+    depends_on: [sweep]
+    output: "{{scratch_dir}}/relay-{{item}}.md"
+  - id: sweep-continuation
+    phase: Relay
+    agent_type: coordinator:research-synthesizer
+    model: opus
+    template: web-sweep-prompt-template.md
+    when:
+      return: stage.sweep.return.deepeningRecommended
+    web_caller: true
+    depends_on: [relay]
+    output: "{{scratch_dir}}/synthesis.md"
+    schema:
+      type: object
+      properties:
+        deepeningRecommended:
+          type: boolean
+        summary:
+          type: string
+      required: [deepeningRecommended, summary]

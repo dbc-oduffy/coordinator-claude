@@ -179,7 +179,6 @@ def main(argv: "list[str] | None" = None) -> int:
     args = parser.parse_args(argv)
 
     document = build_document()
-    rendered = yaml.safe_dump(document, sort_keys=False, allow_unicode=True, width=100)
 
     if args.check:
         try:
@@ -188,12 +187,17 @@ def main(argv: "list[str] | None" = None) -> int:
         except OSError:
             print(f"{args.output} is absent", file=sys.stderr)
             return 1
+        # source_sha names the commit the join was generated at; committing the join moves HEAD,
+        # so freshness is judged on content with the committed stamp carried over.
+        document["source_sha"] = (yaml.safe_load(committed) or {}).get("source_sha")
+        rendered = yaml.safe_dump(document, sort_keys=False, allow_unicode=True, width=100)
         if committed != rendered:
             print(f"{args.output} is stale", file=sys.stderr)
             return 1
         print(f"{args.output} is up to date")
         return 0
 
+    rendered = yaml.safe_dump(document, sort_keys=False, allow_unicode=True, width=100)
     with open(args.output, "w", encoding="utf-8", newline="\n") as handle:
         handle.write(rendered)
     print(f"wrote {args.output}")

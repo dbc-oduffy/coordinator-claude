@@ -55,7 +55,7 @@ REGISTRY_PATH = REPO_ROOT / "state" / "bash-guards" / "known-red.json"
 DEFAULT_TARGET = "coordinator_core/bash_guards/tests/"
 REVIEW_WINDOW_DAYS = 30
 
-# Generator-provenance declaration (C2, generator_provenance.py's AST reader).
+# Generator-provenance declaration (C2, coordinator_core/ops/generator_census reader).
 # THIS file is the real writer (REGISTRY_PATH.write_text below), not a shim
 # delegating elsewhere, so `sources` names its own path -- unlike the bin/
 # CLI trampolines this row's plan chunk also declares.

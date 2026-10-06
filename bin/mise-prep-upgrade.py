@@ -129,7 +129,10 @@ _CODEFENCE = re.compile(r"```.*?```", re.S)
 
 _PLAN_KINDS = frozenset({"plan"})
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+from cc_invoke import require_colocated_engine_on_path  # noqa: E402
+
+require_colocated_engine_on_path(__file__)
 # The gate's own sha predicates, so "already well-shaped" means what the gate means.
 from coordinator_core.execute_plan_assemble.falsifier_shape import (  # noqa: E402
     _BASELINE_REF_CROSS_REPO_RE,

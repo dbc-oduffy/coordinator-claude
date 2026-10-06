@@ -1,7 +1,7 @@
 ---
 name: research
 description: "PM-GATED, never from a subagent. Deep research — web, repo, or structured."
-allowed-tools: ["Agent", "Read", "Write", "Edit", "Bash", "Glob", "Grep", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "SendMessage"]
+allowed-tools: ["Agent", "Read", "Write", "Edit", "Bash", "Glob", "Grep", "Workflow"]
 argument-hint: "--mode={web,repo,structured} <args> [--deepest]"
 ---
 
@@ -12,9 +12,9 @@ Single entry point for all deep-research pipelines. Route by `--mode`.
 ## Arguments
 
 `$ARGUMENTS`:
-- `--mode=web <topic>` — Pipeline A (internet research, Agent Teams)
-- `--mode=repo <path> [--compare <path>] [--survey] [--deeper] [--deepest]` — Pipeline B (repo research, Agent Teams)
-- `--mode=structured <spec-path> [subject-key]` — Pipeline C (structured research, Agent Teams); `create` sub-mode builds a new spec (see driver file Step 0)
+- `--mode=web <topic>` — Pipeline A (internet research, chatty Workflow)
+- `--mode=repo <path> [--compare <path>] [--survey] [--deeper] [--deepest]` — Pipeline B (repo research, chatty Workflow)
+- `--mode=structured <spec-path> [subject-key]` — Pipeline C (structured research, chatty Workflow); `create` sub-mode builds a new spec (see driver file Step 0)
 
 <!-- engine-gap: field=research.resolved_mode producer=unknown memo=engine-gap-markers-name-a-memo-that-was-never-filed.md -->
 **Auto-detect (legacy, no `--mode`):** path that exists on disk → `--mode=repo`. Otherwise, a
@@ -24,22 +24,14 @@ repos.<name>`, (2) `~/Documents/Code_Reference/<name>`, (3) opt-in shallow clone
 Non-resolution falls back to `--mode=web`. Otherwise → `--mode=web`. `--mode=web` always overrides
 auto-detection.
 
-> The web pipeline caps at 5 topics — the ≤5 concurrent web-tool caller ceiling; exceeding it
-> self-throttles indistinguishably from a platform gate. For more, `/spinoff` the question set
-> into chunks across sessions rather than authoring an over-cap harness.
+## Chatty Workflow
 
-## Agent Teams
-
-`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` is `"1"` by default, and this pipeline runs on that
-default. Teams form implicitly when the first teammate spawns. No `TeamCreate` tool.
-
-At `"1"`, *every* named `Agent` call becomes a teammate, and a teammate returns no result to its
-caller — only an idle notice. Interactive sessions only: headless, `-p`, and SDK dispatches never
-form teams, which is what makes the default safe to leave up.
-
-**Requires agent teams** — set in `settings.json`'s `env`, applied at SESSION START and not
-toggleable mid-session. Without it every named dispatch here is an ordinary background subagent
-and no team forms; this default is ratified to stay on.
+Every pipeline runs as ONE background `Workflow` the EM fires after scoping; the EM is then freed
+and completion is the Workflow's task notification. The script runs the stages in `await` order
+(`parallel()` for a fan-out). Workers never `SendMessage` each other or the EM: peer exchange goes
+through mailbox files (`{workdir}/mail/<role>.jsonl`), challenge rounds are continuation
+dispatches, and only the overseer's return value reaches the EM. Doctrine:
+`coordinator/docs/wiki/dispatching-parallel-agents/chatty-workflows.md`. No feature flag gates it.
 
 ## Step 1: Parse Arguments
 
@@ -56,11 +48,11 @@ Step 1 accept-if-passed clause consumes that binding.
 ## Step 3: Prior-Art Pre-Flight
 
 Always-on, all modes. Advisory/report-only — never blocking. Dispatch `prior-art-checker` as a
-non-teammate `Agent` in research mode (`mode: research`, `research_question`, `scratch_dir`,
+plain `Agent` in research mode (`mode: research`, `research_question`, `scratch_dir`,
 optional `peer_repos`) before fan-out. Read the sidecar it writes at
 `{scratch-dir}/prior-art-check.md` (path per `coordinator/agents/prior-art-checker.md` § Sidecar
 path (research mode)). If the "Existing corpus" bucket is non-empty, surface it to the operator
-before spawning the team — options: read it and refine, proceed fresh, or abort. Sidecar absent,
+before firing the Workflow — options: read it and refine, proceed fresh, or abort. Sidecar absent,
 or `prior-art-checker` unresolvable: log a one-liner and proceed to Step 4 — never abort.
 
 ## Step 4: Route to Driver
@@ -71,12 +63,12 @@ Read and follow the driver file for the parsed mode, passing through remaining a
 - `--mode=repo` → `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/repo-driver.md`
 - `--mode=structured` → `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/structured-driver.md`
 
-The driver handles team creation, spawn, completion, archival.
+The driver handles script preparation, firing, completion, archival.
 
 ## Post-Synthesis: Coverage Auditor
 
 Always-on, all four pipelines, no opt-out. After synthesis, before the run concludes, dispatch
-the coverage auditor (`agents/coverage-auditor.md`) as a non-teammate `Agent` — it answers "did
+the coverage auditor (`agents/coverage-auditor.md`) as a plain `Agent` — it answers "did
 the synthesis carry the research?", writes a `-coverage-audit.md` sidecar, never the synthesis
 path itself. Full depth→relay mapping (which pipelines also run a fidelity relay, Pipeline D's
 MCP-extended/cleanup-deferred divergence): wiki (`deep-research-pipelines`).

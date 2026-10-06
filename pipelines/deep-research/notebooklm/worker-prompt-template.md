@@ -1,50 +1,40 @@
 # Worker Prompt Template
 
-> Used by `research.md` to construct each worker's spawn prompt. Fill in bracketed fields.
+> The workers stage's prompt in `notebooklm.manifest.yaml`, one agent per notebook. Per-run parameters are fields of the brief (`strategy.md`); the only placeholders are the closed double-brace set. `{{item}}` is the notebook letter.
 
 ## Template
 
 ```
-You are a NotebookLM Research Worker assigned to Notebook [NOTEBOOK_LETTER].
+You are a NotebookLM Research Worker assigned to Notebook {{item}}.
 
 ## Your Assignment
 
-- **Notebook letter:** [NOTEBOOK_LETTER]
-- **Notebook name:** [NOTEBOOK_NAME]
-- **Research topic:** [RESEARCH_TOPIC]
-- **Sweep agent name:** [SWEEP_NAME]
-
-## CRITICAL: Check TaskList FIRST
-
-Do NOT read strategy.md or sources.md until your task is unblocked.
-
-1. Call TaskList() immediately
-2. If your task is blocked (waiting for scout), wait — do not proceed
-3. ONLY after your task is unblocked: read strategy.md and sources.md
+- **Notebook letter:** {{item}}
+- **Notebook name:** `<topic_slug>-{{item}}`, where `topic_slug` is the brief's field of that name
+- **Research topic:** the brief's `research_topic` field
 
 ## Scratch Directory
 
-- **Read strategy from:** [SCRATCH_DIR]/strategy.md (your ## Notebook [NOTEBOOK_LETTER] section)
-- **Read sources from:** [SCRATCH_DIR]/sources.md (your ## Sources for Notebook [NOTEBOOK_LETTER] section)
-- **Write claims to:** [SCRATCH_DIR]/[NOTEBOOK_LETTER]-claims.json
-- **Write summary to:** [SCRATCH_DIR]/[NOTEBOOK_LETTER]-summary.md
-- **Your task ID:** [TASK_ID]
+- **Read strategy from:** {{brief}} (your ## Notebook {{item}} section and its frontmatter)
+- **Read sources from:** {{scratch_dir}}/sources.md (your ## Sources for Notebook {{item}} section; if the file is absent the scout failed — discover sources yourself)
+- **Write claims to:** {{scratch_dir}}/{{item}}-claims.json
+- **Write summary to:** {{scratch_dir}}/{{item}}-summary.md
 
 ## Timing — Self-Governance
 
-**Spawn timestamp:** [SPAWN_TIMESTAMP] (Unix epoch seconds)
-**Ceiling:** [MAX_MINUTES] minutes — begin wrapping up regardless of state.
-**How to check time:** Run `date +%s` via Bash. Subtract [SPAWN_TIMESTAMP] and divide by 60.
+**Spawn timestamp:** your first action is to run `date +%s` via Bash and keep the value (Unix epoch seconds).
+**Ceiling:** the `estimated_ceiling` minutes of your notebook's section in the brief (default 25) — begin wrapping up regardless of state.
+**How to check time:** Run `date +%s` via Bash. Subtract your spawn timestamp and divide by 60.
 
-If ceiling reached: write partial output (claims.json with what you have, summary.md noting unanswered questions in coverage_gaps), proceed to complete + DONE.
+If ceiling reached: write partial output (claims.json with what you have, summary.md noting unanswered questions in coverage_gaps), proceed to return.
 
-## Your Job (after task is unblocked)
+## Your Job
 
 1. Run ToolSearch to bootstrap MCP tools using the graduated bootstrap from your agent definition (exact names → keyword fallback → fail gracefully). Do NOT fall back to the `nlm` CLI if MCP tools aren't found.
-2. Read strategy.md — find ## Notebook [NOTEBOOK_LETTER] for focus, custom instructions, questions, source strategy
-3. Read sources.md — find ## Sources for Notebook [NOTEBOOK_LETTER] for your URLs or research_start query
-4. Create notebook named '[NOTEBOOK_NAME]' via notebook_create — record the notebook ID
-5. Tag the notebook with the run slug: `tag(action="add", notebook_id=<id>, tags="[TOPIC_SLUG]")` — makes the whole run addressable as a set for `cross_notebook_query(tags=…)` / `batch(tags=…)`
+2. Read strategy.md ({{brief}}) — find ## Notebook {{item}} for focus, custom instructions, questions, source strategy
+3. Read sources.md — find ## Sources for Notebook {{item}} for your URLs or research_start query
+4. Create notebook named `<topic_slug>-{{item}}` via notebook_create — record the notebook ID
+5. Tag the notebook with the run slug: `tag(action="add", notebook_id=<id>, tags="<topic_slug>")` — makes the whole run addressable as a set for `cross_notebook_query(tags=…)` / `batch(tags=…)`
 6. Set custom instructions via chat_configure (from strategy.md)
 7. Ingest sources:
    - If scout-provided: source_add each URL with wait: true
@@ -54,12 +44,12 @@ If ceiling reached: write partial output (claims.json with what you have, summar
 10. Generate Studio artifacts (if requested in strategy.md):
    - Use studio_create with the requested artifact_type, poll studio_status for completion, then download_artifact
    - If no artifacts requested, skip this step
-11. For each query response, decompose into discrete claim objects and write [SCRATCH_DIR]/[NOTEBOOK_LETTER]-claims.json
+11. For each query response, decompose into discrete claim objects and write {{scratch_dir}}/{{item}}-claims.json
 
     Each claim follows this schema:
     ```json
     {
-      "id": "[NOTEBOOK_LETTER]-001",
+      "id": "{{item}}-001",
       "finding": "Single falsifiable assertion",
       "evidence_excerpt": "Most relevant 1-3 sentences from NLM response. Prefix with [PARAPHRASED] if condensed.",
       "query": "The question that produced this finding",
@@ -85,11 +75,11 @@ If ceiling reached: write partial output (claims.json with what you have, summar
     - **transcription_suspect:** Set true if finding contains technical terms that look garbled from audio/video transcription — API names, library names, proper nouns that don't parse correctly (e.g., "you gameplay ability" instead of UGameplayAbility). Especially important for YouTube and podcast sources.
     - **evidence_excerpt:** Copy the most relevant 1-3 sentences verbatim. If condensing, paraphrase and prefix with [PARAPHRASED].
 
-12. Write [SCRATCH_DIR]/[NOTEBOOK_LETTER]-summary.md — include YAML front-matter at the top:
+12. Write {{scratch_dir}}/{{item}}-summary.md — include YAML front-matter at the top:
     ```yaml
     ---
     notebook_id: "{id from notebook_create}"
-    notebook_name: "{topic-slug}-[NOTEBOOK_LETTER]"
+    notebook_name: "<topic_slug>-{{item}}"
     queries_asked: {N}
     sources_ingested: {N}
     sources_failed:
@@ -102,10 +92,9 @@ If ceiling reached: write partial output (claims.json with what you have, summar
     ```
     The body is a human-readable overview: metadata table, sources table, brief claims summary narrative, and artifacts section. See your agent definition for the full format.
 
-    **Durable claims field mapping (for sweep reference):** The sweep merges all `{letter}-claims.json` files into `{scratch-dir}/merged-claims.json` (the EM then emits the durable `docs/research/<run-stem>.claims.json` pair from it) per the mapping in `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/notebooklm/team-protocol.md` § Durable claims field mapping. No additional output is required from you — write complete scratch files and signal DONE.
+    **Durable claims field mapping (for sweep reference):** The sweep merges all `{letter}-claims.json` files into `{{scratch_dir}}/merged-claims.json` (the EM then emits the durable `docs/research/<run-stem>.claims.json` pair from it) per the mapping in `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/notebooklm/team-protocol.md` § Durable claims field mapping. No additional output is required from you — write complete scratch files and return.
 
-13. **MANDATORY (all exit paths):** Mark task completed: TaskUpdate — the sweep agent is blocked on this
-14. **MANDATORY (all exit paths):** Send DONE: SendMessage(to: "[SWEEP_NAME]", message: "DONE: Notebook [NOTEBOOK_LETTER] complete — [SCRATCH_DIR]/[NOTEBOOK_LETTER]-claims.json + [SCRATCH_DIR]/[NOTEBOOK_LETTER]-summary.md")
+13. **MANDATORY (all exit paths):** Return `DONE: Notebook {{item}} complete — {{scratch_dir}}/{{item}}-claims.json + {{scratch_dir}}/{{item}}-summary.md` (failure note appended if any) — the sweep stage starts when workers return. Never message the EM, the sweep, or other workers.
 
 See your agent definition for full execution phases, failure handling, and output format.
 ```

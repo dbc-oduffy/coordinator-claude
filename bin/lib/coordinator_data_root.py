@@ -21,54 +21,35 @@ Two live layouts:
                      root (the pre-migration DoE layout, and any OSS install
                      that ships both halves together). Free, no registration.
   2. Split-repo    — this code lives in the engine repo while the data dir
-                     stayed in coordinator-content-repo. Resolve the DoE root the same way
-                     every other doctrine CLI does (coordinator_registry.content_root()).
+                     stayed in the content repo. Resolve the content root the
+                     same way every other doctrine CLI does
+                     (coordinator_registry.content_root()).
 
 Rung 1 first so the co-located case costs nothing and needs no registration.
 
-Rung 1.5 — codename-free ladder (added 2026-08-07, C2). `coordinator_registry.
-Content_root()` (rung 2 below) has NO codename-free rung of its own — unlike this
-module's sibling bootstrap in `coordinator_registry.py`'s own `_MANIFEST_PATH`
-resolution (`git show 067da377c1b0`, C1), which gained one, `content_root()` the
-FUNCTION still only tries CONTENT_ROOT env -> REPO_CONTENT_ROOT env -> machine-local
-`repos.content_root` -> raise — every one of those needs a private codename this
-module's callers running from the published mirror cannot supply. So this
-module adds its OWN rung 1.5, ahead of the `content_root()` call, mirroring the
-shape `coordinator_core.ops.coordinator_content_root` added at its own rung 1.5
-(`git show f5d3dde5b523`, C1B) and `coordinator_registry.py`'s manifest
-bootstrap added at import time (C1): try, in order, the `.content-root` pointer
-file (durable, then legacy), the flat `~/.claude/plugins/coordinator-claude`
-marketplace-clone layout, then `CLAUDE_PLUGIN_ROOT` (normalized via
+Rung 1.5 — codename-free ladder (added 2026-08-07, C2), ahead of the
+`content_root()` call: try, in order, the content-root pointer file (durable,
+then legacy), the real marketplace-cache install location, the flat
+`~/.claude/plugins/coordinator-claude` marketplace-clone layout, then
+`CLAUDE_PLUGIN_ROOT` (normalized via
 `_cdr_repo_root_from_plugin_root_candidate()`, C1E fix — the raw env value
 is a content root, one level below the repo root this ladder needs), then
 the registry's
 `plugin.mirrors.coordinator-claude.live_path` key — each candidate accepted
 only once it is a directory AND contains one of the two published manifest
-layouts (OSS flat `schemas/...`, private `coordinator/schemas/...`). This is
-an ADDITIVE rung, not a reimplementation of `content_root()`'s own env/registry
-chain (see negative-spec below) — `content_root()` itself is untouched.
+layouts (OSS flat `schemas/...`, private `coordinator/schemas/...`). This rung
+is largely redundant with `content_root()`'s own codename-free rungs (harmless:
+it simply wins first when it also resolves).
 
-CORRECTION (Review: staff-eng, twin-divergence finding C2): the premise above
-("`content_root()` the FUNCTION still has no ladder") expired ~6 minutes after C2
-landed — `coordinator_registry.py`'s C1D chunk (`git show b9c68ca7d`) gave
-`content_root()` exactly that ladder. This module's rung 1.5 is therefore now
-REDUNDANT with `content_root()`'s own rungs in the common case (harmless — rung
-1.5 simply wins first when it also resolves) rather than covering a gap
-`content_root()` structurally lacks. It remains additive and is not removed here
-(removing it is a separate, larger change than this review's remit), but a
-future reader should not treat "content_root() has no codename-free rung" as
-still true — see `coordinator_registry.content_root()`'s own docstring for its
-current (post-C1D, post-MAJOR-4-reorder) ladder.
-
-Negative-spec: this module does NOT reimplement the CONTENT_ROOT resolution chain
-(env CONTENT_ROOT -> machine-local repos.content_root -> raise). That chain lives in
-exactly one place, `coordinator_registry.content_root()`, and this module calls it
-rather than duplicating it. A caller that hand-rolls its own CONTENT_ROOT lookup
-instead of importing `data_root()` from here re-introduces the six-copies-of-
-one-chain drift this module exists to close. The rung-1.5 codename-free ladder
-above is a SEPARATE, additive rung that `content_root()` does not carry — adding it
-here does not violate this negative-spec, which is about the env/registry
-chain `content_root()` itself owns.
+Negative-spec: this module does NOT reimplement the content-root resolution
+chain (env REPO_CONTENT_ROOT -> machine-local repos.content_root -> raise). That
+chain lives in exactly one place, `coordinator_registry.content_root()`, and
+this module calls it rather than duplicating it. A caller that hand-rolls its
+own lookup instead of importing `data_root()` from here re-introduces the
+six-copies-of-one-chain drift this module exists to close. The rung-1.5
+codename-free ladder above is a SEPARATE, additive rung — adding it here does
+not violate this negative-spec, which is about the env/registry chain
+`content_root()` itself owns.
 
 Import-time purity (negative-spec, load-bearing): `coordinator_registry` is
 imported LAZILY, inside `data_root()`, NOT at module top level.
@@ -126,20 +107,7 @@ if _THIS_DIR not in sys.path:
 # modules probed different directories — see F6 in
 # state/review-findings/2026-08-08-successor-partitioned/hermetic-ac-reverify.md.
 from machine_local_impl_resolve import claude_home as _mlir_claude_home
-
-# coordinator/lib — sibling of coordinator/bin/lib (this file's own dir),
-# hosting the shared coordinator_read_content_root_pointer() substrate. Two
-# dirname()s up from _THIS_DIR (bin/lib -> bin -> coordinator), then down
-# into lib/. Mirrors coordinator_registry.py's own _COORDINATOR_LIB_DIR.
-_CDR_COORDINATOR_LIB_DIR = os.path.join(os.path.dirname(os.path.dirname(_THIS_DIR)), "lib")
-
-# Published payload flattens: the mirror ships helper at "<repo root>/lib"
-# with no "coordinator/" segment. Three dirname()s up from _THIS_DIR
-# (bin/lib -> bin -> coordinator -> repo root), then down into lib/. Probed
-# as a fallback below — private tree wins first.
-_CDR_COORDINATOR_LIB_DIR_FLAT = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(_THIS_DIR))), "lib"
-)
+from machine_local_impl_resolve import read_content_root_pointer as _mlir_read_content_root_pointer
 
 _CDR_MANIFEST_RELPATH = os.path.join("schemas", "coordinator-registry.manifest.json")
 
@@ -170,38 +138,13 @@ def _cdr_manifest_present(root: str) -> bool:
     return False
 
 
-def _cdr_content_root_pointer_rung() -> str:
-    """Rung 1.5a/b: the durable + legacy `.content-root` pointer file reads.
-    DELEGATES to coordinator/lib/read_content_root_pointer.py (pure file I/O, no
-    subprocess) rather than reimplementing the read — see
-    coordinator_registry.py's `_mp_content_root_pointer_rung()`, same shape."""
-    lib_dir = _CDR_COORDINATOR_LIB_DIR
-    if not os.path.isfile(os.path.join(lib_dir, "read_content_root_pointer.py")):
-        lib_dir = _CDR_COORDINATOR_LIB_DIR_FLAT
-    added = lib_dir not in sys.path
-    if added:
-        sys.path.insert(0, lib_dir)
-    try:
-        from read_content_root_pointer import coordinator_read_content_root_pointer
-
-        return coordinator_read_content_root_pointer()
-    except Exception:
-        return ""
-    finally:
-        if added:
-            try:
-                sys.path.remove(lib_dir)
-            except ValueError:
-                pass
-
-
 def _cdr_repo_root_from_plugin_root_candidate(candidate: str) -> str:
     """Normalize a CLAUDE_PLUGIN_ROOT-shaped value to the coordinator REPO
     root this ladder must return.
 
     Single-sourced (state/debt-backlog/2026-08-08-three-divergent-copies-of-
-    the-plugin-roo-8d584d3b90d3.yaml): delegates to coordinator_core.ops.
-    coordinator_content_root.repo_root_from_plugin_root_candidate(), the same
+    the-plugin-roo-8d584d3b90d3.yaml): delegates to coordinator_core.
+    _content_root_primitive.repo_root_from_plugin_root_candidate(), the same
     engine helper coordinator_registry.py's wrapper delegates to. This
     copy's historical shape is reproduced via keyword args so behaviour is
     unchanged: drive_root_guard="normpath", basename_compare="casefold",
@@ -210,8 +153,8 @@ def _cdr_repo_root_from_plugin_root_candidate(candidate: str) -> str:
     unlike `coordinator_registry.content_root()`'s rungs (which pass False).
 
     The normpath/casefold/no-manifest-fallback divergences from the engine's
-    own defaults are inherited from the registry wrapper and are flagged in
-    the engine helper's "KNOWN CROSS-COPY DIVERGENCES" note; do not resolve
+    own defaults are inherited from the registry wrapper and are named as
+    explicit parameters in the engine helper's docstring; do not resolve
     them here.
 
     CLAUDE_PLUGIN_ROOT is a *content* root: in the private/dev DoE layout
@@ -227,7 +170,7 @@ def _cdr_repo_root_from_plugin_root_candidate(candidate: str) -> str:
     import cc_invoke
 
     cc_invoke.ensure_engine_on_path(__file__)
-    from coordinator_core.ops.coordinator_content_root import repo_root_from_plugin_root_candidate
+    from coordinator_core._content_root_primitive import repo_root_from_plugin_root_candidate
 
     return repo_root_from_plugin_root_candidate(
         candidate,
@@ -295,9 +238,9 @@ def _cdr_marketplace_cache_rung() -> str:
 
 def _cdr_codename_free_root() -> str:
     """Rung 1.5 — codename-free ladder (C2). Runs ahead of rung 2
-    (`coordinator_registry.content_root()`), which has no codename-free rung of
-    its own. Tries, in order: the `.content-root` pointer file (durable, then
-    legacy), the real marketplace-cache install location (Review: staff-eng
+    (`coordinator_registry.content_root()`). Tries, in order: the content-root
+    pointer file (durable, then legacy), the real marketplace-cache install
+    location (Review: staff-eng
     BLOCKER-1), the flat marketplace-clone layout, `CLAUDE_PLUGIN_ROOT`,
     then the `plugin.mirrors.coordinator-claude.live_path` registry key
     (Review: staff-eng MAJOR-3 — routed through the same
@@ -314,7 +257,7 @@ def _cdr_codename_free_root() -> str:
     """
     _plugin_root_env = os.environ.get("CLAUDE_PLUGIN_ROOT", "").strip()
     for candidate in (
-        _cdr_content_root_pointer_rung(),
+        _mlir_read_content_root_pointer(),
         _cdr_marketplace_cache_rung(),
         _cdr_flat_layout_probe_rung(),
         _cdr_repo_root_from_plugin_root_candidate(_plugin_root_env) if _plugin_root_env else "",
@@ -346,22 +289,22 @@ def data_root(dir_name: str) -> Path:
     """Resolve `dir_name` (e.g. "snippets", "schemas", "templates", "docs") to
     its absolute, existing directory Path.
 
-    Resolution chain (co-located -> codename-free ladder -> DoE-resident):
+    Resolution chain (co-located -> codename-free ladder -> content-resident):
       1. Co-located — `<coordinator-root>/<dir_name>` beside this module's own
          bin/lib, where `<coordinator-root>` is computed identically to
          `coordinator_registry.py`'s manifest-path bootstrap. Free, no
          registration, wins whenever both halves ship together.
-      1.5. Codename-free ladder (C2) — `.content-root` pointer file, flat
+      1.5. Codename-free ladder (C2) — content-root pointer file, flat
          marketplace-clone layout, `CLAUDE_PLUGIN_ROOT`, registry
          `live_path`; see `_cdr_codename_free_root()` and module docstring.
-      2. DoE-resident — `<content_root()>/coordinator/<dir_name>` (private layout),
-         falling back to `<content_root()>/<dir_name>` (OSS-flat layout, F2 fix
-         2026-08-08 -- see below), delegating the CONTENT_ROOT/machine-local
-         resolution to `coordinator_registry.content_root()` (never reimplemented
-         here — see module negative-spec).
+      2. Content-resident — `<content_root()>/coordinator/<dir_name>` (private
+         layout), falling back to `<content_root()>/<dir_name>` (OSS-flat
+         layout, F2 fix 2026-08-08 -- see below), delegating the
+         env/machine-local resolution to `coordinator_registry.content_root()`
+         (never reimplemented here — see module negative-spec).
 
     Raises RuntimeError, naming `dir_name` and both candidate paths tried
-    (or the DoE-resolution failure reason), if neither rung resolves to an
+    (or the content-root resolution failure reason), if neither rung resolves to an
     existing directory. Never returns a path that doesn't exist.
     """
     colocated = _colocated_root() / dir_name
@@ -377,7 +320,7 @@ def data_root(dir_name: str) -> Path:
     raise RuntimeError(
         f"coordinator_data_root: cannot resolve data dir {dir_name!r}. "
         f"Rung 1 (co-located) tried: {colocated} (not found). "
-        f"Rung 2 (DoE-resident) tried: {private_candidate} (private layout, not found), "
+        f"Rung 2 (content-resident) tried: {private_candidate} (private layout, not found), "
         f"{flat_candidate} (OSS-flat layout, not found)."
     )
 
@@ -399,33 +342,33 @@ def data_file(dir_name: str, *parts: str) -> Path:
 
 
 def _doe_resident_candidates(dir_name: str, colocated: Path) -> "tuple[Path, Path]":
-    doe = _cdr_codename_free_root()
+    root = _cdr_codename_free_root()
 
-    if not doe:
+    if not root:
         from coordinator_registry import _DoeUnresolvable, content_root
 
         try:
-            doe = content_root()
+            root = content_root()
         except _DoeUnresolvable as exc:
             raise RuntimeError(
                 f"coordinator_data_root: cannot resolve data dir {dir_name!r}. "
                 f"Rung 1 (co-located) tried: {colocated} (not found). "
-                f"Rung 2 (DoE-resident) failed: {exc}"
+                f"Rung 2 (content-resident) failed: {exc}"
             ) from exc
 
-    return Path(doe) / "coordinator" / dir_name, Path(doe) / dir_name
+    return Path(root) / "coordinator" / dir_name, Path(root) / dir_name
 
 
 FLAT_CONTENT_ROOT_MARKER = (".claude-plugin", "plugin.json")
 
 
-def content_root_for(content_root) -> Path | None:
-    if not content_root:
+def content_root_for(repo_root) -> Path | None:
+    if not repo_root:
         return None
-    if isinstance(content_root, Path):
-        base = content_root
+    if isinstance(repo_root, Path):
+        base = repo_root
     else:
-        raw = str(content_root)
+        raw = str(repo_root)
         base = Path(raw.rstrip("/\\") or raw)
     private = base / "coordinator"
     if private.is_dir():
@@ -435,8 +378,8 @@ def content_root_for(content_root) -> Path | None:
     return None
 
 
-def content_root_or_private(content_root) -> str:
-    content = content_root_for(content_root)
+def content_root_or_private(repo_root) -> str:
+    content = content_root_for(repo_root)
     if content is not None:
         return str(content)
-    return os.path.join(str(content_root), "coordinator")
+    return os.path.join(str(repo_root), "coordinator")

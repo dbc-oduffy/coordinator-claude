@@ -17,7 +17,7 @@ Write to `{scratch-dir}/scope.md`:
 
 ## Objectives / Artifact
 
-{If plan mode: paste or reference the objectives document — what the PM wants built and why. Include any context from conversation. The team writes the plan; the EM writes objectives and constraints only.}
+{If plan mode: paste or reference the objectives document — what the PM wants built and why. Include any context from conversation. The debaters write the plan; the EM writes objectives and constraints only.}
 
 {If review mode: path to the artifact being reviewed — {input-path}. Include any specific review focus areas the PM mentioned.}
 
@@ -31,56 +31,52 @@ Write to `{scratch-dir}/scope.md`:
 
 ## Timing Preferences
 
-{PM-specified ceiling, or defaults: plan mode 10 min, review mode 8 min.}
+{PM-specified preferences, or "None".}
+
+## Output
+
+- output_path: {path of the final document}
+- advisory_path: {scratch-dir}/advisory.md
+{Review mode only:}
+- artifact_path: {input-path}
+
+## Roster
+
+| slug | agent_type | persona name | perspective | agent_file |
+|------|-----------|--------------|-------------|------------|
+| {personas[i].slug} | {personas[i].subagent_type} | {name} | {one-line perspective} | {personas[i].agent_file} |
 ```
+
+The Roster table is the manifest's `roster` list: `slug` is `{{item}}` and `agent_type` is the per-item agent type of the round-1 and rebuttal stages. Never hardcode it (game-dev personas use `game-dev:`).
 
 **Plan mode:** EM writes objectives and constraints only — never the plan itself. **Review mode:** EM provides the artifact path and focus areas; never pre-forms findings.
 
-## Step 6 — Template field reference
+## Template vocabulary and the brief
 
-Read prompts from:
-- Plan mode debaters: `${CLAUDE_PLUGIN_ROOT}/pipelines/staff-session/planner-prompt-template.md`
-- Review mode debaters: `${CLAUDE_PLUGIN_ROOT}/pipelines/staff-session/reviewer-prompt-template.md`
-- Synthesizer (both): `${CLAUDE_PLUGIN_ROOT}/pipelines/staff-session/synthesizer-prompt-template.md`
+The stage graph is `${CLAUDE_PLUGIN_ROOT}/pipelines/staff-session/staff-session.manifest.yaml`: round 1 (`round1-plan` or `round1-review`, selected by the `mode` flag, one agent per roster row) -> `mailcheck` -> `rebuttal` (over the slugs the mail-check returns) -> `synthesizer`. Templates beside it:
 
-Also read each persona's identity excerpt (name, role, review standards, output format) from its agent definition file — injected at `[PERSONA_IDENTITY]`.
+- `planner-prompt-template.md` (plan-mode round 1), `reviewer-prompt-template.md` (review-mode round 1)
+- `mailcheck-prompt-template.md`, `continuation-prompt-template.md` (rebuttal, both modes)
+- `synthesizer-prompt-template.md` (both modes)
 
-Fill ALL `[BRACKETED_FIELD]` placeholders before spawning.
+Templates carry no per-run bracket fields. They use the closed `{{...}}` set (`{{brief}}`, `{{item}}`, `{{scratch_dir}}`, `{{stage.<id>.output}}`) and read every other value from the brief, `scope.md`.
 
-**Common fields (all templates):**
-- `[TOPIC]` → topic string
-- `[MODE]` → plan|review
-- `[TIER]` → standard|full
-- `[SCRATCH_DIR]` → full path to scratch directory
-- `[SCOPE_FILE]` → `{scratch-dir}/scope.md`
-- `[SPAWN_TIMESTAMP]` → Unix epoch seconds from Step 1
-- `[TASK_ID]` → this teammate's task ID
-- `[SYNTHESIZER_NAME]` → `"synthesizer"` (teammate name — used for DONE messages)
-- `[OUTPUT_PATH]` → output path for the final document
+**Brief fields the templates read** (the Step 3 template above supplies each):
+- `run_id` (Run ID), `mode`, `tier`, `date`, `topic`
+- the objectives (plan mode) or `artifact_path` (review mode), and the Context Files list
+- `output_path`, `advisory_path`
+- the Roster: one row per debater, with `slug`, `agent_type`, persona name, perspective, `agent_file`
 
-**Debater-specific:**
-- `[PERSONA_IDENTITY]` → identity excerpt from agent definition
-- `[PERSONA_SLUG]` → e.g., `the Staff Engineer`
-- `[POSITION_FILE]` → `{scratch-dir}/{persona-slug}-position.md`
-- `[PEER_LIST]` → other debaters' teammate names + persona slugs (for messaging)
-- `[MIN_MINUTES]` → 3 (both modes)
-- `[MAX_MINUTES]` → 10 (plan), 8 (review)
-- `[INPUT_PATH]` → review mode only: artifact being reviewed
-
-**Synthesizer-specific:**
-- `[DEBATER_COUNT]` → number of debaters
-- `[DEBATER_SLUGS]` → comma-separated persona slugs
-- `[ADVISORY_PATH]` → `{scratch-dir}/advisory.md`
+A persona's identity is its agent definition, loaded through the roster's `agent_type`. The EM does not inject an identity excerpt.
 
 ## Error Handling Matrix
 
 | Failure | Action |
 |---------|--------|
 | Single debater crashes (no position written) | Synthesizer works with remaining positions. Note the gap: "Missing perspective: {persona}." EM can supplement manually. |
-| Majority debater failure (>50% crash) | EM is notified (only 1 or fewer debater tasks completed). The team auto-cleans on session exit; fall back to single-reviewer dispatch via `/review` (plan) or `/review-code` (code). |
+| Majority debater failure (>50% crash) | Synthesizer returns a failure summary without synthesizing; fall back to single-reviewer dispatch via `/review` (plan) or `/review-code` (code). |
 | Synthesizer fails | EM reads raw debater positions from scratch dir. Manual synthesis is feasible — positions are structured. |
-| Team creation fails | Report to PM. Fall back to single-reviewer dispatch via `/review` (plan) or `/review-code` (code), or EM-authored plan. |
-| DONE not received (debater complete but synthesizer not woken) | Synthesizer polls `TaskList`; if all debaters `completed` but no DONE after 2 min, proceeds anyway. EM may `SendMessage` nudge if synthesizer appears stalled. |
-| Debate loops without converging | Ceiling time is hard cutoff; diminishing-returns detection also triggers convergence after 2 no-change exchanges. Position docs capture the disagreement; synthesizer resolves or presents as dissent. |
-| Unknown persona slug in `--members` | Halt before team creation. Report unknown slug, list valid slugs. Do not create a partial team. |
+| Workflow refuses to start | Report to PM. Fall back to single-reviewer dispatch via `/review` (plan) or `/review-code` (code), or EM-authored plan. |
+| Debate does not converge | The rebuttal round is bounded at one. Position docs capture the disagreement; synthesizer resolves or presents as dissent. |
+| Unknown persona slug in `--members` | Halt before firing the Workflow. Report unknown slug, list valid slugs. Do not run a partial roster. |
 | Output file missing after synthesizer completes | Read `{scratch-dir}/synthesis.md` as fallback. If also missing, read raw positions and report to PM. |

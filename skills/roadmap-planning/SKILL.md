@@ -37,9 +37,8 @@ Detail for B/C/D, read before starting Phase 1 on that path: `residue/entry-poin
 Batched, the tail is `plan-blitz → mise-prep → the run`: **each exit is the next entry, read off
 disk, never retyped** (`A-HANDOFF-AN-EM-RETYPES-IS-NOT-A-SEAM`).
 
-`/mise-prep` drives the mise-prep stage (`commands/mise-prep.md`); the engine's
-`plan.stamp_prepped` is the only writer of the attest and re-runs the authoring bar itself.
-`/mise-en-place` § Phase 0 consumes it.
+`/mise-prep` (`commands/mise-prep.md`) drives that stage; the engine's `plan.stamp_prepped` is the
+only writer of the attest and re-runs the authoring bar itself. `/mise-en-place` § Phase 0 consumes it.
 
 ---
 
@@ -208,7 +207,7 @@ gate rejects them). Full spec: wiki § Downstream mechanisms.
 `inventory.md` · `clusters.md` · `reconciliation.md` · `COORDINATOR-RESOLUTIONS.md` (if any) ·
 `research-corpus/<topic-slug>.md` × N · `OVERVIEW.md` · `peer-team-asks.md` · `STUB-INDEX.md` ·
 `pm-gates.md` (all under `state/roadmap/<run-id>/`) · `state/handoffs/{YYYY-MM-DD}_{HHMMSS}_
-roadmap-{stub_id}.md` × N, clustered by `roadmap_id:` alongside ad-hoc spinoffs.
+roadmap-{stub_id}.md` × N.
 
 ## Contact points
 

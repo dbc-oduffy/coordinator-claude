@@ -715,11 +715,15 @@ if _SCRIPTS_DIR not in sys.path:
 
 try:
     from _engine_root import (  # noqa: E402
+        place_engine_root_on_path as _place_engine_root,
         resolve_claude_klabauter_root_with_provenance as _resolve_engine,
     )
 except Exception:
     def _resolve_engine() -> "Tuple[Optional[str], str, str]":
         return None, "unresolved", "none"
+
+    def _place_engine_root(root: str) -> str:
+        return root
 
 
 _engine_root_lock = threading.Lock()
@@ -832,8 +836,7 @@ def _ensure_engine_on_sys_path_locked() -> Optional[str]:
     root, resolution_class, provenance = _resolve_engine()
     if not root:
         return None
-    if root not in sys.path:
-        sys.path.insert(0, root)
+    _place_engine_root(root)
     _engine_root_cache = root
     _engine_root_provenance = (str(resolution_class), str(provenance))
     _engine_root_resolved_at = _utc_now()
@@ -1278,7 +1281,7 @@ def _normalize_clone_root(raw: str) -> Optional[Path]:
     `claude-author-shim.sh.tmpl` itself exports NOTHING and must not -- it resolves no plugin dir,
     and DR-087 forbids promoting its `.content-root` pointer to rung-1 authority (negative-spec
     pinned in `test_launcher_templates_export_clone_root.py`). It delegates instead, terminating
-    in `claude-author`, and the engine's `coordinator/bin/claude-author.py:1015` does the
+    in `claude-author`, and this repo's `coordinator/bin/claude-author.py` does the
     `setdefault` ABOVE its `os.name == "nt"` branch, so it runs on every platform. A
     shim-launched POSIX session therefore DOES carry the header, and `_extract_cwd` is its
     second identity source rather than its only one.

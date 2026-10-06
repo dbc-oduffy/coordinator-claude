@@ -89,7 +89,7 @@ def _resolve_plugin_root() -> Path:
 
     Env var CLAUDE_PLUGIN_ROOT wins if set, returned verbatim. Otherwise
     resolves via content_root() (see that function's own docstring for its
-    env-var/machine-local resolution chain) and returns the coordinator content
+    registry/pointer resolution chain) and returns the coordinator content
     root inside it, either layout (coordinator_data_root.content_root_for).
 
     This does NOT derive from this script's own __file__ location. b644d5a9
@@ -101,7 +101,7 @@ def _resolve_plugin_root() -> Path:
     once this file moved repos.
 
     Fails loud (sys.exit(1)) if content_root() cannot resolve: this is a gate
-    script, not a never-block hook, so an unresolvable DoE root must not
+    script, not a never-block hook, so an unresolvable content root must not
     degrade to a silent scan of the wrong tree.
     """
     _bootstrap_engine()
@@ -115,9 +115,9 @@ def _resolve_plugin_root() -> Path:
         root = content_root()
     except _DoeUnresolvable as exc:
         print(
-            "verify-snippet-sync: cannot resolve the coordinator doctrine repo root "
-            f"({exc}). Set repos.content_root in the machine-local registry, or set "
-            "the CONTENT_ROOT env var, or set CLAUDE_PLUGIN_ROOT directly.",
+            "verify-snippet-sync: cannot resolve the coordinator content root "
+            f"({exc}). Set repos.content_root in the machine-local registry, "
+            "or set CLAUDE_PLUGIN_ROOT directly.",
             file=sys.stderr,
         )
         sys.exit(1)

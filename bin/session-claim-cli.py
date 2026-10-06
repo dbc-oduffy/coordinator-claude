@@ -130,7 +130,8 @@
 #     Reads never block a peer commit, but they ARE listed here: this is the
 #     inspection instrument, and "nobody is reading this" and "somebody is
 #     reading this and it does not block you" are different answers.
-#     The FIFTH column is `blocks` (yes when the holder reads live, else no),
+#     The FIFTH column is `blocks` (yes when the holder is live AND its kind
+#     blocks per touch_record.kind_blocks_a_peer_commit -- a live read is no),
 #     derived from the same liveness read; the footer goes to stderr.
 #     The third column (C2, docs/plans/2026-09-01-the-claim-record-carries-
 #     the-name.md) is PROVENANCE, not an address ready for SendMessage --
@@ -941,9 +942,11 @@ def _dispatch(argv: list[str]) -> int:
                 return _TRANSPORT_FAIL
             name_col = _render_claimant_name(sid, path, lookup_result)
             kind_col = _render_claimant_kind(sid, path, lookup_result)
+            raw_kind = ((getattr(lookup_result, "recorded_kind", None) or {}).get(path) or {}).get(sid)
+            blocks = live and _dispatch_import("coordinator_core.session.touch_record").kind_blocks_a_peer_commit(raw_kind)
             rows.append(
                 f"{sid}\t{'live' if live else 'dead'}\t{name_col}\t{kind_col}"
-                f"\t{'yes' if live else 'no'}"
+                f"\t{'yes' if blocks else 'no'}"
             )
         if not rows:
             # A5/DD4 -- SC-DR-023's own caveat, cited verbatim rather than

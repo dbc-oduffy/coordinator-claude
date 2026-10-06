@@ -62,7 +62,7 @@ lands it `routed`; never hand-edit its fields. Undecided direction-class items g
 `surfaced_to_pm`, never folded into `fork`/`xl_exit`. Optionally pass `--name "<short label>"` for
 `name` — a few words, whiteboard length; never a slice of `intent`.
 
-**`status`.** An XS has no plan: stamp it `shipped` yourself when the work lands, citing the commit.
+**`status`.** An XS has no plan: the quick-wrap close stamps it `shipped` when the closing session committed both the sizing file and the work. Stamp by hand, citing the commit, only on a `j-dispatch-sizing-ship-failed` judgment point or when that session did not commit the sizing file.
 S and above: the terminal cascade owns the stamp — never pre-empt or hand-stamp it; it fires **from
 the stamping op, not from the landing**; on the self-completing path that op is the chain inside
 `dispatch.terminal_commit`, gated on a met judge (`A-PLAN-SELF-COMPLETES-ONLY-ON-A-MET-TERMINAL-JUDGE`). Then read `status` back (never `acted`). Still `routed`
@@ -91,12 +91,13 @@ are ONE combined PM ask. `xl_exit` stays `null` until the PM picks: `shape`, `ro
 sizing (this one), the plan Workflow's return, the execute Workflow's return, and
 `dispatch.terminal_commit` plus the close ceremony. Touchpoints are read from `interaction_mode` (hands-on, pm, ceo), never
 inferred. Pass `--exit-criterion` and `--interaction-mode` to `sizing-assemble`, and record the PM's
-answer with `sizing.accept_exit_criterion` (`pm_quote`, optional amended `statement`, `mode`) —
-never by hand-editing the sizing object. In pm and ceo modes the ask says plainly that accepting
+answer with `sizing-accept-exit-criterion --sizing <path> --pm-quote "<words>" [--statement "<amended>"]
+--mode <mode>` (op `sizing.accept_exit_criterion`), never by hand-editing the sizing object. In pm and ceo modes the ask says plainly that accepting
 it authorizes execution without a further ask. Per-mode asks: wiki § Step 5c. For XL, Step 5b is unchanged.
 After acceptance, `emit-wave-fire --from-sizing <repo-relative sizing path> --repo-root <abs repo>
 --trail-dir <abs trail dir>` mints the baton itself (never via
-/spinoff or /handoff) and prints one `Workflow` line to fire. End the turn: the plan Workflow
+/spinoff or /handoff) and prints one `Workflow` line to fire. When the route will run under
+Fire-and-forget, skip the lobby's `emit-wave-fire`: warp emits and fires its own. End the turn: the plan Workflow
 (turn 2) runs with no EM in the loop.
 
 **6. Hard gate — the only override that exists.** The t-shirt→route map binds absolutely; no

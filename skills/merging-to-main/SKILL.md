@@ -31,7 +31,7 @@ Pre-authorized Tier-U ceremony — grant first: `tier-u-grant-cli grant ceremony
 "merging-to-main implicit Tier-U grant for the pre-merge unscoped project test suite" --ceremony
 merging-to-main`.
 
-`d0` (`node --test tests/plugin-ecosystem/run.js`, halt-on-fail) runs first, then detect and run
+`d0` (`node --test "${CLAUDE_PLUGIN_ROOT}/tests/plugin-ecosystem/run.js"` — the plugin root, never the repo root; halt-on-fail) runs first, then detect and run
 the project's own test runner (`pnpm test`/`npm test`, `pytest`/`python3 -m pytest`, `/validate`, or
 project-specific from `CLAUDE.md`/`package.json`). **This is the most expensive step in the whole
 ceremony** — a machine-wide event (magnitude: `python3 coordinator/tests/_spawn_budget.py`). Fail on either →
@@ -58,7 +58,8 @@ Resolve the branch via `coordinator-current-branch`, decide unpushed state with 
 ## Step 3: Release Surface (your call)
 
 `d6`/`d3`/`d5`/`d1`/`d2` are directives (illegal-path scan, coverage gate, portability sweep,
-tag-prefix resolution, release-tag cut). Judgment:
+tag-prefix resolution, release-tag plan). `d2` only plans the tag: nothing is created or pushed
+until Step 7. Judgment:
 
 **Ship verdict (`ship_verdict`).** EM stages one line, PM confirms or overrides; don't merge on
 `hold`/`split` without PM redirect. `/staff-session vp-product` gives a structured second opinion.
@@ -85,7 +86,7 @@ merges get an "Internal" line only.
 **Demo path** (user-visible merges) — append a Demo Path section (template: wiki) to the PR body.
 
 **Version-bump (`version_bump_final`).** `version_bump` is a proposal only — confirm/override
-before `d2` fires (mode detail: wiki).
+before `d2` plans the tag (mode detail: wiki).
 
 **Portability (`portability_disposition`).** Empty sweep report continues silently; non-empty needs
 a per-finding PM disposition (options: wiki). Not a merge blocker;
@@ -139,16 +140,14 @@ through; offer the PM merge-main-in-and-resolve (recommended) or rebase; stop an
 
 The PR requirement (0 approvals) and Step 1's local validation are the gates.
 
-**IF `d2` CUT A RELEASE TAG, VERIFY IT CONTAINS THE RELEASE — HERE, BEFORE ANYTHING ELSE:**
+**IF `d2` PLANNED A RELEASE TAG, CUT IT NOW, AT THE MERGE COMMIT:**
 
+    merge-recovery-and-tag-cut cut-tag <tag> --pr <PR>
     git fetch origin --tags && git rev-list --count <tag>..origin/main
 
-**Non-zero means the tag does not contain the release and the publish is wrong.** Retarget it
-against the merge commit `gh pr merge` produced and force-push with a pinned lease; do not proceed
-to Step 8 until it reads 0.
-
-`d2` fires in Step 3 but the merge lands here, so the tag can point at main without the branch;
-nothing else catches it. Run the check every time. Why: wiki § Tag-contains-release guard.
+`cut-tag` resolves the PR's merge commit, tags it, and pushes. A refusal stops the ceremony: the
+tag already exists elsewhere on origin, `gh` is missing, or the PR isn't merged. A non-zero count
+also stops it. **Never force-push or retarget a tag.** Why: wiki § Tag-contains-release guard.
 
 Once the merge lands, trigger the SCIP rebuild best-effort in the background (never blocks): `"$_py"
 "${CLAUDE_PLUGIN_ROOT:-<content-root>/coordinator}/bin/scip-rebuild-at-ceremony.py" --ceremony
@@ -164,6 +163,8 @@ canonical phrase from your change at `HEAD`; missing → re-apply and push a fol
 ---
 
 ## Step 9: Local Cleanup
+
+First run `<plugin-root>/bin/structural-index-refresh.py` (non-blocking, always exit 0; `COORDINATOR_STRUCTURAL_INDEX_REFRESH_OFF=1` disables) — report its line if it prints one.
 
 Check out main (`COORDINATOR_OVERRIDE_BRANCH=1`), pull, delete the local branch. Clear any stray
 worktree (`git worktree remove <path>`).

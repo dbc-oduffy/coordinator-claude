@@ -275,68 +275,16 @@ def _state_root_or_empty(*, central: bool = False) -> str:
         return ""
 
 
-def _read_content_root_pointer() -> str:
-    """Durable-first, legacy-fallback `.content-root` pointer read — mirrors the
-    bash oracle's inline fallback (L158-162), used ONLY when
-    resolve_content_root() itself fails (see _resolve_and_guard_content_root
-    below). Deliberately a local, tiny reimplementation rather than importing
-    coordinator_core.resolve_coordinator_clone._read_content_root_pointer (a
-    private symbol of a sibling module) — same convention that module's own
-    docstring already documents as accepted (each caller keeps its own copy
-    rather than sharing a private helper across module boundaries).
-
-    Deliberately terminates the `home` ladder at `CLAUDE_HOME or HOME or
-    USERPROFILE or ""` — no `expanduser("~")`/`Path.home()` PATH_HOME rung.
-    A missing home here correctly degrades to "no settings-home, no pointer
-    file" (empty return below); the caller's own fallback path takes over
-    from there. Intentional narrowing, not an unjustified ladder-shortening
-    (review: code-reviewer, info-only finding) — do not re-add the rung
-    without re-checking that reasoning."""
-    settings_home_override = os.environ.get("COORDINATOR_SETTINGS_HOME")
-    home = (
-        os.environ.get("CLAUDE_HOME")
-        or os.environ.get("HOME")
-        or os.environ.get("USERPROFILE")
-        or ""
-    )
-    if settings_home_override:
-        settings_home_dir = settings_home_override
-    elif home:
-        settings_home_dir = os.path.join(home, ".coordinator-claude-settings")
-    else:
-        settings_home_dir = ""
-
-    content_root = ""
-    if settings_home_dir:
-        try:
-            with open(
-                os.path.join(settings_home_dir, "machine-local", ".content-root"),
-                "r",
-                encoding="utf-8",
-            ) as f:
-                content_root = f.read().strip()
-        except OSError:
-            content_root = ""
-    if not content_root and home:
-        try:
-            with open(
-                os.path.join(home, ".claude", ".content-root"), "r", encoding="utf-8"
-            ) as f:
-                content_root = f.read().strip()
-        except OSError:
-            content_root = ""
-    return content_root
-
-
 def _resolve_and_guard_content_root() -> None:
-    """Resolve COORDINATOR_CONTENT_ROOT and, ONLY on the .content-root fallback
-    path, run the trusted-root-guard fail-loud check — mirrors the bash
+    """Resolve COORDINATOR_CONTENT_ROOT and, ONLY on the content-root pointer
+    fallback path, run the trusted-root-guard fail-loud check — mirrors the bash
     oracle's control flow EXACTLY (L144-180): the primary
     resolve-coordinator-clone resolver is trusted implicitly (its own ladder
     already only returns well-known trusted locations); the guard only fires
     when that primary resolver fails and this falls back to reading the raw
-    `.content-root` pointer file directly. Exits 1 (mirroring the bash oracle's
-    literal `exit 1`) if neither path resolves a usable content root."""
+    content-root pointer file directly (`content_root.read_pointer_files`, the
+    one pointer reader). Exits 1 (mirroring the bash oracle's literal `exit 1`)
+    if neither path resolves a usable content root."""
     from coordinator_core.resolve_coordinator_clone import (
         ResolveCoordinatorCloneError,
         resolve_content_root,
@@ -352,13 +300,13 @@ def _resolve_and_guard_content_root() -> None:
     if content_root:
         return
 
+    from coordinator_core.content_root import read_pointer_files
     from coordinator_data_root import content_root_for
 
-    content_root = _read_content_root_pointer()
-    pointed = content_root_for(content_root)
+    pointed = content_root_for(read_pointer_files())
     if pointed is None:
         sys.stderr.write(
-            "ERROR: ~/.claude/.content-root missing/invalid — re-run coordinator:install\n"
+            "ERROR: ~/.claude/.coordinator-content-root missing/invalid — re-run coordinator:install\n"
         )
         sys.exit(1)
 

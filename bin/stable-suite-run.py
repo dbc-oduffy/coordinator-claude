@@ -41,7 +41,14 @@ import argparse
 import subprocess
 import sys
 
+import os  # noqa: E402
+
+
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+# Bounds the triage re-run and each solo rerun this file spawns itself; the command under
+# measurement in `main()` is the caller's and is deliberately unbounded.
+_TRIAGE_TIMEOUT_S = 600
 
 
 def _fd_or_none(stream):
@@ -99,13 +106,22 @@ def _corpus_fingerprint() -> tuple[str | None, str | None]:
 
 
 def _failing_node_ids(command: list[str]) -> list[str]:
-    proc = subprocess.run(
-        [*command, "-p", "no:randomly"],
-        capture_output=True,
-        text=True,
-        check=False,
-        creationflags=_NO_WINDOW,
-    )
+    try:
+        proc = subprocess.run(
+            [*command, "-p", "no:randomly"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=_TRIAGE_TIMEOUT_S,
+            creationflags=_NO_WINDOW,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        print(
+            f"stable-suite-run: triage re-run could not complete ({exc}); "
+            "no parseable FAILED node ids.",
+            file=sys.stderr,
+        )
+        return []
     lines = (proc.stdout + proc.stderr).splitlines()
     summary_start = None
     for idx, line in enumerate(lines):
@@ -181,13 +197,24 @@ def _triage_isolation(command: list[str]) -> None:
     genuine: list[str] = []
     order_dependent: list[str] = []
     for node in node_ids:
-        solo = subprocess.run(
-            [*base, node, "-q", "--no-header"],
-            capture_output=True,
-            text=True,
-            check=False,
-            creationflags=_NO_WINDOW,
-        )
+        try:
+            solo = subprocess.run(
+                [*base, node, "-q", "--no-header"],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=_TRIAGE_TIMEOUT_S,
+                creationflags=_NO_WINDOW,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            # A stall or crash is not evidence the failure is merely order-dependent.
+            print(
+                f"stable-suite-run: solo rerun of {node} could not complete ({exc}); "
+                "counting it as GENUINE.",
+                file=sys.stderr,
+            )
+            genuine.append(node)
+            continue
         (genuine if solo.returncode != 0 else order_dependent).append(node)
 
     print(
@@ -205,6 +232,10 @@ def _triage_isolation(command: list[str]) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+    from cc_invoke import ensure_engine_on_path
+
+    ensure_engine_on_path(__file__)
     parser = argparse.ArgumentParser(
         description="Run a command and flag whether the repo corpus moved underneath it.",
     )

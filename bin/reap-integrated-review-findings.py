@@ -100,13 +100,13 @@ otherwise.
 #   - The bash>=4-version guard is dropped — Python has no bash-3.2-class
 #     interpreter fragmentation to guard against; this guard existed only to
 #     protect bash-4 syntax (arrays, [[ ]]) used later in that script.
-#   - The PLUGIN_ROOT / ~/.claude/.content-root resolution block (and its
+#   - The PLUGIN_ROOT / content-root pointer resolution block (and its
 #     "exit 0 if unresolvable" gate) is dropped. In the bash oracle this
 #     machinery existed SOLELY to compute `_CSR_LIB_DIR` and source
 #     coordinator-state-root.sh — a source whose functions the script never
 #     actually calls (grepped: zero call sites of any coordinator_state_root
 #     function in the pre-port body). It was dead weight: a machine missing
-#     ~/.claude/.content-root would no-op the ENTIRE reap even though the actual
+#     content-root pointer would no-op the ENTIRE reap even though the actual
 #     reap logic never touched anything PLUGIN_ROOT-derived. This is not a
 #     functional regression (nothing observable depended on it; no AC in
 #     test-reap-integrated-review-findings.sh exercises this path) — dropping

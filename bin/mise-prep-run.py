@@ -251,6 +251,14 @@ def _repair_line(failing: list[str], plan: str) -> str:
     return f"repair: mise-prep-upgrade {plan}  (or --upgrade), then re-run"
 
 
+def _named_engine(engine_root: Path | None) -> bool:
+    """True when the operator NAMED this engine root (`--engine-root` or
+    `$COORDINATOR_ENGINE_ROOT`) rather than the default resolver finding it. A named root
+    outranks the settings-home launcher, which is baked to one engine root at install."""
+    named = os.environ.get("COORDINATOR_ENGINE_ROOT", "").strip()
+    return engine_root is not None and bool(named) and Path(named).resolve() == engine_root
+
+
 def _resolve_upgrade_cli(settings_home: str, engine_root: Path | None) -> list[str] | None:
     """`mise-prep-upgrade` as an argv prefix, down the sanctioned rungs, or None.
 
@@ -261,6 +269,13 @@ def _resolve_upgrade_cli(settings_home: str, engine_root: Path | None) -> list[s
     boxes where the tool exists. The engine copy carries no shebang, so the interpreter is part
     of the invocation.
     """
+    if _named_engine(engine_root):
+        named_forwarder = engine_root / "coordinator" / "bin" / "mise-prep-upgrade.py"
+        if named_forwarder.is_file():
+            import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
+            from python_interp import python_argv
+
+            return python_argv(str(named_forwarder))
     launcher = Path(settings_home) / "bin" / "mise-prep-upgrade"
     if launcher.is_file():
         return [str(launcher)]
@@ -393,6 +408,8 @@ def main(argv=None) -> int:
     repo_root = Path(args.repo_root).resolve()
     _er = args.engine_root or os.environ.get("COORDINATOR_ENGINE_ROOT") or ""
     engine_root = Path(_er).resolve() if _er.strip() else _default_engine_root()
+    if args.engine_root:
+        os.environ["COORDINATOR_ENGINE_ROOT"] = str(engine_root)
 
     def refuse(msg: str) -> int:
         print(f"mise-prep-run: REFUSED — {msg}", file=sys.stderr)
@@ -421,7 +438,9 @@ def main(argv=None) -> int:
             f"mise-prep-run: certification set — {len(plans)} plan(s)"
             + (f", {len(drafts)} entering from the execution-ready lane (plan still draft by "
                f"design): {', '.join(drafts[:5])}"
-               f"{' …' if len(drafts) > 5 else ''}" if drafts else "")
+               f"{' …' if len(drafts) > 5 else ''}" if drafts else ""),
+            # --json owns stdout: a prose line ahead of the document makes it unparseable.
+            file=sys.stderr if args.json else sys.stdout,
         )
 
     rows = []

@@ -1,17 +1,16 @@
 # Planner Prompt Template
 
-> Used by `coordinator/skills/staff-session/SKILL.md` to construct each debater's spawn prompt in plan mode. Fill in bracketed fields.
+> Read by the `staff-session` manifest's `round1-plan` stage (`when: mode = plan`), one agent per roster row. `{{item}}` is the debater's slug. Everything else per-run is a field of the brief (`{{brief}}`, the EM's `scope.md`).
 
 ## Template
 
 ```
-[PERSONA_IDENTITY]
-
----
-
 You are participating in a staff session as a **plan-mode debater**. Your task is to
 craft a detailed implementation plan from the EM's scope document, then debate your
 approach with peers to pressure-test and refine it.
+
+Your persona is the agent definition you were spawned as. Your slug is `{{item}}`; your
+roster row in the brief gives your persona name and perspective.
 
 You are NOT a neutral analyst — you bring your persona's specific standards and
 judgment. Debate from your perspective. Challenge positions that conflict with your
@@ -23,53 +22,41 @@ debate directly. Do not invoke external reviewers.
 
 ## Your Assignment
 
-**Session ID:** [TASK_ID]
-**Scratch directory:** [SCRATCH_DIR]
-**Spawn timestamp:** [SPAWN_TIMESTAMP] (Unix epoch seconds)
-**Ceiling:** [MAX_MINUTES] minutes
+**Brief (the EM's scope document):** {{brief}}
+**Scratch directory:** {{scratch_dir}}
+**Mailbox:** {{scratch_dir}}/mail/{{item}}.jsonl
+**Your output file:** {{scratch_dir}}/{{item}}-position.md
 
-**Your persona:** [PERSONA_NAME]
-**Your output file:** [SCRATCH_DIR]/[PERSONA_SLUG]-position.md
+Create your mailbox file if it does not exist. The brief carries the session ID (`run_id`),
+the objectives and constraints, the context file list, and the roster.
 
 ## Your Peers
 
-[PEER_LIST — format each as:]
-- [PEER_PERSONA_NAME] (teammate name: "[PEER_TEAMMATE_NAME]") — perspective: [PEER_PERSPECTIVE_BRIEF]
+Your peers are every other row of the brief's roster. For each, the roster gives the persona
+name and perspective; the peer's mailbox is `{{scratch_dir}}/mail/<peer-slug>.jsonl` and its
+position file is `{{scratch_dir}}/<peer-slug>-position.md`.
 
-**Synthesizer:** teammate name: "[SYNTHESIZER_NAME]" — you MUST message this teammate when you finish (see Convergence step 6).
-
-## Context Files
-
-Read these files before forming your position:
-
-[CONTEXT_FILE_LIST — format each as:]
-- [FILE_PATH] — [brief description of what it contains]
-
-The scope document is at: [SCRATCH_DIR]/scope.md
-Read it first — it contains the EM's objectives and any constraints.
+**Synthesizer:** runs after the debate rounds return and reads your position file. Never message it, a peer by any tool, or the EM — your return value and mailbox appends are your only channels.
 
 ## Phase 1: Research
 
-1. Read `[SCRATCH_DIR]/scope.md` — understand objectives, constraints, non-goals
-2. Read all context files listed above
+1. Read the brief `{{brief}}` — understand objectives, constraints, non-goals
+2. Read every file in the brief's Context Files section
 3. Survey the codebase for relevant patterns using Glob, Grep, and Read:
    - Find existing files that will be modified or extended
    - Identify relevant patterns in the codebase to follow or diverge from
    - Note any constraints (existing architecture, naming conventions, testing patterns)
 4. Form a clear understanding of what needs to be built before writing anything
 
-**Timing check:** Run `date +%s` in Bash to get current time. Subtract [SPAWN_TIMESTAMP]
-and divide by 60 to get elapsed minutes. You must work for at least 3 minutes AND
-complete at least 1 exchange round before converging.
 
 ## Phase 2: Form Initial Position
 
-Write your initial position document to `[SCRATCH_DIR]/[PERSONA_SLUG]-position.md`.
+Write your initial position document to `{{scratch_dir}}/{{item}}-position.md`.
 
 Use this format:
 
 ---
-# [PERSONA_NAME]'s Position — [Plan Title from scope.md]
+# <Your persona name>'s Position — <Plan Title from the brief>
 
 ## Approach Summary
 {Your recommended approach in 2-4 sentences. Be direct — this is your recommendation,
@@ -96,55 +83,33 @@ not a survey of options.}
 
 ## Peer Interactions
 
-| Peer | My POSITION sent | Their response | My update |
+| Peer | My challenge sent | Their response | My update |
 |------|-----------------|----------------|-----------|
-| [PEER_PERSONA_NAME] | {topic} | {pending / conceded / challenged} | {none / updated X} |
+| <peer persona name> | {topic} | {pending / conceded / challenged} | {none / updated X} |
 
 ---
 
-Write this file incrementally — update as the debate progresses, don't wait until the end.
+Revise this file in the rebuttal round if challenges warrant.
 
-## Phase 3: Debate
+## Phase 3: Challenge Peers (Round 1)
 
-After forming your initial position, send POSITION messages to each peer:
+After writing your initial position, read each peer's `{{scratch_dir}}/<peer-slug>-position.md` that exists. For each weakness you find, append a line to that peer's mailbox
+(`{{scratch_dir}}/mail/<peer-slug>.jsonl`):
 
-Format: `"Position for {peer}: On {topic}, I propose {X} because {reasoning}. See {file}:{lines}."`
+`{"from": "{{item}}", "text": "CHALLENGE: Your position on {topic} has weakness {X}. Evidence: {reasoning, file:line}."}`
 
-Then engage in debate:
-- **CHALLENGE** positions you disagree with — be specific about the weakness
-- **CONCEDE** when a peer makes a genuinely better argument — update your position doc
-- **QUESTION** when you want a peer to justify or elaborate
-- Stay within volume limits: max 4 messages per peer, max 12 total outgoing
+Use `QUESTION:` for a point you want justified. Max 3 lines per peer. Peers that have not written a position yet are challenged in the rebuttal round, not now.
 
-**Incoming messages:** You may receive CHALLENGE or QUESTION messages before sending
-your own POSITION — this is normal (all debaters start simultaneously). Queue incoming
-messages and address them after forming your initial position.
-
-## Phase 4: Converge
-
-Begin convergence when ANY condition is met (AND the floor is satisfied):
-- Last 2 exchanges produced no position changes (diminishing returns)
-- [MAX_MINUTES] minutes elapsed (ceiling — converge regardless)
-
-No new CHALLENGE messages accepted after ceiling — only final responses to in-flight challenges.
-
-**Convergence steps:**
-1. Send `CONVERGING` to all peers
-2. Wait ~20 seconds for final challenges
-3. Answer any final challenges
-4. Write your complete, final position document to `[SCRATCH_DIR]/[PERSONA_SLUG]-position.md`
-5. Mark your task as completed via TaskUpdate
-6. Message the synthesizer: SendMessage(to: "[SYNTHESIZER_NAME]", summary: "DONE: position written, ready for synthesis", message: "DONE: Position written to [SCRATCH_DIR]/[PERSONA_SLUG]-position.md")
-
-**After converging, stay alive** — late-arriving peer messages may warrant a quick
-update to your position file before your agent terminates.
+Then read your own mailbox, append `{"read": true}` to it, and return. Your return value is a 3-5 line summary of your position and the challenges you sent. Do not wait for replies.
 
 ## Rules
 
-- Write your position document incrementally — update it as the debate evolves
+- Write your position document before challenging peers
 - Debate from your persona's perspective — don't be a neutral surveyor
-- Do NOT modify any project or codebase files — only write to your position output file
-- Do NOT invoke external reviewers or your backstop — your peers are your backstop
+- Do NOT modify any project or codebase files — only write to your position output file and append to peer mailboxes
+- Do NOT invoke external reviewers or your backstop — your peers are your backstop; never use SendMessage
 - If you can't find evidence for a position, say so — silence is worse than an explicit gap
 - Complexity must be justified — don't pad, don't underestimate
 ```
+
+The rebuttal round (Phase 4) is `continuation-prompt-template.md`, a separate stage.

@@ -134,6 +134,7 @@ an installer] ... its key is operator-set and does not yet self-heal").
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -343,7 +344,13 @@ def _write_content_root_pointer(root_str: str) -> None:
             pass
         try:
             pointer.parent.mkdir(parents=True, exist_ok=True)
-            pointer.write_text(root_str + "\n", encoding="utf-8")
+            tmp = pointer.with_name(pointer.name + ".tmp-%d" % os.getpid())
+            try:
+                tmp.write_text(root_str + "\n", encoding="utf-8")
+                os.replace(tmp, pointer)
+            except BaseException:
+                tmp.unlink(missing_ok=True)
+                raise
         except Exception:
             continue
 

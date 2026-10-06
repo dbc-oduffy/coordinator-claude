@@ -48,9 +48,12 @@ _INHERIT_POLL_INTERVAL = 0.05
 
 
 def _branch_ref_exists(name: str) -> bool:
+    from coordinator_core.win_portability import no_console_creationflags
+
     proc = subprocess.run(
         ["git", "show-ref", "--verify", "--quiet", f"refs/heads/{name}"],
         capture_output=True,
+        **no_console_creationflags(),
     )
     return proc.returncode == 0
 

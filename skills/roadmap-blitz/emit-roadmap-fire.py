@@ -21,7 +21,6 @@ no interaction mode, malformed frozen candidates); 3 sweep found no candidates; 
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
 import os
 import re
@@ -167,7 +166,7 @@ def _abs_dir(value: str) -> Path:
 def _provision_sidecar_cli(value: str) -> Path:
     p = _abs_dir(value)
     stem = p.name.lower()
-    for ext in (".exe", ".py"):
+    for ext in (".exe", ".cmd", ".py"):
         if stem.endswith(ext):
             stem = stem[: -len(ext)]
             break
@@ -183,7 +182,9 @@ def _write_json(path: Path, doc: dict) -> None:
     path.write_text(json.dumps(doc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
-def build_args(cand: dict, repo_root: Path, run_dir: Path, mode: str | None, plugin_agents: bool, sidecar_cli: Path | None) -> dict:
+def build_args(
+    cand: dict, repo_root: Path, run_dir: Path, mode: str | None, plugin_agents: bool, sidecar_cli: Path | None, plugin_root: Path
+) -> dict:
     chosen = mode or cand["interaction_mode"]
     if chosen not in MODES:
         raise Refusal(2, f"{cand['sizing']}: interaction mode {chosen!r} is not one of {MODES}; pass --interaction-mode")
@@ -194,6 +195,7 @@ def build_args(cand: dict, repo_root: Path, run_dir: Path, mode: str | None, plu
         "trailDir": str(run_dir),
         "runId": cand["runId"],
         "pluginAgentsAvailable": plugin_agents,
+        "pluginRoot": str(plugin_root),
     }
     if sidecar_cli is not None:
         args["provisionSidecarCli"] = str(sidecar_cli)
@@ -202,11 +204,17 @@ def build_args(cand: dict, repo_root: Path, run_dir: Path, mode: str | None, plu
 
 def _write_receipt(fire: Path, reemit: list[str]) -> None:
     """Land `<fire>.emitted.json` so the Workflow PreToolUse hook sees an emitted, not hand-rolled, fire."""
-    path = Path(__file__).resolve().parents[2] / "bin" / "emit-dispatch-workflow.py"
-    spec = importlib.util.spec_from_file_location("emit_dispatch_workflow", path)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    mod._write_emission_receipt(fire, None, receipt_extras={"reemit": reemit})
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "hooks" / "scripts"))
+    import _engine_root
+
+    root = _engine_root.resolve_claude_klabauter_root()
+    if root is None:
+        raise RuntimeError("engine root unresolved; cannot write the emission receipt")
+    _engine_root.place_engine_root_on_path(root)
+    # The engine's one receipt writer, the same import emit-wave-fire uses.
+    from coordinator_core.ops.dispatch_emit.op import _write_emission_receipt
+
+    _write_emission_receipt(fire, None, {}, extras={"reemit": reemit})
 
 
 def emit_fire(invoke: Path, source: Path, run_dir: Path, args: dict, reemit: list[str]) -> str:
@@ -289,7 +297,9 @@ def main(argv: list[str] | None = None) -> int:
         for cand in cands:
             run_dir = base / cand["runId"]
             try:
-                args = build_args(cand, repo_root, run_dir, ns.interaction_mode, not ns.no_plugin_agents, ns.provision_sidecar_cli)
+                args = build_args(
+                    cand, repo_root, run_dir, ns.interaction_mode, not ns.no_plugin_agents, ns.provision_sidecar_cli, ns.plugin_root
+                )
             except Refusal as exc:
                 if mode == "targeted":
                     raise

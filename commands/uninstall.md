@@ -109,11 +109,12 @@ engine-computable fact.
     it; fail loud on a hand-modified block.
 17. **Operator `~/.claude` git-hook gate regions** — REVERSE, across `pre-commit`, `post-merge`,
     `post-checkout`.
-18. **Manifest-required env keys (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`,
-    `CLAUDE_CODE_ENABLE_TODO_TOOLS`)** — CANNOT-REVERSE-SAFELY. `bin/check-settings-env.py
-    --apply` (install.md's Settings env values step) is the writer of both all-machines rows;
-    it never removes a key, only repairs a wrong/missing value, so there is nothing for this
-    script itself to reverse. Manual, only if certain nothing else needs them: delete the
+18. **Manifest-required env key (`CLAUDE_CODE_ENABLE_TODO_TOOLS`)** — CANNOT-REVERSE-SAFELY.
+    The writer of the all-machines rows is `bin/check-settings-env.py --apply` (install.md's
+    Settings env values step); it never removes a key, only repairs a wrong/missing value, so there
+    is nothing for this script itself to reverse. `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` is
+    retired and never written; older installs may still carry it. Manual, only if certain nothing
+    else needs them: delete the
     `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` and/or `CLAUDE_CODE_ENABLE_TODO_TOOLS` entries from
     `~/.claude/settings.json`'s `env` block.
 19. **`settings.local.json` sibling-plugin seeds** — DELIBERATELY-NOT-REVERSED. Manual per key: set
@@ -170,6 +171,23 @@ engine-computable fact.
     for the actual leg order, not restated here. No `WriteSurfaceEntry`, no receipt entry: that
     manifest describes what INSTALL writes, and this leg only reverses another plane's install —
     a consumer of that manifest, never a producer, so it stays out of the denominator.
+
+31. **DoE clone (`ensure-doe-clone.py`)** — DELIBERATELY-NOT-REVERSED. The `git clone` of coordinator-content-repo
+    at `repos.content_root` is the operator's working checkout and may hold uncommitted or unpushed
+    work; nothing here deletes it. Remove the directory by hand once it is confirmed clean.
+32. **`.content-root` pointer (`gen-content-root-pointer.py`)** — DELIBERATELY-NOT-REVERSED. A one-line file
+    under `<settings-home>/machine-local/` that the SessionStart hook
+    `session-start-register-coordinator-content-repo-root.py` rewrites whenever it is absent or stale, so a
+    removal would be undone by the next DoE session; it is inert without the plugin. The
+    `--keep-marketplace` flag clears it (Flags table).
+33. **`claude-author` shell shim (`gen-claude-author-shim.py`)** — CANNOT-REVERSE-SAFELY. Writes
+    `${CLAUDE_HOME:-$HOME}/.claude/shell/claude-author-shim.sh` (or `.ps1`) and one sentinel-guarded
+    source block in the interactive rc or PowerShell profile, delimited by
+    `# --- coordinator claude-author shim [generated] ---` /
+    `# --- end coordinator claude-author shim ---`. Delete that block and the shim file by hand.
+34. **`claude-author` wrapper (`install-claude-author-wrapper.py`)** — CANNOT-REVERSE-SAFELY.
+    Copies `claude-author.py` to `${CLAUDE_HOME:-$HOME}/.local/bin/claude-author`; the directory
+    is the operator's, so delete only that one file by hand.
 
 ## Uninstall boundary
 

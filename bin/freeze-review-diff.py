@@ -229,6 +229,18 @@ def main(argv: list[str]) -> int:
     if repo_root is None:
         return 1
 
+    # A shell that joins a path list into one argument (PowerShell
+    # `$a -join " "`) hands over a single entry naming no file, which froze an
+    # empty diff and let an execute run skip review. Split it.
+    args.paths = [
+        part
+        for entry in args.paths
+        for part in (
+            [entry] if (repo_root / entry).exists() or not any(c.isspace() for c in entry)
+            else entry.split()
+        )
+    ]
+
     with recording_declared_writes(cwd=str(repo_root)):
         result = freeze_diff(
             repo_root, args.range_, args.slice_id, args.paths or None, worktree=args.worktree
@@ -255,6 +267,11 @@ def main(argv: list[str]) -> int:
             f"{_PROG}: note: freeze written but not committed: {result['commit_error']}",
             file=sys.stderr,
         )
+    if args.worktree:
+        from coordinator_core.ops.review_stamp import product_files
+
+        # stderr only: stdout stays the single diff-path line its slurping callers parse.
+        print(f"product_files: {len(product_files(Path(result['diff_path'])))}", file=sys.stderr)
     print(result["diff_path"])
     return 0
 

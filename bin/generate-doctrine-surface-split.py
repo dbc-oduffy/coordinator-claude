@@ -74,6 +74,9 @@ import subprocess  # noqa: F401 -- test_arrival_generate_doctrine_surface_split.
 # stdlib module object, so the patch still reaches it); no direct call site in this module anymore.
 import sys
 from pathlib import Path, PurePosixPath
+import os  # noqa: E402
+
+
 
 #: Populated by `_repo_root()`/`_no_console_creationflags()`, deferred out of module scope so the
 #: non-stdlib imports they perform are not a module-body-inertness violation
@@ -165,7 +168,7 @@ def _repo_root() -> Path:
             "generate-doctrine-surface-split: cannot resolve the coordinator "
             "plugin root -- resolve_caller_context().plugin_root returned no "
             "result. Set CLAUDE_PLUGIN_ROOT, or register the coordinator-claude "
-            "plugin install / .content-root pointer (see resolve_plugin_root())."
+            "plugin install / content-root pointer (see resolve_plugin_root())."
         )
     return Path(plugin_root).resolve().parent
 
@@ -650,6 +653,10 @@ def regenerate_split_dir(
 
 
 def main(argv: list[str]) -> int:
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+    from cc_invoke import ensure_engine_on_path
+
+    ensure_engine_on_path(__file__)
     if not argv or argv[0].startswith("--"):
         print(
             "usage: generate-doctrine-surface-split.py <source.md> [--check]\n"

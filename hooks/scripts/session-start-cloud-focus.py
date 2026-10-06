@@ -1,31 +1,19 @@
-"""SessionStart hook: arm a cloud session's focus repo; report missing agent teams.
+"""SessionStart hook: arm a cloud session's focus repo.
 
 Cloud-only, by the engine's own detector (`coordinator_core.env_locality`,
 harness rung only -- a headless VM is not a cloud session); a silent no-op
-everywhere else, and wherever the engine does not resolve. Two legs:
+everywhere else, and wherever the engine does not resolve. One leg:
+`COORDINATOR_CLOUD_FOCUS_REPO`, set in the environment's env-var box (the
+one surface that reaches a session) -- `owner/repo` or bare `repo`. The hook
+locates that checkout, reads its branch and base from `.git` files (it spawns
+nothing), and points the session at `coordinator:cloud-channel`, which writes
+the empty anchor commit when the branch is level with base, pushes, opens or
+reuses the draft PR, and subscribes to it. PR creation and subscription are
+MCP calls only the model can make, which is why this hook hands off rather
+than finishing the job.
 
-- Agent teams are on in every cloud session (the settings manifest's
-  all-machines `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`, applied at pre-boot).
-  The harness reads that flag once, at process start, so a hook can only
-  report it missing, never turn it on. Silent when it is `1`.
-- `COORDINATOR_CLOUD_FOCUS_REPO`, set in the environment's env-var box (the
-  one surface that reaches a session) -- `owner/repo` or bare `repo`. The hook
-  locates that checkout, and on `startup` gives its session branch an empty
-  anchor commit when the branch carries nothing ahead of base (GitHub refuses
-  a PR with no commits). It then points the session at
-  `coordinator:cloud-channel`, which pushes, opens or reuses the draft PR, and
-  subscribes to it. PR creation and subscription are MCP calls only the model
-  can make, which is why this hook hands off rather than finishing the job.
-
-The anchor is written with `commit-tree` + a compare-and-swap `update-ref`,
-never `git commit`: HEAD's own tree is reused, so the index and working tree
-are untouched even when a peer has staged work. It never fires on the base
-branch or a detached HEAD. Registered on `startup` only: the other SessionStart
-sources land mid-execution, where an anchor write is unsafe.
-
-OWN TOP-LEVEL REGISTRATION, never folded into `sessionstart-dispatch.py`: the
-line is an instruction the session must act on, and that fan-in's shared
-stdout is the measured truncation path (`assert-em-role.py`'s unfold record).
+Hosted as a head leg of `sessionstart-dispatch.py` on `startup`, emitting at
+stream offset 0 under the pinned head budget.
 
 Contract: exit 0 on every path; every failure degrades to silence or to a
 line naming what is missing. stdlib only.
@@ -36,7 +24,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import subprocess
 import sys
 from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
@@ -59,12 +46,10 @@ except Exception:
         return root
 
 FOCUS_ENV = "COORDINATOR_CLOUD_FOCUS_REPO"
-TEAMS_FLAG_ENV = "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"
 
 # Must match cloud_setup.py's own retrieval_search_roots. abs-path-ok: cloud VM mount points, cloud-only hook.
 CHECKOUT_ROOTS = (Path("/home/user"), Path("/workspace"))  # abs-path-ok: cloud checkout-root literal the hook probes
 
-_GIT_TIMEOUT_S = 3
 _REMOTE_SLUG = re.compile(r"[/:]([^/:]+)/([^/]+?)(?:\.git)?/?$")
 
 def parse_focus(value: str) -> Tuple[Optional[str], str]:
@@ -127,68 +112,30 @@ def read_branch(checkout: Path) -> Optional[str]:
     return head[len(prefix):] if head.startswith(prefix) else None
 
 
-def _git(checkout: Path, *args: str, env: Optional[dict] = None) -> Optional[str]:
+def _read(path: Path) -> str:
     try:
-        done = subprocess.run(
-            ["git", "-C", str(checkout), *args],
-            capture_output=True, text=True, timeout=_GIT_TIMEOUT_S, env=env,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return done.stdout.strip() if done.returncode == 0 else None
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
 
 
 def base_branch(checkout: Path) -> Optional[str]:
-    symbolic = _git(checkout, "symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD")
-    if symbolic and symbolic.startswith("origin/"):
-        return symbolic[len("origin/"):]
-    # Single call for both candidates (not one `rev-parse` per name) — avoids a
-    # per-item spawn loop; `for-each-ref` accepts both patterns in one invocation.
-    refs = _git(
-        checkout, "for-each-ref", "--format=%(refname:short)",
-        "refs/remotes/origin/main", "refs/remotes/origin/master",
-    )
-    found = {line.rsplit("/", 1)[-1] for line in refs.splitlines()} if refs else set()
+    """Base branch from `.git` files only: origin/HEAD symref, packed-refs, loose refs."""
+    git = checkout / ".git"
+    head = _read(git / "refs" / "remotes" / "origin" / "HEAD").strip()
+    prefix = "ref: refs/remotes/origin/"
+    if head.startswith(prefix) and head[len(prefix):].strip():
+        return head[len(prefix):].strip()
+    packed = {
+        line.split(None, 1)[1].strip()
+        for line in _read(git / "packed-refs").splitlines()
+        if line and line[0] not in "#^" and len(line.split(None, 1)) == 2
+    }
     for name in ("main", "master"):
-        if name in found:
+        ref = f"refs/remotes/origin/{name}"
+        if ref in packed or (git / ref).is_file():
             return name
     return None
-
-
-def ensure_anchor(checkout: Path, branch: str, base: str, session_id: str) -> bool:
-    ahead = _git(checkout, "rev-list", "--count", f"refs/remotes/origin/{base}..HEAD")
-    if ahead is None:
-        return False
-    if ahead != "0":
-        return True
-    head = _git(checkout, "rev-parse", "HEAD")
-    tree = _git(checkout, "rev-parse", "HEAD^{tree}")
-    if not head or not tree:
-        return False
-    message = (
-        "cloud: open session channel\n\n"
-        "Empty anchor so this branch can carry the session's draft PR "
-        "(coordinator:cloud-channel).\n\n"
-        f"Cloud-Session-Id: {session_id or 'unknown'}\n"
-    )
-    env = dict(os.environ)
-    if not _git(checkout, "config", "user.email"):
-        env.update(GIT_AUTHOR_NAME="Claude", GIT_AUTHOR_EMAIL="noreply@anthropic.com",
-                   GIT_COMMITTER_NAME="Claude", GIT_COMMITTER_EMAIL="noreply@anthropic.com")
-    commit = _git(checkout, "commit-tree", tree, "-p", head, "-m", message, env=env)
-    if not commit:
-        return False
-    return _git(checkout, "update-ref", f"refs/heads/{branch}", commit, head) is not None
-
-
-def render_teams_line(flag: str) -> Optional[str]:
-    if flag == "1":
-        return None
-    return (
-        f"CLOUD: agent teams OFF. Add {TEAMS_FLAG_ENV}=1 to `env` in ~/.claude/settings.json "
-        "(the env-var box misses this session)."
-    )
 
 
 def render_focus_line(focus: str, name: Optional[str], branch: Optional[str],
@@ -226,19 +173,13 @@ def main() -> int:
 
     lines = []
     try:
-        lines.append(render_teams_line(os.environ.get(TEAMS_FLAG_ENV, "").strip()))
         if focus:
             owner, repo = parse_focus(focus)
             found = find_checkout(owner, repo, [*CHECKOUT_ROOTS, Path.cwd()]) if repo else None
             checkout, name = found if found else (None, None)
             branch = read_branch(checkout) if checkout else None
             base = base_branch(checkout) if checkout else None
-            ready = base is not None
-            if checkout and branch and base and branch != base:
-                ready = ensure_anchor(
-                    checkout, branch, base, os.environ.get("CLAUDE_CODE_REMOTE_SESSION_ID", "")
-                )
-            lines.append(render_focus_line(focus, name, branch, base, ready))
+            lines.append(render_focus_line(focus, name, branch, base, base is not None))
     except Exception:  # noqa: BLE001
         pass
 

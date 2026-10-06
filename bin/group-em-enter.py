@@ -20,10 +20,14 @@ Cold path — one process, one call. Direct in-process import + call
 `coordinator/bin/group-em-watch.py` uses.
 
 Exit codes:
-  0 — Group-EM claimed (fresh, refreshed, or auto-replacing a dead holder).
+  0 — Group-EM claimed (fresh, refreshed, or displacing any prior holder).
   2 — usage error (no session id resolvable).
-  5 — Group-EM REFUSED (a live or unaccounted-for incumbent holds it); the
-      op's own `nomination` leg carries the refusal detail.
+  5 — standing not claimed (the nomination leg failed or reported claimed=false);
+      Group EM standing is taken, never refused over an incumbent, so a live or
+      unregistered holder is displaced and reported in `standing.displaced_holder*`.
+  6 — StaleEngineError: a digest arrived under an unclaimed standing.
+  7 — engine unresolvable or the op raised; never falls back.
+  8 — GROUP-EM-NOT-HUMAN-ENTERED: the session transcript holds no human-typed /group-em.
 
 Negative spec: no send, no nudge, no transport — this assembles the digest
 and stops, exactly as the DoE reference's own negative spec states. No
@@ -43,6 +47,10 @@ import sys
 from typing import Any, Optional
 
 
+EXIT_STALE_ENGINE = 6
+EXIT_ENGINE_FAILED = 7
+
+
 def _resolve_op():
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_dispatch_engine_on_path
@@ -58,8 +66,9 @@ def _resolve_op():
 
 def _render(payload: dict[str, Any]) -> str:
     nomination = payload.get("nomination") or {}
+    standing = payload.get("standing") or {}
     lines: list[str] = []
-    claimed = bool(nomination.get("claimed"))
+    claimed = bool(standing.get("claimed", nomination.get("claimed")))
     lines.append("standing: CLAIMED" if claimed else "standing: REFUSED")
     holder = nomination.get("holder") or "unknown"
     if not claimed:
@@ -69,7 +78,9 @@ def _render(payload: dict[str, Any]) -> str:
             f"[{incumbent.get('live_reason', 'unknown')}] holds this repo's nomination"
         )
         return "\n".join(lines)
-    if nomination.get("already_held"):
+    if standing.get("displaced_holder"):
+        lines.append(f"  {standing.get('message')}")
+    elif nomination.get("already_held"):
         lines.append(f"  {holder} already holds Group EM here (refreshed)")
     elif nomination.get("replaced_holder"):
         replaced = nomination["replaced_holder"]
@@ -124,6 +135,13 @@ def main(argv: Optional[list[str]] = None) -> int:
     )
     parser.add_argument("--repo", help="repo root; default cwd")
     parser.add_argument("--session-id", help="entering session; default $CLAUDE_SESSION_ID")
+    parser.add_argument("--note", help="free-form note recorded on the nomination")
+    parser.add_argument("--operator", help="operator recorded as nominated_by")
+    parser.add_argument(
+        "--prompt-id",
+        help="the human prompt's id; required, and verified later against the transcript -- "
+        "a forged one never verifies",
+    )
     parser.add_argument("--json", action="store_true", help="emit the payload as JSON")
     args = parser.parse_args(argv if argv is not None else sys.argv[1:])
 
@@ -140,17 +158,50 @@ def main(argv: Optional[list[str]] = None) -> int:
         handler = _resolve_op()
     except Exception as exc:  # noqa: BLE001
         print(f"group-em-enter: engine unresolvable — {exc}", file=sys.stderr)
-        return 2
+        return EXIT_ENGINE_FAILED
 
-    payload = handler({"repo_root": repo_root, "caller_session_id": session_id})
+    from coordinator_core.argv_fidelity import ArgvFidelityError, refuse_newline_argv
+
+    try:
+        refuse_newline_argv(args.note, flag_name="--note", remedy="keep the note to one line.")
+    except ArgvFidelityError as exc:
+        parser.error(str(exc))
+
+    try:
+        payload = handler(
+            {
+                "repo_root": repo_root,
+                "caller_session_id": session_id,
+                "note": args.note,
+                "operator": args.operator,
+                "prompt_id": args.prompt_id,
+            }
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(
+            f"group-em-enter: engine path failed and this CLI does not silently fall back — {exc}",
+            file=sys.stderr,
+        )
+        return EXIT_ENGINE_FAILED
+
+    if payload.get("refusal"):
+        print(f"group-em-enter: {(payload.get('standing') or {}).get('message')}", file=sys.stderr)
+        return int(payload.get("exit_code") or 8)
+
+    if not (payload.get("standing") or {}).get("claimed") and payload.get("digest") is not None:
+        print(
+            "group-em-enter: engine returned a digest under an unclaimed standing -- refusing "
+            "the result",
+            file=sys.stderr,
+        )
+        return EXIT_STALE_ENGINE
 
     if args.json:
         print(json.dumps(payload, indent=2, default=str))
     else:
         print(_render(payload))
 
-    nomination = payload.get("nomination") or {}
-    return 0 if nomination.get("claimed") else 5
+    return 0 if (payload.get("standing") or {}).get("claimed") else 5
 
 
 if __name__ == "__main__":

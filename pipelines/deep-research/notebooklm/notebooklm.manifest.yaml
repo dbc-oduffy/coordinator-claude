@@ -1,0 +1,37 @@
+schema_version: 1
+pipeline: notebooklm
+description: "NotebookLM research: scout, one worker per notebook, sweep"
+inputs:
+  brief: required
+  scratch_dir: optional
+  lists:
+    notebooks:
+      kind: strings
+stages:
+  - id: scout
+    phase: Scout
+    agent_type: "coordinator:notebooklm-research-scout"
+    model: haiku
+    template: scout-prompt-template.md
+    web_caller: true
+    optional: true
+    output: "{{scratch_dir}}/sources.md"
+  - id: workers
+    phase: Workers
+    agent_type: "coordinator:research-worker"
+    model: sonnet
+    template: worker-prompt-template.md
+    fan_out:
+      over: inputs.notebooks
+    max_concurrent: 3
+    web_caller: false
+    depends_on: [scout]
+    output: "{{scratch_dir}}/{{item}}-summary.md"
+  - id: sweep
+    phase: Sweep
+    agent_type: "coordinator:research-sweep"
+    model: opus
+    template: sweep-prompt-template.md
+    web_caller: true
+    depends_on: [workers]
+    output: "{{scratch_dir}}/merged-claims.json"

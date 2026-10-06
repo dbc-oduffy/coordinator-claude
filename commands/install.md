@@ -14,7 +14,7 @@ Guided install — agent runs mechanism, operator decides shape. Re-run anytime;
 
 The install is a script with declared choices, `${CLAUDE_PLUGIN_ROOT}/lib/install/coordinator_install.py`. Run it bare (`python3 "${CLAUDE_PLUGIN_ROOT}/lib/install/coordinator_install.py" ...`); the phases further down are the reference for what each step wraps.
 
-1. **Track.** `--plan` reports `environment.track`: `fresh`, `update` or `repair`. The installer decides it; never pick a track by hand. All three continue through steps 2-7, because the installer runs the track's own steps ahead of the configure steps: `fresh` runs `plugin_install`; `update` runs `plugin_update`, `engine_setup`, `engine_check` (with `track_reason: already current`, `plugin_update` drops and the engine steps still run); `repair` runs `engine_setup`, `engine_check`. On `repair`, surface `track_reason` to the operator. Never route `update` to `/coordinator:coordinator-update` or a hand-run `claude plugin update`; the installer performs the update.
+1. **Track.** `--plan` reports `environment.track`: `fresh`, `update` or `repair`. The installer decides it; never pick a track by hand. All three continue through steps 2-7, because the installer runs the track's own steps ahead of the configure steps: `fresh` runs `plugin_install`; `update` runs `plugin_update`, `engine_setup`, `engine_check` (with `track_reason: already current`, `plugin_update` drops and the engine steps still run); `repair` runs `engine_setup`, `engine_check`. On `repair`, surface `track_reason` to the operator. Never route `update` to `/coordinator:coordinator-update` or a hand-run `claude plugin update`; the installer performs the update. An agent outside this command may run only `--plan` and `setup.py --i-am-agent` (`engine_setup`/`engine_check`); `plugin_update` belongs to this human-typed command.
 2. **Orientation first.** Order: machine wiring, then the tour in a throwaway session, then opt-in repo onboarding (Phase 8). Read the plan's `orientation` text to the operator before asking anything. The posture question below only means something after it.
 3. **Plan.** `python3 ".../coordinator_install.py" --plan --permission-mode <mode>` mutates nothing and prints one JSON document: every decision with `id`, `question`, `why`, `options`, `default`, `level`. Pass the session's `permission_mode` from hook input; it adapts defaults (auto, bypass and plan presume the recommended extras and list them at the end as added; default and acceptEdits ask per change and pre-install nothing). Outside auto and bypass, mention shift-tab to auto mode once.
 4. **Ask once.** Human path: `--express` takes every recommended default; `--custom` walks the decisions one at a time on stdin, in plain language, and both print the same RAN/SKIPPED/INHERITED/FAILED block. Ask the `question` text verbatim (never paraphrase the posture options) in ONE block, not one prompt per item. `--i-am-agent` (no answers) returns the full plan for an agent to answer on the operator's behalf.
@@ -76,7 +76,7 @@ No-ops if not a git repo. Under `--check-only`, don't run it — report gate-mar
 
 Git-LFS: report presence only — never `git lfs install` (no flags) against a coordinator-hooked repo: it refuses to overwrite coordinator's own committed hooks and only offers `--force`, which would clobber them, so a per-repo hook install is permanently a no-op here and must not be attempted. Binary present: offer `git lfs install --skip-repo` (global filter config only, never touches repo hooks). Binary absent: advisory per-platform remediation (wiki). Always report which branch ran — never silent.
 
-**Settings env values.** `python3 "${CLAUDE_PLUGIN_ROOT:?coordinator plugin root unset — run this from a plugin command/skill, or substitute an absolute path}/bin/check-settings-env.py" --apply` asserts `settings.json`'s `env` block against `templates/settings-manifest.md` § Environment Variables — **values, not key presence**: a key at the wrong value gates a tool out of every session on the box while reading as configured. `--apply` writes only the all-machines rows; machine-specific ones are reported, never auto-written. Under `--check-only`, drop `--apply`. Env is read at process start — a repair lands on the next session, not this one.
+**Settings env values.** `python3 "${CLAUDE_PLUGIN_ROOT:?coordinator plugin root unset — run this from a plugin command/skill, or substitute an absolute path}/bin/check-settings-env.py" --apply` asserts `settings.json`'s `env` block against `templates/settings-manifest.md` § Environment Variables — **values, not key presence**: a key at the wrong value gates a tool out of every session on the box while reading as configured. `--apply` writes only the all-machines rows and removes retired keys; machine-specific ones are reported, never auto-written. Under `--check-only`, drop `--apply`. Env is read at process start — a repair lands on the next session, not this one.
 
 **Python3.** Resolves and runs `--version`: ready. Not on PATH: fail-loud. Resolves but errors on `--version` (Windows App-Execution-Alias stub): warn — Phase 3 places a real interpreter.
 
@@ -312,10 +312,11 @@ git rev-parse --show-toplevel 2>/dev/null
 → `_EM_CONTEXT_REPO_ROOT`.
 
 ```bash
-python3 "<engine-root>/coordinator/bin/coordinator-resolve-validation-cmd.py" --read-key "${_EM_CONTEXT_REPO_ROOT}" engagement_posture
+# PowerShell host: & "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-resolve-validation-cmd.exe"
+"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-resolve-validation-cmd" --read-key "${_EM_CONTEXT_REPO_ROOT}" engagement_posture
 ```
 
-PowerShell host (rung 0): `& python3 "<engine-root>\coordinator\bin\coordinator-resolve-validation-cmd.py" --read-key $PWD engagement_posture`
+PowerShell host (rung 0): `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-resolve-validation-cmd.exe" --read-key $PWD engagement_posture`
 
 Differs from the identity-file value: fail-loud, don't write the overlay. Empty output (repo has no posture set): not a difference — proceed, treat as absent.
 

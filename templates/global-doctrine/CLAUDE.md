@@ -57,6 +57,10 @@ Deeper reference: coordinator wiki corpus (`coordinator/docs/wiki/`), grep by to
   (`coordinator/docs/wiki/dispatching-parallel-agents/named-dispatch-classes.md`), never redispatch on an idle.
 - **Zero cost is not a reason to keep code.** "It costs 0 ms" argues deletion is cheap, never
   that the code stays. Dead branches, redundant calls, unused parameters: delete on sight.
+- **Scratch lives in the repo's `scratch/`, never a drive root.** Debug dirs, probe files,
+  repro builds: `<repo>/scratch/`. Never a drive root, `/tmp`, or any other system path.
+  Tests write only under `tmp_path`. A fake POSIX path like `/repo` lands at the root of the
+  current Windows drive, so a test that writes there is creating a real folder.
 
 <!-- coordinator:posture:start -->
 ## Posture

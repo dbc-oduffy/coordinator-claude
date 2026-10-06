@@ -162,8 +162,8 @@ ownership or a seam permanently -> `ratification` (+ REQUIRE `in_repo_capture`).
 **`ratification`: promote before you stamp.** `in_repo_capture` must point at an in-repo home
 (`docs/decisions/`, `docs/wiki/`, `state/cross-repo-commitments/`, or a canonical plan/spec) that
 already **exists** at write time, or `memo-transition.js` fails hard mid-flow. Promote -> take the
-path -> one atomic `cs_action_memo` call carrying `--distill-fate`, `--in-repo-capture`, and
-status/decision/`realized_by`. `ephemeral` and `commitment` carry no such precondition.
+path -> one atomic `coordinator-invoke memo.transition` call (verb `action`) carrying `distill_fate`,
+`in_repo_capture`, and `decision`/`decision_note`/`realized_by`. `ephemeral` and `commitment` carry no such precondition.
 
 **Verify your response as hard as their premise.** Easy item fixed and hard ones surfaced is
 *partial* — say so and **land each open item in a surface you can write at will** (a

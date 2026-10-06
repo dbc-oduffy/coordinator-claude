@@ -276,7 +276,7 @@ def resolve_from_repo(root: str | None = None) -> str:
 
     Resolution order (same convention as cross-repo-memo._sender_em_id):
       1. cwd git-root -> reverse-lookup against machine-local repos.* table
-      2. repos.content_root (coordinator-content-repo repo) -> "claude-central-em"
+      2. repos.content_root (the coordinator content repo) -> "claude-central-em"
       3. Unregistered git repo -> basename of git root + "-em"
       4. Not in a git repo -> "unknown-sender-em"
       Never uses `git remote get-url origin` — that yields a URL, not a shortname.

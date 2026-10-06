@@ -87,11 +87,10 @@ op-driven write always eventually is (that is the entire mechanism by which
 it becomes durable and travels).
 
 WHY THIS RIDES *THIS* SCRIPT rather than a new, separate pre-commit gate:
-the actual `.git/hooks/pre-commit` dispatch is wired by the engine repo's
-`coordinator_core.ops.install_content_root_precommit_hook._GATE_REGISTRY` (see
-`coordinator/tests/test_doe_precommit_installer_registration.py`), a
-cross-repo file this repo cannot add an entry to unilaterally. A brand-new
-sibling script here would ship complete and tested and NEVER ACTUALLY RUN
+the actual `.git/hooks/pre-commit` dispatch is wired by
+`coordinator/bin/lib/install_content_root_precommit_hook.py` in this repo (see
+`coordinator/tests/test_doe_precommit_installer_registration.py`). A brand-new
+sibling script would ship complete and tested and NEVER ACTUALLY RUN
 -- exactly the shape this script's own opening paragraph already warns
 about for a *rename* of this file ("do not rename... without a coordinated
 update on that side"), and exactly the silently-degraded-instrument shape
@@ -219,6 +218,10 @@ _ACCUMULATOR_KEY_BY_SCOPE = {
 _NO_CONSOLE_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
+#: A hung git (index lock, network FS) must not hang the commit.
+_GIT_TIMEOUT_S = 30
+
+
 def _run_git(args: "list[str]") -> str:
     result = subprocess.run(
         ["git", *args],
@@ -226,6 +229,7 @@ def _run_git(args: "list[str]") -> str:
         capture_output=True,
         check=True,
         creationflags=_NO_CONSOLE_WINDOW,
+        timeout=_GIT_TIMEOUT_S,
     )
     return result.stdout.decode("utf-8", errors="replace")
 
@@ -238,6 +242,7 @@ def _blob_size(oid: str) -> int:
         cwd=str(REPO_ROOT),
         capture_output=True,
         creationflags=_NO_CONSOLE_WINDOW,
+        timeout=_GIT_TIMEOUT_S,
     )
     if result.returncode != 0:
         return 0
@@ -268,6 +273,7 @@ def _blob_sizes_batch(oids: "set[str]") -> "dict[str, int]":
         capture_output=True,
         text=True,
         creationflags=_NO_CONSOLE_WINDOW,
+        timeout=_GIT_TIMEOUT_S,
     )
     for line in result.stdout.splitlines():
         parts = line.split(" ")
@@ -340,6 +346,7 @@ def _cat_file_content(oid: str) -> bytes:
         cwd=str(REPO_ROOT),
         capture_output=True,
         creationflags=_NO_CONSOLE_WINDOW,
+        timeout=_GIT_TIMEOUT_S,
     )
     if result.returncode != 0:
         return b""
@@ -365,6 +372,7 @@ def _cat_file_contents_batch(oids: "set[str]") -> "dict[str, bytes]":
         input=("\n".join(real_oids) + "\n").encode("utf-8"),
         capture_output=True,
         creationflags=_NO_CONSOLE_WINDOW,
+        timeout=_GIT_TIMEOUT_S,
     )
     data = result.stdout
     pos = 0

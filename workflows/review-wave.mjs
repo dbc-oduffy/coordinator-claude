@@ -35,6 +35,10 @@
  *     skipCodeSemantics: boolean, // Rule 2 (skip-code-semantics-on-doc-only) from the skill's
  *                                   // Gating Rules — when true, dispatch zero chunk reviewers
  *                                   // and run only the 3 mechanical specialist workers
+ *     pluginRoot: string,         // optional ABSOLUTE coordinator plugin root. The briefs cite the
+ *                                   // plugin's skill and agent files under it, because a consumer
+ *                                   // repo has no `coordinator/` directory. Absent, they say
+ *                                   // `<plugin-root>/...`, and the agent resolves the root itself.
  *     testOutputPath: string,     // caller-captured raw test-run stdout/stderr, analogous to
  *                                   // diffPatchPath: the caller runs the project test command
  *                                   // BEFORE invoking this Workflow and freezes its output to a
@@ -51,9 +55,10 @@
  *
  * Invocation:
  *   Workflow({
- *     scriptPath: "coordinator/workflows/review-wave.mjs",
+ *     scriptPath: `${CLAUDE_PLUGIN_ROOT}/workflows/review-wave.mjs`,
  *     args: {
  *       findingsDir: "state/review-findings/20260712T120000Z",
+ *       pluginRoot: CLAUDE_PLUGIN_ROOT (resolved, absolute),
  *       diffPatchPath: "state/review-trail/diffs/weekly-20260712T120000Z.diff",
  *       testOutputPath: "state/review-trail/diffs/weekly-20260712T120000Z.test.log",
  *       chunks: [
@@ -131,10 +136,13 @@ const VERDICT_SCHEMA = {
 }
 
 
+const PLUGIN_ROOT = (typeof args.pluginRoot === 'string' && args.pluginRoot.trim()) ? args.pluginRoot.trim() : '<plugin-root>'
+const pluginPath = (rel) => PLUGIN_ROOT + '/' + rel
+
 function chunkPrompt(chunk, diffPatchPath, findingsDir) {
   return [
     'You are a Sonnet code-reviewer-weekly instance dispatched as part of a review-wave Workflow.',
-    'Per agents/code-reviewer-weekly.md: you have Write access to exactly ONE output path and no other.',
+    'Per ' + pluginPath('agents/code-reviewer-weekly.md') + ': you have Write access to exactly ONE output path and no other.',
     '',
     'Assigned chunk: ' + chunk.id,
     'File-scope (disjoint partition — review ONLY these files): ' + chunk.files.join(', '),
@@ -149,7 +157,7 @@ function chunkPrompt(chunk, diffPatchPath, findingsDir) {
     'escalate_to_architecture: false or omit the field (absent means false).',
     '',
     'Use the standard severity scale (P0/P1/P2/nit) and structured findings format from',
-    'agents/code-reviewer-weekly.md. When done, verify your file exists on disk (ls -la) before',
+    pluginPath('agents/code-reviewer-weekly.md') + '. When done, verify your file exists on disk (ls -la) before',
     'replying. Reply DONE: ' + findingsDir + '/' + chunk.id + '.md — nothing else.',
   ].join('\n')
 }
@@ -169,7 +177,7 @@ function mechanicalPrompt(worker, inputPath, inputDescription, findingsDir, outF
   const canVerifyOnDisk = worker !== 'test-evidence-parser'
   return [
     'You are the ' + worker + ' dispatched as part of a review-wave Workflow, per',
-    'coordinator/skills/parallel-code-review/SKILL.md § Parallel Dispatch.',
+    pluginPath('skills/parallel-code-review/SKILL.md') + ' § Parallel Dispatch.',
     '',
     inputDescription + ': ' + inputPath,
     '',
@@ -185,7 +193,7 @@ function synthPrompt(diffPatchPath, findingsDir) {
   const headShaPath = diffPatchPath.replace(/\.diff$/, '.head.sha')
   return [
     'You are the parallel-review-synthesizer dispatched as part of a review-wave Workflow, per',
-    'agents/parallel-review-synthesizer.md.',
+    pluginPath('agents/parallel-review-synthesizer.md') + '.',
     '',
     'FINDINGS_DIR: ' + findingsDir,
     'HEAD_SHA_PATH (frozen head SHA from the Snapshot step): ' + headShaPath,
@@ -205,7 +213,7 @@ function synthPrompt(diffPatchPath, findingsDir) {
     'the verdict.',
     '',
     'Evaluate verdict rules in strict order (BLOCKED -> WARN -> OK) exactly as specified in',
-    'agents/parallel-review-synthesizer.md § Verdict Rules.',
+    pluginPath('agents/parallel-review-synthesizer.md') + ' § Verdict Rules.',
     '',
     'Write ' + findingsDir + '/synthesis.json per the exact Output Schema in that file, then',
     'verify it exists on disk (ls -la) before replying.',

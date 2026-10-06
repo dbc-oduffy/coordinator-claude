@@ -151,13 +151,17 @@ def _bootstrap_imports() -> None:
 def main(argv: list[str] | None = None) -> int:
     _bootstrap_imports()
     argv = sys.argv[1:] if argv is None else argv
+    force = "--force" in argv
+    argv = [a for a in argv if a != "--force"]
     repo_root = _resolve_repo_root(argv)
     if repo_root is None:
         print("reap-sessions.py: cannot resolve git repo root", file=sys.stderr)
         return 0
 
     try:
-        result = cc_invoke.route("session.reap", {}, repo_root, _no_fallback)
+        result = cc_invoke.route(
+            "session.reap", {"force": True} if force else {}, repo_root, _no_fallback
+        )
     except RuntimeError as exc:
         print(f"reap-sessions.py: session.reap failed -- continuing (best-effort): {exc}", file=sys.stderr)
         return 0
@@ -165,6 +169,12 @@ def main(argv: list[str] | None = None) -> int:
     message = cc_invoke.mutation_refusal_message("session.reap", result)
     if message is not None:
         print(f"reap-sessions.py: {message} -- continuing (best-effort)", file=sys.stderr)
+    elif isinstance(result, dict) and result.get("cadence_gated"):
+        print(
+            "reap-sessions.py: skipped -- cadence gate (<12h since last reap); "
+            "pass --force to run now",
+            file=sys.stderr,
+        )
     return 0
 
 

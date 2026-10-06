@@ -74,6 +74,13 @@ Never run the repo's fast or full test suite. Targeted, read-only observations o
 - `indeterminate` is a first-class outcome whenever an observation cannot be made (a command is
   denied, an input is missing, a clause cannot be tested from here). It is never a soft `met`.
   `reason` is required.
+- **A denied leg reads the plan's recorded evidence before going `indeterminate`.** If the plan's
+  committed Verification record holds output for that leg, committed at or after `run_base_sha` and
+  naming the exact `how` command, you may judge the leg on it. Record it as an `observed` item with
+  `provenance: em-recorded` and the committing sha in `result`. It is evidence you weighed, not
+  output you re-observed, so say so. No such record, or a stale one: the leg stays `indeterminate`,
+  reason `EM evidence absent/stale`. Every `observed` item carries `provenance` (`judge` for what you
+  ran or read yourself). Tripwire: `A-DENIED-LEG-WEIGHS-THE-RECORD-NEVER-DROPS-IT`.
 
 `reason` is one line: it is what the digest's `decision_required` carries.
 

@@ -1,4 +1,8 @@
 
+"""Imports `sys.argv[1]` in a fresh subprocess and reports the module/file-open/spawn
+cost of that import, so a caller can measure a hook module's own import overhead in
+isolation rather than folded into the rest of an already-warm process."""
+
 from __future__ import annotations
 
 import json
@@ -7,6 +11,9 @@ import sys
 
 def main(argv: "list[str] | None" = None) -> None:
     argv = sys.argv if argv is None else argv
+    if len(argv) < 2:
+        print("usage: _hook_cost_probe.py <module>", file=sys.stderr)
+        raise SystemExit(2)
     target = argv[1]
 
     file_open_count = 0

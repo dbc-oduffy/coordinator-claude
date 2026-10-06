@@ -41,10 +41,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         proc = subprocess.run(
             git_argv(args.systems_dir), cwd=root, capture_output=True, text=True,
-            encoding="utf-8", check=False,
+            encoding="utf-8", check=False, timeout=15,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
-    except OSError as exc:
+    except (OSError, subprocess.TimeoutExpired) as exc:
         print(f"could not check: {exc}", file=sys.stderr)
         return 2
     if proc.returncode != 0:

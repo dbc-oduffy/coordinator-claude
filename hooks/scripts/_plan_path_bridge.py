@@ -28,6 +28,7 @@ that exists without this module, never a blocked spawn.
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 import time
@@ -154,9 +155,15 @@ def record_plan_path(
         path.parent.mkdir(parents=True, exist_ok=True)
         existing = _read_rows(path)
         existing.append(row)
-        with open(path, "w", encoding="utf-8", newline="\n") as handle:
-            for entry in existing[-_MAX_ROWS:]:
-                handle.write(json.dumps(entry) + "\n")
+        tmp = path.with_name(path.name + ".tmp-%d" % os.getpid())
+        try:
+            with open(tmp, "w", encoding="utf-8", newline="\n") as handle:
+                for entry in existing[-_MAX_ROWS:]:
+                    handle.write(json.dumps(entry) + "\n")
+            os.replace(tmp, path)
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
     except Exception:
         return False
     return True

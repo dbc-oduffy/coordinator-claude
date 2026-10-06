@@ -40,8 +40,16 @@ from __future__ import annotations
 import subprocess
 import sys
 
+import os  # noqa: E402
+def _ensure_engine() -> None:
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+    from cc_invoke import ensure_engine_on_path
+
+    ensure_engine_on_path(__file__)
+
 
 def main(argv: "list[str] | None" = None) -> int:
+    _ensure_engine()
     del argv
     from coordinator_core.win_portability import no_console_creationflags
 

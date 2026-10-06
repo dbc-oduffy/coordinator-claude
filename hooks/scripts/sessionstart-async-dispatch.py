@@ -1,7 +1,7 @@
-"""SessionStart async fan-in dispatcher -- two hooks.json SessionStart
+"""SessionStart async fan-in dispatcher -- the async SessionStart
 registrations, one interpreter, source-gated. Registered `async: true`.
 
-Folds `session-start-register-coordinator-content-repo-root.py` (previously matcher
+Folds `sweep-boot.py`, `session-start-register-coordinator-content-repo-root.py` (previously matcher
 `startup|resume|clear|compact|fork`) and `session-start-repair-prepare-
 commit-msg-hook.py` (previously matcher `startup` only) into ONE `python3`
 process, registered ASYNC on the union of their prior matchers
@@ -36,7 +36,11 @@ hooks.json matcher without widening the `sources` sets below; the cohort
 would then go silent, so `_UNMATCHED_SOURCE_BREADCRUMB` makes that loud.
 Read the sync dispatcher's docstring for the full reasoning.
 
-Both guards are exception-isolated (`try/except BaseException`, stderr
+`sweep-boot.py` (`startup|compact`) is also folded here, appended LAST so the
+cheap self-heals never queue behind it. TIMEOUT ARITHMETIC: the hooks.json
+timeout is 45 s = sweep-boot's own 30 s plus the 15 s the other legs had.
+
+Every guard is exception-isolated (`try/except BaseException`, stderr
 skipped-list breadcrumb) though async stdout/stderr is discarded by the
 harness -- kept for parity with every other dispatcher in this repo and
 because a raised exception here still costs a bad exit code recorded by
@@ -145,6 +149,8 @@ REGISTRY: Tuple[StartGuard, ...] = (
     StartGuard("session_start_ensure_precommit_hook",
                "session-start-ensure-precommit-hook.py",
                frozenset({"startup", "resume", "clear", "compact", "fork"})),
+    # LAST, so the cheap self-heals above never wait behind it. No per-leg timer: the 45 s registration timeout bounds it.
+    StartGuard("sweep_boot", "sweep-boot.py", frozenset({"startup", "compact"})),
 )
 
 

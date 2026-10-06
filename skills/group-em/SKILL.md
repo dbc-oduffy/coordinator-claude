@@ -88,13 +88,11 @@ Owed introductions.
    a redundant introduction costs nothing the once-per-peer rule protects against; a skipped one
    leaves a peer that never got the four things in step 1.
 
-   **The introduced set is durable, not session-memory.** It has no store of its own — recording an
-   introduction is a `send_pass.build_send_digest`-shaped append to the EXISTING send log
-   (`state/subagent-share/<this-session-id>/group-em-send-log.jsonl`, § No registration ceremony,
-   no persistence) as a **cooldown-ignored row type**: it participates in "was this peer already
-   introduced," never in `_cooldown_remaining`'s throttle window. No new datastore. The writer is
-   `coordinator/skills/group-em/send_pass.py` — in-repo (same plane as this skill, not the
-   engine) — so this is a local contract on that file, not a cross-repo relay.
+   **The introduced set is durable, not session-memory.** Record an introduction as a
+   `send_pass.build_send_digest`-shaped append to the EXISTING send log
+   (`state/subagent-share/<this-session-id>/group-em-send-log.jsonl`) as a **cooldown-ignored row
+   type**: it counts for "was this peer already introduced," never for `_cooldown_remaining`'s
+   throttle. No new datastore; the writer is the in-repo `coordinator/skills/group-em/send_pass.py`.
 
 ## Box-wide notice
 
@@ -171,11 +169,14 @@ re-runs it, and a roster read is stale within a minute. In this order, as your f
    editor/cook runs, large workflows, memory-heavy agents — and any other queue where peers take
    turns (a suite mutex, a shared-tree merge, a publish) is yours to order. Peers ask you for a
    capacity slot; you release waiting peers in order as headroom allows and cap parallelism.
+   A slot is occupied only by a live PID: a "build running" report names the PID it read from
+   the process table, and you confirm that PID is alive before holding anyone else back.
+   Tripwire: `A-RUNNING-CLAIM-CARRIES-A-LIVE-PID`.
 
 **Not numbered, PM-gated: Navi.** When the PM asks, **spawn it, never an `Agent`-tool dispatch.**
-Its mood is SPAWN.
+Its mood is SPAWN, carrying your own `--plugin-dir` (`A-BARE-CLAUDE-BG-SPAWN-LOADS-THE-WRONG-PLUGIN-TREE`):
 
-    claude --agent navi --bg
+    claude --plugin-dir "<yours>" --agent navi --bg
 
 Repo-less, decision-weightless, never nudges a stalled peer twice. **One-per-box is held by
 `navi-singleton.py`** (`TWO-NAVIS-ON-ONE-BOX-IS-A-SILENT-DOUBLE-NUDGE`). **It escalates TO you; it
@@ -203,8 +204,8 @@ wire out of it, filtering `PARKED|ESCALATE|OUT-OF-WORK|GROUP-EM-MOVED|UNKNOWN` p
 signatures. `group-em-assistant` is a subagent: it wakes on events but cannot hold a timer, and
 missed 4 of 4 expiries. Tripwire: `A-MONITOR-ARMED-BY-A-TEAMMATE-WAKES-NOBODY`.
 
-**The `notify_when_idle` one-shot cannot be delegated either** — accepted only from a main
-conversation. It stays with you if used; it fires once per peer, so re-arm it per peer as needed.
+**The `notify_when_idle` one-shot cannot be delegated either** — main conversation only; it
+fires once per peer, so re-arm per peer.
 
 **You act on the watch's events yourself;** `group-em-assistant` is the reader you ask: park-spool
 triage, transcript tails, claimants. **The park spool is its surface to read and triage, not yours.**
@@ -226,11 +227,9 @@ liveness, reachability, or claim verdict.** `idle` means unknown, never quiet. M
 
 **Sanctioned, exhaustively: the oracle's verdict, and `last_tick_at` age in
 `state/group-em-watch.json`**, compared against the record's own `next_expected_by` rather than a
-fixed threshold. Do not shape this as a process-table check — `pgrep -f` cannot read Windows
-process command lines, and the watch runs under two different command lines besides. **Resource-usage
-proxies (CPU, memory, I/O) are banned for the same reason `busy`/`idle` is** — "progress toward a
-known end" is what a liveness verdict certifies, and a process burning CPU is not a process making
-progress. Full rationale: `coordinator/docs/wiki/dispatching-parallel-agents/group-em-standing/group-em-assistant-remit.md` § Liveness.
+fixed threshold. Do not shape this as a process-table check (`pgrep -f` cannot read Windows
+command lines). **Resource-usage proxies (CPU, memory, I/O) are banned too** — a liveness verdict
+certifies progress toward a known end. Full rationale: `coordinator/docs/wiki/dispatching-parallel-agents/group-em-standing/group-em-assistant-remit.md` § Liveness.
 
 **When a PM reports the watcher is dead, do not confirm it from the session list.** `idle` is
 `group-em-assistant`'s normal state between asks. Answer from `last_tick_at` age and name the
@@ -261,8 +260,7 @@ record per park, appended by every session's own `Stop`
 it needs no entry step and no holder. The engine plane commits to the spool retaining at least the
 last 30 minutes of parks.
 
-**A watching session goes idle exactly like the sessions it watches** — that is what the wake events are
-for. A Group EM who looks only when the PM asks has made the PM the watcher.
+A Group EM who looks only when the PM asks has made the PM the watcher.
 
 **What the watch is FOR:** sessions asking permission for EM-autonomous acts they already
 recommended; break-class defects handed up as "worth your eye"; a session idling on a peer repo
@@ -487,8 +485,7 @@ and fire with `repos` read from the fleet map. Tripwire: `A-GROUP-EM-HAND-AUTHOR
 the standing (`group-em-nomination.py who --self`); it needs no per-session PM assent. Guardrails,
 unchanged from the retired-grant rule: scoped pathspec commits only (never `git add -A`/`.`/`commit
 -a`), no destructive git ops, never leave a sibling's tests red. Engine-subject work stays
-the engine repo's: memo it, do not author it. The grant ends when the standing does. Record:
-`docs/decisions/DR-group-em-role-carries-cross-repo-commit-authority.md`.
+the engine repo's: memo it, do not author it. The grant ends when the standing does.
 
 ## Anti-scope
 
@@ -500,9 +497,8 @@ the engine repo's: memo it, do not author it. The grant ends when the standing d
   that messages everyone it can see is the shape it forbids. A session given a timing predicate
   re-derives `runtime-tripwire-stop-watcher.py` (681 fires / 26 days / ~99.4% wrong) one level down.
 - **That ban is about AUTOMATION, never attentiveness.** A holder re-deriving the roster each turn
-  and judging it is the opposite mechanism and is what the ban preserves.
-- **The three dispatch grants at the top of this file are each scoped to their own named dispatch.**
-  Raising the approvability judge and `group-em-assistant`, and firing `fleet-inbox-blitz`, under
-  this session's own authority is the grant. What stays gated is that `/group-em` otherwise messages **peer sessions in their own
-  windows** — an `ask-before-external-action` question no dispatch grant dissolves.
+  and judging it is what the ban preserves.
+- **The three dispatch grants at the top are scoped to their own named dispatch.** Messaging
+  **peer sessions in their own windows** stays an `ask-before-external-action` question no
+  dispatch grant dissolves.
 - `/autonomous` is a naming precedent only; its `/tmp` sentinel is not borrowed.

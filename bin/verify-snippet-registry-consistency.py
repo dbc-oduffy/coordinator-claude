@@ -45,14 +45,14 @@ def _resolve_plugin_root() -> str:
 
     Env var CLAUDE_PLUGIN_ROOT wins if set, returned verbatim. Otherwise
     resolves via content_root() (see that function's own docstring for its
-    env-var/machine-local resolution chain) and returns
+    registry/pointer resolution chain) and returns
     <content_root()>/coordinator.
 
     This does NOT derive from this script's own __file__ location. b644d5a9
     migrated this executable to claude-klabauter while snippets/ (and
     registry.toml) stayed in coordinator-content-repo — self-location now resolves to
     <claude-klabauter>/coordinator, which has no snippets/ at all. Content_root() is the
-    correct authority for "where is the coordinator-content-repo repo," independent of
+    correct authority for "where is the coordinator content," independent of
     where THIS script happens to run from. Do not "restore" __file__-based
     resolution to regain byte-parity with the retired bash oracle — that
     parity is exactly what caused the break once this file moved repos.
@@ -72,9 +72,9 @@ def _resolve_plugin_root() -> str:
         root = content_root()
     except _DoeUnresolvable as exc:
         print(
-            "verify-snippet-registry-consistency: cannot resolve the coordinator doctrine repo root "
-            f"({exc}). Set repos.content_root in the machine-local registry, or set "
-            "the CONTENT_ROOT env var, or set CLAUDE_PLUGIN_ROOT directly.",
+            "verify-snippet-registry-consistency: cannot resolve the coordinator content root "
+            f"({exc}). Set repos.content_root in the machine-local registry, "
+            "or set CLAUDE_PLUGIN_ROOT directly.",
             file=sys.stderr,
         )
         sys.exit(_TRANSPORT_FAILURE_EXIT)

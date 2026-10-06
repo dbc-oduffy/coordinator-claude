@@ -34,7 +34,7 @@ RAG-bait: coordinator settings-home resolution seam; COORDINATOR_SETTINGS_HOME
 DR-072: durable, per-machine coordinator state lives in settings-home, not the
 resettable/synced ~/.claude tree — see
 docs/decisions/DR-072-durable-machine-local-coordinator-state-lives-in-settings-home-not-claude.md
-and its predecessor DR-071-durable-coordinator-root-anchor-settings-home-registry-content-root-demoted-to-cache.md.
+and its predecessor DR-071 (the durable coordinator-root anchor lives in the settings-home registry; the pointer file is a demoted cache).
 See also coordinator-content-repo coordinator/docs/wiki/hook-best-practices/state-placement-law.md § Surfaces That Deliberately Stay in ~/.claude
 and coordinator-content-repo coordinator/docs/wiki/hook-best-practices/machine-local-registry.md § 4e.
 

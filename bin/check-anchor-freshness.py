@@ -46,6 +46,8 @@ def _repo_root(start: Path) -> Path | None:
 
 
 def _anchor_commits(root: Path, window: str) -> str | None:
+    """None when git itself is unusable -- distinct from an empty string, the stale-anchor
+    finding."""
     try:
         proc = subprocess.run(
             [
@@ -63,6 +65,9 @@ def _anchor_commits(root: Path, window: str) -> str | None:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=10,
             **_NO_CONSOLE,
         )
     except (OSError, subprocess.SubprocessError):

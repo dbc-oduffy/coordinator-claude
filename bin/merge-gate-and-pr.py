@@ -25,7 +25,7 @@ dimension module's own docstring for the coverage contract itself.
 Subcommands (argv[1] selects). Each accepts `--repo-root <dir>` (default: cwd) naming the repo it
 operates on:
 
-  pr-body --ship-verdict <text> --release-notes <text> [--summary <text>]
+  pr-body --ship-verdict <text> --release-notes <text> [--summary <text> | --summary-file <path>]
            [--verification <text>] [--risk <text>] [--demo-path <text>]
            [--links <text>] [--commit-range <range>]
       Composes the PR body in the fleet PR template's section order (coordinator-content-repo
@@ -341,8 +341,10 @@ _QUIET_WINDOW_SECONDS = 300
 
 
 def _gh_pr_view_json(pr: str, jq_field: str) -> tuple[int, str]:
+    # `--json` takes the bare field name; a jq index (`commits[-1]`) is refused.
+    json_field = jq_field.split(".")[0].split("[")[0]
     proc = subprocess.run(
-        ["gh", "pr", "view", pr, "--json", jq_field.split(".")[0], "-q", f".{jq_field}"],
+        ["gh", "pr", "view", pr, "--json", json_field, "-q", f".{jq_field}"],
         capture_output=True,
         text=True,
         check=False,
@@ -352,15 +354,35 @@ def _gh_pr_view_json(pr: str, jq_field: str) -> tuple[int, str]:
     return proc.returncode, proc.stdout.strip()
 
 
+def _git_log_last_commit_iso(pr: str) -> str:
+    """Newest commit time of the PR head ref via git; empty string when no
+    PR head ref resolves."""
+    for ref in (f"refs/pull/{pr}/head", f"refs/remotes/origin/pull/{pr}/head"):
+        proc = subprocess.run(
+            ["git", "log", "-1", "--format=%cI", ref, "--"],
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=_REPO_ROOT.get(),
+            **_no_console_flags(),
+        )
+        if proc.returncode == 0 and proc.stdout.strip():
+            return proc.stdout.strip()
+    return ""
+
+
 def cmd_active_branch_guard(args: argparse.Namespace) -> int:
     if args.force:
         return 0
 
     returncode, last_iso = _gh_pr_view_json(args.pr, "commits[-1].committedDate")
     if returncode != 0 or not last_iso:
+        last_iso = _git_log_last_commit_iso(args.pr)
+    if not last_iso:
         print(
-            f"merge-gate-and-pr active-branch-guard: could not read commit "
-            f"timestamps for PR {args.pr!r} via gh pr view",
+            f"merge-gate-and-pr active-branch-guard: verdict=indeterminate — "
+            f"could not read commit timestamps for PR {args.pr!r} via gh pr "
+            "view or git log",
             file=sys.stderr,
         )
         return 1
@@ -373,8 +395,8 @@ def cmd_active_branch_guard(args: argparse.Namespace) -> int:
         )
     except ValueError:
         print(
-            f"merge-gate-and-pr active-branch-guard: unparseable commit "
-            f"timestamp {last_iso!r}",
+            f"merge-gate-and-pr active-branch-guard: verdict=indeterminate — "
+            f"unparseable commit timestamp {last_iso!r}",
             file=sys.stderr,
         )
         return 1
@@ -407,6 +429,11 @@ def _build_parser() -> argparse.ArgumentParser:
     p_body = sub.add_parser("pr-body", parents=[common])
     p_body.add_argument("--ship-verdict", required=True)
     p_body.add_argument("--summary", default=None)
+    p_body.add_argument(
+        "--summary-file",
+        default=None,
+        help="Read the summary from this file (multi-line values travel as a file, never inline).",
+    )
     p_body.add_argument("--release-notes", required=True)
     p_body.add_argument("--verification", default=None)
     p_body.add_argument("--risk", default=None)
@@ -436,6 +463,20 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     if getattr(args, "post_status", False) and not args.sha:
         parser.error("coverage-gate --post-status requires --sha")
+    if args.subcommand == "pr-body":
+        import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+        from cc_invoke import require_engine_on_path
+
+        require_engine_on_path(__file__)
+
+        from coordinator_core.argv_fidelity import ArgvFidelityError, resolve_optional_prose
+
+        try:
+            args.summary = resolve_optional_prose(
+                args.summary, args.summary_file, flag_name="--summary"
+            )
+        except ArgvFidelityError as exc:
+            parser.error(str(exc))
     token = _REPO_ROOT.set(args.repo_root)
     try:
         return args.func(args)

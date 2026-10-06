@@ -88,16 +88,16 @@ Mark as: `EPHEMERAL: [filename] — [brief reason]`
 (No `id:` field — EPHEMERAL nuggets are not carried downstream.)
 
 **Grouped form** (preferred when ≥2 files share the same ephemeral pattern, e.g. a whole
-directory of completion logs or agent scratch files):
+directory of reviewer outputs or agent scratch files):
 Emit an H2 group section heading followed immediately by a fenced YAML block (using triple
 backticks with `yaml` language tag). Example output shape:
 
-    ## EPHEMERAL — archive/completed/* completion logs
+    ## EPHEMERAL — reviewer outputs
 
     ```yaml
     artifact_paths:
-      - archive/completed/<date>-workstream-<name-1>.md
-      - archive/completed/<date>-workstream-<name-2>.md
+      - tasks/<feature>/reviews/<reviewer>-<name-1>.md
+      - tasks/<feature>/reviews/<reviewer>-<name-2>.md
       # ... one entry per artifact in this group
     description: "Optional one-line description of this group"
     ```

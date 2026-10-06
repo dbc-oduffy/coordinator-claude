@@ -85,12 +85,8 @@ do not fall under that parity obligation:
      removes a latent inconsistency at that seam rather than introducing one.
      This module cannot import ``coordinator_core._settings_home`` (see HARD
      CONSTRAINT below), so the repair is inlined here, following the same
-     by-hand-parity precedent as ``claude_home``/``settings_home``. Precedent
-     for wrapping a registry-read return value in this repair:
-     ``coordinator_core.ops.gen_content_root_pointer._resolve_content_root`` wraps
-     both of its rungs (env override, registry read) in
-     ``native_path_form(...)`` before returning — the collector's own
-     2026-08-16 "REPOS.* LADDER-LOSS FIX" note documents why a stored
+     by-hand-parity precedent as ``claude_home``/``settings_home``. The
+     collector's own 2026-08-16 "REPOS.* LADDER-LOSS FIX" note documents why a stored
      backslash form is a real, live value on this box that must not be
      silently dropped. Pinned (not merely documented) by
      ``test_registry_get_repairs_msys_mount_form_for_repos_key``, which
@@ -123,7 +119,7 @@ def claude_home() -> str:
 
     Precedence mirrors ``claude_config_dir()`` exactly: ``CLAUDE_CONFIG_DIR``
     is returned unchanged (it already names the ``.claude`` dir itself);
-    else ``CLAUDE_HOME`` is a ``$HOME`` substitute and ``<CLAUDE_HOME>/.claude``
+    else ``CLAUDE_HOME`` is a HOME substitute and CLAUDE_HOME plus ``.claude``
     is returned (Convention A — the same convention
     ``check_install_singularity._claude_base_dir()`` enforces). This module
     cannot import that seam (see module docstring — the whole point of this
@@ -310,3 +306,35 @@ def registry_get(key: str) -> "str | None":
             if s:
                 return _native_path_form(s)
     return None
+
+
+_CONTENT_ROOT_POINTER = ".coordinator-content-root"
+_LEGACY_ROOT_POINTER = ".content-root"  # private-name-ok: compat-fallback
+
+
+def read_content_root_pointer() -> str:
+    """The content-root pointer file's first non-empty value, "" when none.
+
+    Spawn-free, no ``coordinator_core`` import. Order, mirroring
+    ``coordinator_core.content_root.read_pointer_files``: the content-root name
+    under ``<settings-home>/machine-local`` then ``<claude-home>`` (``~/.claude``),
+    and only then the pre-rename name an un-migrated box still carries, in the
+    same two locations.
+    """
+    home = os.environ.get("CLAUDE_HOME") or os.environ.get("HOME") or os.environ.get("USERPROFILE") or ""
+    if not home:
+        return ""
+    for name in (_CONTENT_ROOT_POINTER, _LEGACY_ROOT_POINTER):
+        candidates = [
+            os.path.join(settings_home(), "machine-local", name),
+            os.path.join(home, ".claude", name),
+        ]
+        for candidate in candidates:
+            try:
+                with open(candidate, encoding="utf-8") as fh:
+                    value = fh.read().rstrip("\n")
+            except OSError:
+                continue
+            if value:
+                return value
+    return ""

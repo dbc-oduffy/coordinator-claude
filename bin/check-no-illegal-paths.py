@@ -14,8 +14,8 @@ Usage: check-no-illegal-paths.py [<repo-root>]
                 `git rev-parse --show-toplevel` (safe to run from any subdir).
 
 Scans:
-  tracked  — git ls-tree -r --name-only HEAD
-  staged   — git diff --cached --name-only
+  tracked  — git ls-tree -r -z --name-only HEAD
+  staged   — git diff --cached -z --name-only
 
 Predicate: `csn_check` from coordinator/bin/lib/coordinator_safe_name.py (the
 canonical SoT for the NTFS-illegal charset, ported to Python by the sibling
@@ -79,6 +79,8 @@ def _git(repo_root: str, *args: str) -> str:
         ["git", "-C", repo_root, *args],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="surrogateescape",
         check=False,
         **_no_console_kw(),
     )
@@ -115,11 +117,11 @@ def main(argv: list[str]) -> int:
     explicit_root = argv[0] if argv else None
     repo_root = _resolve_repo_root(explicit_root)
 
-    tracked = _git(repo_root, "ls-tree", "-r", "--name-only", "HEAD")
-    staged = _git(repo_root, "diff", "--cached", "--name-only")
-    all_paths = sorted(
-        {p for p in (tracked + "\n" + staged).splitlines() if p}
-    )
+    # Trap: without `-z` git C-quotes any path with a non-ASCII byte
+    # (`core.quotepath`), and the quote itself then reads as an illegal char.
+    tracked = _git(repo_root, "ls-tree", "-r", "-z", "--name-only", "HEAD")
+    staged = _git(repo_root, "diff", "--cached", "-z", "--name-only")
+    all_paths = sorted({p for p in (tracked + staged).split("\0") if p})
 
     found = False
     for path in all_paths:

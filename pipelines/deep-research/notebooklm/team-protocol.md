@@ -1,77 +1,50 @@
 # NotebookLM Research Team Protocol
 
-> Referenced by agent definitions and `research.md` command.
+> Referenced by agent definitions and the `notebooklm-research` command.
 
 ## Overview
 
-Agent Teams-based NotebookLM research: the EM scopes research directly — designing notebook topology, questions, source strategy, and worker count — then creates a right-sized team (scout + N workers + sweep) and is **freed**. The team handles everything autonomously — source discovery, notebook creation, ingestion, querying, coverage assessment, and gap-filling. Notebook cleanup is optional (`--cleanup` flag; default: keep).
+Chatty-Workflow NotebookLM research: the EM scopes research directly — designing notebook topology, questions, source strategy, and worker count — writes `strategy.md`, then fires ONE background `Workflow` whose script runs a scout stage, a worker stage (one `agent()` per notebook), and a sweep stage, and is **freed**. Completion is the Workflow's task notification. The agents handle everything autonomously — source discovery, notebook creation, ingestion, querying, coverage assessment, and gap-filling. Notebook cleanup is optional (`--cleanup` flag; default: keep).
 
 ## Architecture
 
 ```
-EM: Scope research → Write strategy.md → Create team → Spawn (scout + workers + sweep) → FREED
+EM: Scope research → Write strategy.md → Fire Workflow → FREED
          │
-         ├── Haiku scout (no blockers)
+         ├── Stage 1: Haiku scout
          │   Reads strategy.md, finds best YouTube / podcast / article sources
          │   Writes: {scratch-dir}/sources.md
          │
-         ├── Sonnet worker(s) (blockedBy: scout) — 1 to 3, per strategy.md
+         ├── Stage 2: Sonnet worker(s) — 1 to 3, per strategy.md, in parallel
          │   Each creates own notebook, ingests assigned sources, queries
          │   Writes: {scratch-dir}/{letter}-claims.json + {letter}-summary.md
-         │   Sends DONE → sweep
          │
-         └── Opus sweep (blockedBy: all workers)
+         └── Stage 3: Opus sweep (the overseer)
              Reads all claims (JSON), assesses coverage, fills gaps
              Writes: {output-path}
              Writes: {output-path}-advisory.md (if anything beyond scope)
-             Cleans up notebooks (if --cleanup)
+             Returns the completion message to the EM
 ```
 
-## Team Roles
+## Roles
 
 | Role | Model | Count | Responsibility |
 |------|-------|-------|----------------|
-| **Scout** | Haiku | 1 | Reads strategy.md, finds best YouTube / podcast / article sources via WebSearch, writes sources.md |
-| **Worker** | Sonnet | 1-3 | Creates own notebook, tags it with the run slug, ingests assigned sources, runs queries, extracts structured claims, writes `{letter}-claims.json` + `{letter}-summary.md`, sends DONE to sweep |
-| **Sweep** | Opus | 1 | Reads all worker claims (JSON), assesses coverage, fills gaps via follow-up queries and WebSearch, writes final polished document, merges worker claims to `{scratch-dir}/merged-claims.json` (the EM emits the durable claims pair from it), optionally writes advisory, lists preserved notebook IDs for the EM to delete post-audit (sweep does NOT delete) |
+| **Scout** (`scout`) | Haiku | 1 | Reads strategy.md, finds best YouTube / podcast / article sources via WebSearch, writes sources.md |
+| **Worker** (`worker-a`…) | Sonnet | 1-3 | Creates own notebook, tags it with the run slug, ingests assigned sources, runs queries, extracts structured claims, writes `{letter}-claims.json` + `{letter}-summary.md`, returns |
+| **Sweep** (`sweep`, overseer) | Opus | 1 | Reads all worker claims (JSON), assesses coverage, fills gaps via follow-up queries and WebSearch, writes final polished document, merges worker claims to `{scratch-dir}/merged-claims.json` (the EM emits the durable claims pair from it), optionally writes advisory, lists preserved notebook IDs for the EM to delete post-audit (sweep does NOT delete). Its return value is the only one that reaches the EM. |
 
-## Team Lifecycle
-
-```
-EM: Scope research → Write strategy.md → Create team → Spawn (scout + workers + sweep) → FREED
-
-Scout: Read strategy.md → WebSearch / WebFetch → Write sources.md → Mark complete → [idle]
-Workers: [blocked by scout] → Read strategy.md (own ## Notebook letter) + sources.md → Bootstrap MCP → Create notebook → Tag with run slug → Ingest → Query → Extract claims → Write {letter}-claims.json + {letter}-summary.md → Mark complete → DONE to sweep
-Sweep: [blocked by all workers, waiting for DONE msgs] → Verify all complete → Read claims (JSON) → Assess coverage → Fill gaps → Write advisory (if anything beyond scope) → List preserved notebook IDs for EM (EM deletes post-audit if --cleanup) → Mark complete
-```
-
-## Blocking Chain
+## Stage Ordering
 
 ```
-Scout (no blockers) ──────→ task completion unblocks workers
-Workers (blockedBy: scout) ──→ DONE messages wake sweep
-Sweep (blockedBy: all workers) ──→ mark complete notifies EM
+Stage 1  scout                    → returns, sources.md written
+Stage 2  workers (parallel)       → all return, {letter}-claims.json + {letter}-summary.md written
+Stage 3  sweep                    → returns the completion message to the EM
 ```
 
-- **Scout → Workers:** Task-gated via `blockedBy`. Workers unblock when scout marks its task complete. No messaging needed — workers haven't started yet (auto-wake confirmed empirically 2026-03-21).
-- **Workers → Sweep:** Task-gated via `blockedBy` + DONE messages as wake-up signals. The sweep is already running but idle — it needs explicit DONE messages to trigger its next poll cycle (confirmed empirically 2026-03-21).
+Ordering gates the stages: a stage starts when the previous stage's `agent()` calls return (`await`, or `parallel()` for the worker fan-out). A returned agent is never woken; the next stage is a fresh dispatch. Workers never address the EM, the sweep, or each other — they operate independent notebooks with no cross-pollination during execution, so no mailbox traffic is expected. A role that must leave a note for a peer appends `{"from": "<role>", "text": "..."}` to `{scratch-dir}/mail/<role>.jsonl`, and a reader appends `{"read": true}` after reading.
 
-### How Agent Teams Blocking Actually Works (empirical + sourced)
-
-Agent Teams uses **file-based polling, not callbacks**. Task state lives in JSON files at `~/.claude/tasks/{team-name}/N.json`. Agents discover available work by calling `TaskList()`, which re-evaluates `blockedBy` arrays fresh on each call. There is no active push/callback when a blocker completes.
-
-**Two distinct scenarios with different wake-up behavior:**
-
-| Scenario | Agent State | Wake-Up Mechanism | Message Needed? |
-|----------|-------------|-------------------|-----------------|
-| **Task-blocked (pending)** | Not yet started — `pending` status, waiting for blockers | `TaskList()` re-evaluates `blockedBy` on next poll; agent auto-starts when unblocked | No — auto-wake works |
-| **Message-blocked (idle)** | Started, checked status, went idle waiting | Needs an inbox message to trigger the next poll cycle | Yes — explicit DONE message required |
-
-The scout→worker transition is scenario 1 (auto-wake). The worker→sweep transition is scenario 2 (DONE messages needed). Both confirmed empirically 2026-03-21.
-
-**Shutdown behavior:** Teammates prioritize completing their current work loop over acknowledging shutdown requests. Expect the convergence protocol (write → mark complete → DONE) to run before shutdown acknowledgment. This is good for data integrity but means team teardown takes 30-60 seconds after shutdown requests are sent.
-
-**Sources:** [Claude Code official docs](https://code.claude.com/docs/en/agent-teams), [reverse-engineering analysis (nwyin.com)](https://nwyin.com/blogs/claude-code-agent-teams-reverse-engineered.html), [swarm orchestration guide (kieranklaassen gist)](https://gist.github.com/kieranklaassen/4f2aba89594a4aea4ad64d753984b2ea).
+A scout that fails or returns without `sources.md` does not stop the run: workers fall back to self-directed discovery (§ Failure Handling).
 
 ## Scout Protocol
 
@@ -81,18 +54,12 @@ The scout finds media sources — optimized for YouTube, podcasts, and audio con
 - **For "scout-provided" notebooks:** WebSearch + WebFetch to find and verify YouTube videos, podcasts, articles
 - **For "research_start" notebooks:** Note in sources.md that this notebook uses NLM built-in discovery — the worker will use `research_start` MCP tool
 - Writes `{scratch-dir}/sources.md` using `## Sources for Notebook A/B/C` convention
-- **No SendMessage** — task completion unblocks workers automatically
+- **No messaging** — returning starts the worker stage
 - **Timing:** 5 minute ceiling. This is mechanical discovery — go fast.
 
 ## Worker Protocol
 
-**Critical: read-after-unblock sequencing.** Workers must follow this startup sequence:
-
-1. **Check TaskList FIRST** — verify your task is unblocked before doing anything else
-2. **Wait until unblocked** — if still blocked, wait for scout to complete
-3. **THEN read shared artifacts** — strategy.md and sources.md (after confirmed unblocked)
-
-This prevents a race condition where a worker reads sources.md before the scout has written it.
+The worker stage starts after the scout has returned, so `strategy.md` and `sources.md` are complete when a worker begins.
 
 - Reads `## Notebook {letter}` section from strategy.md for its assignment
 - Reads `## Sources for Notebook {letter}` from sources.md for its source list
@@ -103,38 +70,15 @@ This prevents a race condition where a worker reads sources.md before the scout 
 - Runs all assigned research questions, extracting structured claims per response
 - **Records notebook ID in summary file** (for sweep cleanup)
 - Writes `{scratch-dir}/{letter}-claims.json` (structured claim objects) and `{scratch-dir}/{letter}-summary.md` (human-readable overview with notebook metadata)
-- Marks task `completed`, sends DONE message to sweep
+- Returns `DONE: Notebook {letter} complete — {claims path} + {summary path}`; the script passes each return value to the sweep stage
 
 **Timing:** 25 minute ceiling (configurable via `estimated_ceiling` in strategy.md). Note: source ingestion time depends on NLM processing speed for the content type.
 
-## Message Protocol
+## Return Protocol
 
-<!-- BEGIN listagents-roster-caveat (synced from snippets/listagents-roster-caveat.md) -->
-## ListAgents Roster Is A View, Not The Registry
-
-Discover a peer's address by calling `ListAgents` and copying the name a row prints verbatim, then
-`SendMessage` to that name. But the roster it renders can UNDER-REPORT — a thin or empty roster is
-never proof a peer is gone. The durable source is the session registry
-(`~/.claude/sessions/<pid>.json`), not this view; a peer missing from `ListAgents` is evidence about
-that view, not about the peer. See
-`coordinator/docs/wiki/coordinator-tripwires/a-thin-listagents-roster-is-not-proof-a-peer-is-gone.md`.
-<!-- END listagents-roster-caveat -->
-
-### Worker → Sweep (Wake-Up Signal)
-
-`blockedBy` is a status gate, not an event trigger — completing a blocker task does NOT automatically wake the blocked teammate. Workers must explicitly message the sweep after completing their task:
-
-| Category | Format | When |
-|---|---|---|
-| **DONE** | `"DONE: Notebook {letter} claims written to {scratch-dir}/{letter}-claims.json and {scratch-dir}/{letter}-summary.md"` | After marking own task `completed` |
-
-This is the sweep's wake-up mechanism. Each DONE message causes the sweep to re-check `TaskList`. When all worker tasks show `completed`, it proceeds with coverage assessment and gap-filling.
-
-### Volume Governance
-
-- **Worker → sweep: exactly 1 DONE message per worker**
-- **Scout: no messages** (task completion handles unblocking)
-- **No worker → worker messaging** — workers operate independent notebooks with no cross-pollination during execution
+- **Worker return:** exactly one `DONE: Notebook {letter} ...` line per worker, with a failure or rate-limit note appended when applicable. Never a message to a peer or the EM.
+- **Sweep return:** the completion message the EM acts on (output path, merged-claims path, preserved notebook IDs, advisory status). The only return value that reaches the EM.
+- **Scout:** returns when `sources.md` is written; no message.
 
 ## Self-Governance Timing
 
@@ -142,7 +86,7 @@ This is the sweep's wake-up mechanism. Each DONE message causes the sweep to re-
 |-------|---------|-------|
 | Scout | 5 min | Mechanical discovery — go fast |
 | Workers | 25 min (default) | Configurable via strategy.md `estimated_ceiling` field. NLM ingestion time varies. |
-| Sweep | No strict ceiling | Runs after all workers complete; assesses coverage, fills gaps, writes final doc then cleans up notebooks |
+| Sweep | No strict ceiling | Starts after all workers return; assesses coverage, fills gaps, writes final doc then cleans up notebooks |
 
 **Clock mechanism:** Spawn timestamp is provided in each prompt as `[SPAWN_TIMESTAMP]` (Unix epoch seconds). Agents check elapsed time via `date +%s` in Bash and compare against spawn timestamp.
 
@@ -260,18 +204,18 @@ The sole statement of how `{letter}-claims.json` worker fields map to `research-
 
 ## Failure Handling
 
-- **Auth expiry (worker):** Call `refresh_auth`, retry once. If it fails again, write partial claims and send DONE with failure note.
+- **Auth expiry (worker):** Call `refresh_auth`, retry once. If it fails again, write partial claims and return with a failure note.
 - **Source ingestion failure (worker):** Log the failure in summary.md, continue with remaining sources. Do not abort.
 - **research_start failure (worker):** Retry once. If persistent, note failure in summary.md and attempt alternative sources if scout provided any.
-- **Rate limiting (worker):** Write partial claims immediately. Send DONE with rate limit note. Do not retry — the sweep will note the gap.
+- **Rate limiting (worker):** Write partial claims immediately. Return with a rate limit note. Do not retry — the sweep will note the gap.
 - **Query failure (worker):** Retry once. Log and continue with remaining questions.
 - **Scout finds no sources for a notebook:** Worker falls back to self-directed discovery (targeted WebSearch for the notebook's topic area) or uses `research_start` if topic allows.
 - **Scout times out (partial sources.md):** Workers use what's available + note which notebooks have incomplete source lists.
-- **All workers fail:** Sweep marks itself failed, EM is notified (no completed worker tasks).
+- **All workers fail:** The sweep finds no worker outputs and says so in its return value; the EM reports it to the PM.
 
 ## Coverage-Auditor Lifecycle
 
-Pipeline D uses the **always-on** coverage auditor — dispatched by the EM as a non-teammate Agent **after** the sweep completes and **before** notebook cleanup. The auditor answers the same two questions as the web/repo auditor: (1) did the synthesis carry each worker claim? (2) what did the synthesis compress, and where can a reader go deeper?
+Pipeline D uses the **always-on** coverage auditor — dispatched by the EM as a plain `Agent` **after** the sweep returns and **before** notebook cleanup. The auditor answers the same two questions as the web/repo auditor: (1) did the synthesis carry each worker claim? (2) what did the synthesis compress, and where can a reader go deeper?
 
 **D-specific divergence — MCP tool grant:** the on-disk `{letter}-claims.json` files are a lossy extraction of the actual NotebookLM notebook content. The D auditor is additionally granted the `notebook_query` and `cross_notebook_query` MCP tools to verify claims against the actual notebooks — `cross_notebook_query` verifies a cross-notebook claim against all spanned notebooks in one aggregated call. The EM grants these at dispatch time. Notebook IDs/names are sourced from each `{letter}-summary.md` YAML frontmatter (`notebook_id` / `notebook_name` fields) — do not parse them from markdown prose.
 

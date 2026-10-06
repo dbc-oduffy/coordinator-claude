@@ -48,7 +48,7 @@ to coordinator-content-repo in the 2026-07-22 executable-surface migration.
 # anchor for templates/ or hooks/ (those stayed in coordinator-content-repo, per DR-047).
 # coordinator_root is now resolved via the shared
 # coordinator_data_root.data_root() split-repo ladder (co-located rung 1 ->
-# DoE-resident rung 2 via coordinator_registry.content_root()), with a
+# content-resident rung 2 via coordinator_registry.content_root()), with a
 # CLAUDE_PLUGIN_ROOT env override taking precedence first — the same
 # override convention every other bin/ trampoline honors (see
 # coordinator/bin/snippet-registry's _resolve_plugin_root).
@@ -138,7 +138,7 @@ def _coordinator_root() -> str:
     _resolve_plugin_root — this lets test fixtures and CI point the CLI at a
     synthetic coordinator root without touching real disk). Otherwise
     resolved via coordinator_data_root.data_root("templates").parent, the
-    shared split-repo ladder (co-located rung 1 -> DoE-resident rung 2 via
+    shared split-repo ladder (co-located rung 1 -> content-resident rung 2 via
     coordinator_registry.content_root()) — never re-derived here (see that
     module's negative-spec).
     """

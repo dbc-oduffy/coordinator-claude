@@ -445,28 +445,6 @@ def _reset_op_timeout_cache() -> None:
     _OP_TIMEOUTS_BREADCRUMB_SHOWN = False
 
 
-_MLIR_MODULE = None
-
-
-def _machine_local_impl_resolver():
-    """Lazily import machine_local_impl_resolve, self-locating its own
-    sys.path entry so this module stays standalone-invocable regardless of
-    whether a caller already inserted coordinator/bin/lib. Cached after first
-    call. Deliberately function-local (not a module-top import) — mirrors this
-    module's own documented "no non-stdlib import above the LAZY_OPS line"
-    discipline, even though machine_local_impl_resolve is not coordinator_core.
-    """
-    global _MLIR_MODULE
-    if _MLIR_MODULE is None:
-        _lib_dir = os.path.dirname(os.path.abspath(__file__))
-        if _lib_dir not in sys.path:
-            sys.path.insert(0, _lib_dir)
-        import machine_local_impl_resolve as _mlir
-
-        _MLIR_MODULE = _mlir
-    return _MLIR_MODULE
-
-
 def _claude_home() -> str:
     """Return the ~/.claude root, honoring CLAUDE_HOME for test isolation.
 
@@ -712,7 +690,7 @@ def resolve_engine_root(script_file: str) -> str:
 
 
 def _front_insert_on_path(root: str) -> str:
-    """Shared ``if root not in sys.path: sys.path.insert(0, root)`` body.
+    """Pin ``root`` at ``sys.path[0]``, moving it there if already present.
 
     The one insert primitive every path-mutating resolver wrapper in this
     module (``ensure_engine_on_path``, ``require_engine_on_path``,
@@ -720,9 +698,13 @@ def _front_insert_on_path(root: str) -> str:
     behavior — an explicit ``COORDINATOR_ENGINE_ROOT`` outranking an ambient editable
     install of ``coordinator_core`` — lives in exactly one place. Returns
     ``root`` unchanged, so callers can end on ``return _front_insert_on_path(root)``.
+
+    A membership-guarded insert is a trap: a root already present at the tail
+    (``PYTHONPATH``, an editable ``.pth``) skips the insert, and the cwd entry
+    (``''`` under ``python -c``) then shadows it with the cwd's own tree.
     """
-    if root not in sys.path:
-        sys.path.insert(0, root)
+    if not sys.path or sys.path[0] != root:
+        sys.path[:] = [root] + [p for p in sys.path if p != root]
     return root
 
 
@@ -850,22 +832,16 @@ def _report_provenance(caller: str, root: str, axis: str) -> ProvenanceReport:
             return report
         from coordinator_core.engine_provenance_counter import record_engine_provenance
 
-        # Omitting cwd left resolve_git_root_cheap's
-        # `if not cwd: return None` guard firing on every call, so the sink
-        # silently never wrote a record (indistinguishable at the call site
-        # from an intentional unresolvable-root degrade). os.getcwd() is a
-        # MISS-MODE-appropriate cwd for this sink: a symlinked-ancestor
-        # divergence between this and resolve_git_root's realpath answer only
-        # changes WHERE the append-only record lands, never a VERDICT (no
-        # guard decision rides on it), matching resolve_git_root_cheap's own
-        # documented caller contract.
+        # cwd must be the caller's own root, never os.getcwd(): the process
+        # cwd can be an unrelated (nested) repo, and omitting it makes
+        # resolve_git_root_cheap return None so the sink silently never writes.
         record_engine_provenance(
             caller,
             axis,
             report.verdict,
             report.imported_file,
             report.engine_root,
-            cwd=os.getcwd(),
+            cwd=root,
         )
         return report
     except Exception:  # noqa: BLE001 -- never raise past this reporting seam
@@ -1669,9 +1645,9 @@ def _settings_home_env(base_env: dict[str, str], claude_klabauter_root: str | No
 
     # _ENGINE_ROOT_NEW_VAR/_ENGINE_ROOT_OLD_VAR's module-level note above).
     _root = claude_klabauter_root if claude_klabauter_root is not None else os.environ.get(_ENGINE_ROOT_NEW_VAR)
-    _injected = bool(_root) and _root not in sys.path
-    if _injected:
-        sys.path.insert(0, _root)
+    _injected_root = _root if _root and _root not in sys.path else None
+    if _injected_root is not None:
+        sys.path.insert(0, _injected_root)
     try:
         from coordinator_core import _settings_home
 
@@ -1679,9 +1655,9 @@ def _settings_home_env(base_env: dict[str, str], claude_klabauter_root: str | No
     except Exception:
         return base_env
     finally:
-        if _injected:
+        if _injected_root is not None:
             try:
-                sys.path.remove(_root)
+                sys.path.remove(_injected_root)
             except ValueError:
                 pass
 
@@ -1931,6 +1907,30 @@ _NO_BUDGET_FALLBACK_SECS = 10
 _DUMP_PROBE_TIMEOUT_SECS = _NO_BUDGET_FALLBACK_SECS
 
 
+def _dump_op_timeouts_in_process(claude_klabauter_root: str) -> dict | None:
+    """The engine's `--dump-op-timeouts` payload computed in this interpreter, or None.
+
+    None means "use the probe spawn": the engine at `claude_klabauter_root` is not the one this
+    process would import (a different `coordinator_core` is already loaded, or the
+    import fails), so only the spawned child can speak for it. Same projection the CLI
+    prints -- `invoke.__main__._dump_op_timeouts` -- so the map cannot drift.
+    """
+    loaded = sys.modules.get("coordinator_core")
+    if loaded is not None:
+        loaded_file = getattr(loaded, "__file__", None) or ""
+        if os.path.normcase(os.path.realpath(os.path.dirname(os.path.dirname(loaded_file)))) !=                 os.path.normcase(os.path.realpath(claude_klabauter_root)):
+            return None
+    elif not os.path.isfile(os.path.join(claude_klabauter_root, "coordinator_core", "invoke", "__main__.py")):
+        return None
+    _front_insert_on_path(claude_klabauter_root)
+    try:
+        from coordinator_core.invoke.__main__ import _dump_op_timeouts  # noqa: PLC0415
+
+        return _dump_op_timeouts()
+    except Exception:
+        return None
+
+
 def _resolve_op_timeouts(claude_klabauter_root: str, env: dict[str, str], probe_timeout: int) -> None:
     """Resolve the engine's per-op timeout budget map ONCE per process (DEC-1..3).
 
@@ -1961,44 +1961,46 @@ def _resolve_op_timeouts(claude_klabauter_root: str, env: dict[str, str], probe_
     _OP_TIMEOUTS_MAP = {}
     _OP_TIMEOUTS_STATE = "absent"
 
-    try:
-        proc = subprocess.run(
-            [sys.executable, "-m", "coordinator_core.invoke", "--dump-op-timeouts"],  # popup-safe-env-suppressed
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            timeout=probe_timeout,
-            env=env,
-            cwd=claude_klabauter_root,
-            **_no_console_kw(claude_klabauter_root),
-        )
-    except subprocess.TimeoutExpired:
-        _OP_TIMEOUTS_STATE = "error"
-        return
-
-    if proc.returncode != 0:
-        _argparse_absent = any(
-            tok in proc.stderr.lower()
-            for tok in (
-                "unrecognized arguments",
-                "unrecognized command",
-                "invalid choice",
-                "no such option",
-                "unknown option",
+    parsed = _dump_op_timeouts_in_process(claude_klabauter_root)
+    if parsed is None:
+        try:
+            proc = subprocess.run(
+                [sys.executable, "-m", "coordinator_core.invoke", "--dump-op-timeouts"],  # popup-safe-env-suppressed
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=probe_timeout,
+                env=env,
+                cwd=claude_klabauter_root,
+                **_no_console_kw(claude_klabauter_root),
             )
-        )
-        _OP_TIMEOUTS_STATE = "absent" if _argparse_absent else "error"
-        return
+        except subprocess.TimeoutExpired:
+            _OP_TIMEOUTS_STATE = "error"
+            return
 
-    if not proc.stdout.strip():
-        _OP_TIMEOUTS_STATE = "error"
-        return
+        if proc.returncode != 0:
+            _argparse_absent = any(
+                tok in proc.stderr.lower()
+                for tok in (
+                    "unrecognized arguments",
+                    "unrecognized command",
+                    "invalid choice",
+                    "no such option",
+                    "unknown option",
+                )
+            )
+            _OP_TIMEOUTS_STATE = "absent" if _argparse_absent else "error"
+            return
 
-    try:
-        parsed = json.loads(proc.stdout)
-    except json.JSONDecodeError:
-        _OP_TIMEOUTS_STATE = "error"
-        return
+        if not proc.stdout.strip():
+            _OP_TIMEOUTS_STATE = "error"
+            return
+
+        try:
+            parsed = json.loads(proc.stdout)
+        except json.JSONDecodeError:
+            _OP_TIMEOUTS_STATE = "error"
+            return
 
     if not isinstance(parsed, dict) or "__default__" not in parsed:
         _OP_TIMEOUTS_STATE = "error"
@@ -2518,6 +2520,123 @@ def _apply_warm_envelope(
     return envelope["result"]
 
 
+#: Test-only: "1" makes rung 3 decline so a falsifier can measure the spawn path on a stamped tree.
+_NO_IN_PROCESS_RUNG_ENV = "COORDINATOR_TEST_NO_IN_PROCESS_RUNG"
+
+#: Bounded join the exit guard gives executor workers still winding down after
+#: `loop.close()`'s non-waiting default-executor shutdown, so only a genuinely stuck
+#: handler turns the exit into os._exit(1).
+_EXIT_GUARD_GRACE_SECS = 1.0
+
+
+def _try_stamped_in_process_dispatch(
+    op: str,
+    params: dict[str, Any],
+    repo_root: str,
+    claude_klabauter_root: str,
+) -> dict[str, Any] | None:
+    """Rung 3: serve a warm miss inside this interpreter on a stamped tree.
+
+    Preconditions, all required (any failure returns None before dispatch):
+      (a) `claude_klabauter_root` carries a non-empty `coordinator_core/_engine_stamp`;
+      (b) the imported `coordinator_core.ipc` resolves under `claude_klabauter_root`;
+      (c) `ipc._is_dispatch_engine_stamped()` holds.
+    An unstamped root, an empty stamp, or a provenance mismatch never takes
+    this rung and never calls an unstamped allowance.
+
+    Runs `ipc.dispatch_message` in-process at once: no boot wait and no
+    "ENGINE UNREACHABLE" line, since serving here is the success path. The warm
+    respawn was already triggered by the missed `try_warm_dispatch` in rung 2.
+
+    Return contract: None strictly BEFORE dispatch (caller continues to the
+    spawn); once dispatch has begun, a failure raises RuntimeError with the
+    reconcile sentence and NEVER returns None, because a retry could re-run a
+    mutation that already landed. Returns the JSON-RPC response envelope.
+
+    Teardown: a manual event loop closed without executor shutdown, plus an
+    exit guard armed only when a non-daemon thread outlived a timed-out
+    handler, so the shim exits within the dispatch timeout plus ~1s.
+    """
+    if os.environ.get(_NO_IN_PROCESS_RUNG_ENV) == "1":
+        return None
+    path_before = list(sys.path)
+    try:
+        _front_insert_on_path(claude_klabauter_root)
+        from coordinator_core import ipc
+
+        if os.path.realpath(str(ipc._DISPATCH_ENGINE_ROOT)) != os.path.realpath(claude_klabauter_root):
+            sys.path[:] = path_before
+            return None
+        if not ipc._is_dispatch_engine_stamped():
+            sys.path[:] = path_before
+            return None
+
+        import asyncio
+        import threading
+
+        from coordinator_core.op_scopes import WORKTREE_SCOPED_OPS
+    except Exception:  # noqa: BLE001 -- pre-dispatch: decline, see docstring
+        sys.path[:] = path_before
+        return None
+
+    msg: dict[str, Any] = {"jsonrpc": "2.0", "id": f"stamped-{os.getpid()}", "method": op, "params": params}
+    if op in WORKTREE_SCOPED_OPS:
+        msg["_origin_worktree"] = repo_root
+    msg["_caller_cwd"] = os.getcwd()
+
+    threads_before = set(threading.enumerate())
+    loop = None
+    try:
+        loop = asyncio.new_event_loop()
+        response = loop.run_until_complete(
+            ipc.dispatch_message(msg, caller="coordinator.bin.lib.cc_invoke._try_stamped_in_process_dispatch")
+        )
+    except Exception as exc:  # noqa: BLE001 -- post-dispatch: surface, never retry
+        raise RuntimeError(
+            f"cc_invoke: in-process dispatch raised (op={op}): {exc!r}. The op may "
+            "have run; reconcile against real state before re-running."
+        ) from exc
+    finally:
+        if loop is not None:
+            try:
+                loop.close()
+            except Exception:  # noqa: BLE001 -- teardown must not mask the result
+                pass
+        # Orphans are the executor workers this dispatch started: interpreter exit joins
+        # every one in `_threads_queues` (daemon or not), and nothing else may turn a
+        # host's exit into os._exit(1).
+        from concurrent.futures import thread as _cf_thread
+
+        orphans = [
+            t for t in threading.enumerate()
+            if t not in threads_before and t.is_alive() and t in _cf_thread._threads_queues
+        ]
+        if orphans:
+            def _exit_guard() -> None:
+                import time as _time
+
+                grace_end = _time.monotonic() + _EXIT_GUARD_GRACE_SECS
+                for t in orphans:
+                    t.join(max(0.0, grace_end - _time.monotonic()))
+                if not any(t.is_alive() for t in orphans):
+                    return
+                for stream in (sys.stdout, sys.stderr):
+                    try:
+                        stream.flush()
+                    except Exception:  # noqa: BLE001
+                        pass
+                os._exit(1)
+
+            threading._register_atexit(_exit_guard)
+    return response
+
+
+last_rung: str | None = None
+"""Rung the most recent `cc_invoke()`/`cc_invoke_bare()` call was served on: "warm"
+(in-engine or warm pipe hit), "in-process" (stamped-tree dispatch_message in this
+interpreter), or "spawn" (interpreter spawn after a warm miss); None before any call."""
+
+
 def cc_invoke(
     op: str,
     params: dict[str, Any],
@@ -2578,14 +2697,24 @@ def cc_invoke(
     """
     claude_klabauter_root = _claude_klabauter_root if _claude_klabauter_root is not None else _resolve_claude_klabauter_root()
 
+    global last_rung
+    last_rung = None
     _in_engine = _try_in_engine_dispatch(op, params, repo_root, claude_klabauter_root)
     if _in_engine is not None:
+        last_rung = "warm"
         return _apply_warm_envelope(op, _in_engine, "", _stderr_sink)
 
     _warm_response, _warm_stderr = _capture_warm_reach(op, params, repo_root)
     if _warm_response is not None:
+        last_rung = "warm"
         return _apply_warm_envelope(op, _warm_response, _warm_stderr, _stderr_sink)
 
+    _stamped = _try_stamped_in_process_dispatch(op, params, repo_root, claude_klabauter_root)
+    if _stamped is not None:
+        last_rung = "in-process"
+        return _apply_warm_envelope(op, _stamped, "", _stderr_sink)
+
+    last_rung = "spawn"
     try:
         params_json = json.dumps(params, separators=(",", ":"))
     except TypeError as exc:
@@ -2736,14 +2865,19 @@ def cc_invoke_bare(
     """
     claude_klabauter_root = _claude_klabauter_root if _claude_klabauter_root is not None else _resolve_claude_klabauter_root()
 
+    global last_rung
+    last_rung = None
     _in_engine = _try_in_engine_dispatch(op, params, repo_root, claude_klabauter_root)
     if _in_engine is not None:
+        last_rung = "warm"
         return _apply_warm_envelope(op, _in_engine, "", _stderr_sink)
 
     _warm_response, _warm_stderr = _capture_warm_reach(op, params, repo_root)
     if _warm_response is not None:
+        last_rung = "warm"
         return _apply_warm_envelope(op, _warm_response, _warm_stderr, _stderr_sink)
 
+    last_rung = "spawn"
     try:
         params_json = json.dumps(params, separators=(",", ":"))
     except TypeError as exc:
@@ -3031,10 +3165,32 @@ def mutation_refusal_message(op: str, result: Any, *, op_stderr: str = "") -> st
             detail_parts.append(f"failed=0 (see {', '.join(family_failed_parts)})")
     if error_text_available:
         detail_parts.append(f"error={error_field!r}")
+    # Ops add classification fields beside exit_code (memo.draft's `rejection_class`);
+    # they are the only reason a refusal carries when its diagnostic never crossed
+    # the transport, so they are never dropped from the message.
+    reason_keys = ("rejection_class", "reason", "message", "refusal")
+    extras = [
+        f"{key}={result[key]!r}"
+        for key in reason_keys
+        if isinstance(result.get(key), str) and result[key]
+    ]
+    detail_parts.extend(extras)
     message = f"route_mutation: op={op!r} refused ({', '.join(detail_parts)})"
     if op_stderr:
         message += f"\n  child stderr (may include non-fatal/succeeding-leg output): {op_stderr}"
+    elif not error_text_available and not extras and not _failed_items_carry_reason(failed):
+        message += (
+            "\n  no reason reached the caller: the op's diagnostic did not cross the "
+            "transport (a stale warm server drops it). Re-run the refused call with "
+            "COORDINATOR_WARM=0 to read the op's own stderr."
+        )
     return message
+
+
+def _failed_items_carry_reason(failed: Any) -> bool:
+    return isinstance(failed, list) and any(
+        isinstance(item, dict) and item.get("reason") for item in failed
+    )
 
 
 def route_mutation(

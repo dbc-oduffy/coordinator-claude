@@ -2,22 +2,26 @@
 installed on every box that runs a session here.
 
 `.git/hooks` is per-clone and untracked, so a gate chain that only an operator
-installs by hand is installed nowhere. It sat that way for weeks: the engine's
-installer (`coordinator_core.ops.install_content_root_precommit_hook`) existed
-and nothing called it, so the gates it installs -- the doctrine-surface
-admission leg, the doctrine-weight ratchet's enforcing leg, and the
-phantom-staged-deletion leg of the committer P0 -- never ran on any commit.
-The admission leg is the one porcelain `git commit` needs: engine commits get
-the same check in-process (`ops/ceremony/commit_admission.py`), because they
+installs by hand is installed nowhere. The gates the installer lays down -- the
+doctrine-surface admission leg, the doctrine-weight ratchet's enforcing leg,
+and the phantom-staged-deletion leg of the committer P0 -- never run on a
+commit unless something installs them. The admission leg is the one porcelain
+`git commit` needs: engine commits get the same check in-process, because they
 run no git hook at all.
 
-This calls that installer for the session's own repo. The installer is
-idempotent ("already installed and current -- no-op"), refuses any repo other
-than the doctrine repo it targets, and appends to rather than clobbering a
-foreign hook, so calling it on every boot costs one file read on a healthy box.
+This loads the pre-commit installer that ships inside the session's own repo
+(`install_content_root_precommit_hook.py` under the repo's plugin `bin/lib`) by
+file path and calls its `main([root])`. The installer is idempotent ("already
+installed and current -- no-op"), refuses any repo other than the doctrine repo
+it targets, and appends to rather than clobbering a foreign hook, so calling it
+on every boot costs one file read on a healthy box.
 
-Silent unless the installer fails. Fails open everywhere: an unresolvable
-engine, an import error or an exception returns 0 without a word, because a
+The repo root is the payload cwd's first ancestor holding `.git` (pure pathlib,
+no subprocess), and only a root whose `.coordinator-dev-repo` carries
+`slug: coordinator-content-repo` is acted on.
+
+Silent unless the installer fails. Fails open everywhere: a missing installer,
+an import error or an exception returns 0 without a word, because a
 SessionStart hook must never stand between an operator and a session.
 
 Negative-spec:
@@ -30,15 +34,17 @@ Negative-spec:
 from __future__ import annotations
 
 import contextlib
+import importlib.util
 import io
 import json
 import os
 import sys
 from pathlib import Path
 
-_HOOKS_DIR = str(Path(__file__).resolve().parent)
-if _HOOKS_DIR not in sys.path:
-    sys.path.insert(0, _HOOKS_DIR)
+_SENTINEL_NAME = ".coordinator-dev-repo"
+_EXPECTED_SLUG = "coordinator-content-repo"
+_INSTALLER_REL = Path("coordinator") / "bin" / "lib" / "install_content_root_precommit_hook.py"
+_PRIVATE_MODULE_NAME = "_doe_session_precommit_installer"
 
 
 def _payload_cwd() -> "str | None":
@@ -53,20 +59,45 @@ def _payload_cwd() -> "str | None":
     return cwd if isinstance(cwd, str) and cwd else None
 
 
+def _repo_root(start: str) -> "Path | None":
+    here = Path(start).resolve()
+    for candidate in (here, *here.parents):
+        if (candidate / ".git").exists():
+            return candidate
+    return None
+
+
+def _is_content_root(root: Path) -> bool:
+    try:
+        text = (root / _SENTINEL_NAME).read_text(encoding="utf-8")
+    except OSError:
+        return False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("slug:"):
+            return stripped[len("slug:"):].strip() == _EXPECTED_SLUG
+    return False
+
+
+def _load_installer(root: Path):
+    path = root / _INSTALLER_REL
+    spec = importlib.util.spec_from_file_location(_PRIVATE_MODULE_NAME, path)
+    if spec is None or spec.loader is None:
+        raise ImportError(str(path))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def main() -> int:
     try:
-        from _engine_root import resolve_claude_klabauter_root, place_engine_root_on_path
-
-        engine_root = resolve_claude_klabauter_root()
-        if not engine_root:
+        root = _repo_root(_payload_cwd() or os.getcwd())
+        if root is None or not _is_content_root(root):
             return 0
-        place_engine_root_on_path(str(engine_root))
-        from coordinator_core.ops import install_content_root_precommit_hook as installer
-
-        target_cwd = _payload_cwd() or os.getcwd()
+        installer = _load_installer(root)
         captured = io.StringIO()
         with contextlib.redirect_stdout(captured), contextlib.redirect_stderr(captured):
-            rc = installer.main([target_cwd])
+            rc = installer.main([str(root)])
         if rc != 0:
             sys.stderr.write(captured.getvalue())
     except Exception:  # noqa: BLE001 -- fail open, see module docstring.

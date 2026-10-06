@@ -7,17 +7,13 @@ fires only if a human happens to remember it. That is the failure mode the disch
 (`coordinator-content-repo coordinator/docs/wiki/claude-md-surfaces/invisible-doctrine.md`) exists to name: if the operator remembering is the mechanism,
 the work is not finished.
 
-WHY IT READS TWO SPELLINGS. `awaiting_gate` is the older, UNDECLARED plan-row spelling — absent
-from `plan-tasks.schema.json` (v1.10.0), which leaves `additionalProperties` unset, so it
-validates clean and passing is indistinguishable from being read. The declared vocabulary is
-`external_gate[]`, which the schema models structurally (`owner_repo`/`condition`/`blocks`/
-`closure_key`) and which `emit-dispatch-workflow.py` Check A reads to withhold a row from a wave.
-Reading only `awaiting_gate` made this sweep blind to every row using the vocabulary the rest of
-the fleet actually schedules against — 11 plans here against 1, at the time this leg was widened.
-A sweep whose whole job is "surface the gate nobody is watching" cannot itself watch the retired
-half of the vocabulary. `awaiting_gate` stays readable rather than being dropped: under-reporting
-a live gate is the one failure this mechanism exists to prevent, so a straggler row keeps
-surfacing until it is migrated.
+WHY IT READS `external_gate` ONLY. `external_gate[]` is the sole declared gate vocabulary — the
+schema models it structurally (`owner_repo`/`condition`/`blocks`/`closure_key`) — and it is what
+`emit-dispatch-workflow.py` Check A reads to withhold a row from a wave. An undeclared row-level
+key validates clean under `plan-tasks.schema.json` (`additionalProperties` unset), so a second
+spelling would be exactly as invisible to schema validation as this sweep exists to catch. Do not
+widen this to read a second spelling on the strength of "just in case" — add one only against a
+live straggler row that actually needs it, the way `external_gate` itself was added.
 
 Negative-spec: a `cleared: true` `external_gate` entry is NOT reported — that is the field the
 emitter treats as discharge, and a sweep that kept naming discharged gates would train the reader
@@ -59,16 +55,6 @@ def _status_of(text: str) -> str | None:
     front = head[1] if text.startswith("---") and len(head) > 2 else text[:2000]
     found = _STATUS.search(front)
     return found.group(1).strip().lower() if found else None
-
-
-def _awaiting_gate(block: str) -> list[str]:
-    """The row's `awaiting_gate` one-liner, as a 0-or-1 list."""
-    marker = block.find("awaiting_gate:")
-    if marker == -1:
-        return []
-    gate = block[marker + len("awaiting_gate:") :].strip()
-    gate = gate.split("\n  body:")[0].strip().strip("\"'")
-    return [" ".join(gate.split())] if gate else []
 
 
 def _external_gates(block: str) -> list[str]:
@@ -133,13 +119,13 @@ def _external_gates(block: str) -> list[str]:
 
 
 def _gated_rows(text: str) -> list[tuple[str, str]]:
-    """(chunk_id, gate_text) for every open gate on every row, either spelling."""
+    """(chunk_id, gate_text) for every open `external_gate` entry on every row."""
     rows: list[tuple[str, str]] = []
     starts = [(m.start(), m.group(1)) for m in _ROW_ID.finditer(text)]
     for index, (offset, chunk_id) in enumerate(starts):
         end = starts[index + 1][0] if index + 1 < len(starts) else len(text)
         block = text[offset:end]
-        for gate in _awaiting_gate(block) + _external_gates(block):
+        for gate in _external_gates(block):
             rows.append((chunk_id, gate))
     return rows
 

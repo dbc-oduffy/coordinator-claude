@@ -1,17 +1,17 @@
 ---
-description: "PM-GATED — only invoke when the PM explicitly asks; EM must ask first if it thinks it's warranted; NEVER invoke from a subagent. Pipeline A v2.2 (Internet Research) using Agent Teams — collaborative research with a Haiku scout, Sonnet specialists (adversarial peers with structured output), and an Opus sweep agent, all as teammates. EM scopes research, spawns the team, and is freed. The team works autonomously with optional iterative deepening: after Team 1 completes, the EM evaluates the gap report and may dispatch a smaller Team 2 for targeted follow-up."
-allowed-tools: ["Agent", "Read", "Write", "Bash", "Glob", "Grep", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "SendMessage"]
+description: "PM-GATED — only invoke when the PM explicitly asks; EM must ask first if it thinks it's warranted; NEVER invoke from a subagent. Pipeline A v3.0 (Internet Research) as a chatty background Workflow — a Haiku scout, Sonnet specialists (adversarial peers exchanging challenges through mailbox files, with structured output), and an Opus sweep, run in stage order by one script. EM scopes research, fires the Workflow, and is freed. Optional iterative deepening: after pass 1 completes, the EM evaluates the gap report and may fire a smaller second Workflow for targeted follow-up."
+allowed-tools: ["Agent", "Workflow", "Read", "Write", "Bash", "Glob", "Grep"]
 argument-hint: "<topic>"
 ---
 
-# Deep Research — Pipeline A v2.2 (Internet Research) Agent Teams Driver
+# Deep Research — Pipeline A v3.0 (Internet Research) Chatty-Workflow Driver
 
-The EM scopes the research, creates a team, spawns all teammates, and is **freed**. The team works autonomously:
+The EM scopes the research, writes `{workdir}/scope.md`, fires ONE background `Workflow`, and is **freed**. The script runs the stages in order:
 - **Haiku scout** (1) — executes EM-crafted search queries, builds a shared source corpus
-- **Sonnet specialists** (up to 5) — blocked until scout completes, then deep-read from the corpus, verify, challenge peers, output structured claims JSON + markdown summary
-- **Opus sweep** (1) — blocked until all specialists complete, then reads specialist outputs directly, performs adversarial coverage check, fills gaps with targeted research, writes executive summary and conclusion
+- **Sonnet specialists** (up to 5) — start after the scout returns, then deep-read from the corpus, verify, challenge peers through mailbox files, output structured claims JSON + markdown summary; a rebuttal round answers the challenges
+- **Opus sweep** (1, the overseer) — starts after the specialists return, reads their outputs directly, performs adversarial coverage check, fills gaps with targeted research, writes executive summary and conclusion
 
-The scout handles mechanical source discovery. Specialists self-govern their timing, actively coordinate to avoid duplication, and challenge each other's claims. The Opus sweep reads specialist outputs directly (no consolidator intermediate), checks coverage adversarially, fills gaps, and frames the final document. The EM does not monitor or broadcast WRAP_UP.
+The scout handles mechanical source discovery. Specialists self-govern their timing and challenge each other's claims. The Opus sweep reads specialist outputs directly (no consolidator intermediate), checks coverage adversarially, fills gaps, and frames the final document; its return value is the only one that reaches the EM. The EM does not monitor the run. Protocol, mailbox format, and the engine-emitted fire: `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/team-protocol.md`.
 
 ## Arguments
 
@@ -24,14 +24,14 @@ The scout handles mechanical source discovery. Specialists self-govern their tim
 
 1. Parse arguments: extract research topic
 2. Generate run ID: `YYYY-MM-DD-HHhMM` (current timestamp)
-3. Record spawn timestamp: `date +%s` (Unix epoch seconds — passed to teammates for timing)
+3. Decide the timing numbers (floor/ceiling) for the script's briefs after asking the PM in Step 2
 4. Generate topic slug (e.g., `novel-claude-code-implementations`)
 5. Create work directory — **accept-if-passed:** if `{scratch-dir}` is already bound (supplied by `research.md` Step 0), skip creating it and set `{workdir}` = `{scratch-dir}`; otherwise `mkdir -p docs/research/{run-id}-{topic-slug}-workdir` and set `{workdir}` to that path for use in subsequent steps.
 6. Set output path: `docs/research/YYYY-MM-DD-{topic-slug}-web.md`
 7. Set advisory path: `docs/research/YYYY-MM-DD-{topic-slug}-web-advisory.md` (replace `.md` with `-advisory.md`)
 8. Parse `--shallow` flag from arguments (default: false)
 
-Announce: "Running deep research (Agent Teams) on '{topic}'."
+Announce: "Running deep research (chatty Workflow) on '{topic}'."
 
 ## Step 2 — Scope Research (EM Direct)
 
@@ -49,7 +49,7 @@ This is judgment work — the EM does it directly. Use the scoping checklist bel
 6. **Ask the PM for timing preferences:**
    > "Research timing: default is 5-15 min with 5-source minimum. For a trivial topic, I'd suggest 3-8 min / 3 sources. For a complex topic, 5-20 min / 5 sources. What ceiling works for you?"
 
-Cap at 5 topics — this is the **≤5 concurrent web-tool caller ceiling**: dispatching more than 5 simultaneous web-tool callers triggers a 429 server-side throttle indistinguishable from a platform gate. The 7-teammate roster (1 scout + 5 specialists + 1 sweep) runs across **serialized phases** (scout → ≤5 specialists concurrently → sweep), so concurrent web-callers peak at **5, never 7**. Default 4 topics. Write scope AND search queries to `{workdir}/scope.md`.
+Default 4 topics; topic count is bounded only by the Workflow tool's own agent cap. Write scope AND search queries to `{workdir}/scope.md`; that file is the brief. Beside the scope it carries the fields the prompts read: a topic table (letter, description, focus questions, known sources, effort), `min_sources`, `min_minutes`, `max_minutes` (Step 2's timing answer), `corpus_path`, `output_path`, `advisory_path`, and `run_stem`.
 
 ### EM Scoping Checklist (review before dispatching)
 
@@ -66,113 +66,44 @@ Quality gates derived from published guidance (OpenAI, Perplexity, Google, STORM
       ("research X") lead to duplication — be specific about what each specialist SHOULD
       and SHOULD NOT cover.
 
-## Step 3 — Create Team and All Tasks
+## Step 3 — Prepare the Brief and Inputs
 
-Spawn the first teammate via the `Agent` tool — the team auto-forms; no explicit create step.
+The brief file (`scope.md`) carries everything the prompts read; the engine op renders the Workflow from `web.manifest.yaml`, so no script is hand-filled. Inputs: the brief path, the topic letters (one per topic), and the scratch dir. Ordering is the manifest's stage order — there is no task graph and no `blockedBy`. Create `{workdir}/mail/` (`mkdir -p`) before firing.
 
-### Create Tasks (explicit ordering — blocking chain depends on this)
-
-**Order matters.** Task IDs from earlier steps are referenced in later steps.
-
-**1. Sweep task** (created first — will be blocked later):
-```
-TaskCreate(subject: "Sweep: assess coverage, fill gaps, write framing", description: "Read all specialist outputs from {workdir}/, perform adversarial coverage check, fill gaps via web research, write exec summary + conclusion to {output-path}")
-```
-
-**2. Scout task** (no blockers — reads queries from disk):
-```
-TaskCreate(subject: "Build shared source corpus", description: "Read search queries from {workdir}/scope.md, execute via WebSearch, vet accessibility via WebFetch, write corpus to {workdir}/source-corpus.md")
-```
-
-**3. Specialist tasks** (each blocked by scout):
-For each topic:
-```
-TaskCreate(subject: "Analyze topic {letter}: {description}", description: "...")
-TaskUpdate(taskId: "{specialist-id}", addBlockedBy: ["{scout-task-id}"])
-```
-
-**4. Block sweep on all specialists:**
-```
-TaskUpdate(taskId: "{sweep-id}", addBlockedBy: ["{specialist-A-id}", "{specialist-B-id}", ...])
-```
-
-<!-- BEGIN task-tool-availability (synced from snippets/task-tool-availability.md) -->
-`TaskCreate` absent from this session's surface (`ToolSearch("select:TaskCreate")` returns nothing)
-→ fall back to `coordinator-tasks-mirror` for the same flight-recorder role; do not assume either
-state without checking. When Task* is unavailable, dispatch the phases in order, waiting on each
-completion notification — that is the ordering a `blockedBy` chain would otherwise express.
-<!-- END task-tool-availability -->
-
-Concretely here: record the task inventory (sweep, scout, each specialist) in
-`coordinator-tasks-mirror` as a flat inventory rather than the graph above, then dispatch scout,
-then the specialists, then the sweep — one phase per completion notification.
-
-## Step 4 — Spawn All Teammates
+## Step 4 — Stage Prompts and the Fire
 
 ### Scout (Haiku)
 
 Read the scout prompt template from:
 `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/scout-prompt-template.md`
 
-Fill in template fields: `[RESEARCH_TOPIC]`, `[PROJECT_CONTEXT]`, `[SCRATCH_DIR]`, `[TASK_ID]`, `[SPAWN_TIMESTAMP]`.
-
-```
-Agent(
-  name: "scout",
-  model: "haiku",
-  subagent_type: "coordinator:research-scout",
-  prompt: <filled scout prompt>
-)
-TaskUpdate(taskId: "{scout-id}", owner: "scout")
-```
+The template carries no fill-tokens: the scout reads the research topic, project context, and search queries from the brief (`scope.md`). It is the `scout` stage of `web.manifest.yaml`.
 
 ### Specialists (Sonnet)
 
-**Dispatch at most 5 specialists concurrently — this is the web-tool throttle ceiling, not a roster preference.**
-
-For each topic area, read the specialist prompt template from:
-`${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/specialist-prompt-template.md`
-
-Fill in ALL template fields — including `[SWEEP_NAME]` (use `"sweep"` as the teammate name). This is how specialists know who to send the `DONE` wake-up message to.
-
-```
-Agent(
-  name: "topic-{letter}",
-  model: "sonnet",
-  subagent_type: "coordinator:research-specialist",
-  prompt: <filled specialist prompt>
-)
-TaskUpdate(taskId: "{id}", owner: "topic-{letter}")
-```
+The specialist prompt template is `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/specialist-prompt-template.md`; the rebuttal, sweep, and relay prompts are `web-rebuttal-prompt-template.md`, `web-sweep-prompt-template.md`, and `web-relay-prompt-template.md` beside it. None carries fill-tokens. The only per-run values are the `topics` list (one lowercase letter per topic; the letter names the role `specialist-<letter>`, its mailbox, and its files; a gap-specialist's letter likewise names `gap-<letter>`) and the brief file. Everything else the specialists read from the brief: the topic table (a row per letter: description, focus questions, known sources; the other rows are the peers), `min_sources`, `min_minutes`, `max_minutes`, `output_path`, `advisory_path`, and `run_stem`. Specialists address peers by mailbox file, never by `SendMessage`. A rebuttal continuation runs for each specialist whose letter appears in a peer's returned `challenged` list.
 
 ### Opus Sweep
 
-Spawn the sweep agent with its task (which is blocked until all specialists finish):
-```
-Agent(
-  name: "sweep",
-  model: "opus",
-  subagent_type: "coordinator:research-synthesizer",
-  prompt: <filled sweep prompt — see below>
-)
-TaskUpdate(taskId: "{sweep-id}", owner: "sweep")
-```
+The script dispatches the sweep after the rebuttal stage returns, as `agent(prompt, { model: 'opus', agentType: 'coordinator:research-synthesizer', label: 'sweep', phase: 'Sweep', schema })`.
 
 **Sweep prompt fields and verbatim instruction:** see `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/web-research-internals.md` § Sweep Prompt Contents.
 
-Dispatch ALL teammates in a single message (parallel).
+### Fire
+
+Run `emit-dispatch-workflow --pipeline web --brief <brief path> --list topics=<a,b,...> --scratch-dir <scratch dir> --out <scratch dir>/web.workflow.mjs` (resolve the CLI per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`), then fire the emitted script as one background `Workflow` call. The pass-2 fire is `--pipeline web-deepening` (see `team-protocol.md` § Deepening Protocol).
 
 ## Step 5 — EM Is Freed
 
-After spawning all teammates, announce:
+After firing the Workflow, announce:
 
-> "Research team is running autonomously on '{topic}' with 1 scout + {N} specialists + 1 Opus sweep. Scout builds the shared corpus (~2-3 min), then specialists deep-read, verify, and challenge each other ({MIN_MINUTES}-{MAX_MINUTES} min, {MIN_SOURCES}-source minimum). After all specialists finish, the Opus sweep reads their outputs directly, checks coverage, fills gaps, and frames the final document. I'm available for other work — I'll be notified when the sweep completes."
+> "Research workflow is running autonomously on '{topic}' with 1 scout + {N} specialists + 1 Opus sweep. The scout builds the shared corpus (~2-3 min), then specialists deep-read, verify, and challenge each other through mailboxes ({MIN_MINUTES}-{MAX_MINUTES} min, {MIN_SOURCES}-source minimum), and a rebuttal round answers the challenges. After that, the Opus sweep reads their outputs directly, checks coverage, fills gaps, and frames the final document. I'm available for other work — I'll be notified when the Workflow completes."
 
-**You are now free to continue the conversation with the PM.** Do not poll, do not monitor, do not broadcast WRAP_UP. The team handles everything.
+**You are now free to continue the conversation with the PM.** Do not poll and do not monitor. The Workflow handles everything.
 
-## Step 6 — Team 1 Completion
+## Step 6 — Pass 1 Completion
 
-When you receive a notification that the sweep task is complete:
+When the Workflow's task notification arrives (its result is the sweep's return value):
 
 1. Read the synthesis document at `{output-path}`
 2. Verify it has substantive content (not just headers)
@@ -203,18 +134,18 @@ When you receive a notification that the sweep task is complete:
 
 6. Commit:
    ```bash
-   "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-safe-commit" "deep-research: Team 1 complete — {topic-slug}"
+   "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-safe-commit" "deep-research: pass 1 complete — {topic-slug}"
    ```
 7. **Dispatch the coverage auditor** (always-on for web — see § Coverage Auditor Dispatch below).
-8. The team auto-cleans on session exit — no explicit teardown step. (Note: any scratch that persists across runs lives in `{workdir}/`, not in team state.)
+8. Scratch that persists across runs lives in `{workdir}/`.
 
 **Proceed to Step 6.5** (do NOT archive yet — deepening may add to the work directory).
 
 ### Coverage Auditor Dispatch
 
-The coverage auditor is **always-on for web**. Dispatch it after reading the synthesis (steps 1–4 above) and **before the run concludes** — this is the resolved-decision contract (RD-1). The auditor must run before teardown (automatic on session exit); do not defer it.
+The coverage auditor is **always-on for web**. Dispatch it after reading the synthesis (steps 1–4 above) and **before the run concludes** — this is the resolved-decision contract (RD-1). Do not defer it.
 
-**The auditor is a non-teammate `Agent(...)` — spawned after the synthesis team has completed, not as part of the research team.** This preserves the 7-teammate ceiling (1 scout + 5 specialists + 1 sweep = 7; auditor is post-synthesis and outside the team). Precedent: `repo-driver.md` survey (`:65`) and atlas-sketch (`:265`) as non-teammate Agents.
+**The auditor is a plain `Agent(...)` — dispatched by the EM after the Workflow has completed, not as a stage of the research script.** Precedent: `repo-driver.md` survey (`:65`) and atlas-sketch (`:265`) as plain Agent dispatches.
 
 Fill the dispatch prompt from the Pipeline A block of `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/coverage-auditor-prompt-template.md`. Required fields:
 
@@ -230,17 +161,17 @@ Agent(
 )
 ```
 
-Await the `DONE: {sidecar-path}` reply before proceeding to Step 6.5. The sidecar is written to `{output-path minus .md}-coverage-audit.md`.
+Await the auditor's return (`{sidecar-path}`) before proceeding to Step 6.5. The sidecar is written to `{output-path minus .md}-coverage-audit.md`.
 
 **Present the coverage-audit sidecar to the PM in Step 7** alongside the synthesis (see § Step 7 update below).
 
 ### Fidelity Relay — Locus and Gating (web)
 
-The fidelity relay (when applicable per the applicability matrix) is a **Team-1 internal sweep phase that runs BEFORE the synthesizer marks its task complete**. Its mechanics live in `agents/research-synthesizer.md` (C5). This driver states the gating contract so executors cannot mis-wire it:
+The fidelity relay (deep tier only) is a **pass-1 script stage that runs after the sweep's draft and before the sweep's final return**. Its mechanics live in `team-protocol.md` § Fidelity Relay Protocol and `agents/research-synthesizer.md`. This driver states the gating contract so executors cannot mis-wire it:
 
-- **Locus is always Team 1**, before the run concludes (before teardown, auto on session exit). The original specialists (the authors whose content the relay protects) are alive-but-idle in Team 1 at this point. By the time Team 2 runs (Step 6.6), they are gone — Team 2 is fresh gap-specialists, not original authors.
-- **The relay is decoupled from the Step 6.5 deepening gate.** The gap-report signal may share the relay's gating threshold condition, but gating that signal ≠ routing relay execution into Team 2. The relay executes in Team 1 regardless of whether deepening follows.
-- **Do NOT wire the relay into Team 2 (Step 6.6).** A Team-2 relay would wake agents that no longer exist. The Step 6.5 / 6.6 blocks are deepening-only; relay execution must complete before reaching them.
+- **Locus is always pass 1.** The original specialists (the authors whose content the relay protects) are re-dispatched as fidelity-check continuations; pass 2 is fresh gap-specialists, not original authors.
+- **The relay is decoupled from the Step 6.5 deepening gate.** It fires when the sweep's return reports `deepeningRecommended: true`, in the same Workflow, whether or not the EM then deepens.
+- **Do NOT wire the relay into pass 2 (Step 6.6).** The Step 6.5 / 6.6 blocks are deepening-only; the relay completes inside the pass-1 Workflow before the EM reaches them.
 
 ## Step 6.5 — Deepening Decision Gate
 
@@ -251,27 +182,25 @@ Parse the gap report's YAML front-matter and apply the DEEPEN / DO NOT DEEPEN ru
 - **If NO DEEPEN:** announce per the template in the internals doc, then proceed to Step 7.
 - **If DEEPEN:** announce per the template, then proceed to Step 6.6.
 
-## Step 6.6 — Dispatch Team 2 (Deepening Pass)
+## Step 6.6 — Fire Pass 2 (Deepening Pass)
 
-1. **Cluster gap targets** (HIGH/MEDIUM only) into 1-3 specialist assignments. Two absent claims in the same domain → one gap-specialist.
+1. **Cluster gap targets** (HIGH/MEDIUM only) into 1-3 specialist assignments. Two absent claims in the same domain → one gap-specialist. Record the clusters in the pass-2 brief (a copy of `scope.md` with `pass: 2` and `merge_mode: true` added): a gap table (letter, gap id, description, type, severity, suggested queries, relevant pass 1 topic letter), with gap letters continuing after pass 1's last topic letter, and `needs_scout` decided in item 2.
 2. **Decide scout inclusion:** include a Haiku scout if gaps require new topic areas; skip if gaps are refinements within existing topics (gap-specialists do their own targeted searches).
-3. **Record Team 2 spawn timestamp:** `date +%s`.
-4. **Create tasks and dispatch all teammates in a single message (parallel)** — the team auto-forms when the first teammate is spawned; sweep is in merge mode and blocks on all gap-specialists; gap-specialists block on the scout if one exists. Then announce per the template and free the EM.
+3. **Fire one background Workflow** — scout (if any) → gap-specialists in parallel → rebuttal continuations → merge-mode sweep, in `await` order. Then announce per the template and free the EM.
 
-**Full team/task creation snippets, gap-specialist template field list, parallel-dispatch syntax, merge-mode sweep prompt fields, announce template:** see `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/web-research-internals.md` § Step 6.6.
+**Gap-specialist template field list, script differences from pass 1, merge-mode sweep prompt fields, announce template:** see `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/web-research-internals.md` § Step 6.6.
 
 **EM is freed again.** Do not poll.
 
-## Step 6.7 — Team 2 Completion + Merge
+## Step 6.7 — Pass 2 Completion + Merge
 
-When the Team 2 sweep completes:
+When the pass-2 Workflow's task notification arrives:
 
-1. Read `{workdir}/deepening-delta.md`; verify substantive content; read Team 2 advisory if present.
+1. Read `{workdir}/deepening-delta.md`; verify substantive content; read pass-2 advisory if present.
 2. **Merge delta into `{output-path}`** per the rules in `pipelines/web-research-internals.md` § Step 6.7 (Resolved Contradictions, Filled Gaps, Updated Claims, Open Questions, strip provenance markers).
 3. Write merged doc back to `{output-path}` and `{workdir}/synthesis-merged.md`.
-4. Commit via the settings-home forwarder: `coordinator-safe-commit "deep-research: Team 2 deepening merged — {topic-slug}"` (resolve as `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-safe-commit"`, per Step 6's fenced form).
-5. The team auto-cleans on session exit — no explicit teardown step.
-6. Proceed to Step 7.
+4. Commit via the settings-home forwarder: `coordinator-safe-commit "deep-research: pass 2 deepening merged — {topic-slug}"` (resolve as `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-safe-commit"`, per Step 6's fenced form).
+5. Proceed to Step 7.
 
 ## Step 7 — Finalize
 
@@ -283,11 +212,11 @@ When the Team 2 sweep completes:
    **Precondition: `docs/research/` and `docs/research/archive/` resolve to the same filesystem.** If `archive/` is ever moved to a different mount, this archive step must be revisited — POSIX `mv` across filesystems degrades to copy-then-unlink, reopening the race window the change is meant to eliminate. Executor-time guard: `stat -c '%d' docs/research 2>/dev/null || stat -f '%d' docs/research` on both paths before mv; fail-loud if device IDs differ.
 2. Commit via the settings-home forwarder: `coordinator-safe-commit "deep-research: archive + cleanup — {topic-slug}"` (resolve as `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-safe-commit"`, per Step 6's fenced form).
 3. Present executive summary to PM for discussion:
-   - If deepening occurred: "Research complete (2 passes). Team 1 identified {gap_count} gaps ({high_severity_gaps} high-severity); Team 2 filled {N}. See synthesis at `{output-path}`."
+   - If deepening occurred: "Research complete (2 passes). Pass 1 identified {gap_count} gaps ({high_severity_gaps} high-severity); pass 2 filled {N}. See synthesis at `{output-path}`."
    - If no deepening: "Research complete (single pass). Coverage score: {coverage_score}/5. See synthesis at `{output-path}`."
    - If advisory exists: "The sweep agent flagged observations beyond scope — see the advisory at `{advisory-path}`."
    - Always include: "Coverage audit: `{output-path minus .md}-coverage-audit.md` — {present_count} specialist claims present, {absent_count} absent. {If absent_count > 0: 'See the Completeness Map in the sidecar for gaps and deeper-reading pointers.'}"
 
 ## Error Handling
 
-See `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/web-research-internals.md` § Error Handling Matrix for the full failure-mode → action table (scout/specialist/sweep/Team-2 failures).
+See `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/web-research-internals.md` § Error Handling Matrix for the full failure-mode → action table (scout/specialist/sweep/pass-2 failures).

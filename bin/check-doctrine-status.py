@@ -107,6 +107,8 @@ def main(argv: "list[str] | None" = None) -> int:
         try:
             finding = ds.check_page(page, vocabulary)
         except UnicodeDecodeError as exc:
+            # Unreadable page must not collide with exit 1 (unlisted status
+            # value) -- loud exit 2 naming the file beats silently skipping it.
             try:
                 rel = page.relative_to(ds.REPO_ROOT)
             except ValueError:

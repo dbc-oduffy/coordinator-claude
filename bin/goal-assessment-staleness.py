@@ -2,10 +2,7 @@
 """goal-assessment-staleness — the missing reader for the never-assessed rule.
 
 Ported from coordinator-content-repo `coordinator/bin/goal-assessment-staleness.py` (W2-C6,
-`docs/plans/2026-09-18-doe-holds-no-scripts.md`) — mechanical move, no behavioural change. This
-module's `_repo_root()` was already "engine" class (§ Path resolution): `Path(__file__).resolve()
-.parents[2]` names the repo root from this module's own tree whether it lives in coordinator-content-repo's
-`coordinator/bin/` or here, so nothing about the resolution changes on arrival.
+`docs/plans/2026-09-18-doe-holds-no-scripts.md`).
 
 WHY THIS EXISTS. `/workweek-complete` Step 1 reads a goal's `status` directly; Step 5's KR
 re-assessment carries the negative-spec that it never auto-sets `status:`. Each is correct alone.
@@ -60,7 +57,9 @@ folded into "read and clean".
 
 Zero subprocess, stdlib + PyYAML only — no shell, no `date` call, no drive letters, no hardcoded
 separators. `--goals-dir` overrides the default `state/goals` for fixtures; `--json` for ceremony
-consumption.
+consumption. The repo root is the caller's own git root (`git_root_walk()` from cwd), or
+`--repo-root`; outside any repo with no flag the CLI refuses and names `--repo-root`
+(`A_PLUGIN_RESOLVED_CLIS_OWN_REPO_IS_NOT_YOURS`).
 """
 from __future__ import annotations
 
@@ -73,8 +72,23 @@ from pathlib import Path
 _SUPPORTED_PERIOD = "week"
 
 
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
+def git_root_walk(start: str | None = None) -> str | None:
+    """`_git_root_walk.git_root_walk`, imported on first call so a bare import of
+    this module leaves `sys.path` untouched. A tree without coordinator/lib
+    falls back to this file's own repo root."""
+    lib_dir_walk = str(Path(__file__).resolve().parents[1] / "lib")
+    if lib_dir_walk not in sys.path:
+        sys.path.insert(0, lib_dir_walk)
+    try:
+        from _git_root_walk import git_root_walk as _impl
+    except ImportError:
+        return str(Path(__file__).resolve().parents[2])
+    return _impl(start)
+
+
+def _repo_root() -> "Path | None":
+    root = git_root_walk()
+    return Path(root).resolve() if root else None
 
 
 def _default_goals_dir(repo_root: Path) -> Path:
@@ -290,11 +304,21 @@ def main(argv: "list[str] | None" = None) -> int:
         "--goals-dir",
         help="override the default state/goals directory (fixtures use this)",
     )
+    parser.add_argument("--repo-root", help="repo whose state/goals is read (default: git root of cwd)")
     parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     args = parser.parse_args(argv)
 
-    repo_root = _repo_root()
-    goals_dir = Path(args.goals_dir).resolve() if args.goals_dir else _default_goals_dir(repo_root)
+    if args.goals_dir:
+        goals_dir = Path(args.goals_dir).resolve()
+    else:
+        repo_root = Path(args.repo_root).resolve() if args.repo_root else _repo_root()
+        if repo_root is None:
+            print(
+                "goal-assessment-staleness: not inside a git repo; pass --repo-root <path>",
+                file=sys.stderr,
+            )
+            return 2
+        goals_dir = _default_goals_dir(repo_root)
 
     result = assess(goals_dir)
 

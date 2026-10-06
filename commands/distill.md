@@ -61,6 +61,13 @@ divergence rollup, straight off disk. The ledger is the read path this harvest s
 `## Tasks` block at all, falls back to the prior git-log/handoff reconstruction — the ledger
 answers nothing there.
 
+**Emitted workflow scripts.** `docs/plans/*.workflow.mjs` and their `.emitted.json` receipts are
+pruned by the engine op `fleet.prune_emitted_output`, which the housekeeping cycle runs:
+`python3 -m coordinator_core.invoke fleet.prune_emitted_output "{}" --repo <root>`. It keeps any
+tracked file, any file under an hour old, and any file whose plan is still `executing` or claimed.
+`fire-*.mjs` under `state/plan-blitz/` is outside its reach. Delete those by hand once their blitz
+is closed.
+
 ---
 
 ## Baton fate

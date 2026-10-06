@@ -211,7 +211,13 @@ strongest honest case for doing the work now, not a strawman. Where
 the case AGAINST, so the PM is shown a real decision, not an ID list the EM
 has already convinced itself of.
 
+Beside the five exits, --clear-gate is the sanctioned external_gate clear (not
+a disposition): it sets `cleared: true` and `closure_evidence` on the row's gate
+whose owner_repo matches. Needs exactly one --id, --owner-repo and --evidence.
+
 Examples:
+  plan-tasks-resolve --id C7 --plan docs/plans/foo.md --clear-gate \\
+      --owner-repo coordinator-content-repo --evidence "DoE commit abc1234 landed the flip"
   plan-tasks-resolve --id C7 --plan docs/plans/foo.md --coded a1b2c3d
   plan-tasks-resolve --id C7 --plan docs/plans/foo.md --spun-off \\
       docs/spinoffs/2026-08-05-foo.md --disposition-detail "split out"
@@ -315,7 +321,48 @@ def _build_parser() -> argparse.ArgumentParser:
     exits.add_argument(
         "--wont-do", dest="wont_do", action="store_true", help="disposition: wont_do"
     )
+    exits.add_argument(
+        "--clear-gate",
+        dest="clear_gate",
+        action="store_true",
+        help=(
+            "not a disposition: clear a row's external_gate (cleared: true + "
+            "closure_evidence) via the clear-gate verb; needs --id, "
+            "--owner-repo and --evidence"
+        ),
+    )
+    parser.add_argument(
+        "--owner-repo",
+        dest="owner_repo",
+        default=None,
+        help="--clear-gate only: the owner_repo of the external_gate to clear",
+    )
+    parser.add_argument(
+        "--evidence",
+        dest="evidence",
+        default=None,
+        help="--clear-gate only: the non-empty evidence the gate's condition is met",
+    )
     return parser
+
+
+def _clear_gate_params(args: argparse.Namespace, parser: argparse.ArgumentParser) -> dict:
+    """Validate the --clear-gate flag set locally and build the verb's params."""
+    if len(args.task_ids) != 1:
+        parser.error("--clear-gate takes exactly one --id")
+    if not (args.owner_repo and args.owner_repo.strip()):
+        parser.error("--clear-gate requires --owner-repo")
+    if not (args.evidence and args.evidence.strip()):
+        parser.error(
+            "--clear-gate requires non-empty --evidence — the proof the gate's condition is met"
+        )
+    return {
+        "verb": "clear-gate",
+        "plan_path": args.plan_path,
+        "id": args.task_ids[0],
+        "owner_repo": args.owner_repo,
+        "evidence": args.evidence,
+    }
 
 
 def _selected_disposition(args: argparse.Namespace) -> tuple[str, str | None]:
@@ -491,10 +538,28 @@ def main(argv: list[str] | None = None) -> int:
 
     cc_invoke.require_engine_on_path(__file__)
 
-    disposition, disposition_ref = _selected_disposition(args)
-
     if not args.task_ids:
         parser.error("--id is required")
+
+    if args.clear_gate:
+        params = _clear_gate_params(args, parser)
+        try:
+            result = cc_invoke.route_mutation(_OP, params, _resolve_repo_root(), _no_legacy)
+        except cc_invoke.RouteMutationError as exc:
+            print(f"plan-tasks-resolve: {exc}", file=sys.stderr)
+            return _exit_code_from_route_mutation_error(exc)
+        except RuntimeError as exc:
+            print(f"plan-tasks-resolve: {exc}", file=sys.stderr)
+            return 2
+        message = result.get("message", "") if isinstance(result, dict) else ""
+        if message:
+            print(message)
+        return 0
+
+    if args.owner_repo is not None or args.evidence is not None:
+        parser.error("--owner-repo and --evidence belong to --clear-gate only")
+
+    disposition, disposition_ref = _selected_disposition(args)
 
     if len(args.task_ids) > 1 and disposition != "coded":
         parser.error(_MULTI_ID_ONLY_FOR_CODED_MESSAGE.format(disposition=disposition))

@@ -129,7 +129,7 @@ Backlog/plan-sourced items: Haiku agent per item, `still-open` vs `already-fixed
 
 **Falsifier integrity**, same phase, plan-sourced items whose frontmatter carries
 `prime_exit_criterion.falsifier`: one `falsifier-integrity-reviewer` dispatch each. Run
-`python3 "${CLAUDE_PLUGIN_ROOT:-${_content_root}/coordinator}/bin/instrument-can-report-red.py" --json` over the instrument first and pass
+`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/instrument-can-report-red" --json` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\instrument-can-report-red.exe"`, same arguments) over the instrument first and pass
 the on-disk JSON path as the brief's `can_report_red_report` — a brief field, never an instruction
 to go compute it. Verdict `SOUND` | `BROKEN` | `UNREVIEWABLE`, naming the tell; it reports and
 never refuses. `BROKEN` routes the item out of the wave with the tell named — the existing
@@ -212,7 +212,7 @@ When slicing an inventory into tranches, rows writing the same path go in the sa
 **Ignore the Stop-hook's "commit and push" advisory mid-run** — the dirt it flags is a live
 wave's footprint. Commit only by § Who commits; never widen it to satisfy the hook.
 A path still held dirty after the run drains, because landing it asserts what only the PM can, gets
-a committed withhold record ([withheld-paths](../docs/wiki/withheld-paths.md)); the hook does not
+a committed withhold record; the hook does not
 read it yet, so its advisory on that path is expected and is not an instruction.
 
 **Who commits.** When a wave settles, one `coordinator:git-commit-agent` leg commits the union of

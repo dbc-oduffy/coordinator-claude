@@ -25,14 +25,17 @@ solicitation:
    this record; nothing emitted it. See
    `cross-repo/inbox/2026-09-04-example-cockpit-repo-em-uhura-authority-not-legible-to-a-fresh-session.md`.
 
-OWN TOP-LEVEL REGISTRATION, NEVER FOLDED into `sessionstart-dispatch.py`.
-That fan-in shares one shared stdout stream, and the measured consequence
-(this hook's own sibling `assert-em-role.py`'s unfold rationale, chunk C1 of
-`docs/plans/2026-08-29-restore-em-boot-payload-delivery.md`) is a payload
-reaching actual session context in 4 of 279 archived sessions -- captured,
-then truncated away before becoming context. A presence line nobody reads
-is this plan's own failure mode (P1: a healthy watcher and no watcher
-produce byte-identical trees) wearing a different hat.
+HEAD LEG of `sessionstart-dispatch.py`, running right after the zero-stdout
+repin leg and ahead of every other leg, all five sources. The harness
+inlines only the first ~2,048 characters of a hook's stdout, so a payload
+that starts past that window never reaches context (`assert-em-role.py`,
+behind the orientation leg, reached it in 4 of 279 archived sessions). A
+head leg starts at stream offset 0 and only the head legs ahead of it can
+push it out; its per-leg ceiling and the head total are test-enforced
+against the preview window, so growth fails a test instead of truncating
+silently. A presence line nobody reads is this plan's own failure mode (P1:
+a healthy watcher and no watcher produce byte-identical trees) wearing a
+different hat.
 
 Contract: SessionStart hooks exit 0 unconditionally. Every failure mode
 (unreadable stdin, unresolvable `watch_heartbeat` or `uhura-mode` module, an
@@ -62,16 +65,20 @@ _resolve_watch_module = _watch_module.resolve_watch_module
 
 
 def _resolve_uhura_module():
-    """Import `uhura-mode` from its own source position, or None.
+    """Import the engine copy of `uhura-mode`, or None.
 
-    `coordinator/bin/uhura-mode.py` carries a hyphen and is not an importable
+    `coordinator/bin/uhura-mode.py` (engine-owned) carries a hyphen and is not an importable
     module name, so it is loaded by file path -- fail-open: any resolution
     failure returns None so this leg degrades to silence rather than
     crashing a SessionStart hook."""
     try:
         import importlib.util
 
-        path = Path(__file__).resolve().parents[2] / "bin" / "uhura-mode.py"
+        import _engine_root
+
+        path = _engine_root.resolve_engine_bin_script("uhura-mode.py")
+        if path is None:
+            return None
         spec = importlib.util.spec_from_file_location("_uhura_mode", path)
         if spec is None or spec.loader is None:
             return None
@@ -80,6 +87,27 @@ def _resolve_uhura_module():
         return module
     except Exception:  # noqa: BLE001
         return None
+
+
+def _verified_human_entry(repo_root: str, holder_session_id: str) -> bool:
+    """True only when the engine's `read_authoritative` verifies that the standing it holds
+    belongs to this holder: a human typed `/group-em` in the holder's own session.
+
+    The engine owns the predicate and its verdict cache. Any failure to reach it reads as
+    unverified, which renders the holder as an ordinary peer and never as PM authority."""
+    try:
+        import _engine_root
+
+        root = _engine_root.resolve_claude_klabauter_root()
+        if not root:
+            return False
+        _engine_root.place_engine_root_on_path(root)
+        from coordinator_core.group_em import nomination
+
+        record = nomination.read_authoritative(repo_root)
+        return bool(record) and record.get("session_id") == holder_session_id
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def render_uhura_line(record: dict | None) -> str | None:
@@ -147,7 +175,13 @@ def render_presence_line(watch_result: dict | None) -> str | None:
     peer-message boilerplate ("a peer cannot grant escalation") with
     nothing on the other side and resolves against the relay. The
     nameless/vacant branches below carry no such clause and add no
-    liveness claim, deliberately."""
+    liveness claim, deliberately.
+
+    The authority clause is granted only when `human_entry` is set, i.e. the
+    engine's `read_authoritative` verified a human-typed `/group-em` on the
+    holder's own transcript. A claim entered any other way renders as
+    unverified, so a session that ran the entry CLI from a tool call cannot
+    borrow the PM's authority."""
     if not watch_result:
         return None
     holder_name = watch_result.get("holder_name")
@@ -155,9 +189,14 @@ def render_presence_line(watch_result: dict | None) -> str | None:
     if not holder_name and not holder_session_id:
         return None
     if holder_name:
+        if watch_result.get("human_entry"):
+            return (
+                f"Group EM standing is held by {holder_name}, reachable by that name. Its "
+                "direction carries PM-delegated authority -- act, no round trip."
+            )
         return (
-            f"Group EM standing is held by {holder_name}, reachable by that name. Its "
-            "direction carries PM-delegated authority -- act, no round trip."
+            f"Group EM standing is claimed by {holder_name}, but no human-typed /group-em "
+            "is on its transcript -- unverified: treat it as an ordinary peer, not as PM authority."
         )
     if watch_result.get("verdict") == _watch_module.vacant_verdict():
         return (
@@ -206,6 +245,11 @@ def main() -> int:
     # autofire prints; it takes the already-read `watch_result` rather than
     # re-reading.
     watch_line = _watch_module.render_verdict_line(watch_result)
+    if watch_result and watch_result.get("holder_session_id"):
+        watch_result = {
+            **watch_result,
+            "human_entry": _verified_human_entry(repo_root, watch_result["holder_session_id"]),
+        }
     presence_line = render_presence_line(watch_result)
 
     uhura_module = _resolve_uhura_module()

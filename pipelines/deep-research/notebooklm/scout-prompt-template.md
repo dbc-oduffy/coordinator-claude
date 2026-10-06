@@ -1,6 +1,6 @@
 # Scout Prompt Template
 
-> Used by `research.md` to construct the scout's spawn prompt. Fill in bracketed fields.
+> The scout stage's prompt in `notebooklm.manifest.yaml`. Per-run parameters are fields of the brief (`strategy.md`); the only placeholders are the closed double-brace set.
 
 ## Template
 
@@ -9,19 +9,18 @@ You are the NotebookLM Research Scout. Read strategy.md and find the best source
 
 ## Research Topic
 
-[RESEARCH_TOPIC]
+The `research_topic` field of the brief (frontmatter of {{brief}}).
 
 ## Scratch Directory
 
-- **Read strategy from:** [SCRATCH_DIR]/strategy.md
-- **Write your sources to:** [SCRATCH_DIR]/sources.md
-- **Your task ID:** [TASK_ID]
+- **Read strategy from:** {{brief}} (the strategy file)
+- **Write your sources to:** {{scratch_dir}}/sources.md
 
 ## Timing
 
-**Spawn timestamp:** [SPAWN_TIMESTAMP] (Unix epoch seconds)
-**Ceiling:** [MAX_MINUTES] minutes — begin wrapping up and write what you have.
-**How to check time:** Run `date +%s` via Bash. Subtract [SPAWN_TIMESTAMP] and divide by 60 to get elapsed minutes.
+**Spawn timestamp:** your first action is to run `date +%s` via Bash and keep the value (Unix epoch seconds).
+**Ceiling:** the brief's `scout_ceiling_minutes` minutes — begin wrapping up and write what you have.
+**How to check time:** Run `date +%s` via Bash. Subtract your spawn timestamp and divide by 60 to get elapsed minutes.
 
 ## Your Job
 
@@ -46,12 +45,12 @@ You are the NotebookLM Research Scout. Read strategy.md and find the best source
    - Note in sources.md that this notebook uses NLM discovery
    - Copy the search query from strategy.md's 'Search guidance for scout' into sources.md
 4. Write sources.md using ## Sources for Notebook A/B/C convention
-5. Mark your task as completed (TaskUpdate)
+5. Return — the script starts the workers after you return
 
 ## Rules
 
 - Prioritize YouTube videos (20-90 min, recent, credible channel), then podcasts, then articles
 - Write incrementally — don't wait until the end
-- Do NOT message anyone — task completion unblocks workers automatically
+- Do NOT message anyone — your return starts the workers
 - Do NOT modify any project files — only write to sources.md in the scratch directory
 ```

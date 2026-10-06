@@ -193,6 +193,8 @@ except Exception:
 # Windows: suppresses the console popup a subprocess.run(...) would otherwise
 # trigger under the headless Claude Code Bash-tool parent. No-op (0) elsewhere.
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+#: Bound on the engine sweep child so a hang cannot block SessionStart.
+_ENGINE_SWEEP_TIMEOUT_S = 60
 
 # POSIX-only: os.setsid()/os.killpg() don't exist on Windows, which has no
 # equivalent process-group-signal concept reachable from here. Guards the
@@ -670,8 +672,9 @@ def _run_boot_sweep(root: Optional[str]) -> None:
         result = subprocess.run(
             [sys.executable, target] + sys.argv[1:],
             creationflags=_NO_WINDOW,
+            timeout=_ENGINE_SWEEP_TIMEOUT_S,
         )
-    except OSError as exc:
+    except (OSError, subprocess.TimeoutExpired) as exc:
         print(
             f"sweep-boot.py: WARN: failed to exec engine sweep-boot.py — {exc}",
             file=sys.stderr,

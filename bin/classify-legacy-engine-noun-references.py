@@ -18,8 +18,8 @@ allowlist.md`'s buckets instead), and refuses -- unless given ``--admit-renameab
 file:line`` -- to add a RENAMEABLE-LOCAL row outside the slice list recorded at this
 row's own SHA (the ratchet, escalation E2).
 
-SPAWNS: at most 3 `git` processes total -- one `git ls-files` per repo (this repo,
-Coordinator-content-repo, claude-klabauter). No per-file, per-identifier or per-item git call.
+SPAWNS: two `git` processes total -- `ls-files` and `rev-parse` on this repo. No per-file,
+per-identifier or per-item git call. Reads only this repo's own tree.
 
 Never imports `coordinator_core`: a stdlib-only CLI that runs with no engine-root
 bootstrap, so it keeps its own git spawns and is exempt from the shared git runner
@@ -39,15 +39,6 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 TREES = ("coordinator", "coordinator_core", "bin", "scripts")
 NOUN = re.compile(r"claude-klabauter", re.IGNORECASE)
-
-#: coordinator-content-repo's load-bearing trees for the source-spelling sibling-consumer check.
-DOE_TREES = ("setup/", "coordinator/")
-#: claude-klabauter's tree, minus the shim-preservation carve-out.
-KLABAUTER_EXCLUDE_PREFIX = ".fleet-env"
-
-#: claude-klabauter -> published stem (codename_provenance_seed.py :: CODENAME_STEM_MAP).
-STEM_SOURCE = "claude-klabauter"
-STEM_PUBLISHED = "claude_klabauter"
 
 #: EXTERNALLY-NAMED-THING: the noun because the thing IS still called that. Line-level,
 #: highest precedence -- a line matching any of these is never anything else.
@@ -118,25 +109,6 @@ def _is_real_identifier_line(text: str) -> bool:
 
 def _no_console_creationflags() -> int:
     return getattr(subprocess, "CREATE_NO_WINDOW", 0)
-
-
-def _resolve_sibling_root(key: str, fallback: str | None) -> Path:
-    """Resolve a sibling repo root via `machine-local get repos.<key>`, falling back to
-    an explicit --*-root override (fallback is None when the CLI default is unset)."""
-    if fallback:
-        return Path(fallback).resolve()
-    out = subprocess.run(
-        ["machine-local", "get", f"repos.{key}"],
-        capture_output=True,
-        text=True,
-        creationflags=_no_console_creationflags(),
-    )
-    if out.returncode == 0 and out.stdout.strip():
-        return Path(out.stdout.strip()).resolve()
-    raise SystemExit(
-        f"classify-legacy-engine-noun-references: could not resolve repos.{key} via "
-        "machine-local, and no --*-root override was given."
-    )
 
 
 def _git_ls_files(repo: Path, *pathspecs: str) -> list[str]:
@@ -210,22 +182,6 @@ def _is_test_file(rel: str) -> bool:
     return name.startswith("test_") or "/tests/" in f"/{rel}"
 
 
-def _stem_publish(identifier: str) -> str:
-    """Rewrite the `claude-klabauter` stem to its published spelling, case-family preserved for
-    the three case families this tree actually uses (lower, Title, UPPER)."""
-    if STEM_SOURCE.upper() in identifier and STEM_SOURCE not in identifier.lower():
-        pass
-    return re.sub(
-        r"[Mm][Aa][Kk][Ii][Mm][Aa]",
-        lambda m: {
-            "claude-klabauter": STEM_PUBLISHED,
-            "Claude-Klabauter": "".join(p.capitalize() for p in STEM_PUBLISHED.split("_")),
-            "CLAUDE-KLABAUTER": STEM_PUBLISHED.upper(),
-        }.get(m.group(0), STEM_PUBLISHED),
-        identifier,
-    )
-
-
 def _scan_four_trees(repo: Path) -> tuple[list[dict], int]:
     """Single compiled-pattern, file-filter-first pass (perf plan): read every tracked
     file under the four trees once, skip files with zero hits without splitting lines,
@@ -263,73 +219,8 @@ def _scan_four_trees(repo: Path) -> tuple[list[dict], int]:
     return rows, len(files)
 
 
-#: Every published identifier carries this stem (`_stem_publish`), so a sibling file
-#: without it cannot hit; the guard keeps the large alternation off the other files.
-_PUBLISHED_STEM = re.compile(STEM_PUBLISHED.replace("_", "_?"), re.IGNORECASE)
-
-
-def _sibling_pass(
-    rows: list[dict], content_root: Path, klabauter_root: Path
-) -> dict[str, dict]:
-    """Identifier-level alternation pass, one per sibling tree, over every distinct
-    identifier appearing on a RENAMEABLE-LOCAL-default line. Returns {identifier:
-    {"doe_hit": bool, "klabauter_hit": bool}}."""
-    candidates: set[str] = set()
-    for row in rows:
-        if row["primary_class"] != "RENAMEABLE-LOCAL":
-            continue
-        for m in IDENTIFIER.finditer(row["text"]):
-            if NOUN.search(m.group(0)):
-                candidates.add(m.group(0))
-
-    result = {c: {"doe_hit": False, "klabauter_hit": False} for c in candidates}
-    if not candidates:
-        return result
-
-    source_pattern = re.compile(
-        "|".join(re.escape(c) for c in sorted(candidates, key=len, reverse=True))
-    )
-    published_map = {c: _stem_publish(c) for c in candidates}
-    published_pattern = re.compile(
-        "|".join(
-            re.escape(p) for p in sorted(set(published_map.values()), key=len, reverse=True)
-        )
-    )
-    reverse_published = {}
-    for c, p in published_map.items():
-        reverse_published.setdefault(p, []).append(c)
-
-    doe_files = _git_ls_files(content_root, *DOE_TREES)
-    for rel in doe_files:
-        path = content_root / rel
-        try:
-            text = path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        if not NOUN.search(text):
-            continue
-        for m in source_pattern.finditer(text):
-            result[m.group(0)]["doe_hit"] = True
-
-    klabauter_files = [
-        f for f in _git_ls_files(klabauter_root) if not f.startswith(KLABAUTER_EXCLUDE_PREFIX)
-    ]
-    for rel in klabauter_files:
-        path = klabauter_root / rel
-        try:
-            text = path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        if not _PUBLISHED_STEM.search(text):
-            continue
-        for m in published_pattern.finditer(text):
-            for c in reverse_published.get(m.group(0), ()):
-                result[c]["klabauter_hit"] = True
-
-    return result
-
-
-def _load_slice_list() -> set[str] | None:
+def _load_recorded() -> tuple[set[str], set[str]] | None:
+    """(slice-list ``file:line`` keys, recorded exempt files) from the prior snapshot."""
     if not SLICE_LIST_PATH.exists():
         return None
     try:
@@ -339,33 +230,21 @@ def _load_slice_list() -> set[str] | None:
     slices = data.get("renameable_local_slice_list")
     if not isinstance(slices, list):
         return None
-    return {f"{r['file']}:{r['line']}" for r in slices if isinstance(r, dict)}
+    exempt = data.get("exempt_files")
+    return (
+        {f"{r['file']}:{r['line']}" for r in slices if isinstance(r, dict)},
+        {f for f in exempt if isinstance(f, str)} if isinstance(exempt, list) else set(),
+    )
 
 
 def main(argv: "list[str] | None" = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo", default=str(REPO_ROOT))
     parser.add_argument(
-        "--content-root",
-        default=None,
-        help="Override for the coordinator content repo's root; default resolves via `machine-local get "
-        "repos.content_root`.",
-    )
-    parser.add_argument(
-        "--klabauter-root",
-        default=None,
-        help="Override for the publish repo's root; default resolves via `machine-local "
-        "get repos.claude_klabauter`.",
-    )
-    parser.add_argument(
         "--repo-sha",
         default=None,
-        help="Pin this repo's SHA (avoids a 4th git spawn beyond the 3-spawn budget). "
+        help="Pin this repo's SHA (avoids a second git spawn). "
         "Falls back to `git rev-parse HEAD` if omitted.",
-    )
-    parser.add_argument("--doe-sha", default=None, help="Pin the content repo's SHA; see --repo-sha.")
-    parser.add_argument(
-        "--klabauter-sha", default=None, help="Pin the publish repo's SHA; see --repo-sha."
     )
     parser.add_argument(
         "--admit-renameable",
@@ -380,38 +259,23 @@ def main(argv: "list[str] | None" = None) -> int:
     args = parser.parse_args(argv)
 
     repo = Path(args.repo).resolve()
-    content_root = _resolve_sibling_root("content_root", args.content_root)
-    klabauter_root = _resolve_sibling_root("claude_klabauter", args.klabauter_root)
 
     t0 = time.monotonic()
     rows, file_count = _scan_four_trees(repo)
     scan_ms = (time.monotonic() - t0) * 1000
 
-    t1 = time.monotonic()
-    sibling_result = _sibling_pass(rows, content_root, klabauter_root)
-    sibling_ms = (time.monotonic() - t1) * 1000
-
     admitted = set(args.admit_renameable)
-    slice_list = _load_slice_list()
+    recorded = _load_recorded()
+    slice_list, exempt_recorded = recorded if recorded else (None, set())
     refused: list[str] = []
 
     for row in rows:
         if row["primary_class"] != "RENAMEABLE-LOCAL":
             continue
-        candidates = [
-            m.group(0) for m in IDENTIFIER.finditer(row["text"]) if NOUN.search(m.group(0))
-        ]
-        hit = any(
-            sibling_result.get(c, {}).get("doe_hit")
-            or sibling_result.get(c, {}).get("klabauter_hit")
-            for c in candidates
-        )
-        if hit:
-            row["primary_class"] = "CONTRACT-BOUND"
-            row["sibling_check"] = "HIT"
-            continue
-        row["sibling_check"] = "clean"
         key = f"{row['file']}:{row['line']}"
+        if slice_list is not None and key not in slice_list and row["file"] in exempt_recorded:
+            row["primary_class"] = "CONTRACT-BOUND"
+            continue
         if slice_list is not None and key not in slice_list and key not in admitted:
             if _is_real_identifier_line(row["text"]):
                 row["admitted"] = "real-identifier"
@@ -427,19 +291,14 @@ def main(argv: "list[str] | None" = None) -> int:
         return 1
 
     repo_sha = args.repo_sha or _rev_parse(repo)
-    doe_sha = args.doe_sha or _rev_parse(content_root)
-    klabauter_sha = args.klabauter_sha or _rev_parse(klabauter_root)
 
     manifest = _render_manifest(
         rows,
         repo_sha,
-        doe_sha,
-        klabauter_sha,
         file_count,
         scan_ms,
-        sibling_ms,
     )
-    classes_json = _render_json(rows, repo_sha, doe_sha, klabauter_sha)
+    classes_json = _render_json(rows, repo_sha)
 
     out_manifest = Path(args.out_manifest) if args.out_manifest else (
         repo / "coordinator/bin/legacy-engine-noun-reference-manifest.md"
@@ -461,7 +320,7 @@ def _rev_parse(repo: Path) -> str:
     ).stdout.strip()
 
 
-def _render_json(rows: list[dict], repo_sha: str, doe_sha: str, klabauter_sha: str) -> dict:
+def _render_json(rows: list[dict], repo_sha: str) -> dict:
     renameable = [
         {"file": r["file"], "line": r["line"]}
         for r in rows
@@ -476,8 +335,6 @@ def _render_json(rows: list[dict], repo_sha: str, doe_sha: str, klabauter_sha: s
     )
     return {
         "repo_sha": repo_sha,
-        "content_root_sha": doe_sha,
-        "claude_klabauter_sha": klabauter_sha,
         "renameable_local_slice_list": renameable,
         "exempt_files": exempt,
     }
@@ -488,17 +345,21 @@ def _excerpt(text: str) -> str:
     and `](` broken so a quoted markdown link is not read as a live link --
     the published mirror's reference validator fails on those, and the target
     is a fixture path that was never meant to resolve."""
+    if _LEGACY_ROOT_NAME.search(text):
+        return "(text withheld: names the legacy root)"
     return text.strip().replace("|", "\\|").replace("](", "]\\(")[:160]
+
+
+#: A quoted line that names the legacy root would re-enter the tracked corpus as an
+#: unmarked hit; the manifest carries its coordinates only.
+_LEGACY_ROOT_NAME = re.compile(r"doe[-_]root|(?:repos|working_repos)\.doe_", re.IGNORECASE)
 
 
 def _render_manifest(
     rows: list[dict],
     repo_sha: str,
-    doe_sha: str,
-    klabauter_sha: str,
     file_count: int,
     scan_ms: float,
-    sibling_ms: float,
 ) -> str:
     lines: list[str] = []
     a = lines.append
@@ -510,7 +371,7 @@ def _render_manifest(
     a("")
     a("# Legacy engine-noun (`claude-klabauter`) four-class reference manifest")
     a("")
-    a(f"repo SHA: `{repo_sha}`  \nCoordinatorContentRepo SHA: `{doe_sha}`  \nclaude-klabauter SHA: `{klabauter_sha}`")
+    a(f"repo SHA: `{repo_sha}`")
     a("")
     a(
         "The classified atom is the **LINE**, matching the denominator's unit exactly. "
@@ -546,8 +407,7 @@ def _render_manifest(
     a("## Generator performance")
     a("")
     a(f"- Four-tree scan over {file_count} tracked files: **{scan_ms:.1f}ms**")
-    a(f"- Sibling-consumer pass (2 sibling trees, one alternation pass each): **{sibling_ms:.1f}ms**")
-    a(f"- Total: **{scan_ms + sibling_ms:.1f}ms**, 3 `git` spawns (one `ls-files` per repo)")
+    a("- 2 `git` spawns (`ls-files`, `rev-parse`)")
     a("")
 
     for cls in ("EXTERNALLY-NAMED-THING", "CONTRACT-BOUND"):
@@ -565,16 +425,12 @@ def _render_manifest(
     a(f"## RENAMEABLE-LOCAL ({len(renameable_rows)})")
     a("")
     a(
-        "Every row below passed the sibling-consumer check (source spelling against "
-        "coordinator-content-repo's `setup/` + `coordinator/`, published spelling against "
-        "claude-klabauter minus `.fleet-env*`) clean. Grouped into file-disjoint slices, "
-        "one per surface directory, so the identifier follow-on is a transcription."
+        "Grouped into file-disjoint slices, one per surface directory, so the "
+        "identifier follow-on is a transcription."
     )
     a("")
     if not renameable_rows:
-        a("(zero -- every candidate line either failed the sibling check and was "
-          "reclassified CONTRACT-BOUND above, or there were no RENAMEABLE-LOCAL-default "
-          "code lines in this scan)")
+        a("(zero -- there were no RENAMEABLE-LOCAL-default code lines in this scan)")
         a("")
     else:
         slices: dict[str, list[dict]] = {}

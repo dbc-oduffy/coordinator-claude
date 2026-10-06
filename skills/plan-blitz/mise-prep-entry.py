@@ -225,7 +225,7 @@ def _engine_plan_gate():
     if str(_HOOKS_SCRIPTS_DIR) not in sys.path:
         sys.path.insert(0, str(_HOOKS_SCRIPTS_DIR))
     try:
-        from _engine_root import resolve_claude_klabauter_root
+        from _engine_root import resolve_claude_klabauter_root  # pyright: ignore[reportMissingImports]
     except Exception as exc:  # pragma: no cover - import-shape guard
         raise SeamError(f"coordinator_core unreachable: _engine_root unimportable ({exc})") from exc
     root = resolve_claude_klabauter_root()
@@ -286,8 +286,12 @@ def approved_plans(repo_root: Path, roadmap_id: Optional[str] = None,
         plan = baton.get("plan")
         if not plan:
             continue
-        approved = str(plan.get("status") or "").strip().lower() == APPROVED
-        if not (approved or baton.get("execution_authorized")):
+        status = str(plan.get("status") or "").strip().lower()
+        # An `implemented` plan is done work. Its baton can still carry the execution stamp, and
+        # the execution arm must not resurrect it as fireable.
+        if status == "implemented":
+            continue
+        if not (status == APPROVED or baton.get("execution_authorized")):
             continue
         if plan["path"] in seen:
             continue

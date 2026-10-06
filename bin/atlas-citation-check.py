@@ -4,9 +4,8 @@ over the architecture atlas (`docs/architecture/`).
 
 Ported from the coordinator content repo `coordinator/bin/atlas-citation-check.py` (W2-C6,
 `docs/plans/2026-09-18-doe-holds-no-scripts.md`) — mechanical move, no behavioural change.
-`REPO_ROOT` was already "engine" class (§ Path resolution): resolved from this module's own
-`__file__`, unchanged by the move. It checks THIS repo's own `docs/architecture/` atlas, which
-Claude-klabauter carries independently of the content repo's.
+It checks the atlas (`docs/architecture/`) of the caller's own git root (cwd walk), or
+`--repo-root`; run bare outside the published tree it falls back to this checkout's root.
 
 Purpose: AC5 of `docs/plans/2026-08-20-make-the-atlas-mechanical.md`. Every
 citation an atlas page makes (symbol, file, record) is resolved by lookup
@@ -58,7 +57,30 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+
+def git_root_walk(start: str | None = None) -> str | None:
+    """`_git_root_walk.git_root_walk`, imported on first call so a bare import of
+    this module leaves `sys.path` untouched. A tree without coordinator/lib
+    falls back to this file's own repo root."""
+    lib_dir_walk = str(Path(__file__).resolve().parents[1] / "lib")
+    if lib_dir_walk not in sys.path:
+        sys.path.insert(0, lib_dir_walk)
+    try:
+        from _git_root_walk import git_root_walk as _impl
+    except ImportError:
+        return str(Path(__file__).resolve().parents[2])
+    return _impl(start)
+
+
+def scan_frontmatter(text: str | None) -> dict:
+    """`frontmatter_scan.scan_frontmatter`, imported on first call so a bare import of
+    this module leaves `sys.path` untouched."""
+    lib_dir = str(Path(__file__).resolve().parents[1] / "lib")
+    if lib_dir not in sys.path:
+        sys.path.insert(0, lib_dir)
+    from frontmatter_scan import scan_frontmatter as _impl
+
+    return _impl(text)
 
 # file-index.md's own declared scope (its header, verbatim) — the directories
 # under coordinator/ this checker walks for the coverage check.
@@ -132,23 +154,10 @@ class Report:
 
 def split_frontmatter(text: str) -> tuple[dict, str]:
     m = _FRONTMATTER_RE.match(text)
-    if not m:
-        return {}, text
-    fm_text = m.group(1)
-    body = text[m.end():]
-    fm: dict = {}
-    for line in fm_text.splitlines():
-        if ":" not in line:
-            continue
-        key, _, value = line.partition(":")
-        key = key.strip()
-        value = value.strip()
-        if value.startswith("[") and value.endswith("]"):
-            items = [v.strip() for v in value[1:-1].split(",") if v.strip()]
-            fm[key] = items
-        else:
-            fm[key] = value
-    return fm, body
+    """Return (frontmatter keys, body). Keys come from the shared scanner; the regex
+    only locates where the body starts."""
+    m = _FRONTMATTER_RE.match(text)
+    return scan_frontmatter(text), (text[m.end():] if m else text)
 
 
 def strip_locator(raw: str) -> str:
@@ -437,11 +446,21 @@ def run(repo_root: Path, atlas_root: Path) -> Report:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--repo-root", default=str(REPO_ROOT))
+    parser.add_argument(
+        "--repo-root", default=None,
+        help="repo whose atlas is checked (default: the repo containing the cwd)",
+    )
     parser.add_argument("--atlas-root", default=None)
     args = parser.parse_args(argv)
 
-    repo_root = Path(args.repo_root).resolve()
+    root_str = args.repo_root or git_root_walk()
+    if not root_str:
+        print(
+            "atlas-citation-check: not inside a git repo; pass --repo-root <path>",
+            file=sys.stderr,
+        )
+        return 2
+    repo_root = Path(root_str).resolve()
     atlas_root = Path(args.atlas_root).resolve() if args.atlas_root else repo_root / "docs" / "architecture"
 
     report = run(repo_root, atlas_root)

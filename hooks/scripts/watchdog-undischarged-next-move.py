@@ -80,6 +80,9 @@ or Skill(coordinator:execute-plan), never a bare executor dispatch (sizing 4b ch
 light plan -> /execute-plan -> executor, and execute-plan is what claims and stamps
 the plan); `plan`/`shape`/`roadmap` -> Skill(coordinator:plan) (the route mints a plan
 next).
+A Skill(coordinator:plan) terminal is ALSO discharged by a Workflow launching an emitted
+`fire-*.mjs` by `scriptPath`: `emit-wave-fire --from-sizing` prints that fire, and the fired run
+is coordinator:plan's turn 2, so demanding the Skill after it is a redundant invocation.
 `pm-decision` and `goal-setting` are deliberately ABSENT from the table --
 their whole point is that the next move is a PM call, not a machine-
 resolved one, and `pm-decision` with `xl_exit: null` is additionally
@@ -184,6 +187,8 @@ _REVIEW_TERMINAL = "Skill(coordinator:review)"
 _ANY_CALL_KIND = "Skill|Agent"
 _PICKUP_NEXT_ACTION = "Skill|Agent(the narrated next move)"
 
+_PLAN_SKILL = "coordinator:plan"
+_EMITTED_FIRE_RE = re.compile(r"^fire-.+\.mjs$")
 _SIZING_PATH_RE = re.compile(r"^state/sizings/[^/]+\.ya?ml$")
 _APPETITE_DIVERGENCE_DETENT = "appetite_exceeded"
 _POST_SIZE_PROMPT_DETENT = "post_size_prompt_pending"
@@ -274,6 +279,23 @@ def _sizing_route_and_exemption(repo_root: str, rel_path: str):
     return route, (fork_open or xl_open)
 
 
+def _is_emitted_fire(tool_input) -> bool:
+    """True when a Workflow call launches an emitted `fire-*.mjs` script by `scriptPath`.
+
+    `emit-wave-fire --from-sizing` prints exactly one `Workflow({ scriptPath })` line over a
+    `fire-*.mjs`; that run IS coordinator:plan's turn 2, so firing it discharges a plan-terminal
+    obligation. The match is the basename only: the emitted script's binding to a given sizing
+    is not readable from this PostToolUse payload, and a hand-authored script is never named
+    `fire-*.mjs`. Both separators are split because a Windows path arrives backslash-joined.
+    """
+    if not isinstance(tool_input, dict):
+        return False
+    script_path = tool_input.get("scriptPath")
+    if not isinstance(script_path, str):
+        return False
+    return _EMITTED_FIRE_RE.match(re.split(r"[\\/]", script_path)[-1]) is not None
+
+
 def _split_call(next_action: str):
     """"Skill(coordinator:review)" -> ("Skill", "coordinator:review")."""
     if not next_action or "(" not in next_action or not next_action.endswith(")"):
@@ -292,12 +314,15 @@ def _matches_next_action(next_action: str, tool_name, tool_input) -> bool:
         # keeps a third vehicle from needing another branch here.
         return tool_name in tuple(part for part in kind.split("|") if part)
     if kind == "Skill":
+        accepted = tuple(part for part in ident.split("|") if part)
+        if tool_name == "Workflow":
+            return _PLAN_SKILL in accepted and _is_emitted_fire(tool_input)
         if tool_name != "Skill" or not isinstance(tool_input, dict):
             return False
         skill = tool_input.get("skill")
         if not isinstance(skill, str):
             skill = tool_input.get("command")
-        return skill in tuple(part for part in ident.split("|") if part)
+        return skill in accepted
     if kind == "Agent":
         # The reviewer/executor persona is not a fixed subagent_type this module can verify
         # -- any Agent dispatch discharges an "Agent(...)" obligation.

@@ -1,11 +1,12 @@
 """The fan-in layer, enumerated once.
 
-Six dispatchers carry other hooks' handlers in a `REGISTRY`-shaped tuple
+Eight dispatchers carry other hooks' handlers in a `REGISTRY`-shaped tuple
 rather than each handler holding its own `hooks.json` entry
 (`state/audits/2026-08-16-doe-spawn-totality-kill-list.md` -- one interpreter for
 N guards, the whole point of the fan-in): `sessionstart-dispatch.py`,
 `sessionstart-async-dispatch.py`, `stop-dispatch.py`, `preuse-write-dispatch.py`,
-`postuse-stop-family-dispatch.py`, and `preuse-agent-dispatch.py`. A reader that only walks `hooks.json` therefore sees
+`postuse-stop-family-dispatch.py`, `preuse-agent-dispatch.py`,
+`preuse-workflow-dispatch.py`, and `userpromptexpansion-dispatch.py`. A reader that only walks `hooks.json` therefore sees
 the DISPATCHER and none of the guards behind it, and cannot tell a folded guard
 from a deleted one.
 
@@ -64,6 +65,8 @@ FANIN_DISPATCHERS = {
     # "not an enrolled fan-in carrier" from `carried_guards`; adding one back
     # would reinstate the deleted fold. See that dict's own note.
     "preuse-agent-dispatch.py": "PreToolUse",
+    "preuse-workflow-dispatch.py": "PreToolUse",
+    "userpromptexpansion-dispatch.py": "UserPromptExpansion",
 }
 
 
@@ -115,6 +118,8 @@ _CARRIER_SOURCES: "dict[str, tuple[str, str, Callable]]" = {
     "sessionstart-async-dispatch.py": ("sessionstart-async-dispatch.py", "REGISTRY", _rows_direct),
     "stop-dispatch.py": ("stop-dispatch.py", "REGISTRY", _rows_direct),
     "preuse-agent-dispatch.py": ("preuse-agent-dispatch.py", "REGISTRY", _rows_direct),
+    "preuse-workflow-dispatch.py": ("preuse-workflow-dispatch.py", "REGISTRY", _rows_direct),
+    "userpromptexpansion-dispatch.py": ("userpromptexpansion-dispatch.py", "REGISTRY", _rows_direct),
     # `preuse-bash-dispatch.py` is DELIBERATELY ABSENT and must not be re-added: it carries no
     # guard registry any more. Its four folded guards were rehomed into the control-plane
     # engine's own guard chain, which evaluates them on every transport, and the dispatcher
@@ -153,17 +158,33 @@ def carried_guards(filename: str):
     return extractor(rows)
 
 
+#: Declared exception to the one-carrier rule: guard filename -> the exact pair of
+#: dispatchers (FANIN_DISPATCHERS order) allowed to carry it. Counterpart of
+#: emit_effective_delivery.py's `_DECLARED_DUAL_DELIVERY`.
+DECLARED_DUAL_CARRY: "dict[str, tuple[str, str]]" = {
+    "block-dispatch-suite-invocation.py": ("preuse-agent-dispatch.py", "preuse-workflow-dispatch.py"),
+}
+
+
 def all_carried_guards():
-    """`{guard_filename: dispatcher_filename}` across every fan-in dispatcher.
-    Fails loud on a guard carried by two dispatchers -- that is a
+    """`{guard_filename: dispatcher_filename | [dispatcher_filename, ...]}` across
+    every fan-in dispatcher. The value is a list, in FANIN_DISPATCHERS order, only
+    for a guard in `DECLARED_DUAL_CARRY` carried by exactly its declared pair.
+    Any other guard carried by two dispatchers fails loud -- that is a
     double-delivery, never resolved silently by last-writer-wins."""
     seen = {}
     for dispatcher in FANIN_DISPATCHERS:
         for _, guard_filename in carried_guards(dispatcher):
             if guard_filename in seen:
-                raise ValueError(
-                    f"{guard_filename} is carried by both {seen[guard_filename]} and "
-                    f"{dispatcher} -- double delivery, not a naming collision"
-                )
+                prior = seen[guard_filename]
+                prior = list(prior) if isinstance(prior, list) else [prior]
+                combined = prior + [dispatcher]
+                if tuple(combined) != DECLARED_DUAL_CARRY.get(guard_filename):
+                    raise ValueError(
+                        f"{guard_filename} is carried by both {prior[-1]} and "
+                        f"{dispatcher} -- double delivery, not a naming collision"
+                    )
+                seen[guard_filename] = combined
+                continue
             seen[guard_filename] = dispatcher
     return seen

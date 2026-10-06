@@ -67,10 +67,10 @@ a look-alike printed here.
 
 **Expired plan gates.** A gate on a **plan chunk row** (declared `external_gate[]` or undeclared
 `awaiting_gate`) is read by no daily sweep. Check non-terminal plans only:
-`python <plugin-root>/bin/expired-plan-gates.py`. An expiry naming an action is a directive — fire
+`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/expired-plan-gates"` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\expired-plan-gates.exe"`, same arguments). An expiry naming an action is a directive — fire
 it or record why not.
 
-**Anchor-freshness flag.** `python <plugin-root>/bin/check-anchor-freshness.py` — render the flag
+**Anchor-freshness flag.** `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/check-anchor-freshness"` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\check-anchor-freshness.exe"`, same arguments) — render the flag
 line as printed; silence is not a finding. Coordinator plugin triple only.
 
 Do not recompute any check this op already covers. What follows is the week-specific residue it

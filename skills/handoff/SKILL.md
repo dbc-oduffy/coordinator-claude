@@ -47,7 +47,7 @@ The mechanical spine — deliverable/initiative id inheritance, frontmatter scaf
 `handoff_phase` stamping, tracker refresh, and (on a clean chain) predecessor archival — is
 computed by `baton-assemble brief handoff`, which fires at entry. The brief, its open
 decisions, the decisions-file template and the literal `apply` line arrive with this invocation.
-Write your answers into the template at the named path and run the rendered line. An unanswered `<CHOOSE: …>` or `<NOTE: …>` placeholder makes
+Write your answers into the template at the named path and run the rendered line with `--title "<one line>"` appended, taken from the invocation argument (or the handoff's own subject when none was given) — `apply` refuses a missing, blank or placeholder title. An unanswered `<CHOOSE: …>` or `<NOTE: …>` placeholder makes
 the file unparseable, and `apply` refuses it.
 
 **The brief names the rung the lineage resolved from.** If it is not the artifact this handoff is

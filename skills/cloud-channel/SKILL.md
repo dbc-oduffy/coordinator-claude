@@ -13,11 +13,22 @@ opens that PR on the focus repo named by `COORDINATOR_CLOUD_FOCUS_REPO`, and the
 the session's work.
 
 `session-start-cloud-focus.py` fires it: its `CLOUD FOCUS:` boot line names the checkout, branch
-and base, and has already given the branch an anchor commit if it had none (GitHub refuses a PR
-with nothing ahead of base). Every step is idempotent, so re-running after a compaction is safe.
+and base. Every step is idempotent, so re-running after a compaction is safe.
 
 ## Open it
 
+0. **Anchor if level.** GitHub refuses a PR with nothing ahead of base. If
+   `git -C <checkout> rev-list --count origin/<base>..HEAD` prints `0`, give the branch an empty
+   anchor commit; any other count skips this step. Take `<head>` from `git rev-parse HEAD` and
+   `<tree>` from `git rev-parse HEAD^{tree}`, then
+   `git commit-tree <tree> -p <head> -m "<message>"`, where the message is
+   `cloud: open session channel`, a blank line, `Empty anchor so this branch can carry the
+   session's draft PR (coordinator:cloud-channel).`, a blank line, and `Cloud-Session-Id:` plus the
+   value of `CLAUDE_CODE_REMOTE_SESSION_ID` (`unknown` when empty). If `git config user.email` is
+   unset, run it with `GIT_AUTHOR_NAME=Claude GIT_COMMITTER_NAME=Claude` and
+   `GIT_AUTHOR_EMAIL=noreply@anthropic.com GIT_COMMITTER_EMAIL=noreply@anthropic.com`. Then
+   `git update-ref refs/heads/<branch> <new> <head>`, a compare-and-swap that never touches the
+   index or working tree; never use `git commit` here.
 1. **Record the operator.** Cloud commits are authored `Claude <noreply@anthropic.com>` and carry
    no trace of the human whose session made them. That is what makes `/consolidate-git`
    hold them for a verdict instead of absorbing them. Load the GitHub MCP tools with

@@ -56,6 +56,8 @@ elsewhere the step is N/A and silent (`A-RAG-VERDICT-ON-AN-UNINDEXED-REPO-IS-NOT
 Run `node --test coordinator/tests/plugin-ecosystem/run.js` — hook-behavior failures block;
 non-hook failures report and continue.
 
+**Step 4b: Structural index.** Run `<plugin-root>/bin/structural-index-refresh.py` (non-blocking, always exit 0; `COORDINATOR_STRUCTURAL_INDEX_REFRESH_OFF=1` disables) — report its line if it prints one.
+
 ## Step 5: Resolve Judgment Points
 
 Read each `judgment_points[]` entry verbatim — question/evidence/dispositions are fully formed.

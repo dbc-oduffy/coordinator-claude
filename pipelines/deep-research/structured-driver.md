@@ -1,17 +1,17 @@
 ---
-description: "PM-GATED — only invoke when the PM explicitly asks; EM must ask first if it thinks it's warranted; NEVER invoke from a subagent. Pipeline C (Structured Research) using Agent Teams — schema-conforming research with a Haiku scout, Sonnet verifiers, and an Opus synthesizer, all as teammates. EM reads spec, pre-processes into scout-brief.md, spawns the team, and is freed. The team handles everything autonomously."
-allowed-tools: ["Agent", "Read", "Write", "Edit", "Bash", "Glob", "Grep", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "SendMessage"]
+description: "PM-GATED — only invoke when the PM explicitly asks; EM must ask first if it thinks it's warranted; NEVER invoke from a subagent. Pipeline C (Structured Research) as a chatty Workflow — schema-conforming research with a Haiku scout, Sonnet verifiers, and an Opus synthesizer, run as ordered stages of one background Workflow. EM reads spec, pre-processes into scout-brief.md, fires the Workflow, and is freed. The Workflow handles everything autonomously."
+allowed-tools: ["Workflow", "Agent", "Read", "Write", "Edit", "Bash", "Glob", "Grep"]
 argument-hint: "<spec-path> <subject-key>"
 ---
 
-# Deep Research — Pipeline C v2.1 (Structured Research) Agent Teams Driver
+# Deep Research — Pipeline C v2.1 (Structured Research) Chatty-Workflow Driver
 
-The EM reads the spec and pre-processes it, creates a team, spawns all teammates, and is **freed**. The team works autonomously:
+The EM reads the spec and pre-processes it, fires ONE background `Workflow`, and is **freed**. The Workflow's script runs the stages in order:
 - **Haiku scout** (1) — executes spec-derived search queries from scout-brief.md, maps findings to schema fields, writes per-topic discovery files
-- **Sonnet verifiers** (1-5) — blocked until scout completes, then verify per-topic findings, compare against existing data, challenge peers' schema field values, produce schema field tables with change types (CONFIRMED/UPDATED/NEW/REFUTED/CONTESTED)
-- **Opus synthesizer** (1) — blocked until all verifiers complete, then writes skeleton output immediately, cross-reconciles, resolves CONTESTED fields, validates schema, and overwrites with final output
+- **Sonnet verifiers** (1-5) — start after the scout returns, verify per-topic findings, compare against existing data, challenge peers' schema field values through mailbox files, produce schema field tables with change types (CONFIRMED/UPDATED/NEW/REFUTED/CONTESTED). A rebuttal round answers the challenges.
+- **Opus synthesizer** (1, the overseer) — starts after all verifier stages return, writes skeleton output immediately, cross-reconciles, resolves CONTESTED fields, validates schema, and overwrites with final output
 
-The scout handles mechanical source discovery so verifiers can focus on schema-mapped verification. Verifiers self-govern their timing (floor, diminishing returns, ceiling), self-check acceptance criteria and gate rules embedded in their prompts, and actively challenge each other's schema field values. The EM does not monitor or broadcast WRAP_UP. When the synthesizer marks its task complete, the EM receives a notification, validates schema conformance via a hard file-existence gate, and does cleanup.
+The scout handles mechanical source discovery so verifiers can focus on schema-mapped verification. Verifiers self-govern their timing (floor, diminishing returns, ceiling), self-check acceptance criteria and gate rules embedded in their prompts, and actively challenge each other's schema field values. The EM does not monitor. When the Workflow's task notification arrives with the synthesizer's return value, the EM validates schema conformance via a hard file-existence gate and does cleanup.
 
 ## Arguments
 
@@ -72,38 +72,22 @@ Do NOT proceed to Run Mode (Step 1) until the PM approves.
    - Replace `{SUBJECT}` placeholder with `{subject-key}`
    - Read the resolved file path
 4. Generate run ID: `YYYY-MM-DD-HHhMM` (current timestamp)
-5. Record spawn timestamp: `date +%s` (Unix epoch seconds — passed to teammates for timing)
+5. Record spawn timestamp: `date +%s` (Unix epoch seconds — passed to the verifiers for timing)
 6. Generate subject slug from `{subject-key}` (e.g., `acme-corp`)
 7. Create workdir — **accept-if-passed:** if `{scratch-dir}` is already bound (supplied by `research.md` Step 0), skip the `mkdir` and use the supplied value; otherwise create `docs/research/{run-id}-{subject-slug}-workdir`.
    Set `{scratch-dir}` = `docs/research/{run-id}-{subject-slug}-workdir`
 
-Announce: "Running structured research (Pipeline C, Agent Teams) on '{subject-key}' using spec '{spec-path}'."
+Announce: "Running structured research (Pipeline C, chatty Workflow) on '{subject-key}' using spec '{spec-path}'."
 
 ## Step 2 — Pre-Process Spec (EM Direct)
 
 This is judgment work — the EM does it directly:
 
 1. **Read spec topics** — extract all topics defined in the spec for this subject
-2. **Cap at 5 topics** — if >5, merge the two most related topics into one and note the merge in `scout-brief.md`
+2. **No topic cap** — fan-out is bounded only by the Workflow tool's own agent cap
 3. **Read existing data** — review the existing data file loaded in Step 1
 4. **Identify schema gaps** — compare existing data fields against `output_schema` in the spec; note which fields are missing, stale, or unconfirmed
-5. **Write `{scratch-dir}/scout-brief.md`** in this format:
-
-   ```markdown
-   # Scout Brief: {SUBJECT}
-
-   ## Topic 1: {TOPIC_NAME}
-   **Search domains:** {flattened from spec}
-   **Focus questions:** {flattened from spec}
-   **Schema fields to map:** {relevant fields from output_schema}
-
-   ## Topic 2: ...
-   (repeat for each topic)
-
-   ## Acceptance Criteria (scout-relevant)
-   - Minimum sources per topic: {from spec}
-   - Adversarial search required: yes
-   ```
+5. **Scope brief** — the one input every stage reads (`{{brief}}`), authored in Step 3: run id and date, timing, subject context, existing data, a topic section per topic (id, what it covers, search domains, focus questions, schema fields, adversarial queries), acceptance criteria, gate rules, Phase 2 gate rules, the output path, and the output schema. Peers are every other topic section. Nothing is hand-filled into a stage prompt.
 
 6. **Extract quality gate rules** from the spec — these will be embedded in verifier prompts so verifiers can self-check before converging
 7. **Include adversarial search terms** in the scout brief — at least one adversarial query per topic (e.g., "{subject} {field} problems", "{subject} controversy", "{subject} limitations")
@@ -112,7 +96,7 @@ This is judgment work — the EM does it directly:
 
 ### EM Spec Quality Self-Score (required before dispatching)
 
-Before creating the team, score the spec against the 6 items below and write the result to `{scratch-dir}/spec-score.md`. **This file must exist before Step 3 begins** — it is a hard gate, not advisory. The score is run metadata and will be archived with the paper trail.
+Before firing the Workflow, score the spec against the 6 items below and write the result to `{scratch-dir}/spec-score.md`. **This file must exist before Step 3 begins** — it is a hard gate, not advisory. The score is run metadata and will be archived with the paper trail.
 
 Score each item pass (`[x]`) or fail (`[ ]`) and write this block to `{scratch-dir}/spec-score.md`:
 
@@ -137,117 +121,43 @@ A score below 5/6 requires PM alignment before proceeding — flag which items f
 - **Output path and format specified** — spec defines the output file path and format (YAML/JSON) for this subject
 - **Subjects list complete** — the subjects list in the spec is finalized; no placeholder or TBD entries
 
-## Step 3 — Create Team and All Tasks
+## Step 3 — Write the Scope Brief
 
-Spawn the first teammate via the `Agent` tool — the team auto-forms; no explicit create step.
+Write `{scratch-dir}/scout-brief.md` from the spec and Step 2: the scope artifact the engine takes as `--brief`. It carries the Step 2 item 5 content. The engine fills every stage prompt from the `structured-*-prompt-template.md` files; never hand-fill them.
 
-### Create Tasks (explicit ordering — blocking chain depends on this)
+## Step 4 — Fire the Workflow
 
-**Order matters.** Task IDs from earlier steps are referenced in later steps.
+Emit with the engine op, `emit-dispatch-workflow` resolved per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`:
 
-**1. Synthesizer task** (created first — will be blocked later):
-```
-TaskCreate(subject: "Synthesize all verifier findings into schema-conforming output", description: "Read all verifier outputs from {scratch-dir}/, write skeleton structured data to {output-path} immediately, cross-reconcile across topics, resolve CONTESTED fields, validate against output_schema, overwrite {output-path} with final output, write annotations to {scratch-dir}/synthesis-annotations.md. Spec path: {spec-path}. Subject: {subject-key}. Scratch dir: {scratch-dir}. Output path: {output-path}.")
-```
-
-**2. Scout task** (no blockers — reads queries from disk):
-```
-TaskCreate(subject: "Execute spec-derived search queries and map findings to schema fields", description: "Read search topics from {scratch-dir}/scout-brief.md, execute via WebSearch, vet accessibility via WebFetch, map each finding to schema fields, write per-topic discovery files to {scratch-dir}/{subject-slug}-scout-{topic_id}.md")
+```bash
+"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/emit-dispatch-workflow" --pipeline structured --brief {scratch-dir}/scout-brief.md --subjects {spec-path} --out {scratch-root}/structured.workflow.mjs
 ```
 
-**3. Verifier tasks** (each blocked by scout, one per topic):
-For each topic:
-```
-TaskCreate(subject: "Verify topic {topic_id}: {topic_name}", description: "Read scout's per-topic discovery file at {scratch-dir}/{subject-slug}-scout-{topic_id}.md, compare against existing data, challenge peers' schema field values, produce schema field table with change types (CONFIRMED/UPDATED/NEW/REFUTED/CONTESTED), self-check acceptance criteria and gate rules.")
-TaskUpdate(taskId: "{verifier-id}", addBlockedBy: ["{scout-task-id}"])
-```
+`--brief` is a path to the scope artifact; a missing file is refused. `--subjects` takes the spec (its `topics` become each subject's verifiers), a `.json`/`.yaml` subjects list, or a comma list. `--out` must sit under the repo root.
 
-**4. Block synthesizer on all verifiers:**
-```
-TaskUpdate(taskId: "{synthesizer-id}", addBlockedBy: ["{verifier-1-id}", "{verifier-2-id}", ...])
-```
+Fire the printed `Workflow({ scriptPath: ... })` line as a background `Workflow` (`run_in_background: true`). Never hand-write the script: the engine writes the receipt the Workflow hook checks, and re-running it rewrites both.
 
-<!-- BEGIN task-tool-availability (synced from snippets/task-tool-availability.md) -->
-`TaskCreate` absent from this session's surface (`ToolSearch("select:TaskCreate")` returns nothing)
-→ fall back to `coordinator-tasks-mirror` for the same flight-recorder role; do not assume either
-state without checking. When Task* is unavailable, dispatch the phases in order, waiting on each
-completion notification — that is the ordering a `blockedBy` chain would otherwise express.
-<!-- END task-tool-availability -->
+Invariants: subjects run sequentially, each in its own scratch dir; each `parallel()` fans out unchunked, bounded only by the Workflow tool's own agent cap; one rebuttal round, dispatched only for topics a verifier reports in `challenged`; a subject that errors is recorded in the returned array and the loop continues. The script has no filesystem; verifiers create `mail/` themselves.
 
-## Step 4 — Spawn All Teammates
-
-### Scout (Haiku)
-
-Read the scout prompt template from:
-`${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/structured-scout-prompt-template.md`
-
-Fill in template fields: `[SUBJECT]`, `[SPEC_PATH]`, `[SCRATCH_DIR]`, `[TASK_ID]`, `[SPAWN_TIMESTAMP]`.
-
-```
-Agent(
-  name: "scout",
-  model: "haiku",
-  subagent_type: "coordinator:research-scout",
-  prompt: <filled scout prompt>
-)
-TaskUpdate(taskId: "{scout-id}", owner: "scout")
-```
-
-### Verifiers (Sonnet)
-
-For each topic, read the verifier prompt template from:
-`${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/structured-verifier-prompt-template.md`
-
-Fill in ALL template fields — including `[SYNTHESIZER_NAME]` (use `"synthesizer"` as the teammate name), `[GATE_RULES]` (extracted from spec in Step 2), and `[ACCEPTANCE_CRITERIA]` (from spec). This is how verifiers know who to send the `DONE` wake-up message to and how to self-check before converging.
-
-Fill in the template and spawn:
-```
-Agent(
-  name: "verifier-{topic_id}",
-  model: "sonnet",
-  subagent_type: "coordinator:research-specialist",
-  prompt: <filled verifier prompt>
-)
-TaskUpdate(taskId: "{id}", owner: "verifier-{topic_id}")
-```
-
-### Synthesizer (Opus)
-
-Read the synthesizer prompt template from:
-`${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/structured-synthesizer-prompt-template.md`
-
-Fill in ALL template fields — including `[OUTPUT_SCHEMA]` (full schema from spec), `[PHASE_2_GATE_RULES]` (quality gate rules for final output from spec), `[OUTPUT_PATH]` (the spec-defined output path for this subject), `[SUBJECT]`, `[SCRATCH_DIR]`, `[SPEC_PATH]`, `[TASK_ID]`.
-
-```
-Agent(
-  name: "synthesizer",
-  model: "opus",
-  subagent_type: "coordinator:structured-synthesizer",
-  prompt: <filled synthesizer prompt>
-)
-TaskUpdate(taskId: "{synthesizer-id}", owner: "synthesizer")
-```
-
-Dispatch ALL teammates in a single message (parallel).
+**Search budget.** A session has a WebSearch budget, 200 by default, raised with `CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION`; it resets over time, and the refusal does not say when. Past it, agents keep only WebFetch and research quality collapses silently. A subject costs roughly 50-60 searches, so one session carries 3-4 subjects. For more, split the subject list across sessions (`/spinoff`), one fire per session.
 
 ## Step 5 — EM Is Freed
 
-After spawning all teammates, announce:
+After firing the Workflow, announce:
 
-> "Structured research team is running autonomously on '{subject-key}' with 1 scout + {N} verifiers + 1 synthesizer. Scout maps findings to schema fields (~2-3 min), then verifiers verify per-topic and produce schema field tables ({MIN_MINUTES}-{MAX_MINUTES} min, {MIN_SOURCES}-source minimum). I'm available for other work — I'll be notified when the synthesizer completes."
+> "Structured research Workflow is running autonomously on '{subject-key}' with 1 scout + {N} verifiers + 1 synthesizer. Scout maps findings to schema fields (~2-3 min), then verifiers verify per-topic and produce schema field tables ({MIN_MINUTES}-{MAX_MINUTES} min, {MIN_SOURCES}-source minimum), then one rebuttal round, then synthesis. I'm available for other work — I'll be notified when the Workflow completes."
 
-**You are now free to continue the conversation with the PM.** Do not poll, do not monitor, do not broadcast WRAP_UP. The team handles everything.
+**You are now free to continue the conversation with the PM.** Do not poll, do not monitor. The Workflow handles everything.
 
 ## Step 6 — On Completion Notification
 
-When you receive a notification that the synthesis task is complete:
+When the Workflow's task notification arrives carrying the synthesizer's return value:
 
 1. **File-existence gate (HARD GATE):** Check whether the structured data file exists at `{output-path}`:
    <!-- NOTE: The synthesizer writes a schema-invalid skeleton immediately for crash insurance, then overwrites with the final valid output. This gate checks file-existence only — NOT schema validity; schema validity is step 2's job, run once the skeleton window has closed. Validating here, during the synthesis window, would cause false failures against the skeleton. -->
-   - If **missing**: schema validation FAILED. Do NOT archive. Keep team alive.
-     Send correction message to synthesizer via `SendMessage`:
+   - If **missing**: schema validation FAILED. Do NOT archive. Fire a correction Workflow: one `agent()` (`coordinator:structured-synthesizer`, `opus`) as a continuation of the synthesizer, briefed with this correction and the paths to `{scratch-dir}/*-findings.md` and its prior annotations:
      > "OUTPUT FILE MISSING: Expected structured data at {output-path}. You must write schema-conforming YAML/JSON to this path. Your annotations at synthesis-annotations.md are supplementary — the structured data file IS the deliverable."
-     Wait for revised output. Re-validate from step 1.
+     Re-validate from step 1 when it returns.
    - If **exists**: proceed to content validation.
 
 2. **Content validation:** Read `{output-path}` and validate schema conformance BEFORE archival:
@@ -259,16 +169,16 @@ When you receive a notification that the synthesis task is complete:
      it structurally — required top-level keys present, types matching, no fields typed outside
      the referenced definition. This is real conformance checking against the external
      definition, not the file-existence check in step 1 above.
-   - If validation **fails**: keep team alive, send a correction message to the synthesizer via `SendMessage` listing the specific fields that failed, and wait for a revised output
+   - If validation **fails**: fire the same correction Workflow, listing the specific fields that failed, and re-validate the revised output
    - If validation **passes**: proceed to step 3
 
-3. **Coverage auditor dispatch (always-on, non-teammate Agent):**
+3. **Coverage auditor dispatch (always-on, plain Agent):**
 
    > **Fidelity relay is OOS for Pipeline C.** The relay's job is catching post-hoc prose
    > distortion of a specialist finding whose author is now idle. Structured synthesis has no
    > prose to distort — the output is schema-conforming YAML/JSON (`structured-synthesizer.md:59`).
    > Additionally, verifiers already challenge each other's field values adversarially pre-synthesis
-   > (CONTESTED resolution is mandatory, `structured-team-protocol.md:44-49`). The relay would
+   > (CONTESTED resolution is mandatory, `structured-team-protocol.md` § Mailbox Protocol). The relay would
    > solve a problem that structurally cannot occur.
 
    The reduced coverage auditor for Pipeline C verifies that every verifier finding either
@@ -284,7 +194,7 @@ When you receive a notification that the synthesis task is complete:
    - `[SCRATCH_DIR]` — `{scratch-dir}`
    - `[OUTPUT_DIR]` — directory containing `synthesis-annotations.md` (same as `{scratch-dir}`)
 
-   Dispatch as a **plain Agent — NOT a teammate** (preserves the 7-slot ceiling):
+   Dispatch as a plain Agent:
 
    ```
    Agent(
@@ -299,7 +209,7 @@ When you receive a notification that the synthesis task is complete:
 
    If the auditor reports `absent` findings (verifier findings with no field mapping and no drop
    annotation), read the sidecar and include an `absent_findings` summary in the PM-facing report
-   at step 10. Do not re-open the team or re-request synthesis changes — the auditor is a
+   at step 9. Do not re-run synthesis or re-request synthesis changes — the auditor is a
    completeness pointer, not a correction trigger.
 
 3.5. **Queryable index layer — run-record + claims + gap-report (always-on):**
@@ -416,10 +326,10 @@ When you receive a notification that the synthesis task is complete:
 
    - If the file **is absent** (synthesizer crashed before Step 6.5): log warning
      "gap-signal.md absent — gap-report skipped" and omit the gap-report file. Note in
-     Step 10 summary.
+     step 9 summary.
    - If `gap_count` is **0 AND** `contested_unresolved` is **0**: skip the gap-report file
      entirely. Note "No gap-report emitted — all schema fields resolved, no contested
-     unresolved" in Step 10 summary.
+     unresolved" in step 9 summary.
    - Otherwise (`gap_count > 0` OR `contested_unresolved > 0`): write the gap-report file:
 
    ```markdown
@@ -455,11 +365,9 @@ When you receive a notification that the synthesis task is complete:
 
    **Precondition: `docs/research/` and `docs/research/archive/` resolve to the same filesystem.** If `archive/` is ever moved to a different mount, this archive step must be revisited — POSIX `mv` across filesystems degrades to copy-then-unlink, reopening the race window the change is meant to eliminate. Executor-time guard: `stat -c '%d' docs/research 2>/dev/null || stat -f '%d' docs/research` on both paths before mv; fail-loud if device IDs differ.
 
-8. The team auto-cleans on session exit — no explicit teardown step.
+8. Commit: `coordinator-safe-commit "deep-research: structured archive + cleanup"`
 
-9. Commit: `coordinator-safe-commit "deep-research: structured archive + cleanup"`
-
-10. Present summary of schema changes (CONFIRMED / UPDATED / NEW / REFUTED / CONTESTED-resolved counts) to PM for review. Include the queryable index layer locations: "Run-record at `docs/research/{run-stem}.md`; claims index at `docs/research/{run-stem}.claims.json`." If a gap-report was emitted, note it: "Gap-report at `docs/research/{run-stem}-gap-report.md` ({gap_count} gaps, coverage score {coverage_score})." If no gap-report was emitted, note why (all resolved or gap-signal missing). If advisory exists, mention it: "The synthesizer flagged observations beyond scope — see the advisory (archived with paper trail at `docs/research/archive/YYYY-MM-DD-{subject-slug}/advisory.md`)." If the coverage auditor reported absent findings, include a brief summary: "The coverage auditor found {N} verifier findings with no field mapping and no drop annotation — see `{output-path minus .md}-coverage-audit.md`."
+9. Present summary of schema changes (CONFIRMED / UPDATED / NEW / REFUTED / CONTESTED-resolved counts) to PM for review. Include the queryable index layer locations: "Run-record at `docs/research/{run-stem}.md`; claims index at `docs/research/{run-stem}.claims.json`." If a gap-report was emitted, note it: "Gap-report at `docs/research/{run-stem}-gap-report.md` ({gap_count} gaps, coverage score {coverage_score})." If no gap-report was emitted, note why (all resolved or gap-signal missing). If advisory exists, mention it: "The synthesizer flagged observations beyond scope — see the advisory (archived with paper trail at `docs/research/archive/YYYY-MM-DD-{subject-slug}/advisory.md`)." If the coverage auditor reported absent findings, include a brief summary: "The coverage auditor found {N} verifier findings with no field mapping and no drop annotation — see `{output-path minus .md}-coverage-audit.md`."
 
 ## Error Handling
 
@@ -467,10 +375,9 @@ When you receive a notification that the synthesis task is complete:
 |---------|--------|
 | Scout fails (no discovery files written) | Verifiers fall back to self-directed discovery from spec focus questions — scout output is optional, not required |
 | Scout times out (partial discovery files) | Verifiers use what's there + supplement with own searches for missing topics |
-| Verifier hits ceiling and self-converges | Normal — verifier writes schema field table with what it has, marks task complete, sends DONE to synthesizer |
-| Synthesizer doesn't wake after all verifiers complete | Verify verifiers sent DONE messages; if not, send manual nudge via SendMessage. If still stalled after 5 min, EM reads raw verifier outputs for PM |
-| Schema validation fails after synthesizer completes | Keep team alive, message synthesizer with specific correction list; retry validation on revised output |
-| Synthesizer writes prose but no structured data file | File-existence gate catches this. Keep team alive, send correction message listing the expected output path and format. Re-validate on revised output. |
-| All verifiers fail | Team auto-cleans on session exit; report to PM |
-| Team creation fails | Fall back to relay pattern or manual research |
-| Agents stuck in idle loops | Known platform issue — commit and archive available results; agents auto-clean on session exit. Read available outputs and present to PM. |
+| Verifier hits ceiling and self-converges | Normal — verifier writes schema field table with what it has and returns |
+| A verifier returns without `{topic_id}-findings.md` | The synthesizer records the missing topic in the gap-signal and continues with the rest |
+| Schema validation fails after the Workflow completes | Fire the correction Workflow (Step 6) with the specific correction list; retry validation on revised output |
+| Synthesizer writes prose but no structured data file | File-existence gate catches this. Fire the correction Workflow with the expected output path and format. Re-validate on revised output. |
+| All verifiers fail | The synthesizer finds no findings files and says so in its return value; report to PM |
+| Workflow fails to start or errors mid-run | Read whatever outputs exist under `{scratch-dir}`, present them to the PM, or fall back to manual research |

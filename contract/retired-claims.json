@@ -37,13 +37,35 @@
     {
       "id": "doe-box-plain-claude-is-coordinator-less",
       "claim": "On a DoE box, plain `claude` is coordinator-less by design and only the DoE launcher loads the coordinator plugin.",
-      "retired_by": "docs/plans/2026-10-02-install-dogfood-fixes.md",
+      "retired_by": "archive/specs/2026-10/2026-10-02-install-dogfood-fixes.md",
       "signatures": [
         "\\bcoordinator-less\\s+by\\s+design\\b",
         "\\bnever\\s+registers\\s+or\\s+installs\\s+the\\s+coordinator\\s+plugin\\b",
         "\\bonly\\s+way\\s+a\\s+DoE\\s+box\\s+loads\\s+coordinator\\b"
       ],
       "witness": "plain claude is coordinator-less by design\nthe installer never registers or installs the coordinator plugin\nthe launcher is the only way a DoE box loads coordinator",
+      "legacy_sites": []
+    },
+    {
+      "id": "pipeline-driver-hand-fills-a-workflow-script",
+      "claim": "A pipeline doc tells the EM to fill a Workflow script skeleton and fire it.",
+      "retired_by": "archive/specs/2026-10/2026-10-03-brief-in-pipeline-fire-manifests.md",
+      "signatures": [
+        "\\bFill\\s+the\\s+script\\s+skeleton\\b",
+        "§\\s*Workflow\\s+Script\\s+Skeleton\\b",
+        "§\\s*Script\\s+Skeleton\\b"
+      ],
+      "witness": "Fill the script skeleton\nsee § Workflow Script Skeleton\nsee § Script Skeleton",
+      "legacy_sites": []
+    },
+    {
+      "id": "persona-named-legacy-kind-in-review-sidecar-kinds",
+      "claim": "The persona-named legacy kind is a member of review-sidecar's `kinds` list.",
+      "retired_by": "docs/plans/2026-10-05-depersonalize-the-two-vendored-schemas.md",
+      "signatures": [
+        "\\bpatrik-review\\b[^\\n]{0,80}remain\\s+in\\b[^\\n]{0,80}\\bkinds\\b"
+      ],
+      "witness": "Legacy `kind:` values (`plan-review`, `review`, `review-sidecar`, `the Staff Engineer-review`, `substrate-adjudication`, `plan-rereview`) remain in `review-sidecar.yaml`'s `kinds:` list and resolve correctly.",
       "legacy_sites": []
     }
   ]

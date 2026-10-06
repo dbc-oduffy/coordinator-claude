@@ -37,13 +37,18 @@ briefing), then `coordinator-ensure-hooks-fleet` (both hooks, EVERY registered r
 `coordinator-ensure-*-hook` entrypoints heal only the cwd repo, leaving the rest of the fleet
 silently un-pushed and un-trailered — idempotent, note only on actual repair), then
 `install-meta-repo-precommit-hook "$HOME/.claude"`, then
-`python3 <plugin-root>/bin/check-gitignore-template-drift.py` (report-only; renders its output under
+`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/check-gitignore-template-drift"` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\check-gitignore-template-drift.exe"`, same arguments) (report-only; renders its output under
 the advisory-probe convention — the `/coordinator:install` Phase 4 diff only fires on a full
 install, so this is the daily cadence that catches drift between installs;
 see `coordinator/docs/wiki/coordinator-tripwires/gitignore-template-drift-is-a-cadence-gate-not-an-install-only-step.md`),
-then `python3 <plugin-root>/bin/check-watch-state-gitignore-fleet.py` — the per-repo twin,
+then `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/check-watch-state-gitignore-fleet"` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\check-watch-state-gitignore-fleet.exe"`, same arguments) — the per-repo twin,
 report-only, never untracks
 (`…/tripwire-registry/a-setup-time-gitignore-block-never-reaches-a-repo-onboarded-before-it.md`).
+then `python3 <plugin-root>/hooks/scripts/check-bin-forwarders.py` — report-only; exit 1 lists any
+engine-owned `bin/` script that regrew logic instead of forwarding to the engine (silent when clean),
+then `python3 <plugin-root>/hooks/scripts/check-fleet-claude-md-handoff-convention.py` — advisory, always exit 0; one line per
+fleet `CLAUDE.md` naming `.claude/handoffs` or teaching a manual handoff write, with the remedy; silent when clean
+(`coordinator/docs/wiki/coordinator-tripwires/a-handoff-written-by-hand-is-not-a-handoff.md`).
 
 `untested-platform-advisory` moves to the install surface — it changes only on new-platform
 install, never on a normal morning. Not part of this ceremony.
@@ -280,7 +285,7 @@ ref?) — nine named CLIs, one shell invocation, each rendering into `### Addon 
 non-empty. All silent-skip when the engine root/op is unresolvable, or (corpus probe) when the repo
 has no landed store. No multiplexer CLI exists; do not invent one here.
 
-**Memo-outbox tracking.** `python <plugin-root>/bin/memo-outbox-tracking-guard.py` — delivered memos
+**Memo-outbox tracking.** `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/memo-outbox-tracking-guard"` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\memo-outbox-tracking-guard.exe"`, same arguments) — delivered memos
 losing their sender-side record. Exit 1 renders under `### Addon Health`. Daily, because leg 2
 fires while a phantom staged deletion is still armed. Repair a leg-1 finding, then record its sha
 in `state/memo-outbox/acknowledged-sweeps.json`. Read the module docstring before touching the leg
@@ -298,7 +303,7 @@ Add the real invocation once it ships; do not invent one.
 
 **1.10.5** MCP registration: per `~/.claude.json mcpServers` entry, skip disabled/off-project,
 count `mcp__<server>__` matches; 0 → `### MCP Tool Registration` line + `/<server>:doctor`.
-Reverse direction: `python3 coordinator/bin/check-mcp-namespace-registration.py` (report-only, exit 0) —
+Reverse direction: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/check-mcp-namespace-registration"` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\check-mcp-namespace-registration.exe"`, same arguments) (report-only, exit 0) —
 each `WARN` line (agent-claimed namespace no config registers) renders under the same heading.
 
 **1.10.6** No auto-reconcile step. `handoff.reconcile_open` is dead (K-026, superseded by K-057)
@@ -340,7 +345,10 @@ project-rag-preamble` (MISMATCH/MISSING_END → **Preamble Drift**, never auto-f
 `workday-complete-backfill-scan --lookback 7` (commits-but-no-summary gap → **Daily-Wrap
 Coverage**, read-only, never auto-backfills), `check-provisional-expiry.py docs/plans` (expired
 `provisional_until:`/`revisit_by:` → ratify/extend/flip-terminal prompt, read-only, never
-auto-resolves).
+auto-resolves), `coordinator-invoke fleet.aggregate_capability_index '{}'` (regenerates the engine
+clone's `state/capabilities/fleet-index.json` inside its P7D ttl — the only producer the Copies
+line's capability-index leg has; non-zero → stderr verbatim under `### Addon Health`; the
+regenerated file is the engine repo's to commit, never this ceremony's).
 
 No canonical-structure scaffold runs against `~/.claude` in this group or any other. `~/.claude` is
 harness config and backup, holding no coordinator working data, and the
@@ -422,6 +430,10 @@ absent a `workday_start_post_command:` key in `coordinator.local.md`.
 Run `<plugin-root>/bin/copy-currency-refresh.py` (`snippets/resolve-coordinator-bin.md` § CLIs with
 no launcher) and report its one line. It is the only writer of the cache the boot banner reads; a
 failure is reported as-is and the prior cache stays.
+
+## Step 5.66: Refresh the structural index
+
+Run `<plugin-root>/bin/structural-index-refresh.py` (non-blocking, always exit 0; `COORDINATOR_STRUCTURAL_INDEX_REFRESH_OFF=1` disables) — report its line if it prints one.
 
 ## Step 5.7: Offer to Volunteer as Group EM
 

@@ -1,9 +1,11 @@
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 # orient-assemble — CLI trampoline over claude-klabauter
-# coordinator_core.orient_assemble (the computed-skill assembler for the
-# shared cadence-parameterized orient spine). Direct-import variant
-# (template-variant #1, mirrors coordinator/bin/pickup-assemble): a plain
-# in-process function call after resolving the engine root, no cc_invoke/IPC hop.
+# coordinator_core.orient_brief (the computed-skill assembler for the
+# shared cadence-parameterized orient spine). Routed by
+# entry_point_shim.run_target("orient-assemble", ...) through
+# `_native_route_entry` (mirrors coordinator/bin/pickup-assemble): the warm door
+# serves `orient_brief.main` in process; with no warm server the same `main`
+# runs in this process.
 #
 # Contract: coordinator-content-repo coordinator/docs/wiki/computed-skills.md
 # Spec backlink: docs/plans/2026-07-24-computed-skills-b2-ceremony-start.md, chunk C1
@@ -17,7 +19,7 @@
 #   brief --cadence {session|day|week}
 #     Computes and returns the 8-key decision object (artifact/preflight/
 #     gates/directives/judgment_points/decisions/narration/next_move) for the
-#     named cadence. READ-ONLY — mutates nothing (coordinator_core.orient_assemble
+#     named cadence. READ-ONLY — mutates nothing (coordinator_core.orient_brief
 #     never performs a mutating action itself; every mutation is returned as a
 #     directives[] entry naming an existing atomic CLI).
 #

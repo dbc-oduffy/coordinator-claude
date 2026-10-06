@@ -1,20 +1,26 @@
-#!/usr/bin/env python3
 """check-decision-citations -- a cited DR-nnn / SC-DR-nnn id must resolve somewhere in the fleet.
 
 Default mode exits 1 on a live dangling id the committed baseline does not list, 0 when clean (or
 when no baseline exists), 2 when the check could not run. `--emit-baseline` rewrites
 `state/baselines/decision-citations.md`; it is a reviewed act, never the reply to a fire.
 Contract: coordinator/docs/wiki/doctrine-authoring/decisions-corpus.md.
+
+Never imports coordinator_core: a stdlib-only fleet check with no engine-root bootstrap,
+so its git reads stay on its own bounded `subprocess.run`.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import subprocess
 import sys
 from pathlib import Path
+
+GENERATES = [{"artifact": "state/baselines/decision-citations.md", "stamp_key": "generated_at", "sources": ["coordinator/bin/check-decision-citations.py"]}]
+UNSTAMPED_BY_DESIGN = ["state/baselines/decision-citations.md"]
 
 BASELINE_REL = "state/baselines/decision-citations.md"
 SC_WIKI_REL = "coordinator/docs/wiki/concurrent-em-git-operations/scoped-safety-commits.md"
@@ -43,7 +49,7 @@ def _settings_home() -> Path:
     explicit = os.environ.get("COORDINATOR_SETTINGS_HOME")
     if explicit:
         return Path(explicit)
-    home = os.environ.get("CLAUDE_HOME") or os.path.expanduser("~")
+    home = os.environ.get("CLAUDE_HOME") or os.environ.get("USERPROFILE") or os.path.expanduser("~")
     return Path(home) / ".coordinator-claude-settings"
 
 
@@ -63,26 +69,33 @@ def _run(argv: list[str], cwd: Path | None = None) -> str | None:
 
 
 def repo_root() -> Path:
-    out = _run(["git", "rev-parse", "--show-toplevel"], cwd=Path(__file__).resolve().parent)
-    if not out or not out.strip():
-        raise CheckError("cannot resolve the repo root from the script location")
-    return Path(out.strip())
+    lib_dir = str(Path(__file__).resolve().parent / "lib")
+    if lib_dir not in sys.path:
+        sys.path.insert(0, lib_dir)
+    from subject_repo import subject_repo_root
+
+    root = subject_repo_root()
+    if root is None:
+        raise CheckError("cannot resolve the subject repo (pass --root or run inside a git repo)")
+    return root
 
 
 def _registry_repo_paths() -> dict[str, Path]:
     """Every `repos.*` registry key resolving to an existing directory on this machine."""
     name = "machine-local.cmd" if os.name == "nt" else "machine-local"
     ml = [str(_settings_home() / "bin" / name)]
-    listing = _run(ml + ["keys"])
-    if listing is None:
+    dumped = _run(ml + ["dump", "--prefix", "repos"])
+    if dumped is None:
+        return {}
+    try:
+        registry = json.loads(dumped)
+    except ValueError:
         return {}
     resolved: dict[str, Path] = {}
-    for line in listing.splitlines():
-        key = line.strip()
-        if not key.startswith("repos."):
+    for key, value in registry.items():
+        if not key.startswith("repos.") or not isinstance(value, str) or not value.strip():
             continue
-        value = _run(ml + ["get", key])
-        if value and value.strip() and Path(value.strip()).is_dir():
+        if Path(value.strip()).is_dir():
             resolved[key[len("repos.") :]] = Path(value.strip())
     return resolved
 
@@ -280,7 +293,7 @@ def check(root: Path, siblings: dict[str, set[str]] | None = None) -> int:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     ap.add_argument("--emit-baseline", action="store_true", help=f"rewrite {BASELINE_REL}")
-    ap.add_argument("--root", type=Path, default=None, help="repo root (default: this script's repo)")
+    ap.add_argument("--root", type=Path, default=None, help="repo root (default: env, then the cwd's repo)")
     args = ap.parse_args(argv)
     try:
         root = args.root if args.root is not None else repo_root()

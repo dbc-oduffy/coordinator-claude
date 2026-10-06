@@ -162,6 +162,7 @@ _BOOTSTRAPPED_NAMES = (
     "split_inclusion_exclusion",
     "_CLOSURE_PACKAGE_NAME",
     "find_import_closure_violations",
+    "bin_lib_imports",
     "check_plugin_payload",
     "format_plugin_payload_failures",
     "run_assembled_mirror_gate",
@@ -234,6 +235,7 @@ def _bootstrap_engine() -> None:
             PACKAGE_NAME as _CLOSURE_PACKAGE_NAME,
             find_import_closure_violations,
         )
+        from percolate import bin_lib_imports  # noqa: E402
         from percolate.doc_path_refs import (  # noqa: E402
             check_payload as check_plugin_payload,
             format_failures as format_plugin_payload_failures,
@@ -2099,7 +2101,7 @@ _SYNTHETIC_REGISTRY_MANIFEST_FIXTURE = {
     ],
     "queueTypes": ["queue-delegate"],
     "identity": {
-        "repoAliases": [{"registryKey": "repos.content_root", "shortname": "coordinator-content-repo"}],
+        "repoAliases": [{"registryKey": "repos.content_root", "shortname": "content"}],
         "centralReceiverIds": ["coordinator-content-repo-em"],
     },
 }
@@ -2188,9 +2190,9 @@ def _synthetic_registry_manifest_overrides():
         # `_cdr_manifest_present()` (coordinator/bin/lib/coordinator_data_root.py)
         # and `coordinator_registry.py`'s import-time `_MANIFEST_PATH` bootstrap
         # (`_mp_candidate_manifest_path`) both already probe OSS-flat
-        # (`<root>/schemas/...`) AND private DoE-repo (`<root>/coordinator/
-        # schemas/...`) unconditionally, and `.content-root` pointer semantics are
-        # the coordinator-content-repo REPO ROOT (a directory THAT HAS a `coordinator/`
+        # (`<root>/schemas/...`) AND authoring-clone (`<root>/coordinator/
+        # schemas/...`) unconditionally, and content-root pointer semantics are
+        # the content REPO ROOT (a directory THAT HAS a `coordinator/`
         # subdir) -- so a conformant real install satisfies the private shape
         # at this same root, not merely the flat one. A caller like
         # `emit-artifact-shape-contract`'s `_resolve_coordinator_root()` that
@@ -2246,7 +2248,7 @@ def _synthetic_registry_manifest_overrides():
         settings_home = fixture_root_path / "settings_home"
         machine_local_dir = settings_home / "machine-local"
         machine_local_dir.mkdir(parents=True)
-        (machine_local_dir / ".content-root").write_text(str(plugin_root) + "\n", encoding="utf-8", newline="\n")
+        (machine_local_dir / ".coordinator-content-root").write_text(str(plugin_root) + "\n", encoding="utf-8", newline="\n")
 
         yield {"COORDINATOR_SETTINGS_HOME": str(settings_home)}
 
@@ -4943,28 +4945,28 @@ def dispatch_end_of_run_unscanned_published_check(
 # PERCOLATE_ROOT resolution — see module docstring.
 # ---------------------------------------------------------------------------
 def _read_content_root_pointer() -> str:
-    """Cold-read the `.content-root` pointer, durable-first (DR-071/DR-072).
+    """Cold-read the `.coordinator-content-root` pointer, durable-first (DR-071/DR-072).
 
     Read order:
-      1. `${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/machine-local/.content-root`
-      2. `${CLAUDE_HOME:-$HOME}/.claude/.content-root`  (legacy fallback)
+      1. `${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/machine-local/.coordinator-content-root`
+      2. `${CLAUDE_HOME:-$HOME}/.claude/.coordinator-content-root`  (home fallback)
 
     Returns "" when neither is present/readable — every caller here already
     treats empty as "this rung did not resolve" and falls through.
 
     Kept as a local cold-read rather than importing
-    `coordinator_core.content_root_pointer`: this is a pointer-file rung used while
+    `coordinator_core.content_root`: this is a pointer-file rung used while
     LOCATING the engine repo checkout, so it must not depend on having located it.
-    The durable rung was added 2026-07-28 when the generator stopped writing the
-    legacy target (which lives in the cross-machine-synced `~/.claude` tree).
+    A box whose only pointer is the pre-rename one is migrated by
+    `content_root.migrate_legacy_config`, not read here.
     """
     settings_home = os.environ.get("COORDINATOR_SETTINGS_HOME") or os.path.join(
         os.environ.get("CLAUDE_HOME") or str(Path.home()), ".coordinator-claude-settings"
     )
     claude_home = os.environ.get("CLAUDE_HOME") or str(Path.home())
     for candidate in (
-        Path(settings_home) / "machine-local" / ".content-root",
-        Path(claude_home) / ".claude" / ".content-root",
+        Path(settings_home) / "machine-local" / ".coordinator-content-root",
+        Path(claude_home) / ".claude" / ".coordinator-content-root",
     ):
         try:
             content = candidate.read_text(encoding="utf-8").strip()
@@ -4983,7 +4985,7 @@ def _locate_cc_invoke() -> Optional[Path]:
       already lives at `coordinator/bin/publish.py`, exactly where the bash
       original's rung-2 `$SCRIPT_DIR/../bin/lib/cc_invoke.py` was reaching
       for, so the lookup collapses to a direct sibling read here.
-    Rung 3: the `.content-root` pointer file's `coordinator/bin/lib/cc_invoke.py`,
+    Rung 3: the content-root pointer file's `coordinator/bin/lib/cc_invoke.py`,
       read durable-first (see `_read_content_root_pointer`).
 
     Returns None if no rung resolves (bash's silent `_cc_invoke_py=""` state).
@@ -5029,9 +5031,9 @@ def _resolve_percolate_root_and_rung(
     used to resolve it correctly itself and then spawn this file with no
     `--percolate-root` at all) must have that answer WIN here rather than be
     silently re-derived from `coordinator_percolate_runtime_root()`, which
-    reads `~/.claude/.content-root` and can name a different tree entirely (the
+    reads the content-root pointer and can name a different tree entirely (the
     live defect: a cloud PERCOLATE_ROOT override never reached this child
-    process, so it silently loaded coordinator-content-repo's own `publish-targets.portable`
+    process, so it silently loaded the content repo's own `publish-targets.portable`
     instead of the caller's).
     (`cc_invoke.resolve_engine_root` -> `coordinator_core.percolate.
     runtime_root.coordinator_percolate_runtime_root`) the bash original
@@ -5047,10 +5049,10 @@ def _resolve_percolate_root_and_rung(
       1. Native resolver (above) — preferred, resolves the true percolation
          source root. Post-C1/C4, this is the ONLY correctness mechanism in
          the ordinary case: `coordinator_percolate_runtime_root()` itself now
-         consults the registry-first `.content-root` pointer rung ahead of the
-         shared-install rung, so a correct DoE-clone answer is already
+         consults the registry-first content-root pointer rung ahead of the
+         shared-install rung, so a correct content-clone answer is already
          produced here on every normal run.
-      2. This function's OWN `.content-root` pointer read (`_read_content_root_pointer()`),
+      2. This function's OWN content-root pointer read (`_read_content_root_pointer()`),
          validated by the presence of `setup/publish-targets.portable` at the
          pointed-to root. This is a cold-start backstop for genuine
          native-resolver failure (missing cc_invoke, an unresolvable
@@ -5068,7 +5070,7 @@ def _resolve_percolate_root_and_rung(
 
     Open question (not this chunk): whether rung 2's local
     `_read_content_root_pointer()` read should later converge onto the shared
-    `coordinator_core.content_root_pointer` module is left for a future chunk.
+    `coordinator_core.content_root` module is left for a future chunk.
     """
     if override:
         return Path(override), "cli-override"
@@ -5111,7 +5113,7 @@ def _resolve_percolate_root_and_rung(
     if content_root and (Path(content_root) / "setup" / "publish-targets.portable").is_file():
         print(
             f"publish.py: coordinator_percolate_runtime_root (native) failed ({failure_reason}); "
-            f"using .content-root pointer PERCOLATE_ROOT={content_root}",
+            f"using content-root pointer PERCOLATE_ROOT={content_root}",
             file=err,
         )
         return Path(content_root), "content-root-pointer-cold-start"
@@ -5195,6 +5197,7 @@ def _ro_git(root: Path, *args: str) -> "subprocess.CompletedProcess":
     return subprocess.run(
         ["git", "--no-optional-locks", "-C", str(root), *args],
         capture_output=True, text=True, errors="replace",
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
 
 
@@ -5214,17 +5217,96 @@ def _plugin_row_pathspecs_by_root(rows: "List[ResolvedTarget]") -> "dict[Path, s
     return out
 
 
+def _path_is_under(path: Path, top: Path) -> bool:
+    """True when resolved `path` equals or sits beneath resolved `top`."""
+    return path == top or top in path.parents
+
+
+def _seed_published_engine_pin(
+    rows: "List[ResolvedTarget]",
+    round_pinned_shas: "dict[str, str]",
+    *,
+    out: IO[str] = sys.stdout,
+) -> "Optional[Any]":
+    """Pin the engine toplevel to the sha stamped on the last published engine-mirror commit.
+
+    Returns the `PublishedEnginePin` and seeds `round_pinned_shas[<engine toplevel>]`, or returns
+    None (working-HEAD pin, today's behaviour) when no admitted row reads the engine toplevel, an
+    admitted row's destination is itself an engine-declaring mirror (that round mints the stamp),
+    or no engine mirror is registered on this box. A registered mirror whose stamp cannot be
+    resolved raises `PublishedEnginePinError`; never falls back to HEAD."""
+    _bootstrap_engine()
+    from coordinator_core.machine_resolver import registry_get
+    from percolate.published_engine_pin import PublishedEnginePinError, resolve_published_engine_pin
+
+    top_result = _git_rev_parse_detailed(_REPO_ROOT, "--show-toplevel")
+    if top_result.stdout is None:
+        print("  Published-engine pin: engine toplevel unresolvable; pinning working HEAD.", file=out)
+        return None
+    toplevel = Path(top_result.stdout)
+    top_resolved = toplevel.resolve()
+
+    if not any(
+        _path_is_under(Path(root).resolve(), top_resolved)
+        for row in rows
+        for root in _contributing_roots(row)
+    ):
+        print("  Published-engine pin: no admitted row reads the engine toplevel; not seeded.", file=out)
+        return None
+
+    keys = _engine_declaring_mirror_keys(_REPO_ROOT / "setup")
+    if not keys:
+        print("  Published-engine pin: no engine mirror declared; pinning working HEAD.", file=out)
+        return None
+    for row in rows:
+        if _publish_mirror_key_for_repo_root(_dest_repo_root(row.dest_dir) or row.dest_dir) in keys:
+            print("  Published-engine pin: a row publishes the engine mirror itself; pinning working HEAD.",
+                  file=out)
+            return None
+    if len(keys) != 1:
+        raise PublishedEnginePinError(
+            f"more than one engine-declaring mirror is registered ({sorted(keys)}); "
+            "declare exactly one."
+        )
+    (key,) = keys
+    mirror_path = registry_get(f"{_PUBLISH_MIRRORS_PREFIX}{key}{_PUBLISH_MIRROR_PATH_SUFFIX}")
+    if not mirror_path:
+        print("  Published-engine pin: engine mirror not registered on this box; pinning working HEAD.",
+              file=out)
+        return None
+    ref = registry_get(f"{_PUBLISH_MIRRORS_PREFIX}{key}{_PUBLISH_MIRROR_TRACK_REF_SUFFIX}") or (
+        "origin/" + _ENGINE_MIRROR_RELEASE_CHANNEL
+    )
+    pin = resolve_published_engine_pin(toplevel, Path(mirror_path), ref)
+    round_pinned_shas[str(pin.engine_toplevel)] = pin.source_sha
+    print(
+        f"  Round source pinned from published engine: {pin.engine_toplevel} @ {pin.source_sha} "
+        f"({mirror_path} {ref} {pin.mirror_commit[:12]})",
+        file=out,
+    )
+    return pin
+
+
 def dispatch_end_of_run_plugin_provenance_gate(
     repo_roots: "List[Path]",
     *,
     rows_by_repo_root: "dict[Path, List[ResolvedTarget]]",
     err: IO[str] = sys.stderr,
     out: IO[str] = sys.stdout,
+    published_engine_pin: "Optional[Any]" = None,
 ) -> bool:
     """Once per dest: refuse a round for the plugin dest when any contributing source root has HEAD
     ahead of its upstream, no upstream, or a dirty TRACKED file under a path a row's allowlist
-    publishes. The public plugin must match pushed source. Fail-closed, no override."""
+    publishes. The public plugin must match pushed source. Fail-closed, no override.
+
+    A root under `published_engine_pin.engine_toplevel` skips those three checks: the round reads
+    that root from the stamped commit, not its working tree, so its branch push/dirty state cannot
+    reach the plugin. The reproducibility anchor moves from "claude-klabauter HEAD is pushed" to "the stamped
+    sha was published in a klabauter commit". Every other root is checked as before."""
     ok = True
+    pin_top = None
+    if published_engine_pin is not None:
+        pin_top = Path(published_engine_pin.engine_toplevel).resolve()
     for repo_root in repo_roots:
         rows = [r for r in rows_by_repo_root.get(repo_root, [])
                 if r.dest_dir == next((p.dest_dir for p in rows_by_repo_root.get(repo_root, [])
@@ -5234,6 +5316,11 @@ def dispatch_end_of_run_plugin_provenance_gate(
         problems: "List[str]" = []
         by_root = _plugin_row_pathspecs_by_root(rows)
         for root in sorted(by_root, key=str):
+            if pin_top is not None and _path_is_under(Path(root).resolve(), pin_top):
+                print(f"  {root}: pinned to published engine {published_engine_pin.source_sha[:12]} "
+                      f"(mirror {published_engine_pin.mirror_commit[:12]}); push/dirty state of the "
+                      f"engine branch does not reach this round.", file=out)
+                continue
             up = _ro_git(root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
             if up.returncode != 0:
                 problems.append(f"{root}: HEAD has no upstream (cannot prove it is pushed). Remedy: push "
@@ -5296,14 +5383,18 @@ def dispatch_end_of_run_plugin_version_stamp_gate(
             continue
         prefix = "" if rel == "." else rel + "/"
         stale: "List[str]" = []
-        for name in (".claude-plugin/plugin.json", ".claude-plugin/marketplace.json"):
-            head = _ro_git(repo_root, "show", f"HEAD:{prefix}{name}")
+        names = (".claude-plugin/plugin.json", ".claude-plugin/marketplace.json")
+        heads = _ro_git(repo_root, "grep", "-e", '"version"', "HEAD", "--", *(prefix + n for n in names))
+        head_lines = heads.stdout.splitlines() if heads.returncode == 0 else []
+        for name in names:
+            tag = f"HEAD:{prefix}{name}:"
+            m_head = next((m for m in (_VERSION_FIELD_RE.search(ln[len(tag):]) for ln in head_lines
+                                       if ln.startswith(tag)) if m), None)
             now_path = repo_root / (prefix + name)
-            if head.returncode != 0 or not now_path.is_file():
+            if m_head is None or not now_path.is_file():
                 continue
-            m_head = _VERSION_FIELD_RE.search(head.stdout)
             m_now = _VERSION_FIELD_RE.search(now_path.read_text(encoding="utf-8", errors="replace"))
-            if m_head and m_now and m_head.group(1) == m_now.group(1):
+            if m_now and m_head.group(1) == m_now.group(1):
                 stale.append(f"{prefix}{name}: assembled version {m_now.group(1)!r} == dest HEAD version "
                              f"{m_head.group(1)!r}")
         print(f"  Plugin version-stamp gate: payload changed, {len(stale)} unbumped version file(s).", file=out)
@@ -5401,6 +5492,39 @@ def _contributing_roots(target: ResolvedTarget) -> List[Path]:
     return sorted(roots, key=str)
 
 
+#: Authored files a `source_map` row must publish byte-identical to the row's own source tree.
+#: The operator's status bar is authored and run in the doctrine tree; the engine tree carries
+#: the shipped copy, so drift here hands consumers a different status line than the authors see.
+_AUTHORED_PARITY_GLOBS = ("bin/*statusline*.py",)
+
+
+def assert_authored_parity(target: ResolvedTarget) -> None:
+    """Fail the row when a file matching `_AUTHORED_PARITY_GLOBS` in `target.source_dir`
+    differs from (or is missing at) the contributing root its entry is routed to by
+    `source_map`. Single-source rows and unrouted entries publish the authored file
+    itself, so they pass by construction. Raises `EngineUnavailableError`, the row's
+    fail-closed refusal."""
+    routed = _parse_source_map(target.source_map)
+    drift: "list[str]" = []
+    for pattern in _AUTHORED_PARITY_GLOBS:
+        root = routed.get(pattern.split("/", 1)[0])
+        if root is None or root == target.source_dir:
+            continue
+        for authored in sorted(target.source_dir.glob(pattern)):
+            rel = authored.relative_to(target.source_dir).as_posix()
+            shipped = root / rel
+            if not shipped.is_file():
+                drift.append(f"{rel}: absent from {root}")
+            elif shipped.read_bytes() != authored.read_bytes():
+                drift.append(f"{rel}: {shipped} differs from {authored}")
+    if drift:
+        raise EngineUnavailableError(
+            f"{target.name}: published copy drifts from the authored source -- "
+            + "; ".join(drift)
+            + ". Copy the authored file over the shipped one, then re-run."
+        )
+
+
 # ---------------------------------------------------------------------------
 # Identity-file owner+mode pre-source check — port of
 # `setup/publish.sh` (SEC: secaudit MEDIUM :46-51). Runs ONCE at
@@ -5444,8 +5568,8 @@ class IdentityFileMissingError(Exception):
 
 def _machine_local_percolate_identity_path() -> Path:
     """The machine-local canonical `.percolate-identity` rung: settings-home
-    ROOT (NOT `machine-local/`, unlike `_read_content_root_pointer`'s `.content-root`
-    rung) — verified on disk at `~/.coordinator-claude-settings/.percolate-identity`.
+    ROOT (NOT `machine-local/`, unlike `_read_content_root_pointer`'s
+    `.coordinator-content-root` rung) — verified on disk at `~/.coordinator-claude-settings/.percolate-identity`.
     Mirrors `_read_content_root_pointer`'s env-var precedence: `COORDINATOR_SETTINGS_HOME`
     wins if set, else a path relative to `CLAUDE_HOME`, else a path relative to the
     platform home directory."""
@@ -6456,6 +6580,29 @@ def run_pre_sync_gates(
             print("", file=out)
             return GateResult(proceed=False, source_dir=target.source_dir, shadow_roots=tuple(shadow_toplevels))
 
+        # Bin-to-lib import gate: a published bin script importing a lib module the lib row
+        # withholds is dead on every forwarding host. Fail-closed, no override.
+        if target.name == bin_lib_imports.BIN_ROW:
+            targets_file = target.source_dir.parents[1] / "setup" / "publish-targets.portable"
+            lib_missing = bin_lib_imports.unpublished_lib_imports(
+                sorted(restricted_tmp_src.rglob("*.py")),
+                target.source_dir.parent / "lib",
+                bin_lib_imports.field7(targets_file.read_text(encoding="utf-8"), bin_lib_imports.LIB_ROW),
+            )
+            print(f"  Bin-to-lib import gate: {len(lib_missing)} withheld lib module(s).", file=out)
+            if lib_missing:
+                print(
+                    f"  Error: published bin scripts import coordinator/lib modules the "
+                    f"{bin_lib_imports.LIB_ROW} row withholds:",
+                    file=err,
+                )
+                for name, importers in sorted(lib_missing.items()):
+                    print(f"    {name}: {', '.join(Path(i).name for i in importers)}", file=err)
+                print(f"  Remedy: add each to {bin_lib_imports.LIB_ROW}'s field 7.", file=err)
+                shutil.rmtree(restricted_tmp_src, ignore_errors=True)
+                print("", file=out)
+                return GateResult(proceed=False, source_dir=target.source_dir, shadow_roots=tuple(shadow_toplevels))
+
         # The plugin-payload gate is NOT run here: a single row's restricted tree is a fragment
         # of the plugin mirror (sibling rows such as `coordinator-claude-toplevel-install` ship
         # docs/install/agent-install-manifest.json into the same dest), so grading it row-wise
@@ -7075,7 +7222,7 @@ def _import_publish_sync(setup_dir: Path):
     """Import whichever module `_resolve_publish_sync_module_path` resolves
     to for `setup_dir` — claude-klabauter has no `setup/` directory of its own before
     this plan's C1 lands one, so a claude-klabauter-rooted run resolves straight to the
-    engine module; a ContentRooted run keeps resolving `setup/publish_sync.py`
+    engine module; a content-rooted run keeps resolving `setup/publish_sync.py`
     exactly as before.
 
     The engine module (`coordinator/lib/percolate/publish_sync.py`) lives
@@ -7661,6 +7808,72 @@ def _is_git_repo(path: Path) -> bool:
     return _resolve_git_dir(cwd=str(path)) is not None
 
 
+@functools.lru_cache(maxsize=None)
+def _engine_toplevel_key() -> str:
+    """`round_pinned_shas` key of this repo's git toplevel; walk-only, no spawn."""
+    _bootstrap_engine()
+    top = _resolve_show_toplevel(str(_REPO_ROOT))
+    return str(Path(top)) if top is not None else ""
+
+
+def _root_fully_published(
+    repo_root: Path,
+    succeeded_row_names: "Sequence[str]",
+    rows_feeding_root: "dict[Path, frozenset[str]] | None",
+) -> bool:
+    """True only when every store row feeding `repo_root` succeeded; an
+    unknown row universe is False (no stamp), never "assume full"."""
+    if rows_feeding_root is None:
+        return False
+    feeding = rows_feeding_root.get(repo_root)
+    return feeding is not None and feeding <= set(succeeded_row_names)
+
+
+_EXPECTED_MANIFEST_REL = ".coordinator/expected-manifest.json"
+
+
+def _write_expected_manifest(
+    repo_root: Path,
+    present_paths: "Iterable[str]",
+    deleted_paths: "Iterable[str]",
+    source_head: str,
+) -> bool:
+    """Write `<repo_root>/.coordinator/expected-manifest.json`: `{schema, source_head, paths}` where
+    `paths` is the tree this round commits at `repo_root` (HEAD's tree via one `ls-tree -r`, plus
+    `present_paths`, minus `deleted_paths`), each mapped to the git blob sha1 of the bytes as
+    written to the worktree. The manifest never lists itself. Returns True when the bytes changed."""
+    import hashlib  # noqa: PLC0415
+    import json  # noqa: PLC0415
+
+    _bootstrap_engine()
+    from coordinator_core.git.run import run_git as _run_git  # noqa: PLC0415
+
+    paths: "dict[str, str]" = {}
+    ls = _run_git(["ls-tree", "-r", "-z", "HEAD"], cwd=str(repo_root))
+    if ls.ok:
+        for row in ls.stdout.split("\0"):
+            meta, _, rel = row.partition("\t")
+            if rel:
+                paths[rel] = meta.split()[2]
+    for rel in deleted_paths:
+        paths.pop(rel, None)
+    for rel in present_paths:
+        full = repo_root / rel
+        data = os.readlink(full).encode() if full.is_symlink() else full.read_bytes()
+        paths[rel] = hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+    paths.pop(_EXPECTED_MANIFEST_REL, None)
+    body = json.dumps(
+        {"schema": 1, "source_head": source_head, "paths": paths}, sort_keys=True, indent=2
+    ) + "\n"
+    target = repo_root / _EXPECTED_MANIFEST_REL
+    raw = body.encode("utf-8")
+    if target.is_file() and target.read_bytes() == raw:
+        return False
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(raw)
+    return True
+
+
 def _source_sha_suffix(round_pinned_shas: "dict[str, str] | None" = None) -> str:
     """The mirror-currency stamp appended to every percolate commit subject.
 
@@ -7696,19 +7909,23 @@ def _source_sha_suffix(round_pinned_shas: "dict[str, str] | None" = None) -> str
     (docs/plans/2026-08-04-publish-from-a-committed-ref.md: four distinct
     SHAs observed across one round).
 
+    THE STAMP IS A CLAIM ABOUT THE WHOLE DESTINATION ROOT. Round mode reads
+    only the pin cached before any byte was copied and never resolves a fresh
+    one; no entry for this repo's toplevel yields `""`. Callers additionally
+    withhold it via `_root_fully_published` when any store row feeding the
+    committing destination root did not publish this round. It names the
+    source head of the copied bytes; it never establishes that a given fix is
+    present.
+
     Degrades to `""` rather than raising or blocking a publish in either
-    mode: `head_sha` returns `None` on an unborn/detached-nothing HEAD, and
-    `_round_pin_source_sha` raises `GitMaterializeError` on the same class of
-    failure — a commit subject without the stamp is strictly what this
-    function's absence produced. Zero-spawn by construction (`head_sha`
+    mode: `head_sha` returns `None` on an unborn/detached-nothing HEAD, and an
+    unpinned toplevel has no cache entry — a commit subject without the stamp
+    is strictly what this function's absence produced. Zero-spawn by construction (`head_sha`
     reads `HEAD`/`packed-refs` directly) — this runs once per destination
     repo on the publish hot path.
     """
     if round_pinned_shas is not None:
-        try:
-            sha = _round_pin_source_sha(_REPO_ROOT, round_pinned_shas, late=True)
-        except GitMaterializeError:
-            sha = None
+        sha = round_pinned_shas.get(_engine_toplevel_key())
     else:
         _bootstrap_engine()
         from coordinator_core.git.git_state import head_sha  # noqa: PLC0415
@@ -9289,6 +9506,11 @@ def _normalize_dest_exec_bits(repo_root: Path, scope_dirs: Sequence[Path]) -> "L
             os.chmod(target, (current | 0o111) if want_exec else (current & ~0o111))
         except OSError:
             continue
+        try:
+            if bool(os.stat(target).st_mode & 0o111) != want_exec:
+                continue  # NTFS: chmod cannot change the bit; nothing converged
+        except OSError:
+            continue
         if path not in fixed:
             fixed.append(path)
     return sorted(fixed)
@@ -9359,6 +9581,7 @@ def _commit_published_dests(
     *,
     succeeded_row_names: Sequence[str],
     round_pinned_shas: "dict[str, str]",
+    rows_feeding_root: "dict[Path, frozenset[str]] | None" = None,
     exclude_dirs_by_repo_root: "dict[Path, set[Path]] | None" = None,
     skip_repo_roots: "set[Path] | None" = None,
     uncommitted_roots_sink: "set[Path] | None" = None,
@@ -9494,6 +9717,15 @@ def _commit_published_dests(
         excluded_dirs = exclude_dirs_by_repo_root.get(repo_root)
         if excluded_dirs:
             paths = _paths_excluding_dirs(repo_root, paths, excluded_dirs)
+        pinned = round_pinned_shas.get(_engine_toplevel_key())
+        if pinned and _root_fully_published(repo_root, succeeded_row_names, rows_feeding_root):
+            if _write_expected_manifest(
+                repo_root,
+                [p for p in paths if (repo_root / p).exists()],
+                [p for p in paths if not (repo_root / p).exists()],
+                pinned,
+            ):
+                paths = sorted(set(paths) | {_EXPECTED_MANIFEST_REL})
         if not paths:
             print(f"  {repo_root}: already clean — nothing to commit.")
             continue
@@ -9510,7 +9742,9 @@ def _commit_published_dests(
         deleted_paths = [p for p in paths if p not in present_paths]
         subject = _sync_commit_message(
             repo_root.name, succeeded_row_names, present_paths, deleted_paths,
-            _source_sha_suffix(round_pinned_shas),
+            _source_sha_suffix(round_pinned_shas)
+            if _root_fully_published(repo_root, succeeded_row_names, rows_feeding_root)
+            else "",
         )
         try:
             outcome = commit_paths(
@@ -9760,6 +9994,22 @@ def _publish_mirror_key_for_repo_root(repo_root: Path) -> Optional[str]:
         if os.path.realpath(path_s) == norm_root:
             return key[len(_PUBLISH_MIRRORS_PREFIX) : -len(_PUBLISH_MIRROR_PATH_SUFFIX)]
     return None
+
+
+def _committed_branch_push_commands(repo_roots: "Sequence[Path]") -> "list[str]":
+    """`git -C <repo> push origin <branch>` per repo whose HEAD names a branch,
+    read straight off `.git/HEAD` (no git spawn). A detached HEAD, a worktree
+    `.git` file, or an unreadable HEAD yields no command for that repo."""
+    commands: "list[str]" = []
+    for repo_root in repo_roots:
+        try:
+            head = (repo_root / ".git" / "HEAD").read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        prefix = "ref: refs/heads/"
+        if head.startswith(prefix) and head[len(prefix):]:
+            commands.append(f"git -C {repo_root} push origin {head[len(prefix):]}")
+    return commands
 
 
 def _dest_checked_out_ref(repo_root: Path) -> Optional[str]:
@@ -10471,15 +10721,24 @@ def _publish_staging_parent(dest_dir: Path) -> Path:
     file's test suite) is unaffected, so the pinned `dest_dir.parent`-globbing
     tests keep matching production behaviour unchanged.
 
-    Still same filesystem as `dest_dir` either way (a plain subdirectory of
-    `dest_dir.parent`), so `_swap_publish_staging_into_dest`'s renames stay
-    metadata-only. Never creates the fallback directory itself — callers that
-    need it to exist (`_create_publish_staging_dir`) create it; a sweep or
+    The fallback lives inside `dest_dir/.git`, never beside it: any new
+    directory directly under a drive root is forbidden, transient ones included.
+    `.git` is on the same volume, git ignores unknown directories in it, and
+    `_create_publish_staging_dir`'s copytree skips `.git`, so staging never
+    copies into itself. A drive-root dest with no `.git` directory has no such
+    home and is refused. Never creates the fallback directory itself — callers
+    that need it to exist (`_create_publish_staging_dir`) create it; a sweep or
     stranded-prior glob against a not-yet-created fallback simply finds
     nothing, which is correct."""
     parent = dest_dir.parent
-    if parent == parent.parent:
-        return parent / f".{dest_dir.name}.publish-staging-root"
+    if parent.anchor and parent == parent.parent:
+        git_dir = dest_dir / ".git"
+        if not git_dir.is_dir():
+            raise RuntimeError(
+                f"publish staging: {dest_dir} sits on a drive root and has no .git "
+                "directory to stage under; move the mirror below a directory."
+            )
+        return git_dir / "publish-staging-root"
     return parent
 
 
@@ -10826,8 +11085,8 @@ def _sweep_stale_publish_staging_dirs(
 
 def _remove_empty_publish_staging_parent(dest_dir: Path) -> None:
     """Removes the anchor-fallback staging parent (§ `_publish_staging_parent`)
-    once nothing is in it, so no `.<mirror>.publish-staging-root` sits in the
-    drive root between publishes. `rmdir` only succeeds on an empty directory:
+    once nothing is in it, so no empty `publish-staging-root` lingers in the
+    mirror's `.git` between publishes. `rmdir` only succeeds on an empty directory:
     a concurrent row's live staging dir or a stranded `.prior` (which must
     survive for refuse-on-detection) keeps it. The ordinary `dest_dir.parent`
     case is never touched."""
@@ -11249,6 +11508,16 @@ def _report_published_diff(
             staging_dir / top_level_name
         ).exists()
 
+    import fnmatch as _fnmatch  # noqa: PLC0415 - lazy, matching this module's other walk-local imports
+
+    from coordinator_core.percolate.surface import (  # noqa: PLC0415
+        STRUCTURAL_NEVER_PUBLISHED_PREFIXES as _NEVER_PUBLISHED,
+    )
+
+    # The fleet-env family keeps `_went_unstaged`'s staged-vs-unstaged rule: a top-level fleet-env
+    # FILE can be staged and changed, so it is never skipped wholesale here.
+    _NEVER_PUBLISHED_LOCAL = tuple(p for p in _NEVER_PUBLISHED if not p.startswith(".fleet-env"))
+
     dest_files: dict[str, Path] = {}
     if dest_dir.is_dir():
         for p in dest_dir.rglob("*"):
@@ -11258,6 +11527,10 @@ def _report_published_diff(
             if rel == ".git" or rel.startswith(".git/"):
                 continue
             if _went_unstaged(rel.split("/", 1)[0]):
+                continue
+            # A never-published top level (`state/`, `scratch/`, `.percolate`, ...) is the mirror's own
+            # local data: no row stages it, so walked here it would be swept as a REMOVE and deleted.
+            if any(_fnmatch.fnmatch(rel.split("/", 1)[0], pat) for pat in _NEVER_PUBLISHED_LOCAL):
                 continue
             if _is_structural_build_artifact(rel):
                 continue
@@ -11712,6 +11985,7 @@ def process_target(
                 # against DEST, pre-sync timing) — see `dispatch_standalone_guards`.
                 with _time_phase(timing_sink, target.name, "dispatch_standalone_guards"):
                     dispatch_standalone_guards(engine_ctx, target, effective_source_dir)
+                assert_authored_parity(target)
             except EngineUnavailableError as exc:
                 print(f"  Error: {exc}", file=sys.stderr)
                 _print_row_refusal(target.name, err=sys.stderr)
@@ -12578,7 +12852,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help=(
             "Authoritative PERCOLATE_ROOT override, taking precedence over "
             "the native `coordinator_percolate_runtime_root()` resolver and "
-            "its `.content-root`/repo-root fallback rungs (BV-20260927-05 fix 3). "
+            "its content-root-pointer/repo-root fallback rungs (BV-20260927-05 fix 3). "
             "The parent driver (e.g. `percolate-mirror.py`) passes its own "
             "already-resolved root here so a child `publish.py` invocation "
             "never silently re-resolves a different one."
@@ -12864,6 +13138,8 @@ def _commit_throwaway_and_merge_into_dest(
     deleted_paths: "list[str]",
     succeeded_row_names: "Sequence[str]",
     round_pinned_shas: "dict[str, str]",
+    rows_feeding_root: "dict[Path, frozenset[str]] | None" = None,
+    scope_dirs: "Sequence[Path]" = (),
 ) -> None:
     """PM-directed mechanism (2026-09-29, superseding this module's own
     earlier file-copy cut of DR-445 phase 4): let git move the delta rather
@@ -12891,12 +13167,21 @@ def _commit_throwaway_and_merge_into_dest(
     if reaped:
         print(f"  {repo_root}: removed {len(reaped)} tracked install-output file(s).")
         deleted_paths = sorted(set(deleted_paths) | set(reaped))
+    pinned = round_pinned_shas.get(_engine_toplevel_key())
+    if (
+        pinned
+        and _root_fully_published(repo_root, succeeded_row_names, rows_feeding_root)
+        and _write_expected_manifest(throwaway_root, present_paths, deleted_paths, pinned)
+    ):
+        present_paths = sorted(set(present_paths) | {_EXPECTED_MANIFEST_REL})
     subject = _sync_commit_message(
         repo_root.name,
         succeeded_row_names,
         present_paths,
         deleted_paths,
-        _source_sha_suffix(round_pinned_shas),
+        _source_sha_suffix(round_pinned_shas)
+            if _root_fully_published(repo_root, succeeded_row_names, rows_feeding_root)
+            else "",
     )
     commit_paths(
         throwaway_root,
@@ -12993,6 +13278,16 @@ def _apply_throwaway_delta_to_dest(
         ) from exc
 
 
+def _rows_feeding_root(parsed_rows: "dict[str, ResolvedTarget]") -> "dict[Path, frozenset[str]]":
+    """Destination repo root -> every store row name feeding it, over ALL
+    parsed rows (never the `--target` subset)."""
+    acc: "dict[Path, set[str]]" = {}
+    for target in parsed_rows.values():
+        root = _dest_repo_root(target.dest_dir) or target.dest_dir
+        acc.setdefault(root, set()).add(target.name)
+    return {root: frozenset(names) for root, names in acc.items()}
+
+
 def _swap_all_rows_into_dest(
     staged_by_repo_root: "dict[Path, list[tuple[ResolvedTarget, StagedRowResult]]]",
     throwaway_by_repo_root: "dict[Path, Path]",
@@ -13000,6 +13295,7 @@ def _swap_all_rows_into_dest(
     commit_now: bool,
     succeeded_row_names: "Sequence[str]",
     round_pinned_shas: "dict[str, str]",
+    rows_feeding_root: "dict[Path, frozenset[str]] | None" = None,
 ) -> "dict[str, Optional[BaseException]]":
     """DR-445's single destination write. Called by `_run_round_dr445`
     EXACTLY ONCE per round, and ONLY after every gate (including the
@@ -13056,6 +13352,13 @@ def _swap_all_rows_into_dest(
                     deleted_paths=deleted_paths,
                     succeeded_row_names=succeeded_row_names,
                     round_pinned_shas=round_pinned_shas,
+                    rows_feeding_root=rows_feeding_root,
+                    scope_dirs=sorted(
+                        {
+                            throwaway_root / target.dest_dir.relative_to(repo_root)
+                            for target, _staged in rows
+                        }
+                    ),
                 )
             else:
                 _apply_throwaway_delta_to_dest(repo_root, throwaway_root, present_paths, deleted_paths)
@@ -13121,6 +13424,7 @@ def _run_round_dr445(
     identity_file_exists: bool,
     identity: Optional[PercolateIdentity],
     round_pinned_shas: "dict[str, str]",
+    published_engine_pin: "Optional[Any]" = None,
     engine_ctx: PercolateEngineContext,
     percolate_store_path: Optional[Path],
     publish_sync_module: object,
@@ -13485,7 +13789,9 @@ def _run_round_dr445(
                 True
                 if args.dry_run
                 else dispatch_end_of_run_plugin_provenance_gate(
-                    gate_roots, rows_by_repo_root=_gate_rows_by_repo_root
+                    gate_roots,
+                    rows_by_repo_root=_gate_rows_by_repo_root,
+                    published_engine_pin=published_engine_pin,
                 )
                 and dispatch_end_of_run_plugin_version_stamp_gate(
                     gate_roots, rows_by_repo_root=_gate_rows_by_repo_root
@@ -13553,6 +13859,7 @@ def _run_round_dr445(
                 commit_now=commit_now,
                 succeeded_row_names=list(succeeded_row_names),
                 round_pinned_shas=round_pinned_shas,
+                rows_feeding_root=_rows_feeding_root(parsed_rows),
             )
             commit_ran = commit_now
             if commit_now:
@@ -13643,10 +13950,7 @@ def _run_round_dr445(
             from coordinator_core.wire_paths import rel_id as _rel_id
 
             _manifest_round_id = f"publish-{_uuid.uuid4().hex}"
-            try:
-                _manifest_source_sha = _round_pin_source_sha(_REPO_ROOT, round_pinned_shas, late=True)
-            except GitMaterializeError:
-                _manifest_source_sha = ""
+            _manifest_source_sha = round_pinned_shas.get(_engine_toplevel_key(), "")
             for _manifest_root in dict.fromkeys(end_of_run_check_roots):
                 _token_index_action = _token_index_action_for_root(
                     _manifest_root,
@@ -13745,7 +14049,13 @@ def _run_round_dr445(
             deduped_roots=deduped_roots,
         )
     finally:
-        pass
+        # Round-end reclaim: a `--delta`-skipped row never reaches
+        # `process_target`'s per-row sweep, so without this a staging tree
+        # stranded by a killed run outlives every later all-unchanged round.
+        for dest_dir in {parsed_rows[row].dest_dir for row in rows}:
+            _sweep_stale_publish_staging_dirs(
+                dest_dir, totals, dry_run=bool(getattr(args, "dry_run", False)), out=sys.stdout
+            )
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -14293,6 +14603,17 @@ def main(argv: Optional[List[str]] = None) -> int:
     # just that row — the same outcome a pre-round hard failure would have
     # forced on every OTHER row too.
     round_pinned_shas: "dict[str, str]" = {}
+    from percolate.published_engine_pin import PublishedEnginePinError
+
+    try:
+        published_engine_pin = _seed_published_engine_pin(
+            [parsed_rows[r] for r in rows if not requested_names or parsed_rows[r].name in requested_names],
+            round_pinned_shas,
+            out=sys.stdout,
+        )
+    except PublishedEnginePinError as exc:
+        print(f"[publish.py] Error: published-engine pin: {exc}", file=sys.stderr)
+        return 1
     for row in rows:
         candidate = parsed_rows[row]
         if requested_names and candidate.name not in requested_names:
@@ -14462,6 +14783,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             identity_file_exists=identity_file_exists,
             identity=identity,
             round_pinned_shas=round_pinned_shas,
+            published_engine_pin=published_engine_pin,
             engine_ctx=engine_ctx,
             percolate_store_path=percolate_store_path,
             publish_sync_module=publish_sync_module,
@@ -14757,6 +15079,13 @@ def main(argv: Optional[List[str]] = None) -> int:
             # Reporting it as success is what let that confusion exist.
             _print_uncommitted_residue(residue_roots, end_of_run_rows_by_repo_root, err=sys.stderr)
             return 3
+
+        if commit_ran:
+            _committed_roots = [
+                r for r in dict.fromkeys(end_of_run_check_roots) if r not in residue_roots
+            ]
+            for _push_command in _committed_branch_push_commands(_committed_roots):
+                print(f"To publish (commit-only round, nothing pushed): {_push_command}")
 
         return 0
     finally:

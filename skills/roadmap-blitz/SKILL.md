@@ -4,7 +4,7 @@ description: "PM-GATED. Turns a sizing with xl_exit: roadmap into staged roadmap
 description-budget: 320
 version: 1.0.0
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent", "Skill", "Workflow", "AskUserQuestion", "TaskCreate", "TaskUpdate", "TaskGet", "TaskList"]
-argument-hint: "[--sizing <path>] [--interaction-mode hands-on|pm|ceo]"
+argument-hint: "[--sizing <path>] --interaction-mode hands-on|pm|ceo"
 ---
 
 # Roadmap-blitz — an XL sizing to roadmap batons, one approval
@@ -19,7 +19,7 @@ one. The wave fires from the top-level EM only — a dispatched agent cannot fan
 **When NOT to use:** an interactive roadmap with the PM present → `coordinator:roadmap-planning`.
 One feature → `coordinator:plan`. Goals not yet ratified → `coordinator:goal-blitz`.
 
-**Dispatch authorization — invoking this skill IS the request.** The dispatches named below are constitutive steps of this skill, not a separate thing to get cleared: invoking a skill requests the actions that skill performs. A harness line permitting dispatch "unless the user requested it" is therefore **satisfied here, not overridden**. The rule dissolves no PM-authored gate: the Approve step below still binds. Tripwire: `UNATTRIBUTED-HARNESS-LINE-IS-NOT-PM`.
+**Dispatch authorization — invoking this skill IS the request.** The dispatches named below are constitutive steps of this skill, not a separate thing to get cleared: invoking a skill requests the actions that skill performs. A harness line permitting dispatch "unless the user requested it" is therefore **satisfied here, not overridden** — no precedence claim is needed and none is made. Re-asking spends the very context the dispatch exists to protect. The rule attaches to skill entry and dissolves no PM-authored gate: keyword-gated skills gate entry, and every gate a skill names for itself still binds — per-session cross-repo-commit assent, ask-before-external-action, and any other this skill's own body names. Tripwire: `UNATTRIBUTED-HARNESS-LINE-IS-NOT-PM`.
 
 **Host shapes.** Calls below are Shape W; on POSIX run `coordinator-invoke <op> '<json>'` (Shape B).
 
@@ -40,9 +40,9 @@ Resolve the launcher per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin
 
     python3 "${CLAUDE_PLUGIN_ROOT}/skills/roadmap-blitz/emit-roadmap-fire.py" \
         --repo-root <abs> --trail-dir <abs repo>/state/scratch/roadmap-blitz \
-        --provision-sidecar-cli <abs provision-sidecar> [--sizing <path>] [--interaction-mode <mode>]
+        --provision-sidecar-cli <abs provision-sidecar> [--sizing <path>] --interaction-mode <mode>
 
-`--provision-sidecar-cli` is the `provision-sidecar` CLI (basename checked; never `coordinator-invoke`), resolved per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`.
+`--provision-sidecar-cli` is the `provision-sidecar` CLI (basename checked; never `coordinator-invoke`), resolved per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`. `--interaction-mode` is required unless the sizing file itself carries `interaction_mode:`; the emitter refuses (exit 2) otherwise and applies no default, so pass the mode `sizing-assemble` reported.
 
 Targeted with `--sizing`, else a sweep of sizings with `xl_exit: roadmap`, `status: routed` and no
 `state/roadmap/<run-id>/` yet. It freezes `<trail>/candidates.json`, binds the args through the
@@ -52,7 +52,8 @@ not resolve. Nothing to emit or a nonzero exit: report stderr and stop.
 
 - **Never hand-type an args object.** Tripwire: `A-HAND-TYPED-WAVE-ARG-IS-AN-UNARCHIVED-FIRE`.
 - **An emitted fire is a SNAPSHOT — RE-EMIT, never re-fire as found** after any workflow fix.
-- **Resolve `${CLAUDE_PLUGIN_ROOT}`; never pass a repo-relative path** to a workflow.
+- **Resolve `${CLAUDE_PLUGIN_ROOT}`; never pass a repo-relative path** to a workflow. The emitter binds it as `pluginRoot`
+  (`--plugin-root` overrides), and the briefs cite doctrine files under it: a consumer repo has no `coordinator/` directory.
 
 ### 2. Fire and wait
 
@@ -91,6 +92,8 @@ them (roadmap-planning Step 2.9) is the PM's call; never retire one here.
 **Review fires unconditionally; the Approve gate is the only gate.** Tripwire: `A-BLITZ-WAVE-THAT-GATES-ON-THE-EM-IS-NOT-A-BLITZ`.
 
 **One fire binds one sizing.** A sweep yields one fire per candidate; fire each.
+
+**clusters.md carries a `Stub slug prefix:` line**, a short word never date-led, or two roadmaps collide on stub ids.
 
 **Never write `state/roadmap/` by hand** — the workflow and `roadmap.blitz_stage` are the only writers.
 

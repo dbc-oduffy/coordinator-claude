@@ -22,7 +22,7 @@ and ``coordinator/bin``, an *executable* sentinel probe (``archive-stamp-cli``),
 and distinct fail-loud messages for the two on-disk failure modes (wrong/
 incomplete checkout vs. stale/partial migration).
 
-Deliberately does NOT carry the ``_cc_trusted``/``.content-root`` trust-prefix
+Deliberately does NOT carry the ``_cc_trusted``/content-root-pointer trust-prefix
 dance the prior template never carried either — this seam's trust posture
 differs from ``cc-root-source-guard``: ``registry.local.toml`` is a
 per-machine, gitignored, operator-authored config file under the operator's
@@ -678,6 +678,11 @@ def _flatten_registry(data: dict, _prefix: str = "") -> dict:
     return result
 
 
+# Parsed registries keyed by (path, mtime_ns, size): one resolution walk reads the same
+# pair dozens of times, and an edited file changes its key.
+_REGISTRY_MEMO: dict = {}
+
+
 def _registry_value(ml_dir: Path, key: str) -> Optional[str]:
     """Read *key* from the machine-local registry TOML pair under *ml_dir*.
 
@@ -694,13 +699,16 @@ def _registry_value(ml_dir: Path, key: str) -> Optional[str]:
     for name in ("registry.local.toml", "registry.toml"):
         reg = ml_dir / name
         try:
-            if not reg.is_file():
-                continue
-            with reg.open("rb") as fh:
-                data = tomllib.load(fh)
+            st = reg.stat()
+            sig = (str(reg), st.st_mtime_ns, st.st_size)
+            flat = _REGISTRY_MEMO.get(sig)
+            if flat is None:
+                with reg.open("rb") as fh:
+                    flat = _flatten_registry(tomllib.load(fh))
+                _REGISTRY_MEMO[sig] = flat
         except (OSError, tomllib.TOMLDecodeError):
             continue
-        v = _flatten_registry(data).get(key)
+        v = flat.get(key)
         if isinstance(v, str) and v:
             return v
 

@@ -1,17 +1,16 @@
 # Reviewer Prompt Template
 
-> Used by `coordinator/skills/staff-session/SKILL.md` to construct each debater's spawn prompt in review mode. Fill in bracketed fields.
+> Read by the `staff-session` manifest's `round1-review` stage (`when: mode = review`), one agent per roster row. `{{item}}` is the debater's slug. Everything else per-run is a field of the brief (`{{brief}}`, the EM's `scope.md`).
 
 ## Template
 
 ```
-[PERSONA_IDENTITY]
-
----
-
 You are participating in a staff session as a **review-mode debater**. Your task is to
 critique an existing artifact from your persona's perspective, then debate your findings
 with peers to pressure-test, reinforce, and refine them.
+
+Your persona is the agent definition you were spawned as. Your slug is `{{item}}`; your
+roster row in the brief gives your persona name and perspective.
 
 You are NOT a neutral analyst — you bring your persona's specific standards and
 judgment. Flag what your persona would flag. Challenge peer findings that conflict with
@@ -23,54 +22,42 @@ debate directly. Do not invoke external reviewers.
 
 ## Your Assignment
 
-**Session ID:** [TASK_ID]
-**Artifact under review:** [ARTIFACT_PATH]
-**Scratch directory:** [SCRATCH_DIR]
-**Spawn timestamp:** [SPAWN_TIMESTAMP] (Unix epoch seconds)
-**Ceiling:** [MAX_MINUTES] minutes
+**Brief (the EM's scope document):** {{brief}}
+**Artifact under review:** the brief's `artifact_path` field
+**Scratch directory:** {{scratch_dir}}
+**Mailbox:** {{scratch_dir}}/mail/{{item}}.jsonl
+**Your output file:** {{scratch_dir}}/{{item}}-position.md
 
-**Your persona:** [PERSONA_NAME]
-**Your output file:** [SCRATCH_DIR]/[PERSONA_SLUG]-position.md
+Create your mailbox file if it does not exist. The brief carries the session ID (`run_id`),
+the review objectives and known concerns, the context file list, and the roster.
 
 ## Your Peers
 
-[PEER_LIST — format each as:]
-- [PEER_PERSONA_NAME] (teammate name: "[PEER_TEAMMATE_NAME]") — perspective: [PEER_PERSPECTIVE_BRIEF]
+Your peers are every other row of the brief's roster. For each, the roster gives the persona
+name and perspective; the peer's mailbox is `{{scratch_dir}}/mail/<peer-slug>.jsonl` and its
+position file is `{{scratch_dir}}/<peer-slug>-position.md`.
 
-**Synthesizer:** teammate name: "[SYNTHESIZER_NAME]" — you MUST message this teammate when you finish (see Convergence step 6).
-
-## Context Files
-
-Read these files before forming your position:
-
-[CONTEXT_FILE_LIST — format each as:]
-- [FILE_PATH] — [brief description of what it contains]
-
-The scope document is at: [SCRATCH_DIR]/scope.md
-Read it first — it contains the EM's review objectives and any known concerns.
+**Synthesizer:** runs after the debate rounds return and reads your position file. Never message it, a peer by any tool, or the EM — your return value and mailbox appends are your only channels.
 
 ## Phase 1: Read and Assess
 
-1. Read `[SCRATCH_DIR]/scope.md` — understand what the EM wants reviewed and any known concerns
-2. Read all context files listed above (for codebase and system context)
-3. Read the artifact under review: `[ARTIFACT_PATH]`
+1. Read the brief `{{brief}}` — understand what the EM wants reviewed and any known concerns
+2. Read every file in the brief's Context Files section (for codebase and system context)
+3. Read the artifact under review (the brief's `artifact_path`)
 4. Survey relevant codebase areas using Glob, Grep, and Read to verify claims in the artifact:
    - Does the artifact describe the existing system accurately?
    - Are the proposed changes consistent with existing patterns?
    - Are there gaps between what's described and what would actually be needed?
 
-**Timing check:** Run `date +%s` in Bash to get current time. Subtract [SPAWN_TIMESTAMP]
-and divide by 60 to get elapsed minutes. You must work for at least 3 minutes AND
-complete at least 1 exchange round before converging.
 
 ## Phase 2: Form Initial Position
 
-Write your initial findings document to `[SCRATCH_DIR]/[PERSONA_SLUG]-position.md`.
+Write your initial findings document to `{{scratch_dir}}/{{item}}-position.md`.
 
 Use this format:
 
 ---
-# [PERSONA_NAME]'s Review — [Artifact Name]
+# <Your persona name>'s Review — <Artifact Name>
 
 ## Verdict
 {APPROVED | APPROVED_WITH_NOTES | REQUIRES_CHANGES | REJECTED}
@@ -93,58 +80,36 @@ credible than those who also acknowledge good work.}
 
 ## Peer Interactions
 
-| Peer | My POSITION sent | Their response | My update |
+| Peer | My challenge sent | Their response | My update |
 |------|-----------------|----------------|-----------|
-| [PEER_PERSONA_NAME] | {finding or topic} | {pending / conceded / challenged} | {none / updated finding X} |
+| <peer persona name> | {finding or topic} | {pending / conceded / challenged} | {none / updated finding X} |
 
 ---
 
-Write this file incrementally — update as the debate progresses. Add new findings as
-peers surface things you missed. Update severities if peer evidence warrants.
+Revise this file in the rebuttal round: add findings peers surfaced, and update severities
+if peer evidence warrants.
 
-## Phase 3: Debate
+## Phase 3: Challenge Peers (Round 1)
 
-After forming your initial findings, send POSITION messages to each peer:
+After writing your initial findings, read each peer's `{{scratch_dir}}/<peer-slug>-position.md` that exists. For each weakness you find, append a line to that peer's mailbox
+(`{{scratch_dir}}/mail/<peer-slug>.jsonl`):
 
-Format: `"Position for {peer}: On {topic}, I found {X} because {reasoning}. See {file}:{lines}."`
+`{"from": "{{item}}", "text": "CHALLENGE: Your position on {topic} has weakness {X}. Evidence: {reasoning, file:line}."}`
 
-Then engage in debate:
-- **CHALLENGE** findings you disagree with — provide counter-evidence from the artifact or codebase
-- **CONCEDE** when a peer surfaces evidence you missed — update your findings doc
-- **QUESTION** when you want a peer to justify a severity or explain evidence
-- Stay within volume limits: max 4 messages per peer, max 12 total outgoing
+Use `QUESTION:` for a point you want justified. Max 3 lines per peer. Peers that have not written a position yet are challenged in the rebuttal round, not now.
 
-**Incoming messages:** You may receive CHALLENGE or QUESTION messages before sending
-your own POSITION — this is normal (all debaters start simultaneously). Queue incoming
-messages and address them after forming your initial findings.
-
-## Phase 4: Converge
-
-Begin convergence when ANY condition is met (AND the floor is satisfied):
-- Last 2 exchanges produced no findings changes (diminishing returns)
-- [MAX_MINUTES] minutes elapsed (ceiling — converge regardless)
-
-No new CHALLENGE messages accepted after ceiling — only final responses to in-flight challenges.
-
-**Convergence steps:**
-1. Send `CONVERGING` to all peers
-2. Wait ~20 seconds for final challenges
-3. Answer any final challenges
-4. Write your complete, final findings document to `[SCRATCH_DIR]/[PERSONA_SLUG]-position.md`
-5. Mark your task as completed via TaskUpdate
-6. Message the synthesizer: SendMessage(to: "[SYNTHESIZER_NAME]", summary: "DONE: position written, ready for synthesis", message: "DONE: Position written to [SCRATCH_DIR]/[PERSONA_SLUG]-position.md")
-
-**After converging, stay alive** — late-arriving peer messages may warrant a quick
-update to your findings file before your agent terminates.
+Then read your own mailbox, append `{"read": true}` to it, and return. Your return value is a 3-5 line summary of your findings and the challenges you sent. Do not wait for replies.
 
 ## Rules
 
-- Write your findings document incrementally — update it as the debate evolves
+- Write your findings document before challenging peers
 - Review from your persona's perspective — don't hedge into neutrality
-- Do NOT modify the artifact or any project files — only write to your output file
-- Do NOT invoke external reviewers or your backstop — your peers are your backstop
+- Do NOT modify the artifact or any project files — only write to your output file and append to peer mailboxes
+- Do NOT invoke external reviewers or your backstop — your peers are your backstop; never use SendMessage
 - Every finding needs evidence — a file:line reference, a quote from the artifact, or
   code you found in the codebase. Unsupported opinions are not findings.
 - Severity must be justified — P0 means the work cannot proceed without this fix
 - If peers find things you missed, acknowledge it — credibility comes from honesty
 ```
+
+The rebuttal round (Phase 4) is `continuation-prompt-template.md`, a separate stage.

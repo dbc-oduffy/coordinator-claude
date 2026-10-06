@@ -1,56 +1,55 @@
-"""SessionStart sync fan-in dispatcher -- five hooks.json SessionStart
-registrations, one interpreter, source-gated.
+"""SessionStart sync fan-in dispatcher -- the SessionStart registrations that
+emit boot context, one interpreter, source-gated.
 
-Folds `project-orientation.py`, `guard-settings-integrity.py`,
+Folds `session-start-repin-cloud-engine-root.py`,
+`session-start-watch-presence.py`, `session-start-cloud-focus.py`,
+`project-orientation.py`, `guard-settings-integrity.py`,
 `guard-foreign-platform-paths.py`, `session-start-write-bump-anchor.py`,
-and `guard-hook-generation-self-probe.py` into ONE
-`python3` process, registered on the UNION of their prior matchers
-(`startup|resume|clear|compact|fork`), following the registry +
+`sessionstart-bin-drift-refresh.py`, `day-branch-assert.py`,
+`session-start-announce-job-mode.py`,
+`session-start-governed-surface-drift.py` and
+`guard-hook-generation-self-probe.py` into ONE `python3` process,
+registered on `startup|resume|clear|compact|fork`, following the registry +
 dynamic-import pattern `stop-dispatch.py` / `preuse-agent-dispatch.py`
 already ship.
 
-`assert-em-role.py` (C1b) is NOT folded here as of
-docs/plans/2026-08-29-restore-em-boot-payload-delivery.md chunk C1: it is
-its OWN top-level SessionStart registration in hooks.json again, on the
-same `startup|resume|clear|compact|fork` matcher it always carried. Its
-payload was measured reaching a session's actual context in 4 of 279
-archived transcripts carrying the marker -- riding this shared fan-in's
-one stdout stream meant its output was captured but truncated away before
-becoming EM context in the other 275. A separate top-level registration
-gives it its own stdout stream and therefore its own preview window,
-independent of every other guard folded here. Reordering it to run first
-inside this same process was rejected: delivery would then depend on no
-sibling leg ever growing its own output, which is the same fragility
-relocated rather than fixed. See `assert-em-role.py`'s own hooks.json
-entry for the restored registration.
+HEAD LEGS. The harness shows only the first ~2,048 characters of a hook's
+stdout; a payload that starts past that window never reaches context. The
+first three REGISTRY rows (`HEAD_LEGS`) own stream offset 0: the repin leg
+(zero stdout, always first), then watch-presence and cloud-focus. A head leg
+can only be pushed out of the window by the head legs ahead of it, and
+`tests/test_sessionstart_dispatch_head_legs.py`'s per-leg ceilings plus head total keep
+that inside `PREVIEW_WINDOW_CHARS`, so growth fails a test instead of
+truncating silently.
 
-NOT folded, deliberately (see state/subagent-share/892113a3-8c0c-4fa8-bb68-
-13c20ca4aad5/coordinatorexecutor-ef3486a7.md for the full reasoning):
-  - `sweep-boot.py` -- explicit handoff instruction (state/handoffs/
-    2026-08-16-untitled-6c1eb4ae.md § Next Steps 1): its 30s timeout must
-    not hide behind a short one. Stays its own standalone registration.
+`assert-em-role.py` is the one SessionStart leg that stays its OWN top-level
+registration. Its composed payload is budgeted at 1,944 of the 2,048-character
+window, so no stream it shares can keep it whole; a separate registration gives
+it its own stdout stream and its own preview window.
+
+ENVELOPE UNWRAP. watch-presence and cloud-focus emit a JSON
+`hookSpecificOutput` envelope; every other leg writes plain text. This stream
+is plain text, so a leg whose captured stdout parses as exactly one JSON
+object carrying `hookSpecificOutput.additionalContext` (a string) is written
+as that text plus a newline. Any other stdout passes through byte-exact.
+
+ENGINE PURGE. The repin leg re-points the engine-root symlink. Once it
+returns, this dispatcher drops every `sys.modules` entry named
+`coordinator_core` or `coordinator_core.*` and restores `sys.path` to its
+pre-leg snapshot, so the next leg resolves and imports the engine fresh
+through the repointed symlink rather than mixing pre- and post-repin modules.
+
+NOT folded, deliberately:
   - `session-start-register-coordinator-content-repo-root.py` and `session-start-repair-
-    prepare-commit-msg-hook.py` -- both registered `async: true` in the
-    prior manifest (their whole value is a side-effect write with no
-    context-bound stdout, DELIBERATELY kept off boot-latency). Folding an
-    async hook into a SYNC dispatcher process would force it to block
-    session start, a real behaviour change this fold does not make
-    unilaterally -- see `sessionstart-async-dispatch.py`, which folds
-    those two instead, preserving their async-ness exactly.
+    prepare-commit-msg-hook.py` -- both `async: true` (their whole value is a
+    side-effect write with no context-bound stdout, kept off boot-latency).
+    Folding an async hook into a SYNC dispatcher process would force it to
+    block session start -- see `sessionstart-async-dispatch.py`, which folds
+    those instead, preserving their async-ness exactly.
 
-SOURCE-GATING, NOT MATCHER-NARROWING. Across the nine registrations that
-predate the 2026-08-16 fan-in, matchers spanned FOUR distinct sets:
-`startup|clear|compact` (four of the five folded HERE: project-orientation.py,
-guard-settings-integrity.py, guard-foreign-platform-paths.py,
-guard-hook-generation-self-probe.py), `startup|resume|clear|compact|fork`
-(the other one folded here, session-start-write-bump-anchor.py --
-assert-em-role.py shared this matcher too but is no longer folded into
-this dispatcher, see above), `startup|compact` (sweep-boot.py --
-deliberately NOT folded, see above), and `startup` alone
-(session-start-repair-prepare-commit-msg-hook.py -- folded into
-sessionstart-async-dispatch.py instead, see above). This dispatcher folds
-only the first two of those four sets -- the five guards in REGISTRY below --
-registered on their union (`startup|resume|clear|compact|fork`). Narrowing
+SOURCE-GATING, NOT MATCHER-NARROWING. The folded legs span several matcher
+sets, so this dispatcher registers on their union
+(`startup|resume|clear|compact|fork`). Narrowing
 HERE, per guard, on the harness's own SessionStart payload `source` field
 (confirmed present and enumerated exactly as
 `startup|resume|clear|compact|fork` by the vendored docs,
@@ -177,6 +176,14 @@ _UNMATCHED_SOURCE_BREADCRUMB = (
 
 
 REGISTRY: Tuple[StartGuard, ...] = (
+    # HEAD LEGS -- see module docstring. Repin is leg 0 and must emit nothing.
+    StartGuard("session_start_repin_cloud_engine_root",
+               "session-start-repin-cloud-engine-root.py",
+               frozenset({"startup", "resume", "clear", "compact", "fork"})),
+    StartGuard("session_start_watch_presence", "session-start-watch-presence.py",
+               frozenset({"startup", "resume", "clear", "compact", "fork"})),
+    StartGuard("session_start_cloud_focus", "session-start-cloud-focus.py",
+               frozenset({"startup"})),
     StartGuard("project_orientation", "project-orientation.py",
                frozenset({"startup", "clear", "compact"}), argv=["--lightweight"]),
     StartGuard("guard_settings_integrity", "guard-settings-integrity.py",
@@ -211,6 +218,39 @@ REGISTRY: Tuple[StartGuard, ...] = (
     StartGuard("guard_hook_generation_self_probe", "guard-hook-generation-self-probe.py",
                frozenset({"startup", "clear", "compact"})),
 )
+
+
+#: The legs owning stream offset 0; must equal the first three REGISTRY keys.
+HEAD_LEGS: Tuple[str, ...] = (
+    "session_start_repin_cloud_engine_root",
+    "session_start_watch_presence",
+    "session_start_cloud_focus",
+)
+
+_REPIN_KEY = HEAD_LEGS[0]
+
+
+def _unwrap_envelope(out: bytes) -> bytes:
+    """A leg's stdout that is exactly one JSON object carrying
+    `hookSpecificOutput.additionalContext` (a string) becomes that text plus a newline;
+    anything else is returned byte-exact."""
+    try:
+        obj = json.loads(out.decode("utf-8"))
+        text = obj["hookSpecificOutput"]["additionalContext"]
+    except Exception:
+        return out
+    if not isinstance(text, str):
+        return out
+    return (text + "\n").encode("utf-8")
+
+
+def _purge_engine(path_snapshot: List[str]) -> None:
+    """Invalidates what a repointed engine root made stale: every `coordinator_core` module and
+    any `sys.path` entry the repin leg added."""
+    for name in [n for n in sys.modules
+                 if n == "coordinator_core" or n.startswith("coordinator_core.")]:
+        del sys.modules[name]
+    sys.path[:] = path_snapshot
 
 
 class _ByteSink:
@@ -335,11 +375,16 @@ def main() -> int:
         except BaseException:
             skipped.append(guard.module_key + " (import)")
             continue
+        path_snapshot = list(sys.path)
         try:
             rc, out, err = _invoke(getattr(mod, "main"), guard.argv, raw)
         except BaseException:
             skipped.append(guard.module_key)
             continue
+        finally:
+            if guard.module_key == _REPIN_KEY:
+                _purge_engine(path_snapshot)
+        out = _unwrap_envelope(out) if out else out
         # INCREMENTAL FLUSH -- see module docstring. Written to the real
         # stdout/stderr immediately, never accumulated for a final join.
         # `out`/`err` are raw bytes (`_invoke`'s `combined_bytes()`); written

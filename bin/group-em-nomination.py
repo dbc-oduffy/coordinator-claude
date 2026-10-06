@@ -9,21 +9,8 @@ by ONE JSON file per repo under `<settings-home>/state/group-em/
 <repo-key>.json`. This CLI is the human/hook-facing surface over that
 record: `nominate`, `stand-down`, `who`, `standing`.
 
-WHY `nominate` REFUSES A LIVE INCUMBENT HERE, UNLIKE THE ARCHIVED DoE
-REFERENCE. The DoE-plane script this replaces documented last-writer-wins
-("entry never refuses") as current policy. That policy is the exact
-2026-08-30 failure `coordinator_core.group_em.nomination`'s own module
-docstring exists to not repeat: a session claiming over a live incumbent
-with no evidence the incumbent has exited. The engine's `claim()` — the
-same function `groupem.enter` (W2-C7's sibling CLI `group-em-enter.py`)
-already calls — auto-replaces ONLY a holder with POSITIVE evidence of
-death (`live_reason: "pid_not_running"`), and refuses (never claims) over a
-LIVE holder or one merely unaccounted for (`live_reason:
-"no_registry_record"`, ambiguous on a multi-machine fleet). This CLI's
-`nominate` verb calls that same `claim()` rather than reimplementing the
-DoE reference's separate, more permissive policy — one nomination policy,
-not two that drift. Recorded in the chunk's arrival record
-(`state/audits/doe-script-arrivals/W2-C7.yaml`).
+`nominate` calls the engine's `claim()`, which never refuses: standing is taken, not
+requested, and the displaced holder is reported (a still-running one is owed a message).
 
 `who` and `standing` are engine-side (`nomination.who`/`nomination.standing`,
 op `groupem.standing`); this CLI only renders them. `stand-down` still is not:
@@ -36,9 +23,9 @@ Cold path — one process, one call. Direct in-process import
 
 Exit codes: 0 success | 2 usage error | 3 no nomination on record
 (`stand-down`/`who`) | 4 stand-down's own record unlink failed (record may
-still be on disk; never reported as success) | 5 refused — `nominate`
-refuses a live/unaccounted-for incumbent; `stand-down` refuses when the
-given session id is not the current holder.
+still be on disk; never reported as success) | 5 refused — `stand-down`
+refuses when the given session id is not the current holder | 8 refused —
+`nominate` when the claim carries no --prompt-id (or a malformed session id).
 
 Spec backlink: docs/plans/2026-09-18-doe-holds-no-scripts.md, chunk W2-C7.
 """
@@ -72,25 +59,25 @@ class NominationResult(NamedTuple):
 
 
 def _nominate(nomination, repo_root: str, session_id: str, *, note: Optional[str] = None,
-              peer_name: Optional[str] = None) -> NominationResult:
-    verdict = nomination.claim(repo_root, session_id, peer_name=peer_name, nominated_by=note)
-    if not verdict.get("claimed"):
-        incumbent = verdict.get("superseded_incumbent") or {}
-        return NominationResult(
-            False,
-            f"refused: incumbent {incumbent.get('session_id', 'unknown')} "
-            f"[{incumbent.get('live_reason', 'unknown')}] holds this repo's nomination",
-            5,
-            verdict,
+              operator: Optional[str] = None, peer_name: Optional[str] = None,
+              prompt_id: Optional[str] = None) -> NominationResult:
+    try:
+        verdict = nomination.claim(
+            repo_root, session_id, peer_name=peer_name, nominated_by=operator, note=note,
+            prompt_id=prompt_id,
         )
+    except nomination.NotHumanEnteredError as exc:
+        return NominationResult(False, str(exc), 8, None)
+    displaced = verdict.get("displaced_holder")
     if verdict.get("already_held"):
         message = f"{session_id} already holds Group EM for {repo_root} (refreshed)"
-    elif verdict.get("replaced_holder"):
-        replaced = verdict["replaced_holder"]
+    elif displaced and verdict.get("displaced_holder_live"):
         message = (
-            f"replaced lapsed nomination {replaced.get('session_id')} with {session_id} "
-            "(prior holder was not live)"
+            f"took Group EM from {displaced} -- that session is still running and does not "
+            "know yet; tell it"
         )
+    elif displaced:
+        message = f"replaced lapsed nomination {displaced} with {session_id} (prior holder was not live)"
     else:
         message = f"nominated {session_id} as Group EM for {repo_root}"
     return NominationResult(True, message, 0, verdict)
@@ -137,7 +124,14 @@ def _who(nomination, repo_root: str) -> NominationResult:
     if annotated is None:
         return NominationResult(False, f"no nomination on record for {repo_root}", 3, None)
     live_state = _LIVE_STATE.get(annotated.get("live_reason"), "not live")
-    message = f"{annotated.get('session_id')} ({live_state}) holds Group EM for {repo_root}"
+    entry = annotated.get("entry_status")
+    if entry == "verified":
+        message = f"{annotated.get('session_id')} ({live_state}) holds Group EM for {repo_root}"
+    else:
+        message = (
+            f"{annotated.get('session_id')} is recorded for {repo_root} but entry is {entry} "
+            "-- no standing"
+        )
     return NominationResult(True, message, 0, annotated)
 
 
@@ -161,6 +155,39 @@ def _standing(nomination, repo_root: str, peer: str) -> NominationResult:
     return NominationResult(True, message, 0, record)
 
 
+def _self_standing(nomination, repo_root: str, session_id: str) -> NominationResult:
+    """First-person, read-only: does `session_id` hold Group EM for the repo? Compares session
+    ids only, never names. Verdict in `record["self_standing"]`: `holder` (exit 0, even when
+    the holder's own liveness reads not live), `not_holder` or `no_record` (exit 5)."""
+    record = nomination.who(repo_root)
+    if record is None or record.get("entry_status") != "verified":
+        return NominationResult(
+            False,
+            f"I am {session_id}; no Group EM is on record for {repo_root}",
+            5,
+            {"self_standing": "no_record"},
+        )
+    holder = str(record.get("session_id") or "")
+    nominated_at = record.get("nominated_at")
+    if session_id and holder == session_id:
+        record["self_standing"] = "holder"
+        message = f"I am {session_id} and I hold Group EM (nominated_at {nominated_at})"
+        if not record.get("live"):
+            message += f"; my own liveness reads not live ({record.get('live_reason')})"
+        return NominationResult(True, message, 0, record)
+    record["self_standing"] = "not_holder"
+    message = (
+        f"I am {session_id} and I do NOT hold Group EM; {holder} holds it "
+        f"(nominated_at {nominated_at})"
+    )
+    if session_id and session_id in (
+        record.get("displaced_holder"),
+        record.get("replaced_holder_session_id"),
+    ):
+        message += f"; {holder} displaced me"
+    return NominationResult(False, message, 5, record)
+
+
 def _resolve_session_id(explicit: Optional[str]) -> Optional[str]:
     return explicit or os.environ.get("CLAUDE_SESSION_ID")
 
@@ -181,6 +208,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     p_nom.add_argument("--session-id", help="session id to nominate; default $CLAUDE_SESSION_ID")
     p_nom.add_argument("--repo", help="repo root; default cwd")
     p_nom.add_argument("--note", help="free-form note")
+    p_nom.add_argument("--operator", help="operator recorded as nominated_by")
+    p_nom.add_argument(
+        "--prompt-id",
+        help="required; recorded pending and verified at read time against the transcript, so "
+        "a CLI claim never verifies without a real human /group-em entry carrying it",
+    )
 
     p_down = sub.add_parser("stand-down", help="stand down the Group EM nomination for a repo")
     p_down.add_argument("--session-id", help="session id standing down; default any holder")
@@ -189,6 +222,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     p_who = sub.add_parser("who", help="show the current Group EM nomination for a repo")
     p_who.add_argument("--repo", help="repo root; default cwd")
     p_who.add_argument("--json", action="store_true", help="emit the record as JSON")
+    p_who.add_argument(
+        "--self", dest="self_check", action="store_true",
+        help="first-person check: does this session hold the role? exit 0 holder, 5 otherwise",
+    )
+    p_who.add_argument("--session-id", help="with --self; default $CLAUDE_SESSION_ID")
 
     p_standing = sub.add_parser(
         "standing",
@@ -211,17 +249,36 @@ def main(argv: Optional[list[str]] = None) -> int:
         return 2
 
     if args.verb == "nominate":
+        from coordinator_core.argv_fidelity import ArgvFidelityError, refuse_newline_argv
+
+        try:
+            refuse_newline_argv(args.note, flag_name="--note", remedy="keep the note to one line.")
+        except ArgvFidelityError as exc:
+            parser.error(str(exc))
         session_id = _resolve_session_id(args.session_id)
         if not session_id:
             parser.error("give --session-id or set $CLAUDE_SESSION_ID")
         peer_name = _resolve_peer_name(session_registry, session_id)
-        result = _nominate(nomination, repo, session_id, note=args.note, peer_name=peer_name)
+        result = _nominate(nomination, repo, session_id, note=args.note,
+                          operator=args.operator, peer_name=peer_name,
+                          prompt_id=args.prompt_id)
         print(result.message, file=sys.stdout if result.ok else sys.stderr)
         return result.exit_code
 
     if args.verb == "stand-down":
         result = _stand_down(nomination, atomic_record, repo, args.session_id)
         print(result.message, file=sys.stdout if result.ok else sys.stderr)
+        return result.exit_code
+
+    if args.verb == "who" and args.self_check:
+        session_id = _resolve_session_id(args.session_id)
+        if not session_id:
+            parser.error("give --session-id or set $CLAUDE_SESSION_ID")
+        result = _self_standing(nomination, repo, session_id)
+        if args.json:
+            print(json.dumps(result.record))
+        else:
+            print(result.message, file=sys.stdout if result.ok else sys.stderr)
         return result.exit_code
 
     if args.verb == "who":

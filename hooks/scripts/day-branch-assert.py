@@ -123,6 +123,21 @@ def _is_install_or_engine_clone(repo_root) -> bool:
         return False
 
 
+def _record_cloud_checkouts() -> None:
+    try:
+        from _engine_root import resolve_claude_klabauter_root, place_engine_root_on_path
+        root = resolve_claude_klabauter_root()
+        if not root:
+            return
+        place_engine_root_on_path(root)
+        from coordinator_core.hooks.day_branch_assert import (
+            record_mounted_checkout_designations,
+        )
+        record_mounted_checkout_designations(os.getcwd())
+    except Exception:
+        pass
+
+
 def main() -> int:
     try:
         from _machine_profile import is_author
@@ -149,6 +164,11 @@ def main() -> int:
     except Exception:
         return 0
     if repo_root is None:
+        # A cloud session's cwd sits above every mounted checkout, so no repo
+        # resolves; the designation still has to land in each checkout or
+        # bug-blitz's preflight finds no day branch.
+        if os.environ.get("CLAUDE_CODE_REMOTE") == "true":
+            _record_cloud_checkouts()
         return 0
 
     if _is_install_or_engine_clone(repo_root):

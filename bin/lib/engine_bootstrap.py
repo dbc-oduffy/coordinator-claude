@@ -525,9 +525,8 @@ def _resolve_engine_root(caller_file: str | None = None) -> str:
             canonical module's cached entry.
         """
         if _is_same_tree_as_canonical(candidate):
-            _injected = candidate not in sys.path
-            if _injected:
-                sys.path.insert(0, candidate)
+            _path_before = list(sys.path)
+            sys.path[:] = [candidate] + [p for p in sys.path if p != candidate]
             try:
                 try:
                     from coordinator_core.engine_root import coordinator_engine_root_with_class
@@ -540,11 +539,7 @@ def _resolve_engine_root(caller_file: str | None = None) -> str:
                     ) from exc
                 resolved, _resolution_class = coordinator_engine_root_with_class()
             finally:
-                if _injected:
-                    try:
-                        sys.path.remove(candidate)
-                    except ValueError:
-                        pass
+                sys.path[:] = _path_before
         else:
             coordinator_engine_root_with_class = _load_foreign_gate_entry_point(candidate)
             if coordinator_engine_root_with_class is None:

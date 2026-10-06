@@ -236,6 +236,12 @@ def _pre_manufactured_blocker(ctx: Ctx) -> bool:
     return bool(ctx.final_assistant_text())
 
 
+def _pre_drive_root_new_dir(ctx: Ctx) -> bool:
+    # One scandir per drive root; it must see every writer (tests included), so
+    # nothing narrower than "not a re-entered Stop" can gate it.
+    return not ctx.stop_hook_active
+
+
 def _pre_transcript_present(ctx: Ctx) -> bool:
     # The two engine-backed pointer shims both work off the final assistant
     # message; no transcript, no possible fire.
@@ -321,6 +327,8 @@ REGISTRY: Tuple[StopGuard, ...] = (
               "stop-em-report-altitude.py", _pre_em_report_altitude),
     StopGuard("guard_kira_verdict_routed",
               "guard-kira-verdict-routed.py", _pre_kira_verdict_routed),
+    StopGuard("guard_drive_root_new_dir",
+              "guard-drive-root-new-dir.py", _pre_drive_root_new_dir),
     # A PRODUCER, not a guard -- it always exits 0 with empty stdout, so it
     # contributes nothing to this dispatcher's CONCATENATE-ALL aggregation and
     # cannot change any verdict. It rides the fan-in rather than taking a

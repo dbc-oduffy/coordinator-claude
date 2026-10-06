@@ -52,12 +52,13 @@ call appears anywhere in this module's source.
 NO SCORING MODEL. See leg 3 above — `_MIN_SHARED_TOKENS` is a recall threshold, not a weight.
 
 MULTI-OS / NO SINGLE-MACHINE ASSUMPTIONS. `pathlib` for every path join, root resolved from
-`__file__` (never `cwd`), zero `subprocess` calls, `--goals-dir`/`--repo-root` overridable for
-fixtures so no test anchors to this checkout's `state/goals/` (Anti-scope: never anchor a test
-to the live goal tree).
+the caller's own git root (`git_root_walk()` from `cwd`, never from `__file__`), zero
+`subprocess` calls, `--goals-dir`/`--repo-root` overridable for fixtures so no test anchors to
+this checkout's `state/goals/` (Anti-scope: never anchor a test to the live goal tree).
 
-Flags: `--goals-dir` (default `<repo-root>/state/goals`), `--repo-root` (default resolved from
-`__file__`), `--json` (machine-readable emission for ceremony consumption).
+Flags: `--goals-dir` (default `<repo-root>/state/goals`), `--repo-root` (default the git root of
+`cwd`; outside any repo with no flag the CLI refuses and names `--repo-root`), `--json`
+(machine-readable emission for ceremony consumption).
 """
 from __future__ import annotations
 
@@ -89,8 +90,23 @@ _STOPWORDS = frozenset(
 _TOKEN_SPLIT_RE = re.compile(r"[^a-z0-9]+")
 
 
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
+def git_root_walk(start: "str | None" = None) -> "str | None":
+    """`_git_root_walk.git_root_walk`, imported on first call so a bare import leaves
+    `sys.path` untouched. A bare claude-klabauter checkout (hooks/scripts absent) falls back to this
+    file's own repo root."""
+    lib_dir_walk = str(Path(__file__).resolve().parents[1] / "lib")
+    if lib_dir_walk not in sys.path:
+        sys.path.insert(0, lib_dir_walk)
+    try:
+        from _git_root_walk import git_root_walk as _impl
+    except ImportError:
+        return str(_REPO_ROOT)
+    return _impl(start)
+
+
+def _repo_root() -> "Path | None":
+    root = git_root_walk()
+    return Path(root).resolve() if root else None
 
 
 def _load_goal_assessment_staleness():
@@ -364,6 +380,9 @@ def main(argv: "list[str] | None" = None) -> int:
     args = parser.parse_args(argv)
 
     repo_root = Path(args.repo_root).resolve() if args.repo_root else _repo_root()
+    if repo_root is None:
+        print("goal-kr-evidence: not inside a git repo; pass --repo-root <path>", file=sys.stderr)
+        return 2
     goals_dir = Path(args.goals_dir).resolve() if args.goals_dir else repo_root / "state" / "goals"
 
     report = build_report(goals_dir, repo_root)

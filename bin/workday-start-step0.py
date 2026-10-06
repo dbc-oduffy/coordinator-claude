@@ -481,7 +481,7 @@ def main(argv: list[str]) -> int:
 
     from coordinator_core.daily_branch import read_configured_day_branch
 
-    configured_day_branch = read_configured_day_branch(wc.root)
+    configured_day_branch = read_configured_day_branch(os.getcwd())
     if configured_day_branch and current == configured_day_branch:
         _out(f"IN-SPAN branch={current}")
         return 0

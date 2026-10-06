@@ -26,7 +26,7 @@ bootstrap-orchestrate.py.
 # level up) and sets COORDINATOR_ROOT in the environment (if not already set)
 # before importing the op — the op's own rung-1 resolver reads that var, mirroring
 # the convention already used by coordinator_core.ops.learn_lessons_roots /
-# coordinator_content_root.
+# content_root.
 #
 # Usage / flags / exit codes: unchanged from the bash oracle — see the op
 # module's own docstring (coordinator_core/ops/bootstrap_repo.py) for the full

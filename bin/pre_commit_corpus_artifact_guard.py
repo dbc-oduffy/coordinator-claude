@@ -69,6 +69,9 @@ import os
 import subprocess
 import sys
 
+# A console-subsystem child with no console of its own allocates a fresh conhost on
+# Windows -- with a visible window. Every git spawn below is short-lived and
+# output-captured, so without this each one flashes. 0 on POSIX, where the flag doesn't exist.
 _NO_CONSOLE = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
 
 _CORPUS_PREFIXES = (
@@ -82,16 +85,23 @@ _MAX_MB_ENV = "OVERSIZE_BLOB_MAX_MB"
 
 
 def _git(args: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["git", *args],
-        capture_output=True,
-        text=True,
-        shell=False,
-        **_NO_CONSOLE,
-    )
+    try:
+        return subprocess.run(
+            ["git", *args],
+            capture_output=True,
+            text=True,
+            shell=False,
+            timeout=15,
+            **_NO_CONSOLE,
+        )
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(["git", *args], 124, "", "git timed out")
 
 
 def _staged_paths() -> list[str]:
+    """Paths introducing new content: added, modified, renamed. Deletes introduce no blob.
+    A rename counts -- `git mv` then `git add -f` records as R, and the destination is a
+    real blob that would be pushed."""
     proc = _git(["diff", "--cached", "--name-only", "--diff-filter=AMR"])
     if proc.returncode != 0:
         return []
@@ -99,6 +109,9 @@ def _staged_paths() -> list[str]:
 
 
 def _staged_size(path: str) -> int | None:
+    """None is deliberately distinct from 0: an unmeasurable path is skipped rather than
+    passed, so a concurrent index write on this shared tree never converts an oversized
+    blob into a silent pass."""
     proc = _git(["cat-file", "-s", f":{path}"])
     if proc.returncode != 0:
         return None

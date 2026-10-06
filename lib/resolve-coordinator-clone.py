@@ -29,8 +29,8 @@ rung bodies, since git-ops gates oss on .git while content gates oss on the
     1. COORDINATOR_CLONE env var (non-empty, must have .git/)
     2. registry repos.content_root (canonical), then
        plugin.mirrors.coordinator-claude.live_path (fallback)
-    3. Pointer file (settings-home durable, then legacy ~/.claude/.content-root)
-       -> DoE repo root, gated on -d <root>/.git
+    3. Pointer file (settings-home durable, then ~/.claude, content-root name
+       before the pre-rename name) -> content repo root, gated on -d <root>/.git
     4. Flat layout: ~/.claude/plugins/coordinator-claude, gated on .git/
     5. FAIL-LOUD
 
@@ -266,28 +266,31 @@ def _registry_live_path() -> str:
 
 # ---------------------------------------------------------------------------
 # Content-root pointer.
-# Durable-first (DR-072): settings-home pointer, falling back to the legacy
-# ~/.claude/.content-root during the transition window.
+# Durable-first (DR-072): settings-home pointer, falling back to ~/.claude;
+# at each location the content-root name is tried before the pre-rename name
+# an un-migrated box still carries.
 # ---------------------------------------------------------------------------
+
+_CONTENT_ROOT_POINTER = ".coordinator-content-root"
+_LEGACY_ROOT_POINTER = ".content-root"  # private-name-ok: compat-fallback
+
 
 def _read_content_root_pointer() -> str:
     settings_home = _settings_home_dir()
-    if settings_home:
-        try:
-            root = (Path(settings_home) / "machine-local" / ".content-root").read_text(encoding="utf-8").strip()
-            if root:
-                return root
-        except OSError:
-            pass
-
     claude_home = _claude_home_dir()
-    if claude_home:
-        try:
-            root = (Path(claude_home) / ".content-root").read_text(encoding="utf-8").strip()
+    for name in (_CONTENT_ROOT_POINTER, _LEGACY_ROOT_POINTER):
+        for base in (
+            Path(settings_home) / "machine-local" if settings_home else None,
+            Path(claude_home) if claude_home else None,
+        ):
+            if base is None:
+                continue
+            try:
+                root = (base / name).read_text(encoding="utf-8").strip()
+            except OSError:
+                continue
             if root:
                 return root
-        except OSError:
-            pass
 
     return ""
 
@@ -418,9 +421,9 @@ def resolve_git_ops() -> str:
     if live and (Path(live) / ".git").is_dir():
         return live
 
-    content_root = _read_content_root_pointer()
-    if content_root and (Path(content_root) / ".git").is_dir():
-        return content_root
+    pointed_root = _read_content_root_pointer()
+    if pointed_root and (Path(pointed_root) / ".git").is_dir():
+        return pointed_root
 
     claude_home = _claude_home_dir()
     if claude_home:
@@ -432,7 +435,7 @@ def resolve_git_ops() -> str:
         "resolve-coordinator-clone --for-git-ops: no git-backed coordinator clone found.\n"
         "  Tried: COORDINATOR_CLONE env, registry repos.content_root (canonical),\n"
         "         registry plugin.mirrors.coordinator-claude.live_path (fallback),\n"
-        "         durable/.content-root pointer, flat ~/.claude/plugins/coordinator-claude\n"
+        "         durable content-root pointer, flat ~/.claude/plugins/coordinator-claude\n"
         "  (no .git in any tried location)\n"
         "  Run: coordinator:install OR set COORDINATOR_CLONE to the clone path."
     )
@@ -486,13 +489,13 @@ def resolve_content() -> str:
     if newest:
         return newest
 
-    content_root = _read_content_root_pointer()
-    if content_root:
+    pointed_root = _read_content_root_pointer()
+    if pointed_root:
         # Either content layout — a pointer naming the published flat mirror
         # resolved nothing while this rung knew only `<root>/coordinator`.
         from coordinator_data_root import content_root_for
 
-        pointed = content_root_for(content_root)
+        pointed = content_root_for(pointed_root)
         if pointed is not None:
             return str(pointed)
 
@@ -505,7 +508,7 @@ def resolve_content() -> str:
     raise ResolutionError(
         "resolve-coordinator-clone --for-content: no readable coordinator content root found.\n"
         "  Tried: CLAUDE_PLUGIN_ROOT, COORDINATOR_ROOT, registry live_path,\n"
-        "         versioned cache glob, durable/.content-root pointer,\n"
+        "         versioned cache glob, durable content-root pointer,\n"
         "         flat ~/.claude/plugins/coordinator-claude\n"
         "  Run: coordinator:install OR set COORDINATOR_ROOT to the coordinator directory."
     )

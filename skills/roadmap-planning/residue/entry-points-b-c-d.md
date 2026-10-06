@@ -28,15 +28,14 @@ seed.
 ### Entry Point D — Conform intake from a sizing-object (roadmap-routed)
 
 A `state/sizings/<id>.yaml` with `route: pm-decision` + `xl_exit: roadmap` (or legacy `route:
-roadmap` — accept both). Optional: with none present this skill runs exactly as today, and the
-sizing lobby never gates or refuses a `roadmap-planning` invocation absent one.
+roadmap` — accept both). Optional: absent one, this skill runs as today; the sizing lobby never
+gates a `roadmap-planning` invocation on it.
 
 1. Read `intent` (verbatim), `estimate`, `scout_evidence`, and `appetite` if present (usually
-   absent — read defensively; absence is not an incomplete artifact).
+   absent; read defensively).
 2. It is extra Phase 1.1 inventory input, not a pre-built cluster set; Steps 1.1–1.4 run unchanged.
 3. Cite its path in `OVERVIEW.md`'s framing prose (Step 1.5.2); no new frontmatter field.
-4. If B or C also applies, resolve to whichever of A/B/C matches the input shape and note the
-   sizing-object alongside.
+4. If B or C also applies, take whichever of A/B/C matches the input shape; note the sizing-object alongside.
 
 The same sizing run in the background, with one approval gate, is `coordinator:roadmap-blitz`.
 

@@ -82,7 +82,7 @@ def _resolve_coordinator_root() -> str:
     artifact-shape-contract/ (default output).
 
     CLAUDE_PLUGIN_ROOT wins verbatim if set. Otherwise resolves via
-    coordinator_registry.content_root() (env CONTENT_ROOT / REPO_CONTENT_ROOT -> machine-local
+    coordinator_registry.content_root() (env REPO_CONTENT_ROOT -> machine-local
     repos.content_root -> raise) and returns <content_root()>/coordinator.
 
     Does NOT derive from this script's own __file__ location — see this module's
@@ -105,8 +105,8 @@ def _resolve_coordinator_root() -> str:
     except _DoeUnresolvable as exc:
         print(
             f"emit-artifact-shape-contract: cannot resolve the coordinator doctrine repo root ({exc}). "
-            "Set repos.content_root in the machine-local registry, or set the CONTENT_ROOT "
-            "(or REPO_CONTENT_ROOT) env var, or set CLAUDE_PLUGIN_ROOT directly.",
+            "Set repos.content_root in the machine-local registry, or set the "
+            "REPO_CONTENT_ROOT env var, or set CLAUDE_PLUGIN_ROOT directly.",
             file=sys.stderr,
         )
         sys.exit(2)

@@ -6,12 +6,14 @@ behaves. A wrong value does not error: the tool is simply absent from the model'
 session reports the capability as missing from this build. `/coordinator:install` checked only
 whether the key was PRESENT, so a key present at the wrong value passed every gate.
 
-That is not hypothetical. `DR-187` ratified `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS="1"` as standing
-and its plan updated all eight doctrine surfaces, but the live `settings.json` was never flipped
-back from `"0"`; `CLAUDE_CODE_ENABLE_TODO_TOOLS` — manifest-required on all machines since Claude
-Code v2.1.233 stopped shipping `Task*` by default on Opus 4.8 / Sonnet 5 / Fable 5 / Mythos 5 — was
-absent entirely. Every session on the box ran without the task-graph while every doctrine surface
-said it was on, and the presence-only check reported healthy throughout.
+That is not hypothetical. `CLAUDE_CODE_ENABLE_TODO_TOOLS` — manifest-required on all machines since
+Claude Code v2.1.233 stopped shipping `Task*` by default on Opus 4.8 / Sonnet 5 / Fable 5 / Mythos 5 —
+was absent entirely. Every session on the box ran without the task-graph while every doctrine
+surface said it was on, and the presence-only check reported healthy throughout.
+
+RETIRED KEYS. `_STALE` names variables that must not be set at all (`DR-411`); their presence is a
+finding, and `--apply` deletes them from `settings.json` so an install run discharges a retirement
+without anyone remembering it. A retired key set in `settings.local.json` is reported, not deleted.
 
 REPORT-ONLY BY DEFAULT. Without `--apply` this prints and sets its exit code; it never writes
 `settings.json`. `--apply` writes only the rows marked `all_machines` — a value the manifest states
@@ -85,12 +87,6 @@ def _spec() -> tuple[_Row, ...]:
     if _SPEC_CACHE is None:
         _SPEC_CACHE = (
             _Row(
-                "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS",
-                required="1",
-                all_machines=True,
-                gates="Agent Teams, the deep-research pipelines, and the Task* task-graph they block on",
-            ),
-            _Row(
                 "CLAUDE_CODE_ENABLE_TODO_TOOLS",
                 required="1",
                 all_machines=True,
@@ -106,6 +102,11 @@ def _spec() -> tuple[_Row, ...]:
             ),
         )
     return _SPEC_CACHE
+
+
+_STALE = {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "retired by DR-411; chatty workflows replace Agent Teams",
+}
 
 
 def __getattr__(name: str) -> object:
@@ -199,6 +200,22 @@ def _evaluate(
                     "gates": row.gates,
                 }
             )
+    for name, why in _STALE.items():
+        from_local = name in local_env
+        actual = local_env[name] if from_local else env.get(name)
+        if actual is None:
+            continue
+        findings.append(
+            {
+                "var": name,
+                "kind": "stale-key",
+                "actual": actual,
+                "expected": "unset",
+                "repairable": not from_local,
+                "source": "settings.local.json" if from_local else "settings.json",
+                "gates": why,
+            }
+        )
     return findings
 
 
@@ -210,8 +227,17 @@ def _apply(path: Path, findings: list[dict[str, object]]) -> list[str]:
     doc = json.loads(path.read_text(encoding="utf-8"))
     doc.setdefault("env", {})
     for finding in repairable:
-        doc["env"][str(finding["var"])] = str(finding["expected"])
-    path.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8", newline="\n")
+        if finding["kind"] == "stale-key":
+            doc["env"].pop(str(finding["var"]), None)
+        else:
+            doc["env"][str(finding["var"])] = str(finding["expected"])
+    tmp = path.with_name(f".{path.name}.tmp{os.getpid()}")
+    try:
+        tmp.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8", newline="\n")
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
     return [str(f["var"]) for f in repairable]
 
 
@@ -261,7 +287,7 @@ def main(argv: list[str] | None = None) -> int:
         )
     else:
         for var in applied:
-            print(f"applied: {var} set to the manifest value in {path}")
+            print(f"applied: {var} brought to the manifest value (set, or removed if retired) in {path}")
         if not findings:
             print(f"check-settings-env: OK — every required env value matches ({path})")
         for finding in findings:
@@ -274,6 +300,8 @@ def main(argv: list[str] | None = None) -> int:
                     f"    set in {local.name}, which outranks {path.name} — "
                     "fix it there; writing the user file cannot override it"
                 )
+            elif finding["kind"] == "stale-key":
+                print("    retired key; --apply removes it")
             elif not finding["repairable"]:
                 print("    machine-specific: not auto-written, set it by hand on this host")
 

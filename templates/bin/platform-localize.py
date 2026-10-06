@@ -145,8 +145,11 @@ def _import_main():
         from cc_invoke import _resolve_engine_root
 
         engine_root = _resolve_engine_root()
-    if engine_root not in sys.path:
-        sys.path.insert(0, engine_root)
+    # Front-insert unconditionally: a membership guard is a no-op under an editable engine
+    # install, which leaves the cwd's tree to win the import.
+    if engine_root in sys.path:
+        sys.path.remove(engine_root)
+    sys.path.insert(0, engine_root)
     from coordinator_core.hooks.platform_localize import main as _op_main
 
     return _op_main

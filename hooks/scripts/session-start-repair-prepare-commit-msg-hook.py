@@ -249,11 +249,17 @@ def main() -> int:
     if count != 1:
         return 0
 
+    tmp = hook_path.with_name(hook_path.name + ".tmp-%d" % os.getpid())
     try:
-        hook_path.write_text(new_text, encoding="utf-8")
         current_mode = hook_path.stat().st_mode
-        hook_path.chmod(current_mode | 0o111)
+        tmp.write_text(new_text, encoding="utf-8")
+        tmp.chmod(current_mode | 0o111)
+        os.replace(tmp, hook_path)
     except Exception:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
         return 0
 
     return 0

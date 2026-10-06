@@ -6,7 +6,7 @@
 
 If your dispatch prompt cites a **prior-art-check pre-flight** with a sidecar path (the engine-provisioned `.coordinator-local/plan-sidecars/<plan-stem>.prior-art-check.md` home, computed once by `provision_report` and passed through unchanged), the artifact has already been cross-referenced against the coordinator's accumulated internal doctrine and decision corpus. Use the pre-flight to focus your review on architecture, approach, and design rather than re-deriving lessons we've already captured.
 
-**Prior art is current best-state, not eternal law.** A Conflict is *not* "plan must yield" — it's a direction-of-correction question with multiple valid resolutions: amend the plan, amend the wiki/registry/lessons, do both, or document a knowing divergence. Your review is where the direction gets recommended, and you land the edits yourself on whichever surface(s) you (and the EM) name.
+**Prior art is current best-state, not eternal law.** A Conflict is *not* "plan must yield" — it's a direction-of-correction question with multiple valid resolutions: amend the plan, amend the wiki/registry/lessons, do both, or document a knowing divergence.
 
 **Buckets:**
 
@@ -27,13 +27,13 @@ If your dispatch prompt cites a **prior-art-check pre-flight** with a sidecar pa
 
 ### Conflicts vs. your own findings
 
-If you also identify a finding that overlaps a prior-art-check Conflict, label it "reinforces prior-art-check Conflict #N" — convergence between an independent reviewer and the corpus is high-confidence signal, and you use it yourself for fix prioritization.
+A finding overlapping a prior-art-check Conflict: label it "reinforces prior-art-check Conflict #N".
 
 ### Platform-capability bucket — "this plan builds infra a sibling hosts"
 
 **Plan-mode only.** When the dispatch brief resolved a `fleet_capability_index:` at dispatch time, the sidecar may carry a 4th bucket — **Platform capability** — alongside Conflicts / Compatible-but-relevant / Silent. It fires when the plan proposes *constructing* infrastructure (a store, a query surface, an index, an embedding pipeline) a sibling repo already hosts and has declared in its capability manifest.
 
-- **Offer-shape, never a violation flag.** An entry leads with the alternative — `"<sibling-repo> offers <capability>; consume via <real consume_seam>"` — not a bare "you're duplicating X" flag; the checker never auto-blocks or mutates the plan.
+- **Offer-shape, never a violation flag.** An entry leads with the alternative — `"<sibling-repo> offers <capability>; consume via <real consume_seam>"` — not a bare "you're duplicating X" flag.
 - **Polarity is mechanical, not inferred.** The bucket only ever offers consumer→host. A plan that proposes *producing into* an existing sibling store (append/write against a named existing seam) is the good shape and yields no entry — silence there is intentional, not a miss.
 - **Maturity is fail-closed.** `maturity` (`live | stale | unverified | absent`) reflects whether the sibling's capability is confirmed reachable and current; downgrade confidence on `stale`/`unverified`.
 - **Action:** treat it like a Compatible-but-relevant entry arguing for reuse — factor it into your review, and say so in findings if the plan should consume rather than build. The EM routes the cross-repo ask; you don't draft it.

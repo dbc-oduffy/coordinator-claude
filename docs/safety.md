@@ -52,9 +52,7 @@ list this repo maintains against its own uninstall command), the surfaces it can
 | 8 | `~/.claude/coordinator-identity.yaml`, `working-repos.yaml` | Your operator name and posture preferences |
 | 9 | `${HOME}/.local/bin/claude-author` wrapper | Only present in the maximalist/dev install mode |
 
-It also, on request, adds `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1"` to the `env` block of
-`~/.claude/settings.json` (required for staff sessions and research pipelines; takes effect on
-next restart) and seeds `~/.claude/CLAUDE.md` from a template — but only when that file is absent
+It also seeds `~/.claude/CLAUDE.md` from a template — but only when that file is absent
 or already carries the seed's own sentinel; a hand-authored `CLAUDE.md` is never overwritten.
 
 Sources: `coordinator/commands/uninstall.md` §§ "What gets reversed", "Backing script";
@@ -217,7 +215,7 @@ jq '.plugins | keys | map(select(endswith("@coordinator-claude")))' \
 jq '.enabledPlugins | to_entries | map(select(.key | endswith("@coordinator-claude")))' \
   ~/.claude/settings.json
 
-# Agent Teams env var (only if you accepted the Phase 1b offer)
+# Retired Agent Teams flag; expect null
 jq '.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS' ~/.claude/settings.json
 ```
 

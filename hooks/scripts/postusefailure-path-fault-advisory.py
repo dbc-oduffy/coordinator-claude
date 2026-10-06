@@ -7,6 +7,9 @@ brackets, a literal `$` reference). Any other failure passes silently.
 
 Blind by construction when `python3` itself is unresolvable: this hook then never runs.
 Never blocks; always exits 0.
+
+Second duty: a failed WebSearch call appends one `failure` row to the machine-local spend ledger
+(coordinator/contract/websearch-ledger.md), independent of the advisory.
 """
 
 from __future__ import annotations
@@ -15,6 +18,9 @@ import json
 import os
 import re
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 _ERROR_RE = re.compile(r"command not found|Executable not found in \$PATH")
 
@@ -50,6 +56,13 @@ def main() -> int:
         return 0
     if not isinstance(payload, dict):
         return 0
+    if payload.get("tool_name") == "WebSearch":
+        try:
+            import _websearch_ledger
+
+            _websearch_ledger.record(payload, "failure")
+        except Exception:
+            pass
     error = payload.get("error")
     if not isinstance(error, str) or not _ERROR_RE.search(error):
         return 0

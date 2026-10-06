@@ -55,6 +55,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
+# Windows-only: suppress the console window that console-subsystem child
+# processes (nvidia-smi; sysctl is POSIX-only so unaffected) flash when this
+# process has no console to inherit. POSIX: empty dict.
 _no_console_kw = (
     {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
 )
@@ -76,6 +79,12 @@ def _settings_home() -> Path:
 
 
 def _read_hardware_concern() -> dict[str, Any]:
+    """In-process, zero-subprocess read of the `hardware` machine-local concern.
+
+    Fails open on every rung: pre-3.11 interpreter (no tomllib), missing settings-home,
+    missing/unreadable/malformed TOML, or an empty/absent `[hardware]` table all return
+    `{}` -- callers MUST treat `{}` as "probe live", never as an error.
+    """
     try:
         import tomllib
     except ImportError:
@@ -118,6 +127,7 @@ def _read_hardware_concern() -> dict[str, Any]:
 
 
 def _sysctl_str(key: str) -> str | None:
+    """Read a single sysctl key as a string; return None on any failure."""
     try:
         r = subprocess.run(
             ["sysctl", "-n", key],
@@ -136,10 +146,28 @@ def _sysctl_str(key: str) -> str | None:
 
 @functools.lru_cache(maxsize=1)
 def _nvidia_smi_absent() -> bool:
+    """True when `nvidia-smi` is not on PATH. Resolved once per process: absence is a
+    machine fact that cannot change mid-process; the SUCCESS path (vram_free_mib etc.)
+    stays live, never cached."""
     return shutil.which("nvidia-smi") is None
 
 
 def _probe_gpu() -> dict[str, Any]:
+    """Probe GPU presence via nvidia-smi or Apple Silicon sysctl (no torch import).
+
+    All twelve keys (present, vendor, vram_free_mib, cuda_driver, vram_total_mib, name,
+    compute_capability, driver_model, device_count, integrated, unified_memory_bytes,
+    mps_capable) are present in every return dict. On non-NVIDIA/non-Apple-Silicon
+    machines, present=False and all keys are None except integrated=False and
+    mps_capable=False (boolean, not None).
+
+    Apple Silicon branch (Darwin arm64, nvidia-smi absent/failing): present=True,
+    vendor="apple", mps_capable=True (derived from Darwin+arm64, no torch import).
+    Nvidia-only fields are None.
+
+    Per-device fields describe device 0 only; device_count is the total across all
+    devices. Multi-GPU per-device enumeration is out of scope.
+    """
     if not _nvidia_smi_absent():
         try:
             result = subprocess.run(
@@ -194,6 +222,7 @@ def _probe_gpu() -> dict[str, Any]:
         except (FileNotFoundError, subprocess.TimeoutExpired, OSError, ValueError):
             pass
 
+    # Apple Silicon branch: Darwin + arm64 + no working nvidia-smi.
     if platform.system() == "Darwin" and platform.machine() == "arm64":
         chip_name = _read_hardware_concern().get("gpu") or _sysctl_str("machdep.cpu.brand_string")
         unified_memory_bytes: int | None = None
@@ -235,6 +264,7 @@ def _probe_gpu() -> dict[str, Any]:
 
 
 def _absent_envelope() -> dict[str, Any]:
+    """The all-None, present=False envelope -- the shape every consumer degrades to."""
     return {
         "present": False,
         "vendor": None,

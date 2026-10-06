@@ -31,8 +31,9 @@ import _copy_currency as cc  # noqa: E402
 COPY = "capability-index"
 INDEX_RELPATH = "state/capabilities/fleet-index.json"
 
-#: Settings-home launcher names that expose `fleet.aggregate_capability_index`.
-REMEDY_LAUNCHER_CANDIDATES = ("coordinator-fleet-aggregate-capability-index",)
+#: Settings-home launchers that can dispatch `REMEDY_OP`.
+REMEDY_LAUNCHER_CANDIDATES = ("coordinator-invoke",)
+REMEDY_OP = "fleet.aggregate_capability_index"
 
 _NO_CLONE = "no claude-klabauter clone registered"
 
@@ -77,7 +78,7 @@ def resolve_remedy(
     settings_home: Path | None = None,
     candidates: tuple[str, ...] = REMEDY_LAUNCHER_CANDIDATES,
 ) -> str:
-    """Name the launcher invocation for the index op, or the no-local-remedy literal.
+    """Name the full invocation of the index op, or the no-local-remedy literal.
 
     Existence checks only; never executes or probes a launcher.
     """
@@ -91,7 +92,7 @@ def resolve_remedy(
         for name in candidates:
             launcher = bin_dir / (name + suffix)
             if launcher.is_file():
-                return str(launcher)
+                return f"{launcher} {REMEDY_OP} '{{}}'"
     except Exception:  # noqa: BLE001 -- an unresolvable remedy is the literal, not an error
         pass
     return cc.no_local_remedy("claude-klabauter")

@@ -42,7 +42,7 @@ root exactly as that section names: `coordinator_core.warm.caller_context ::
 resolve_caller_context`, falling back to
 `coordinator_core.subagent_sandbox.provision_report :: resolve_plugin_root`'s
 own three-rung ambient probe (`CLAUDE_PLUGIN_ROOT` env var -> plugin dir ->
-`.content-root` pointer) — the same pair chunk W2-C9's mise-prep-entry.py already
+Content-root pointer) — the same pair chunk W2-C9's mise-prep-entry.py already
 uses for its own doctrine-asset seam. The DoE original derived its own repo
 root from `Path(__file__).resolve().parent.parent.parent` — the
 Coordinator-content-repo@b644d5a9 lesson this whole wave exists to fix: that resolved
@@ -67,6 +67,8 @@ import json
 import os
 import sys
 from pathlib import Path
+
+
 
 #: Populated by `_resolve_caller_context()`, deferred out of module scope so the non-stdlib
 #: import it performs is not a module-body-inertness violation
@@ -111,7 +113,7 @@ def _repo_root() -> Path:
             "generate-doctrine-surfaces: cannot resolve the coordinator plugin "
             "root -- resolve_caller_context().plugin_root returned no result. "
             "Set CLAUDE_PLUGIN_ROOT, or register the coordinator-claude plugin "
-            "install / .content-root pointer (see resolve_plugin_root())."
+            "install / content-root pointer (see resolve_plugin_root())."
         )
     return Path(plugin_root).resolve().parent
 
@@ -197,6 +199,10 @@ def manifest_path(repo_root: Path) -> Path:
 
 
 def main(argv: list[str] | None = None) -> int:
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+    from cc_invoke import ensure_engine_on_path
+
+    ensure_engine_on_path(__file__)
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--check", action="store_true", help="diff the manifest against a fresh render; write nothing"

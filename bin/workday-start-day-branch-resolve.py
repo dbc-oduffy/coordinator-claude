@@ -54,9 +54,8 @@ Subcommands:
     day-branch-assert [--repo-root <path>]
         C6 of coordinator-content-repo docs/plans/2026-08-18-enforce-day-branch-cut-tree-invariant.md
         (AC-6). Gives `/workweek-start` a real branch leg: `orient-assemble brief
-        --cadence week`'s spine is READ-ONLY BY CONSTRUCTION (module docstring of
-        coordinator_core.orient_assemble, enforced by
-        orient_assemble/tests/test_read_only_guarantee.py — every disk-write
+        --cadence week`'s spine is READ-ONLY BY CONSTRUCTION (the `orient-assemble brief` read-only
+        guarantee, enforced by its read-only-guarantee test — every disk-write
         primitive and any `git fetch` fails the test if a reader touches it), so it
         structurally CANNOT host the git-mutating leg C4b/C10 own. That rules out
         folding the assertion into the cadence-invariant spine (the plan's option

@@ -92,7 +92,7 @@ Environment:
     CLAUDE_HOME -- overrides the `~/.claude` resolution root (defaults to
                    `$HOME/.claude`), matching the convention documented in
                    `coordinator/bin/count-distill-backlog.py`.
-    CONTENT_ROOT / REPO_CONTENT_ROOT -- overrides the coordinator doctrine repo root that
+    REPO_CONTENT_ROOT -- overrides the coordinator doctrine repo root that
                    owns `global-doctrine/` (see _repo_root()). Consulted via
                    the shared coordinator_registry.content_root() resolver
                    (env var -> machine-local repos.content_root -> raise);
@@ -182,10 +182,10 @@ def _repo_root() -> str:
     resolution to regain the old two-hops-up shape -- that is precisely
     what caused this break.
 
-    Resolves via content_root() (CONTENT_ROOT env -> REPO_CONTENT_ROOT env ->
+    Resolves via content_root() (REPO_CONTENT_ROOT env ->
     machine-local repos.content_root -> raise). Fails loud (sys.exit(1)) if
     content_root() cannot resolve: this is a gate/probe script, not a
-    never-block hook, so an unresolvable DoE root must not silently
+    never-block hook, so an unresolvable content root must not silently
     masquerade as the "mirror absent, skip" case.
     """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
@@ -197,7 +197,7 @@ def _repo_root() -> str:
         sys.stderr.write(
             f"{PROG}: cannot resolve the coordinator doctrine repo root ({exc}). Set "
             "repos.content_root in the machine-local registry, or set the "
-            "CONTENT_ROOT / REPO_CONTENT_ROOT env var.\n"
+            "REPO_CONTENT_ROOT env var.\n"
         )
         sys.exit(1)
 

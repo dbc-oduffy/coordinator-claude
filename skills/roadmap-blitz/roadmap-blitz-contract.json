@@ -1,5 +1,5 @@
 {
-  "$comment": "Pinned contract for roadmap-blitz: C2 (roadmap-blitz.mjs), C3 (emit-roadmap-fire.py) and C4 (SKILL.md) build against it; C7 and C8 load it as their shape oracle. The five seam args (repoRoot, sizing, interactionMode, approver, trailDir) are the ones warp's roadmap arm passes; the rest are DoE-side optionals warp never passes. `approver`, when supplied, must equal approverFor(interactionMode) or the run throws. `stage` holds the roadmap.blitz_stage reply fields read at claude-klabauter ffdf5f52 (coordinator_core/ops/roadmap_blitz_stage.py docstring). Values below are examples of each shape; enumerated alternatives are listed in `_enums`.",
+  "$comment": "Pinned contract for roadmap-blitz: C2 (roadmap-blitz.mjs), C3 (emit-roadmap-fire.py) and C4 (SKILL.md) build against it; C7 and C8 load it as their shape oracle. The five seam args (repoRoot, sizing, interactionMode, approver, trailDir) are the ones warp's roadmap arm passes; the rest, pluginRoot included, are DoE-side optionals warp never passes (absent, the briefs tell the agents to resolve the plugin root). `approver`, when supplied, must equal approverFor(interactionMode) or the run throws. `stage` holds the roadmap.blitz_stage reply fields read at claude-klabauter ffdf5f52 (coordinator_core/ops/roadmap_blitz_stage.py docstring). Values below are examples of each shape; enumerated alternatives are listed in `_enums`.",
   "_enums": {
     "interactionMode": ["hands-on", "pm", "ceo"],
     "approver": ["pm", "apm"],
@@ -15,6 +15,7 @@
     "runId": "2026-10-02-example",
     "approvalPath": "/abs/path/to/repo/state/scratch/roadmap-blitz/2026-10-02-example/approval.json",
     "pluginAgentsAvailable": true,
+    "pluginRoot": "/abs/path/to/coordinator-plugin-root",
     "provisionSidecarCli": "/abs/path/to/coordinator-doc-new"
   },
   "approval": {

@@ -8,8 +8,10 @@ stamped, per-session-mounted engine checkout, when one exists. Every
 engine-root reader in this chain — this repo's own `_engine_root` ladder
 included — follows that symlink, so a leg that resolves the engine root
 ahead of this one can resolve the stale target for the whole session.
-Registered as hooks.json's FIRST SessionStart entry, sync (`async: false`),
-ahead of every other leg in the chain.
+LEG 0 of `sessionstart-dispatch.py` (the sync fan-in, `async: false`), ahead
+of every other leg in the chain. After this leg returns the dispatcher purges
+`coordinator_core` from `sys.modules` and restores `sys.path`, so later legs
+import the engine fresh through the repointed symlink.
 
 NOT A CHICKEN-AND-EGG PROBLEM, though it looks like one at first glance:
 this shim resolves the engine root the same way `session-start-write-bump-

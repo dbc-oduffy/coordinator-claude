@@ -137,8 +137,11 @@ caller-widened.
   and walks past. Nothing downstream catches this: there is no boot-time sweep behind it. Both
   keys, or the baton sits in `state/handoffs/` indefinitely and every roadmap that counts it reads
   behind its real state. The stamp makes it archivable; the drain below is what files it.
-- **A `dispatch`-routed sizing that routed this session**, work done: write `status: shipped`
-  directly — no plan means this is its only write path.
+- **A `dispatch`-routed sizing that routed this session:** the close stamps it `shipped` when
+  this session committed the sizing file and non-bookkeeping work; stamp by hand on a
+  `j-dispatch-sizing-ship-failed` judgment point or when the sizing file was not in this session's commits. A second XS
+  dispatched this session and left unfinished: flip it to `status: declined` before quick-wrap —
+  the close reads "landed" per session, so an abandoned `sized`/`routed` sizing ships as a false positive.
 - **Every terminal sizing-object** (`shipped`/`declined`/`superseded`), cited or not:
   `close_gate.terminal_sizings`
   archive with `coordinator-invoke fleet.archive_terminal_sizings '{"dry_run":false}'` — it moves

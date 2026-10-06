@@ -1,7 +1,8 @@
 # Repo Atlas Sketch Prompt Template
 
-> Used by `repo.md` to construct the atlas sketch agent's spawn prompt when `--deepest`
-> is used. Dispatched after scouts complete, before specialists start. Fill in bracketed fields.
+> Used by the `repo` pipeline manifest (`repo.manifest.yaml`) for the `atlas-sketch` stage, which
+> runs only in deepest mode, after the scout gate chain and before the specialists. Per-run
+> parameters are fields of the brief, `{{brief}}`.
 
 ## Template
 
@@ -15,9 +16,9 @@ and is produced in the refinement pass after synthesis).
 
 ## Context
 
-**Repository:** [REPO_NAME]
-**Date:** [DATE]
-**Run ID:** [RUN_ID]
+Your brief is the scope file at {{brief}}. Read it first.
+
+**Repository, Date, Run ID:** the brief's header fields (written below as `<repository name>` and `<date>`).
 
 ## System Taxonomy
 
@@ -25,41 +26,44 @@ Pipeline B divided this repository into 4 domain-aligned chunks:
 
 | System | Chunk | Description |
 |--------|-------|-------------|
-| [SYSTEM_A_NAME] | A | [CHUNK_A_DESCRIPTION] |
-| [SYSTEM_B_NAME] | B | [CHUNK_B_DESCRIPTION] |
-| [SYSTEM_C_NAME] | C | [CHUNK_C_DESCRIPTION] |
-| [SYSTEM_D_NAME] | D | [CHUNK_D_DESCRIPTION] |
+| <system A name> | A | <chunk A description> |
+| <system B name> | B | <chunk B description> |
+| <system C name> | C | <chunk C description> |
+| <system D name> | D | <chunk D description> |
+
+Take each system name and chunk description from the brief's Chunks table (System and
+Description columns).
 
 ## Your Inputs
 
 Read these files from the scratch directory:
 
 **Scout inventories (file-level detail):**
-- [SCRATCH_DIR]/A-inventory.md
-- [SCRATCH_DIR]/B-inventory.md
-- [SCRATCH_DIR]/C-inventory.md
-- [SCRATCH_DIR]/D-inventory.md
+- {{scratch_dir}}/A-inventory.md
+- {{scratch_dir}}/B-inventory.md
+- {{scratch_dir}}/C-inventory.md
+- {{scratch_dir}}/D-inventory.md
 
 **Repomap (structural centrality):**
-- [SCRATCH_DIR]/repomap.md
+- {{scratch_dir}}/repomap.md (skip it if the brief's `Repomap` field is not a path)
 
 ## Your Outputs
 
 Write all 3 artifacts to the scratch directory:
 
-1. **[SCRATCH_DIR]/atlas-sketch-file-index.md**
-2. **[SCRATCH_DIR]/atlas-sketch-system-map.md**
-3. **[SCRATCH_DIR]/atlas-sketch-connectivity-matrix.md**
+1. **{{scratch_dir}}/atlas-sketch-file-index.md**
+2. **{{scratch_dir}}/atlas-sketch-system-map.md**
+3. **{{scratch_dir}}/atlas-sketch-connectivity-matrix.md**
 
 These are PRELIMINARY artifacts — they will be refined after specialist analysis.
 Prefix with "Preliminary" in headers. Mark uncertain connections as [PRELIMINARY].
 
 ## Timing
 
-**Spawn timestamp:** [SPAWN_TIMESTAMP] (Unix epoch seconds)
+**Clock:** run `date +%s` via Bash as your first action; that is your start time.
 **Ceiling:** 5 minutes — this is mechanical work from scout data. Begin wrapping up
 and write what you have.
-**How to check time:** Run `date +%s` via Bash every 2 file reads.
+**How to check time:** Run `date +%s` via Bash every 2 file reads and compare with your start.
 
 ## Phase 1: Read Scout Data
 
@@ -72,23 +76,23 @@ and write what you have.
 ### Artifact 1: atlas-sketch-file-index.md
 
 ```markdown
-# Preliminary File Index — [REPO_NAME]
+# Preliminary File Index — <repository name>
 
-> Generated: [DATE] | [N] files tracked across 4 systems | PRELIMINARY — will be refined post-synthesis
+> Generated: <date> | [N] files tracked across 4 systems | PRELIMINARY — will be refined post-synthesis
 
-## [SYSTEM_A_NAME] (Chunk A)
+## <system A name> (Chunk A)
 [file path]
 ...
 
-## [SYSTEM_B_NAME] (Chunk B)
+## <system B name> (Chunk B)
 [file path]
 ...
 
-## [SYSTEM_C_NAME] (Chunk C)
+## <system C name> (Chunk C)
 [file path]
 ...
 
-## [SYSTEM_D_NAME] (Chunk D)
+## <system D name> (Chunk D)
 [file path]
 ...
 ```
@@ -98,37 +102,37 @@ Source: scout inventories. Every file from every inventory must appear. Group by
 ### Artifact 2: atlas-sketch-system-map.md
 
 ```markdown
-# Preliminary System Map — [REPO_NAME]
+# Preliminary System Map — <repository name>
 
-> Generated: [DATE] | PRELIMINARY — based on scout cross-subsystem connections
+> Generated: <date> | PRELIMINARY — based on scout cross-subsystem connections
 
-[ASCII diagram showing all 4 systems and their connections]
+<ASCII diagram showing all 4 systems and their connections>
 ```
 
 Create an ASCII diagram from scout-reported cross-subsystem connections:
 - Maximum 120 characters wide
 - Show data flow directions with arrows
 - Label connections with the function/module names scouts reported
-- Mark entry points with [ENTRY] based on repomap Tier 1 files
+- Mark entry points with (ENTRY) based on repomap Tier 1 files
 - Mark ALL connections as [PRELIMINARY] — specialists will confirm/refute
 
 ### Artifact 3: atlas-sketch-connectivity-matrix.md
 
 ```markdown
-# Preliminary Connectivity Matrix — [REPO_NAME]
+# Preliminary Connectivity Matrix — <repository name>
 
-> Generated: [DATE] | PRELIMINARY — based on scout cross-subsystem connections
+> Generated: <date> | PRELIMINARY — based on scout cross-subsystem connections
 
-|                    | [SYSTEM_A] | [SYSTEM_B] | [SYSTEM_C] | [SYSTEM_D] |
+|                    | <system A> | <system B> | <system C> | <system D> |
 |--------------------|------------|------------|------------|------------|
-| **[SYSTEM_A]**     | -          | [count]    | [count]    | [count]    |
-| **[SYSTEM_B]**     | [count]    | -          | [count]    | [count]    |
-| **[SYSTEM_C]**     | [count]    | [count]    | -          | [count]    |
-| **[SYSTEM_D]**     | [count]    | [count]    | [count]    | -          |
+| **<system A>**     | -          | [count]    | [count]    | [count]    |
+| **<system B>**     | [count]    | -          | [count]    | [count]    |
+| **<system C>**     | [count]    | [count]    | -          | [count]    |
+| **<system D>**     | [count]    | [count]    | [count]    | -          |
 
 ## Connection Details
 
-### [SYSTEM_A] → [SYSTEM_B] ([count] connections) [PRELIMINARY]
+### <system A> → <system B> ([count] connections) [PRELIMINARY]
 - [function/module from scout inventory] → [target]: [data type / purpose]
 ...
 ```

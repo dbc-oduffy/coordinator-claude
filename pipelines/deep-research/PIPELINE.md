@@ -4,12 +4,12 @@
 
 ## Overview
 
-Two pipelines for deep investigation, both using Agent Teams (fire-and-forget):
+Two pipelines for deep investigation, both run as chatty background Workflows (fire-and-forget):
 
 - **Internet Research (Pipeline A v2.1)** — investigate a topic across web sources with multi-agent verification. 1 Haiku scout + up to 5 Sonnet specialists + 1 Opus sweep agent. Specialists research, cross-pollinate, and challenge each other's claims (adversarial peers). Specialists output structured JSON claims + markdown summaries. Opus sweep reads specialist outputs directly, performs adversarial coverage check, fills negative space, and frames the output. No consolidator — specialists own their fidelity, sweep reads directly.
 - **Repo Research (Pipeline B)** — study a repository, understand it on its own merits, optionally compare against your project. 2 size-derived scouts (Haiku small / Sonnet large) + 4 Sonnet specialists + 1 Opus synthesizer. Optional `--deeper` mode adds a dependency-weighted repomap; `--deepest` adds architecture atlas artifacts via a post-synthesis Wave 2 agent.
 
-**Both pipelines use Agent Teams.** The EM scopes, spawns a team, and is freed. The team handles everything autonomously.
+**Both pipelines run as a chatty Workflow.** The EM scopes, fires one background `Workflow` whose script runs the stages in order, and is freed. Workers exchange findings through mailbox files, never `SendMessage`, and only the overseer's return value reaches the EM (`coordinator/docs/wiki/dispatching-parallel-agents/chatty-workflows.md`).
 
 Per-leg classification of all four pipelines (web, repo, structured, NotebookLM) as mechanical or judgment, with a measured run-cost floor: `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/mechanical-vs-judgment.md`.
 
@@ -55,46 +55,44 @@ With LLM-assisted implementation, the cost of doing the work is lower than the c
 
 ---
 
-# Pipeline B: Repo Research (Agent Teams)
+# Pipeline B: Repo Research (chatty Workflow)
 
 ## Architecture
 
 ```
-EM: Scope (define 4 chunks) → Create team → Spawn all teammates → FREED → [notification] → Cleanup
+EM: Scope (define 4 chunks) → Fire Workflow → FREED → [notification] → Cleanup
                                 │
                                 ├── 2 size-derived scouts (2 chunks each, parallel, no blockers; Haiku small / Sonnet large)
                                 │   Map target repo files + identify comparison files (if --compare)
                                 │   Write to: {chunk-letter}-inventory.md
                                 │
-                                ├── 4 Sonnet specialists (one per chunk, blocked by BOTH scouts)
+                                ├── 4 Sonnet specialists (one per chunk, start after BOTH scouts return)
                                 │   Deep-read repo (assessment) + compare against project (if --compare)
                                 │   Write to: {chunk-letter}-assessment.md + {chunk-letter}-comparison.md
                                 │
-                                └── 1 Opus synthesizer (blocked by all specialists)
+                                └── 1 Opus synthesizer (overseer; starts after all specialists return)
                                     Cross-reference, produce ASSESSMENT.md + GAP-ANALYSIS.md (if comparison)
 ```
 
-**Team size:** 2 + 4 + 1 = 7 (platform ceiling).
+**Roster:** 2 + 4 + 1 = 7 agents across serialized stages.
 
-**Why 4 chunks:** 7-teammate ceiling - 2 scouts - 1 synthesizer = 4 specialist slots. If a repo naturally has 5-6 areas, the EM merges smaller ones.
+**Why 4 chunks:** a bounded fan-out of 4 specialists keeps concurrent callers and rebuttal continuations small. If a repo naturally has 5-6 areas, the EM merges smaller ones.
 
 **Why 2 scouts, not 1:** Parallelism. Two Haiku scouts inventory the repo in half the time. Each scout gets 2 chunks. The even split is simple and predictable.
 
-**Why all specialists blocked by BOTH scouts:** Cross-subsystem connections. Scout 1's chunks may have data flow into scout 2's chunks. Specialists need the COMPLETE inventory to understand these connections.
+**Why specialists wait for BOTH scouts:** Cross-subsystem connections. Scout 1's chunks may have data flow into scout 2's chunks. Specialists need the COMPLETE inventory to understand these connections.
 
-## Blocking Chain
+## Stage Order
 
 ```
 Scout 1 (chunks A, B) ─┐
-                        ├──→ Specialists A, B, C, D (all blocked by BOTH scouts)
+                        ├──→ Specialists A, B, C, D (parallel) → rebuttal continuations
 Scout 2 (chunks C, D) ─┘                │
-                                         ├──→ DONE messages wake synthesizer
-                                         │
-                              Synthesizer (blocked by all 4 specialists)
+                                         └──→ Synthesizer (overseer)
 ```
 
-- **Scouts → Specialists:** Task-gated via `blockedBy`. No messaging — task completion is the signal.
-- **Specialists → Synthesizer:** Task-gated via `blockedBy` + explicit DONE messages as wake-up signals. `blockedBy` is a status gate, not an event trigger.
+- **Scouts → Specialists:** the script awaits both scouts' `parallel()` before dispatching specialists. No messaging — the return is the signal.
+- **Specialists → Synthesizer:** the script awaits the specialists and one rebuttal round (continuations for specialists with unread mailbox lines), then dispatches the synthesizer. No `blockedBy`, no DONE messages.
 
 ## Phase 0: Scope Definition (EM Direct)
 
@@ -140,10 +138,10 @@ Each specialist:
 2. Reads the scout inventory for their chunk
 3. Deep-reads the most important files (using inventory as map, prioritized by repomap if available)
 4. Analyzes architecture, patterns, data flow, strengths, limitations
-5. Cross-pollinates with peers (max 3 messages per peer)
+5. Cross-pollinates with peers through mailbox files (max 3 lines per peer)
 6. If `--compare`: reads project files identified by scout, produces comparison artifact
 7. Self-governs timing (floor/diminishing returns/ceiling)
-8. Converges: writes output, marks complete, sends DONE to synthesizer
+8. Converges: writes output and returns; the script starts the synthesizer after the stage
 
 **Quality recovery for thin scout output:** If inventory lists fewer files than `[EXPECTED_FILE_COUNT]`, specialist uses Glob to discover additional files and budgets 3 extra minutes for self-directed discovery.
 
@@ -165,9 +163,9 @@ Cross-references all findings and produces:
 
 ## Phase 3.5: Atlas Generation (only if `--deepest`)
 
-**Model:** Sonnet (subagent, not teammate). **Input:** All scout inventories, specialist assessments, synthesis, repomap.
+**Model:** Sonnet (plain subagent, outside the Workflow). **Input:** All scout inventories, specialist assessments, synthesis, repomap.
 
-After synthesis completes (the team auto-cleans on session exit), the EM dispatches a Sonnet subagent that produces 4 atlas artifacts from the research findings:
+After synthesis completes, the EM dispatches a Sonnet subagent that produces 4 atlas artifacts from the research findings:
 - **File index** — every file → system (chunk) mapping
 - **System map** — ASCII connectivity diagram
 - **Connectivity matrix** — cross-system dependency counts
@@ -188,38 +186,36 @@ Systems = EM-defined chunks. Atlas from assessment data only (no comparison data
 
 ## Protocol and Templates
 
-- **Team protocol:** `repo-team-protocol.md` — blocking chain, timing, DONE messages, comparison mode, deeper/deepest modes
+- **Team protocol:** `repo-team-protocol.md` — stage order, mailboxes, timing, comparison mode, deeper/deepest modes
 - **Scout prompt template:** `repo-scout-prompt-template.md` — file inventory + comparison file identification
-- **Specialist prompt template:** `repo-specialist-prompt-template.md` — dual-output analysis + DONE convergence
+- **Specialist prompt template:** `repo-specialist-prompt-template.md` — dual-output analysis + return-value convergence
 - **Synthesizer prompt template:** `repo-synthesizer-prompt-template.md` — synthesis with Phase 4 template reference
 - **Atlas prompt template:** `repo-atlas-prompt-template.md` — post-synthesis atlas generation (`--deepest` only)
-- **Scout agent:** `agents/repo-scout.md` — Haiku, Read/Glob/Grep, no SendMessage
-- **Specialist agent:** `agents/repo-specialist.md` — Sonnet, Read/Glob/Grep + SendMessage
+- **Scout agent:** `agents/repo-scout.md` — Haiku, Read/Glob/Grep, no mailbox
+- **Specialist agent:** `agents/repo-specialist.md` — Sonnet, Read/Glob/Grep + mailbox files
 - **Synthesizer agent:** `agents/research-synthesizer.md` — Opus, shared with Pipeline A
 
 ---
 
-# Pipeline C: Structured Research (Agent Teams)
+# Pipeline C: Structured Research (chatty Workflow)
 
 ## Architecture
 
 ```
-EM: Read spec → Pre-process into scout-brief.md → Create team → Spawn teammates → FREED
+EM: Read spec → Pre-process into scout-brief.md → Fire Workflow → FREED
                   │
                   ├── 1 Haiku scout (reads scout-brief.md, maps findings to schema fields)
                   │   Writes per-topic: {scratch-dir}/{subject}-scout-{topic_id}.md
                   │
-                  ├── 1-5 Sonnet verifiers (1 per topic, blocked by scout)
+                  ├── 1-5 Sonnet verifiers (1 per topic, start after scout returns)
                   │   Verify claims, compare against existing data, produce schema field tables
                   │   Writes: {scratch-dir}/{topic_id}-findings.md
                   │
-                  └── 1 Opus synthesizer (blocked by all verifiers)
+                  └── 1 Opus synthesizer (overseer; starts after all verifiers return)
                       Cross-topic reconciliation, schema validation, YAML/JSON output
 ```
 
-**Team size:** 1 + N + 1 where N = topic count. Maximum N = 5 (team ceiling of 7).
-
-**Topic ceiling enforcement:** If spec has > 5 topics, the EM merges the two most related topics before team creation.
+**Roster:** 1 + N + 1 where N = topic count.
 
 **Key difference from Pipeline A:** The EM pre-processes the spec YAML into a flat `scout-brief.md` because Haiku cannot reliably parse complex YAML. Quality gates from the spec are embedded directly in verifier prompts — self-validation replaces orchestrator re-dispatch.
 
@@ -248,8 +244,8 @@ Each verifier:
 4. Compares against existing subject data (CONFIRMED/UPDATED/NEW/REFUTED)
 5. Structures output as schema field table
 6. Self-checks acceptance criteria AND gate rules (embedded in prompt)
-7. Cross-pollinates with peer verifiers
-8. Converges, sends DONE to synthesizer
+7. Cross-pollinates with peer verifiers through mailbox files
+8. Converges and returns; the script starts the synthesizer after the stage
 
 ## Phase 3: Synthesis (Opus synthesizer)
 
@@ -265,8 +261,8 @@ Produces:
 
 1. Read synthesizer output
 2. Validate schema conformance before archival
-3. If validation fails: keep team alive, message synthesizer with corrections
-4. If passes: update manifest, commit, archive, present to PM (team auto-cleans on session exit)
+3. If validation fails: fire a continuation synthesizer whose brief carries the corrections
+4. If passes: update manifest, commit, archive, present to PM
 
 ## Protocol and Templates
 
@@ -280,7 +276,7 @@ Produces:
 
 ---
 
-# Code-Comparison Mode (single-agent fan-out, NOT a team pipeline)
+# Code-Comparison Mode (single-agent fan-out, NOT a Workflow pipeline)
 
 > Structured signal-comparison for market-intel's downstream competitive-intel producer. Distinct
 > from Pipeline B's `--compare` (which produces PROSE gap-analysis of a repo against your project).
@@ -294,26 +290,26 @@ Produces:
 ```
 Invoker: supplies subject repo + peer/competitor code target + axis list
                   │
-                  └── 1 self-contained Sonnet agent (fan-out dispatch, NOT a teammate)
+                  └── 1 self-contained Sonnet agent (fan-out dispatch, NOT a Workflow stage)
                       Reads both targets axis-by-axis, compares, writes structured
                       comparison records directly to disk. No scout, no specialist
-                      team, no synthesizer — the agent does the whole job alone.
+                      stage, no synthesizer — the agent does the whole job alone.
 ```
 
-**Why single-agent, not the Pipeline B team:** Pipeline B's scout→specialist→synthesizer
+**Why single-agent, not the Pipeline B Workflow:** Pipeline B's scout→specialist→synthesizer
 orchestration exists to produce prose narrative for a human reader across a large surface. Code-
 Comparison mode's output is a small number of structured, schema-conforming records per axis —
-there is no narrative to synthesize and no file-inventory phase to parallelize. Dispatching a full
-7-teammate team for this would be orchestration overhead with no matching output shape.
+there is no narrative to synthesize and no file-inventory phase to parallelize. Firing a full
+7-agent Workflow for this would be orchestration overhead with no matching output shape.
 
 **How it's invoked:** routed via the repo driver's mode dispatch — see
 `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/repo-driver.md` § Mode Dispatch — `--code-compare`,
 the same entry point that documents Pipeline B's `--compare` in its `## Arguments` block — gated on
 a distinct flag so it is never conflated with `--compare`. Name it explicitly at the call site,
 e.g. `--code-compare <peer-target> --axes <axis-list>`, to keep the two modes textually and
-behaviorally separate: `--compare` alone routes to the Pipeline B team (prose gap-analysis);
+behaviorally separate: `--compare` alone routes to the Pipeline B Workflow (prose gap-analysis);
 `--code-compare` routes to the single-agent Code-Comparison path described here — skipping Steps
-1-7.5 of the Agent Teams flow entirely. The axis list is an INVOKER-SUPPLIED input — the agent
+1-7.5 of the Workflow flow entirely. The axis list is an INVOKER-SUPPLIED input — the agent
 never invents or extends the axis set.
 
 **What the agent does:**
@@ -326,7 +322,7 @@ never invents or extends the axis set.
 
 **Prompt template:** `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/code-comparison-agent-prompt-template.md`
 — fill in the bracketed fields (subject repo, peer target, axis list) and dispatch as a single
-`Agent(...)` call (fan-out shape), not via `TaskCreate`/team formation. The output path is bound,
+`Agent(...)` call (fan-out shape), not via a Workflow script. The output path is bound,
 not an EM fill-in — see `repo-driver.md` § Mode Dispatch — `--code-compare` step 2:
 `<content-root>/state/emissions/code-comparison/{run-id}.yaml`.
 
@@ -341,19 +337,19 @@ producer envelope directly.
 
 ---
 
-# Pipeline A: Internet Research (Agent Teams)
+# Pipeline A: Internet Research (chatty Workflow)
 
-## Architecture (v2.2)
+## Architecture (v3.0)
 
 ```
-EM: Phase 0 (scope) → Create team + tasks → Spawn all teammates → FREED → [notification] → Decision gate
+EM: Phase 0 (scope) → Fire Workflow → FREED → [notification] → Decision gate
                         │
                         ├── 1 Haiku scout (read queries from scope.md, build source corpus)
                         │
-                        ├── up to 5 Sonnet specialists (one per topic, blocked by scout)
-                        │   Deep-read sources, verify, challenge peers, output structured claims + summary
+                        ├── up to 5 Sonnet specialists (one per topic, start after scout returns)
+                        │   Deep-read sources, verify, challenge peers via mailboxes, rebuttal round, output structured claims + summary
                         │
-                        └── 1 Opus sweep (blocked by all specialists)
+                        └── 1 Opus sweep (overseer; starts after specialists and rebuttal return)
                             Adversarial coverage check → gap-fill research → exec summary + framing
                             Writes structured gap report with YAML severity scores
 
@@ -363,7 +359,7 @@ EM: Phase 0 (scope) → Create team + tasks → Spawn all teammates → FREED �
           high_severity == 0            OR high_severity >= 2
                   │                           │
                   ▼                           ▼
-            Step 7: Finalize          Step 6.6: Team 2 (Deepening)
+            Step 7: Finalize          Step 6.6: Pass 2 (Deepening)
                                               │
                                               ├── 0-1 Haiku scout (new queries if needed)
                                               ├── 1-3 Sonnet gap-specialists (per gap cluster)
@@ -373,12 +369,12 @@ EM: Phase 0 (scope) → Create team + tasks → Spawn all teammates → FREED �
                                         Step 7: Merge + Finalize
 ```
 
-**Key design decisions (v2.2):**
+**Key design decisions (v3.0):**
 - **No consolidator.** v2 had a Sonnet consolidator between specialists and sweep — it became a bottleneck (empirically 4 min slower than the sweep). Specialists own their fidelity via adversarial peer interaction; the sweep reads their outputs directly.
 - **Structured specialist output.** Specialists write JSON claims (`{LETTER}-claims.json`) + markdown summary (`{LETTER}-summary.md`). Primary reader is the EM (Opus), not humans.
 - **Adversarial specialists.** Challenges are expected, not just permitted. Unresolved challenges produce `[CONTESTED]` claims with both sides' evidence.
 - **Sweep phased discipline.** Three explicit sequential phases: (1) assess all claims + emit gap report, (2) fill gaps via web research, (3) frame with exec summary + conclusion.
-- **Iterative deepening (v2.2).** After Team 1 completes, the EM reads the sweep's structured gap report (YAML severity scores + Gap Targets table). If significant gaps remain (high_severity >= 2, or coverage_score <= 3), the EM dispatches a smaller Team 2 (1-3 gap-specialists + merge-mode sweep) for targeted follow-up. Hard cap at 2 passes. Team 2 failure is non-blocking — Team 1's output is already complete. `--shallow` flag skips the decision gate.
+- **Iterative deepening.** After pass 1 completes, the EM reads the sweep's structured gap report (YAML severity scores + Gap Targets table). If significant gaps remain (high_severity >= 2, or coverage_score <= 3), the EM fires a smaller second Workflow (1-3 gap-specialists + merge-mode sweep) for targeted follow-up. Hard cap at 2 passes. Pass 2 failure is non-blocking — pass 1's output is already complete. `--shallow` flag skips the decision gate.
 - **Deferred to v2.3:** Citation-first synthesis, fail-and-retry on weak retrieval.
 
 ## Phase 0: Research Framing (EM Direct, ~5 min)
@@ -389,7 +385,7 @@ EM: Phase 0 (scope) → Create team + tasks → Spawn all teammates → FREED �
 4. Ask PM for timing preferences
 5. Write scope to `{scratch-dir}/scope.md`
 
-Cap at 5 topics (team size: 1 scout + 5 specialists + 1 sweep = 7). Default 4 topics.
+Default 4 topics.
 
 ## Phase 1: Source Discovery (Haiku scout)
 
@@ -406,9 +402,9 @@ Each specialist:
 2. Supplements with own WebSearch if corpus is thin
 3. Deep-reads top sources via WebFetch
 4. Verifies claims, resolves contradictions
-5. Cross-pollinates AND challenges peers (adversarial interaction expected)
+5. Cross-pollinates AND challenges peers through mailbox files (adversarial interaction expected), answering challenges in the rebuttal round
 6. Outputs structured claims JSON + markdown summary
-7. Self-governs timing, converges, sends DONE to sweep
+7. Self-governs timing, converges, returns
 
 ## Phase 3: Sweep (Opus)
 
@@ -419,7 +415,7 @@ Three explicit sequential phases:
 
 ## Phase 4.5: Iterative Deepening (v2.2, conditional)
 
-**Trigger:** After Phase 4 (Team 1 completion), the EM reads the gap report's YAML front-matter and evaluates deepening criteria. Skipped if `--shallow` flag was passed.
+**Trigger:** After Phase 4 (pass 1 completion), the EM reads the gap report's YAML front-matter and evaluates deepening criteria. Skipped if `--shallow` flag was passed.
 
 **Decision criteria:**
 - DEEPEN if: `high_severity_gaps >= 2`, `contested_unresolved >= 1` (material), or `coverage_score <= 3`
@@ -427,25 +423,25 @@ Three explicit sequential phases:
 
 **If deepening:**
 1. EM clusters HIGH/MEDIUM gaps from the Gap Targets table into 1-3 specialist assignments
-2. Creates Team 2 (`research-{topic-slug}-t2`): 0-1 scout + 1-3 gap-specialists + 1 merge-mode sweep
-3. Gap-specialists use the `gap-specialist-prompt-template.md` — receive Team 1 findings as context, fill specific gaps
+2. Fires the pass-2 Workflow: 0-1 scout + 1-3 gap-specialists + 1 merge-mode sweep
+3. Gap-specialists use the `gap-specialist-prompt-template.md` — receive pass 1 findings as context, fill specific gaps
 4. Sweep operates in merge mode — produces `deepening-delta.md` (structured delta, not a full document)
-5. EM merges delta into Team 1's synthesis, strips provenance markers, produces seamless final document
+5. EM merges delta into pass 1's synthesis, strips provenance markers, produces seamless final document
 
-**Team 2 timing:** Gap-specialists use tighter timing (floor 3 min/3 sources, ceiling 8 min) since scope is narrower than Team 1.
+**Pass 2 timing:** Gap-specialists use tighter timing (floor 3 min/3 sources, ceiling 8 min) since scope is narrower than pass 1.
 
-**Depth limit:** Hard cap at 2 passes. Team 2's remaining gaps go into "Open Questions," not a Team 3.
+**Depth limit:** Hard cap at 2 passes. Pass 2's remaining gaps go into "Open Questions," not a pass 3.
 
-**Non-blocking:** Team 2 failure doesn't invalidate Team 1's output. If all gap-specialists fail, the EM finalizes with Team 1's synthesis as-is.
+**Non-blocking:** Pass 2 failure doesn't invalidate pass 1's output. If all gap-specialists fail, the EM finalizes with pass 1's synthesis as-is.
 
 ## Protocol and Templates
 
-- **Team protocol:** `team-protocol.md` — messaging, adversarial challenges, convergence, DONE messages
+- **Team protocol:** `team-protocol.md` — stage order, mailboxes, the engine-emitted fire, adversarial challenges, convergence
 - **Scout prompt template:** `scout-prompt-template.md` — web search + accessibility vetting
-- **Specialist prompt template:** `specialist-prompt-template.md` — structured claims + adversarial messaging
-- **Gap-specialist prompt template:** `gap-specialist-prompt-template.md` — Team 2 gap-focused specialist variant with Prior Findings, tighter timing, D-prefixed claim IDs
+- **Specialist prompt template:** `specialist-prompt-template.md` — structured claims + adversarial mailbox exchange
+- **Gap-specialist prompt template:** `gap-specialist-prompt-template.md` — pass-2 gap-focused specialist variant with Prior Findings, tighter timing, D-prefixed claim IDs
 - **Scout agent:** `agents/research-scout.md` — Haiku, WebSearch/WebFetch
-- **Specialist agent:** `agents/research-specialist.md` — Sonnet, WebSearch/WebFetch + SendMessage
+- **Specialist agent:** `agents/research-specialist.md` — Sonnet, WebSearch/WebFetch + mailbox files
 - **Sweep agent:** `agents/research-synthesizer.md` — Opus, shared with Pipeline B
 
 ---

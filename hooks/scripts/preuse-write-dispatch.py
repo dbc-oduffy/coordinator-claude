@@ -18,9 +18,9 @@ Contract (mirrors the bash hooks it replaces):
   exit 0  — always (ALLOW/DENY conveyed via stdout, never exit code)
 
 Graceful degradation — REQUIRED: any failure to resolve/import/run the engine
-drops only the engine's verdict. The DoE-resident guard registry still runs
+drops only the engine's verdict. The plugin-resident guard registry still runs
 in-process, exit stays 0, and one stderr breadcrumb names the failure; only a
-verdict a DoE-resident guard returns itself can reach stdout. A missing sibling
+verdict a plugin-resident guard returns itself can reach stdout. A missing sibling
 engine must NEVER brick every edit — identical philosophy to the bash sandbox
 shim it supersedes. The breadcrumb fires on every edit while the engine stays
 missing, deliberately (operator visibility of the outage); never latch it to
@@ -34,7 +34,6 @@ deny envelopes first-deny-wins), so there is no window with guards down.
 from __future__ import annotations
 
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -121,7 +120,7 @@ def _compose_engine_unavailable_breadcrumb(reason: str) -> str:
     """Stderr breadcrumb for a missing engine verdict. Pure; main() prints it once per edit."""
     return (
         f"[preuse-write-dispatch] {reason}; engine guards skipped "
-        "(fail-open for engine guards only, DoE-resident guards ran)"
+        "(fail-open for engine guards only, plugin-resident guards ran)"
     )
 
 
@@ -209,7 +208,7 @@ def main() -> int:
         try:
             out = evaluate_payload_json(raw, **kwargs)
         except Exception:
-            # No engine verdict; the DoE-resident registry below still runs.
+            # No engine verdict; the plugin-resident registry below still runs.
             engine_unavailable = "engine raised"
             out = None
 

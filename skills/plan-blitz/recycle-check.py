@@ -299,6 +299,13 @@ def _terminal(keys: dict) -> bool:
     return keys.get("status") == "consumed" or keys.get("deployment_state") in _TERMINAL_DEPLOYMENT
 
 
+def _same_record(live_keys: dict, archived_keys: dict) -> bool:
+    """False only on positive evidence of different work: every identity key both copies carry
+    disagrees. A copy carrying none of them stays a match, so a restored record is never missed."""
+    shared = [k for k in ("created", "title") if live_keys.get(k) and archived_keys.get(k)]
+    return not shared or any(live_keys[k] == archived_keys[k] for k in shared)
+
+
 def resurrected(repo_root: Path, baton_ids, live, archive_root: str = "archive/handoffs"):
     """Candidates whose record is already archived in a terminal state. Pure reads, no verdict on
     fire: RESURRECTED on a basename match, SHARED-ID (advisory) on a `deliverable_id` match against
@@ -324,12 +331,17 @@ def resurrected(repo_root: Path, baton_ids, live, archive_root: str = "archive/h
             continue
         record = _norm_path(str(row["path"]))
         name = Path(record).name
-        state, hits = "RESURRECTED", by_name.get(name, [])
+        live_rec = repo_root / record
+        keys = _keys(live_rec) if live_rec.is_file() else {}
+        # A basename is not an identity: a fresh baton can reuse an archived record's filename for
+        # different work. A hit is the same record only when its `created` or `title` matches.
+        state, hits = "RESURRECTED", [
+            h for h in by_name.get(name, [])
+            if not keys or _same_record(keys, h[1])
+        ]
         if not hits:
-            live_rec = repo_root / record
-            if not live_rec.is_file():
+            if not keys:
                 continue
-            keys = _keys(live_rec)
             predecessor = Path(_norm_path(keys.get("predecessor", ""))).name
             state = "SHARED-ID"
             hits = [h for h in by_deliverable.get(keys.get("deliverable_id"), ()) if h[2] != predecessor]

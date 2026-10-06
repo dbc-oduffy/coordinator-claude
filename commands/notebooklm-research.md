@@ -1,12 +1,12 @@
 ---
 name: notebooklm-research
 description: "PM-GATED, never from a subagent. NotebookLM research for video/audio sources."
-allowed-tools: ["Agent", "Read", "Write", "Bash", "Glob", "Grep", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "SendMessage"]
+allowed-tools: ["Workflow", "Agent", "Read", "Write", "Bash", "Glob", "Grep"]
 argument-hint: "<topic> [--context file1 file2] [--sources url1 url2] [--cleanup]"
 disable-model-invocation: true
 ---
 
-# NotebookLM Research — Pipeline D (Agent Teams)
+# NotebookLM Research — Pipeline D (chatty Workflow)
 
 Research via Google NotebookLM for sources Claude cannot fetch directly: YouTube videos,
 podcasts, audio, JS-heavy pages, Google Drive documents. **PM-gated — never invoked from a
@@ -17,14 +17,10 @@ topic; source material needing transcription or NotebookLM's cross-source citati
 **Don't use for:** codebase research (`/coordinator:research --mode=repo`), text/web research
 (`--mode=web`), structured batch research (`--mode=structured`), quick API docs (Context7).
 
-Team roles, timing ceilings, data contracts (`strategy.md`, `sources.md`,
+Roles, stage ordering (the stage graph is `notebooklm.manifest.yaml`, fired by Step 4), timing ceilings, data contracts (`strategy.md`, `sources.md`,
 `{letter}-claims.json`, `{letter}-summary.md`), failure handling, the coverage-auditor
 lifecycle, and why the fidelity relay doesn't apply here all live in
 `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/notebooklm/team-protocol.md` — read there, don't re-derive.
-
-**Precondition — teams are on, standing.** `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` defaults to
-`"1"` in `settings.json`'s `env` on every machine (`coordinator/templates/settings-manifest.md`),
-applied at SESSION START and not toggleable mid-session; this pipeline does not raise or lower it.
 
 **Announce at start:** "I'm running `/coordinator:notebooklm-research` to research {topic} using
 NotebookLM."
@@ -77,31 +73,37 @@ notebook topology, questions, source strategy, and worker count directly, then w
 `strategy.md` to `{scratch-dir}/strategy.md` per team-protocol.md § Data Contract. Time-box
 scoping to 2-3 minutes — pick the simpler topology if still deliberating.
 
-### Step 3 — Create team + tasks
+### Step 3 — Complete the brief
 
-Spawn the first teammate via `Agent` — the team auto-forms. Create a `sweep` task, a `scout`
-task, and one `worker-{letter}` task per notebook. Block each worker on `scout`; block `sweep`
-on every worker task.
+There are no prompts to fill. The templates
+(`${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/notebooklm/{scout,worker,sweep}-prompt-template.md`)
+read every per-run parameter from `strategy.md`, which is the brief
+(`notebooklm.manifest.yaml` in the same directory is the stage graph). Add these fields to
+`strategy.md`'s frontmatter, beside those in team-protocol.md § Data Contract:
 
-<!-- BEGIN task-tool-availability (synced from snippets/task-tool-availability.md) -->
-`TaskCreate` absent from this session's surface (`ToolSearch("select:TaskCreate")` returns nothing)
-→ fall back to `coordinator-tasks-mirror` for the same flight-recorder role; do not assume either
-state without checking. When Task* is unavailable, dispatch the phases in order, waiting on each
-completion notification — that is the ordering a `blockedBy` chain would otherwise express.
-<!-- END task-tool-availability -->
+- `research_topic`, `topic_slug`
+- `output_path` (Step 1's output), `output_path_base` (it without `.md`), `advisory_path`
+- `cleanup_notebooks` (`true` or `false`, from `--cleanup`)
+- `scout_ceiling_minutes` (default 5)
 
-### Step 4 — Spawn teammates
+Notebook letters are the manifest's `notebooks` list: A, B, C as many as `worker_count`.
+Each notebook's `## Notebook {letter}` section carries its `estimated_ceiling`.
 
-Fill and spawn the scout/worker(s)/sweep prompt templates from
-`${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/notebooklm/{scout,worker,sweep}-prompt-template.md`
-— each template's placeholders are self-documenting. Agent types: scout =
-`coordinator:notebooklm-research-scout`, workers = `coordinator:research-worker`, sweep =
-`coordinator:research-sweep`. Assign task owners at spawn.
+### Step 4 — Fire the Workflow
+
+Run the engine op `emit-dispatch-workflow --pipeline notebooklm --brief {scratch-dir}/strategy.md
+--list notebooks=A,B,C --out {scratch-dir}/workflow.mjs` (CLI resolved per
+`${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`; `--brief` is a path and a missing
+file is refused; `--list notebooks` is the notebook letters, one per worker). Fire the printed
+`Workflow` line as ONE background `Workflow` (`run_in_background: true`). The emitted script runs
+scout, then the workers in parallel, then the sweep, per `notebooklm.manifest.yaml`; stage
+ordering gates each stage on the previous one returning. Never hand-fill a script.
 
 ### Step 5 — EM freed
 
-Report team composition (1 scout + N workers + 1 sweep) and expected timing to the PM, note the
-output path, then stop tracking — the team runs autonomously.
+Report the stage plan (1 scout + N workers + 1 sweep) and expected timing to the PM, note the
+output path, then stop tracking — the Workflow runs autonomously and its completion notification
+carries the sweep's return value.
 
 ### Step 6 — On completion
 
@@ -127,8 +129,7 @@ the launcher still runs directly by absolute path, no bareword resolution involv
 cmd /c "\"$env:COORDINATOR_SETTINGS_HOME\bin\claims-emit.exe\" --producer notebooklm-research --out {output-path-base} --ran-at $RanAt --pipeline notebooklm < \"{scratch-dir}/merged-claims.json\""
 ```
 
-**6b — Coverage auditor.** Dispatch it as a plain (non-teammate) `Agent(...)` — never a named
-team member, to preserve the 7-teammate ceiling. Build the prompt from
+**6b — Coverage auditor.** Dispatch it as a plain `Agent(...)`. Build the prompt from
 `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/coverage-auditor-prompt-template.md`'s Pipeline D input
 block (`[SYNTHESIS_PATH]`, `[RUN_STEM]`, `[SCRATCH_DIR]`). Wait for `DONE: {sidecar-path}`.
 

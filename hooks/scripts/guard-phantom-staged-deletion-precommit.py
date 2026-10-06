@@ -69,12 +69,18 @@ OVERRIDE_ENV = "COORDINATOR_OVERRIDE_PHANTOM_STAGED_DELETION"
 def _git(*args: str) -> "subprocess.CompletedProcess[bytes]":
     # A git hook runs on every commit, including from headless Windows shells
     # where a console-spawning child flashes a window each time.
-    return subprocess.run(
-        ["git", "--no-optional-locks", *args],
-        capture_output=True,
-        check=False,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-    )
+    cmd = ["git", "--no-optional-locks", *args]
+    try:
+        return subprocess.run(
+            cmd,
+            capture_output=True,
+            check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        # returncode != 0 is the callers' fail-open signal.
+        return subprocess.CompletedProcess(cmd, 124, b"", b"")
 
 
 def main() -> int:

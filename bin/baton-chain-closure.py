@@ -4,8 +4,8 @@ closed, and emit a PM-facing closure signal conforming to `group-em-output-contr
 
 Ported from coordinator-content-repo `coordinator/bin/baton-chain-closure.py` (W2-C6,
 `docs/plans/2026-09-18-doe-holds-no-scripts.md`) -- mechanical move, no behavioural change.
-`_repo_root()` was already "engine" class (§ Path resolution): `Path(__file__).resolve().
-parents[2]` names the repo root from this module's own tree. The docstring's citation of
+The repo is the caller's own git root (`git_root_walk()` from cwd), or `--repo`; outside any repo
+with no flag the CLI refuses and names `--repo`. The docstring's citation of
 `coordinator/schemas/handoff.schema.json` below is updated to name this engine's own vendored copy
 (`coordinator_core/frontmatter/schemas/handoff.schema.json`, byte-identical to DoE's today) -- this
 module never actually loads that schema at runtime (declared lineage on the handoff artifact is
@@ -82,8 +82,24 @@ _COMMENT_PREFIX = re.compile(r"\A\s*<!--.*?-->", re.DOTALL)
 _SPINE_FENCE = re.compile(r"```ya?ml\s+plan-tasks\s*\n(.*?)\n```", re.DOTALL)
 
 
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
+def git_root_walk(start: Optional[str] = None) -> Optional[str]:
+    """`_git_root_walk.git_root_walk`, imported on first call so a bare import leaves
+    `sys.path` untouched. A bare claude-klabauter checkout (hooks/scripts absent) falls back to this
+    file's own repo root."""
+    lib_dir_walk = str(Path(__file__).resolve().parents[1] / "lib")
+    if lib_dir_walk not in sys.path:
+        sys.path.insert(0, lib_dir_walk)
+    try:
+        from _git_root_walk import git_root_walk as _impl
+    except ImportError:
+        return str(Path(__file__).resolve().parents[2])
+    return _impl(start)
+
+
+def _repo_root() -> Optional[Path]:
+    """The caller's git root, or None outside any repo."""
+    root = git_root_walk()
+    return Path(root).resolve() if root else None
 
 
 class Baton(NamedTuple):
@@ -593,7 +609,7 @@ def main(argv: Optional[list] = None) -> int:
         prog="baton-chain-closure",
         description="Detect that an entire baton-chain has closed, and emit the PM signal.",
     )
-    parser.add_argument("--repo", help="repo root; default self-resolved from this file")
+    parser.add_argument("--repo", help="repo root; default: git root of the current directory")
     sub = parser.add_subparsers(dest="verb", required=True)
     p_chains = sub.add_parser("chains", help="enumerate every chain with its closure verdict")
     p_chains.add_argument(
@@ -610,6 +626,9 @@ def main(argv: Optional[list] = None) -> int:
 
     args = parser.parse_args(argv)
     repo_root = Path(args.repo).resolve() if args.repo else _repo_root()
+    if repo_root is None:
+        print("baton-chain-closure: not inside a git repo; pass --repo <path>", file=sys.stderr)
+        return 2
 
     if args.verb == "chains":
         return _cmd_chains(repo_root, stranded_only=args.stranded_only)

@@ -40,8 +40,8 @@ from __future__ import annotations
 # engine-link failure below also exits 1, not 0).
 #
 # Plugin-root resolution is reproduced HERE (not delegated to the engine
-# module) because it is DoE-repo topology knowledge (CLAUDE_PLUGIN_ROOT env
-# var, else the DoE repo root's coordinator/ subdir, resolved via the shared
+# module) because it is content-root topology knowledge (CLAUDE_PLUGIN_ROOT env
+# var, else the content root's coordinator/ subdir, resolved via the shared
 # content_root() registry helper) — NOT this script's own parent directory (see
 # _resolve_plugin_root() docstring below for why self-location broke when
 # this executable migrated to the engine repo), then passed to the module as
@@ -60,7 +60,7 @@ def _resolve_plugin_root() -> str:
 
     Env var CLAUDE_PLUGIN_ROOT wins if set, returned verbatim. Otherwise
     resolves via content_root() (see that function's own docstring for its
-    env-var/machine-local resolution chain) and returns
+    registry/pointer resolution chain) and returns
     <content_root()>/coordinator.
 
     This does NOT derive from this script's own __file__ location. That
@@ -70,12 +70,12 @@ def _resolve_plugin_root() -> str:
     in coordinator-content-repo — self-location now resolves to a directory with no
     templates/ at all, silently producing five TMPL_MISSING lines instead
     of a loud failure. Content_root() is the correct authority for "where is
-    the coordinator-content-repo repo," independent of where THIS script happens to run
+    the coordinator content," independent of where THIS script happens to run
     from. A future reader must not "restore" __file__-based resolution to
     regain oracle parity — that is precisely what caused this break.
 
     Fails loud (sys.exit(1)) if content_root() cannot resolve: this is a gate
-    script, not a never-block hook, so an unresolvable DoE root must not
+    script, not a never-block hook, so an unresolvable content root must not
     degrade to an exit-0 no-op.
     """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
@@ -89,9 +89,9 @@ def _resolve_plugin_root() -> str:
         root = content_root()
     except _DoeUnresolvable as exc:
         print(
-            "verify-templates-bin-sync.py: cannot resolve the coordinator doctrine repo root "
-            f"({exc}). Set repos.content_root in the machine-local registry, or set "
-            "the CONTENT_ROOT env var, or set CLAUDE_PLUGIN_ROOT directly.",
+            "verify-templates-bin-sync.py: cannot resolve the coordinator content root "
+            f"({exc}). Set repos.content_root in the machine-local registry, "
+            "or set CLAUDE_PLUGIN_ROOT directly.",
             file=sys.stderr,
         )
         sys.exit(1)

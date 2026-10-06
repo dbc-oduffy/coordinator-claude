@@ -18,11 +18,12 @@ def main(argv=None) -> int:
     sid = sid or os.environ.get("CLAUDE_SESSION_ID") or os.environ.get("CLAUDE_CODE_SESSION_ID") or ""
     out = "none"
     try:
-        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "hooks" / "scripts"))
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
         import session_surface_snapshot as s
         out = s.verdict(sid)
-    except BaseException:
-        pass
+    except Exception as exc:
+        # stdout vocabulary is closed (none | /reload-plugins | restart): fail open, but say why.
+        print(f"needs-restart: probe failed ({type(exc).__name__}: {exc}); reporting none", file=sys.stderr)
     print(out)
     return 0
 

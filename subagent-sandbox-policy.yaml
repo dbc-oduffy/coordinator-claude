@@ -124,6 +124,7 @@ report_type_map:
   coordinator:plan-author: run-report
   coordinator:roadmap-planner: run-report
   coordinator:exit-criterion-falsifier: run-report
+  coordinator:exit-criterion-judge: run-report
   coordinator:group-em-assistant: run-report
   coordinator:repo-scout: assessment
   coordinator:repo-specialist: assessment

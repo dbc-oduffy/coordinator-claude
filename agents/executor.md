@@ -112,6 +112,8 @@ When the brief gives you code to write: failing unit test first, then the minima
 
 Run tests scoped to files you touched — **name test files/node-ids, never a directory.** Fast tier and full suite are the EM's. Unsure a failure is yours? Report the ambiguity; never widen.
 
+**Never launch a long-running or memory-heavy process (engine extraction, index rebuild, UE commandlet, full test suite, build) in parallel or on your own initiative.** Such runs are serial, the plan declares them as EM legs, and they run only on a capacity slot from the Group EM. See `AN-EXECUTOR-NEVER-FANS-OUT-HEAVY-RUNS`.
+
 ## Shared-Tree Stash Discipline
 
 A stash on a shared tree is global: `git stash` in any form (bare, `push`, pathspec or not) is denied to every subagent, even when the engine guards are unreachable. Instead:

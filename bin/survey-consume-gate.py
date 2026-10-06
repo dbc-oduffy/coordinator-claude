@@ -128,6 +128,7 @@ def _invoke_op(claude_klabauter_root: str, op: str, params: dict[str, Any]) -> t
             cwd=claude_klabauter_root,
             capture_output=True,
             text=True,
+            timeout=60,
             **_NO_CONSOLE,
         )
     except Exception as exc:
@@ -487,7 +488,9 @@ def _run_churn(config: dict[str, Any]) -> dict[str, Any] | None:
     mode. When not in refresh mode, or when refresh mode is missing `since`/
     `system_dirs`, reproduces the discriminated skip shape —
     `{"skipped": true, "reason": "missing-since-or-systemDirs"}` — rather
-    than erroring or omitting the key.
+    than erroring or omitting the key. With those present but `excluded_dirs`
+    missing or empty, the skip reason is `missing-excludedDirs`; the op is
+    never invoked without an exclusion set.
     """
     mode = config.get("mode") or "first-run"
     if mode != "refresh":
@@ -498,14 +501,16 @@ def _run_churn(config: dict[str, Any]) -> dict[str, Any] | None:
     if not since or not system_dirs:
         return {"skipped": True, "reason": "missing-since-or-systemDirs"}
 
+    excluded_dirs = config.get("excluded_dirs")
+    if not excluded_dirs:
+        return {"skipped": True, "reason": "missing-excludedDirs"}
+
     params: dict[str, Any] = {
         "target_root": config["repo_root"],
         "since": since,
         "system_dirs": system_dirs,
+        "excluded_dirs": excluded_dirs,
     }
-    excluded_dirs = config.get("excluded_dirs")
-    if excluded_dirs:
-        params["excluded_dirs"] = excluded_dirs
 
     exit_code, result, error = _invoke_op(config["claude_klabauter_root"], "cartography.churn", params)
     if exit_code != 0 or result is None:

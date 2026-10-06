@@ -229,8 +229,12 @@ def _apply(ignore_path: Path, missing: list[str]) -> None:
     text += eol.join(missing) + eol
 
     tmp_path = ignore_path.with_name(f".{ignore_path.name}.tmp{os.getpid()}")
-    tmp_path.write_text(text, encoding="utf-8", newline="")
-    os.replace(tmp_path, ignore_path)
+    try:
+        tmp_path.write_text(text, encoding="utf-8", newline="")
+        os.replace(tmp_path, ignore_path)
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
 
 
 def main(argv: list[str] | None = None) -> int:

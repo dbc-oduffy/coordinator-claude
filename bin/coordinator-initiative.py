@@ -42,8 +42,6 @@ import os
 import re
 import sys
 
-import yaml
-
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 _BIN_LIB_DIR = os.path.join(SCRIPT_DIR, "lib")
@@ -271,6 +269,8 @@ def _attach_one_plain_yaml(
     content: str,
     original_lines: list[str],
 ) -> tuple[bool, list[str], list[str]]:
+    import yaml  # noqa: PLC0415 -- third-party; deferred so the module body stays warm-servable
+
     try:
         parsed = yaml.safe_load(content)
     except yaml.YAMLError as exc:

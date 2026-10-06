@@ -119,9 +119,13 @@ def _no_console_kw() -> dict:
     return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
 
 
-def _git_diff_name_only(repo_root: Path) -> list[str]:
+def _git_changed_files(repo_root: Path) -> list[str]:
+    """Tracked-modified plus untracked-not-ignored paths, one git spawn.
+
+    `git diff --name-only` omits new untracked files, which a fix may create;
+    `status --porcelain -z --untracked-files=all` covers both."""
     proc = subprocess.run(
-        ["git", "-C", str(repo_root), "diff", "--name-only"],
+        ["git", "-C", str(repo_root), "status", "--porcelain", "-z", "--untracked-files=all"],
         capture_output=True,
         text=True,
         check=False,
@@ -129,9 +133,23 @@ def _git_diff_name_only(repo_root: Path) -> list[str]:
     )
     if proc.returncode != 0:
         raise RuntimeError(
-            f"git diff --name-only failed (exit {proc.returncode}): {proc.stderr.strip()}"
+            f"git status --porcelain failed (exit {proc.returncode}): {proc.stderr.strip()}"
         )
-    return [line for line in proc.stdout.splitlines() if line]
+    # Paths are repo-root-relative only with -C at the toplevel; `diff --name-only`
+    # had the same contract.
+    fields = proc.stdout.split("\0")
+    out: list[str] = []
+    i = 0
+    while i < len(fields):
+        entry = fields[i]
+        i += 1
+        if len(entry) < 4:
+            continue
+        xy, path = entry[:2], entry[3:]
+        if "R" in xy or "C" in xy:
+            i += 1  # skip the rename/copy source path
+        out.append(path)
+    return out
 
 
 def _load_expected_files(fix_now_path: Path) -> list[str]:
@@ -171,7 +189,7 @@ def cmd_verify_diff(args: argparse.Namespace) -> int:
         return 2
 
     try:
-        actual_changed = _git_diff_name_only(repo_root)
+        actual_changed = _git_changed_files(repo_root)
     except RuntimeError as exc:
         print(f"bug-sweep-probes verify-diff: {exc}", file=sys.stderr)
         return 2
@@ -227,7 +245,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_verify.add_argument(
         "--repo-root",
         default=None,
-        help="Repo root to run `git diff --name-only` against (default: cwd).",
+        help="Repo root to run `git status --porcelain` against (default: cwd).",
     )
     p_verify.set_defaults(func=cmd_verify_diff)
 

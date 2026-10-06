@@ -43,6 +43,9 @@ Usage:
     python coordinator/lib/generate-doctrine-surface-split.py <source.md> --check    # verify, exit 1 on drift
 
 Spec backlink: docs/plans/2026-08-13-doctrinal-surface-weight-ratchet.md (D4, C10)
+
+Never imports coordinator_core: a stdlib-only doctrine tool, so its one git read stays
+on its own bounded `subprocess.run`.
 """
 from __future__ import annotations
 

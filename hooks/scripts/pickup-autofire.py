@@ -526,9 +526,15 @@ def _write_decision_files(decisions: list[dict], session_id: str) -> list[Path]:
                 continue
             path = _session_decision_file_path(repo_root, tag, artifact_path)
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(
-                json.dumps(decision, indent=2, sort_keys=True), encoding="utf-8"
-            )
+            tmp = path.with_name(path.name + ".tmp-%d" % os.getpid())
+            try:
+                tmp.write_text(
+                    json.dumps(decision, indent=2, sort_keys=True), encoding="utf-8"
+                )
+                os.replace(tmp, path)
+            except OSError:
+                tmp.unlink(missing_ok=True)
+                raise
             written.append(path)
     except OSError:
         return []

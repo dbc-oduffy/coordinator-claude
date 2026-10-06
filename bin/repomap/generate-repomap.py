@@ -1586,7 +1586,24 @@ def main():
         help="Scoring profile: infra (git activity), code (centrality), balanced (default)",
     )
 
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Refuse (exit 2) instead of writing an edgeless map when tree-sitter is not installed",
+    )
+
     args = parser.parse_args()
+
+    # The session hook runs this unattended, so a missing pack degrades loudly rather than failing
+    # the session path; --strict is for callers that need the reference edges.
+    if not _TS_AVAILABLE:
+        print(
+            "generate-repomap: tree-sitter / tree-sitter-language-pack not importable; map has no reference edges. "
+            f'Install: "{sys.executable}" -m pip install -r "{Path(__file__).with_name("requirements-repomap.txt")}"',
+            file=sys.stderr,
+        )
+        if args.strict:
+            sys.exit(2)
 
     if args.project_root:
         project_root = args.project_root.resolve()

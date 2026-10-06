@@ -318,9 +318,10 @@ def _git_show(repo_root: Path, sha: str, rel_path: str) -> Optional[str]:
             capture_output=True,
             text=True,
             check=False,
+            timeout=15,
             **_NO_CONSOLE,
         )
-    except (OSError, ValueError):
+    except (OSError, ValueError, subprocess.TimeoutExpired):
         return None
     if proc.returncode != 0:
         return None

@@ -29,11 +29,11 @@ running `/bug-sweep` — systematic bug hunt [scoped to X / across the full code
    structure).
 5. Hot-zone rank: `query-completions --since "30d" --where "nature=bugfix" --format json` by
    path-prefix — hot chunks first, chunks with a bugfix in the last 7 days deprioritize (both at
-   once: surface the conflict). Record to `tasks/scratch/bug-sweep/{run-id}/hot-zone-ranking.md`;
+   once: surface the conflict). Record to `state/scratch/bug-sweep/{run-id}/hot-zone-ranking.md`;
    skip on empty.
 6. Identify the test runner (Track B).
 7. Read `state/lessons/` for project-specific patterns to add.
-8. Generate run ID (`YYYY-MM-DD-HHhMM`), create `tasks/scratch/bug-sweep/{run-id}/`.
+8. Generate run ID (`YYYY-MM-DD-HHhMM`), create `state/scratch/bug-sweep/{run-id}/`.
 9. Output: chunk table with pattern assignments, hot-zone ranking, test runner command.
 
 ## Pre-Dispatch: Verify Backlog Against Current Code
@@ -78,7 +78,10 @@ severity, confidence (HIGH/MEDIUM/LOW), file:line, description, AI-fixable-or-no
 
 <!-- engine-gap: field=directives[d_bug_sweep_track_a2_prompt].fields producer=unknown memo=engine-gap-markers-name-a-memo-that-was-never-filed.md -->
 
-**Track B — Test Suite** (EM runs; Haiku parses): Tier-U-gated, no implicit grant. Ask the PM
+**Track B — Test Suite** (EM runs; Haiku parses): **Cloud session: no baseline** — the cloud
+environment block bars every broad suite; skip the grant ask and this track, report
+`suite: not-run (cloud)`, and prove each fix with the tests covering its surface. Otherwise
+Tier-U-gated, no implicit grant. Ask the PM
 using `backlog-grind-assemble brief bug-sweep`'s exact ask text (`j-bug-sweep-tier-u-grant`) — a
 grant names the suite/Tier-U as its subject, not adjacent sweep approval. Granted → `backlog-grind-
 assemble apply bug-sweep --decisions-file <path>` (path to a file containing `{"j-bug-sweep-tier-u-grant":"granted"}`; shells to
@@ -96,7 +99,7 @@ Scans external API references against example-game-repo-docs (UE) or Context7. `
 unavailability → drop. Rationale: wiki. Scratch: `{chunk-name}-phase1-docschecker.md`.
 
 **Scratch verification:** before Phase 2, confirm expected scratch files exist —
-<!-- VERBATIM -->`ls tasks/scratch/bug-sweep/{run-id}/`. Re-dispatch once for any missing chunk;
+<!-- VERBATIM -->`ls state/scratch/bug-sweep/{run-id}/`. Re-dispatch once for any missing chunk;
 proceed with what's available on a second failure.
 
 ## Phase 1.5: Churn-Gated Findings Verification (conditional)
@@ -154,7 +157,7 @@ acceptance criteria per fix, and this verify-first contract, verbatim:
 
 **Post-fix:** re-run the test suite yourself (same Track B grant, recheck `tier-u-grant-cli check`
 live, no second ask). Any newly-failing test → revert that fix, backlog it noting "regression
-introduced." Skip if Track B was declined/skipped.
+introduced." Skip if Track B was declined/skipped or cloud (run each fix's covering tests instead).
 
 ## Phase 3.5: Post-Fix API Verification (YOU do this)
 
@@ -167,7 +170,7 @@ modified files; report INCORRECT and suspicious-UNVERIFIED only." `INCORRECT` in
 ## Phase 4: Report and Commit (YOU do this)
 
 0. **Mechanical diff gate:** `bug-sweep-probes verify-diff --fix-now
-   tasks/scratch/bug-sweep/{run-id}/phase2-fix-now.json` — non-empty `missing` means an executor
+   state/scratch/bug-sweep/{run-id}/phase2-fix-now.json` — non-empty `missing` means an executor
    `no-op` claimed a fix; list as **Zero-diff fixes**, doesn't block committing real fixes.
    Rationale: wiki.
 

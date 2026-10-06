@@ -1,0 +1,58 @@
+schema_version: 1
+pipeline: structured
+description: "Structured research, one subject at a time: scout, per-topic verifiers, a rebuttal round, a schema-conforming synthesizer"
+subjects_mode: sequential
+inputs:
+  brief: required
+  subjects: optional
+  scratch_dir: optional
+stages:
+  - id: scout
+    phase: Scout
+    agent_type: coordinator:research-scout
+    model: haiku
+    template: structured-scout-prompt-template.md
+    fan_out: none
+    web_caller: true
+    output: "{{scratch_dir}}/scout-index.md"
+  - id: verify
+    phase: Verify
+    agent_type: coordinator:research-specialist
+    model: sonnet
+    template: structured-verifier-prompt-template.md
+    fan_out:
+      over: subject.verifiers
+    web_caller: true
+    depends_on: [scout]
+    output: "{{scratch_dir}}/{{item.topic}}-findings.md"
+    schema:
+      type: object
+      required: [topic, challenged]
+      properties:
+        topic: { type: string }
+        challenged: { type: array, items: { type: string } }
+  - id: rebuttal
+    phase: Rebuttal
+    agent_type: coordinator:research-specialist
+    model: sonnet
+    template: structured-rebuttal-prompt-template.md
+    fan_out:
+      over: stage.verify.return.challenged
+    web_caller: true
+    depends_on: [verify]
+    output: "{{scratch_dir}}/{{item}}-findings.md"
+    schema:
+      type: object
+      required: [topic, challenged]
+      properties:
+        topic: { type: string }
+        challenged: { type: array, items: { type: string } }
+  - id: synthesize
+    phase: Synthesize
+    agent_type: coordinator:structured-synthesizer
+    model: opus
+    template: structured-synthesizer-prompt-template.md
+    fan_out: none
+    web_caller: false
+    depends_on: [verify, rebuttal]
+    output: "{{scratch_dir}}/synthesis-annotations.md"

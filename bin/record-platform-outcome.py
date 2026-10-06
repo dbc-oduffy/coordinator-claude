@@ -14,13 +14,12 @@ the invoking process's cwd. `invoking_repo` (the repo id of the tree the ceremon
 actually ran in) and `surface_sha` (the SHA of the repo PROVIDING the surface under
 test) diverge exactly when a canary run on one machine exercises a surface resolved
 from a different repo's clone via `--plugin-dir` (see schema field descriptions for
-both). The surface-providing repo here is always the DoE/coordinator repo — this tool
-lives in `coordinator/bin/`, so the surface it measures is always a DoE-owned surface —
-resolved via `coordinator_registry.content_root()` (env `CONTENT_ROOT` -> machine-local
-registry `repos.content_root` -> raise), NOT via `.content-root`-file-read or cwd. `content_root()`
-delegates to the same machine-local registry the `.content-root` pointer file itself is
-generated from (`gen-content-root-pointer.py`) — reusing the existing, already-tested seam
-is preferred over re-reading the pointer file directly. Per
+both). The surface-providing repo here is always the coordinator content repo — this tool
+lives in `coordinator/bin/`, so the surface it measures is always a content-owned surface —
+resolved via `coordinator_registry.content_root()` (machine-local registry
+`repos.content_root` and its pointer rungs -> raise), NOT via a pointer-file read or cwd.
+Reusing the existing, already-tested seam is preferred over re-reading a pointer file
+directly. Per
 `coordinator/docs/wiki/state-placement-law.md`, "state/ is repo-local"; a naive
 cwd-relative write would land the record in the wrong repo whenever `invoking_repo !=`
 the surface-providing repo.
@@ -139,7 +138,7 @@ _PLATFORM_MAP = {
 }
 
 
-GENERATES = []  # writes state/platform-outcomes/<platform>/<machine>/<surface>.yaml under _surface_root() == coordinator_registry.content_root() (the coordinator-content-repo repo), never claude-klabauter's own tree — see module docstring "WRITE-TARGET RESOLUTION"
+GENERATES = []  # writes state/platform-outcomes/<platform>/<machine>/<surface>.yaml under _surface_root() == coordinator_registry.content_root() (the coordinator content repo), never claude-klabauter's own tree — see module docstring "WRITE-TARGET RESOLUTION"
 
 
 class RecordPlatformOutcomeError(RuntimeError):
@@ -190,10 +189,10 @@ def _resolve_machine() -> str:
 
 
 def _surface_root() -> str:
-    """Resolve the surface-providing repo root (always the DoE/coordinator repo —
+    """Resolve the surface-providing repo root (always the coordinator content repo —
     this tool lives under `coordinator/bin/`, so the surface it measures is always
-    DoE-owned). Delegates entirely to `coordinator_registry.content_root()`; raises
-    `_DoeUnresolvable` when neither `CONTENT_ROOT` nor the machine-local registry
+    content-owned). Delegates entirely to `coordinator_registry.content_root()`; raises
+    `_DoeUnresolvable` when the machine-local registry does not
     resolve it — callers must catch and report, not silently default to cwd."""
     _bootstrap_engine()
     return content_root()
@@ -353,7 +352,7 @@ def main(argv: "list[str] | None" = None) -> int:
     except _DoeUnresolvable as exc:
         print(
             f"record-platform-outcome: error: cannot resolve surface-providing "
-            f"repo root (CONTENT_ROOT / machine-local repos.content_root): {exc}",
+            f"repo root (machine-local repos.content_root): {exc}",
             file=sys.stderr,
         )
         return 1

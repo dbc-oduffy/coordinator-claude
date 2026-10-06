@@ -1,23 +1,19 @@
 ---
 name: staff-session
-description: "PM-GATED, never from a subagent. Agent Teams review for architecture calls."
-allowed-tools: ["Agent", "Read", "Write", "Bash", "Glob", "Grep", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "SendMessage"]
+description: "PM-GATED, never from a subagent. Chatty-Workflow review for architecture calls."
+allowed-tools: ["Agent", "Read", "Write", "Bash", "Glob", "Grep", "Workflow"]
 argument-hint: "--mode plan|review --tier standard|full [--members \"the Staff Engineer,the Director of Engineering,...\"] <input>"
 ---
 
-# Staff Session — Agent Teams Planning and Review Driver
+# Staff Session — Chatty-Workflow Planning and Review Driver
 
-**`standard`/`full` tier requires agent teams** — `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in
-`settings.json`'s `env`, applied at SESSION START and not toggleable mid-session. Without it every
-named `Agent` call here is an ordinary background subagent and no team forms. `--tier lightweight`
-does not depend on this — see Step 2.
-
-The EM scopes the work, selects the team, spawns all teammates, and is **freed**; the team then
-debates and synthesizes autonomously. Roles, models and counts: `pipelines/staff-session/
-team-protocol.md` § Team Roles — read there, don't re-derive.
+The EM scopes the work, selects the debaters, fires ONE background `Workflow`, and is **freed**; the
+Workflow then runs the debate as rounds and synthesizes autonomously. Roles, models and counts:
+`pipelines/staff-session/team-protocol.md` § Roles — read there, don't re-derive. Doctrine:
+`coordinator/docs/wiki/dispatching-parallel-agents/chatty-workflows.md`.
 
 **Lightweight tier falls through to single-reviewer dispatch via `/review` (plan) or
-`/review-code` (code) — no team created.**
+`/review-code` (code) — no Workflow fired.**
 
 ## Arguments
 
@@ -44,13 +40,11 @@ Announce: "Running `/staff-session --mode {mode} --tier {tier}` on '{topic}'."
 
 ## Step 2 — Tier Routing
 
-**`--tier lightweight`:** do NOT create a team. Route to `/review` (plan artifacts) or
+**`--tier lightweight`:** do NOT fire a Workflow. Route to `/review` (plan artifacts) or
 `/review-code` (code artifacts) with the specified member (default `the Staff Engineer`). Announce and
 **STOP — the rest of this command does not execute.**
 
-**`standard`/`full`:** forms a team. `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` is `"1"` by default and
-this skill forms one on that default — every named `Agent` call anywhere becomes a teammate that
-returns no result. Continue to Step 3.
+**`standard`/`full`:** fires the chatty Workflow. Continue to Step 3.
 
 ## Step 3 — Scope (EM Direct)
 
@@ -58,7 +52,7 @@ Write `{scratch-dir}/scope.md` per the template in `pipelines/staff-session/temp
 § Step 3. Plan mode: EM writes objectives and constraints only — never the plan. Review mode: EM
 provides artifact path and focus areas only — never pre-formed findings.
 
-## Step 4 — Select Team Composition
+## Step 4 — Select Debaters
 
 `--members` specified → those exact slugs are the debater list.
 
@@ -74,56 +68,53 @@ Shape W (rung 0) — ladder and shapes: `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-
 Returns `{personas: [{slug, agent_file, subagent_type}, ...], narration, source}`. Fails loud
 (usage exit) on an unresolvable domain signal, unknown slug, or `the Director of Engineering` as a debater — surface that
 error to the PM verbatim. `the Director of Engineering` is never a valid debater slug — fixed synthesizer identity
-(`coordinator:eng-director`), spawned separately in Step 6. Resolver mechanics: wiki.
+(`coordinator:eng-director`), the Workflow's synthesizer stage in Step 6. Resolver mechanics: wiki.
 
 Debater count from the resolved roster: `standard` = 2 (default pair), `full` = 3-5 (default pair
 + judgment-selected additions).
 
-Announce composition to PM before creating the team, using the resolved `personas[].slug`:
+Announce composition to PM before firing the Workflow, using the resolved `personas[].slug`:
 > "I'll run this with **{Persona A}** and **{Persona B}** [+ **{Persona C}**...] debating, plus a
 > staff synthesizer. Proceeding."
 
-## Step 5 — Create Tasks
+## Step 5 — Fill Prompts
 
-Order matters — earlier task IDs are referenced in blocking-chain setup.
+The prompt templates in `${CLAUDE_PLUGIN_ROOT}/pipelines/staff-session/` are not filled by hand: the
+manifest `staff-session.manifest.yaml` names them, and the Workflow reads per-run values from
+`scope.md`. Complete `{scratch-dir}/scope.md` with the run fields, the output and advisory paths,
+and the Roster table from Step 4's `personas[]` (`slug`, `subagent_type` as `agent_type`,
+persona name, perspective, `agent_file`) — see `pipelines/staff-session/templates-and-fields.md`
+§ Template vocabulary and the brief. Create `{scratch-dir}/mail/`.
 
-1. **Synthesizer task** (created first, blocked by all debaters below): subject "Synthesize all
-   debater positions into final {plan|findings}"; description points to reading
-   `{scratch-dir}/*-position.md`, writing `{output-path}` + `{scratch-dir}/synthesis.md`, and
-   `{scratch-dir}/advisory.md` if warranted. Save as `{synthesizer-task-id}`.
-2. **Debater tasks** (one per persona, no blockers on creation): subject "{Persona Name}:
-   {mode} session on {topic}"; description points to `{scratch-dir}/scope.md`, the mode-specific
-   research/debate/write instruction, output to `{scratch-dir}/{persona-slug}-position.md`, DONE
-   to synthesizer. Collect all IDs.
-3. `TaskUpdate(taskId: "{synthesizer-task-id}", addBlockedBy: [<all debater task IDs>])`.
+## Step 6 — Fire the Workflow
 
-## Step 6 — Spawn All Teammates
+Emit the Workflow from the manifest; the EM supplies the brief and roster, never a script. CLI
+resolved per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` (Shape W, rung 0, on a
+PowerShell host: `& "$env:COORDINATOR_SETTINGS_HOME\bin\emit-dispatch-workflow.exe" --pipeline
+staff-session ...` with the same flags):
 
-Read the planner/reviewer/synthesizer prompt templates from
-`${CLAUDE_PLUGIN_ROOT}/pipelines/staff-session/`. For each debater, read the persona identity
-excerpt from `personas[].agent_file` (Step 4's roster), injected at `[PERSONA_IDENTITY]`. Fill all
-`[BRACKETED_FIELD]` placeholders — see `pipelines/staff-session/templates-and-fields.md` § Step 6
-for the full field list.
+    ${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/bin/emit-dispatch-workflow --pipeline staff-session --brief {scratch-dir}/scope.md --flag mode=<plan|review> --list roster=<slug>=<agent_type>,<slug>=<agent_type>,... --out {scratch-dir}/staff-session.workflow.mjs
 
-**Spawn ALL teammates in a single message (parallel):** one `Agent(name: "{persona-slug}", model:
-"opus", subagent_type: "{personas[i].subagent_type}", prompt: <filled prompt>)` per debater
-(subagent_type from Step 4's roster, never hardcoded — e.g. game-dev personas use `game-dev:`,
-not `coordinator:`), followed by `TaskUpdate(taskId: "{debater-id}", owner: "{persona-slug}")`;
-then `Agent(name: "synthesizer", model: "opus", subagent_type: "coordinator:eng-director", prompt:
-<filled synthesizer prompt>)` + its `TaskUpdate`.
+`--brief` is the path to `scope.md` (a missing file is refused); `--list roster` carries one
+`slug=agent_type` per debater from the Roster table Step 5 wrote (`agent_type` is Step 4's
+`subagent_type`, never hardcoded — e.g. game-dev personas use `game-dev:`, not `coordinator:`);
+`--flag mode` is the session mode, and an absent one is refused. Fire the printed `Workflow` line as ONE background `Workflow`. The graph is
+`staff-session.manifest.yaml`: round 1 (all debaters in parallel), one rebuttal round for each
+debater with unread mail, then the synthesizer (`coordinator:eng-director`) as overseer, the only
+output to the EM. Ordering is the manifest's `depends_on`; there are no tasks or `blockedBy`.
 
 ## Step 7 — EM Is Freed
 
-After spawning, announce:
+After firing, announce:
 
 > "Staff session running on '**{topic}**' with **{N} debaters** ({names}) + **1 synthesizer**.
-> Debate phase: floor 3 min, ceiling {MAX_MINUTES} min. Synthesizer unblocks when all debaters
-> complete. I'm available for other work — I'll be notified when the synthesizer completes."
+> Round 1 positions and challenges, one rebuttal round, then synthesis. I'm available for other
+> work — I'll be notified when the Workflow completes."
 
-**You are now free to continue with the PM.** Do not poll, monitor, or send WRAP_UP — the team
-self-governs via `team-protocol.md`.
+**You are now free to continue with the PM.** Do not poll, monitor, or message the agents — the
+script self-governs via `team-protocol.md`.
 
-## Step 8 — On Completion Notification
+## Step 8 — On Workflow Completion Notification
 
 1. Read `{output-path}`; verify substantive content (not just headers/a stub).
 2. Mode-specific verification: plan mode → `## Implementation Plan` section with
@@ -145,13 +136,12 @@ self-governs via `team-protocol.md`.
    `topic_slug={topic-slug}`, `dry_run=false`. Moves `{scratch-dir}` to
    `docs/research/archive/YYYY-MM-DD-{topic-slug}/`, lands one scoped commit, removes the source
    tree. Safe no-op on re-run. Mechanics and CLI-trampoline caveat: wiki.
-6. Team auto-cleans on session exit — no explicit teardown.
-7. Present to PM: mode-specific framing ("ready for `/enrich-and-review`" / "synthesized
+6. Present to PM: mode-specific framing ("ready for `/enrich-and-review`" / "synthesized
    findings"), 2-3 bullet executive summary, output path, and — if advisory exists — a pointer to
    the archived advisory.
 
 ## Error Handling
 
 See `pipelines/staff-session/templates-and-fields.md` § Error Handling Matrix for the full
-failure-mode → action table (debater crash, synthesizer failure, DONE-not-received, debate loops,
+failure-mode → action table (debater crash, synthesizer failure, Workflow refusal, non-convergence,
 unknown slug, missing output).

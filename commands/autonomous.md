@@ -1,13 +1,13 @@
 ---
 name: autonomous
-description: "Toggle autonomous mode — no handoff nudges near compaction."
+description: "Toggle autonomous mode — the PM-away premise for what counts as a legitimate stop."
 allowed-tools: ["Bash"]
 argument-hint: "[on|off]"
 ---
 
 # Autonomous Mode Toggle
 
-Writes or removes the autonomous-run sentinel file that the context pressure hook checks. When active, context pressure messages become informational-only (no `/handoff` recommendation).
+Writes or removes the autonomous-run sentinel file. Context-pressure messages never recommend `/handoff`, with or without it: they say commit, checkpoint, and ride compaction.
 
 ## Usage
 
@@ -24,7 +24,7 @@ Run, relaying its own stdout confirmation verbatim (don't re-author it). Shape W
 ## Behavior While Active
 
 PM touchpoints themselves are set by the sizing's `interaction_mode` (hands-on / pm / ceo), not
-by this toggle — this sentinel only quiets context-pressure nudges.
+by this toggle.
 
 Presume the PM is away — don't wait for input. Status between steps is
 output-only; no mid-run "should we continue?". Everything else once printed

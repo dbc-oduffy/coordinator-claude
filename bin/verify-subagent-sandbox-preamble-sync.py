@@ -50,7 +50,7 @@ from __future__ import annotations
 #   0 — clean (no drift) / --list mode.
 #   1 — drift found (MISSING/MISMATCH/MISSING_END/MISSING_FILE — see the
 #       claude-klabauter module's own exit-code table for the full per-row mapping), OR
-#       _resolve_plugin_root() could not resolve the coordinator-content-repo repo root
+#       _resolve_plugin_root() could not resolve the coordinator content root
 #       (CLAUDE_PLUGIN_ROOT unset and content_root() raised _DoeUnresolvable) —
 #       mirrors verify-templates-bin-sync.py's own reuse of the drift exit
 #       code for an unresolvable plugin root.
@@ -63,13 +63,13 @@ from __future__ import annotations
 #       or "bad CLI usage" (2).
 #
 # Plugin-root/script-dir resolution is reproduced HERE (not delegated to the
-# claude-klabauter module) because it is DoE-repo topology knowledge (CLAUDE_PLUGIN_ROOT
+# claude-klabauter module) because it is content-root topology knowledge (CLAUDE_PLUGIN_ROOT
 # env var, else resolved via the shared content_root() registry helper) — this
 # executable migrated to claude-klabauter (b644d5a9/8a28a6ca) while
 # coordinator/agents/ (the DoE-owned consumer files this module reads) stayed
 # in coordinator-content-repo, so this script's own parent directory no longer resolves to
 # a directory containing agents/ at all. Content_root() is the correct authority
-# for "where is the coordinator-content-repo repo," independent of where THIS script
+# for "where is the coordinator content," independent of where THIS script
 # happens to run from — mirrors verify-templates-bin-sync.py's
 # _resolve_plugin_root() fix exactly (see that script's own docstring for
 # the same self-location break and why it must not be restored). Both
@@ -90,7 +90,7 @@ def _resolve_plugin_root() -> str:
 
     Env var CLAUDE_PLUGIN_ROOT wins if set, returned verbatim. Otherwise
     resolves via content_root() (see that function's own docstring for its
-    env-var/machine-local resolution chain) and returns
+    registry/pointer resolution chain) and returns
     <content_root()>/coordinator.
 
     This does NOT derive from this script's own __file__ location. That
@@ -100,13 +100,13 @@ def _resolve_plugin_root() -> str:
     stayed put in coordinator-content-repo — self-location now resolves to a directory
     with no agents/ at all, silently producing MISSING_FILE rows over a
     tree that never existed instead of a loud failure. Content_root() is the
-    correct authority for "where is the coordinator-content-repo repo," independent of
+    correct authority for "where is the coordinator content," independent of
     where THIS script happens to run from. A future reader must not
     "restore" __file__-based resolution to regain oracle parity — that is
     precisely what caused this break.
 
     Fails loud (sys.exit(1)) if content_root() cannot resolve: this is a gate
-    script, not a never-block hook, so an unresolvable DoE root must not
+    script, not a never-block hook, so an unresolvable content root must not
     degrade to an exit-0 no-op.
     """
     from coordinator_data_root import content_root_or_private
@@ -119,9 +119,9 @@ def _resolve_plugin_root() -> str:
         root = content_root()
     except _DoeUnresolvable as exc:
         print(
-            "verify-subagent-sandbox-preamble-sync.py: cannot resolve the coordinator doctrine repo root "
-            f"({exc}). Set repos.content_root in the machine-local registry, or set "
-            "the CONTENT_ROOT env var, or set CLAUDE_PLUGIN_ROOT directly.",
+            "verify-subagent-sandbox-preamble-sync.py: cannot resolve the coordinator content root "
+            f"({exc}). Set repos.content_root in the machine-local registry, "
+            "or set CLAUDE_PLUGIN_ROOT directly.",
             file=sys.stderr,
         )
         sys.exit(1)

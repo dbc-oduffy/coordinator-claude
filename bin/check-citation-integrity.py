@@ -26,7 +26,12 @@ Violation classes tracked by C2: `rot`, `ambiguous`, `dead_link` -- the
 three `citation_graph.Verdict.status` values that name a citation genuinely
 broken (as opposed to `live`, `cross_surface` -- real,
 out-of-scope-for-this-ratchet -- or `home_relative`, never a repo path to
-begin with).
+begin with). `moved` (a pathed wiki citation whose basename resolved after
+every root missed -- see `citation_graph.resolve_pathed`) is likewise kept
+OUT of the rot ratchet: the citation is live but stale, not broken, so it
+is reported as its own count (`moved_count` in the JSON summary, its own
+line in the human report) and never folded into `VIOLATION_CLASSES` or any
+baseline partition.
 
 C3 and C4 add three more classes, each its OWN partition, never merged into
 an existing one:
@@ -47,6 +52,14 @@ an existing one:
     completeness percentage (pages absent from the guide entirely) is a
     plain count reported alongside it, not itself a violation identity, and
     is NOT baselined -- see `guide_drift` vs `absent_count` below.
+
+`anchor_missing` -- a live file citation whose `#fragment` or `§ Heading`
+does not resolve inside the target file (`citation_graph.scan_anchors`). It
+is an evidentiary figure only: reported as `anchor_missing_count` and listed
+by identity (`citation_identity` form plus `#<anchor>`), never added to
+`ALL_CLASSES`, never baselined, never able to move the exit code -- the same
+treatment as `absent_count`. `docs/decisions/` is not scanned: decision
+records are historical and do-not-repoint.
 
 A later chunk introducing a new violation CLASS adds only that class's own
 partition to the baseline, in the same commit that introduces the gate
@@ -130,6 +143,8 @@ REPO_ROOT = _REPO_ROOT
 #: importing that module at module scope -- both derive from the same `REPO_ROOT`.
 WIKI_ROOT = REPO_ROOT / "docs" / "wiki"
 DEFAULT_BASELINE_PATH = REPO_ROOT / "state" / "baselines" / "citation-integrity.json"
+#: Subject repo that baseline identities are relative to; `main` rebinds it to the caller's repo.
+_SUBJECT = [REPO_ROOT]
 
 
 def _cg():
@@ -138,6 +153,17 @@ def _cg():
     import coordinator_core.citation_graph as cg
 
     return cg
+
+
+def _scan_frontmatter(text: "str | None") -> dict:
+    """`frontmatter_scan.scan_frontmatter`, imported on first call so a bare import of this
+    module leaves `sys.path` untouched."""
+    lib_dir = str(Path(__file__).resolve().parents[1] / "lib")
+    if lib_dir not in sys.path:
+        sys.path.insert(0, lib_dir)
+    from frontmatter_scan import scan_frontmatter
+
+    return scan_frontmatter(text)
 
 
 def _run_git(args: "list[str]", cwd: Path):
@@ -179,12 +205,6 @@ ALL_CLASSES: "tuple[str, ...]" = VIOLATION_CLASSES + STRUCTURAL_CLASSES + GUIDE_
 #: `| [some-page](some-page.md) | system | one-line |`.
 _GUIDE_ROW_LINK = re.compile(r"^\|\s*\[[^\]\n]*\]\(([^)\n]+\.md)\)\s*\|")
 
-#: The frontmatter `status:` key, bound to the fenced block by the caller
-#: (`read_frontmatter_status`) -- never applied to a whole file, which
-#: over-reports on this corpus by ~75% because body prose reuses the same
-#: key (dispatch brief C4).
-_FRONTMATTER_STATUS = re.compile(r"^status:\s*(.+?)\s*$", re.MULTILINE)
-
 
 def citation_identity(verdict: "cg.Verdict") -> str:
     """The baseline's atomic unit: enough to tell a NEW violation from a
@@ -201,7 +221,7 @@ def citation_identity(verdict: "cg.Verdict") -> str:
     blind spot."""
     citation = verdict.citation
     try:
-        rel = citation.citing_file.resolve().relative_to(REPO_ROOT).as_posix()
+        rel = citation.citing_file.resolve().relative_to(_SUBJECT[0]).as_posix()
     except ValueError:
         rel = citation.citing_file.as_posix()
     return f"{rel}:{citation.raw_target}"
@@ -219,17 +239,11 @@ def partition_current(report: "cg.CorpusReport") -> "dict[str, set[str]]":
 
 def read_frontmatter_status(text: str) -> "str | None":
     """The frontmatter `status:` value, bound strictly to the leading `---`
-    fence -- never a whole-file regex, which over-reports on this corpus by
+    fence -- never a whole-file read, which over-reports on this corpus by
     ~75% because body prose reuses the same key (dispatch brief C4). `None`
-    if there's no leading fence, or no `status:` key inside it."""
-    if not text.startswith("---"):
-        return None
-    end = text.find("\n---", 3)
-    if end == -1:
-        return None
-    fence = text[3:end]
-    match = _FRONTMATTER_STATUS.search(fence)
-    return match.group(1).strip() if match else None
+    if there's no closed leading fence, or no scalar `status:` key inside it."""
+    status = _scan_frontmatter(text).get("status")
+    return status if isinstance(status, str) and status else None
 
 
 def _relpath(path: Path, root: Path) -> str:
@@ -430,8 +444,24 @@ def build_baseline_payload(
     }
 
 
+def anchor_missing_identities(anchors: "tuple[cg.AnchorVerdict, ...]") -> "list[str]":
+    """Sorted `citation_identity#<anchor>` strings for every `anchor_missing`
+    verdict. Evidentiary only -- never gated or baselined."""
+    return sorted(
+        {
+            f"{citation_identity(av)}#{av.anchor}"
+            for av in anchors
+            if av.status == "anchor_missing"
+        }
+    )
+
+
 def _summary(
-    report: "cg.CorpusReport", diffs: "dict[str, list[str]]", health: dict, drift: dict
+    report: "cg.CorpusReport",
+    diffs: "dict[str, list[str]]",
+    health: dict,
+    drift: dict,
+    anchor_missing: "list[str]",
 ) -> dict:
     return {
         "wiki_file_count": report.wiki_file_count,
@@ -444,6 +474,8 @@ def _summary(
         "guide_dead_rows_count": len(drift["dead_rows"]),
         "guide_absent_count": drift["absent_count"],
         "guide_page_count": drift["guide_page_count"],
+        "moved_count": report.counts().get("moved", 0),
+        "anchor_missing_count": len(anchor_missing),
     }
 
 
@@ -453,6 +485,7 @@ def _human_report(
     baseline: dict,
     current: "dict[str, set[str]]",
     drift: dict,
+    anchor_missing: "list[str]",
 ) -> str:
     lines = [
         f"citation-integrity: {report.wiki_file_count} wiki files @ "
@@ -467,6 +500,19 @@ def _human_report(
         "  evidentiary (one-time, not gated): guide completeness "
         f"{drift['guide_page_count'] - drift['absent_count']}/{drift['guide_page_count']} "
         f"wiki pages reachable from DIRECTORY_GUIDE.md ({drift['absent_count']} absent)"
+    )
+    lines.append(
+        f"  moved (not gated, not baselined): {report.counts().get('moved', 0)} pathed "
+        "citation(s) resolved by basename after every root missed"
+    )
+    lines.append(
+        f"  anchor_missing (evidentiary, not gated): {len(anchor_missing)} live citation(s) "
+        "whose #fragment or section heading does not resolve in the target file"
+    )
+    for identity in anchor_missing:
+        lines.append(f"    {identity}")
+    lines.append(
+        "  docs/decisions/ is not scanned: decision records are historical and do-not-repoint."
     )
     if not diffs:
         lines.append("PASS -- no violation is new against the committed baseline.")
@@ -498,11 +544,12 @@ def run(
     current["dead_end"] = set(health["dead_ends"])
     current["guide_drift"] = set(drift["dead_rows"])
     diffs = diff_against_baseline(current, baseline)
+    anchor_missing = anchor_missing_identities(_cg().scan_anchors(report))
     exit_code = 1 if diffs else 0
     return (
         exit_code,
-        _summary(report, diffs, health, drift),
-        _human_report(report, diffs, baseline, current, drift),
+        _summary(report, diffs, health, drift, anchor_missing),
+        _human_report(report, diffs, baseline, current, drift, anchor_missing),
     )
 
 
@@ -528,8 +575,8 @@ def main(argv: "list[str] | None" = None) -> int:
     parser.add_argument(
         "--baseline",
         type=Path,
-        default=DEFAULT_BASELINE_PATH,
-        help="path to the class-partitioned baseline (default: state/baselines/citation-integrity.json)",
+        default=None,
+        help="path to the class-partitioned baseline (default: <subject repo>/state/baselines/citation-integrity.json)",
     )
     parser.add_argument(
         "--emit-baseline",
@@ -544,14 +591,25 @@ def main(argv: "list[str] | None" = None) -> int:
     parser.add_argument(
         "--repo-root",
         type=Path,
-        default=REPO_ROOT,
-        help=argparse.SUPPRESS,  # test-only override for the dirty-tree check
+        default=None,
+        help="subject repo (default: env, then the cwd's repo)",
     )
     args = parser.parse_args(argv)
+    sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+    from subject_repo import subject_repo_root
+
+    subject = subject_repo_root(args.repo_root)
+    if subject is None:
+        print("check-citation-integrity: no subject repo (pass --repo-root or run in a git repo)", file=sys.stderr)
+        return 1
+    _SUBJECT[0] = subject
+    subject_wiki = subject / "docs" / "wiki"
+    if args.baseline is None:
+        args.baseline = subject / "state" / "baselines" / "citation-integrity.json"
 
     if args.emit_baseline:
         if not args.i_know_the_tree_is_dirty:
-            dirty = _git_dirty_paths(args.repo_root)
+            dirty = _git_dirty_paths(subject)
             if dirty is None:
                 print(
                     "check-citation-integrity: --emit-baseline refused -- could not "
@@ -570,8 +628,8 @@ def main(argv: "list[str] | None" = None) -> int:
                 )
                 return 1
         cg = _cg()
-        report = cg.scan_corpus()
-        payload = build_baseline_payload(report, cg.WIKI_ROOT, baseline_sha=_git_head_sha(REPO_ROOT))
+        report = cg.scan_corpus(wiki_root=subject_wiki, repo_root=subject)
+        payload = build_baseline_payload(report, subject_wiki, baseline_sha=_git_head_sha(subject))
         print(json.dumps(payload, indent=2, sort_keys=True))
         return 0
 
@@ -588,7 +646,9 @@ def main(argv: "list[str] | None" = None) -> int:
         )
         return 0
 
-    exit_code, summary, human = run(baseline_path=args.baseline)
+    exit_code, summary, human = run(
+        wiki_root=subject_wiki, repo_root=subject, baseline_path=args.baseline
+    )
     if args.json:
         print(json.dumps(summary, indent=2, sort_keys=True))
     else:

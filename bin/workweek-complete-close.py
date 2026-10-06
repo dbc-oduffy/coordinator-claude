@@ -49,7 +49,7 @@ from collections.abc import Sequence
 from datetime import date, timedelta
 from pathlib import Path
 
-# Generator-provenance declaration (generator_provenance.py).
+# Generator-provenance declaration (coordinator_core/ops/generator_census).
 # perform_archive_files moves the closing week's daily/priorities files into
 # archive/week-changelogs/<week-starting>/ and archive/review-trail/
 # <week-starting>/, and rewrites state/week-changelog/HEADER.md -- a
@@ -241,6 +241,20 @@ def _bare_week_date(value: str) -> str | None:
     """
     m = _LEADING_DATE_RE.match(value.strip())
     return m.group(1) if m else None
+
+
+def _own_week_folder(d: date | None, week_starting: str) -> str:
+    """Archive folder name for a daily file dated `d`: the closing week's
+    `week_starting` when `d` falls in its 7-day window (or is unparseable),
+    else the start of `d`'s own week on `week_starting`'s weekday chain.
+
+    Trap: anchor on `week_starting`'s weekday, never Monday — repos differ
+    (claude-klabauter's chain is Monday, DoE's is Tuesday) and a hardcoded weekday
+    splits one repo's archive across two chains."""
+    if d is None:
+        return week_starting
+    ws = date.fromisoformat(week_starting)
+    return (ws + timedelta(days=7 * ((d - ws).days // 7))).isoformat()
 
 
 def _in_week_window(d: date, week_starting: date, week_ending: date | None = None) -> bool:
@@ -448,7 +462,13 @@ def perform_archive_files(
                     or _is_excluded(f.name, exclude)
                 ):
                     continue
-            dest = archive_dest / f.name
+            dest_dir = archive_dest
+            if not week_only:
+                dest_dir = archive_week_root / _own_week_folder(
+                    _parse_leading_date(f.name), week_starting
+                )
+                dest_dir.mkdir(parents=True, exist_ok=True)
+            dest = dest_dir / f.name
             _relocate_or_move(relocate_fn, session_id, f, dest, cwd=relocate_cwd)
             actions.append(f"moved {f} -> {dest}")
             touched.extend((f, dest))
@@ -691,6 +711,10 @@ def _cmd_archive(args: argparse.Namespace) -> int:
             review_trail_dir,
             review_trail_archive_root / week_starting,
         ]
+        candidate_paths += sorted(
+            {t.parent for t in touched if t.parent.parent == archive_week_root}
+            - set(candidate_paths)
+        )
         paths = [
             rel_id(p, repo_root) for p in candidate_paths if _has_pathspec_content(p)
         ]

@@ -11,7 +11,7 @@
 #
 # Options:
 #   --root <path>        Plugin tree root (artifact discovery). Defaults to
-#                         ~/.claude/.content-root sentinel target, else the OSS
+#                         the resolved content root, else the OSS
 #                         mirror ~/.claude/plugins/coordinator-claude/.
 #   --sweep-root <path>  Doc-sweep root (which .md files get scanned). Defaults
 #                         to the invoking repo's cwd — deliberately NOT the

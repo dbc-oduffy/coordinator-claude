@@ -270,9 +270,10 @@ def _changed_paths(repo_root: Path, since: str) -> list[str]:
             capture_output=True,
             text=True,
             check=False,
+            timeout=15,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
-    except OSError as exc:
+    except (OSError, subprocess.TimeoutExpired) as exc:
         raise ValueError(f"cannot invoke git: {exc}") from exc
     if result.returncode != 0:
         raise ValueError(

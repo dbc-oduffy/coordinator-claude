@@ -9,10 +9,9 @@ session to run a command, which is the discharge-test failure the entry op was
 built to close: a skill body is a document, and a mode nobody fires is a mode
 assembled from memory.
 
-This is the fourth `UserPromptExpansion` auto-fire in this directory and
-follows `pickup-autofire.py` / `mise-autofire.py` exactly — same bare-verb
-normalization, same fail-open discipline, same envelope. It is not new
-infrastructure.
+This hook follows `pickup-autofire.py` / `mise-autofire.py` — same bare-verb
+normalization, same fail-open discipline, same envelope. It runs the entry CLI by
+path, in-process through `_engine_forward`, never as a child process.
 
 Contract (mirrors the sibling hooks in this directory):
   stdin   -- UserPromptExpansion JSON (command_name, command_args, cwd,
@@ -58,19 +57,14 @@ NEGATIVE SPEC — what this hook deliberately does NOT do:
 
 from __future__ import annotations
 
+import io
 import json
 import os
-import subprocess
 import sys
 from pathlib import Path
 
 _GROUP_EM_COMMAND_NAMES = {"group-em"}
-_ENTER_TIMEOUT_SECONDS = 30
 _CONTEXT_BUDGET_CHARS = 10_000
-
-# Windows console-subprocess discipline: `python.exe` is a CONSOLE-subsystem
-# child. `getattr` resolves to 0 (no-op) on every non-Windows platform.
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 _PM_CALL_DEFAULT = "resolving this is the PM's call"
 
@@ -193,26 +187,36 @@ def _box_blocks(repo_root: str, session_id: str, payload: dict) -> list[str]:
     return blocks
 
 
+class _EnterResult:
+    def __init__(self, returncode: int, stdout: str, stderr: str) -> None:
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+
+
 def _run_enter(script: Path, repo_root: str, session_id: str):
-    argv = [
-        sys.executable,
-        str(script),
-        "--repo",
-        repo_root,
-        "--session-id",
-        session_id,
-        "--json",
-    ]
+    """Run the entry CLI in-process through the engine forwarder with stdout/stderr captured.
+    Rewrites `sys.path`, `sys.argv` and both std streams for the duration; all four are
+    restored in `finally`. Returns None when the forward raises."""
+    argv = [str(script), "--repo", repo_root, "--session-id", session_id, "--json"]
+    saved_path = list(sys.path)
+    saved_argv = list(sys.argv)
+    saved_out, saved_err = sys.stdout, sys.stderr
+    out, err = io.StringIO(), io.StringIO()
     try:
-        return subprocess.run(
-            argv,
-            capture_output=True,
-            text=True,
-            timeout=_ENTER_TIMEOUT_SECONDS,
-            creationflags=_NO_WINDOW,
-        )
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "bin" / "lib"))
+        from _engine_forward import forward
+
+        sys.argv = argv
+        sys.stdout, sys.stderr = out, err
+        code = forward(str(script))
+        return _EnterResult(code, out.getvalue(), err.getvalue())
     except Exception:  # noqa: BLE001
         return None
+    finally:
+        sys.stdout, sys.stderr = saved_out, saved_err
+        sys.argv = saved_argv
+        sys.path[:] = saved_path
 
 
 def render_additional_context(
@@ -362,21 +366,17 @@ def render_additional_context(
     return text
 
 
-def main() -> int:
+def compute_context(stdin_text: str) -> str | None:
+    """The `additionalContext` text for a UserPromptExpansion payload; None for a silent pass."""
     try:
-        raw = sys.stdin.read()
-    except Exception:  # noqa: BLE001
-        return 0  # fail-open -- stdin unreadable
-
-    try:
-        payload = json.loads(raw) if raw else {}
+        payload = json.loads(stdin_text) if stdin_text else {}
         if not isinstance(payload, dict):
             payload = {}
     except Exception:  # noqa: BLE001
         payload = {}
 
     if _normalize_command_name(payload.get("command_name")) not in _GROUP_EM_COMMAND_NAMES:
-        return 0  # not a group-em invocation -- silent pass
+        return None  # not a group-em invocation -- silent pass
 
     cwd = payload.get("cwd")
     repo_root = cwd if isinstance(cwd, str) and cwd else os.getcwd()
@@ -385,35 +385,17 @@ def main() -> int:
     # command still stays silent.
     watch_line = render_watch_line(repo_root)
 
-    def _emit(context: str | None) -> int:
-        if not context:
-            return 0
-        try:
-            print(
-                json.dumps(
-                    {
-                        "hookSpecificOutput": {
-                            "hookEventName": "UserPromptExpansion",
-                            "additionalContext": context,
-                        }
-                    }
-                )
-            )
-        except OSError:
-            pass
-        return 0
-
     session_id = payload.get("session_id")
     if not isinstance(session_id, str) or not session_id:
-        return _emit(watch_line)  # no id to claim under; still report the watch verdict
+        return watch_line or None  # no id to claim under; still report the watch verdict
 
     script = resolve_enter_cli()
     if script is None:
-        return _emit(watch_line)  # transport failure -- CLI unresolvable, fail open
+        return watch_line or None  # transport failure -- CLI unresolvable, fail open
 
     result = _run_enter(script, repo_root, session_id)
     if result is None:
-        return _emit(watch_line)  # timeout or spawn failure -- fail open
+        return watch_line or None  # forward raised -- fail open
 
     try:
         entered = json.loads(result.stdout) if result.stdout.strip() else {}
@@ -423,7 +405,7 @@ def main() -> int:
         entered = {}
 
     if not entered and result.returncode not in (6, 7):
-        return _emit(watch_line)  # nothing else to report -- still fail open on the watch line
+        return watch_line or None  # nothing else to report -- still fail open on the watch line
 
     boxes: list[str] = []
     if result.returncode == 0 and (entered.get("standing") or {}).get("claimed"):
@@ -433,7 +415,31 @@ def main() -> int:
         context = f"{watch_line}\n\n{context}"
     elif watch_line and not context:
         context = watch_line
-    return _emit(context)
+    return context or None
+
+
+def main() -> int:
+    try:
+        raw = sys.stdin.read()
+    except Exception:  # noqa: BLE001
+        return 0  # fail-open -- stdin unreadable
+    context = compute_context(raw)
+    if not context:
+        return 0
+    try:
+        print(
+            json.dumps(
+                {
+                    "hookSpecificOutput": {
+                        "hookEventName": "UserPromptExpansion",
+                        "additionalContext": context,
+                    }
+                }
+            )
+        )
+    except OSError:
+        pass
+    return 0
 
 
 if __name__ == "__main__":

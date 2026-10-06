@@ -384,6 +384,7 @@ the same flow, not two competing mechanisms.
 1. **Safety commit:**
 
    ```bash
+   # PowerShell host: & "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-safe-commit.exe"
    "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-safe-commit" --blanket --invoking-command distillation "pre-distillation checkpoint"
    ```
 
@@ -436,7 +437,7 @@ the same flow, not two competing mechanisms.
 
 7. **Update distillation log:** append all processed artifacts **with individual file paths and dispositions** to the SINGLE canonical log at `state/distillation-log.md` (schema-of-record: `coordinator/schemas/distillation-log.schema.md`) — this is the idempotency mechanism for subsequent runs. Canonical row shape: `- <path> -> <disposition>, <fate> (run: <run-id>)`, ASCII `->` (never the U+2192 `→` glyph), `disposition` ∈ `{DISTILLED, PROMOTE, EPHEMERAL, SKIP, PRESERVE}`, grouped under a `## Run <run-id>` header. Per-file entries are required — directory-level summaries are insufficient for Phase 0 exclusion matching.
 
-   **[engine-reliant] Append through `bin/distill-log-append.py`, not a hand-rolled string append.** Per the C8 contract (`docs/contracts/distill-engine-scripts.md` § 6), every append to the canonical log goes through the engine repo's canonical-log WRITER so the on-disk format can never drift: `python3 bin/distill-log-append.py --log-path state/distillation-log.md --path <artifact-path> --disposition <DISTILLED|PROMOTE|EPHEMERAL|SKIP|PRESERVE> --fate "<free-text fate>" --run-id <run-id>`, once per artifact. The tool emits `{"row": ..., "header_opened": <bool>, "log_path": ...}` on success (exit 0) or `{"error": ...}` on exit 1 (invalid disposition or empty field) — a non-zero exit means NO row was written; do not treat it as a soft warning.
+   **[engine-reliant] Append through `bin/distill-log-append.py`, not a hand-rolled string append.** Per the C8 contract (`docs/contracts/distill-engine-scripts.md` § 6), every append to the canonical log goes through the engine repo's canonical-log WRITER so the on-disk format can never drift: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/distill-log-append" --log-path state/distillation-log.md --path <artifact-path> --disposition <DISTILLED|PROMOTE|EPHEMERAL|SKIP|PRESERVE> --fate "<free-text fate>" --run-id <run-id>` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\distill-log-append.exe"`, same arguments), once per artifact. The tool emits `{"row": ..., "header_opened": <bool>, "log_path": ...}` on success (exit 0) or `{"error": ...}` on exit 1 (invalid disposition or empty field) — a non-zero exit means NO row was written; do not treat it as a soft warning.
 
    **For a multi-row run, PREFER the engine repo's bulk mode over N single-row invocations.** `bin/distill-log-append.py --batch <file|->` accepts a JSONL stream of `{path, disposition, fate, run_id}` objects, validates every row against the schema-of-record BEFORE writing any of them, and only then writes the whole batch atomically — one bad row fails the entire batch loud rather than landing a partial log. Reach for `--batch` whenever a run is disposing of more than a handful of artifacts; the single-row form above remains correct for a one-or-two-artifact run.
 
@@ -452,6 +453,7 @@ the same flow, not two competing mechanisms.
 10. **Reap integrated review-findings sidecars:**
 
     ```bash
+    # PowerShell host: & "$env:COORDINATOR_SETTINGS_HOME\bin\reap-integrated-review-findings.exe"
     "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/reap-integrated-review-findings"
     ```
 
@@ -460,6 +462,7 @@ the same flow, not two competing mechanisms.
 11. **Reap stale subagent sidecars:**
 
     ```bash
+    # PowerShell host: & "$env:COORDINATOR_SETTINGS_HOME\bin\reap-stale-subagent-sidecars.exe"
     "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/reap-stale-subagent-sidecars"
     ```
 

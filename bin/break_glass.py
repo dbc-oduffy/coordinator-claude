@@ -644,7 +644,7 @@ def repair_registry_pollution(diagnose: Optional[Finding] = None) -> RepairOutco
 def check_claude_sync(config_dir: Path, timeout: float = 5.0) -> Finding:
     """Layer 8 (AC-3 #8). `git status --porcelain` + ahead/behind counts
     inside `config_dir`, if it is a git repo at all. Also reports whether
-    `settings.json`/`.content-root`/`.coordinator-hooks-disabled` appear in
+    `settings.json`/`.coordinator-content-root`/`.coordinator-hooks-disabled` appear in
     tracked `git status` output — their presence is itself a finding (the
     0bb6812 untracking fix regressed if any of those three appear)."""
     if not (config_dir / ".git").exists():
@@ -665,7 +665,7 @@ def check_claude_sync(config_dir: Path, timeout: float = 5.0) -> Finding:
     if status_out is None:
         return Finding("claude-sync", STATUS_UNKNOWN, "git status failed or timed out", None)
 
-    regressed = [name for name in ("settings.json", ".content-root", ".coordinator-hooks-disabled") if name in status_out]
+    regressed = [name for name in ("settings.json", ".coordinator-content-root", ".coordinator-hooks-disabled") if name in status_out]
     if regressed:
         return Finding(
             "claude-sync", STATUS_BROKEN,

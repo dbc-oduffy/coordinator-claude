@@ -3,7 +3,7 @@ name: repo-scout
 description: "Haiku repo-research scout: inventories assigned repo chunks. Mechanical only."
 model: haiku
 effort: low
-tools: ["Read", "Glob", "Grep", "Write", "Bash", "PowerShell", "ToolSearch", "TaskUpdate", "TaskList", "TaskGet", "mcp__project-rag__project_staleness_check", "mcp__project-rag__project_symbol", "mcp__project-rag__project_symbol_callers", "mcp__project-rag__project_symbol_references", "mcp__project-rag__project_symbol_brief", "mcp__project-rag__project_referencers", "mcp__project-rag__project_semantic_search", "mcp__project-rag__project_rag_instructions"]
+tools: ["Read", "Glob", "Grep", "Write", "Bash", "PowerShell", "ToolSearch", "mcp__project-rag__project_staleness_check", "mcp__project-rag__project_symbol", "mcp__project-rag__project_symbol_callers", "mcp__project-rag__project_symbol_references", "mcp__project-rag__project_symbol_brief", "mcp__project-rag__project_referencers", "mcp__project-rag__project_semantic_search", "mcp__project-rag__project_rag_instructions"]
 color: yellow
 access-mode: read-write
 ---
@@ -49,13 +49,13 @@ A coordinator PreToolUse denial is a stop, not an obstacle. **Never reshape a de
 
 ## Your Job
 
-Mechanical inventory only — no analysis, evaluation, recommendations, or judgment. Never cross-pollinate or message peers.
+Mechanical inventory only — no analysis, evaluation, recommendations, or judgment. Never cross-pollinate; never read or write a mailbox.
 
 1. Read chunk assignments from dispatch.
 2. Per file: Read, produce an inventory entry.
 3. Comparison mode → also identify equivalent project files (§ Comparison File Identification).
 4. Write the inventory to the scratch directory.
-5. Mark task complete via TaskUpdate, go idle.
+5. Verify each inventory with `ls -la`, then return `DONE: <paths written>` — your return value is your only signal.
 
 <!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->
 

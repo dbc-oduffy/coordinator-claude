@@ -32,7 +32,7 @@ Announce the resolved mode before starting.
    never through the settings home — `coordinator/bin/` in THIS repo carries no settings-home
    forwarder (`snippets/resolve-coordinator-bin.md` rung 3: never point a no-forwarder CLI at the
    settings home), so resolve it against the plugin root:
-   `python <plugin-root>/bin/survey-consume-gate.py`, feeding it the JSON config
+   `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/survey-consume-gate"` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\survey-consume-gate.exe"`, same arguments), feeding it the JSON config
    (`repo_root`, `claude_klabauter_root`, `run_id`, `census_buckets`, `mode`, `since`, `system_dirs`,
    `excluded_dirs`, which is required and has no default: pass `["state/", "cross-repo/"]`) on stdin. Capture its stdout verbatim and pass it straight into the
    Workflow's `INPUT.consumeGate` — a pure pass-through, do not branch on `ok`/
@@ -70,7 +70,7 @@ neither stage can run inside it. Why: wiki.
 
    **This covers path resolution only.** The atlas-specific half — symbol and record citations
    resolved by lookup, the verbatim quoted span asserted present in the cited record, and the
-   atlas-global coverage bookkeeping — is `python <plugin-root>/bin/atlas-citation-check.py`
+   atlas-global coverage bookkeeping — is `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/atlas-citation-check"` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\atlas-citation-check.exe"`, same arguments)
    (no settings-home forwarder; rung 3, same as step 7). Run it and record its counts. It
    currently reports thousands of findings against a stale atlas, so a non-zero exit is not yet a
    stop condition — the number itself is the signal, and it must shrink run over run.
@@ -91,7 +91,7 @@ Out of scope for every agent here: `gh pr create/merge`, `git push origin main`,
 5. Atomic commit, two scoped calls, never `git add -A`:
    `git add -- docs/architecture/ state/health-ledger.md`
    A survey write is not attestation (`coordinator/docs/wiki/coordinator-tripwires/a-survey-write-is-not-an-attestation.md`):
-   `python3 ${CLAUDE_PLUGIN_ROOT}/bin/check-survey-attestation.py --repo-root .` must exit 0
+   `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/check-survey-attestation" --repo-root .` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\check-survey-attestation.exe"`, same arguments) must exit 0
    (exit 1 lists pages; exit 2 is could-not-check). It diffs the worktree against `HEAD`, not the
    index, so a late edit made after the `git add` above still counts: the pathspec `git commit`
    below commits worktree contents. It lists only added, modified, and renamed pages, so a deleted

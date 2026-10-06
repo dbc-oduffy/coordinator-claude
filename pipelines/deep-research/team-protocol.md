@@ -1,55 +1,71 @@
-# Deep Research Team Protocol (v2.1)
+# Deep Research Team Protocol (v3.0)
 
-> Referenced by agent definitions and `web.md` command.
+> Referenced by agent definitions and `web-driver.md`. Doctrine: `coordinator/docs/wiki/dispatching-parallel-agents/chatty-workflows.md`.
 
 ## Overview
 
-Agent Teams-based deep research: the EM scopes research and crafts search queries, creates a team of a Haiku scout + Sonnet specialists + Opus sweep agent, spawns all teammates, and is **freed**. The team handles everything autonomously — source discovery, analysis, adversarial cross-pollination, and synthesis. The EM is notified when the sweep completes.
+Chatty-Workflow deep research: the EM scopes research and crafts search queries, writes `{workdir}/scope.md`, fires ONE background `Workflow` whose script runs a Haiku scout, Sonnet specialists, and an Opus sweep in stage order, and is **freed**. The workers handle source discovery, analysis, adversarial cross-pollination, and synthesis autonomously. The EM is notified by the Workflow's task notification when the sweep stage returns.
 
-## Team Roles
+## Roles
 
 | Role | Model | Count | Responsibility |
 |------|-------|-------|----------------|
-| **Scout** | Haiku | 1 | Execute EM-crafted search queries, mechanically vet accessibility, build shared source corpus |
-| **Specialist** | Sonnet | up to 5 | Deep-read sources from corpus, verify claims, challenge peers (adversarial), coordinate ownership of overlapping topics, output structured claims JSON + markdown summary |
-| **Sweep** | Opus | 1 | Read all specialist outputs directly, adversarial coverage check, fill negative space via web research, write executive summary and conclusion; may go beyond original scope where judgment warrants |
+| **Scout** (`scout`) | Haiku | 1 | Execute EM-crafted search queries, mechanically vet accessibility, build shared source corpus |
+| **Specialist** (`specialist-a`…`specialist-e`) | Sonnet | up to 5 | Deep-read sources from corpus, verify claims, challenge peers (adversarial) through mailboxes, answer challenges in a rebuttal round, output structured claims JSON + markdown summary |
+| **Sweep** (`sweep`) | Opus | 1 | The overseer. Read all specialist outputs directly, adversarial coverage check, fill negative space via web research, write executive summary and conclusion; may go beyond original scope where judgment warrants. The only worker whose return value reaches the EM |
 
-## Team Lifecycle
-
-```
-EM: Scope + craft queries → write scope.md → Create team → Spawn all teammates → FREED
-Scout: Read scope.md → WebSearch → WebFetch (vet accessibility) → Write source-corpus.md → Mark complete → [idle]
-Specialists: [blocked by scout] → Read corpus → Deep-read → Challenge peers → Converge → Write claims.json + summary.md → Mark complete → DONE to sweep
-Sweep: [blocked by specialists, waiting for DONE msgs] → Read all specialist outputs → Phase 1: Assess → Phase 2: Fill gaps → Phase 3: Frame → Mark complete
-```
-
-## Blocking Chain
+## Stage Order
 
 ```
-Scout (no blockers) ──────────────→ task completion unblocks specialists
-Specialists (blockedBy: scout) ───→ DONE messages wake sweep
-Sweep (blockedBy: all specialists) → mark complete notifies EM
+EM: Scope + craft queries → write scope.md → fire Workflow → FREED
+Stage 1 Scout:        Read scope.md → WebSearch → WebFetch (vet accessibility) → Write source-corpus.md → return
+Stage 2 Specialists:  (parallel, after scout returns) Read corpus → Deep-read → Write claims.json + summary.md → append challenges to peer mailboxes → return
+Stage 3 Rebuttal:     (after all specialists return) Continuation agent per specialist with unread mail → answer challenges → revise outputs → return
+Stage 4 Sweep:        (after rebuttal returns) Read all specialist outputs → Phase 1: Assess → Phase 2: Fill gaps → Phase 3: Frame → return
+Stage 5 Relay:        (deep tier only) Specialist fidelity checks → sweep continuation integrates corrections
 ```
 
-- **Scout → Specialists:** Task-gated via `blockedBy`. Specialists unblock when scout marks its task complete. No messaging needed — specialists haven't started yet.
-- **Specialists → Sweep:** Task-gated via `blockedBy` + DONE messages as wake-up signals. The sweep is already running but idle — it needs explicit DONE messages to trigger its next poll cycle.
+Ordering is the script's `await` order. Stage N+1 starts when stage N's `agent()` calls return; a fan-out is a `parallel()`. There is no task graph, no `blockedBy`, and no wake message. A worker that must wait on another worker returns, and the script dispatches its continuation after the awaited stage.
 
-### How Agent Teams Blocking Actually Works (empirical + sourced)
+## Fire (Engine-Emitted Workflow)
 
-Agent Teams uses **file-based polling, not callbacks**. Task state is managed by the platform in `~/.claude/tasks/{team-name}/N.json` (platform-internal; do not read/write these files directly). Agents discover available work by calling `TaskList()`, which re-evaluates `blockedBy` arrays fresh on each call. There is no active push/callback when a blocker completes.
+The EM never writes the script. Given the brief file, the engine op emits the receipted Workflow from `web.manifest.yaml`:
 
-**Two distinct scenarios with different wake-up behavior:**
+```bash
+"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/emit-dispatch-workflow" --pipeline web --brief <brief path> --list topics=<a,b,...> --scratch-dir <scratch dir> --out <scratch dir>/web.workflow.mjs
+```
 
-| Scenario | Agent State | Wake-Up Mechanism | Message Needed? |
-|----------|-------------|-------------------|-----------------|
-| **Task-blocked (pending)** | Not yet started — `pending` status, waiting for blockers | `TaskList()` re-evaluates `blockedBy` on next poll; agent auto-starts when unblocked | No — auto-wake works |
-| **Message-blocked (idle)** | Started, checked status, went idle waiting | Needs an inbox message to trigger the next poll cycle | Yes — explicit message required |
+Topics are lowercase letters. The manifest carries the stage graph, models and schemas; the templates carry the prompts. The deep tier (`sweep.deepeningRecommended`) runs the relay stage between the sweep and its continuation (see § Fidelity Relay Protocol). Deepening is a second fire (see § Deepening Protocol).
 
-The scout→specialist transition is scenario 1 (auto-wake). The specialist→sweep transition is scenario 2 (messages needed).
+## Mailboxes
 
-**Shutdown behavior:** Teammates prioritize completing their current work loop over acknowledging shutdown requests. Expect convergence protocol (CONVERGING → wait → write → mark complete → DONE) to run before shutdown acknowledgment. This is good for data integrity but means team teardown takes 30-60 seconds after shutdown requests are sent.
+Workers never `SendMessage` each other or the EM, and a workflow agent that has returned cannot be resumed. Peers exchange findings through `{workdir}/mail/<role>.jsonl`; roles are the stable names above.
 
-**Sources:** [Claude Code official docs](https://code.claude.com/docs/en/agent-teams), [reverse-engineering analysis (nwyin.com)](https://nwyin.com/blogs/claude-code-agent-teams-reverse-engineered.html), [swarm orchestration guide (kieranklaassen gist)](https://gist.github.com/kieranklaassen/4f2aba89594a4aea4ad64d753984b2ea).
+- A line is `{"from": "<role>", "text": "..."}`. To message peer X, append one line to X's file (create it if absent).
+- A reader appends `{"read": true}` after reading its file. It has unread mail when lines follow its last read marker.
+- The sweep's mailbox is `mail/sweep.jsonl`; fidelity corrections arrive there.
+
+### Specialist → Specialist (Adversarial Cross-Pollination)
+
+Challenges are **expected**, not just permitted — specialists actively test each other's claims. Each line's `text` starts with its category.
+
+| Category | Format | When |
+|---|---|---|
+| **FINDING** | `"FINDING for {peer}: {brief}. Source: {URL}. Relevant because {reason}."` | A discovery relevant to another specialist's topic |
+| **CONTRADICTION** | `"CONTRADICTION with {peer}: I found {X} but your area suggests {Y}. Can you verify?"` | Sources disagree across topics |
+| **CHALLENGE** | `"CHALLENGE to {peer}: Your finding {X} conflicts with {Y} from {source}. Which is current?"` | Direct factual conflict — resolution expected |
+| **SOURCE** | `"SOURCE for {peer}: {URL} — covers {aspect} relevant to your topic."` | Useful source for a peer |
+| **OVERLAP** | `"OVERLAP with {peer}: I'm also covering {X}. Should I defer or should you?"` | Coordinate ownership of shared territory |
+
+**Resolution protocol:** In the rebuttal round the challenged specialist answers with evidence or concedes. A challenge still unanswered after the rebuttal round produces a `[CONTESTED]` claim in structured output with both sides' evidence. Ownership questions (OVERLAP) resolve the same way: the answering specialist states in its rebuttal which side owns the territory and revises accordingly.
+
+### Volume Governance
+
+- **Peer mailbox lines: max 3 per peer** (max 12 total for a 5-specialist run)
+- **Rebuttal rounds: 1** (a bounded round count replaces converging by messaging)
+- **Scout: no mail** — its return is the signal
+- **No DONE messages** — stage order replaces them
+- Quality over quantity
 
 ## Scout Protocol
 
@@ -59,56 +75,12 @@ The scout builds a **shared corpus** — a pool of broadly useful sources. It do
 - Executes queries via WebSearch
 - Mechanically vets each result via WebFetch: accessible? paywall? date? source type?
 - Writes corpus to `{workdir}/source-corpus.md`
-- **No messaging** — scout has no SendMessage tool. Task completion is the only signal.
+- **No mail** — the scout's return ends its stage.
 - **Timing:** No floor. Ceiling: 3 minutes. This is mechanical work — go fast.
-
-## Message Protocol
-
-<!-- BEGIN listagents-roster-caveat (synced from snippets/listagents-roster-caveat.md) -->
-## ListAgents Roster Is A View, Not The Registry
-
-Discover a peer's address by calling `ListAgents` and copying the name a row prints verbatim, then
-`SendMessage` to that name. But the roster it renders can UNDER-REPORT — a thin or empty roster is
-never proof a peer is gone. The durable source is the session registry
-(`~/.claude/sessions/<pid>.json`), not this view; a peer missing from `ListAgents` is evidence about
-that view, not about the peer. See
-`coordinator/docs/wiki/coordinator-tripwires/a-thin-listagents-roster-is-not-proof-a-peer-is-gone.md`.
-<!-- END listagents-roster-caveat -->
-
-### Specialist → Specialist (Adversarial Cross-Pollination)
-
-Send targeted messages to specific peers by name. Challenges are **expected**, not just permitted — specialists should actively test each other's claims.
-
-| Category | Format | When |
-|---|---|---|
-| **FINDING** | `"Finding for {peer}: {brief}. Source: {URL}. Relevant because {reason}."` | A discovery relevant to another specialist's topic |
-| **CONTRADICTION** | `"Contradiction with {peer}: I found {X} but your area suggests {Y}. Can you verify?"` | Sources disagree across topics |
-| **CHALLENGE** | `"Challenge to {peer}: Your finding {X} conflicts with {Y} from {source}. Which is current?"` | Direct factual conflict — resolution expected |
-| **SOURCE** | `"Source for {peer}: {URL} — covers {aspect} relevant to your topic."` | Useful source for a peer |
-| **OVERLAP** | `"Overlap with {peer}: I'm also covering {X}. Should I defer or should you?"` | Coordinate ownership of shared territory |
-
-**Resolution protocol:** When a peer challenges a claim, the challenged specialist must respond with evidence or concede. Unresolved challenges (2-minute timeout) produce `[CONTESTED]` claims in structured output with both sides' evidence.
-
-### Specialist → Sweep (Wake-Up Signal)
-
-`blockedBy` is a status gate, not an event trigger — completing a blocker task does NOT automatically wake the blocked teammate. Specialists must explicitly message the sweep after completing their task:
-
-| Category | Format | When |
-|---|---|---|
-| **DONE** | `"DONE: {topic-letter} findings written to {workdir}/{topic-letter}-claims.json and {topic-letter}-summary.md"` | After marking own task `completed` |
-
-Each DONE message causes the sweep to re-check `TaskList`. When all specialist tasks show `completed`, it proceeds.
-
-### Volume Governance
-
-- **Peer messages: max 3 per peer** (max 12 total for a 5-specialist team)
-- **DONE message: exactly 1 per specialist** (sent to sweep only)
-- **Scout: no messages** (task completion handles unblocking)
-- Quality over quantity
 
 ## Self-Governance Timing
 
-Specialists manage their own timing. No EM broadcasts WRAP_UP.
+Specialists manage their own timing. The EM never interrupts a running Workflow.
 
 ### Three-Part Model
 
@@ -123,13 +95,12 @@ Specialists manage their own timing. No EM broadcasts WRAP_UP.
    - Note in Investigation Log: "Converging: diminishing returns after source N"
 
 3. **Ceiling (maximum research time)**
-   - Configurable by the EM at team creation (defaults: 15 minutes)
+   - Configurable by the EM when it fills the script (defaults: 15 minutes)
    - Begin convergence regardless of state
-   - Check time via `date +%s` in Bash, compare against spawn timestamp
 
 ### Clock Mechanism
 
-Spawn timestamp is provided in the specialist prompt as `[SPAWN_TIMESTAMP]` (Unix epoch seconds). Specialists check elapsed time via `date +%s` in Bash at each source-fetch cycle and compare.
+A worker records its own start with `date +%s` in Bash as its first action and checks elapsed time against it at each source-fetch cycle. The script has no clock, so the brief carries the floor and ceiling numbers, not a timestamp.
 
 ## Convergence Protocol
 
@@ -139,16 +110,12 @@ Begin convergence when ANY of these conditions are met (AND the floor is satisfi
 - Ceiling time reached
 
 **Steps:**
-1. Send `CONVERGING` to all peers
-2. Wait ~30 seconds for final challenges
-3. Answer any challenges
-4. Write complete output files (claims.json + summary.md)
-5. Mark task `completed`
-6. Send `DONE` to sweep (wake-up signal)
+1. Append challenges and findings to peers' mailboxes (within the 3-per-peer cap)
+2. Write complete output files (claims.json + summary.md)
+3. Append `{"read": true}` to your own mailbox if you read it
+4. Return `{letter, challenged, claimsPath}` — `challenged` lists every peer letter whose mailbox you wrote to
 
-**Early convergence note:** Specialists who converge early remain alive — late-arriving peer messages may warrant a quick update to findings before the agent terminates.
-
-**Timeout:** If a CHALLENGE goes unanswered for 2 minutes → mark claim as `[CONTESTED]` with both sides' evidence.
+The rebuttal round answers the challenges. A specialist converges once; the continuation is its only second turn.
 
 ## Failure Handling
 
@@ -156,8 +123,9 @@ Begin convergence when ANY of these conditions are met (AND the floor is satisfi
 - **Scout times out (partial corpus):** Specialists use what's there + supplement with own searches
 - **Self-timed convergence (ceiling):** Specialists begin convergence autonomously after max time, without EM intervention
 - **WebSearch/WebFetch failures:** If 3 consecutive fetch attempts fail, converge with what you have and note failures in Investigation Log
+- **A specialist agent fails:** the script's `parallel()` result carries a null for it; the rebuttal and sweep stages proceed with the survivors, and the sweep notes the missing topic in its return
 - **Sweep fails:** EM reads raw specialist outputs from `{workdir}/*-claims.json` and `*-summary.md` and presents to PM
-- **All specialists fail:** EM is notified (no completed specialist tasks), reports to PM
+- **All specialists fail:** the sweep reports no inputs; EM reports to PM
 
 ## Work Directory
 
@@ -165,46 +133,44 @@ Begin convergence when ANY of these conditions are met (AND the floor is satisfi
 
 - Scout writes to: `{workdir}/source-corpus.md`
 - Each specialist writes to: `{workdir}/{topic-letter}-claims.json` + `{workdir}/{topic-letter}-summary.md`
+- Mailboxes: `{workdir}/mail/<role>.jsonl`
 - Sweep writes synthesis to: `{output-path}` + `{workdir}/synthesis.md`
 - Sweep writes advisory to: `{advisory-path}` + `{workdir}/advisory.md` (optional — omitted if nothing beyond scope)
 
 ## Fidelity Relay Protocol
 
-**When this fires:** Web runs only — gated to the deep tier (i.e., gap-report signals `deepening_recommended: true` and Team 2 is warranted). Shallow runs (`--shallow` or `coverage_score` above threshold with `deepening_recommended: false`) skip this phase entirely. Structured (Pipeline C) and notebooklm (Pipeline D) are out of scope (structural reasons: no prose synthesis to distort / no depth concept respectively).
+**When this fires:** Web runs only — gated to the deep tier (the sweep's return reports `deepeningRecommended: true`). Shallow runs (`--shallow` or `deepening_recommended: false`) skip this stage entirely. Structured (Pipeline C) and notebooklm (Pipeline D) are out of scope (no prose synthesis to distort / no depth concept respectively).
 
-**Relay locus: Team 1, before the run concludes.** This is an internal sweep phase that runs after Phase 3 framing is complete but **before the sweep marks its task complete** and **before teardown (auto, on session exit)**. Team 2 gap-specialists (if later spawned) are fresh agents who did not author the original content — they are the wrong execution locus. The original specialists are alive-but-idle (:138 below) when the sweep finishes; no extra teammate slots are consumed.
+**Relay locus: pass 1, before the sweep's final return.** The original specialists wrote the content, so they are the checkers. Pass 2 gap-specialists are fresh agents who did not author the original content — the wrong execution locus.
 
-**Relay sequence (sweep agent responsibility — see `agents/research-synthesizer.md § Fidelity Relay`):**
+**Relay sequence (script-driven; the synthesis draft is on disk before the relay starts):**
 
-1. For each specialist, send a `FIDELITY_RELAY` message (wake-up signal — same mechanism as DONE wake at :46 above):
+1. The sweep returns its draft with `deepeningRecommended` in its schema. When true, the script dispatches, in parallel, a fresh `specialist-{letter}` continuation per specialist whose brief names its claims and summary files and the synthesis draft at `{output-path}`:
    ```
-   FIDELITY_RELAY: [TOPIC_LETTER]
-   Please verify that YOUR contributed findings are faithfully represented in the
-   synthesis draft at {output-path}. Check ONLY for misrepresentation, flattening,
+   FIDELITY CHECK: [TOPIC_LETTER]
+   Verify that YOUR contributed findings are faithfully represented in the synthesis
+   draft at {output-path}. Check ONLY for misrepresentation, flattening,
    or distortion of your existing findings — NOT for missing content you wish were added.
-   Reply with FIDELITY_CORRECTION or FIDELITY_OK.
-   You have 2 minutes to respond.
+   Append one line to mail/sweep.jsonl: FIDELITY_CORRECTION (quote the existing synthesis
+   sentence and state the misrepresentation) or FIDELITY_OK. Then return.
    ```
 
-2. **Per-specialist bounded timeout:** mirror the 2-minute CHALLENGE timeout at :140 below. Specialists who have converged remain alive-but-idle (:138) but re-poll responsiveness after task-complete is not guaranteed.
+2. **Bounded:** the check is one dispatch per specialist. A continuation that fails or returns without a mailbox line counts as non-response.
 
-3. **On non-response:** proceed without that specialist's confirmation. The sweep notes the non-response explicitly in the synthesis (`[RELAY: {TOPIC_LETTER} specialist did not respond within timeout — relay unconfirmed for this topic]`). **Never hang the pipeline waiting for a non-responding specialist.**
+3. **On non-response:** proceed without that specialist's confirmation. The sweep continuation notes it in the synthesis (`[RELAY: {TOPIC_LETTER} specialist did not respond — relay unconfirmed for this topic]`). Never hang the pipeline on a non-responding specialist.
 
-4. **Bloat-guard (structural discriminator):** A valid fidelity correction must reference an **existing synthesis sentence** and assert it misrepresents the source. A correction that only asks to ADD a sentence is out of scope by construction — the relay is scoped to misrepresentation, not coverage inflation. Reject add-content requests under the sweep's existing preserve-don't-inflate mandate.
+4. **Bloat-guard (structural discriminator):** A valid fidelity correction references an **existing synthesis sentence** and asserts it misrepresents the source. A correction that only asks to ADD a sentence is out of scope by construction — the relay is scoped to misrepresentation, not coverage inflation. The sweep rejects add-content requests under its preserve-don't-inflate mandate.
 
-5. Integrate valid corrections, then do a second pass for coherence on touched prose only.
+5. The script then dispatches a `sweep` continuation (Opus) that reads `mail/sweep.jsonl`, integrates valid corrections, does a second pass for coherence on touched prose only, and returns the final result to the EM.
 
-6. Only after completing steps 1–5: sweep marks its task complete.
-
-**Author-scoped check (for specialists):** When you receive `FIDELITY_RELAY`:
+**Author-scoped check (for specialists):** On a fidelity check:
 - Check ONLY: is YOUR finding faithfully represented, or was it flattened/distorted/over-stated?
-- Do NOT request additions of content you wish were included — that is out of scope by construction.
-- Reply `FIDELITY_CORRECTION: [TOPIC_LETTER]` with the existing synthesis sentence and the misrepresentation, OR `FIDELITY_OK: [TOPIC_LETTER]`.
-- You have 2 minutes. If you cannot respond in time, the sweep proceeds without your confirmation.
+- Do NOT request additions of content you wish were included.
+- Reply by mailbox line, then return.
 
 ## Coverage-Auditor Lifecycle
 
-The coverage auditor is a **non-teammate Agent** dispatched by the EM **after the synthesis is complete** (at the "On Completion Notification" step in `pipelines/web-driver.md`), before archive. It is a fresh-eyes Sonnet cross-reference pass — not the synthesizer grading its own homework.
+The coverage auditor is a **plain `Agent` dispatch by the EM after the Workflow's task notification** (at the completion step in `pipelines/deep-research/web-driver.md`), before archive. It is a fresh-eyes Sonnet cross-reference pass — not the synthesizer grading its own homework.
 
 **What it does:** Cross-references specialist `*-claims.json` records against the synthesis. Emits one sidecar: `{output-path minus .md}-coverage-audit.md`. Never writes the synthesis output path.
 
@@ -213,66 +179,57 @@ The coverage auditor is a **non-teammate Agent** dispatched by the EM **after th
 - `-coverage-audit.md` — "Did the synthesis carry the research?" (output coverage, reader-facing completeness, auditor-owned)
 
 **Auditor lifecycle notes:**
-- Dispatched as a plain `Agent(...)` call, not under the team — preserves the 7-teammate ceiling.
+- Dispatched as a plain `Agent(...)` call, outside the Workflow.
 - Input universe: specialist claim records only (`*-claims.json`). `[SWEEP ADDITION]` content is excluded from the denominator (no upstream claim record; including it causes false-absent noise).
 - Coverage classification is binary: **present-with-pointer** or **absent**. "Under-represented" is a judgment beyond a Sonnet cross-reference pass.
 - `[UNFILLED GAP]` inline markers in the synthesis remain in synthesis prose (reader-facing); the auditor's Completeness Map consolidates and references them — it does not delete them.
 
 See `agents/coverage-auditor.md` for the full agent spec.
 
-## Deepening Protocol (v2.2)
+## Deepening Protocol (v3.0)
 
-When Team 1's sweep identifies significant coverage gaps, the EM may dispatch a smaller Team 2 for targeted follow-up. This is the deepening protocol.
+When pass 1's sweep identifies significant coverage gaps, the EM may fire a smaller second Workflow for targeted follow-up. This is the deepening protocol.
 
-### Team 2 Composition
+### Pass 2 Composition
 
 | Role | Model | Count | Responsibility |
 |------|-------|-------|----------------|
-| **Scout** (optional) | Haiku | 0-1 | Only if gap targets require new topic areas not in Team 1's corpus |
-| **Gap-Specialist** | Sonnet | 1-3 | One per gap cluster. Fill specific gaps from Team 1's gap report |
-| **Sweep** | Opus | 1 | Merge mode — produce delta document, not full synthesis |
+| **Scout** (`scout-t2`, optional) | Haiku | 0-1 | Only if gap targets require new topic areas not in pass 1's corpus |
+| **Gap-Specialist** (`gap-{letter}`) | Sonnet | 1-3 | One per gap cluster. Fill specific gaps from pass 1's gap report |
+| **Sweep** (`sweep-t2`) | Opus | 1 | Merge mode — produce delta document, not full synthesis |
 
-Team size: 2-5 teammates (well under the 7 ceiling).
-
-### Team 2 Lifecycle
+### Pass 2 Stage Order
 
 ```
-EM: Read gap-report.md → Cluster gaps → Create Team 2 → Spawn → FREED
-Scout (if any): New queries → gap-corpus.md → Mark complete → [idle]
-Gap-Specialists: [blocked by scout if any] → Read prior findings → Targeted research → Converge → D-{letter}-claims.json + D-{letter}-summary.md → DONE to sweep
-Sweep: [blocked by gap-specialists] → Read Team 1 synthesis + gap-specialist outputs → Delta → deepening-delta.md → Mark complete
+EM: Read gap-report.md → Cluster gaps → fire Workflow 2 → FREED
+Stage 1 Scout (if any): New queries → gap-corpus.md → return
+Stage 2 Gap-Specialists: Read prior findings → Targeted research → D-{letter}-claims.json + D-{letter}-summary.md → challenges to peer mailboxes → return
+Stage 3 Rebuttal: continuation per gap-specialist with unread mail → return
+Stage 4 Sweep (merge mode): Read pass 1 synthesis + gap-specialist outputs → deepening-delta.md → return
 ```
 
-### Team 2 Blocking Chain
+The deepening pass fires `emit-dispatch-workflow --pipeline web-deepening --brief <brief path> --list gaps=<e,f,...> --flag needs_scout=<true|false> --scratch-dir <scratch dir> --out <scratch dir>/deepening.workflow.mjs` from `web-deepening.manifest.yaml`: the scout stage is gated by `needs_scout`, gap-specialists use `gap-specialist-prompt-template.md`, and the sweep runs in merge mode. No relay stage — pass 1's relay already ran.
 
-```
-Scout (if any) ──→ task completion unblocks gap-specialists
-Gap-Specialists ──→ DONE messages wake sweep
-Sweep ──────────→ mark complete notifies EM
-```
+### Pass 2 Timing
 
-Same mechanics as Team 1: task-gated blocking for scout→specialists, explicit DONE messages for specialists→sweep.
+Gap-specialists use tighter timing than pass 1 specialists because their scope is narrower:
 
-### Team 2 Timing
-
-Gap-specialists use tighter timing than Team 1 specialists because their scope is narrower:
-
-| Parameter | Team 1 Specialist | Team 2 Gap-Specialist |
+| Parameter | Pass 1 Specialist | Pass 2 Gap-Specialist |
 |-----------|------------------|----------------------|
 | Floor (minutes) | 5 | 3 |
 | Floor (sources) | 5 | 3 |
 | Ceiling (minutes) | 15 | 8 |
 | Diminishing returns | 3 consecutive | 2 consecutive |
-| Peer messages per peer | 3 | 2 |
+| Peer mailbox lines per peer | 3 | 2 |
 
-### Team 2 Output
+### Pass 2 Output
 
-Gap-specialists write to `D-{letter}-claims.json` and `D-{letter}-summary.md` (D- prefix distinguishes from Team 1). The sweep operates in merge mode and writes `deepening-delta.md` — a structured delta that the EM integrates into Team 1's synthesis.
+Gap-specialists write to `D-{letter}-claims.json` and `D-{letter}-summary.md` (D- prefix distinguishes from pass 1). The sweep operates in merge mode and writes `deepening-delta.md` — a structured delta that the EM integrates into pass 1's synthesis.
 
 ### Depth Limit
 
-**Maximum two passes.** Team 1 + Team 2. No further iteration. Team 2's sweep may still identify remaining gaps — these go into the "Open Questions" section of the final document, not into a Team 3.
+**Maximum two passes.** Pass 1 + pass 2. No further iteration. Pass 2's sweep may still identify remaining gaps — these go into the "Open Questions" section of the final document, not into a pass 3.
 
 ### Failure Handling
 
-Team 2 failure is **non-blocking**. Team 1 already produced a complete document. If Team 2 fails entirely (all gap-specialists crash, sweep doesn't complete), the EM proceeds to finalization with Team 1's synthesis as-is. The deepening pass is an improvement opportunity, not a requirement.
+Pass 2 failure is **non-blocking**. Pass 1 already produced a complete document. If pass 2 fails entirely (all gap-specialists fail, sweep does not return), the EM proceeds to finalization with pass 1's synthesis as-is. The deepening pass is an improvement opportunity, not a requirement.

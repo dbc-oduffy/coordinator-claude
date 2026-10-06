@@ -121,6 +121,9 @@ triage_policy: |
   never_weaken_assertion:
     - "Never weaken a test assertion to green without evidence it was wrong -- returns BLOCKED assertion-weakening-without-evidence."
 
+  fix_footprint_boundary:
+    - "The published engine mirror (the resolved engine root, claude-klabauter) and claude-klabauter are out of bounds for every fix agent, by any tool: Edit, Write, a Bash redirect, sed, or a python open(). A row whose fix lives there is engine-subject: do not widen scope to it and do not patch it. Report it as NEEDS_PLAN with the exact file, function, condition and suggested change so the EM can memo claude-klabauter."
+
   tradeoff_marks_needs_judgment:
     - "A record carrying a non-empty tradeoff statement goes to needs-judgment, regardless of size."
 

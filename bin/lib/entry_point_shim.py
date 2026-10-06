@@ -372,6 +372,7 @@ def _merge_assemble_dispatch(op: str, params: dict, print_fn, result_key: str, *
         served_cold = True
         return _merge_assemble_cold_call(op, params)
 
+    cc_invoke.last_rung = None
     try:
         result = cc_invoke.route(op, params, repo_root, _legacy_fn)
     except RuntimeError as exc:
@@ -412,7 +413,15 @@ def _merge_assemble_dispatch(op: str, params: dict, print_fn, result_key: str, *
             print(f"{op}: transport failure: {exc}", file=sys.stderr)
             return _TRANSPORT_FAIL
 
-    print(f"{op}: path={'cold' if served_cold else 'warm'}", file=sys.stderr)
+    if served_cold:
+        path_label = "cold"
+    elif getattr(cc_invoke, "last_rung", None) == "spawn":
+        path_label = "engine-spawn"
+    elif getattr(cc_invoke, "last_rung", None) == "in-process":
+        path_label = "in-process"
+    else:
+        path_label = "warm"
+    print(f"{op}: path={path_label}", file=sys.stderr)
 
     if not isinstance(result, dict):
         print(f"{op}: unexpected result shape {type(result).__name__}", file=sys.stderr)
@@ -671,7 +680,7 @@ _ENGINE_ENTRIES: dict[str, Callable[[List[str]], int]] = {
     "baton-assemble": _native_route_entry("baton-assemble", "coordinator_core.baton_assemble"),
     "consolidate-assemble": _simple_entry("consolidate-assemble", "coordinator_core.consolidate_assemble"),
     "merge-assemble": _merge_assemble_entry,
-    "orient-assemble": _simple_entry("orient-assemble", "coordinator_core.orient_assemble"),
+    "orient-assemble": _native_route_entry("orient-assemble", "coordinator_core.orient_brief"),
     "pickup-assemble": _native_route_entry("pickup-assemble", "coordinator_core.pickup_brief"),
     "plan-assemble": _simple_entry("plan-assemble", "coordinator_core.plan_assemble"),
     "quick-wrap-assemble": _simple_entry("quick-wrap-assemble", "coordinator_core.quick_wrap_assemble"),
@@ -699,7 +708,7 @@ _load_module._counter = 0  # type: ignore[attr-defined]
 
 # --- GATE family (check-*/verify-*/assert-*), chunk C10 ---
 #
-# 59 entry points, one dispatcher (coordinator-gate.py). Same shim mechanism
+# 58 entry points, one dispatcher (coordinator-gate.py). Same shim mechanism
 # as ASSEMBLE_TARGETS above (in-process, no subprocess), but this family is
 # far less uniform than the 14 `-assemble` entries: at least four distinct
 # CLI-trampoline shapes coexist (a `cli_entry.run_op_main` wrapper with
@@ -766,7 +775,6 @@ GATE_TARGETS = (
     "verify-arch-audit-atlas-refresh",
     "verify-coverage",
     "verify-dist-publish-repo-sync",
-    "verify-content-root-seam-sync",
     "verify-no-console-flash",
     "verify-no-powershell-flash",
     "verify-orientation-cache-sync",
@@ -783,7 +791,7 @@ GATE_TARGETS = (
     "verify-ue-overrides",
 )
 
-assert len(GATE_TARGETS) == 59, f"expected 59 gate targets, counted {len(GATE_TARGETS)}"
+assert len(GATE_TARGETS) == 58, f"expected 58 gate targets, counted {len(GATE_TARGETS)}"
 
 # The corrected denominator for a shim-usage census (chunk C10 of
 # docs/plans/2026-08-21-the-cli-bootstrap-tax-dies-at-the-interpreter-floor.md).
@@ -928,7 +936,7 @@ def _gate_target_path(name: str) -> Path:
 
 
 def run_gate_target(name: str, argv: List[str]) -> int:
-    """Run one of the 59 GATE_TARGETS entry points in-process and return its
+    """Run one of the 58 GATE_TARGETS entry points in-process and return its
     exit code. `argv` excludes the subcommand name itself.
 
     Unlike `run_target` above (whose 14 ASSEMBLE_TARGETS members' `main`
@@ -1143,7 +1151,7 @@ def run_target(name: str, argv: List[str]) -> int:
     # branch, unlike BY_PATH_TARGETS above, never sets sys.argv before
     # calling the target. Grepped all 12 engine-mapped ASSEMBLE_TARGETS
     # modules (coordinator_core.{backlog_grind_assemble,baton_assemble,
-    # consolidate_assemble,merge_assemble,orient_assemble,pickup_assemble,
+    # consolidate_assemble,merge_assemble,orient_brief,pickup_assemble,
     # plan_assemble,review_assemble,sizing_assemble,staff_session_assemble,
     # workday_complete.{brief,apply},workstream_complete}) for `sys.argv`:
     # every module-level `main(argv)` takes argv as a parameter and does not

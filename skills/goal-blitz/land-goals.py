@@ -23,7 +23,8 @@ seed the readiness gate did not mark ready is ignored and reported, never landed
 
 A consumed `kind: goal-seed` baton is stamped `deployment_state: shipped` with the sanctioned
 `substantively-shipped-no-commit:<date>` token, because the landing commit cannot cite its own
-SHA. Seeds of `kind: sizing` carry no baton and are left alone.
+SHA. A consumed `kind: sizing` seed is stamped `status: shipped` through the engine's `sizing.ship`
+op, which is what keeps the next sweep from picking it up again.
 
 Usage:
 
@@ -31,8 +32,8 @@ Usage:
                           [--engine-root <abs>] [--doc-new-cli <abs>] <goal-blitz-result.json>
 
 Exit 0 when at least one goal landed, 1 when nothing was ratified (nothing written), 2 on a
-refusal, 3 when a CLI failed mid-landing (the paths already written are listed, nothing is
-committed).
+refusal, 3 when a CLI failed mid-landing (every path this run wrote is rolled back, so a re-run
+starts clean) or when the landing is whole on disk and only the scoped commit failed.
 """
 
 from __future__ import annotations
@@ -266,6 +267,12 @@ def _fill_goal_seed(scaffold: str, slice_text: str) -> str:
                   count=1, flags=re.S)
 
 
+def _fill_summary(scaffold: str, text: str) -> str:
+    """Replace the scaffold's placeholder `summary:`; `coordinator-doc-new --summary` is handoff-only."""
+    return re.sub(r"^summary:.*PLACEHOLDER.*$", lambda _m: f"summary: {_yaml_str(_title(text, 140))}",
+                  scaffold, count=1, flags=re.M)
+
+
 def _stamp_consumed_baton(text: str, today: str) -> str | None:
     """The baton text marked shipped, or None when it is not an awaiting/ready goal-seed."""
     if not re.search(r"^kind:\s*goal-seed\s*$", text, re.M):
@@ -288,11 +295,11 @@ def _dirty(repo_root: Path) -> set[str]:
 
 
 def land_one(repo_root: Path, seed_id: str, draft: dict, seed_row: dict | None, clis: dict,
-             written: list[str], run=_run) -> str:
-    """Land one ratified draft; every path created or edited is appended to `written` at once."""
+             undo: dict[str, str | None], run=_run) -> str:
+    """Land one ratified draft; `undo` records each touched path's prior text (None: created here)."""
     out = run(clis["doc_new"] + ["--type", "goal", "--title", _title(draft["objective"])], repo_root)
     goal_rel = _printed_path(out, repo_root)
-    written.append(goal_rel.as_posix())
+    undo.setdefault(goal_rel.as_posix(), None)
     goal_path = repo_root / goal_rel
     scaffold = goal_path.read_text(encoding="utf-8")
     goal_path.write_text(_fill_goal(scaffold, draft), encoding="utf-8", newline="\n")
@@ -301,32 +308,58 @@ def land_one(repo_root: Path, seed_id: str, draft: dict, seed_row: dict | None, 
 
     for title in draft.get("roadmap_seeds") or []:
         out = run(clis["doc_new"] + ["--type", "roadmap-seed", "--goals", goal_id,
-                                     "--title", title.strip(), "--summary", _title(title, 140)], repo_root)
-        written.append(_printed_path(out, repo_root).as_posix())
-    for slice_text in draft.get("goal_seeds") or []:
-        out = run(clis["doc_new"] + ["--type", "goal-seed", "--title", _title(slice_text),
-                                     "--summary", _title(slice_text, 140)], repo_root)
+                                     "--title", title.strip()], repo_root)
         rel = _printed_path(out, repo_root)
-        written.append(rel.as_posix())
+        undo.setdefault(rel.as_posix(), None)
         stub = repo_root / rel
-        stub.write_text(_fill_goal_seed(stub.read_text(encoding="utf-8"), slice_text),
+        stub.write_text(_fill_summary(stub.read_text(encoding="utf-8"), title),
+                        encoding="utf-8", newline="\n")
+    for slice_text in draft.get("goal_seeds") or []:
+        out = run(clis["doc_new"] + ["--type", "goal-seed", "--title", _title(slice_text)], repo_root)
+        rel = _printed_path(out, repo_root)
+        undo.setdefault(rel.as_posix(), None)
+        stub = repo_root / rel
+        stub.write_text(_fill_goal_seed(_fill_summary(stub.read_text(encoding="utf-8"), slice_text),
+                                        slice_text),
                         encoding="utf-8", newline="\n")
 
-    if seed_row and seed_row.get("kind") == "goal-seed" and seed_row.get("path"):
-        baton = repo_root / seed_row["path"]
-        if baton.is_file():
-            stamped = _stamp_consumed_baton(baton.read_text(encoding="utf-8"),
-                                            datetime.date.today().isoformat())
+    source = repo_root / seed_row["path"] if seed_row and seed_row.get("path") else None
+    if source is not None and source.is_file():
+        rel = Path(seed_row["path"]).as_posix()
+        original = source.read_text(encoding="utf-8")
+        if seed_row.get("kind") == "goal-seed":
+            stamped = _stamp_consumed_baton(original, datetime.date.today().isoformat())
             if stamped is not None:
-                baton.write_text(stamped, encoding="utf-8", newline="\n")
-                written.append(Path(seed_row["path"]).as_posix())
+                undo.setdefault(rel, original)
+                source.write_text(stamped, encoding="utf-8", newline="\n")
+        elif seed_row.get("kind") == "sizing":
+            undo.setdefault(rel, original)
+            if not _invoke(clis["invoke"], "sizing.ship", {"sizing_path": rel}, repo_root, run)["applied"]:
+                del undo[rel]
     return goal_id
 
 
-def _commit(repo_root: Path, engine_root: Path | None, paths: list[str], message: str) -> None:
-    argv = _launcher("coordinator-invoke", engine_root) + [
-        "ceremony.commit_v2", json.dumps({"paths": paths, "message": message})]
-    _run(argv, repo_root)
+def _invoke(invoke: list[str], op: str, params: dict, repo_root: Path, run=_run) -> dict:
+    """Run one engine op. `coordinator-invoke` exits 0 on an in-band failure, so read the result."""
+    out = run(invoke + [op, json.dumps(params)], repo_root)
+    try:
+        result = json.loads(out).get("result")
+    except (ValueError, AttributeError):
+        result = None
+    if not isinstance(result, dict) or result.get("exit_code") not in (None, 0):
+        detail = result.get("error") if isinstance(result, dict) else out.strip()[:800]
+        raise CliFailure(f"{op} failed: {detail}")
+    return result
+
+
+def _rollback(repo_root: Path, undo: dict[str, str | None]) -> None:
+    """Put back every path a failed landing touched: delete what it created, restore what it edited."""
+    for rel, original in undo.items():
+        path = repo_root / rel
+        if original is None:
+            path.unlink(missing_ok=True)
+        else:
+            path.write_text(original, encoding="utf-8", newline="\n")
 
 
 def main(argv=None, run=_run) -> int:
@@ -360,8 +393,8 @@ def main(argv=None, run=_run) -> int:
             "doc_new": [args.doc_new_cli] if args.doc_new_cli else _launcher("coordinator-doc-new", engine_root),
             "emit_goal": _launcher("emit-goal-from-artifact", engine_root),
         }
-        if to_land and not args.no_commit:
-            _launcher("coordinator-invoke", engine_root)
+        if to_land:
+            clis["invoke"] = _launcher("coordinator-invoke", engine_root)
     except (Refusal, OSError, ValueError) as exc:
         return refuse(str(exc))
 
@@ -373,20 +406,21 @@ def main(argv=None, run=_run) -> int:
 
     seeds = _seed_index(trail)
     before = _dirty(repo_root)
-    written: list[str] = []
+    undo: dict[str, str | None] = {}
     landed: list[str] = []
     try:
         for seed_id, draft in to_land:
-            landed.append(land_one(repo_root, seed_id, draft, seeds.get(seed_id), clis, written, run))
+            landed.append(land_one(repo_root, seed_id, draft, seeds.get(seed_id), clis, undo, run))
             print(f"land-goals: landed {landed[-1]} from {seed_id}")
     except (CliFailure, OSError) as exc:
         print(f"land-goals: FAILED mid-landing — {exc}", file=sys.stderr)
-        print("land-goals: written so far (nothing committed):", file=sys.stderr)
-        for path in written:
+        _rollback(repo_root, undo)
+        print("land-goals: rolled back, nothing committed; fix the failure and re-run:", file=sys.stderr)
+        for path in undo:
             print(f"    {path}", file=sys.stderr)
         return EXIT_PARTIAL
 
-    paths = sorted(set(written))
+    paths = sorted(undo)
     strays = sorted(_dirty(repo_root) - before - set(paths))
     for path in strays:
         print(f"land-goals: NOT committed, appeared during the landing and was not named by a CLI: {path}",
@@ -401,7 +435,7 @@ def main(argv=None, run=_run) -> int:
     message = (f"goal-setting: ratify {', '.join(landed)} + scaffold {stubs} downstream "
                "stub/baton path(s) (goal-blitz)")
     try:
-        _commit(repo_root, engine_root, paths, message)
+        _invoke(clis["invoke"], "ceremony.commit_v2", {"paths": paths, "message": message}, repo_root, run)
     except (CliFailure, Refusal) as exc:
         print(f"land-goals: landed but the scoped commit failed — {exc}", file=sys.stderr)
         for path in paths:

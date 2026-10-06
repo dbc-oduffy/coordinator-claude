@@ -31,7 +31,10 @@
  *     runId: string,                // default derived from the sizing stem; ^[a-z0-9][a-z0-9-]*$
  *     approvalPath: string,         // ABSOLUTE. The hands-on resume: a recorded PM approval.
  *     pluginAgentsAvailable: bool,  // defaults true; only an explicit false disables coordinator:* types.
- *     provisionSidecarCli: string   // optional resolved `coordinator-doc-new` invocation.
+ *     provisionSidecarCli: string,  // optional resolved `coordinator-doc-new` invocation.
+ *     pluginRoot: string            // ABSOLUTE plugin root; emit-roadmap-fire.py binds it. The briefs
+ *                                   // cite doctrine files under it, because a consumer repo has no
+ *                                   // `coordinator/` directory. Absent: the briefs say to resolve it.
  *   }
  *
  * Returns: { gate_report_path, roadmapId, roadmapDir, approver, approval, awaitingApproval, stage,
@@ -91,6 +94,7 @@ const SIZING = str(parsedArgs.sizing)
 const TRAIL_DIR = str(parsedArgs.trailDir)
 const APPROVAL_PATH = str(parsedArgs.approvalPath)
 const PROVISION_SIDECAR_CLI = str(parsedArgs.provisionSidecarCli)
+const PLUGIN_ROOT = str(parsedArgs.pluginRoot)
 const PLUGIN_AGENTS = parsedArgs.pluginAgentsAvailable !== false
 const SCOUT_CAP = 8
 
@@ -343,7 +347,15 @@ gate after review; do not stop to ask the PM or the EM.`,
 write one corpus file. You never edit any roadmap artifact other than that file.`,
 }
 
-const COMMON = `${REPO_ROOT_RULE}\n${CLI_RESOLUTION_RULE}`
+// A doctrine file the briefs cite lives in the plugin tree, never under the consumer repo's root.
+const pluginPath = (rel) => `${PLUGIN_ROOT || '<plugin-root>'}/${rel}`
+
+const PLUGIN_ROOT_RULE = PLUGIN_ROOT ? '' : `
+No \`pluginRoot\` was bound: a path written \`<plugin-root>/...\` in this brief is under the
+coordinator plugin root, which \`snippets/resolve-coordinator-bin.md\` explains how to resolve. A
+repo-relative \`coordinator/...\` path does not exist in a consumer repo; never read one.`
+
+const COMMON = `${REPO_ROOT_RULE}\n${CLI_RESOLUTION_RULE}${PLUGIN_ROOT_RULE}`
 
 function emptyResult(extra) {
   return {
@@ -428,7 +440,7 @@ if (!approval) {
     `${ROLE_CONTRACTS.planner}
 
 Run roadmap-planning Phase 1, Steps 1 through 4, over the corpus below, into ${ROADMAP_DIR}/.
-Read coordinator/skills/roadmap-planning/SKILL.md § Phase 1 and follow it. The accepted sizing is ${SIZING}.
+Read ${pluginPath('skills/roadmap-planning/SKILL.md')} § Phase 1 and follow it. The accepted sizing is ${SIZING}.
 
 ${CORPUS_RULE}
 
@@ -487,10 +499,10 @@ ${missingScouts.length ? `These clusters have no research file because their sco
 
 Write:
   - ${ROADMAP_DIR}/OVERVIEW.md: one section per KEEP cluster, headed by NAME and never by number,
-    each with a \`### Contested\` subsection. Frontmatter \`status: shape-draft\`; the Approve phase
+    each with a \`### Contested\` subsection. Frontmatter \`status: draft\`; the Approve phase
     stamps the final status, not you.
   - ${ROADMAP_DIR}/peer-team-asks.md: present even when empty, as \`- None identified at authoring time.\`
-    Template: coordinator/skills/roadmap-planning/residue/peer-team-ask-format.md.
+    Template: ${pluginPath('skills/roadmap-planning/residue/peer-team-ask-format.md')}.
 
 Return \`peerTeamAsks\` (the count of asks), \`crossesRepo\` (true when any cluster crosses a repo
 boundary), and \`flavor\` (a domain flavor such as data, ux or front-end when one reviewer should read

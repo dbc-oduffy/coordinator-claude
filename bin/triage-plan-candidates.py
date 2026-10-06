@@ -311,7 +311,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--repo-root",
         default=None,
-        help="Repo whose docs/plans/ to triage (default: this script's repo).",
+        help="Repo whose docs/plans/ to triage (default: env, then the cwd's repo).",
     )
     parser.add_argument(
         "plans",
@@ -331,7 +331,13 @@ def main(argv: list[str] | None = None) -> int:
         print(str(exc), file=sys.stderr)
         return 2
 
-    repo = Path(args.repo_root).resolve() if args.repo_root else _CLI_ROOT
+    sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+    from subject_repo import subject_repo_root
+
+    repo = subject_repo_root(args.repo_root)
+    if repo is None:
+        print("no subject repo: pass --repo-root or run inside a git repo", file=sys.stderr)
+        return 2
     if not (repo / ".git").exists():
         print(f"not a git repo: {repo}", file=sys.stderr)
         return 2

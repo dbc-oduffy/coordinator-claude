@@ -159,7 +159,7 @@ _CITATION_RE = re.compile(
 # `<other-placeholder>` form, a `}` boundary of an unrecognized variable
 # expansion, any punctuation) gets silently mis-captured as a deliberate
 # absolute-path anchor. That is the SAME misparse class the
-# `${CLAUDE_PLUGIN_ROOT}/` fix corrects, generalized: `<resolved-engine-root>/
+# CLAUDE_PLUGIN_ROOT-prefix fix corrects, generalized: `<resolved-engine-root>/
 # docs/wiki/uninstall-agentic-judgment.md` (coordinator/commands/uninstall.md)
 # is not an anchored citation -- `<resolved-engine-root>` is not a recognized
 # anchor prefix -- yet without this gate its trailing "/" resolved cleanly
