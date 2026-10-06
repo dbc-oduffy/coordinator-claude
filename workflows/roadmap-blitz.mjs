@@ -492,7 +492,7 @@ Write your record to EXACTLY this path and return it verbatim as \`corpusPath\`:
     )).catch(() => null)))
     scouts.push(...done)
   }
-  const missingScouts = researchable.filter((c, i) => !scouts[i]).map((c) => c.id)
+  const missingScouts = researchable.filter((_c, i) => !scouts[i]).map((c) => c.id)
 
   overview = await trackAgent('roadmap-planner:overview', agent(
     `${ROLE_CONTRACTS.planner}

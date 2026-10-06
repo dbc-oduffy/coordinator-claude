@@ -232,8 +232,10 @@ def _bootstrap_imports() -> None:
         return
 
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    from cc_invoke import cc_invoke as _cc_invoke, mutation_refusal_message as _mrm
+    from cc_invoke import cc_invoke as _cc_invoke, ensure_engine_on_path, mutation_refusal_message as _mrm
     from repo_identity import resolve_checked_repo_root as _rccr
+
+    ensure_engine_on_path(__file__)
 
     for _name, _value in (
         ("cc_invoke", _cc_invoke),

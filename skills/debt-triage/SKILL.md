@@ -178,14 +178,14 @@ Skip this step entirely if no project-specific entries survived Step 5.
 
 ## Autonomous runs
 
-No PM is present; the APM never writes `pm_ruling` in the PM's name, and no autonomous run does.
-For each row:
+No PM is present. The APM's ruling is written as in Step 5 — `pm_ruling: "apm (PM-delegated) ..."`;
+the label says the PM did not rule — and never as the PM's own word. For each row:
 
-1. Act on the APM's recommendation only where this skill already permits EM-autonomous action
-   (closing a verified-resolved row, Step 2's `cross-repo` memo-then-close, re-prioritizing).
-2. Otherwise record it as `apm_recommendation` on the row and leave the row open.
+1. Act on a ruling only where this skill already permits EM-autonomous action (closing a
+   verified-resolved row, Step 2's `cross-repo` memo-then-close, re-prioritizing).
+2. A `pm_only` matter gets `apm_recommendation` on the row and stays open.
 3. Continue; a pending recommendation never stops the run.
 
 The report ends with ONE batched PM-confirmation list: every row with an unconfirmed
 `apm_recommendation`, as row id, recommendation, one-line reason. The PM's confirmation writes
-`pm_ruling` for Step 6b to consume.
+`pm_ruling` (no `(PM-delegated)` label) for Step 6b to consume.

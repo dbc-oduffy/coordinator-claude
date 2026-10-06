@@ -296,7 +296,7 @@ order.
 `install_currency_banner()` reads at boot; `corpus-currency-probe.py` likewise writes
 `corpus-currency-last-run.json` for `corpus_currency_banner()`. Drop or reorder either run and its
 boot line degrades to `stale-unknown` past the 24h refresh window.
-`<ENGINE-CURRENCY-PROBE-PLACEHOLDER>`: engine leg, not in this batch — the engine-side probe (P-20)
+`<ENGINE-CURRENCY-PROBE-PLACEHOLDER>`: engine leg, not in this batch — the engine-anchor probe
 is the engine repo's to ship
 (`coordinator/docs/wiki/release-and-distribution/release-cadence-and-currency-notification.md` § Engine anchor).
 Add the real invocation once it ships; do not invent one.

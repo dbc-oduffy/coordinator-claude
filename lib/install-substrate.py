@@ -49,8 +49,10 @@ Spec backlink: coordinator-content-repo:pln-bash-to-naked-python-engine-mi-c0929
 
 from __future__ import annotations
 
+import importlib
 import os
 import sys
+from typing import NoReturn
 
 _LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 _BIN_LIB_DIR = os.path.join(os.path.dirname(_LIB_DIR), "bin", "lib")
@@ -58,6 +60,58 @@ if _BIN_LIB_DIR not in sys.path:
     sys.path.insert(0, _BIN_LIB_DIR)
 from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 from coordinator_data_root import content_root_or_private  # noqa: E402
+
+
+_CLAUDE_KLABAUTER_URL = "https://github.com/dbc-oduffy/claude-klabauter"
+
+
+def _engine_unavailable(cause: str, resolved_root: str | None) -> NoReturn:
+    """Fail loud on a missing/unreachable engine: name the hard dependency, say
+    access is manual, say how to ask — never a raw exception or traceback.
+
+    A consumer of the published coordinator-claude bundle has no claude-klabauter
+    access by default; the bare exception text states a symptom, not that
+    claude-klabauter is a hard dependency. Anti-scope (PM-ruled): no fallback install
+    path and no vendored coordinator_core — this changes the error only.
+    """
+    first_line = (cause.strip().splitlines() or ["unknown cause"])[0]
+    print(
+        f"install-substrate: claude-klabauter engine unavailable: {first_line}",
+        file=sys.stderr,
+    )
+    print(
+        "  claude-klabauter (resolved through its published claude-klabauter mirror) "
+        "is a HARD dependency of coordinator-claude; the installer cannot run without it.",
+        file=sys.stderr,
+    )
+    print(
+        "  Access is granted manually, not self-service. Request it from the "
+        f"repository owner (dbc-oduffy) at {_CLAUDE_KLABAUTER_URL}.",
+        file=sys.stderr,
+    )
+    print(
+        "  Once you have access, clone claude-klabauter and point the resolver at it: "
+        "set COORDINATOR_ENGINE_ROOT, write <settings-home>/machine-local/"
+        ".claude-klabauter-root, or run `machine-local set repos.claude_klabauter "
+        "/path/to/claude-klabauter`, then re-run.",
+        file=sys.stderr,
+    )
+    print(f"  Resolved root: {resolved_root or '(none)'}", file=sys.stderr)
+    sys.exit(1)
+
+
+def _engine_root_or_exit() -> str:
+    try:
+        return require_dispatch_engine_on_path()
+    except RuntimeError as exc:
+        _engine_unavailable(f"engine root resolution failed: {exc}", None)
+
+
+def _import_from_engine(root: str, module: str, attr: str):
+    try:
+        return getattr(importlib.import_module(module), attr)
+    except ImportError as exc:
+        _engine_unavailable(f"{module} not importable: {exc}", root)
 
 
 def _derive_plugin_root() -> str:
@@ -80,8 +134,10 @@ def _derive_plugin_root() -> str:
     existing = os.environ.get("CLAUDE_PLUGIN_ROOT", "")
     if existing:
         return existing
-    require_dispatch_engine_on_path()
-    from coordinator_core.content_root import read_content_root
+    engine_root = _engine_root_or_exit()
+    read_content_root = _import_from_engine(
+        engine_root, "coordinator_core.content_root", "read_content_root"
+    )
 
     resolved = read_content_root()
     if not resolved:
@@ -100,10 +156,8 @@ def _derive_plugin_root() -> str:
 
 
 def _import_main():
-    claude_klabauter_root = require_dispatch_engine_on_path()
-    from coordinator_core.install.substrate import main as _op_main
-
-    return _op_main
+    claude_klabauter_root = _engine_root_or_exit()
+    return _import_from_engine(claude_klabauter_root, "coordinator_core.install.substrate", "main")
 
 
 def main() -> None:
@@ -128,17 +182,7 @@ def main() -> None:
         sys.exit(1)
     os.environ["CLAUDE_PLUGIN_ROOT"] = plugin_root
 
-    try:
-        op_main = _import_main()
-    except RuntimeError as exc:
-        print(f"install-substrate: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
-        sys.exit(1)
-    except ImportError as exc:
-        print(
-            f"install-substrate: coordinator_core.install.substrate not importable: {exc}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    op_main = _import_main()
     argv = sys.argv[1:]
     rc = op_main(argv)
     sys.exit(rc)

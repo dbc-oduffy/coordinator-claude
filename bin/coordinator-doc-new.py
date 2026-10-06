@@ -4875,11 +4875,21 @@ _BATON_SECTION_HEADS = {
 _SKELETON_ONLY_RE = re.compile(r"(?:\s|<!--.*?-->|-\s\[\s\]\s*$)*", re.DOTALL | re.MULTILINE)
 
 
+_SHAPE_ALIGNMENT_PARAGRAPH = (
+    "Sized `shape`: the problem is not yet converged (JTBD unclear, or a step-change on "
+    "well-trodden ground). The plan opens by restating the problem in the PM's words and "
+    "names each problem-alignment question as an open question for the adjudicator; it does "
+    "not resolve them by assumption."
+)
+
+
 def _sizing_baton_sections(meta: dict) -> tuple[str | None, list[str], list[str]]:
     """Return the sizing-derived (specification, acceptance items, reference bullets)."""
     _premise = meta.get("premise")
     _evidence = _premise.get("evidence") if isinstance(_premise, dict) else None
     specification = None if _is_placeholder_text(_evidence) else " ".join(_evidence.split())
+    if meta.get("route") == "shape":
+        specification = f"{specification}\n\n{_SHAPE_ALIGNMENT_PARAGRAPH}" if specification else _SHAPE_ALIGNMENT_PARAGRAPH
     _criterion = meta.get("exit_criterion")
     _statement = _criterion.get("statement") if isinstance(_criterion, dict) else None
     acceptance = [] if _is_placeholder_text(_statement) else [" ".join(_statement.split())]
@@ -4980,13 +4990,19 @@ def _sizing_remit_and_steps(
     return "\n".join([covers[0], "", *covers[1:]]), steps
 
 
-def mint_baton_from_sizing(sizing_rel: str, repo_root: str) -> dict:
+def mint_baton_from_sizing(
+    sizing_rel: str, repo_root: str, *, baton: str | None = None, deliverable_id: str | None = None,
+) -> dict:
     """Mint the baton for an M+ sizing, or return the one its `baton:` edge already names.
 
     Returns ``{"id", "path", "title", "created"}`` (an existing baton adds ``prefilled``); ``path`` is repo-relative POSIX.
     Raises ``SizingMintRefused`` naming every failing field (`estimate.tshirt`,
-    `intent`, `baton`). Write order: sizing edge first, then the baton, with the
+    `intent`, `baton`, `deliverable_id`). Write order: sizing edge first, then the baton, with the
     edge reverted when the baton write fails. ``repo_root`` is the caller's.
+
+    ``baton`` joins that existing baton (repo-relative) to an edge-less sizing; ``deliverable_id``
+    is the id a fresh baton carries instead of a minted one. Either disagreeing with the sizing's
+    or the baton's own id refuses before any write.
     """
     _bootstrap_engine()
     _ensure_engine_on_path()
@@ -5019,11 +5035,43 @@ def mint_baton_from_sizing(sizing_rel: str, repo_root: str) -> dict:
         reasons.append("intent is absent")
     existing = meta.get("baton")
     existing_abs = None
-    if isinstance(existing, str) and existing:
+    join_edge = False
+    if baton:
+        baton = _repo_relative_posix(baton, repo_root)
+        _bparts = baton.split("/")
+        if os.path.isabs(baton) or ".." in _bparts or _bparts[:2] != ["state", "handoffs"]:
+            fields.append("baton")
+            reasons.append(f"baton {baton} is not a repo-relative state/handoffs/ path")
+        elif isinstance(existing, str) and existing and existing != baton:
+            fields.append("baton")
+            reasons.append(f"sizing edge names {existing}, not {baton}")
+        else:
+            join_edge = not (isinstance(existing, str) and existing)
+            existing = baton
+    if existing_abs is None and isinstance(existing, str) and existing and "baton" not in fields:
         existing_abs = os.path.join(repo_root, existing)
         if not os.path.isfile(existing_abs):
             fields.append("baton")
             reasons.append(f"baton edge {existing} resolves to no file")
+    _sizing_dlv = meta.get("deliverable_id") or None
+    if deliverable_id and _sizing_dlv and deliverable_id != _sizing_dlv:
+        fields.append("deliverable_id")
+        reasons.append(f"deliverable_id {deliverable_id} differs from the sizing's {_sizing_dlv}")
+    if join_edge and not fields:
+        _jtext = open(existing_abs, encoding="utf-8").read()
+        _jdlv = read_fm_field_unquoted(_jtext, "deliverable_id")
+        if _is_null_scalar(read_fm_field_unquoted(_jtext, "handoff_id")) or _is_null_scalar(_jdlv):
+            fields.append("baton")
+            reasons.append(f"baton {existing} lacks a handoff_id or deliverable_id")
+        elif (_sizing_dlv and _sizing_dlv != _jdlv) or (deliverable_id and deliverable_id != _jdlv):
+            fields.append("deliverable_id")
+            _wanted = deliverable_id if deliverable_id and deliverable_id != _jdlv else _sizing_dlv
+            reasons.append(f"deliverable_id {_wanted} differs from baton {existing}'s {_jdlv}")
+    elif deliverable_id and existing_abs is not None and not fields:
+        _edlv = read_fm_field_unquoted(open(existing_abs, encoding="utf-8").read(), "deliverable_id")
+        if not _is_null_scalar(_edlv) and _edlv != deliverable_id:
+            fields.append("deliverable_id")
+            reasons.append(f"deliverable_id {deliverable_id} differs from baton {existing}'s {_edlv}")
     if fields:
         raise SizingMintRefused(
             fields, f"--from-sizing refused for {sizing_rel}: " + "; ".join(reasons)
@@ -5035,15 +5083,26 @@ def mint_baton_from_sizing(sizing_rel: str, repo_root: str) -> dict:
     acceptance = [_relativize_repo_paths(_a, repo_root) for _a in acceptance]
     reference_materials = [_relativize_repo_paths(_r, repo_root) for _r in reference_materials]
     if existing_abs is not None:
-        prefilled = _prefill_baton_sections(
-            existing_abs,
-            {
-                "Specification": [specification] if specification else [],
-                "Acceptance criteria": [f"- [ ] {_item}" for _item in acceptance],
-                "Reference materials": reference_materials,
-            },
-            repo_root,
-        )
+        _edge_old = None
+        if join_edge:
+            _edge_old = _write_sizing_baton_edge(
+                sizing_abs, existing, repo_root,
+                read_fm_field_unquoted(open(existing_abs, encoding="utf-8").read(), "deliverable_id"),
+            )
+        try:
+            prefilled = _prefill_baton_sections(
+                existing_abs,
+                {
+                    "Specification": [specification] if specification else [],
+                    "Acceptance criteria": [f"- [ ] {_item}" for _item in acceptance],
+                    "Reference materials": reference_materials,
+                },
+                repo_root,
+            )
+        except Exception:
+            if _edge_old is not None:
+                _revert_sizing_reverse_edge(sizing_abs, _edge_old, repo_root)
+            raise
         text = open(existing_abs, encoding="utf-8").read()
         _baton_dlv = read_fm_field_unquoted(text, "deliverable_id")
         if not meta.get("deliverable_id") and not _is_null_scalar(_baton_dlv):
@@ -5064,7 +5123,9 @@ def mint_baton_from_sizing(sizing_rel: str, repo_root: str) -> dict:
     covers_text, next_steps = _sizing_remit_and_steps(meta, intent, sizing_rel, plan_rel)
     summary = _fit_summary(one_line)
     dlv_source = meta.get("deliverable_id")
-    if dlv_source:
+    if deliverable_id:
+        pass  # caller-supplied id is carried verbatim; no mint
+    elif dlv_source:
         deliverable_id = _mint_deliverable_id(
             deliverable_id=dlv_source, carry_source="cited sizing-object (--from-sizing)"
         )

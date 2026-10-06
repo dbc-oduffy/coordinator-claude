@@ -26,7 +26,8 @@ Subcommands (argv[1] selects). Each accepts `--repo-root <dir>` (default: cwd) n
 operates on:
 
   pr-body --ship-verdict <text> --release-notes <text> [--summary <text> | --summary-file <path>]
-           [--verification <text>] [--risk <text>] [--demo-path <text>]
+           [--verification <text> | --verification-file <path>]
+           [--risk <text> | --risk-file <path>] [--demo-path <text>]
            [--links <text>] [--commit-range <range>]
       Composes the PR body in the fleet PR template's section order (coordinator-content-repo
       coordinator/templates/github-pull-request-template.md): the
@@ -34,7 +35,7 @@ operates on:
       ## Risk and rollback, ## Demo path (only when given), ## Links, then a
       collapsed commit log. An absent optional section renders the template's
       guidance comment. `--summary`/`--verification`/`--risk`/`--links` are
-      optional because `merge_assemble`'s d4 directive composes this call
+      optional (multi-line summary/verification/risk travel as `-file` twins; `-` reads stdin) because `merge_assemble`'s d4 directive composes this call
       without them. Prints the composed body to stdout.
 
   active-branch-guard --pr <PR> [--force]
@@ -436,7 +437,17 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p_body.add_argument("--release-notes", required=True)
     p_body.add_argument("--verification", default=None)
+    p_body.add_argument(
+        "--verification-file",
+        default=None,
+        help="Read the verification section from this file (multi-line values travel as a file, never inline).",
+    )
     p_body.add_argument("--risk", default=None)
+    p_body.add_argument(
+        "--risk-file",
+        default=None,
+        help="Read the risk section from this file (multi-line values travel as a file, never inline).",
+    )
     p_body.add_argument("--demo-path", default=None)
     p_body.add_argument("--links", default=None)
     p_body.add_argument("--commit-range", default="main..HEAD")
@@ -472,9 +483,16 @@ def main(argv: list[str]) -> int:
         from coordinator_core.argv_fidelity import ArgvFidelityError, resolve_optional_prose
 
         try:
-            args.summary = resolve_optional_prose(
-                args.summary, args.summary_file, flag_name="--summary"
-            )
+            for dest in ("summary", "verification", "risk"):
+                setattr(
+                    args,
+                    dest,
+                    resolve_optional_prose(
+                        getattr(args, dest),
+                        getattr(args, f"{dest}_file"),
+                        flag_name=f"--{dest}",
+                    ),
+                )
         except ArgvFidelityError as exc:
             parser.error(str(exc))
     token = _REPO_ROOT.set(args.repo_root)

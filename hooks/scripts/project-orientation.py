@@ -1106,7 +1106,7 @@ def install_currency_banner(repo_root: Optional[str]) -> None:
     `source_is_live` silences only the PLUGIN surface covered by this function -- it must never be
     read as silencing the engine-currency surface (§ Engine anchor — converged contract,
     `docs/wiki/release-and-distribution/release-cadence-and-currency-notification.md`), which is a distinct
-    axis this function does not touch. That contract is settled; its probe (P-20) is not built.
+    axis this function does not touch. That contract is settled; its engine-anchor probe is not built.
     """
     if os.environ.get("COORDINATOR_CURRENCY_STATUS_OFF"):
         print(

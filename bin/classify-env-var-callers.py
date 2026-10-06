@@ -131,6 +131,10 @@ _SCAN_EXTENSIONS = {".py"}
 # `fixture`  — a test asserting ON the resolver, with synthetic roots. C12's
 #   surface (the name as data), never C11's (the name as a read).
 _REVIEWED_DISPOSITIONS: dict[str, tuple[str, str]] = {
+    "coordinator_core/plugin_health/oracle_surface.py": (
+        "locator", "_resolve_claude_klabauter_root falls back to the engine root only as the place whose "
+                   "coordinator/bin/ oracle files are listed for the fleet-demand diff; it never "
+                   "invokes the engine there"),
     "coordinator/bin/assert-no-terminal-plans-in-live.py": (
         "dispatch", "sets a child's PYTHONPATH to the resolved root so the child imports the engine"),
     "coordinator/bin/coordinator-safe-commit.py": (

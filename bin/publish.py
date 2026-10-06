@@ -2869,6 +2869,14 @@ _ENTRYPOINT_GATE_TIMEOUT_SHARE_WARN_FLOOR = 0.25
 # widens that repo root's sweep back to FULL (subset=None) rather than
 # narrowing on a graph that structurally cannot prove such a file is safe to
 # ignore for every entrypoint at once.
+#
+# The suffix alone over-widens: prose (`docs/wiki`, markdown under `docs/`,
+# skill/agent/command markdown) carries most of every round's changed set and
+# no entrypoint reads it at startup, so `_changed_path_is_unmodeled` exempts a
+# CLOSED, named set of prose-only paths. Everything else with one of these
+# suffixes -- registries, snippets, templates, hook/settings json, root-level
+# data, `docs/install/` manifests, `cockpit-contract/` schemas -- still widens,
+# and so does any path in a tree not named below (fail wide on the unknown).
 _CHANGED_ONLY_UNMODELED_SUFFIXES: "tuple[str, ...]" = (
     ".json",
     ".yaml",
@@ -2876,6 +2884,64 @@ _CHANGED_ONLY_UNMODELED_SUFFIXES: "tuple[str, ...]" = (
     ".toml",
     ".md",
 )
+
+# `docs/` subtrees that are prose in any suffix. Elsewhere under `docs/` only
+# `.md` is prose: `docs/install/*.json` (agent-install-manifest, bin-inventory)
+# and `docs/*.yaml` are read at runtime by the entrypoint-depth gate and the
+# installer.
+_CHANGED_ONLY_PROSE_DOCS_SUBTREES: "frozenset[str]" = frozenset({"wiki"})
+
+# `.md` under `docs/` that a script reads at runtime.
+_CHANGED_ONLY_RUNTIME_READ_DOCS_SUBTREES: "frozenset[str]" = frozenset({"install"})
+
+# Trees where only `.md` is prose: SKILL.md / agent / command / pipeline text is
+# read by the model, not by a script. Their json/yaml/toml still widens.
+_CHANGED_ONLY_PROSE_MD_TREES: "frozenset[str]" = frozenset(
+    {"skills", "agents", "commands", "pipelines"}
+)
+
+# Subtree names inside a `_CHANGED_ONLY_PROSE_MD_TREES` tree that a script DOES
+# resolve at runtime (hook-injected residue, scaffold templates): `.md` under
+# one of these widens.
+_CHANGED_ONLY_RUNTIME_READ_SUBTREES: "frozenset[str]" = frozenset({"residue", "templates"})
+
+# Root-level repo documents no entrypoint loads.
+_CHANGED_ONLY_PROSE_ROOT_FILES: "frozenset[str]" = frozenset(
+    {
+        "README.md",
+        "CHANGELOG.md",
+        "CONTRIBUTING.md",
+        "CODE_OF_CONDUCT.md",
+        "SECURITY.md",
+        "PRIVACY.md",
+        "COMMERCIAL.md",
+        "NOTICE.md",
+        "INSTALL.md",
+    }
+)
+
+
+def _changed_path_is_unmodeled(rel: str) -> bool:
+    """True iff the repo-relative posix path `rel` may be a runtime data
+    dependency the import-closure walk cannot see (-> widen to a full sweep).
+    Unknown shapes return True: only the named prose exemptions return False.
+    """
+    parts = rel.split("/")
+    if parts[0] == "coordinator" and len(parts) > 1:
+        parts = parts[1:]
+    suffix = Path(parts[-1]).suffix
+    if suffix not in _CHANGED_ONLY_UNMODELED_SUFFIXES:
+        return False
+    if len(parts) == 1:
+        return parts[0] not in _CHANGED_ONLY_PROSE_ROOT_FILES
+    tree = parts[0]
+    if tree == "docs":
+        if parts[1] in _CHANGED_ONLY_PROSE_DOCS_SUBTREES:
+            return False
+        return suffix != ".md" or parts[1] in _CHANGED_ONLY_RUNTIME_READ_DOCS_SUBTREES
+    if tree in _CHANGED_ONLY_PROSE_MD_TREES and suffix == ".md":
+        return bool(_CHANGED_ONLY_RUNTIME_READ_SUBTREES.intersection(parts[1:-1]))
+    return True
 
 
 def _compute_always_swept_entrypoints(
@@ -2982,7 +3048,8 @@ def dispatch_end_of_run_entrypoint_gate(
     2026-08-10 plan) to compute a subset, unioned with `_compute_always_
     swept_entrypoints`'s always-swept floor so an entrypoint no changed-set
     could ever select still gets scanned every run. If any changed path
-    carries a suffix in `_CHANGED_ONLY_UNMODELED_SUFFIXES`, that repo
+    satisfies `_changed_path_is_unmodeled` (an unmodeled suffix outside the
+    named prose exemptions), that repo
     root's subset is widened back to the full sweep instead (§ that
     constant's own docstring) -- a change to an untracked-by-the-graph
     dependency must never narrow the sweep. `changed_files_by_repo_root=
@@ -3029,7 +3096,7 @@ def dispatch_end_of_run_entrypoint_gate(
                     except ValueError:
                         continue  # outside repo_root -- cannot be a repo-relative changed path
                     changed_paths.append(rel)
-                    if Path(rel).suffix in _CHANGED_ONLY_UNMODELED_SUFFIXES:
+                    if _changed_path_is_unmodeled(rel):
                         unmodeled_hit = True
 
             # An engine that predates `derive_changed_entrypoints` cannot narrow

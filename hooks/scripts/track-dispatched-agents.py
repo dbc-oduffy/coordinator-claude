@@ -586,7 +586,13 @@ def _write_posttooluse_agent_canary(raw: str) -> None:
         tool_response = payload.get("tool_response")
         if not isinstance(tool_response, dict):
             tool_response = {}
-        agent_id = tool_response.get("agentId") or tool_response.get("agent_id") or ""
+        agent_id = (
+            tool_response.get("agentId")
+            or tool_response.get("agent_id")
+            or payload.get("agent_id")
+            or ""
+        )
+        event = payload.get("hook_event_name") or ""
 
         probe = Path(cwd).resolve() if isinstance(cwd, str) and cwd else Path.cwd()
         git_dir = None
@@ -625,7 +631,7 @@ def _write_posttooluse_agent_canary(raw: str) -> None:
         log_dir = common_dir / "coordinator-sessions" / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        line = f"{stamp}\t{tool_name}\t{session_id}\t{agent_id}\n"
+        line = f"{stamp}\t{tool_name}\t{session_id}\t{agent_id}\t{event}\n"
         # Windows append-atomicity for concurrent writers is NOT independently
         # verified here (see finding 1 in the 0d753c61e canary review, and the
         # closure note in the linked bug-backlog entry): a torn/interleaved

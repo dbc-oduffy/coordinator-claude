@@ -395,6 +395,7 @@ _GUARD_DOCTRINE_SURFACE_RATIO = "guard-doctrine-surface-ratio.py"
 _GUARD_POSIX_INVOCATION_DOCTRINE_WRITE = "guard-posix-invocation-doctrine-write.py"
 _GUARD_HANDOFF_SUMMARY_CAP_ON_WRITE = "guard-handoff-summary-cap-on-write.py"
 _GUARD_AUTONOMOUS_SENTINEL_WRITE = "guard-autonomous-sentinel-write.py"
+_GUARD_ENGINE_MIRROR_WRITE = "guard-engine-mirror-write.py"
 
 REAL_GUARD_REGISTRY: Tuple[RegisteredGuard, ...] = (
     RegisteredGuard(
@@ -527,6 +528,17 @@ REAL_GUARD_REGISTRY: Tuple[RegisteredGuard, ...] = (
             # directly inside the temp dir; the substring over-approximates it (no suffix, any
             # directory) and the in-guard predicate stays authoritative.
             directory_substrings=("autonomous-run-",),
+        ),
+    ),
+    RegisteredGuard(
+        module_key="guard_engine_mirror_write",
+        module_path=str(Path(_HOOKS_DIR) / _GUARD_ENGINE_MIRROR_WRITE),
+        descriptor=GuardScopeDescriptor(
+            guard_module=_GUARD_ENGINE_MIRROR_WRITE,
+            # Real scope is "under a registry-resolved mirror root", unknowable without the
+            # registry; the mirrors' repo names over-approximate it and the in-guard
+            # predicate decides.
+            directory_substrings=("/claude-klabauter/", "/coordinator-claude/"),
         ),
     ),
 )

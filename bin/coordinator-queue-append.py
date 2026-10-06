@@ -1467,7 +1467,7 @@ Spec backlink: docs/plans/2026-06-25-example-initiative-tc-2-queues-lessons-cons
         "--status",
         default=None,
         metavar="VALUE",
-        help="Lifecycle state. Valid base values: open, closed, deferred. bug-backlog also accepts wontfix. Defaults to open for --schema lessons.",
+        help="Lifecycle state. Valid base values: open, closed, deferred. bug-backlog also accepts wontfix. Required for every shared-base schema (debt-backlog, bug-backlog, improvement-queue, cross-repo-commitment); defaults to open only for --schema lessons.",
     )
     parser.add_argument(
         "--created",

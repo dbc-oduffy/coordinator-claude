@@ -123,6 +123,16 @@
             ]
           },
           {
+            "id": "guard_engine_mirror_write",
+            "script": "scripts/guard-engine-mirror-write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
             "id": "block_completion_monolith_write",
             "script": "write_guards/block_completion_monolith_write.py",
             "tool_names": [

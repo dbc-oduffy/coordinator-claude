@@ -977,7 +977,7 @@ _MINT_TSHIRTS = frozenset({"M", "L", "XL", "XXL"})
 
 
 def _effective_route(sizing: dict) -> object:
-    """The sizing's route with a PM-recorded `xl_exit` applied (accept_multi_session -> plan)."""
+    """The sizing's route as it fires: a PM-recorded `xl_exit` applied (accept_multi_session -> plan)."""
     import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
     from coordinator_core.ops.dispatch_emit.sizing_fire import effective_route
 
@@ -992,7 +992,8 @@ def _collect_sizing_refusals(sizing: dict) -> list[str]:
     if not ec.get("statement"):
         out.append("`exit_criterion.statement` is absent — nothing to hand off as the prime exit criterion")
     if ec.get("accepted") is None:
-        out.append("`exit_criterion.accepted` is null — the exit criterion is not accepted yet")
+        out.append("`exit_criterion.accepted` is null — the exit criterion is not accepted yet "
+            "(accept it with `--pm-quote` or `--apm-ruling`)")
     if not sizing.get("interaction_mode"):
         out.append("`interaction_mode` is absent")
     route = _effective_route(sizing)
@@ -1136,7 +1137,9 @@ def _emit_single_from_sizing(
     tshirt = (sizing.get("estimate") or {}).get("tshirt")
 
     try:
-        minted = _load_mint()(sizing_rel, str(repo_root))
+        minted = _load_mint()(
+            sizing_rel, str(repo_root), baton=args.baton, deliverable_id=args.deliverable_id
+        )
     except Exception as exc:  # noqa: BLE001 -- SizingMintRefused lives in the sibling module
         fields = getattr(exc, "fields", None)
         if fields is None:
@@ -1227,6 +1230,14 @@ def main(argv=None) -> int:
             "exclusive with --gate-report (§ Pinned interfaces, plan "
             "2026-09-27-four-turn-em-loop.md)."
         ),
+    )
+    ap.add_argument(
+        "--baton",
+        help="with --from-sizing: repo-relative path of an existing baton to fire instead of minting one",
+    )
+    ap.add_argument(
+        "--deliverable-id",
+        help="with --from-sizing: the deliverable id the baton must carry; a mismatch refuses",
     )
     ap.add_argument(
         "--gate-report",
@@ -1327,6 +1338,13 @@ def main(argv=None) -> int:
             "emit-wave-fire: REFUSED — --from-sizing and --gate-report are mutually exclusive: "
             "one fires a single-plan baton from an accepted sizing object, the other fires a "
             "wave from a frozen gate report.",
+            file=sys.stderr,
+        )
+        return EXIT_REFUSED
+
+    if (args.baton or args.deliverable_id) and not args.from_sizing:
+        print(
+            "emit-wave-fire: REFUSED — --baton and --deliverable-id apply only with --from-sizing.",
             file=sys.stderr,
         )
         return EXIT_REFUSED

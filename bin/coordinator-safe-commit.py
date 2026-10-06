@@ -1713,15 +1713,10 @@ def _own_touched_paths_for_banner() -> "tuple[Optional[Set[str]], str]":
     if not os.path.isfile(touched_path):
         return None, f"no {cs_scope._TOUCH_RECORD_FILENAME} at {touched_path}"
     try:
-        lines, _degraded = cs_scope._read_touch_record_as_legacy_lines(touched_path)
+        paths, degraded = cs_scope.project_self_write_scope(touched_path)
     except OSError as exc:
         return None, f"{cs_scope._TOUCH_RECORD_FILENAME} unreadable ({exc})"
-    # `lines` are re-rendered OLD-dialect `'<verb> <ts> <path>'` rows (see
-    # `_read_touch_record_as_legacy_lines`'s own docstring) — `project_self_
-    # scope` is the same extraction `do_scoped` already applies to this exact
-    # shape, not a bare-path split, so a released (R) path is excluded here
-    # too rather than re-widening the banner's own-set beyond `do_scoped`'s.
-    return set(cs_scope.project_self_scope(lines)), "ok"
+    return set(paths), "degraded" if degraded else "ok"
 
 
 def _scoped_commit_suggestion(subject: str) -> str:
@@ -2558,14 +2553,18 @@ def do_blanket(session_id: str, args: "Args", cs_core, cs_liveness, cs_claims) -
         own_set: Set[str] = set()
         own_lines: List[str] = []
         if base and session_id:
-            touched_path = os.path.join(base, session_id, "touched.txt")
+            touched_path = os.path.join(base, session_id, cs_scope._TOUCH_RECORD_FILENAME)
             if os.path.isfile(touched_path):
                 try:
-                    own_lines = Path(touched_path).read_text(encoding="utf-8").splitlines()
+                    own_lines, _ = cs_scope._read_touch_record_as_legacy_lines(touched_path)
+                    own_paths, own_degraded = cs_scope.project_self_write_scope(touched_path)
                 except OSError as exc:
+                    own_paths, own_degraded = set(), True
+                    print(f"ERROR: {exc}", file=sys.stderr)
+                if own_degraded:
                     print(
-                        f"ERROR: cannot read this session's own touched.txt "
-                        f"({touched_path}: {exc}); refusing --blanket commit — the F0/F1 "
+                        f"ERROR: cannot read this session's own touch record "
+                        f"({touched_path}); refusing --blanket commit — the F0/F1 "
                         "subtract's 'own wins' protection cannot be trusted with an "
                         "incomplete own_set, and a legitimately-owned staged path could be "
                         "incorrectly subtracted as a sibling's. Set "
@@ -2574,11 +2573,7 @@ def do_blanket(session_id: str, args: "Args", cs_core, cs_liveness, cs_claims) -
                         file=sys.stderr,
                     )
                     sys.exit(1)
-                # SELF-facing projection (P3): own_set is this session's own
-                # scope, so a path last RELEASED (R) must not re-enter it —
-                # `project_self_scope` never applies the peer-facing mtime
-                # re-claim (that arm must not widen `my_scope`/own_set).
-                own_set.update(cs_scope.project_self_scope(own_lines))
+                own_set.update(own_paths)
         # exact mode: broadened would scoop a sibling EM's own sub-agent
         # back-pointer into "own", causing the blanket to absorb the
         # sibling's in-flight files — no downstream correction exists on
@@ -3009,12 +3004,18 @@ def do_scoped(
         lines, _degraded = cs_scope._read_touch_record_as_legacy_lines(touched_path)
         # LC_ALL=C sort -u dedup on read (bash: Phase 3a). SELF-facing
         # projection (P3): a path last RELEASED (R) must not re-enter
-        # my_touched — `project_self_scope` never applies the
-        # peer-facing mtime re-claim (that arm must not widen
-        # `my_scope`).
-        my_touched.extend(sorted(cs_scope.project_self_scope(lines)))
-        # coordinatorcode-reviewer-5c643f30.md) — shares the
-        # last-event-per-path scan with `project_self_scope` via
+        # my_touched, and a read-only hold is dropped —
+        # `project_self_write_scope` never applies the peer-facing mtime
+        # re-claim (that arm must not widen `my_scope`).
+        self_paths, self_degraded = cs_scope.project_self_write_scope(touched_path)
+        if self_degraded:
+            print(
+                f"WARNING: degraded read of {touched_path}; scoped commit may miss "
+                "this session's own paths this run.",
+                file=sys.stderr,
+            )
+        my_touched.extend(sorted(self_paths))
+        # Released paths share the last-event-per-path scan via
         # `cs_scope._last_verb_map`, rather than re-deriving it here.
         last_verb: Dict[str, str] = cs_scope._last_verb_map(lines)
         released_paths = sorted(path for path, verb in last_verb.items() if verb == "R")

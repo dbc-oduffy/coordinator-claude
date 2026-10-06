@@ -54,6 +54,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -184,11 +185,50 @@ def main(argv: list[str]) -> int:
     )
     if archived is None:
         return 1
+    committed = _commit_moved(
+        [src for src, _date in archive_entries], adir, repo_root, no_console_creationflags()
+    )
+    if not committed:
+        return 1
     for src, _date in archive_entries:
         print(f"  [APPLIED] archived {src.name} -> {adir / src.name}")
 
     print(f"  [APPLIED] moved {archived} entries to {adir}")
     return 0
+
+
+def _commit_moved(srcs: list, dst_dir, repo_root, no_console_kwargs: dict) -> bool:
+    """Commit exactly the moved sources and their destinations via
+    `--pathspec-from-file` (no argv path list: the set can exceed the Windows
+    argv limit), so the staged renames never linger in the shared index."""
+    root = Path(repo_root).resolve()
+    rels: list[str] = []
+    for src in srcs:
+        s = Path(src).resolve()
+        rels.append(s.relative_to(root).as_posix())
+        rels.append((Path(dst_dir).resolve() / s.name).relative_to(root).as_posix())
+    fd, pathspec_file = tempfile.mkstemp(prefix="age-sweep-pathspec-", suffix=".txt")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write("\n".join(rels) + "\n")
+        result = subprocess.run(
+            ["git", "commit", "-q", "-m", f"age-sweep: archive {len(srcs)} aged universal lesson(s)",
+             f"--pathspec-from-file={pathspec_file}"],
+            capture_output=True,
+            cwd=str(root),
+            **no_console_kwargs,
+        )
+    finally:
+        try:
+            os.remove(pathspec_file)
+        except OSError:
+            pass
+    if result.returncode != 0:
+        err = result.stderr.decode("utf-8", errors="replace").strip()
+        print(f"  error: git commit of {len(srcs)} moved entries failed "
+              f"(renames left staged): {err}", file=sys.stderr)
+        return False
+    return True
 
 
 _GIT_MV_BATCH_BUDGET = 20000

@@ -4,6 +4,18 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.4.14] — 2026-10-06
+
+A guard and backlog-clearing release.
+
+- **Mirror-write guard.** Write and Edit under the published engine mirror or any publish
+  mirror are denied for every caller; author in the source repo and publish.
+- **Debt triage.** In a PM-away run the APM writes a labelled, PM-delegated `pm_ruling`, as
+  Step 5 and every grind already do.
+- **Schemas.** sizing-object 1.26.0 accepts an APM ruling as exit-criterion acceptance.
+- **Agent canary.** The PostToolUse(Agent) canary records the hook event, so a missed fire can
+  be told apart from SubagentStart.
+
 ## [4.4.13] — 2026-10-06
 
 A test-suite and dogfood-fix release.
