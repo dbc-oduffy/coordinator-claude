@@ -65,6 +65,10 @@ Read and follow the driver file for the parsed mode, passing through remaining a
 
 The driver handles script preparation, firing, completion, archival.
 
+## Declared Pipelines
+
+A repo's `research_pipelines` (in `coordinator.local.md`) names research that runs only as `--mode=structured` with the declared spec; a PreToolUse(Agent) guard denies ad-hoc dispatches onto it. Shape: wiki (`research-pipelines-config`).
+
 ## Post-Synthesis: Coverage Auditor
 
 Always-on, all four pipelines, no opt-out. After synthesis, before the run concludes, dispatch

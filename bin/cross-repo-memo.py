@@ -3795,7 +3795,8 @@ def _build_combined_parser(for_help: bool = False) -> argparse.ArgumentParser:
     # REQUIRED, matching `send`'s own gate on the same field: a kindless
     # draft is an artifact this CLI's own send verb refuses. See
     # memo_draft.py::_validate_draft_params for the full note.
-    draft_p.add_argument("--kind", choices=list(_VALID_KINDS), required=True, help="REQUIRED. Memo kind (" + " | ".join(_VALID_KINDS) + ")")
+    draft_p.add_argument("--kind", choices=list(_VALID_KINDS), required=True, help="REQUIRED. Memo kind (" + " | ".join(_VALID_KINDS) + ")."
+         " Answering an inbound memo: use --in-reply-to, not a new kind.")
     draft_p.add_argument(
         "--in-reply-to", metavar="MEMO", default=None,
         help="OPTIONAL. Basename (or path — normalized to basename) of the "

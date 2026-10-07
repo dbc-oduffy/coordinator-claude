@@ -523,7 +523,7 @@ it, and don't gate on code quality. See `CONTRIBUTING.md`.
 
 After install, re-run `--plan` (Step 0): `track: update` means the installer performs the update
 itself, and a re-run picks up newly added steps. The agent/human split is Step 0's: the agent may
-run `--plan` and `setup.py --i-am-agent`; the human types `/coordinator:install` for `plugin_update`. `/coordinator:coordinator-update` stays as the
+run `--plan` and `<klabauter-clone>/scripts/setup.py --i-am-agent`; the human types `/coordinator:install` for `plugin_update`. `/coordinator:coordinator-update` stays as the
 customization-aware advisory — it checks the latest published version, computes a delta, and
 advises a path while preserving customizations by default — but it never performs the update.
 

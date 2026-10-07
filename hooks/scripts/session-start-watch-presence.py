@@ -106,7 +106,8 @@ def _verified_human_entry(repo_root: str, holder_session_id: str) -> bool:
 
         record = nomination.read_authoritative(repo_root)
         return bool(record) and record.get("session_id") == holder_session_id
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        print(f"watch-presence: group-em verification failed ({type(exc).__name__}); holder read as unverified", file=sys.stderr)
         return False
 
 

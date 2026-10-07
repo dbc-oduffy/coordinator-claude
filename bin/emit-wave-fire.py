@@ -666,7 +666,24 @@ def _trail_provenance(trail_dir: Path, fresh_ref: dict) -> list[str]:
     return lines
 
 
-def _write_fire_receipt(script_path: Path) -> None:
+def _sole_plan(plan_paths) -> str | None:
+    """The one plan every baton of a fire links, else None: a fire spanning several plans or
+    an unplanned baton has no single owner to stamp on its receipt."""
+    distinct = {p for p in plan_paths}
+    return next(iter(distinct)) if len(distinct) == 1 and None not in distinct else None
+
+
+def _fire_plans(plan_paths) -> list[str] | None:
+    """Sorted plan basenames when a fire spans several distinct plans and every baton is
+    planned, else None: an unplanned baton leaves the owner set open, so no list is claimed."""
+    paths = list(plan_paths)
+    distinct = {p for p in paths}
+    if len(distinct) < 2 or None in distinct or "" in distinct:
+        return None
+    return sorted(Path(p).name for p in distinct)
+
+
+def _write_fire_receipt(script_path: Path, plan_path: str | None = None, plans: list[str] | None = None) -> None:
     """Write `<script_path>.emitted.json` beside a just-written fire, via the
     engine's own `dispatch_emit.op._write_emission_receipt` — the ONE writer,
     so this CLI's receipt and `dispatch.emit`'s can never drift in shape
@@ -691,7 +708,7 @@ def _write_fire_receipt(script_path: Path) -> None:
         require_colocated_engine_on_path(__file__)
         from coordinator_core.ops.dispatch_emit.op import _write_emission_receipt
 
-        _write_emission_receipt(script_path, None, {})
+        _write_emission_receipt(script_path, plan_path, {}, extras={"plans": plans} if plans else None)
     except Exception as exc:  # noqa: BLE001 -- best-effort; must never fail the emit
         print(f"  WARNING: could not write emission receipt for {script_path.name}: {exc}", file=sys.stderr)
 
@@ -955,7 +972,8 @@ def _emit_repair(args, repo_root: Path, trail_dir: Path, plugin_root: Path, engi
     )
     out = trail_dir / f"repair-fire-{n}.mjs"
     out.write_text(text, encoding="utf-8", newline="\n")
-    _write_fire_receipt(out)
+    repair_plans = [e.get("planPath") for e in entries]
+    _write_fire_receipt(out, _sole_plan(repair_plans), _fire_plans(repair_plans))
 
     manifest = [{"fire": n, "scriptPath": str(out), "batons": [e["batonId"] for e in entries]}]
     if args.json:
@@ -1708,7 +1726,8 @@ def main(argv=None) -> int:
         # LF on every host: Windows newline translation writes a CR per line, and the harness
         # refuses a Workflow script carrying control characters its approval dialog would hide.
         out.write_text(text, encoding="utf-8", newline="\n")
-        _write_fire_receipt(out)
+        batch_plans = [b.get("planPath") for b in batch]
+        _write_fire_receipt(out, _sole_plan(batch_plans), _fire_plans(batch_plans))
         manifest.append(
             {"fire": n, "scriptPath": str(out), "batons": [b["id"] for b in batch]}
         )

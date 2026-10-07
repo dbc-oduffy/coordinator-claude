@@ -90,9 +90,10 @@ Owed introductions.
 
    **The introduced set is durable, not session-memory.** Record an introduction as a
    `send_pass.build_send_digest`-shaped append to the EXISTING send log
-   (`state/subagent-share/<this-session-id>/group-em-send-log.jsonl`) as a **cooldown-ignored row
+   (`.coordinator-local/subagent-share/<this-session-id>/group-em-send-log.jsonl`) as a **cooldown-ignored row
    type**: it counts for "was this peer already introduced," never for `_cooldown_remaining`'s
-   throttle. No new datastore; the writer is the in-repo `coordinator/skills/group-em/send_pass.py`.
+   throttle. No new datastore; the writer is `_record_introduction` in
+   `coordinator/bin/group-em-box-notice.py`, which records each recipient of an `entered` notice.
 
 ## Box-wide notice
 
@@ -299,7 +300,7 @@ Nothing is written on invoke or cleaned up on exit. No roster, address, or reach
 any peer is persisted; every fact is re-derived live.
 
 **One carve-out: the send log.** `build_send_digest` appends to
-`state/subagent-share/<this-session-id>/group-em-send-log.jsonl` — a record of this session's own
+`.coordinator-local/subagent-share/<this-session-id>/group-em-send-log.jsonl` — a record of this session's own
 offers. Session-scoped, so a new Group EM starts with an empty cooldown.
 
 ## DACI is a frame, not a registry
@@ -372,15 +373,17 @@ session's intake before the digest ranks. Contract:
      on what you already know about that peer.
    - **Either gate unclear → the memo channel.** Not a degraded mode.
 4. **Re-resolve the address from the SESSION ID immediately before sending, and treat a refusal as
-   a refusal.** `send_pass.resolve_addressee(repo_root, peer_session_id)` returns the name that
-   session answers to right now, or `None` — do not send on `None`.
+   a refusal.** The engine's `coordinator_core.group_em.send_pass.resolve_addressee(repo_root,
+   peer_session_id)` (import it with the engine root on the path) returns the name that session
+   answers to right now, or `None` — do not send on `None`. **`repo_root` is the PEER's repo, not
+   yours:** the roster it reads is scoped to that root, so a peer in another repo resolves `None`
+   against yours.
 
    **Resolve from the id, never validate the name** — the id is stable, the name is volatile.
    Tripwire: `A-PEER-NAME-IS-NOT-A-STABLE-ADDRESS`.
 
-   `None` covers four cases: absent from roster, no name on the row, the roster read failed, or an
-   ambiguous name. **It does NOT filter by repo** — a name resolving outside this repo comes back
-   clean; carry that gap yourself.
+   `None` covers four cases: absent from that repo's roster, no name on the row, the roster read
+   failed, or an ambiguous name.
 
 **Never loop over `entries` sending.** `SendMessage` is in `allowed-tools`; the gate is this
 paragraph.

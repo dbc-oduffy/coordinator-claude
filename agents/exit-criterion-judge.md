@@ -65,6 +65,11 @@ residue: commit messages, branch names, ceremony logs.
 
 Never run the repo's fast or full test suite. Targeted, read-only observations only.
 
+**A suite-tier clause is judged on the touched tests.** A clause naming a suite tier ("fast tier
+green", "full suite passes") is read as "the tests covering the files this run touched pass": run
+those tests, and judge the clause on their result. Suite runs belong to interval gates
+(merge-to-main, workday and workweek close, `/validate`), never to a plan's exit.
+
 ## Verdict
 
 - `met` only when every clause is `met`, any recorded falsifier verdict is `pass`, and `observed`

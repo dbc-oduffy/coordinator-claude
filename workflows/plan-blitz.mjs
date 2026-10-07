@@ -2049,8 +2049,17 @@ function planDigest(input) {
     deviations,
     counts,
     assembled_by: usedFallback ? 'fallback' : 'code',
+    // The driver reads `interaction_mode` from the sizing object; it is not threaded here.
     next_action: outcome === 'ready'
-      ? { kind: 'execute', op: null, params: null }
+      ? {
+        kind: 'execute',
+        op: 'plan_chain.run',
+        params: {
+          plan_path: input.planPath || null,
+          sizing_object: input.sizingObject || null,
+          deliverable_id: input.deliverableId || null,
+        },
+      }
       : { kind: 'none', op: null, params: null },
   }
 }

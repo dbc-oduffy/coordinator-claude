@@ -67,11 +67,12 @@ settings-home `dotgitignore.tmpl`). Ensure the canonical block (`.coordinator-lo
 settings.local.json, scratch/, per-session sentinels, ceremony/coverage transients, the group-EM
 watch trio — `state/group-em-watch.json`, `state/group-em-watch-parked.json`,
 `state/group-em-watch-spool.jsonl` — the engine-provenance ledger
-`state/engine-provenance-counts.jsonl`, `state/housekeeping-liveness.json`, `state/orientation_cache.md`,
+`state/engine-provenance-counts.jsonl`, `state/housekeeping-liveness.json`, `state/orientation_cache.md`, the emitted workflow scripts
+`state/**/fire-*.mjs` and `state/**/*.mjs.emitted.json`,
 `.project-rag-corpus-artifacts/` and `.project-rag-corpus-store/`) is present — create if
 absent, append only the missing lines under one header if partially present, skip silently if
 complete. If ceremony/coverage transients, any of the watch trio, the ledger, the orientation cache, or `state/housekeeping-liveness.json` are already
-tracked, `git rm --cached` them after adding the ignore rule — never `git rm`. Warn if `.claude/`
+tracked (emitted `fire-*.mjs` / `*.mjs.emitted.json` included), `git rm --cached` them after adding the ignore rule — never `git rm`. Warn if `.claude/`
 (not just `settings.local.json`) is blanket-ignored, if tracked content exists under
 `scratch/`/`tasks/_*.log` (offer, don't auto-`git rm --cached`), or if the project-rag corpus paths
 are already tracked (break-class finding, not a nit).

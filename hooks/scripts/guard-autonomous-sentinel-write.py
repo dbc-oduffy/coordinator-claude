@@ -1,5 +1,6 @@
 """PreToolUse guard: deny Write/Edit/MultiEdit/NotebookEdit against the
-session-scoped autonomous sentinel `<gettempdir()>/autonomous-run-<sid>`.
+session-scoped autonomous sentinel `<gettempdir()>/coordinator/_fleet/autonomous-run-<sid>`
+(and the legacy bare `<gettempdir()>/autonomous-run-<sid>` during the dual-read window).
 
 The shared `_sentinel_write_guard` helper matches fixed basenames only, so
 this consumer resolves the session-scoped name itself (basename prefix
@@ -25,6 +26,7 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _coordinator_temp import coordinator_temp_root  # noqa: E402
 from _sentinel_write_guard import extract_target_path, sentinel_write_denial  # noqa: E402
 
 SENTINEL_PREFIX = "autonomous-run-"
@@ -59,7 +61,8 @@ def is_autonomous_sentinel(target_path: str) -> bool:
         SENTINEL_PREFIX
     ):
         return False
-    return os.path.dirname(resolved) == _canon(tempfile.gettempdir())
+    parent = os.path.dirname(resolved)
+    return parent in (_canon(tempfile.gettempdir()), _canon(str(coordinator_temp_root("_fleet"))))
 
 
 def denial_for(tool_input: dict) -> "dict | None":

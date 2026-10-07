@@ -17,8 +17,13 @@ rescue-needed.** The terminal judge is the only legitimate end of a run. A run n
 refusal, blitz refusal, a DR awaiting acceptance, or a hand-dispatched row) breaks this command, not a touchpoint to work through. When it happens, stop,
 report the halt as a defect, and never finish the work by hand-dispatching rows.
 
-**On return the EM commits, in the turn the return arrives.** The Workflow returns `next_action` and never commits: run
-`coordinator-invoke dispatch.terminal_commit` with its `params`, then read the receipt. A run that
+**On return the run's driver commits, in the turn the return arrives.** The driver is the EM for an
+in-session Workflow and the chain driver for an M+ chain
+(`coordinator/docs/wiki/em-operating-model/sizing-to-commit-chain-contract.md`). A Workflow returns
+`next_action` and never commits: the driver runs
+`coordinator-invoke dispatch.terminal_commit` with its `params`, unedited and exactly once, then reads
+the receipt; `kind: none` means nothing to run, and a run whose `next_action` is never run ends
+uncommitted. A run that
 hits a usage limit reports `halted_by: usage_limit` with `resets_at`: after that, `TaskStop` it, then `Workflow({ scriptPath, resumeFromRunId })`; a dead run is committed by that op with its `script_path`.
 
 **Cross-repo deliverables.** Each row writes in the repo its path names, and
@@ -44,14 +49,19 @@ withheld and listed as incomplete at `dispatch.terminal_commit`.
 Run `emit-dispatch-workflow --sizing <sizing path>` (resolve per
 `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`), then fire each printed `Workflow({ scriptPath })` line in this session. Never pass `--fire`: it
 spawns a headless `claude -p` child, which the foreign-emission guard refuses and which runs
-without this session's roster. `--fire` is for headless and cron callers only.
+without this session's roster. `--fire` is for headless and cron callers only; the chain's own fire, as the contract names it, is the one exception.
 
 - **XS** — also pass `--writes <path>` once per file the work writes (a sizing carries no footprint)
   and `--out scratch/warp/<sizing-stem>.workflow.mjs`. The op mints a one-row spine and
   re-enters the plan route.
 - **S** — pass `--out` as for XS. One Workflow composes plan-agent, execute, review wave and
   `dispatch.terminal_commit`.
-- **M and up** — the op delegates to `emit-wave-fire --from-sizing`. The reply carries `batons` and
+- **M and up** — once the engine publishes `emit-dispatch-workflow --sizing` yielding the chain, an
+  accepted pm/ceo plan-route sizing is the chain: one fire carries plan wave, ready gate, execute wave,
+  review and `dispatch.terminal_commit`, the chain's sanctioned fire is the one the contract names, and a
+  halt wakes the EM with the final digest (never finished by hand). Until that is published, and for
+  any sizing the chain's trigger excludes, the op delegates to `emit-wave-fire --from-sizing`
+  as the relay fallback. The reply carries `batons` and
   `uncommitted` (a `[baton, sizing]` pair). The minted baton is a skeleton holding only the sizing's
   intent: fill its Specification, Reference materials and Acceptance criteria, then commit exactly
   those paths, explicit pathspec, before the run proceeds.

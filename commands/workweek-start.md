@@ -73,6 +73,13 @@ it or record why not.
 **Anchor-freshness flag.** `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/check-anchor-freshness"` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\check-anchor-freshness.exe"`, same arguments) — render the flag
 line as printed; silence is not a finding. Coordinator plugin triple only.
 
+**Scratch purge + hold nag.** `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" fleet.scratch_hygiene '{"repo_root":"<repo-root>","cadence":"workweek_start","apply":false}'`
+(Shape per `resolve-coordinator-bin.md`). Dry-run first; re-run with `"apply":true` only when the
+summary's `capabilities` includes `hold_pending_marker`, else report the plan. Render `hold-nag`
+records (incl. `skipped-hold-pending`) as a "Scratch-hold" section; exit 1 is a report section. The
+nag deletes nothing. Op absent or erroring → report "fleet.scratch_hygiene not yet available" and
+continue; never abort, never delete by hand.
+
 Do not recompute any check this op already covers. What follows is the week-specific residue it
 doesn't cover: the exec-summary refresh, the positioning nudge, priority-setting and goal
 authoring, and the HEADER.md reset-or-update mechanics.

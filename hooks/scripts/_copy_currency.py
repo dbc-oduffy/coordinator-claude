@@ -13,12 +13,14 @@ Invariants:
     - File completeness joins the publisher's expected-manifest (`MANIFEST_RELPATH`)
       (`{"schema": 1, "source_head": .., "paths": {posix: blob_sha1}}`) against the
       mirror checkout's own `.git/index`, parsed in-process: a missing, mismatched or
-      size-dirty path is drift. No manifest, an unparseable one, or an index this
-      parser cannot read is could-not-check, never current. A same-size working-tree
+      size-dirty path is drift (symlink and gitlink entries skip the size compare). No
+      manifest, an unparseable one, or an index this parser cannot read (v4, split-index,
+      sparse-index, non-sha1) is could-not-check, never current. A same-size working-tree
       edit is invisible to this check.
 """
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import os
@@ -87,27 +89,31 @@ def file_completeness_verdict(copy: str, owner: str = "claude-klabauter") -> Cop
     )
 
 
-def read_index_entries(git_dir: Path) -> dict[str, tuple[str, int]] | None:
-    """{posix path: (blob sha1, size)} from a version 2 or 3 `index`; None if unreadable.
+_UNSUPPORTED_EXTENSIONS = {b"link": "split-index", b"sdir": "sparse-index"}
+_MODE_SYMLINK, _MODE_GITLINK = 0o120000, 0o160000
+_UNREADABLE = "mirror git index unreadable"
 
-    Version 4 path-prefix compression is not parsed. Stage-nonzero (conflicted) entries
-    are skipped, so a conflicted path reads as missing.
-    """
+
+def _parse_index(git_dir: Path) -> tuple[dict[str, tuple[str, int, int]] | None, str]:
+    """({posix path: (blob sha1, size, mode)}, "") or (None, why this parser cannot read it)."""
     try:
         data = (git_dir / "index").read_bytes()
     except OSError:
-        return None
-    if len(data) < 12 or data[:4] != b"DIRC":
-        return None
+        return None, _UNREADABLE
+    if len(data) < 32 or data[:4] != b"DIRC":
+        return None, _UNREADABLE
+    if hashlib.sha1(data[:-20]).digest() != data[-20:]:
+        return None, "mirror git index is not a sha1 index (non-sha1 object format or corrupt)"
     version, count = struct.unpack(">II", data[4:12])
     if version not in (2, 3):
-        return None
-    entries: dict[str, tuple[str, int]] = {}
+        return None, f"mirror git index version {version} not parsed"
+    entries: dict[str, tuple[str, int, int]] = {}
     pos = 12
     for _ in range(count):
         start = pos
         if pos + 62 > len(data):
-            return None
+            return None, _UNREADABLE
+        mode = struct.unpack(">I", data[pos + 24 : pos + 28])[0]
         size = struct.unpack(">I", data[pos + 36 : pos + 40])[0]
         sha = data[pos + 40 : pos + 60].hex()
         flags = struct.unpack(">H", data[pos + 60 : pos + 62])[0]
@@ -116,12 +122,28 @@ def read_index_entries(git_dir: Path) -> dict[str, tuple[str, int]] | None:
             pos += 2
         end = data.find(b"\0", pos)
         if end < 0:
-            return None
+            return None, _UNREADABLE
         path = data[pos:end].decode("utf-8", "surrogateescape")
         pos = start + ((end - start + 8) & ~7)
         if (flags >> 12) & 0x3 == 0:
-            entries[path] = (sha, size)
-    return entries
+            entries[path] = (sha, size, mode)
+    limit = len(data) - 20
+    while pos + 8 <= limit:
+        sig = data[pos : pos + 4]
+        if sig in _UNSUPPORTED_EXTENSIONS:
+            return None, f"mirror git index uses {_UNSUPPORTED_EXTENSIONS[sig]}, not parsed"
+        pos += 8 + struct.unpack(">I", data[pos + 4 : pos + 8])[0]
+    return entries, ""
+
+
+def read_index_entries(git_dir: Path) -> dict[str, tuple[str, int]] | None:
+    """{posix path: (blob sha1, size)} from a version 2 or 3 sha1 `index`; None if unreadable.
+
+    Version 4 path-prefix compression, split-index and sparse-index are not parsed. Stage-nonzero
+    (conflicted) entries are skipped, so a conflicted path reads as missing.
+    """
+    entries, _ = _parse_index(git_dir)
+    return None if entries is None else {p: (e[0], e[1]) for p, e in entries.items()}
 
 
 def _git_dir(root: Path) -> Path | None:
@@ -161,9 +183,9 @@ def manifest_completeness_verdict(
     if manifest.get("schema") != 1 or not isinstance(paths, dict) or not paths:
         return could_not_check(copy, COMPLETENESS, "expected-manifest is not schema 1 with paths")
     git_dir = _git_dir(root)
-    entries = read_index_entries(git_dir) if git_dir else None
+    entries, why = _parse_index(git_dir) if git_dir else (None, _UNREADABLE)
     if entries is None:
-        return could_not_check(copy, COMPLETENESS, "mirror git index unreadable")
+        return could_not_check(copy, COMPLETENESS, why)
     missing, mismatched, dirty = [], [], []
     for path, blob in paths.items():
         entry = entries.get(path)
@@ -173,7 +195,8 @@ def manifest_completeness_verdict(
             mismatched.append(path)
         else:
             try:
-                if os.stat(root / path).st_size != entry[1]:
+                st = os.lstat(root / path)
+                if entry[2] not in (_MODE_SYMLINK, _MODE_GITLINK) and st.st_size != entry[1]:
                     dirty.append(path)
             except OSError:
                 missing.append(path)
@@ -183,7 +206,7 @@ def manifest_completeness_verdict(
             copy,
             COMPLETENESS,
             CURRENT,
-            evidence=f"{len(paths)} manifest paths match the checkout (source {head})",
+            evidence=f"{len(paths)} manifest paths match the mirror's git index, sizes agree (source {head})",
         )
     parts = [
         f"{label} {len(group)}: {_names(group)}"

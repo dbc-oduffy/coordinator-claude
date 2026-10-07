@@ -127,7 +127,11 @@ settled diff, at its own close.
 `blocked_by` when a stub or handoff on the graph clears it, `gate_notes` when nothing on the
 graph does (a sibling plane's ruling) — with `pickup_ready` false or omitted.** The scaffold hands
 you `ready_to_fire` + `pickup_ready: true`; leaving that above blocker prose advertises the baton
-as available work. Authorization-pending is not a
+as available work. A gate a human clears carries a `gate_evidence` leg of kind `human` with its
+reason; where a check shows whether the condition fired, add a `probe-command` leg (repo key,
+script plus args, what the output reads). Until the published engine re-vendors schema 10.12.0,
+the authoring verb rejects a `probe-command` leg: name the same three in `gate_notes` instead. Never author the clearer class; where the brief
+does not yet derive it, the picking-up EM classifies it. Authorization-pending is not a
 gate — a PM handoff or `/pickup` is itself the authorization, so never author `awaiting_gate` for
 that reason; a parked baton stays legal only when its blocker is something else — a sibling repo's
 landing, a peer's dependency, a PM product decision.

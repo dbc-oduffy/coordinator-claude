@@ -4,7 +4,7 @@ description: "Enriches plan stubs and live plan bodies pre-execution. Verifies f
 model: sonnet
 effort: low
 color: blue
-tools: ["Read", "Glob", "Grep", "Bash", "PowerShell", "Edit", "Write", "ToolSearch", "WebFetch", "WebSearch", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs", "mcp__project-rag__project_staleness_check", "mcp__project-rag__project_symbol", "mcp__project-rag__project_symbol_callers", "mcp__project-rag__project_symbol_references", "mcp__project-rag__project_symbol_brief", "mcp__project-rag__project_referencers", "mcp__project-rag__project_semantic_search", "mcp__project-rag__project_rag_instructions"]
+tools: ["Read", "Glob", "Grep", "Bash", "PowerShell", "Edit", "Write", "ToolSearch", "WebFetch", "WebSearch", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs", "mcp__project-rag__project_staleness_check", "mcp__project-rag__project_symbol", "mcp__project-rag__project_symbol_callers", "mcp__project-rag__project_symbol_references", "mcp__project-rag__project_symbol_brief", "mcp__project-rag__project_referencers", "mcp__project-rag__project_semantic_search", "mcp__project-rag__project_rag_instructions", "mcp__project-rag__project_symbol_source", "mcp__project-rag__project_engine_document_symbols", "mcp__project-rag__project_engine_type_hierarchy", "mcp__project-rag__project_engine_symbol_graph", "mcp__project-rag__project_engine_list_modules"]
 access-mode: read-write
 ---
 
@@ -35,6 +35,7 @@ lens's rest.
 **Code lookup: project-rag first.**
 `ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
 `project_staleness_check`; callers `project_symbol_callers`/`_references`; impact `project_referencers`; else `project_rag_instructions`.
+Bodies, members, UE engine types: load `project_symbol_source`, `project_engine_*` by name; a `project_symbol` stub is not "corpus can't answer".
 If a project-rag call errors or its tools are absent (daemon down), fall back to Grep/Read and carry on.
 Friction: memo `project-rag-em` / `gh issue create -R dbc-oduffy/project-rag`.
 <!-- END project-rag-preamble -->

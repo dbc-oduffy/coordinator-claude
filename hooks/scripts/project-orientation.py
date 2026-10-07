@@ -233,6 +233,12 @@ def _claude_home() -> Path:
     return Path.home()
 
 
+def _is_cloud_container() -> bool:
+    """A claude.ai/code cloud session, where per-box caches start empty by construction; a
+    missing cache there is the expected first-boot state, not a fault to report."""
+    return os.environ.get("CLAUDE_CODE_REMOTE", "").lower() == "true"
+
+
 def _settings_home() -> Path:
     v = os.environ.get("COORDINATOR_SETTINGS_HOME")
     if v:
@@ -1127,10 +1133,16 @@ def install_currency_banner(repo_root: Optional[str]) -> None:
     try:
         cache_text = cache_path.read_text(encoding="utf-8")
     except Exception:
-        _w(
-            "── Install currency: absent — no doctor-last-run.json cache found; "
-            "/workday-start populates it ──\n"
-        )
+        if _is_cloud_container():
+            _w(
+                "── Install currency: not yet recorded on this cloud container (expected on a "
+                "fresh one) — /workday-start populates it ──\n"
+            )
+        else:
+            _w(
+                "── Install currency: absent — no doctor-last-run.json cache found; "
+                "/workday-start populates it ──\n"
+            )
         return
 
     parsed = None
@@ -1373,7 +1385,12 @@ def structural_index_banner(repo_root: Optional[str]) -> None:
     if state == "fresh" and young:
         return
 
-    age = f"checked {age_hours:.0f}h ago" if age_hours is not None else "never checked"
+    if age_hours is not None:
+        age = f"checked {age_hours:.0f}h ago"
+    elif _is_cloud_container():
+        age = "not yet built on this cloud container, expected on a fresh one"
+    else:
+        age = "never checked"
     remedy = (
         'python "$(machine-local get repos.project_rag)/project_rag_scripts/'
         'structural_index_refresh.py" ensure'

@@ -3,8 +3,9 @@
 Spec backlink: docs/plans/2026-09-11-fleet-control-plane-posture-authority-attention.md (C4);
 rulings R1, R3, R4, R8 in docs/research/2026-09-11-fleet-control-plane-design.md.
 
-The artifact is one host-local JSON file at `<tempfile.gettempdir()>/fleet-posture.json`
-(never a literal `/tmp`: a Windows-native Python misses every file the bash side sees).
+The artifact is one host-local JSON file at `fleet-posture.json` in `coordinator_temp_root("_fleet")`
+(grants beside it as `fleet-grant-<id>.json`; reads fall back to the bare-Temp legacy location;
+never a literal `/tmp`: a Windows-native Python misses every file the bash side sees).
 Fields: schema, posture, scope (repo-root basenames or `all-on-host`), expires_at,
 grant_id, optional channel_holder.
 
@@ -33,6 +34,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _fleet_grant  # noqa: E402
+from _coordinator_temp import coordinator_temp_root  # noqa: E402
 
 SCHEMA_VERSION = 1
 POSTURES = frozenset({"autonomous", "mise-en-place"})
@@ -57,15 +59,47 @@ class PostureResolution:
     grant_verdict: str = ""
 
 
+FLEET_SLUG = "_fleet"
+SENTINEL_PREFIX = "autonomous-run-"
+
+
+def fleet_dir() -> Path:
+    """Host-scoped sentinel directory `<gettempdir()>/coordinator/_fleet` (created)."""
+    return coordinator_temp_root(FLEET_SLUG)
+
+
+def legacy_dir() -> Path:
+    """Bare-Temp location read during the dual-read window; only a legacy grant's tombstone is written here."""
+    return Path(tempfile.gettempdir())
+
+
 def artifact_path() -> Path:
-    return Path(tempfile.gettempdir()) / ARTIFACT_NAME
+    return fleet_dir() / ARTIFACT_NAME
+
+
+def _check_grant_id(grant_id: str) -> None:
+    if not isinstance(grant_id, str) or not _GRANT_ID_RE.match(grant_id) or grant_id.startswith("."):
+        raise ValueError("grant_id must match [A-Za-z0-9._-]{1,128} and not start with '.'")
 
 
 def grant_path(grant_id: str) -> Path:
-    """Grant file the verifier confirms for `grant_id`; raises ValueError on an unsafe id."""
-    if not isinstance(grant_id, str) or not _GRANT_ID_RE.match(grant_id) or grant_id.startswith("."):
-        raise ValueError("grant_id must match [A-Za-z0-9._-]{1,128} and not start with '.'")
-    return Path(tempfile.gettempdir()) / ("fleet-grant-%s.json" % grant_id)
+    """Grant file the verifier confirms for `grant_id`; raises ValueError on an unsafe id.
+
+    Returns the new location unless only a legacy bare-Temp grant exists.
+    """
+    _check_grant_id(grant_id)
+    name = "fleet-grant-%s.json" % grant_id
+    new = fleet_dir() / name
+    legacy = legacy_dir() / name
+    if not new.exists() and legacy.exists():
+        return legacy
+    return new
+
+
+def sentinel_candidates(session_id: str) -> list[Path]:
+    """Autonomous sentinel locations for a session: new first, then bare Temp."""
+    name = SENTINEL_PREFIX + session_id
+    return [fleet_dir() / name, legacy_dir() / name]
 
 
 def _atomic_write_json(path: Path, payload: dict) -> None:
@@ -106,11 +140,14 @@ def write_posture(
 
 def clear_posture() -> bool:
     """Remove the artifact; True when one was removed."""
-    try:
-        artifact_path().unlink()
-        return True
-    except FileNotFoundError:
-        return False
+    removed = False
+    for path in (artifact_path(), legacy_dir() / ARTIFACT_NAME):
+        try:
+            path.unlink()
+            removed = True
+        except FileNotFoundError:
+            pass
+    return removed
 
 
 def revoke_posture_grant() -> Path | None:
@@ -125,8 +162,11 @@ def revoke_posture_grant() -> Path | None:
 
 
 def _read_artifact() -> dict | None:
+    path = artifact_path()
+    if not path.exists():
+        path = legacy_dir() / ARTIFACT_NAME
     try:
-        data = json.loads(artifact_path().read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
     return data if isinstance(data, dict) else None

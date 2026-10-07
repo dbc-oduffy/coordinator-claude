@@ -102,6 +102,7 @@ Watch for repetition/oscillation. Unsure if a concern is subtractive or a re-rev
 **Code lookup: project-rag first.**
 `ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
 `project_staleness_check`; callers `project_symbol_callers`/`_references`; impact `project_referencers`; else `project_rag_instructions`.
+Bodies, members, UE engine types: load `project_symbol_source`, `project_engine_*` by name; a `project_symbol` stub is not "corpus can't answer".
 If a project-rag call errors or its tools are absent (daemon down), fall back to Grep/Read and carry on.
 Friction: memo `project-rag-em` / `gh issue create -R dbc-oduffy/project-rag`.
 <!-- END project-rag-preamble -->

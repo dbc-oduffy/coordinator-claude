@@ -68,6 +68,14 @@ _CONTEXT_BUDGET_CHARS = 10_000
 
 _PM_CALL_DEFAULT = "resolving this is the PM's call"
 
+# Exit codes on which the entry CLI prints nothing to stdout; each must still render loudly,
+# or the hook degrades to the bare watch line and the session never learns entry failed.
+_NOT_ENTERED_HEADS = {
+    6: "stale engine payload refused",
+    7: "engine refused",
+    8: "human entry unproven",
+}
+
 
 def _normalize_command_name(name: str | None) -> str:
     """Normalize a raw `command_name` to its bare verb. Identical shape to
@@ -194,11 +202,16 @@ class _EnterResult:
         self.stderr = stderr
 
 
-def _run_enter(script: Path, repo_root: str, session_id: str):
+def _run_enter(script: Path, repo_root: str, session_id: str, prompt_id: str | None = None):
     """Run the entry CLI in-process through the engine forwarder with stdout/stderr captured.
     Rewrites `sys.path`, `sys.argv` and both std streams for the duration; all four are
-    restored in `finally`. Returns None when the forward raises."""
+    restored in `finally`. Returns None when the forward raises.
+
+    `prompt_id` is the payload's own, never synthesised: the engine refuses entry without it
+    (exit 8) and verifies it against the transcript's human `/group-em` row at read time."""
     argv = [str(script), "--repo", repo_root, "--session-id", session_id, "--json"]
+    if prompt_id:
+        argv += ["--prompt-id", prompt_id]
     saved_path = list(sys.path)
     saved_argv = list(sys.argv)
     saved_out, saved_err = sys.stdout, sys.stderr
@@ -227,10 +240,10 @@ def render_additional_context(
     standing verdict and the gate reminder are never dropped, because a session that loses the
     Group EM line believes it holds one, and a session that loses the gate line is the one the
     send gate exists to stop."""
-    if exit_code in (6, 7):
+    if exit_code in _NOT_ENTERED_HEADS:
         detail = (stderr or "").strip().splitlines()
         reason = detail[-1] if detail else "no detail reported"
-        head = "engine refused" if exit_code == 7 else "stale engine payload refused"
+        head = _NOT_ENTERED_HEADS[exit_code]
         return (
             f"## Group EM entry: NOT ENTERED ({head})\n\n"
             f"{reason}\n\n"
@@ -393,7 +406,10 @@ def compute_context(stdin_text: str) -> str | None:
     if script is None:
         return watch_line or None  # transport failure -- CLI unresolvable, fail open
 
-    result = _run_enter(script, repo_root, session_id)
+    prompt_id = payload.get("prompt_id")
+    result = _run_enter(
+        script, repo_root, session_id, prompt_id=prompt_id if isinstance(prompt_id, str) else None
+    )
     if result is None:
         return watch_line or None  # forward raised -- fail open
 
@@ -404,7 +420,7 @@ def compute_context(stdin_text: str) -> str | None:
     except Exception:  # noqa: BLE001
         entered = {}
 
-    if not entered and result.returncode not in (6, 7):
+    if not entered and result.returncode not in _NOT_ENTERED_HEADS:
         return watch_line or None  # nothing else to report -- still fail open on the watch line
 
     boxes: list[str] = []

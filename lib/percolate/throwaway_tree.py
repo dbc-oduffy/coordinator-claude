@@ -174,6 +174,18 @@ def _overlay_root(tree: Path, staging_dir: Path, pristine: "dict[str, Optional[b
         _write(rel, None)
 
 
+def _throwaway_parent(dest_repo_root: Path) -> Path:
+    """Same-volume parent for the throwaway clone, so `--local` hardlinks the
+    object store. Never a drive root: a dest cloned directly under one falls
+    back to `<dest>/scratch/throwaway-trees` (gitignored by the dest)."""
+    root = Path(dest_repo_root).resolve()
+    parent = root.parent
+    if parent == parent.parent:
+        parent = root / "scratch" / "throwaway-trees"
+        parent.mkdir(parents=True, exist_ok=True)
+    return parent
+
+
 def build_throwaway_tree(
     dest_repo_root: Path,
     overlays: "list[tuple[Path, Path]]",
@@ -181,8 +193,8 @@ def build_throwaway_tree(
 ) -> Path:
     """Materialize `dest_repo_root`'s committed HEAD as a real, independent
     git repo into a fresh temp directory OUTSIDE `dest_repo_root`
-    (`tempfile.mkdtemp`, default temp root — never a subdirectory of the
-    dest, so a caller enumerating the dest's own tree never sees it), then
+    (`tempfile.mkdtemp` under the dest's parent, or the dest's gitignored
+    `scratch/throwaway-trees` when that parent is a drive root), then
     overlay each `(staging_dir, dest_relative_path)` pair in `overlays`
     onto `<tmp>/<dest_relative_path>` (replacing that subtree wholesale —
     see module docstring "Overlay contract"), then remove every
@@ -210,10 +222,8 @@ def build_throwaway_tree(
     """
     dest_repo_root = Path(dest_repo_root)
     build_start = time.perf_counter()
-    # Same volume as the dest, so the `--local` clone hardlinks its object
-    # store instead of failing and copying a whole `.git`.
     try:
-        tmp_dir = Path(tempfile.mkdtemp(prefix="claude-klabauter-throwaway-tree-", dir=dest_repo_root.resolve().parent))
+        tmp_dir = Path(tempfile.mkdtemp(prefix="claude-klabauter-throwaway-tree-", dir=_throwaway_parent(dest_repo_root)))
     except OSError:
         tmp_dir = Path(tempfile.mkdtemp(prefix="claude-klabauter-throwaway-tree-"))
     try:

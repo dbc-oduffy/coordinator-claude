@@ -107,7 +107,7 @@ def _load_tier_last_run_module():
 def _load_local_doctrine(repo_root: Path) -> dict[str, Any]:
     """Parse `coordinator.local.md`'s YAML frontmatter and return the parsed mapping.
 
-    Delegates to `tier-last-run.py`'s `_load_local_doctrine` (imported via
+    Delegates to `tier-last-run.py`'s public `load_local_doctrine` (imported via
     `_load_tier_last_run_module`) rather than keeping a second copy of the same parser in-tree.
     Raises `ValueError` on a missing file, missing/malformed frontmatter, a non-mapping document,
     or if `tier-last-run.py` itself could not be imported — callers here treat all of that as
@@ -116,7 +116,7 @@ def _load_local_doctrine(repo_root: Path) -> dict[str, Any]:
     module = _load_tier_last_run_module()
     if module is None:
         raise ValueError("could not import tier-last-run.py's coordinator.local.md parser")
-    return module._load_local_doctrine(repo_root)
+    return module.load_local_doctrine(repo_root)
 
 
 def _declared_bands(repo_root: Path) -> dict[str, Any]:

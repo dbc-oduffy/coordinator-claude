@@ -8,11 +8,12 @@
 # Contract: one glob per line, `#` starts a comment, blank lines skipped. A
 # `dir/**` pattern prunes the directory itself and everything beneath it, and
 # matching is case-insensitive. Composition order and channel-choice rules live
-# in project-rag `docs/wiki/exclusion-surface.md`.
+# in project-rag `docs/wiki/artifact-shape-conformance/exclusion-surface.md`.
 #
-# This surface only ADDS exclusions. There is no negation syntax anywhere on it,
-# so neither this file nor any other channel can opt a path back IN once it is
-# excluded here or by project-rag's own built-in ignore set. Prefer leaving a
+# This surface only ADDS exclusions, with one narrow exception: a `!path/` line
+# re-includes a path that project-rag's built-in ignore set prunes by name. It
+# cannot re-include anything this file, or any other exclusion channel,
+# excludes. Prefer leaving a
 # borderline tree indexed: adding a pattern later is cheap, and a tree nobody can
 # retrieve is invisible rather than obviously missing.
 #

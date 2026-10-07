@@ -4,7 +4,7 @@ description: "Verifies external API claims against authoritative docs before Opu
 model: haiku
 effort: low
 color: cyan
-tools: ["Read", "Edit", "Write", "Grep", "Glob", "Bash", "PowerShell", "ToolSearch", "LSP", "SendMessage", "TaskUpdate", "TaskList", "TaskGet", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs", "mcp__project-rag__project_cpp_symbol", "mcp__project-rag__project_semantic_search", "mcp__project-rag__project_subsystem_profile", "mcp__project-rag__project_referencers", "mcp__project-rag__project_blueprint_graph", "mcp__project-rag__project_file", "mcp__project-rag__project_staleness_check"]
+tools: ["Read", "Edit", "Write", "Grep", "Glob", "Bash", "PowerShell", "ToolSearch", "LSP", "SendMessage", "TaskUpdate", "TaskList", "TaskGet", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs", "mcp__project-rag__project_cpp_symbol", "mcp__project-rag__project_semantic_search", "mcp__project-rag__project_subsystem_profile", "mcp__project-rag__project_referencers", "mcp__project-rag__project_blueprint_graph", "mcp__project-rag__project_file", "mcp__project-rag__project_staleness_check", "mcp__project-rag__project_symbol_source", "mcp__project-rag__project_engine_document_symbols", "mcp__project-rag__project_engine_type_hierarchy", "mcp__project-rag__project_engine_symbol_graph", "mcp__project-rag__project_engine_list_modules"]
 access-mode: read-write
 ---
 
@@ -25,7 +25,7 @@ Before anything else, load tool schemas via `ToolSearch` (MCP tools are lazy-reg
 
 1. Context7: `"select:mcp__plugin_context7_context7__resolve-library-id,mcp__plugin_context7_context7__query-docs"` (max_results: 2); snake_case fallback if empty. Still empty — route claims down § Phase 2's remaining rungs, mark whatever no rung resolves `UNVERIFIED` ("server unavailable"), auto-fix nothing on that basis, report the degradation once in the header, not per claim.
 2. LSP: `"select:LSP"` (max_results: 1). If available, use as secondary check when docs return UNVERIFIED, or to confirm signatures via `hover` — docs say an API *should* exist, LSP confirms it *resolves* in this project's source. Unavailable → continue, Context7 is primary.
-3. project-RAG: `"select:mcp__project-rag__project_cpp_symbol,mcp__project-rag__project_semantic_search,mcp__project-rag__project_subsystem_profile,mcp__project-rag__project_referencers,mcp__project-rag__project_blueprint_graph,mcp__project-rag__project_file,mcp__project-rag__project_staleness_check"` (max_results: 7). Proceed either way — present reverses Phase 1's local-project exclusion (in-repo symbols become verifiable); absent, the exclusion stands.
+3. project-RAG: `"select:mcp__project-rag__project_cpp_symbol,mcp__project-rag__project_semantic_search,mcp__project-rag__project_subsystem_profile,mcp__project-rag__project_referencers,mcp__project-rag__project_blueprint_graph,mcp__project-rag__project_file,mcp__project-rag__project_staleness_check"` (max_results: 7); for a body or members add `project_symbol_source` and `project_engine_*`. Present reverses Phase 1's local-project exclusion; absent, it stands.
 
 ## Verification Protocol
 

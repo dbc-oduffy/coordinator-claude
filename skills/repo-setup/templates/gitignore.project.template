@@ -2,6 +2,7 @@
 .coordinator-local/
 .claude/settings.local.json
 scratch/
+scratch-hold/
 state/.repo-setup-just-ran
 state/.workday-start-marker
 state/orientation_cache.md
@@ -14,6 +15,10 @@ state/engine-provenance-counts.jsonl
 state/group-em-watch.json
 state/group-em-watch-parked.json
 state/group-em-watch-spool.jsonl
+
+# coordinator — emitted workflow scripts and receipts (generated, ~200 KB each, never committed)
+state/**/fire-*.mjs
+state/**/*.mjs.emitted.json
 
 # project-rag corpus output (never commit; ~230MB in history)
 .project-rag-corpus-artifacts/

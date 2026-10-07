@@ -41,6 +41,7 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -323,6 +324,80 @@ def _influencers(
     return seen
 
 
+_SHELL_SHEBANG = re.compile(r"#!\s*(?:\S*/)?(?:env\s+(?:-\S+\s+)*)?(?:ba|z|da|k)?sh\b")
+_SHELL_EXT = (".sh", ".bash", ".zsh")
+_NONZERO_EXIT = re.compile(r"(?:^|[;&|({]\s*|\b(?:then|else|do)\s+)exit\s+(?!0\s*(?:$|[;&|)}]))\S")
+_ERREXIT = re.compile(r"\bset\s+(?:-[a-zA-Z]*e[a-zA-Z]*|-o\s+errexit)\b")
+_PIPEFAIL = re.compile(r"\bpipefail\b")
+_MASKED = re.compile(r"\|\|\s*(?:true|:|exit\s+0)\s*(?:$|[;&)}])")
+_ALWAYS_TRUE = {"true", ":", "echo", "printf", "cat", "tee"}
+_INERT = {"set", "export", "cd", "true", ":", "echo", "printf", "exit", "local", "unset", "shift", "fi", "done", "then", "else", "do"}
+_STATUS_CMDS = {"[", "[[", "test", "grep", "egrep", "fgrep", "rg", "diff", "cmp"}
+_ASSIGN = re.compile(r"[A-Za-z_]\w*=\S*$")
+
+
+def _is_shell(source: str, filename: str) -> bool:
+    if filename.lower().endswith(_SHELL_EXT):
+        return True
+    return not filename.lower().endswith(".py") and bool(_SHELL_SHEBANG.match(source))
+
+
+def _shell_statements(source: str) -> list[tuple[int, str]]:
+    out = []
+    for n, raw in enumerate(source.splitlines(), 1):
+        line = raw.strip()
+        if line and not line.startswith("#"):
+            out.append((n, line))
+    return out
+
+
+def _tail_command(line: str) -> str:
+    last = line.split("|")[-1].strip() if "||" not in line else line
+    words = last.lstrip("!").split()
+    return words[0] if words else ""
+
+
+def _shell_failable(line: str, pipefail: bool) -> bool:
+    if _MASKED.search(line):
+        return False
+    first = line.lstrip("!( ").split()[0] if line.lstrip("!( ").split() else ""
+    if first in _INERT or _ASSIGN.match(first):
+        return False
+    if "|" in line and "||" not in line and not pipefail and _tail_command(line) in _ALWAYS_TRUE:
+        return False
+    return True
+
+
+def _shell_reaches_exit(source: str, filename: str) -> dict:
+    """Static shell reading: ARMED when a failure can reach the script's status, else NO_EXIT_PATH."""
+    stmts = _shell_statements(source)
+    errexit = any(_ERREXIT.search(t) for _, t in stmts)
+    pipefail = any(_PIPEFAIL.search(t) for _, t in stmts if t.startswith("set"))
+    armed = any(_NONZERO_EXIT.search(t) and not _MASKED.search(t) for _, t in stmts)
+    if not armed and errexit:
+        armed = any(_shell_failable(t, pipefail) for _, t in stmts if not t.startswith("set"))
+    if not armed and stmts:
+        last = stmts[-1][1]
+        first = last.lstrip("!( ").split()[0] if last.lstrip("!( ").split() else ""
+        if first in _STATUS_CMDS and _shell_failable(last, pipefail):
+            armed = True
+    findings = []
+    if not armed:
+        findings.append(
+            {
+                "code": "NO_EXIT_PATH",
+                "line": 0,
+                "detail": "no failure reaches the script's status — no non-zero exit, no set -e "
+                "over a failable command, no final test; failures are masked or absent",
+            }
+        )
+    return {
+        "filename": filename,
+        "verdict": findings[0]["code"] if findings else "ARMED",
+        "findings": findings,
+    }
+
+
 def verdict_reaches_exit(source: str, filename: str = "<instrument>") -> dict:
     """Answer, for one file of Python, whether a computed value can change what it reports.
 
@@ -337,6 +412,8 @@ def verdict_reaches_exit(source: str, filename: str = "<instrument>") -> dict:
     open by construction, not by oversight, and a reader who needs them closed needs a different
     instrument, not a wider whitelist here.
     """
+    if _is_shell(source, filename):
+        return _shell_reaches_exit(source, filename)
     try:
         tree = ast.parse(source, filename=filename)
     except (SyntaxError, ValueError) as exc:

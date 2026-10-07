@@ -39,6 +39,7 @@ REPO_ENGINE = "https://github.com/dbc-oduffy/claude-klabauter"
 HOME = Path.home()
 LOG = HOME / ".coordinator-cloud-setup.log"
 DEPS = ["pydantic", "psutil", "jsonschema", "PyYAML"]
+LSP_NPM_GLOBALS = ["pyright", "typescript-language-server", "typescript"]
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 # The platform persists this script's stdout nowhere a session can reach, so the log file is the
@@ -132,6 +133,20 @@ def _phase2_deps():
         print("deps: OK (uv --system)")
     else:
         print("deps: FAIL — engine will not import; coordinator loads degraded")
+
+
+def _phase2b_lsp():
+    print("=== phase 2b: LSP binaries ===")
+    # The LSP plugin keys without these binaries is a silent failure, not a degraded install; the
+    # engine's cloud_setup.py only pins PATH to them and installs nothing.
+    if not shutil.which("npm"):
+        print("lsp: FAIL — npm ABSENT; pyright/typescript LSP legs inert")
+        return
+    if _run(["npm", "install", "-g", "--silent", *LSP_NPM_GLOBALS])[0] != 0:
+        print("lsp: FAIL — npm install -g failed; pyright/typescript LSP legs inert")
+        return
+    missing = [b for b in ("pyright-langserver", "typescript-language-server") if not shutil.which(b)]
+    print(f"lsp: installed, NOT on setup PATH: {', '.join(missing)}" if missing else "lsp: OK")
 
 
 def _phase3_register(root, have_plugin):
@@ -306,6 +321,7 @@ def main():
     have_engine = _clone(REPO_ENGINE, root / "claude-klabauter")
     engine = root / "claude-klabauter"
     _phase2_deps()
+    _phase2b_lsp()
     _phase3_register(root, have_plugin)
     _phase3b_doctrine(root)
     _phase4_pointer(engine, have_engine)

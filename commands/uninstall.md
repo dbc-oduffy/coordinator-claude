@@ -172,13 +172,13 @@ engine-computable fact.
     manifest describes what INSTALL writes, and this leg only reverses another plane's install —
     a consumer of that manifest, never a producer, so it stays out of the denominator.
 
-31. **DoE clone (`ensure-doe-clone.py`)** — DELIBERATELY-NOT-REVERSED. The `git clone` of coordinator-content-repo
+31. **Doctrine-repo clone (`ensure-doe-clone.py`)** — DELIBERATELY-NOT-REVERSED. The `git clone` of the doctrine-authoring repo
     at `repos.content_root` is the operator's working checkout and may hold uncommitted or unpushed
     work; nothing here deletes it. Remove the directory by hand once it is confirmed clean.
 32. **`.content-root` pointer (`gen-content-root-pointer.py`)** — DELIBERATELY-NOT-REVERSED. A one-line file
     under `<settings-home>/machine-local/` that the SessionStart hook
     `session-start-register-coordinator-content-repo-root.py` rewrites whenever it is absent or stale, so a
-    removal would be undone by the next DoE session; it is inert without the plugin. The
+    removal would be undone by the next doctrine-authoring session; it is inert without the plugin. The
     `--keep-marketplace` flag clears it (Flags table).
 33. **`claude-author` shell shim (`gen-claude-author-shim.py`)** — CANNOT-REVERSE-SAFELY. Writes
     `${CLAUDE_HOME:-$HOME}/.claude/shell/claude-author-shim.sh` (or `.ps1`) and one sentinel-guarded

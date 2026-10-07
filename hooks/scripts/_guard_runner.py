@@ -525,8 +525,9 @@ REAL_GUARD_REGISTRY: Tuple[RegisteredGuard, ...] = (
         descriptor=GuardScopeDescriptor(
             guard_module=_GUARD_AUTONOMOUS_SENTINEL_WRITE,
             # Real scope (the guard's own is_autonomous_sentinel) is `autonomous-run-<sid>`
-            # directly inside the temp dir; the substring over-approximates it (no suffix, any
-            # directory) and the in-guard predicate stays authoritative.
+            # directly inside the temp dir or its coordinator/_fleet subdir; the substring
+            # over-approximates it (no suffix, any directory) and the in-guard predicate
+            # stays authoritative.
             directory_substrings=("autonomous-run-",),
         ),
     ),

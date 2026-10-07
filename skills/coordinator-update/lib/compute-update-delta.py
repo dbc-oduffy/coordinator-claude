@@ -302,7 +302,10 @@ def main(argv: list[str]) -> int:
                 return 4
             repo_dir = clone_dir
         else:
-            own_temp = tempfile.mkdtemp()
+            # Not a repo-scoped write: the clone lands under the tool's own Temp subtree.
+            _temp_root = os.path.join(tempfile.gettempdir(), "coordinator", "coordinator-update")
+            os.makedirs(_temp_root, exist_ok=True)
+            own_temp = tempfile.mkdtemp(dir=_temp_root)
             clone_target = os.path.join(own_temp, "clone")
             # Review-equivalent (P2, from bash oracle): full clone (no
             # --depth) — the baseline SHA from version.txt must be reachable

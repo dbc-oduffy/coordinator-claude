@@ -126,7 +126,6 @@ from __future__ import annotations
 import json
 import os
 import sys
-import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _message_envelope import compose, render  # noqa: E402
@@ -233,9 +232,10 @@ def main() -> int:
     # under a Windows-native python3.exe, "/tmp" is not the MSYS mount Git
     # Bash resolves to %TEMP%, so a literal path would silently miss every
     # sentinel the bash hook can see.
-    sentinel_path = os.path.join(tempfile.gettempdir(), f"autonomous-run-{session_id}")
     try:
-        sentinel_present = os.path.isfile(sentinel_path)
+        sentinel_present = any(
+            os.path.isfile(p) for p in _fleet_posture.sentinel_candidates(session_id)
+        )
     except Exception:
         sentinel_present = False  # fail-open -- stat failure
 

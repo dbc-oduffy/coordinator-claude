@@ -258,6 +258,15 @@ run together instead of as four cold starts.
   `pop`/`apply`/`drop`.
 
 
+**Scratch purge — `fleet.scratch_hygiene` cadence `workday_start`**, advisory, dry-run first; no
+local delete fallback:
+
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" fleet.scratch_hygiene '{"repo_root":"<repo-root>","cadence":"workday_start","apply":false}'`
+
+Re-call with `"apply":true` only when the summary's `capabilities` includes `hold_pending_marker`.
+Op absent, capability absent, or error: report the plan or "fleet.scratch_hygiene not yet
+available" and continue. Exit 1 is a report section.
+
 **Maintenance checkpoint — `git.maintenance` daily tier.** Advisory, non-zero reported, ceremony
 continues:
 

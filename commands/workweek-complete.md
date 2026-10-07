@@ -102,7 +102,8 @@ Resolve from the spine's directives in one pass; advisory rows never block:
 - **Initiative-govern sweep:** `coordinator-initiative create`/`attach` per PM confirmation.
   **Negative-spec:** sole to this ceremony — never `/workday-complete`, `/workstream-start`,
   `/workweek-start`.
-- **Cruft-sweep:** staleness >21d or >2GB reclaimable → nudge `/cruft-sweep`.
+- **Cruft-sweep:** harness/orphan-class staleness >21d or >2GB reclaimable → nudge `/cruft-sweep`
+  (repo `scratch/` is not this class; Step 6 purges it).
 - **Strategic self-description staleness (named line item, not an advisory):** newest
   `state/strategic/self-description.yaml` `version_highlights[].date` older than 14d → run
   `coordinator:strategic-self-description-refresh` this ceremony (it carries its own human ratify
@@ -141,6 +142,13 @@ Resolve from the spine's directives in one pass; advisory rows never block:
 `spawn-hidden.sh` or `# verify-no-console-flash: allow`.
 `... check-multi-event-hook-hardcoded-event` — fix is
 echoing stdin's `hook_event_name`, never hardcoded. Both exit 0, advisory, never block merge.
+
+**Scratch purge + hold nag.** `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" fleet.scratch_hygiene '{"repo_root":"<repo-root>","cadence":"workweek_complete","apply":false}'`
+(Shape per `resolve-coordinator-bin.md`). Dry-run first; re-run with `"apply":true` only when the summary's `capabilities` includes
+`hold_pending_marker`, else report the plan. Render `hold-nag` records (incl.
+`skipped-hold-pending`) as a "Scratch-hold" section; exit 1 is a report section. The nag deletes
+nothing. Op absent or erroring → report "fleet.scratch_hygiene not yet available" and continue;
+never abort, never delete by hand.
 
 ---
 

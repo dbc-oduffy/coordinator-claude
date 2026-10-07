@@ -139,6 +139,16 @@ PowerShell hosts (rung 0, Shape W):
 Blocking. Exit 1 names every residual path this session owns — PROMOTE (durable home, own voice)
 or DROP per path, delete, re-run to confirm exit 0 (wiki).
 
+## Step 8a: Scratch Purge
+
+`fleet.scratch_hygiene` cadence `workday_complete`, advisory, dry-run first; no local delete fallback:
+
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" fleet.scratch_hygiene '{"repo_root":"<repo-root>","cadence":"workday_complete","apply":false}'`
+
+Re-call with `"apply":true` only when the summary's `capabilities` includes `hold_pending_marker`.
+Op absent, capability absent, or error: report the plan or "fleet.scratch_hygiene not yet
+available" and continue. Exit 1 is a report section.
+
 ## Step 8b: Maintenance Checkpoint
 
 `git.maintenance` daily tier. Advisory, non-zero reported, ceremony continues:
@@ -147,6 +157,13 @@ or DROP per path, delete, re-run to confirm exit 0 (wiki).
 
 Shape W above / Shape A/B POSIX — `snippets/resolve-coordinator-bin.md`. `--repo` flag refused
 (`scope='none'`); `repo` goes in the JSON params, not omitted.
+
+## Step 9e: Emitted Workflow Script Sweep
+
+Run the `/distill` § "Emitted workflow scripts" sweep for `state/**/fire-*.mjs` and
+`state/**/*.mjs.emitted.json`: delete finished workflows' scripts and receipts, `git rm --cached`
+any that are tracked, commit from the index. Skip anything younger than 24 h or still executing.
+Advisory; the ceremony continues on failure.
 
 ## Step 9d: claudemeta Manifest Cadence
 

@@ -60,7 +60,7 @@ def _state_path(repo_root: Path) -> Path:
     return repo_root / _STATE_RELATIVE
 
 
-def _load_local_doctrine(repo_root: Path) -> dict[str, Any]:
+def load_local_doctrine(repo_root: Path) -> dict[str, Any]:
     """Parse `coordinator.local.md`'s YAML frontmatter and return the parsed mapping.
 
     Raises `ValueError` (with a human-readable message) on a missing file, missing/malformed
@@ -94,9 +94,12 @@ def _load_local_doctrine(repo_root: Path) -> dict[str, Any]:
     return parsed
 
 
+# Public, stable: DoE's guard-research-pipeline-dispatch.py loads this by path; a rename fails it open.
+_load_local_doctrine = load_local_doctrine
+
 def _ceremony_entries(repo_root: Path) -> list[dict[str, Any]]:
     """The declared `ceremony_test_cmds` list, each entry a dict carrying at least `name`."""
-    doctrine = _load_local_doctrine(repo_root)
+    doctrine = load_local_doctrine(repo_root)
     entries = doctrine.get("ceremony_test_cmds") or []
     if not isinstance(entries, list):
         raise ValueError("coordinator.local.md's ceremony_test_cmds is not a list")

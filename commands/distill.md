@@ -8,8 +8,9 @@ argument-hint: "[--dry-run] [--no-delete] [--min-convergence=N] [path]"
 # Distill — Artifact Distillation Pipeline
 
 Extracts knowledge from accumulated session artifacts into wiki/DR entries, trims and archives
-canonical specs, deletes scaffolding. Not a disposal route for EM-authored scratch — that's
-`bin/cruft-sweep`, `/cruft-sweep`, or `/workstream-complete`'s own `scratch-disposition-per-file`.
+canonical specs, deletes scaffolding. Distill purges `<repo>/scratch/` via the `fleet.scratch_hygiene` op (see
+Scratch Purge below); per-file disposition of tracked artifacts stays `/workstream-complete`'s
+`scratch-disposition-per-file`.
 
 Phase mechanics, the Workflow dispatch contract, every gate's evaluation logic, the
 PM-gate/dispatch-scope/`state/`-sweep boundaries, and the full Acceptance Criteria all live in
@@ -65,8 +66,14 @@ answers nothing there.
 pruned by the engine op `fleet.prune_emitted_output`, which the housekeeping cycle runs:
 `python3 -m coordinator_core.invoke fleet.prune_emitted_output "{}" --repo <root>`. It keeps any
 tracked file, any file under an hour old, and any file whose plan is still `executing` or claimed.
-`fire-*.mjs` under `state/plan-blitz/` is outside its reach. Delete those by hand once their blitz
-is closed.
+`state/**/fire-*.mjs` and `state/**/*.mjs.emitted.json` are outside its reach, so sweep them here:
+list candidates with the Glob tool over both patterns (ignored copies included).
+Delete a script and its receipt only when its workflow has finished: older than 24 h and its plan
+`implemented` or `abandoned`, or its blitz/trail closed. Leave a younger or still-executing one.
+Then untrack any that are committed: `git rm --cached -- <paths>` followed by a commit made from the
+index (`git commit -m <msg>` with nothing else staged, never `git commit -- <paths>`, which re-adds
+them). A `.gitignore` lacking the two patterns gets them appended first
+(`AN-EMITTED-WORKFLOW-SCRIPT-IS-NEVER-COMMITTED`).
 
 ---
 
@@ -207,6 +214,16 @@ reference).
 check — cached Opus-tier judgment at Sonnet cost, zero additional wiring.
 
 ---
+
+## Scratch Purge
+
+`fleet.scratch_hygiene` cadence `distill`, advisory, dry-run first; no local delete fallback:
+
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" fleet.scratch_hygiene '{"repo_root":"<repo-root>","cadence":"distill","apply":false}'`
+
+Re-call with `"apply":true` only when the summary's `capabilities` includes `hold_pending_marker`.
+Op absent, capability absent, or error: report the plan or "fleet.scratch_hygiene not yet
+available" and continue. Exit 1 is a report section.
 
 ## Maintenance Checkpoint
 

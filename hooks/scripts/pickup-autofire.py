@@ -122,7 +122,6 @@ import os
 import re
 import subprocess
 import sys
-import tempfile
 import time
 from pathlib import Path, PureWindowsPath
 
@@ -851,7 +850,9 @@ def _probe_log_path() -> Path:
     override = os.environ.get(_PROBE_LOG_PATH_ENV)
     if override:
         return Path(override)
-    return Path(tempfile.gettempdir()) / _PROBE_LOG_NAME
+    from _coordinator_temp import coordinator_temp_root
+
+    return coordinator_temp_root("_fleet") / _PROBE_LOG_NAME
 
 
 def _log_probe_event(payload: dict) -> None:

@@ -71,11 +71,29 @@ WATCH_STATE_PATHS = (
 
 ENGINE_PROVENANCE_PATHS = ("state/engine-provenance-counts.jsonl",)
 
+# Sample literal paths probed by `check-ignore --no-index` for the patterns
+# `state/**/fire-*.mjs` and `state/**/*.mjs.emitted.json`; a repo that ignores the patterns
+# ignores these.
+EMITTED_SCRIPT_PATHS = (
+    "state/x/fire-0.mjs",
+    "state/x/a.mjs.emitted.json",
+)
+
+# The rule `--apply` writes for a probe path whose spelling is not itself the rule.
+RULE_FOR_PROBE = {
+    "state/x/fire-0.mjs": "state/**/fire-*.mjs",
+    "state/x/a.mjs.emitted.json": "state/**/*.mjs.emitted.json",
+}
+
 BOX_LOCAL_STATE_GROUPS = (
     ("# Group-EM watch runtime state — per-machine, never committed", WATCH_STATE_PATHS),
     (
         "# Engine-provenance ledger — this box's engine-root resolution, appended on every hook fire",
         ENGINE_PROVENANCE_PATHS,
+    ),
+    (
+        "# Emitted workflow scripts — generated per run, never committed",
+        EMITTED_SCRIPT_PATHS,
     ),
 )
 
@@ -227,7 +245,7 @@ def apply_rules(repo: Path, missing: list[str]) -> None:
         rows = [rel for rel in group if rel in wanted]
         if rows:
             chunks.append(
-                "\n" + header + "\n" + "".join(rel + "\n" for rel in rows)
+                "\n" + header + "\n" + "".join(RULE_FOR_PROBE.get(rel, rel) + "\n" for rel in rows)
             )
     if not chunks:
         return

@@ -32,6 +32,9 @@ only when every blocker is coded. Read both rather than inferring either from `d
 `coordinator-invoke roadmap.plan_gate '{"subject":"<baton-id>"}'` returns `verdict.planning_gate`
 and `verdict.execution_gate`. Picking up on an open planning gate does **not** authorise
 execution — `/execute-plan` re-checks it. Tripwire: `A-PLANNING-GATE-IS-NOT-AN-EXECUTION-GATE`.
+On a `gate_notes` gate, read the clearer (human-PM / peer / external) and its legal dispositions
+off `gates.gate_check.clearer` and the jgate recommendation; where the brief lacks `clearer`
+(engine before E1–E3), classify the clearer from `gate_notes` yourself.
 
 **Reconcile before executing anything.** Per-item evidence is a candidate, never a verdict — weigh
 candidate-commit closures and stale `awaiting_gate` signals yourself; a changed target/scope/AC on
@@ -134,6 +137,12 @@ explicit operator confirmation — authorship guarantees nothing; an autonomous 
 probe unrun. Once run: failing only because no restart has occurred is restart-gated-expected
 (surface for restart-and-retry); still failing after a restart is genuine.
 
+**A gate-evidence probe is the same class.** Read `gates.gate_check.evidence_probes[]`; run an
+`operator-confirm` probe only on confirmation (autonomous: unrun), and treat its output as jgate
+evidence only. Where `evidence_probes` is absent, find the repo's evidence probe yourself.
+Read `preflight.premise_drift[]`: a non-empty entry goes to the jgate decision, never repaired;
+where absent, check the baton's cited SHAs against later commits by hand.
+
 **A baton carrying a plan is an execution baton — invoke `/execute-plan` on it, now.** Before any
 other routing: if the artifact names a plan with unfinished work, that is the queue. Not a
 hand-dispatched executor, not chunk-at-a-time, not an offer. Tripwire:
@@ -164,6 +173,8 @@ ownership or a seam permanently -> `ratification` (+ REQUIRE `in_repo_capture`).
 already **exists** at write time, or `memo-transition.js` fails hard mid-flow. Promote -> take the
 path -> one atomic `coordinator-invoke memo.transition` call (verb `action`) carrying `distill_fate`,
 `in_repo_capture`, and `decision`/`decision_note`/`realized_by`. `ephemeral` and `commitment` carry no such precondition.
+
+**Op params.** `memo.transition` `claim`/`resolve` require `session_id` and `at` (ISO timestamp); `action` takes `at` optionally. Full param reference: `coordinator/docs/wiki/cross-repo-communication/cross-repo-memo-lifecycle.md` § Memo op parameter reference.
 
 **Verify your response as hard as their premise.** Easy item fixed and hard ones surfaced is
 *partial* — say so and **land each open item in a surface you can write at will** (a
@@ -214,7 +225,8 @@ supersede flip, and archive-fallback are engine bookkeeping.
 - "Key Decisions Made" is context to internalize, not to re-litigate absent evidence it was wrong.
 
 **Recovery only — no brief arrived with your prompt.** Run `pickup-assemble brief
-<artifact-path>`, resolved per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` (Shape W, the `.exe`
-launcher by absolute path through the call operator, on a PowerShell host), then proceed as
+<artifact-path>` by absolute path: `${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/bin/pickup-assemble`
+(POSIX), or on a PowerShell host `& "$env:COORDINATOR_SETTINGS_HOME\bin\pickup-assemble.exe" brief <artifact-path>` after the
+two-line guard in `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` § Shape W. Then proceed as
 above. Never run it
 to check work already done for you.

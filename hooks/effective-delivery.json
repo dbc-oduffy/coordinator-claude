@@ -1366,6 +1366,11 @@
             "tool_names": []
           },
           {
+            "id": "guard_research_pipeline_dispatch",
+            "script": "scripts/guard-research-pipeline-dispatch.py",
+            "tool_names": []
+          },
+          {
             "id": "enforce_agent_dispatch_mode",
             "script": "scripts/enforce-agent-dispatch-mode.py",
             "tool_names": []

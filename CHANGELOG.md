@@ -4,6 +4,15 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.4.18] — 2026-10-07
+
+- **Engine source tools for agents.** Every project-rag-equipped agent can load `project_symbol_source`
+  and the `project_engine_*` tools; a bare `project_symbol` stub is no longer read as the corpus being silent.
+- **Close-out by re-judge.** A run whose exit criterion was not met closes on a fresh judge `met`
+  (`emit-dispatch-workflow --rejudge`, then `review-stamp rejudge`), never on an EM-asserted falsifier.
+- **Executor PARTIAL.** Executors report `<exit-status>PARTIAL</exit-status>` with `Not done:` lines;
+  plans give a row that adds an entry the registry tests that enumerate it.
+
 ## [4.4.17] — 2026-10-06
 
 - **Warp usage-limit halt.** A run that hits a usage limit reports `halted_by: usage_limit` with

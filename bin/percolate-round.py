@@ -2550,6 +2550,34 @@ def _extract_row_tally(stdout: str, stderr: str) -> Optional[str]:
     return None
 
 
+_CAUSE_LINE_RE = re.compile(r"^\s*(?:Error|FATAL)\b[:\s].*", re.IGNORECASE)
+_REFUSED_LABEL_RE = re.compile(r"^\s*\[timing\]\s+(.+?):\s+(REFUSED:.+?):\s+[\d.]+s wall")
+_CAUSE_MAX_CHARS = 300
+
+
+def _extract_failure_cause(stdout: str, stderr: str) -> Optional[str]:
+    """One-line cause of a failed Step 1 row, for the verdict block.
+
+    publish.py prints each row's refusal reason (`  Error: ...`) mid-stream,
+    hundreds of lines above its own summary and interleaved with `[timing]`
+    lines, so a tail of the round shows FAIL with no cause. The FIRST `Error:`
+    line is the root cause; later ones are usually its downstream fallout.
+    A `[timing] <row>: REFUSED: <why>` label is the fallback for a refusal
+    that printed no `Error:` line. `None` means neither was found; the caller
+    says so rather than invent one.
+    """
+    for text in (stderr, stdout):
+        for line in text.splitlines():
+            if _CAUSE_LINE_RE.match(line):
+                return line.strip()[:_CAUSE_MAX_CHARS]
+    for text in (stdout, stderr):
+        for line in text.splitlines():
+            match = _REFUSED_LABEL_RE.match(line)
+            if match:
+                return f"{match.group(1)}: {match.group(2)}"[:_CAUSE_MAX_CHARS]
+    return None
+
+
 def _print_step_failure(step: str, cmd: List[str], stderr: str) -> None:
     print(f"percolate-round: {step} failed.", file=sys.stderr)
     print(f"  command: {' '.join(cmd)}", file=sys.stderr)
@@ -3061,6 +3089,11 @@ def _cmd_round_default(
                     )
                 if tally is not None:
                     print(f"  rows:      {tally}")
+                cause = _extract_failure_cause(real.stdout, real.stderr)
+                print(
+                    f"  cause:     {cause}" if cause is not None
+                    else "  cause:     no Error/REFUSED line in publish.py output (see stderr below)"
+                )
                 print("  ci-smoke:  skipped (Step 1 did not complete cleanly)")
                 print("  push:      skipped")
                 _print_step_failure("Step 1 (real run)", real_cmd, real.stderr)

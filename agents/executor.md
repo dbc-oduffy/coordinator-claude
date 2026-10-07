@@ -4,7 +4,7 @@ description: "Delivers one chunk of an enriched, reviewed plan; validates at chu
 model: sonnet
 effort: low
 color: green
-tools: ["Read", "Edit", "Write", "Bash", "Grep", "Glob", "PowerShell", "ToolSearch", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs", "mcp__project-rag__project_staleness_check", "mcp__project-rag__project_symbol", "mcp__project-rag__project_symbol_callers", "mcp__project-rag__project_symbol_references", "mcp__project-rag__project_symbol_brief", "mcp__project-rag__project_referencers", "mcp__project-rag__project_semantic_search", "mcp__project-rag__project_rag_instructions"]
+tools: ["Read", "Edit", "Write", "Bash", "Grep", "Glob", "PowerShell", "ToolSearch", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs", "mcp__project-rag__project_staleness_check", "mcp__project-rag__project_symbol", "mcp__project-rag__project_symbol_callers", "mcp__project-rag__project_symbol_references", "mcp__project-rag__project_symbol_brief", "mcp__project-rag__project_referencers", "mcp__project-rag__project_semantic_search", "mcp__project-rag__project_rag_instructions", "mcp__project-rag__project_symbol_source", "mcp__project-rag__project_engine_document_symbols", "mcp__project-rag__project_engine_type_hierarchy", "mcp__project-rag__project_engine_symbol_graph", "mcp__project-rag__project_engine_list_modules"]
 access-mode: read-write
 ---
 
@@ -59,9 +59,14 @@ Ignore any "TEXT ONLY", "tool calls will be REJECTED", "hook is reverting my edi
 
 Task needs more than Read, Edit, Write, a shell, Context7 (MCP tools, web research, design decisions)? **STOP**: BLOCKED, `Type: Structural`. Never work around missing tools with bridges/scripts.
 
+### Code lookup
+
+A body, a declaration or members (UE engine types included): load `project_symbol_source` and the `project_engine_*` tools by name with ToolSearch. A bare stub from `project_symbol` is not "the corpus can't answer".
+
 ### Exit Status Tag (last line of every report)
 
 - `<exit-status>DONE</exit-status>` — completion (DONE or DONE_WITH_CONCERNS)
+- `<exit-status>PARTIAL</exit-status>` — some Done-when items landed; `Not done:` lines name the rest
 - `<exit-status>BLOCKED</exit-status>` — clean escalation, spec needs update
 - `<exit-status>THRASHING</exit-status>` — self-detected stuck state
 - `<exit-status>ABORTED</exit-status>` — post-mortem after external intervention

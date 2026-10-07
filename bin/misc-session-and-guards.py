@@ -294,14 +294,19 @@ def _cmd_autonomous_sentinel(argv: list[str]) -> int:
                 file=sys.stderr,
             )
             return 1
-        _sentinel_path(session_id).write_text(f"{mode}\n", encoding="utf-8", newline="\n")
-        print(str(_sentinel_path(session_id)))
+        target = _sentinel_path(session_id)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(f"{mode}\n", encoding="utf-8", newline="\n")
+        print(str(target))
         return 0
 
     if action == "disable":
         if not session_id:
             return 0
         _sentinel_path(session_id).unlink(missing_ok=True)
+        from coordinator_core.session.autonomous_sentinel import legacy_sentinel_path
+
+        legacy_sentinel_path(session_id).unlink(missing_ok=True)
         return 0
 
     print(f"misc-session-and-guards.py autonomous-sentinel: unknown action {action!r}", file=sys.stderr)

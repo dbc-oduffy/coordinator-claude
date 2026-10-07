@@ -8,6 +8,7 @@ zero product files.
 
 Usage:
   review-stamp.py mint --plan <path> --build-test <sidecar path> [--repo-root <path>]
+  review-stamp.py rejudge --plan <path> [--repo-root <path>]
   review-stamp.py check --plan <path> [--supersession] [--repo-root <path>]
   review-stamp.py product-files --diff <path>
 

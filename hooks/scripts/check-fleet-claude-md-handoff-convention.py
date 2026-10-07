@@ -26,6 +26,7 @@ MANUAL_WRITE = re.compile(
     re.I,
 )
 NEGATED = re.compile(r"\b(never|do not|don't|retired|instead of)\b", re.I)
+RETIRED_MARK = re.compile(r"\b(retired|never|do not)\b", re.I)
 
 
 def _settings_home() -> Path:
@@ -57,6 +58,16 @@ def fleet_repos() -> Dict[str, Path]:
     return out
 
 
+def _offends(line: str) -> bool:
+    """A retired path flags unless "retired"/"never"/"do not" precedes it; a manual-write phrase
+    flags unless a negator precedes it."""
+    path_hit = RETIRED_PATH.search(line)
+    if path_hit and not RETIRED_MARK.search(line[: path_hit.start()]):
+        return True
+    write_hit = MANUAL_WRITE.search(line)
+    return bool(write_hit and not NEGATED.search(line[: write_hit.start()]))
+
+
 def scan_repo(root: Path) -> Iterator[Tuple[str, int, str]]:
     """Yield (relpath, line number, stripped line) for each offending CLAUDE.md line."""
     for rel in CLAUDE_MD_RELPATHS:
@@ -66,7 +77,7 @@ def scan_repo(root: Path) -> Iterator[Tuple[str, int, str]]:
         except OSError:
             continue
         for n, line in enumerate(text.splitlines(), 1):
-            if (RETIRED_PATH.search(line) or MANUAL_WRITE.search(line)) and not NEGATED.search(line):
+            if _offends(line):
                 yield rel, n, line.strip()[:120]
 
 
@@ -81,7 +92,8 @@ def report(repos: Dict[str, Path]) -> List[str]:
 def main() -> int:
     try:
         repos = fleet_repos()
-    except (RuntimeError, OSError, subprocess.SubprocessError):
+    except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
+        print(f"lint skipped -- {exc or type(exc).__name__}")
         return 0
     for line in report(repos):
         print(line)
