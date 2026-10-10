@@ -32,6 +32,7 @@ distilled_run: 2026-05-06-13h00
 Identify central nouns/abstractions in the prescription. Run `bin/query-records` + Grep against `state/lessons/` and `docs/wiki/` for those nouns paired with prohibition vocabulary: `do not | never | tear down | deprecated | forbidden | removed | do NOT`.
 
 If a prohibition is found:
+
 - (a) Acknowledge in §1 Objective + justify the reversal, **engaging with the original argument**, or
 - (b) Recuse.
 
@@ -40,6 +41,7 @@ If a prohibition is found:
 ### W2 — repo-specialist counter-evidence pass
 
 After the positive analysis, search for prior-decision artifacts arguing AGAINST the hypothesis. Targets:
+
 - `state/lessons/` (always — hard rule, regardless of scout-passed inputs)
 - `docs/wiki/`
 - `docs/decisions/`

@@ -49,6 +49,7 @@ on *this* one? "Always confined to a two-tier Bash allowlist" is a definition fa
 and its test" is a brief fact — true only of this dispatch, so it never belongs in the definition.
 
 **Tell you're on the wrong side of the boundary:**
+
 - If you find yourself retyping the same paragraph into every brief for a given agent type, that
   paragraph belongs in the definition, not the brief.
 - If a definition file names a specific file path, a specific chunk ID, or "this diff" instead of

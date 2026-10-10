@@ -20,7 +20,7 @@ literally.
 
 | Invocation | Sites | Flag |
 |---|---|---|
-| `--blanket` | `/workstream-start`, `/update-docs` (Phase 0 `:51`, Phase 8b `:53`+`:71`, Phase 9 `:212`), `pipelines/relay-protocol.md:160`, `pipelines/artifact-distillation/PIPELINE.md:358` | `--blanket` with matching `CLAUDE_INVOKING_COMMAND={workstream-start, update-docs, relay-protocol, distillation}` |
+| `--blanket` | `/workstream-start`, `/update-docs` (Phase 0 `:51`, Phase 8b `:53`+`:71`, Phase 9 `:212`), `pipelines/relay-protocol.md:160`, `pipelines/artifact-distillation/PIPELINE.md:358` | `--blanket --invoking-command <name>`, `<name>` in {workstream-start, update-docs, relay-protocol, distillation} |
 | `--expected-branch` | **SUPERSEDED by M4 (see the PM's commit-model ruling)** — subagents do not commit at all, so the carve-out this row describes has no caller; `agents/executor.md`'s self-commit path is removed | ~~`--expected-branch <name>` per **SC-DR-006** — only the bash helper fails-closed on wrong-branch; LLM executors are non-deterministic~~ |
 
 Raw `coordinator-safe-commit "<subject>"` (no flags) is **deprecated**.
@@ -114,6 +114,7 @@ MY_SCOPE = touched.txt − ⋃(other_active_sessions.touched.txt)
 ```
 
 The helper:
+
 - Runs `git add -- <MY_SCOPE>` (explicit pathspec, only this session's files)
 - Commits with the provided subject
 - **Orphan policy:** A file is dirty and no session claims it → warn, naming every such path: "orphan dirty paths: X, Y — not staged; commit explicitly if yours." Does NOT auto-stage orphans, and never adopts on recency.
@@ -121,7 +122,7 @@ The helper:
 
 **A large unattributable-file count is expected noise, NEVER a reason to hold your commit.** On a hot shared `work/*` branch, dozens of dirty paths owned by concurrent peers is the normal steady state — 97 files across 11 live sessions, 28+27 growing mid-ceremony, 51 more on another occasion — all observed-normal, not anomalies. The orphan policy above exists precisely so that count cannot reach your commit: orphans are warned, never auto-staged, and sibling-claimed paths are skipped. A scoped `git add -- <your paths> && git commit -- <your paths>` is unaffected by how dirty the rest of the tree is, so **commit your own pathspec regardless** — do not wait for a "quiet window" and do not attempt to disposition peer-owned files. Deferring a finished, scoped commit because the tree looks busy is the commit-hesitancy anti-pattern, and it has real cost: the deferred work is what a crash loses, and a real `--amend`-with-no-pathspec incident (which destroyed a peer session's commit message) began as exactly this hesitation.
 
-**`--blanket` enforcement:** The `--blanket` flag is accepted only when `$CLAUDE_INVOKING_COMMAND` is one of: `workstream-start`, `update-docs`, `relay-protocol`, `distillation`. Any other caller gets:
+**`--blanket` enforcement:** The `--blanket` flag is accepted only when `--invoking-command <name>` (the warm launcher does not forward a `CLAUDE_INVOKING_COMMAND` env prefix) names one of: `workstream-start`, `update-docs`, `relay-protocol`, `distillation`. Any other caller gets:
 
 > "`--blanket` is only valid from the authorized sweep ceremonies. Use plain `git add -- <paths> && git commit -m \"...\" -- <paths>` for scoped commits, or `COORDINATOR_OVERRIDE_SCOPE=1` for emergencies."
 
@@ -214,12 +215,14 @@ The original touch-tracker linked file edits to the **dispatching session** via 
 The fix uses `agentId` (durable, opaque, mechanical — `^[a-f0-9]{12,}$`, lowercase hex, 12+ chars) as the linkage key. **Shape caveat:** the hex shape holds for UNNAMED dispatches only; named Agent-Teams teammates use the `name@session-<short>` shape (e.g. `orchestrator@session-abc12`), which does NOT match `^[a-f0-9]{12,}$`. Format guards in `track-dispatched-agents.py` and `track-touched-files.py` must accept both patterns to link named-teammate dispatches correctly. Two mechanical writers, no executor cooperation, no LLM-driven recording, no env vars:
 
 **EM-side hook** — `track-dispatched-agents.py` (PostToolUse on the `Agent` tool). Reads `tool_response.agentId` (camelCase) and writes:
+
 ```
 .git/coordinator-sessions/<em-sid>/dispatched-agents.txt   # list of agentIds
 .git/coordinator-sessions/.agents/<agentId>/em-session-id.txt   # back-pointer
 ```
 
 **Subagent-side hook** — modification to `track-touched-files.py`. Reads `agent_id` (snake_case, top-level — note asymmetric casing) and appends edited paths to:
+
 ```
 .git/coordinator-sessions/.agents/<agentId>/touched.txt
 ```
@@ -297,9 +300,9 @@ The trailing `-- <paths>` scopes the commit to those paths regardless of index s
 
 PowerShell (Shape W):
 
-    $env:CLAUDE_INVOKING_COMMAND = "workstream-start"; & "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-safe-commit.exe" --blanket "chore: workstream-start sweep — pre-orientation capture"
+    & "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-safe-commit.exe" --blanket --invoking-command workstream-start "chore: workstream-start sweep — pre-orientation capture"
 
-Only valid when `$CLAUDE_INVOKING_COMMAND` is one of: `workstream-start`, `update-docs`, `relay-protocol`, `distillation`. The helper rejects `--blanket` from all other callers. (`/workday-complete` was removed from the allow-list — it now uses a path-classifier instead of `--blanket`; see § Carve-Outs and Why.)
+Only valid when `--invoking-command` names one of: `workstream-start`, `update-docs`, `relay-protocol`, `distillation`. The helper rejects `--blanket` from all other callers. (`/workday-complete` was removed from the allow-list — it now uses a path-classifier instead of `--blanket`; see § Carve-Outs and Why.)
 
 ### Workstream-anchored (handoff/pickup)
 
@@ -344,6 +347,7 @@ In other words: the blanket path does not sweep the whole tree unconditionally �
 **Why `/pickup` and `/handoff` are NOT carve-outs:** they're the bookends of a workstream-specific transfer. The handoff doc names the workstream; pickup resumes that work. They run regularly (every session pair), not irregularly. Their commits should narrate the workstream, not sweep whatever happened to be dirty. The original `/handoff:133` instruction ("stage everything, don't try to separate workstreams") was the single most concurrency-hostile line in the codebase and the primary generator of this bug. Both ceremonies now go scoped via `--scope-from`.
 
 **Why the remaining ceremonies and not others:**
+
 - The blanket path now subtracts live-sibling-claimed paths (Foreign = sibling-claimed − own ∪ agent-claimed) before staging, so it captures orphaned loose state without absorbing concurrent work.
 - Each is (or runs serially enough) that the lessons.md:207 parallel-caller mechanism cannot arise.
 - The subject genuinely describes the action — "sweep / close-out / relay" is honest.
@@ -359,6 +363,7 @@ In other words: the blanket path does not sweep the whole tree unconditionally �
 The Bash-PreToolUse scope guard starts in warn-only mode. Every warning is logged to `.git/coordinator-sessions/<id>/scope-warnings.log` with: timestamp, session ID, the foreign file, the suspected owning session (or "orphan"), and the EM's resolution (committed anyway / unstaged / asked user).
 
 **Flip predicate — ALL of the following must hold:**
+
 - ≥10 sessions in warn-only mode have completed.
 - False-positive rate (warns where the EM concluded the file was legitimately theirs) < 10% across logged sessions.
 - Zero unresolved orphan-class warnings in the trailing 7 days.
@@ -405,6 +410,7 @@ commit touching a dispatched-subagent-only edit, which is common under this proj
 fan-out-by-default dispatch doctrine — a session with any executor dispatch would wedge.
 
 **Strict mode activation:**
+
 ```bash
 # In hook config / session-start env:
 export COORDINATOR_SCOPE_STRICT=1
@@ -427,6 +433,7 @@ rejection's own printed remedy, which is the `COORDINATOR_SCOPE_STRICT=0` line a
 **"My new file isn't being staged"**
 
 The touch-tracker hook should have caught any `Write` or `Edit` call. Check whether `.git/coordinator-sessions/<id>/touched.txt` exists and contains the file. If the file is missing from `touched.txt`:
+
 - Verify the hook (`track-touched-files.py`) is active in your PostToolUse hook list.
 - If the hook fired but the path is wrong, check that `tool_input.file_path` is resolving correctly for your tool type.
 - If the file was created via a Bash command (not `Write`), it won't be in `touched.txt` by design — see next entry.
@@ -460,6 +467,7 @@ the `--include-orphans` flag is not yet available — it lacks the overlap gate 
 **"Helper says scope is empty"**
 
 Your session hasn't touched any files via tracked tools. Check:
+
 - Does `.git/coordinator-sessions/<id>/touched.txt` exist? If not, the session directory wasn't initialized — the hook may not have fired yet (first session with no tracked edits).
 - Is the session id resolving correctly? `echo $CLAUDE_CODE_SESSION_ID` (the platform-injected, authoritative source, and the only source — resolution is env-only) — it should match a `.git/coordinator-sessions/<id>/` dir. If it flips between reads, two sessions are live.
 - Did you only make Bash-driven edits? Those are never auto-detected — look for them in the unclaimed/orphan report and adopt them explicitly.
@@ -883,7 +891,7 @@ The PM-accepted empirical rule (`feedback_safe_commit_unreliable.md`) was alread
 
 *Decision:* Invert the default. **Plain `git add -- <paths> && git commit -m "<subject>" -- <paths>` is the doctrinal default for scoped commits.** `coordinator-safe-commit` is reserved for:
 
-1. **Sweep ceremonies (`--blanket`):** `/workstream-start`, `/update-docs` (Phase 0, 8b, 9), `pipelines/relay-protocol.md`, `pipelines/artifact-distillation/PIPELINE.md`. Each runs a single executor serially per ceremony — the lessons.md:207 concurrent-callers mechanism cannot arise. `--blanket` gate accepts `CLAUDE_INVOKING_COMMAND ∈ {workstream-start, update-docs, relay-protocol, distillation}`. (`/workday-complete` is not on this list — it uses `workday-complete-step2_5-dirty-tree.py` and does not use `--blanket`.)
+1. **Sweep ceremonies (`--blanket`):** `/workstream-start`, `/update-docs` (Phase 0, 8b, 9), `pipelines/relay-protocol.md`, `pipelines/artifact-distillation/PIPELINE.md`. Each runs a single executor serially per ceremony — the lessons.md:207 concurrent-callers mechanism cannot arise. `--blanket` gate accepts `--invoking-command ∈ {workstream-start, update-docs, relay-protocol, distillation}`. (`/workday-complete` is not on this list — it uses `workday-complete-step2_5-dirty-tree.py` and does not use `--blanket`.)
 2. ~~**Executor branch-gate (`--expected-branch`):** `agents/executor.md` only, preserved per **SC-DR-006** — only the bash helper fails-closed on wrong-branch; LLM executors are non-deterministic and cannot enforce branch gating via doctrine alone.~~ **SUPERSEDED by M4 (the PM's commit-model ruling) — the executor does not commit, so this carve-out has no caller.**
 
 Raw `coordinator-safe-commit "<subject>"` (no flags) is deprecated.
@@ -902,6 +910,7 @@ Raw `coordinator-safe-commit "<subject>"` (no flags) is deprecated.
 The remedy across all three is the one already stated above — pathspec on both `add` and `commit`, every time, never "once per file" — but the guard finding (second bullet) is worth separating out: the scope guard's blanket warn-on-any-foreign-staged-path posture is itself why EMs learn to skim past its warnings, which is a false-positive problem this page's own § Component 4 / § Deny-Mode Flip sections already track for a different reason.
 
 *Open derivative work (not in SC-DR-008 scope):*
+
 - Silent-no-op fix in helper: HEAD-unchanged sentinel + `if ! git commit ...; then echo FAIL; exit 2; fi` wrapper on all commit-attempting paths (`do_scoped`, `do_scope_from`, `do_override`, `do_blanket`, orphan-claim subpaths).
 - pytest harness for hooks + helper (coord-improvement-queue line 272).
 - Session-detection substrate rebuild — would be required only if the helper is ever re-promoted to default; demote avoids the need.
@@ -923,6 +932,7 @@ The remedy across all three is the one already stated above — pathspec on both
 `git add -- <file>` stages the WHOLE file regardless of which hunks are yours. `git add -p` (interactive hunk selection) is retired (§ The hunk limit); when the diff will not split cleanly along hunk boundaries for the non-interactive staged-blob route either, there is no mechanical isolation path left. Stalling (waiting for the sibling to commit) risks losing your own work if your context compacts or the session ends. Silent absorption is dishonest and misattributes the sibling's code to your subject.
 
 **Procedure when you detect the union situation:**
+
 1. Before committing a shared hot file, `git --no-optional-locks diff -- <file> | grep` for foreign workstream markers (commit-message keywords, variable names, function names specific to the sibling's workstream) to confirm the union.
 2. Commit the file explicit-path with a commit-body `NOTE:` crediting the sibling workstream: what was absorbed, that it will be reviewed at their workstream-complete, that you authored none of the absorbed hunks.
 3. Hand the PM a one-line relay so the sibling EM knows their work landed under your SHA and does not re-commit it.
@@ -951,6 +961,7 @@ The remedy across all three is the one already stated above — pathspec on both
 Incident: tc-34 the incident commit was the first to land four chunker-spec registrations because `git add -- __init__.py` swept in three concurrent sessions' (tc-35/tc-5/tc-6) uncommitted edits; all four target modules were untracked, so HEAD imported four nonexistent-in-git modules.
 
 **Rule — before committing any shared registration/index/`__init__` file under concurrent EMs:**
+
 1. `git diff --cached --name-only` to see the FULL absorbed set (the SC-DR-010 / H1 baseline — never skip it on a shared file).
 2. For every new `import` / `from … import` the commit introduces, confirm the target module is `git ls-files`-tracked. An import of an untracked sibling module is a HEAD-break, not a harmless extra.
 
@@ -983,6 +994,7 @@ A concurrent `git add -A` sweep (lint, format, or distill ceremony) on the share
 *Case.* An RSS-cap commit used `git add -- <explicit-paths>` (correct discipline) but a concurrent session's handoff-archival flow had already staged a `git rm` of an unrelated handoff file. The deletion rode into the RSS-cap commit as a `delete mode` line for a file the workstream had no business deleting. (a real incident on a sibling repo)
 
 **Discipline.** Between scoped safety-commits on a shared branch:
+
 1. Run `git diff --cached --name-only` to enumerate the FULL staged set (not just your scope).
 2. If anything is staged that isn't yours, either (a) `git reset HEAD -- <foreign-path>` to unstage before committing, or (b) push the orphan op into its own scoped commit first.
 
@@ -1171,6 +1183,7 @@ override path, is still soak-gated.
 **Correct mechanics for exec-bit commits:**
 
 Option A — also `chmod +x` the worktree file so worktree == index:
+
 ```bash
 chmod +x <file>
 git update-index --chmod=+x <file>
@@ -1214,6 +1227,7 @@ commit against the shared index.
 *Empirical basis (setup-command-triple-collision-cleanup):* Ran `git mv plugins/.../setup.md install.md` then `git commit -m "..." -- <new-path> <other-edits>`. The deleted source was not in the working tree, so passing it errors; omitting it staged only the add half. Encountered twice in one session across sibling repos.
 
 **Correct recipe — enumerate both sides of the rename:**
+
 ```bash
 git mv src dst
 # ... any edits to dst ...
@@ -1256,6 +1270,7 @@ Both cases share one discipline: a pathspec list handed to `git add` must contai
 *Empirical basis (doctrine-plane follow-up 2):* Had 4 files Edit/Write-staged (snippet, executor.md, tripwires, fan-out-dispatch.py), ran scoped `git add -- <paths>`, hit a pre-commit exec-bit failure on a 5th file. While fixing the exec-bit, a sibling session swept all 5 files under their commit (`chunk-2(executor-no-self-commit-em-only-gate): regression-net test — 12 assertions green`). On retry: "nothing to commit." Confirmed via `git log --all -- <path>` on each file.
 
 **Discipline on pre-commit failure in a shared branch:**
+
 1. Immediately re-run `git --no-optional-locks status` before any retry — the staged snapshot from the failed commit is not durable.
 2. Run `git log --oneline -- <path>` on each of your expected files to confirm they haven't been absorbed.
 3. Treat the gap between `git add` and `git commit` as a race window that resets at every pre-commit failure; re-stage explicitly from `git --no-optional-locks status` before retrying.
@@ -1361,7 +1376,15 @@ A stash entry is a commit, so nothing is lost; the danger is in how you get it b
    `^1` is the base commit, `^2` the index state, and **`^3` the untracked-files commit when `-u`
    was used**. Untracked deliverables (new scripts, new tests, new decision records) are in `^3`
    and are invisible to `git stash show`, which reports only tracked modifications. Enumerate it
-   separately with `git ls-tree -r --name-only 'stash@{0}^3'`.
+   separately with `git ls-tree -r --name-only 'stash@{0}^3'`. **A clean or no-op
+   `git stash apply` is not this check.** Against a HEAD that has moved past the stash's base it
+   proves only that the *overlapping* files already match; content unique to the stash (a
+   counter, a pinned number, a file HEAD never received) is untouched by the apply and stays
+   invisible. Verify loss-or-no-loss by diffing the named paths from
+   `git stash show --name-only` against the *current* tree
+   (`git diff HEAD 'stash@{0}' -- <paths>`; empty means the content survived), and by
+   testing each `^3` path from that `ls-tree` listing with `git cat-file -e HEAD:<path>` — never
+   by the apply's exit status.
 3. **Classify every file as yours or a peer's** before extracting anything. Use diff *shape*, not
    memory: a mechanical backfill hunk that adds only one known field is yours; a multi-line
    semantic edit to a baton another session holds is not. Per-file diffs come from
@@ -1863,7 +1886,6 @@ structural producers, and a denial outside those is a signal worth reading befor
 Greppable token: `ADOPTION-IS-AN-OPERATORS-ANSWER-NOT-AN-AGENTS-DEFAULT`. Registered in
 `coordinator/docs/wiki/coordinator-tripwires/`.
 
-
 ## SC-DR-023 — The unscoped-tree-operation guard: scope predicate, false-positive boundary, and the deny/advisory split; and the deploy-window contradiction resolved through it
 
 **Ruling (doctrine, doctrine plane).** This record extends § SC-DR-018 (whole-tree `git stash` is
@@ -1938,6 +1960,25 @@ A sanctioned blanket sweep set the internal bypass marker to skip the very block
 **Subtlety.** The same ownership-enumeration helper can be safe in one calling path and unsafe in another: safe where a downstream re-subtraction still runs (the scoped-commit path), unsafe where the subtract IS the only correction (the terminal blanket-sweep path). Parameterize the helper per path-type — do not assume a helper that is safe for one caller is safe for every caller that shares it.
 
 
+## `cherry-pick --continue` commits the whole index
+
+`git cherry-pick --continue` commits everything staged, including files a concurrent session
+staged. Check `git diff --cached --name-only` before continuing. A pick across diverged branches is
+a semantic re-derivation of the change, not a byte transplant — review it as new code.
+
+## Untrack-but-keep needs a pathspec-free commit
+
+`git rm --cached <f>` followed by a scoped `git commit -- <f>` commits the working-tree file —
+re-adding it — instead of the staged deletion. Commit an untrack with no pathspec, after checking
+the index holds only that change.
+
+## Committing only your hunk in a file a sibling left dirty
+
+When your change lands in a file that holds a sibling's uncommitted work, neither a pathspec commit
+(takes their working-tree edits) nor a pathspec-free commit (takes their staged files) isolates it.
+Save their version, restore the file to `HEAD`, re-apply only your hunk (`git apply --recount`),
+commit with a pathspec, then restore their version.
+
 ## Derived Artifacts and Regenerators — the Sweep Hazard One Indirection Out
 
 Everything above scopes what a `git add`/`git commit` takes. A generator, regenerator, formatter or codemod that reads the working tree and produces an artifact you then commit is the same failure one step earlier: nothing about scoped-commit discipline stops you committing a *derived* artifact that silently absorbed a peer's uncommitted state, because the artifact and its source agree with each other in the tree — they disagree only against HEAD, which nothing checks by default.
@@ -1953,3 +1994,10 @@ A generator emitting a manifest block into a shared registry file while a concur
 **Rule.** The standing mitigation for a sweep is `git commit -- <pathspec>`, and it holds for commits. It does not extend to a regenerator: there is typically no `--only <target>` flag, and the blast radius is decided by the tool's own scope, not by anything the caller names. The discipline that protects a commit is unavailable one step earlier, at the write that produces what gets committed.
 
 A schema-pin regenerator run to refresh three version-bumped schemas has repo-wide scope by design; it also silently rewrote pins for a fourth schema a different session had in flight, and seeded a new entry for a fifth — and its own run summary, read at face value, said nothing about either, naming only the entries the caller expected. **Do not trust the tool's account of its own blast radius — diff the produced artifact against HEAD and restore every hunk you did not intend.** Treat the tool's summary as a hint about where to look, never as the set: it is a witness to itself, not a scoping mechanism. Where the tool has no scoping flag at all, that HEAD-diff is the only scoping mechanism available, and skipping it makes the session's commit-scope discipline decorative — the pathspec on the eventual commit is honest about the paths and silent about content someone else's tool put inside them.
+
+## Field rules
+
+- **Co-land a shared file a peer left uncommitted when hunk staging is unavailable.** If the file loads clean, commit it whole with a message naming both changes; never strip the peer's hunks.
+- **A red full suite on a shared branch: attribute before self-blame.** Group failures by file, confirm each failing test's subject is outside your scope, and verify your own slice green in isolation.
+- **After pickup on a shared branch, check that HEAD builds.** A peer's broad add can commit your new import/mount lines without the new module; your tree stays green while HEAD is broken and `git status` shows nothing.
+- **A directory pathspec is not a scoped add.** `git add -- <dir>` stages every untracked file beneath it; enumerate paths from `git diff --name-only` / `git status --porcelain`.

@@ -181,3 +181,7 @@ and whether the validator is wired live or stubbed permissive.
 | `schema.js` | Non-production for queue records; list-of-map `validateField` support still missing |
 | `lint-frontmatter.py` | Skips `*.yaml`/`*.json` — not a schema validator |
 | Handoff schema (Node CLI transition helper) | Historically permissive stub, `TODO(ask2)` — verify current wiring before relying on it |
+
+## Field rules
+
+- **Consumer ingest of a vendored contract degrades an unrecognized enum value; it never drops the record.** Relax validation for the drifting field only (a second parse over the strict schema), keep the raw value, and warn once per distinct value.

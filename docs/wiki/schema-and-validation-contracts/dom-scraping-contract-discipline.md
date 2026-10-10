@@ -15,6 +15,7 @@ Plan-authoring gate for any plan that introduces or modifies a DOM-scraping cont
 **A DOM-scraping selector contract must be validated against ≥2 distinct sources (different accounts, locales, or browser profiles) before being locked in a plan or implementation.**
 
 How to apply:
+
 - At plan-authoring time, name at least two distinct validation sources in the plan's substrate-verification section (e.g. `account-A / en-US`, `account-B / fr-FR`). A plan with a single named source is incomplete; mark the gate `INCOMPLETE` until the second source is verified.
 - Treat structural variation across sources as a contract signal, not a test flake. If a selector resolves on source A but not source B, the selector is over-fitted — widen it or add a fallback selector before locking.
 - AI-generated summary elements and multilingual UI decoys are a recurring false-positive class: selectors targeting structural position (`.summary-box:nth-child(2)`) are more fragile than selectors targeting semantic attributes (`[data-testid="result-item"]` or `aria-label`). Prefer semantic anchors.

@@ -155,4 +155,3 @@ This reframes the two moves at the heart of the sidecar convention:
 Hold this next to the engineering, not above it: the framework earns its cost because most of the
 people and agents it serves do not exist yet. Build it as you would want it built for you.
 
-

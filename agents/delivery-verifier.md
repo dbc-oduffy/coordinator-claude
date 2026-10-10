@@ -40,7 +40,10 @@ contain any product file at all?**
 1. Read the frozen diff in full.
 2. For each delivery claim, find the hunk(s) that back it. A claim with no corresponding change in
    the diff is **unbacked** — record it with a short anchor (file:line or hunk description) into
-   `claims_unbacked`.
+   `claims_unbacked`. Only a hunk in this run's frozen diff backs a claim. A commit sha or row id
+   cited in a row's notes is not backing: row ids repeat across plans (two plans can both have a
+   `C10`), and a checkpoint commit whose `Checkpoint-Plan:` trailer names a different plan never
+   backs this plan's row.
 3. Check `product_files`. Zero means the run's diff contains no product file — this is fail-closed
    regardless of how clean the claims otherwise look: a diff can back every claim and still touch
    nothing that ships.
@@ -65,7 +68,8 @@ Return exactly the `delivery-verdict` shape (`coordinator/schemas/review-stage.s
 }
 ```
 
-`claims_unbacked` is empty on `PASS`. Never inline the diff or your reasoning in the return —
+`sidecar_path` is echoed, never written: you have no Write tool, and your return is persisted
+for you (by the run's report, or by `reverify-delivery record` on a re-verify). `claims_unbacked` is empty on `PASS`. Never inline the diff or your reasoning in the return —
 counts and anchors only, per the review-stage contract's no-inline-findings rule.
 
 ## Out of Scope

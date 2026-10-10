@@ -34,7 +34,7 @@
   "never": [
     {
       "id": "no-research-pipeline",
-      "rule": "Never invoke /research or the Deep Research pipeline. It is PM-gated and never EM-auto-invoked, so a deep-research cluster yields a directive, never a dispatch."
+      "rule": "Never invoke /research or the Deep Research pipeline. A deep-research cluster yields a directive, never a dispatch: the op emits the directive and the EM sizes and fires /research."
     },
     {
       "id": "no-substitute-scout",

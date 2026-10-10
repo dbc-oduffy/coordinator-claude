@@ -526,6 +526,7 @@ def _sweep_mirror_top_level_orphans(
     ignore: IgnoreMatcher,
     dry_run: bool,
     renamed_file_names: "frozenset[str]",
+    removed_sink: "set[str] | None" = None,
 ) -> int:
     """Delete the destination's top-level FILES that the source no longer has,
     returning how many were removed. Opt-in per row — see `sync_mirror`'s
@@ -608,8 +609,75 @@ def _sweep_mirror_top_level_orphans(
         if not dry_run:
             dst_file.unlink()
         print(f"  REMOVE: {rel_path} (not in source)")
+        if removed_sink is not None:
+            removed_sink.add(rel_path)
         removed += 1
     return removed
+
+
+def _sync_only_paths(
+    src_dir: Path,
+    dst_dir: Path,
+    ignore: IgnoreMatcher,
+    dry_run: bool,
+    copier: CopyFileFn,
+    only_paths: "Iterable[str]",
+    *,
+    flat: bool,
+    changed_paths: "set[str] | None",
+    removed_sink: "set[str] | None",
+    renamed_dir_names: "frozenset[str]",
+    renamed_file_names: "frozenset[str]",
+    injected_paths: "frozenset[str]",
+    after_copy: "Callable[[Path, str], None] | None" = None,
+) -> "tuple[int, int]":
+    """Visit exactly `only_paths` (src-relative posix) and nothing else: no
+    directory walk, no orphan sweep, no empty-source guard. A path present at
+    source and not ignored is copied through `copier`; one absent at source is
+    deleted at its destination id unless a rename/inject exemption or the
+    ignore matcher claims it. In flat mode a path with a separator names no
+    top-level file and is skipped."""
+    synced = 0
+    removed = 0
+    for rel in sorted(set(only_paths)):
+        parts = rel.split("/")
+        if flat and len(parts) != 1:
+            continue
+        inner = "/".join(parts[1:]) if len(parts) > 1 else rel
+        if _archived_or_orphan(inner) or ignore.matches(rel):
+            continue
+        if len(parts) == 1 and rel.startswith("."):
+            continue
+        src_file = src_dir / rel
+        dst_file = dst_dir / rel
+        if src_file.is_file():
+            if not _needs_copy(src_file, dst_file):
+                continue
+            is_new = not dst_file.exists()
+            if dry_run:
+                copier(src_file, dst_file, True)
+            else:
+                dst_file.parent.mkdir(parents=True, exist_ok=True)
+                copier(src_file, dst_file, False)
+                if after_copy is not None:
+                    after_copy(dst_file, rel)
+                _restore_shebang_executable_bit(dst_file)
+            print(f"    {'NEW:   ' if is_new else 'UPDATE:'} {rel}")
+            if changed_paths is not None:
+                changed_paths.add(rel)
+            synced += 1
+            continue
+        if parts[-1] in renamed_file_names or parts[0] in renamed_dir_names:
+            continue
+        if rel in injected_paths or not dst_file.is_file():
+            continue
+        if not dry_run:
+            dst_file.unlink()
+        print(f"    REMOVE: {rel} (not in source)")
+        if removed_sink is not None:
+            removed_sink.add(rel)
+        removed += 1
+    return synced, removed
 
 
 # ---------------------------------------------------------------------------
@@ -709,8 +777,24 @@ def sync_mirror(
     renamed_file_names: "frozenset[str] | None" = None,
     foreign_dir_names: "frozenset[str] | None" = None,
     injected_paths: "frozenset[str] | None" = None,
+    only_paths: "Iterable[str] | None" = None,
+    removed_sink: "set[str] | None" = None,
+    enforce_guards: bool = False,
 ) -> tuple[int, int]:
-    """`sweep_top_level_orphans` (default `False` -- 100% behavior-preserving
+    """`enforce_guards` (default `False`): under `dry_run`, the abort guards
+    (empty-source mass delete, top-level presence check, >50% orphan sweep)
+    refuse exactly as a real run would instead of warning; nothing is deleted
+    either way. A caller that previews deletions to act on them elsewhere sets
+    it.
+
+    `only_paths` (default `None`, today's full walk): src-relative posix
+    paths; the sync visits exactly these — copy if present at source, delete at
+    the destination if absent. No directory walk, top-level orphan sweep or
+    empty-source guard runs. `removed_sink` (default `None`): a caller-supplied
+    set that receives the dst-relative id of every path deleted, or under
+    `dry_run` that would be deleted, including the orphan sweep's decisions.
+
+    `sweep_top_level_orphans` (default `False` -- 100% behavior-preserving
     for every existing caller): when True, destination top-level FILES absent
     from the source are deleted as orphans, via
     `_sweep_mirror_top_level_orphans` (see that function for the incident, the
@@ -840,13 +924,26 @@ def sync_mirror(
     # inject entry's `dst` is caller-declared and may collide in basename with
     # unrelated source content elsewhere in the tree.
     injected_paths = injected_paths or frozenset()
+    guard_dry_run = dry_run and not enforce_guards
+
+    if only_paths is not None:
+        return _sync_only_paths(
+            src_dir, dst_dir, ignore, dry_run, copier, only_paths,
+            flat=False,
+            changed_paths=changed_paths,
+            removed_sink=removed_sink,
+            renamed_dir_names=renamed_dir_names,
+            renamed_file_names=renamed_file_names,
+            injected_paths=injected_paths,
+        )
 
     synced += _sync_mirror_top_level_files(
         src_dir, dst_dir, ignore, dry_run, copier, changed_paths=changed_paths
     )
     if sweep_top_level_orphans:
         removed += _sweep_mirror_top_level_orphans(
-            src_dir, dst_dir, ignore, dry_run, renamed_file_names
+            src_dir, dst_dir, ignore, dry_run, renamed_file_names,
+            removed_sink=removed_sink,
         )
 
     for src_plugin in sorted(p for p in src_dir.iterdir() if p.is_dir()):
@@ -859,7 +956,7 @@ def sync_mirror(
             src_plugin,
             dst_plugin,
             ignore,
-            dry_run=dry_run,
+            dry_run=guard_dry_run,
             qualify=lambda rel, _plugin=plugin_name: f"{_plugin}/{rel}",
             context_label="mirror plugin",
         )
@@ -942,6 +1039,8 @@ def sync_mirror(
                 else:
                     dst_file.unlink()
                     print(f"    REMOVE: {rel_path} (not in source)")
+                if removed_sink is not None:
+                    removed_sink.add(f"{plugin_name}/{rel_path}")
                 per_plugin_removed += 1
 
         if per_plugin_synced == 0 and per_plugin_removed == 0:
@@ -1037,7 +1136,7 @@ def sync_mirror(
                 )
                 if provenance:
                     diagnostic = f"{diagnostic}\n{provenance}"
-                if dry_run:
+                if guard_dry_run:
                     print(
                         f"    WARNING (dry-run): WOULD ABORT — {diagnostic}\n    A real "
                         "run WOULD ABORT here without the override; this preview does "
@@ -1060,7 +1159,7 @@ def sync_mirror(
             # trigger a FATAL here.
             if at_risk:
                 names = ", ".join(p.name for p in at_risk)
-                if not dry_run:
+                if not guard_dry_run:
                     print(
                         f"FATAL: orphan sweep would remove {len(orphans)} of {len(non_dot_dst)} "
                         f"destination plugin dirs ({names}) — refusing as a likely src_dir "
@@ -1089,7 +1188,10 @@ def sync_mirror(
 
         for dst_plugin in orphans:
             orphan_name = dst_plugin.name
-            file_count = sum(1 for _ in _walk_files(dst_plugin))
+            orphan_files = [f.relative_to(dst_dir).as_posix() for f in _walk_files(dst_plugin)]
+            file_count = len(orphan_files)
+            if removed_sink is not None:
+                removed_sink.update(orphan_files)
             if dry_run:
                 print(f"    REMOVE DIR: {orphan_name}/ ({file_count} file(s), not in source)")
             else:
@@ -1255,8 +1357,14 @@ def sync_flat_mirror(
     manifest_layout_rewrite: "ManifestLayoutRewrite | None" = None,
     renamed_file_names: "frozenset[str] | None" = None,
     injected_paths: "frozenset[str] | None" = None,
+    only_paths: "Iterable[str] | None" = None,
+    removed_sink: "set[str] | None" = None,
+    enforce_guards: bool = False,
 ) -> tuple[int, int]:
-    """`changed_paths` — see `sync_mirror`'s own parameter docstring for the
+    """`only_paths` / `removed_sink` / `enforce_guards` — see `sync_mirror`; here
+    only top-level names are meaningful.
+
+    `changed_paths` — see `sync_mirror`'s own parameter docstring for the
     full contract (structured copy-decision sink, `None`-default no-op,
     mutate-in-place, tri-state ownership boundary); identical here, without
     a plugin prefix since flat-mirror has no per-plugin subdir.
@@ -1283,12 +1391,33 @@ def sync_flat_mirror(
     renamed_file_names = renamed_file_names or frozenset()
     injected_paths = injected_paths or frozenset()
 
+    if only_paths is not None:
+        def _rewrite(dst_file: Path, rel: str) -> None:
+            if (
+                manifest_layout_rewrite is not None
+                and rel == manifest_layout_rewrite.filename
+                and src_dir.as_posix().endswith(manifest_layout_rewrite.src_dir_suffix)
+                and apply_manifest_layout_rewrite(dst_file, manifest_layout_rewrite)
+            ):
+                print(f"    TRANSFORM: {rel} layout rewrite applied", file=sys.stderr)
+
+        return _sync_only_paths(
+            src_dir, dst_dir, ignore, dry_run, copier, only_paths,
+            flat=True,
+            changed_paths=changed_paths,
+            removed_sink=removed_sink,
+            renamed_dir_names=frozenset(),
+            renamed_file_names=renamed_file_names,
+            injected_paths=injected_paths,
+            after_copy=_rewrite,
+        )
+
     _guard_against_empty_source_mass_delete(
         dst_dir.name or str(dst_dir),
         src_dir,
         dst_dir,
         ignore,
-        dry_run=dry_run,
+        dry_run=dry_run and not enforce_guards,
         context_label="flat-mirror target",
         recursive=False,
     )
@@ -1352,6 +1481,8 @@ def sync_flat_mirror(
             else:
                 dst_file.unlink()
                 print(f"    REMOVE: {rel_path} (not in source)")
+            if removed_sink is not None:
+                removed_sink.add(rel_path)
             removed += 1
 
     return synced, removed

@@ -92,7 +92,13 @@ def apply_default_to_file(path: Path) -> bool:
     if not isinstance(settings, dict) or not apply_default(settings):
         return False
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8", newline="\n")
+    tmp = path.with_name(path.name + ".tmp-%d" % os.getpid())
+    try:
+        tmp.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8", newline="\n")
+        os.replace(tmp, path)
+    except OSError:
+        tmp.unlink(missing_ok=True)
+        raise
     return True
 
 

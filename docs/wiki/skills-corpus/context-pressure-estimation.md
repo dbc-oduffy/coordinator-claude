@@ -36,8 +36,7 @@ window. The cut is `effective_auto_compact_window − 33,000`, resolved per sess
 | no usable reading | **silence** |
 | more than 100,000 tokens of runway | **silence** |
 | ≤ 100,000 tokens of runway | INFORMATIONAL — checkpoint state to disk at the next natural boundary; do not stop |
-| ≤ 70,000 tokens of runway, attended host | HANDOFF NOW — run it before compaction takes the choice away |
-| ≤ 70,000 tokens of runway, cloud box | INFORMATIONAL — bring the task spine current, then commit and checkpoint the baton; continue the run |
+| ≤ 70,000 tokens of runway, any host | INFORMATIONAL — bring the task spine current, then commit and checkpoint; continue the run. No band recommends `/handoff` |
 
 Each band barks once per session, behind a 5-minute throttle. Crossing straight into the red band
 suppresses the orange text. **The red band's two rows are one signal with two terminals, never an

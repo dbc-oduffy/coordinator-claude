@@ -31,7 +31,7 @@ Top-level required fields:
 | Field | Shape | Notes |
 |---|---|---|
 | `repo_identity` | `{owner, repo, coordinator_root_path}` | Canonical join key — the SAME tuple the Fleet Producer Contract's emission join-key already uses (`emission-conformance-contract.md § Producer Contract`), not a competing single-field slug. `coordinator_root_path` is a machine-local location hint for the emitting clone, MAY be `null`, and is NOT part of the join key — consumers key on `(owner, repo)`; the key itself is always present, carried present-as-null when there is no meaningful value. |
-| `lifecycle` | enum, see § Lifecycle enum below | DoE-canonical, richer than any one consumer's need. |
+| `lifecycle` | enum, see § Lifecycle enum below | Canonical, richer than any one consumer's need. |
 | `vision` | `{value, provenance}` | One-paragraph strategic statement. |
 | `version_highlights` | array of `{label, date, bullets[], provenance}` | Ordered, most-relevant-first; may be empty. |
 | `competitors` | array of `{name, relationship, note, provenance}` | `relationship` enum: `competitor \| complement \| prior-art \| superseded-by \| supersedes`. `note` is present-as-null when absent. |
@@ -125,7 +125,7 @@ Two properties every consumer of this artifact can rely on, enforced at the sche
   is the portable per-machine fleet root every consumer already binds (registry
   `repos.fleet_root`, then the `FLEET_ROOT` env var, then that platform's own root convention).
 
-## Lifecycle enum — DoE-canonical, consumer-projected (DEC-3)
+## Lifecycle enum — canonical, consumer-projected (DEC-3)
 
 ```
 prototype -> vertical-slice -> alpha -> shipped -> live-ops -> sunset
@@ -169,7 +169,7 @@ flat set of 7 values, but a reader (and any consumer projecting the field) must 
 given value belongs to, because only one axis is stance-shaped and consumer-projectable.
 
 **Cockpit projection — total mapping, 3-of-7 project.** The worked example for how a fleet consumer
-(cockpit's `competitor-summary.category`) projects the DoE-canonical `relationship` enum lives here,
+(cockpit's `competitor-summary.category`) projects the canonical `relationship` enum lives here,
 not in the schema — the schema stays generic per DEC-3's schema-generic / wiki-named split (see
 Chunk C1 of the source plan). This is a **total** mapping: every one of the 7 `relationship` values has
 a defined outcome, even where that outcome is "does not project."
@@ -226,7 +226,7 @@ and both **advisory, not hard gates**:
 Both design deltas exist because the schema-freeze signal (Chunk C1 landing) gates when downstream
 consumers can safely read the artifact — until C1 lands, minting a skeleton eagerly and treating
 absence as a hard failure would fire before the schema is stable. The cockpit graduation path (moving
-this from an cockpit-proposed convention to a DoE-owned standard with its own lifecycle hooks) is the
+this from an cockpit-proposed convention to a source-repo-owned standard with its own lifecycle hooks) is the
 throughline connecting `/repo-setup` and `/workweek-complete` ownership back to the original cockpit
 proposal referenced in this doc's Spec backlink.
 

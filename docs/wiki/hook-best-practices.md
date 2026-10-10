@@ -3,8 +3,8 @@ title: Hook best practices
 created: 2026-05-17
 type: doctrine
 related:
-  - plugins/coordinator/docs/wiki/concurrent-em-git-operations/daily-branch-discipline.md
-  - plugins/coordinator/docs/wiki/claude-md-surfaces/claude-code-platform-gotchas.md
+  - plugins/coordinator-claude/coordinator/docs/wiki/concurrent-em-git-operations/daily-branch-discipline.md
+  - plugins/coordinator-claude/coordinator/docs/wiki/claude-md-surfaces/claude-code-platform-gotchas.md
 ---
 
 # Hook Best Practices
@@ -42,7 +42,9 @@ The `permissionDecisionReason` field is required — hooks that omit it produce 
 When several hooks are registered for the same event+matcher (e.g. multiple `PreToolUse` / `"matcher": "Bash"` entries), Claude Code runs them in **hooks.json registration order** and the **first hook that emits a JSON deny wins** — the tool call is blocked with that hook's `permissionDecisionReason`, and later hooks' decisions for that call do not override it. Advisory `allow` + `additionalContext` outputs from non-denying hooks are surfaced; only one decision blocks.
 
 This ordering is a load-bearing contract when consolidating multiple same-matcher hooks into a single dispatcher process: the dispatcher must call the folded checks in the **same registration order** and short-circuit on the first deny, or the surfaced reason can change for commands that more than one guard would block. The canonical consolidation — `hooks/scripts/preuse-bash-dispatch.py` (folds 8 `Bash` guards) — preserves this via an explicit first-deny-wins chain, and its differential test locks the dispatcher's `{decision, reason}` to the legacy 8-separate-hooks behavior.
-**The differential's equivalence scope is the DECISION channel only — `{permissionDecision, permissionDecisionReason/additionalContext}` on stdout — NOT stderr side-output.** This distinction became load-bearing when `validate-commit.sh` was folded into the dispatcher (Phase 2): unlike the other folded guards, validate-commit emits content **warnings to stderr** even on the allow path. As a separate hook process, those warnings printed independently of whether another hook denied. In the folded first-deny-wins chain, if an earlier guard (e.g. block-no-verify) denies, `check_validate_commit` never runs and its stderr warnings are not printed for that invocation. **This stderr-suppression-on-prior-deny is an intentional, correct delta — not a regression:** a denied commit is not happening, so its content warnings are moot; the decision channel (what the golden test asserts) is byte-identical. The general rule: when folding a guard that side-outputs to stderr, the golden differential pins the decision channel; stderr-on-prior-deny is explicitly out of equivalence scope, because re-running a later check purely to reproduce its stderr would violate first-deny-wins.
+**The fan-in rule.** A dispatcher with any deny-capable leg runs first-deny-wins in registration order, and non-deny envelopes compose into one: `updatedInput` from the sole rewriter, `permissionDecision` allow if any leg that ran allowed, `additionalContext` and `systemMessage` joined in order. Concatenate-all is the zero-deny special case of the same rule, not a second one. Legs see the original payload unless the dispatcher documents rewrite threading. The three fan-ins are examples: `preuse-agent-dispatch.py` (deny legs plus a composed rewrite), `preuse-skill-dispatch.py` (advisory legs only, so it reduces to concatenate-all), and `preuse-workflow-dispatch.py` (deny, advisory and allow legs, the Agent shape). A new fan-in follows this rule and states its token in its module docstring.
+
+**The differential's equivalence scope is the DECISION channel only — `{permissionDecision, permissionDecisionReason/additionalContext}` on stdout — NOT stderr side-output.** A folded guard that warns on stderr (`validate-commit.sh`) prints nothing when an earlier guard denies. **That stderr-suppression-on-prior-deny is an intentional, correct delta, not a regression:** a denied call is not happening, so the warnings are moot. Stderr-on-prior-deny is out of equivalence scope; re-running a later check only to reproduce its stderr would violate first-deny-wins.
 
 ## `async: true` on touched-files hooks races safe-commit reads
 
@@ -116,12 +118,14 @@ Gate the message on measured shrink: compare the transcript token count before a
 Hook scripts that branch on model name should match family prefixes, not pinned version strings.
 
 Good:
+
 ```bash
 if [[ "$CLAUDE_MODEL" == *opus* ]]; then ...
 if [[ "$CLAUDE_MODEL" == *sonnet* ]]; then ...
 ```
 
 Bad:
+
 ```bash
 if [[ "$CLAUDE_MODEL" == *opus*4*6* ]]; then ...  # breaks on next minor release
 ```
@@ -286,3 +290,8 @@ A hook that lives on a high-frequency event (`Stop`, `UserPromptSubmit`, `PostTo
 - **Cost ceiling: one `os.path.getsize` stat plus one small cursor-file read on the steady-state (nothing-new) path — no subprocess, no full-file read.** Only the rare firing path seeks to the prior offset and reads the (small) delta. This is what makes the pattern safe to hang off a high-frequency event at all; an unconditional subprocess or full-file scan on every `Stop`/`UserPromptSubmit`/`PostToolUse` would not be.
 
 Being per-session also buys concurrency-safety for free: two EM sessions sharing a working tree each own their own cursor file, so there is no shared mutable state to race, lock, or make atomic. See `docs/wiki/concurrent-em-git-operations/concurrent-em-hazards.md` for the hazard-catalog framing of the same point.
+
+## Field rules
+
+- **Teardown tools find targets from authoritative sources** — port owner, pidfile, supervisor children — never an argv/name signature, which matches unrelated processes including the session's own stdio MCP child; signature sweep only behind an explicit `--all`. Stop the auto-restart monitor first, or it respawns what was killed.
+- **A guard validating call options inspects the option's value expression, not token presence.** `model: cond ? undefined : 'sonnet'` satisfies a presence check and still inherits the parent model; un-credit bare `undefined`/`null`.

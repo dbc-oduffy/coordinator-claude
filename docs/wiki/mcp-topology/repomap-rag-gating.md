@@ -80,12 +80,14 @@ if [ -z "$_cc_claude_klabauter" ]; then
   _cc_claude_klabauter="$(python3 "$_cc_root/hooks/scripts/_engine_root.py" 2>/dev/null)"
 fi
 if [ -z "$_cc_claude_klabauter" ] || [ ! -d "$_cc_claude_klabauter" ]; then
+  # repos.claude_klabauter lives in <settings-home>/machine-local/registry.local.toml
   echo "ERROR: claude-klabauter root unresolved (checked REPO_CLAUDE_KLABAUTER, CLAUDE_KLABAUTER_ROOT, and the coordinator settings-home registry/pointer via _engine_root.py) — set REPO_CLAUDE_KLABAUTER, or run: machine-local set repos.claude_klabauter <path>" >&2
   exit 1
 fi
 
 # 1. Detect RAG state
-RAG_STATE=$(python3 "$_cc_claude_klabauter/coordinator/bin/check-rag-state.py" 2>/dev/null || echo "unknown")
+# PowerShell host: & "$env:COORDINATOR_SETTINGS_HOME\bin\check-rag-state.exe"
+RAG_STATE=$("${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/check-rag-state" 2>/dev/null || echo "unknown")
 
 # 2. Gate on state
 case "$RAG_STATE" in
@@ -94,7 +96,8 @@ case "$RAG_STATE" in
     ;;
   absent|stale|unknown)
     # Generate (stale/unknown → note it as RAG-fallback if RAG_STATE != absent)
-    python3 "$_cc_claude_klabauter/coordinator/bin/generate-repomap.py"
+    # PowerShell host: & "$env:COORDINATOR_SETTINGS_HOME\bin\generate-repomap.exe"
+    "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/generate-repomap"
     if [ "$RAG_STATE" != "absent" ]; then
       echo "Note: Repomap generated as RAG-fallback (RAG state: ${RAG_STATE})."
     fi
@@ -143,12 +146,14 @@ block in a guard that exits 0 on any failure:
     fi
   fi
 
-  RAG_STATE=$([ -n "$_cc_claude_klabauter" ] && python3 "$_cc_claude_klabauter/coordinator/bin/check-rag-state.py" 2>/dev/null || echo "unknown")
+  # PowerShell host: & "$env:COORDINATOR_SETTINGS_HOME\bin\check-rag-state.exe"
+  RAG_STATE=$([ -n "$_cc_claude_klabauter" ] && "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/check-rag-state" 2>/dev/null || echo "unknown")
   case "$RAG_STATE" in
     fresh) ;;
     *)
       if [ -n "$_cc_claude_klabauter" ]; then
-        python3 "$_cc_claude_klabauter/coordinator/bin/generate-repomap.py" 2>&1 >/dev/null | while IFS= read -r _line; do
+        # PowerShell host: & "$env:COORDINATOR_SETTINGS_HOME\bin\generate-repomap.exe"
+        "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/generate-repomap" 2>&1 >/dev/null | while IFS= read -r _line; do
           echo "[coordinator] WARNING: generate-repomap.py: $_line" >&2
         done
       fi

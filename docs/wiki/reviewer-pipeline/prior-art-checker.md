@@ -133,13 +133,13 @@ Sidecars use `kind:` rather than `type:` in their frontmatter to distinguish mac
 
 ## Distribution
 
-The reviewer-side consumption block is synced via `verify-snippet-sync prior-art-check-consumption --fix` (an engine-resident script) from `plugins/coordinator/snippets/prior-art-check-consumption.md` to all Opus reviewer prompts:
+The reviewer-side consumption block is synced via `verify-snippet-sync prior-art-check-consumption --fix` (an engine-resident script) from `plugins/coordinator-claude/coordinator/snippets/prior-art-check-consumption.md` to all Opus reviewer prompts:
 
-- `plugins/coordinator/agents/staff-eng.md` (the Staff Engineer)
-- `plugins/coordinator/agents/eng-director.md` (the Director of Engineering)
+- `plugins/coordinator-claude/coordinator/agents/staff-eng.md` (the Staff Engineer)
+- `plugins/coordinator-claude/coordinator/agents/eng-director.md` (the Director of Engineering)
 - a game-dev sibling repo's `game-dev/agents/staff-game-dev.md` (the Game Dev Reviewer — resolved via a machine-local sibling-repo registry key; skipped when that repo is absent locally; `game-dev` is not part of the OSS `coordinator-claude` distribution)
-- `plugins/coordinator/agents/staff-data-sci.md` (the Data Science Reviewer)
-- `plugins/coordinator/agents/senior-front-end.md` (the Front-End Reviewer)
+- `plugins/coordinator-claude/coordinator/agents/staff-data-sci.md` (the Data Science Reviewer)
+- `plugins/coordinator-claude/coordinator/agents/senior-front-end.md` (the Front-End Reviewer)
 - `<plugin-consumer>/game-dev/agents/staff-game-dev.md` (optional domain-plugin the Game Dev Reviewer variant)
 
 The sync verifier is auto-discovered by `/update-docs` Phase 11b.
@@ -374,11 +374,11 @@ as `live`. A capability whose seam has never been self-verified reachable is
 The bucket's action is REPORT-only, never a cross-repo write of its own: the
 sidecar directs the EM to route a `cross-repo-memo` and hand the PM the
 receiver path for relay — the same draft-then-surface-to-PM discipline every
-cross-repo ask in this system follows (`cross-repo-communication.md`: "hand
+cross-repo ask in this system follows (`coordinator/docs/wiki/cross-repo-communication.md`: "hand
 the PM the receiver path for relay" is part of "fix everything," alongside
 acting the inbound and sending the outbound memo). Any engine op reading a
 sibling's authored manifest is read-only against that sibling's tree — the
-same invariant `cross-repo-communication.md` § When lifting a cross-repo
+same invariant `coordinator/docs/wiki/cross-repo-communication.md` § When lifting a cross-repo
 primitive states as "ship what makes sense for OUR install surface; teach
 how OTHERS should handle theirs in a wiki — never code both sides from our
 repo." The lens itself never auto-blocks and never mutates the plan —

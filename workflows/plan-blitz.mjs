@@ -170,6 +170,7 @@ export const meta = {
     { title: 'Premise check', detail: 'One sonnet pass per drafted plan, dispatched once its plan path is trusted and before any reviewer fires. Resolves the load-bearing citations in that plan against the tree — paths, symbols, refs, whether its falsifier can report red, and whether a named thing means what the plan says. It reports per-class ROWS and never a plan-level verdict; the seam after it translates those rows onto REVIEW_SCHEMA so they reach the reviewers that already apply every finding themselves. A premise miss routes BLOCKED; the class-5 rows with no writable fix are NAMED for the reviewers, who own the separating test.' },
     { title: 'Review', detail: 'Reviewers resolved per baton from the EM dispatch spec, never prescribed in the plan file. Fires unconditionally — the EM is not consulted about whether a plan deserves review. Same plan means sequential: each reviewer applies its own findings in place and runs `review-findings-ledger verify` on its own sidecar before the next reviewer starts. A PIVOT/REJECTED verdict applies nothing and suspends every finding under it, with co-reviewer findings still logged.' },
     { title: 'Dispatch', detail: 'One executor per XS/dispatch baton whose EXECUTION gate is open. Runs AFTER planning so the wave plans against a stable tree and the only mutating phase is last. Bounded to the remit the baton itself states — an XS that grows is a sizing defect, not a bigger job.' },
+    { title: 'Prep gate', detail: 'One sonnet agent per authored plan, after the reviewers and before the readiness gate. Runs plan.prep_gate, repairs only findings the engine marks mechanical, re-gates exactly once; the re-gate verdict decides, and a plan still NOT-PREPPED is pulled with the gate report attached.' },
     { title: 'Readiness gate', detail: 'One Opus blitz-em over the durable trail. Per plan: ready, pulled, or replan. A PIVOT routes to a replan baton for a later wave rather than halting this one, and is reconciled mechanically rather than left to the gate. Host availability on the executing box is never a pull reason and is stated in the brief, never reconciled: every mechanical reconciliation here makes a verdict stricter, and promoting one would run with the incentive the gate already has rather than against it.' },
     { title: 'Adjudicate', detail: 'One agent per entry that would reach the PM (`surfacedToPm`, `routedElsewhere` with route pm-decision). coordinator:apm rules scope, direction and priority; coordinator:staff-eng (or the domain reviewer the baton calls for) rules code. The adjudicator writes a `pm_ruling:` line on the baton and returns a verdict. Only an entry it marks `pm_only` — important AND urgent AND no clear right answer, or an external or irreversible action — stays in `surfacedToPm`; the rest move to `adjudicated`.' },
   ],
@@ -402,6 +403,19 @@ const READINESS_SCHEMA = {
 // rows the same way it reads a reviewer's, through `planCoverageAsReview` below for the second
 // one. Kept loose on purpose, same rung as PREMISE_SCHEMA — an agent whose structured-output call
 // is forced into a narrower shape than its own report format degrades its answer to fit the field.
+const PREP_GATE_REVISE_SCHEMA = {
+  type: 'object',
+  required: ['batonId', 'before', 'after', 'tldr'],
+  properties: {
+    batonId: { type: 'string' },
+    before: { type: 'string', enum: ['PREPPED', 'NOT-PREPPED', 'REFUSED', 'ENGINE-ERROR'] },
+    after: { type: 'string', enum: ['PREPPED', 'NOT-PREPPED', 'REFUSED', 'ENGINE-ERROR'] },
+    repaired: { type: 'array', items: { type: 'string' } },
+    gateReport: { type: 'string' },
+    tldr: RETURN_TLDR_SCHEMA,
+  },
+}
+
 const PRIOR_ART_SCHEMA = {
   type: 'object',
   required: ['verdict', 'sidecarPath', 'tldr'],
@@ -1061,6 +1075,9 @@ reader can check; an ABSENT key is one nobody can see. Declare all four:
      fire time, which is what an undercount needs in a world where planning runs waves ahead of
      execution. Do not restate the spine's own file count here. A plan resting on no counted
      premise declares \`census: []\`.
+     The prep gate refuses any \`command\` outside this form, quoted from the engine: one pipeline of read-only commands (grep, rg, find, ls, wc, sed, awk, jq, git <read>, ...) joined by | && || ; -- \`python <script>\` / \`python -m <module>\` only when the target is a literal git-tracked file of this repo (no $VAR, no glob, no untracked or site-packages target); no \`python -c\`, no \`$( )\` or backticks, no \`for\`/\`while\` loops, no redirect except to /dev/null; a loop over N things is N census entries, or one \`grep -c\`/\`find | wc -l\` over all of them.
+     So no \`node -e\`, \`tsx\` or \`pnpm exec\` either: a count that needs a program is a tracked
+     read-only script the command names by path.
 
   3. \`external_gate[].requires:\` ON EVERY UNCLEARED GATE. A blocker owned by another repo is a
      declared gate, never a sentence in the body. \`requires: landed-work\` means wait for them —
@@ -1095,8 +1112,16 @@ absence, because it certifies.`
 // `## What this covers` section as the plan's own words the moment the plan carries no better
 // source, and a paraphrase there is a silent edit of the PM's ask.
 const PM_BRIEF_RULE = `
-CARRY THE BATON'S ASK INTO THE PLAN'S OWN BRIEF. This baton record is the only PM utterance behind
-this plan, and nothing downstream of you reads the baton again — the emitter and every reviewer
+PM VERBATIMS FIRST. When the sizing that routed this baton carries \`pm_verbatims\`, the PM's own
+words are already captured: Read the sizing and paste each \`pm_verbatims[].text\` VERBATIM, in
+the order stored (newest first), as the \`## PM brief\` blockquote, one \`> \` block per turn
+separated by a bare \`>\` line. No tool step: a shell read of \`state/sizings/\` trips the
+doctrine-surface write guard. Then set frontmatter
+\`pm_brief: {source: pm-verbatim, ref: "<repo-relative sizing path>"}\`. Do not re-extract, trim, or
+paraphrase them. When the sizing carries no \`pm_verbatims\`, the baton rule below applies unchanged.
+
+CARRY THE BATON'S ASK INTO THE PLAN'S OWN BRIEF. Absent sizing \`pm_verbatims\`, this baton record is
+the only PM utterance behind this plan, and nothing downstream of you reads the baton again — the emitter and every reviewer
 read the PLAN, not this record. Copy the baton's \`summary:\` frontmatter line, a blank line, then
 its \`## What this covers\` section (when present), VERBATIM — never paraphrased, trimmed, or
 summarised — into a \`## PM brief\` section in the plan body, as a blockquote. Set frontmatter
@@ -1853,6 +1878,19 @@ ${REVIEW_SIDECAR_RULE(sidecarFor(trailDir, baton.id, `review-${reviewer}-pointer
 // Phase 5b — Dispatch (XS only)
 // ---------------------------------------------------------------------------
 
+// A HUMAN-ONLY OR OTHER-HOST PULL IS A CLAIM ABOUT THIS HOST, AND A CLAIM IS PROVED BY A COMMAND.
+// Tripwire A-HUMAN-ONLY-PULL-CARRIES-ITS-PROBE. Shared by the executor brief and the readiness gate
+// so both ends hold the same bar. Measured on example-stats-repo (run 20261007T231156Z): two XS batons were
+// pulled "needs human / needs the Windows box" while running on the Windows box.
+const HUMAN_ONLY_PULL_RULE = `**A human-only, second-person, or other-host reason is valid only with its probe.** Before a
+\`blockedReason\` (or a pull) says a step needs a human, a second person, or a different host, name
+(a) the specific capability missing on THIS host and (b) the command whose output proved it is
+missing. Prose such as "human eyeball" or "a second person" is not a gate: an independent agent
+driving the browser (chrome-devtools or equivalent) is the second person unless your probe shows
+that capability absent. An open question the EM owns is decided by the EM, never pulled; state
+your recommendation instead. A reason with no probe is invalid and is treated as a missing
+capability claim that was never checked.`
+
 function executor(baton, decision, trailDir) {
   return trackAgent('executor', agent(
     `Do the work this baton asks for. It is an XS: the EM sized it, and the size is final.
@@ -1900,6 +1938,8 @@ and named in your summary.
 
 Report honestly. \`completed: false\` with a reason is a first-class outcome and costs nothing;
 a partial reported as done costs whoever reads the trail next.
+
+${HUMAN_ONLY_PULL_RULE}
 ${REPO_ROOT_RULE}
 ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'execution'))}`,
     { model: 'sonnet', ...withRole('coordinator:executor'),
@@ -2792,6 +2832,64 @@ function ledgerLine(plan, reviews) {
     .join('; ')
 }
 
+// Phase 5c — prep-gate revise-in-place. The readiness gate cannot run the mise-prep bar (no
+// fs/CLI primitive here), so one sonnet agent per authored plan measures it, applies ONLY the
+// findings the engine marks `mechanical` by following their `repair`, and re-gates ONCE. One loop,
+// never two: a plan still NOT-PREPPED after it is pulled with the gate report attached.
+function prepGateRevise(baton, plan, trailDir) {
+  return trackAgent('prep-gate-revise', agent(
+    `Run the mise-prep gate over one authored plan and repair what is mechanically repairable.
+
+Baton: ${baton.id} — "${baton.title}"
+Plan: ${plan.planPath}
+
+${CLI_RESOLUTION_RULE}
+
+1. Run \`coordinator-invoke plan.prep_gate '{"repo_root":"<repo root>","plan":"${plan.planPath}"}'\`.
+   Its reply carries \`verdict\` (PREPPED | NOT-PREPPED | REFUSED) and \`classes\`, each class
+   holding findings with \`mechanical\` and \`repair\`. Record the verdict as \`before\`.
+2. PREPPED: change nothing; \`after\` is the same verdict.
+3. NOT-PREPPED: edit the plan in place for every finding with \`mechanical: true\`, following its
+   \`repair\` text and nothing else. A finding with \`mechanical: false\` is an authoring judgment
+   you do not make: leave it, and do not touch any other part of the plan. List what you changed in
+   \`repaired\`.
+4. Run the gate exactly ONCE more and record that verdict as \`after\`. Never repair a second time,
+   whatever the re-gate says.
+5. If \`after\` is not PREPPED, put the gate's \`message\` and the remaining findings (class, kind,
+   detail) in \`gateReport\`.
+
+REFUSED or a CLI failure is reported as such in \`before\`/\`after\`; do not retry or work around it.
+${REPO_ROOT_RULE}
+${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'prep-gate-revise'))}`,
+    // Enricher, not executor: block_subagent_plan_body_write denies an executor every plan-body
+    // edit, which would leave this loop able to name a mechanical repair but never apply it.
+    { model: 'sonnet', ...withRole('coordinator:enricher'),
+      label: `prep-gate:${baton.id}`,
+      phase: 'Prep gate',
+      schema: PREP_GATE_REVISE_SCHEMA,
+    },
+  ))
+}
+
+const prepGateById = new Map()
+await Promise.all(
+  chains
+    .filter(Boolean)
+    .filter(({ plan }) => plan && plan.status !== 'blocked' && plan.planPath)
+    .map(async ({ baton, plan }) => {
+      const result = await prepGateRevise(baton, plan, trailDir)
+      if (result) prepGateById.set(baton.id, result)
+    }),
+)
+
+function prepGateLine(batonId) {
+  const r = prepGateById.get(batonId)
+  if (!r) return null
+  const repaired = (r.repaired || []).length ? ` repaired: ${r.repaired.join('; ')}` : ''
+  const report = r.after !== 'PREPPED' && r.gateReport ? `\n      gate report: ${r.gateReport}` : ''
+  return `${r.before} -> ${r.after}${repaired}${report}`
+}
+
 // Phase 6 — the EM's terminal gate, over the trail rather than over the agents' summaries.
 const trailLines = chains
   .filter(Boolean)
@@ -2824,7 +2922,7 @@ const trailLines = chains
       reviews: ${verdicts}${pivots.length ? `  <-- PIVOT (${pivots.map((r) => r.reviewer).join(', ')})` : ''}${blockers.length && !pivots.length ? '  <-- BLOCKED, fixable' : ''}${mixed}${aliases.length ? `\n      alias resolved: ${aliases.map((r) => `${r.reviewer}: ${r.aliased}`).join('; ')}` : ''}
       ${reviews.map((r) => `sidecar: ${r.sidecarPath}${r.premiseFailure ? ` premise-failure: ${r.premiseFailure}` : ''}${r.alternativesConsidered ? ` alternatives: ${r.alternativesConsidered}` : ''}`).join('\n      ')}
       premise rows: ${premiseLines(premise).split('\n').join('\n      ')}
-      findings ledgers: ${ledgerLine(plan, reviews)}`
+      findings ledgers: ${ledgerLine(plan, reviews)}${prepGateLine(baton.id) ? `\n      prep gate (after reviewers, one revise-in-place loop): ${prepGateLine(baton.id)}` : ''}`
   })
   .join('\n')
 
@@ -2866,6 +2964,12 @@ dispatch that did NOT finish its remit, and \`replan\` for one whose remit was w
 // was Linux while its own declared `external_gate` withheld 8 of 13 rows for the Windows corpus
 // host, and `cq-17` was pulled for serialising behind it. Both plans were ready to execute on the
 // host they name. Tripwire: THE-BOX-THE-WAVE-RAN-ON-IS-NOT-THE-BOX-THE-PLAN-RUNS-ON.
+//
+// The inverse claim is bounded the same way: a pull (or a dispatched baton's `blockedReason`)
+// that says human-only, second person, or other host must carry the missing capability on THIS
+// host and the command that proved it (HUMAN_ONLY_PULL_RULE). The brief states that an unprobed
+// reason is invalid; like the rest of this block it is a brief rule, not a keyword reconciliation
+// over free text.
 
 const readiness = await trackAgent('readiness-gate', agent(
   `phase: readiness-gate
@@ -2926,6 +3030,12 @@ Pull for properties of the PLAN: a finding a reviewer logged but did not apply, 
 not verify, acceptance criteria that contradict each other or the baton.
 "The rows cannot execute on this box" is a property of the box, and the plan already declared it.
 
+${HUMAN_ONLY_PULL_RULE}
+Apply it to your own reasons and to every dispatched baton's \`blockedReason\` above: a human-only,
+second-person, or other-host reason that names no missing capability on this host and no probe
+command is an INVALID pull. Treat that baton on its merits instead — an EM-owned open question is
+decided here, and a verification an agent can drive is not a human gate.
+
 **Records sharing a \`deliverable_id\` are a continued lineage, not a duplicate.** The id is the
 thread tying every stage of one deliverable together, so each successor keeps its predecessor's —
 that is the whole point of the field, and the engine's own resolvers key on the id alone with no
@@ -2944,6 +3054,11 @@ not resolve: it emits a family and its evidence paths with no \`winner\` field a
 that posture. Measured on project-rag-ue-addon wave 1, baton cpr-22, where the gate recommended
 deduplicating a healthy lineage — and the second file it named did not even carry the contested
 id.
+
+The \`prep gate\` line on a plan is the mise-prep bar measured AFTER the reviewers, with its
+mechanical findings already repaired once. \`after\` is the verdict that decides: a plan whose
+\`after\` is not PREPPED is pulled, with the gate report attached to your reason. It is mechanically
+enforced after you answer (a \`ready\` on it is rewritten to \`pulled\`), and there is no second loop.
 
 Open the sidecars. A summary line saying OK is not evidence anyone checked — a reviewer can
 confirm an author's prose without opening the code that would falsify it. Spot-check one
@@ -3151,6 +3266,21 @@ const verdicts = ((readiness && readiness.verdicts) || []).filter((v) => fireBat
         'EM returned ready; the plan was written and no reviewer ran over it, so no finding is '
         + 'known to have been applied. Reconciled to pulled.',
       reason: `${entry.reason} [reconciled: no reviewer ran over a plan that exists]`,
+    }
+  }
+
+  // PREP GATE, reconciled mechanically: the re-gate verdict decides. Only a measured non-PREPPED
+  // `after` pulls; a plan with no prep-gate row (blocked, not authored this fire) is untouched.
+  const prepRow = prepGateById.get(v.batonId)
+  if (prepRow && prepRow.after !== 'PREPPED' && entry.verdict === 'ready' && !reviews.some((r) => r.pivot)) {
+    return {
+      ...entry,
+      verdict: 'pulled',
+      prepGateOverride:
+        `EM returned ready; plan.prep_gate was ${prepRow.before} before and ${prepRow.after} after `
+        + 'the one revise-in-place loop. Reconciled to pulled.',
+      prepGateReport: prepRow.gateReport || null,
+      reason: `${entry.reason} [reconciled: prep gate ${prepRow.after} after revise — ${prepRow.gateReport || 'see gate report'}]`,
     }
   }
 

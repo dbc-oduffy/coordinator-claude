@@ -52,6 +52,7 @@ Before beginning work, review any ANTI-REPETITION section in your dispatch promp
 Some Agent Teams teammates enter an idle loop where they stop processing shutdown requests and plain-text messages. There is no clean live-kill mechanism — they will eventually time out on their own. (Note: `TeamDelete` was removed in v2.1.178; teams auto-clean on session exit.)
 
 **Before attempting any cleanup of a stuck teammate:**
+
 1. **Commit all in-progress work** — identify the specific deliverable paths the stuck agent (or its peers) wrote, stage those paths explicitly, and commit via the scoped helper: `coordinator-safe-commit "<subject>"`. Do not use `git add -A` or `git add .` — under stress-of-recovery, blanket staging is tempting but produces audit-trail-misleading commits. Stage only the deliverables you can name.
 2. **Archive the deliverable** — if the session's output is a file, verify it exists on disk and is substantive before the session concludes.
 3. **Then** leave the stuck agent to time out — the team auto-cleans on session exit. The work is safe.
@@ -70,6 +71,7 @@ The stuck agent's timeout does not block the session from advancing. Once delive
 ### Five OpenHands scenarios mapped to four canonical patterns
 
 The detection layer responds to the OpenHands taxonomy:
+
 1. Same action, same observation
 2. Same action, error observation
 3. Monologue (3+ paragraphs without tool call)
@@ -127,6 +129,7 @@ Build own tree-sitter integration directly.
 | Rest | ×1.0 |
 
 Two outputs:
+
 - `.claude/repomap.md` — global static
 - `.claude/repomap-task.md` — task-scoped dynamic
 

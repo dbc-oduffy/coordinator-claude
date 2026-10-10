@@ -408,13 +408,78 @@ def _final_assistant_text(transcript_path: str) -> str:
 _NEGATION_BEFORE = re.compile(r"\b(?:nothing|no|not|never|none|\w+n't)\b(?:\s+[\w']+){0,3}\s*$", re.IGNORECASE)
 
 
-def _fires(pattern: "re.Pattern[str]", text: str) -> bool:
-    """A trigger match counts unless a negation sits within the three words before it, in the
-    same clause -- "Nothing is waiting on you" states that no handoff exists."""
-    return any(
-        not _NEGATION_BEFORE.search(text[max(0, m.start() - 60):m.start()])
-        for m in pattern.finditer(text)
+# Reported speech: the call is attributed to a named party or an existing ruling
+# ("Angelique ruled ...", "per the APM ruling", "the APM's call was") or sits in past tense
+# ("was your call"). Scoped to the text since the last sentence/semicolon/contrast boundary,
+# so a fresh handoff after "; but" still fires. Mirrors the engine twin's predicate.
+_ATTRIBUTION_RE = re.compile(
+    r"\b(?:ruled|rules|ruling|rulings|decided|determined|signed\s+off|approved|answered)\b"
+    r"|\bper\s+(?:the\s+)?[\w'-]+(?:\s+[\w'-]+)?\s+(?:call|decision|answer)\b"
+    r"|['’]s\s+(?:call|decision)\b",
+    re.IGNORECASE,
+)
+_PAST_COPULA_TAIL_RE = re.compile(r"\b(?:was|were|had\s+been)\s+$", re.IGNORECASE)
+_ATTRIBUTION_SCOPE_BOUNDARY_RE = re.compile(r"[.!?;\n]|\b(?:but|however|though|although)\b", re.IGNORECASE)
+_QUOTE_CHARS = "\"“”`"
+
+
+def _reported_speech(prefix: str) -> bool:
+    if _PAST_COPULA_TAIL_RE.search(prefix):
+        return True
+    boundaries = list(_ATTRIBUTION_SCOPE_BOUNDARY_RE.finditer(prefix))
+    scope = prefix[boundaries[-1].end():] if boundaries else prefix
+    return bool(_ATTRIBUTION_RE.search(scope))
+
+
+# A clause opening with a named third party -- a hyphenated session name carrying a digit
+# ("example-stats-repo-1f"), or "peer" / "session" / "Group EM" -- reports that party's state.
+_THIRD_PARTY_OPENER_RE = re.compile(
+    r"^\W*(?:(?:the|that|a|another|your|their)\s+)?"
+    r"(?:(?=[\w-]*\d)[a-z][a-z0-9]*(?:-[a-z0-9]+){2,}|peers?|sessions?|group\s+ems?)\b",
+    re.IGNORECASE,
+)
+_FIRST_PERSON_RE = re.compile(r"\b(?:I|we|this\s+session)\b|\b(?:I|we)['’]", re.IGNORECASE)
+
+
+def _third_party_clause(prefix: str) -> bool:
+    boundaries = list(_ATTRIBUTION_SCOPE_BOUNDARY_RE.finditer(prefix))
+    clause = prefix[boundaries[-1].end():] if boundaries else prefix
+    return bool(_THIRD_PARTY_OPENER_RE.match(clause)) and not _FIRST_PERSON_RE.search(clause)
+
+
+_DECLARED_OPERATOR_ACTION_RE = re.compile(
+    r"^[ \t]*(?:(?:[-*+>]|\d+[.)])[ \t]+)?(?:\*\*|__)?"
+    r"(?:hands-on[ \t]+task|operator[ \t]+action)[ \t]*:",
+    re.IGNORECASE,
+)
+
+
+def _strip_declared_operator_actions(text: str) -> str:
+    """Drop lines that declare an operator-only physical act (`Hands-on task:`
+    / `Operator action:`) so no trigger or decidability check reads them."""
+    return "\n".join(
+        ln for ln in text.split("\n") if not _DECLARED_OPERATOR_ACTION_RE.match(ln)
     )
+
+
+def _inside_quote(prefix: str) -> bool:
+    line = prefix[prefix.rfind("\n") + 1:]
+    return sum(1 for ch in line if ch in _QUOTE_CHARS) % 2 == 1
+
+
+def _fires(pattern: "re.Pattern[str]", text: str) -> bool:
+    """A trigger match counts unless a negation sits within the three words before it in the
+    same clause ("Nothing is waiting on you" states no handoff exists), it sits inside a quoted
+    span on its line, or it is reported speech. Undecidable cases stay silent: a missed handoff
+    is cheaper than a false stop."""
+    for m in pattern.finditer(text):
+        prefix = text[:m.start()]
+        if _NEGATION_BEFORE.search(prefix[-60:]):
+            continue
+        if _inside_quote(prefix) or _reported_speech(prefix) or _third_party_clause(prefix):
+            continue
+        return True
+    return False
 
 
 def _matches_manufactured_blocker(text: str) -> bool:
@@ -770,8 +835,8 @@ def main() -> int:
     if not isinstance(transcript_path, str) or not transcript_path:
         return 0
 
-    text = _final_assistant_text(transcript_path)
-    if not text:
+    text = _strip_declared_operator_actions(_final_assistant_text(transcript_path))
+    if not text.strip():
         return 0
 
     if not _matches_manufactured_blocker(text):

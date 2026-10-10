@@ -112,6 +112,7 @@ why-we-decided (channel 5)? Only a NO to all four earns a memory entry.
 
 **NEGATIVE SPEC, HARDENED.** These are the observed junk classes, named so they are refusable
 rather than merely discouraged:
+
 - Rapport and personality trivia about the human — preferences, humour, what not to say to
   them. This helps no one and is the single most common form of abuse of this channel.
 - Anything restating doctrine already carried by channels 1 through 3. If it's already a rule

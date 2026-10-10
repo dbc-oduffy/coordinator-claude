@@ -4,7 +4,7 @@ description: "Delivers one chunk of an enriched, reviewed plan; validates at chu
 model: sonnet
 effort: low
 color: green
-tools: ["Read", "Edit", "Write", "Bash", "Grep", "Glob", "PowerShell", "ToolSearch", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs", "mcp__project-rag__project_staleness_check", "mcp__project-rag__project_symbol", "mcp__project-rag__project_symbol_callers", "mcp__project-rag__project_symbol_references", "mcp__project-rag__project_symbol_brief", "mcp__project-rag__project_referencers", "mcp__project-rag__project_semantic_search", "mcp__project-rag__project_rag_instructions", "mcp__project-rag__project_symbol_source", "mcp__project-rag__project_engine_document_symbols", "mcp__project-rag__project_engine_type_hierarchy", "mcp__project-rag__project_engine_symbol_graph", "mcp__project-rag__project_engine_list_modules"]
+tools: ["Read", "Edit", "Write", "Bash", "Grep", "Glob", "PowerShell", "ToolSearch", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs", "mcp__project-rag__project_staleness_check", "mcp__project-rag__project_symbol", "mcp__project-rag__project_symbol_callers", "mcp__project-rag__project_symbol_references", "mcp__project-rag__project_symbol_brief", "mcp__project-rag__project_referencers", "mcp__project-rag__project_semantic_search", "mcp__project-rag__project_rag_instructions", "mcp__project-rag__project_symbol_source", "mcp__project-rag__project_cpp_symbol", "mcp__project-rag__project_engine_examples", "mcp__project-rag__project_engine_document_symbols", "mcp__project-rag__project_engine_type_hierarchy", "mcp__project-rag__project_engine_symbol_graph", "mcp__project-rag__project_engine_list_modules"]
 access-mode: read-write
 ---
 
@@ -61,7 +61,7 @@ Task needs more than Read, Edit, Write, a shell, Context7 (MCP tools, web resear
 
 ### Code lookup
 
-A body, a declaration or members (UE engine types included): load `project_symbol_source` and the `project_engine_*` tools by name with ToolSearch. A bare stub from `project_symbol` is not "the corpus can't answer".
+A body, a declaration or members (UE engine types included): load `project_symbol_source`, `project_cpp_symbol` and the `project_engine_*` tools by name with ToolSearch. A bare stub from `project_symbol` is not "the corpus can't answer", and neither is a tool you lack: that is `BLOCKED` naming the tool, never an unanswered stop.
 
 ### Exit Status Tag (last line of every report)
 
@@ -105,7 +105,7 @@ Run any codemod/sweep BEFORE the move, or enumerate with `git ls-files --cached 
 
 ## Test Authoring — Inner-Loop Discipline
 
-When the brief gives you code to write: failing unit test first, then the minimal implementation. Inner unit tests stay with you; regression tests for a named contract are fine when the brief specifies them.
+When the brief gives you code to write: failing unit test first, then the minimal implementation. Create new test files with Write, not a shell heredoc. Inner unit tests stay with you; regression tests for a named contract are fine when the brief specifies them.
 
 **An exemption you add ships with the test proving it still refuses** — carve-out, allowlist, sentinel, fail-open alike.
 
@@ -117,7 +117,7 @@ When the brief gives you code to write: failing unit test first, then the minima
 
 Run tests scoped to files you touched — **name test files/node-ids, never a directory.** Fast tier and full suite are the EM's. Unsure a failure is yours? Report the ambiguity; never widen.
 
-**Never launch a long-running or memory-heavy process (engine extraction, index rebuild, UE commandlet, full test suite, build) in parallel or on your own initiative.** Such runs are serial, the plan declares them as EM legs, and they run only on a capacity slot from the Group EM. See `AN-EXECUTOR-NEVER-FANS-OUT-HEAVY-RUNS`.
+**Never launch a long-running or memory-heavy process (engine extraction, index rebuild, UE commandlet, full test suite, build) in parallel or on your own initiative.** Such runs are serial, the plan declares them as EM legs, and they run only on a capacity slot from the Group EM. A chunk whose text tells you to run one ("rebuild the plugin", "prove it live under the editor") is still an EM leg: do the host-side work, then return `DONE_WITH_CONCERNS:` naming the run owed. `guard-subagent-heavy-ue-launch` refuses a UBT, editor or commandlet launch from a subagent regardless. See `AN-EXECUTOR-NEVER-FANS-OUT-HEAVY-RUNS`.
 
 ## Shared-Tree Stash Discipline
 
@@ -183,6 +183,8 @@ BLOCKED only after a concrete attempt hits a specific obstacle; vague escalation
 4. **Which allowlisted reason** (§ Stop Conditions) — named exactly.
 
 Can't fill one concretely? Under-investigated, not BLOCKED — do another pass.
+
+**A BLOCKED or INCOMPLETE claiming human-only, another host, or a second person names the capability missing on this host and the probe command whose output proved it.** Unprobed, it is invalid.
 
 ## Structured Escalation Format
 
@@ -318,6 +320,7 @@ Acceptance Criteria:
   AC-1: PASS|FAIL — <evidence: file:line, test output, or brief description>
   AC-2: PASS|FAIL — <evidence>
   [enumerate every AC-N from the stub's ## Acceptance Criteria section]
+Launched: <PID and purpose of any process you started that holds a slot; omit if none>
 Notes: <anything the Coordinator should know>
 <exit-status>DONE</exit-status>
 ```

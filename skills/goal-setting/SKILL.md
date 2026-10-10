@@ -129,7 +129,9 @@ pickup):
 `coordinator-doc-new --type roadmap-seed --goals "<goal-id>" --title "<roadmap-topic>"`.
 
 Each stub carries `kind: roadmap-seed`, `origin_goal_id:` FK (via `--goals`), `deployment_state:
-awaiting_gate`, a one-line title naming the capability arc.
+awaiting_gate`, a one-line title naming the capability arc. **Split on the gate:** work that needs
+an unbuilt dependency gets its own seed carrying that gate; the work that does not need it is a
+separate, ungated seed (`A-GATED-SEED-PARKS-ITS-UNBLOCKED-HALF`).
 
 **5b. Goal-seed stubs (optional)** — for vision-slices out of scope this period, or KRs deferred
 rather than rewritten:
@@ -144,7 +146,10 @@ capturing the vision-slice verbatim — raw over polished.
 > _"Goal artifact and {N} roadmap-seed stub(s) scaffolded. Want me to chain into
 > `/roadmap-planning` now, or review the stubs first?"_
 
-**Wait for PM response.** Never invoke `/roadmap-planning` without explicit PM direction.
+**Wait for PM response.** Never invoke `/roadmap-planning` without explicit PM direction. A PM
+who already directed the goal through to done in this session ("throw it into the machine", "no
+more questions") HAS given it: quote those words as the direction and chain without asking. Any
+seed left un-chained is named in the DONE report as `awaiting PM ack` — never a silent park.
 
 ### Step 7 — Commit goal + stubs
 

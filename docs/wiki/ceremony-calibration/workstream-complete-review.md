@@ -7,7 +7,7 @@
 
 **SUPERSEDED for plan-bearing closes.** `/workstream-complete` no longer dispatches, scales, or
 trail-records code review — code review runs as stages of the emitted `/execute-plan` workflow
-(one parallel review wave, one integration pass), and the close's review record is the plan's
+(one parallel review wave; each reviewer applies its own findings), and the close's review record is the plan's
 `review_stamp` (`coordinator/skills/workstream-complete/SKILL.md` § Resolve judgment points, "The
 review record is the plan's `review_stamp`"). For a close with no governing plan, the ad-hoc route
 is `/review-code`. The sections below describing a WSC-dispatched Scale/brightline/trampoline
@@ -82,6 +82,8 @@ substitute for a resolving gate: 1245/9 by hand against the engine's 976/26/4 on
 *Self — a PM catch on a workstream that capped with `PARTITION-MANDATORY reviewers_required=4` and zero reviewers run.* Greppable token: `REVIEW-OWED-CLOSE-TRAMPOLINES`.
 
 **The rule.** When this ceremony names a review scale the session cannot run *and* integrate in remaining context, it does not cap. It stops, and `/handoff` passes the whole ceremony to a successor whose remit is *run the owed review, then cap*. That is the only reason `/workstream-complete` ever ends without capping, and the only sanctioned exit under context pressure. **The gate is context, nothing else** — with context to spare, the review belongs in this session, and reaching for the trampoline to avoid a tedious four-reviewer dispatch is the ordinary deferral trap wearing a ceremony costume.
+
+**The predicate for a review-owed close is stated once, in `coordinator/skills/handoff/SKILL.md` § Step 0 trigger 4; this page and `/workstream-complete` cite it by path and never restate it.**
 
 **Before this fix, `/handoff` and `/workstream-complete` each refused the same case and pointed at the other — re-closing either side alone restores that trap.**
 
@@ -441,6 +443,7 @@ citing this note as still-current — it is a snapshot of one verification, not 
 On a `work/<machine>/<date>` branch shared by concurrent EM sessions, a feature spanning multiple sessions produces multiple trail records — one per session. **Per-session trail ranges are NOT additive-by-assumption.** Session boundaries create gap-SHAs (session 1's terminal SHA is the left endpoint of session 2's record, but the terminal SHA itself is NOT covered by session 2's record per the `A..B` boundary above).
 
 **Rule:** the chain-terminal session owns the union-coverage check. At `/workstream-complete`'s `d-run-chain-coverage-gate` directive, `review-coverage-gate.py` reads the `reviewed_set` as the UNION of ALL sessions' trail records (never session-filtered). If gaps exist at session boundaries, the terminal session is responsible for either:
+
 - Verifying that a prior session's record covered the gap SHA as a right endpoint, OR
 - Dispatching an additional `code-reviewer` pass on the uncovered commits before asserting merge-ready.
 
@@ -479,6 +482,7 @@ Full trailer-family writeup (vs. `Resolves:` and `Session-Id:`): `coordinator/do
 ### `--on-record-error skip|fail` resilience policy
 
 The chain-end gate scans the FULL archive (potentially hundreds of historical records from weeks or months of work). Historical trail dirs can contain:
+
 - Files that parse as neither JSON nor JSONL (concatenated objects, sidecars sharing the trail dir)
 - Records whose `sha_range` references an unresolvable git ref (literal `..WORKING` placeholder, GC'd SHA, rebased commit)
 
@@ -660,6 +664,7 @@ uses rung 0 / Shape W — see `coordinator/snippets/resolve-coordinator-bin.md`.
 **Two-oracle composition.** `reviewers_required = max(plan_oracle, chain_oracle, session_oracle)` — the governing plan's own declared reviewer count, a chain-derived estimate walking the closing handoff's predecessor DAG, and the pre-existing session-scoped brightline signal are each computed independently and the maximum wins. No single oracle is trusted alone: a plan can under-declare, a chain walk can miss an unwalked predecessor, and the session-scoped signal by itself undercounts at a terminus (the asymmetry note above). Taking the max is the fail-safe direction — the same "excluding moves commits toward MORE review, never less" posture the coverage gate uses (§ `--on-record-error skip|fail`).
 
 **Tiered disagreement guard — not a uniform hard stop.** When the oracles disagree, severity is classified into a tier, and only one tier halts:
+
 - **Tier `A`** (declared-but-unwalked-repo — the plan names a repo the chain walk never actually visited): **HARD stop.** Override is gated on the `/autonomous` sentinel being present AND a recorded reviewer whose findings artifact names the unwalked repo — both conditions, not either.
 - **Tier `B`** (a magnitude disagreement between oracles that doesn't rise to the declared-but-unwalked case) and **`none`** (oracles agree): **communicate loudly, do not halt.** The runner surfaces the three oracle numbers + `basis` and requires a recorded EM reviewer-count decision, cross-checked against findings artifacts already under `state/subagent-share/<session-id>/` — but does not block progress to Step 3.
 
@@ -699,6 +704,8 @@ One asymmetry survives, and it must not be harmonised away: the weekly gate's ra
 **Why this took until now to surface.** The degradation was invisible to every mechanical gate in this file — no test asserts on what a reviewer *read*, only on whether it ran and what verdict it returned. It surfaced because a `code-reviewer` instance, dispatched by a example-cockpit-repo EM, disclosed its own tool-surface limit in its findings sidecar rather than quietly reviewing whatever it could see and reporting a clean verdict. That EM routed the disclosure as a cross-repo field report instead of treating it as noise. Agents naming their own confinement in their output — rather than papering over the gap — is exactly the behavior this system depends on to catch what no mechanical gate is watching for; it is worth explicitly preserving as a norm, not filed away as an incidental finding.
 
 ## The wsc_commit tail is a fragile multi-step engine op — verify its effects after firing
+
+**Retired path.** `/workstream-complete` no longer invokes `ceremony.wsc_commit`; the prose ceremony commits inline with a scoped `git commit -F <msgfile> -- <paths>`. This section applies only if the engine op is resurrected; the effect-verification discipline (read the committed entry, confirm the consumed handoff shipped) carries over to the prose ceremony.
 
 `/workstream-complete`'s commit tail is executed by the engine's `ceremony.wsc_commit` engine op (invoked via `cc_invoke` from the SKILL's D-5 step), not by inline EM bash. One call does scaffold + fill + stage + commit + push + claim-release, and `wsc_resolve` stamps the consumed handoff — a long, non-atomic sequence whose mid-tail failures are NOT cleanly idempotent-recoverable (a timeout after commit-before-fill leaves a half-baked artifact on `origin`). Several empirically-observed failure modes share one remedy: the EM verifies the tail's *effects on disk* after it returns, rather than trusting the op's exit code.
 
@@ -804,6 +811,10 @@ when a round finds nothing and therefore generates no further commit — a real 
 condition, not an infinite regress. The tell to watch for is reaching for a coverage-gate
 override immediately after an integration commit on the reasoning that "the findings were
 already reviewed" — that reviews the findings, not the commit that applied them.
+
+**Budget it up front.** A partitioned review costs N slice reviewers **plus one pass over the
+integration commit**; count that pass when sizing the review step instead of discovering it at
+close.
 
 ## `close-out-and-stamp` assumes one commit per chunk-id — verify substance directly when it disagrees
 

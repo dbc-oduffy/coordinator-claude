@@ -10,10 +10,9 @@ allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskU
 
 ## Overview
 
-Merge a work or feature branch to main via PR, gated by local validation — GitHub Actions is not in
-the loop. `merge-assemble` computes the gates and
-directives (`d0`-`d8`). What follows is what it cannot precompute: your judgment calls, plus the
-steps depending on live PR/merge state.
+Merge a work or feature branch to main via PR, gated by local validation (no GitHub Actions).
+`merge-assemble` computes the gates and directives (`d0`-`d8`); what follows is what it cannot
+precompute: judgment calls and steps depending on live PR/merge state.
 
 **Announce at start:** "I'm using the coordinator:merging-to-main skill to merge this branch to main."
 
@@ -56,7 +55,7 @@ auto-recover via `merge-recovery-and-tag-cut recovery-branch` (cuts a fresh `wor
 branch off the pre-sync state, pushes, resets main, prints `BRANCH=<name>`), then continue there. On main with nothing unpushed → abort:
 _"Already on main with nothing to merge. Switch to a work or feature branch first."_
 
-Resolve the branch via `coordinator-current-branch`, decide unpushed state with `coordinator-invoke push.outstanding '{}'`, and push with `--set-upstream` when it reports commits ahead.
+Resolve the branch via `coordinator-current-branch`, then `coordinator-invoke push.outstanding '{}'`: it pushes commits ahead (MUTATING, never a read).
 
 ---
 
@@ -132,8 +131,7 @@ Pre-merge quiet check: `merge-gate-and-pr active-branch-guard --pr "$PR"` halts 
 commit is younger than 300 seconds. Override with the skill's own `--force-merge-active-branch`.
 
 Merge via `gh pr merge` (no `--delete-branch`), merge commit (never squash). The head branch is
-deleted only when its remote tip is an ancestor of the base — a merged PR merges a snapshot, not
-the branch's later pushes; otherwise keep it and report the tip and its unmerged-commit count. Recovery recipes for
+deleted only when its remote tip is an ancestor of the base (a merged PR is a snapshot); otherwise keep it and report the tip and its unmerged-commit count. Recovery recipes for
 "base branch policy prohibits" and "head not up to date": wiki. **Merge conflicts** — do not force
 through; offer the PM merge-main-in-and-resolve (recommended) or rebase; stop and wait.
 
@@ -161,7 +159,7 @@ phrase from your change at `HEAD`; missing → re-apply, push a follow-up.
 
 ## Step 9: Local Cleanup
 
-First run `<plugin-root>/bin/structural-index-refresh.py` (non-blocking, always exit 0; `COORDINATOR_STRUCTURAL_INDEX_REFRESH_OFF=1` disables) — report its line if it prints one.
+First run `"$_py" "$COORDINATOR_SETTINGS_HOME/bin/structural-index-refresh"` (POSIX; on PowerShell `& "$env:COORDINATOR_SETTINGS_HOME\bin\structural-index-refresh.exe"`, `snippets/resolve-coordinator-bin.md`) (non-blocking, always exit 0; `COORDINATOR_STRUCTURAL_INDEX_REFRESH_OFF=1` disables) — report its line if it prints one.
 
 Check out main (`COORDINATOR_OVERRIDE_BRANCH=1`), pull, delete the local branch (a follow-on
 `/bug-blitz` cuts a fresh day branch from main). Clear any stray worktree (`git worktree remove <path>`).
@@ -196,8 +194,7 @@ auto-memory drain gate).
 
 ## Red Flags
 
-**Never:** squash commits; push directly to main. Concurrent-writer caveat: cap commit sweeps at
-~6 and accept a moving target — don't loop trying to converge.
+**Never:** squash commits; push directly to main. Concurrent writers: cap commit sweeps at ~6; don't loop to converge.
 
 ## Integration
 

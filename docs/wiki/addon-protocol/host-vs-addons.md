@@ -31,6 +31,7 @@ against host hookspecs; the host iterates their contributions at boot and at eac
 No addon name, path, or capability is hard-coded in host source.
 
 **Negative spec:** the host does NOT:
+
 - Import from any addon package at startup
 - Register UE-specific extractors or producers except through the addon hookspec path (PROVISIONAL
   gates during Wave 2a will be removed in Wave 2b physical extraction)

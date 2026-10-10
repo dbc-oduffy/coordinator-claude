@@ -60,6 +60,17 @@ Subcommands (argv[1] selects):
       first; the tag push is load-bearing for currency independent of this
       human-facing release object (see SKILL.md prose at that step).
 
+  clone-merge --into BRANCH --from REF [--repo-root PATH] [--push]
+      Merges REF into BRANCH inside a disposable clone under <repo>/scratch/,
+      so peers' staged files in the shared tree (which make `git merge` there
+      refuse, and which no session may stash) never block a merge. REF is
+      resolved in the main repo (fetch first for a remote tip). On success the
+      main repo's BRANCH is fast-forwarded from the clone (git refuses that when
+      BRANCH is checked out; then the printed `FF_PENDING=` command does it),
+      `--push` pushes BRANCH to origin, and the clone is deleted. On conflict
+      the clone is KEPT for resolution and its path printed (`CLONE=`), exit 1.
+      Prints `MERGE_SHA=<sha>`.
+
 Negative-spec:
   - Does NOT read coordinator.local.md itself for `cut-tag`/`publish-gh-release`
     — `resolve-tag-prefix` is a separate, explicit step; callers compose the
@@ -544,6 +555,72 @@ def cmd_publish_gh_release(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# clone-merge
+# ---------------------------------------------------------------------------
+
+def _rmtree(path: Path) -> None:
+    """A --local clone's pack files are read-only on Windows; clear the bit and retry."""
+    import shutil
+    import stat
+
+    def _retry(func, target, _exc):
+        os.chmod(target, stat.S_IWRITE)
+        func(target)
+
+    shutil.rmtree(path, onexc=_retry) if sys.version_info >= (3, 12) else shutil.rmtree(
+        path, onerror=_retry
+    )
+
+
+def clone_merge(repo_root: Path, into: str, source: str, push: bool) -> int:
+    resolved = _run(["git", "rev-parse", "--verify", f"{source}^{{commit}}"], cwd=repo_root, check=False)
+    if resolved.returncode != 0:
+        _die(f"clone-merge: --from {source!r} does not resolve to a commit in {repo_root}")
+    source_sha = resolved.stdout.strip()
+
+    stamp = f"{os.getpid()}-{date.today():%Y%m%d}"
+    clone = repo_root / "scratch" / f"clone-merge-{stamp}"
+    cloned = _run(
+        ["git", "clone", "--local", "--quiet", "--branch", into, str(repo_root), str(clone)], check=False
+    )
+    if cloned.returncode != 0:
+        _die(f"clone-merge: cannot clone {into!r} into {clone}: {cloned.stderr.strip()}")
+
+    merged = _run(
+        ["git", "merge", "--no-ff", "--no-edit", "-m", f"Merge {source} into {into}", source_sha],
+        cwd=clone,
+        check=False,
+    )
+    if merged.returncode != 0:
+        print(f"CLONE={clone.as_posix()}")
+        _die(
+            f"clone-merge: merging {source} into {into} stopped (clone kept for resolution):\n"
+            f"{(merged.stdout + merged.stderr).strip()}"
+        )
+    merge_sha = _run(["git", "rev-parse", "HEAD"], cwd=clone).stdout.strip()
+
+    if push:
+        url = _run(["git", "remote", "get-url", "origin"], cwd=repo_root).stdout.strip()
+        pushed = _run(["git", "push", url, f"HEAD:refs/heads/{into}"], cwd=clone, check=False)
+        if pushed.returncode != 0:
+            print(f"CLONE={clone.as_posix()}")
+            _die(f"clone-merge: push of {into} refused (clone kept): {pushed.stderr.strip()}")
+
+    synced = _run(["git", "fetch", "--quiet", str(clone), f"{into}:{into}"], cwd=repo_root, check=False)
+    if synced.returncode != 0:
+        # BRANCH is checked out in the shared tree; only a fast-forward there is safe.
+        print(f"FF_PENDING=git merge --ff-only {merge_sha}")
+    _rmtree(clone)
+    print(f"MERGE_SHA={merge_sha}")
+    return 0
+
+
+def cmd_clone_merge(args: argparse.Namespace) -> int:
+    repo_root = Path(args.repo_root) if args.repo_root else Path.cwd()
+    return clone_merge(repo_root.resolve(), args.into, args.source, args.push)
+
+
+# ---------------------------------------------------------------------------
 # CLI wiring
 # ---------------------------------------------------------------------------
 
@@ -599,6 +676,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_release.add_argument("--repo", required=True)
     p_release.add_argument("--notes-file", required=True)
     p_release.set_defaults(func=cmd_publish_gh_release)
+
+    p_clone = sub.add_parser(
+        "clone-merge",
+        help="merge a ref into a branch in a scratch clone, clear of the shared tree's index",
+    )
+    p_clone.add_argument("--into", required=True)
+    p_clone.add_argument("--from", dest="source", required=True)
+    p_clone.add_argument("--repo-root", default=None)
+    p_clone.add_argument("--push", action="store_true")
+    p_clone.set_defaults(func=cmd_clone_merge)
 
     return parser
 

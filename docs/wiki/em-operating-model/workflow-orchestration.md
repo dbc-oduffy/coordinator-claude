@@ -3,8 +3,8 @@ title: Workflow Orchestration — Scripted Multi-Agent Execution
 created: 2026-07-03
 type: doctrine
 related:
-  - plugins/coordinator/docs/wiki/dispatching-parallel-agents.md
-  - plugins/coordinator/skills/execute-plan/SKILL.md
+  - plugins/coordinator-claude/coordinator/docs/wiki/dispatching-parallel-agents.md
+  - plugins/coordinator-claude/coordinator/skills/execute-plan/SKILL.md
 ---
 
 <!--
@@ -305,7 +305,7 @@ return { done: true, foundation, results, probe }
 Notes on the shape:
 
 - **Every `agent()` call passes `model: 'sonnet'`** — see § Model selection.
-- **Every `agent()` call passes a `schema`** — the result is validated at the tool-call layer, so the model retries on mismatch and the EM receives structured data, not prose to parse. **EXCEPTION — a review stage never returns a findings array.** A review stage's `schema:` is one of `review-stage.schema.json`'s `$defs` (`review-prep-result`, `slice-review-result`, `whole-diff-review-result`, `delivery-verdict`, `review-integration-result`) — every field a count or a sidecar anchor, findings themselves left in the sidecar's own `## Findings Ledger` the reviewer applies itself — `review-findings-ledger verify` hard-stops unconditionally on inline findings (`review-integration-doctrine.md` § Reviewer self-persists). **Never `agent(reviewPrompt, {schema: FINDINGS_SCHEMA})`** — the natural reach produces exactly the artifact the reviewer-applies-own-findings contract forbids.
+- **Every `agent()` call passes a `schema`** — the result is routed through a `StructuredOutput` tool so the EM receives structured data, not prose to parse; the model is observed to retry on mismatch up to a cap and then fail loudly, at medium confidence, and parity for `agentType: 'coordinator:<x>'` agents is unestablished. **EXCEPTION — a review stage never returns a findings array.** A review stage's `schema:` is one of `review-stage.schema.json`'s `$defs` (`review-prep-result`, `slice-review-result`, `whole-diff-review-result`, `delivery-verdict`, `review-integration-result`) — every field a count or a sidecar anchor, findings themselves left in the sidecar's own `## Findings Ledger` the reviewer applies itself — `review-findings-ledger verify` hard-stops unconditionally on inline findings (`review-integration-doctrine.md` § Reviewer self-persists). **Never `agent(reviewPrompt, {schema: FINDINGS_SCHEMA})`** — the natural reach produces exactly the artifact the reviewer-applies-own-findings contract forbids.
 
 ### Execute-review stage
 
@@ -324,24 +324,24 @@ and never deferred to `/workstream-complete`. The order, fixed by the roster fra
    self-apply in this stage, because their lens spans every slice and a same-file write race
    is exactly what disjoint slices exist to prevent. `delivery-verifier` runs read-only over
    the whole diff, checking executor claims against it.
-3. **Integration — exactly one `code-reviewer` call**, with an integrate remit, applies the
-   residue no slice owner could: out-of-slice findings, Kira's and the personas' findings, and
-   the rebuild-route decision item on `rebuild_recommended: true`. It writes the one ledger
-   covering that residue and stamps `integrated_from:` with every sidecar it consumed. There is
-   no second review round; a finding integration cannot resolve goes to `unresolved[]`, meaning
-   the PM (`review-integration-doctrine.md` § One integration pass).
-4. The build/test gate runs after integration, then the workflow returns; the EM's terminal
+3. **Bookkeeping — the engine's `bookkeep_wave`, not an agent.** There is no integration commit
+   and no integrate remit: each slice reviewer applies and verifies its own findings, and the
+   whole-diff lenses report only. There is no second review round; a finding no reviewer can
+   resolve goes to the PM (`review-integration-doctrine.md` § No integration pass). A partitioned
+   close needs no N+1 integration pass from this stage, because execute-review has no integration
+   commit to budget for.
+4. The build/test gate runs after the review wave, then the workflow returns; the EM's terminal
    commit and `review-stamp mint` follow (`skills/execute-plan/SKILL.md`).
 
 **Safety condition — this is what licenses "parallel reviewers, not sequential".** Slices are
 file-disjoint by construction (the prep partition), so two reviewers never write the same file at
 once; the whole-diff lenses stay findings-only in this stage for the same reason, since their span
-crosses every slice; and the one integration pass — the sole place a cross-slice write could
-otherwise happen — runs alone, after the wave, never concurrent with it. This supersedes the
+crosses every slice; and the engine's bookkeeping — the only step after the wave — writes no
+source file. This supersedes the
 per-wave-review target shape once described here and the "named second exception to the
 sequential-review rule" it required: the execute-review stage is not an exception carved out of a
-sequential-by-default rule, it is disjoint-slice parallelism with one bounded serial residue-writer,
-stated once. `coordinator/skills/review/SKILL.md` § A.3 states the same rule for the general
+sequential-by-default rule, it is disjoint-slice parallelism with one bounded serial residue-writer
+(the engine's bookkeeping), stated once. `coordinator/skills/review/SKILL.md` § A.3 states the same rule for the general
 code-review case; plan review over one artifact stays ordered.
 
 For the stage's per-agent-call catering payload and its structured returns, see
@@ -422,3 +422,16 @@ A schema-validated `agent()` result can be **schema-valid but semantically empty
 - `skills/execute-plan/SKILL.md` — Phase 1.5 (Dispatch-Gate Graph) and Phase 1.6 (wave-map authoring).
 - The `Workflow` tool description (EM tool surface) — authoritative API, cache-window, and resume semantics.
 - Global CLAUDE.md § Fan-out dispatch extras — the parent fan-out doctrine.
+
+## Field rules
+
+- **A whole-repo verify gate on a shared branch can halt on a peer's mid-edit red.** Re-run once; if every error is in files outside the wave's scope, commit the wave's explicit file list and proceed rather than reporting HALT.
+- **Decide commit granularity before firing a serial Workflow whose executors return uncommitted.** Shared files end holding every chunk's edits, so per-chunk commits cannot be reconstructed afterwards; take the EM-commits-per-wave path or accept one scoped commit.
+- **An error naming a symbol this change added or made required is in scope**, even when it fires in a file the change never touched. A gate's 'pre-existing / out-of-scope' label is a hypothesis; check the symbol's provenance.
+- **A session disconnect does not stop a background Workflow.** Before relaunching, check whether the original run is still writing; two runs over the same chunks write the same files.
+- **An executor's structured return can be a placeholder while its disk edit is real (or the reverse).** Spot-check the critical and last-wave edits on disk before committing.
+- **A Workflow killed by the account usage limit fails every agent with zero tool use and no partial writes.** After the reset, resume via `resumeFromRunId`; do not hand-finish or re-plan.
+- **A serial migration chain run as a Workflow halts on the first red at a schema-critical seam.** Each agent returns `{status: green|red}`; on red, stop and surface partial results instead of cascading.
+- **The model-guard reads `model:` literally at each agent call.** Spread or helper-returned options hide it; agents then inherit the session model.
+- **A workflow's synthesis is the only durable record.** Per-agent journals are ephemeral; promote any per-agent finding you will cite into the artifact.
+- **Workflow `agent()` calls bypass Agent-tool PreToolUse hooks.** Anything provisioned by those hooks (sidecars) does not exist for a workflow agent.

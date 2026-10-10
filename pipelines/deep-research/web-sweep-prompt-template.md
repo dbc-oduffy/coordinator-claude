@@ -10,7 +10,7 @@ project context, the topic table (each topic's letter), and these paths and valu
 - `output_path` — the final document. It carries the pipeline suffix `-web`, so same-day
   runs of different pipelines on one topic do not collide on the stem.
 - `advisory_path` — the advisory document.
-- `run_stem` — `output_path` without its `docs/research/` prefix and `.md` suffix.
+- `run_stem` — the brief's `run_stem` field (`YYYY-MM-DD-<topic-slug>-web`).
 
 The run scratch directory is `{{scratch_dir}}`. Your mailbox is
 `{{scratch_dir}}/mail/sweep.jsonl`; fidelity corrections arrive there.
@@ -36,12 +36,12 @@ definition's three phases:
 - Phase 2 — fill gaps via WebSearch/WebFetch.
 - Phase 3 — frame with an executive summary and conclusion.
 
-Write the final document to `output_path` and `{{scratch_dir}}/synthesis.md` — the synthesis
+Write the final document to `output_path` and `{{scratch_dir}}/synthesis.md` (once when they are the same file); never write a `docs/research/` path the brief does not name. Record secrets by key name only, never by value. Detect secrets by pattern and report the key name plus file:line only. Never print, quote or echo a matched value, in your reasoning, your documents or tool output: use counting or file-listing greps (`grep -c`, `grep -l`, `grep -q`) or anchored patterns that do not echo the match, never a bare `grep` that prints the matching line. The synthesis
 document MUST begin with `research-synthesis` frontmatter (title, question, date,
 pipeline: web, source_count, topic_facets[], coverage_score from the gap report).
 
 After writing the synthesis, merge all `<letter>-claims.json` files into
-`{{scratch_dir}}/merged-claims.json` (a bare JSON array). Do NOT write
+`{{scratch_dir}}/merged-claims.json` (a bare JSON array). The claim schema is `research-claim.schema.json` under `${CLAUDE_PLUGIN_ROOT}/schemas/` (else `<content-root>/coordinator/schemas/`, `<content-root>` from `~/.claude/.content-root`); `topic_tags` is an array of strings, and claim `id` values must be unique across the array, so rename a collision before writing. Do NOT write
 `docs/research/<run_stem>.claims.json` or its sidecar; the EM emits that durable pair.
 
 Report `pipeline: web` and `deepeningRecommended` (from the gap report) in your return value. Do
@@ -49,7 +49,7 @@ NOT report `ran_at` — you have no shell and therefore no clock, and writing
 `merged-claims.json` is itself the stamp (the EM reads its mtime). Emit frontmatter
 deterministically; DO NOT provide a body template — the body stays agent-authored.
 
-Write the advisory to `advisory_path` and `{{scratch_dir}}/advisory.md` if you have
+Write the advisory to `advisory_path` and `{{scratch_dir}}/advisory.md` (once when they are the same file) if you have
 observations beyond scope. If nothing is beyond scope, note 'No advisory' in your return
 value. You are explicitly encouraged to go beyond the original research scope where your
 judgment says it's warranted.

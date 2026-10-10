@@ -30,9 +30,10 @@
 #                                                  unreadable/malformed; always exit 0
 #                                                  (informational — this is NOT the
 #                                                  authorization predicate, see `check`)
-#   check                                      -> grant.check_tier_u_grant(): the
-#                                                  liveness-gated authorization boolean —
-#                                                  the one a guard calls. bool->exit
+#   check                                      -> suite authority (cloud-box basis, else
+#                                                  grant.check_tier_u_grant()'s liveness-
+#                                                  gated grant): prints `basis: ...` on
+#                                                  stdout when authorized. bool->exit
 #   revoke [--only-ceremony <name>]            -> grant.revoke_tier_u_grant(): hands the
 #                                                  calling session's own grant back
 #                                                  (unlink, never a glob). Idempotent —
@@ -77,11 +78,17 @@ def _import_module():
 
 _SUBCOMMANDS = "subcommands: grant | read | check | revoke [--only-ceremony <name>]"
 
+_CHECK_HELP = (
+    "check answers suite authority (a live grant or the cloud-box basis), not grant "
+    "presence, and prints `basis: grant` or `basis: cloud-box`; it cannot see caller "
+    "identity (subagents are denied at the guard)."
+)
+
 _HELP_FLAGS = ("--help", "-h", "help")
 
 
 def _usage(prog: str) -> int:
-    print(f"usage: {prog} <subcommand> <args...>\n{_SUBCOMMANDS}", file=sys.stderr)
+    print(f"usage: {prog} <subcommand> <args...>\n{_SUBCOMMANDS}\n{_CHECK_HELP}", file=sys.stderr)
     return 2
 
 
@@ -113,7 +120,7 @@ def main(argv: list[str]) -> int:
     subcmd, rest = argv[0], argv[1:]
 
     if subcmd in _HELP_FLAGS:
-        print(f"usage: tier-u-grant-cli <subcommand> <args...>\n{_SUBCOMMANDS}")
+        print(f"usage: tier-u-grant-cli <subcommand> <args...>\n{_SUBCOMMANDS}\n{_CHECK_HELP}")
         return 0
 
     try:
@@ -151,8 +158,21 @@ def main(argv: list[str]) -> int:
     if subcmd == "check":
         if rest:
             return _usage("tier-u-grant-cli check")
-        granted, _record = mod.check_tier_u_grant()
-        return _bool_to_exit(granted)
+        try:
+            directive = _grant_directive_module()
+        except (RuntimeError, ImportError) as exc:
+            print(
+                f"tier-u-grant-cli: coordinator_core.session.grant_directive not "
+                f"importable: {exc}",
+                file=sys.stderr,
+            )
+            return _TRANSPORT_FAIL
+        code, message = directive.run_grant_directive(["check"])
+        if code == 0:
+            print(message)
+        elif message:
+            print(f"tier-u-grant-cli: {message}", file=sys.stderr)
+        return code
 
     print(f"tier-u-grant-cli: unknown subcommand {subcmd!r}", file=sys.stderr)
     return _usage("tier-u-grant-cli")

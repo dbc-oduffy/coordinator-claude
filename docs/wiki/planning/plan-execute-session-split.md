@@ -3,11 +3,11 @@ title: Plan/Execute Session Split — Execution Defaults to a Fresh Handoff
 created: 2026-07-09
 type: doctrine
 related:
-  - plugins/coordinator/docs/wiki/em-operating-model/workflow-orchestration.md
-  - plugins/coordinator/skills/handoff/SKILL.md
-  - plugins/coordinator/skills/execute-plan/SKILL.md
-  - plugins/coordinator/skills/review/SKILL.md
-  - plugins/coordinator/docs/wiki/reviewer-pipeline/review-integration-doctrine.md
+  - plugins/coordinator-claude/coordinator/docs/wiki/em-operating-model/workflow-orchestration.md
+  - plugins/coordinator-claude/coordinator/skills/handoff/SKILL.md
+  - plugins/coordinator-claude/coordinator/skills/execute-plan/SKILL.md
+  - plugins/coordinator-claude/coordinator/skills/review/SKILL.md
+  - plugins/coordinator-claude/coordinator/docs/wiki/reviewer-pipeline/review-integration-doctrine.md
 ---
 
 <!--
@@ -45,12 +45,14 @@ default is a fresh session, not same-session `/execute-plan`.** Instead:
 2. A **fresh session** picks up the handoff and runs `/execute-plan`, which mints the plan's YAML
    frontmatter authorization stamp of record from the act of invocation itself (or re-verifies an
    existing one):
+
    ```yaml
    execution_authorized_by: PM
    execution_authorized_at: <YYYY-MM-DD>
    execution_authorized_sha: <hash>
    execution_authorized_note: "<verbatim PM utterance>"
    ```
+
    `execution_authorized_sha` binds the stamp to the plan's CONTENT at authorization time, not
    merely a date (see § Content-binding below for the failure mode this closes and the exact
    recipe). `execution_authorized_note` is the self-attesting field — see § Write-bar below.
@@ -121,12 +123,14 @@ not paraphrase.
   handoff.
 - **Plan-frontmatter authorization stamp** — set in the plan document's YAML frontmatter
   (`docs/plans/*.md`):
+
   ```yaml
   execution_authorized_by: PM
   execution_authorized_at: <YYYY-MM-DD>
   execution_authorized_sha: <hash>
   execution_authorized_note: "<verbatim PM utterance>"
   ```
+
   The presence of `execution_authorized_at` with a date **is** the authorization of record. It
   replaces the old, weaker definition — "the PM said 'execute' somewhere in this chat" — with a
   disk-persisted fact a fresh session with zero chat history can read and verify. It is minted by
@@ -157,9 +161,11 @@ not paraphrase.
 
   **Canonical hashing recipe** (byte-identical everywhere — every consumer cites this exact
   command, never re-derives it):
+
   ```
   awk '/^---[[:space:]]*$/{fm++; next} fm>=2{print}' <plan-path> | git hash-object --stdin
   ```
+
   This hashes the plan BODY — everything below the YAML frontmatter delimiters — so writing or
   reading the stamp fields in frontmatter never invalidates the hash; only a material change to
   the executable body does.
@@ -246,10 +252,12 @@ not paraphrase.
   gate — proceeding already happened. Re-stamping such a plan would falsely assert the PM
   authorized the corrected text, when they only ever saw the pre-amendment body. The convention:
   record the amendment explicitly instead of re-stamping —
+
   ```yaml
   body_amended_post_execution: true
   body_amendment_note: "<what changed, and why the stamp is deliberately not recomputed>"
   ```
+
   Deliberately do **not** re-stamp `execution_authorized_sha` in this case. A future re-verification
   (`execute-plan`/`pickup`, or any computed-skills pass that happens to touch an implemented plan)
   reporting this plan STALE against the pre-amendment sha is **expected and correct, not a defect**
@@ -258,6 +266,7 @@ not paraphrase.
   substantive ladder above — don't fold a post-execution amendment into "bookkeeping → re-stamp"
   just because it superficially looks like tidy paperwork; the ladder's re-stamp path is a
   pre-execution remedy and doesn't apply once execution has already occurred.
+
 - **Execution-handoff body section** — every execution handoff's body includes a `## Plan to
   Execute` section containing (a) the plan path, and (b), when a stamp already exists, a line
   citing the plan's `execution_authorized_at` (and, per the content-binding above, its
@@ -289,7 +298,7 @@ not paraphrase.
   to it at all. **The stamp is intentionally ABSENT under `/autonomous`** — the review checkpoint
   was bypassed upstream, so there is nothing to stamp. The stamp is the authorization-of-record
   for the DEFAULT (handoff) path only; under `/autonomous` the sentinel
-  (`/tmp/autonomous-run-${SESSION_ID}`) is the authorization — but the sentinel path is now shared
+  (`<gettempdir()>/coordinator/_fleet/autonomous-run-${SESSION_ID}`) is the authorization — but the sentinel path is now shared
   with EXCEPTION 3 below, both writing the same path with different content.
   A future auditor or fresh session reading stamp-absence together with the sentinel must read the
   sentinel's CONTENT, not merely its presence: only content `autonomous` supports treating the run

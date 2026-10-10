@@ -290,9 +290,10 @@ was performed against this run's 157-item bare-basename rot set):
 
 **The 157-item bare-basename rot set was read in full, not sampled** (small enough to
 hand-classify exhaustively — the plan's own instruction). Split:
+
 - **Genuine rename/retirement rot: 49** — pages whose target moved or was retired without the
   citation updating: `improvement-queue.md` / `bug-backlog.md` / `lessons.md` (converted to
-  directories of per-entry YAML), `coordinator-tripwires.md` (converted to a directory),
+  directories of per-entry YAML), `coordinator/docs/wiki/coordinator-tripwires.md` (converted to a directory),
   `agent-install.md` / `workstream-start.md` / `example-game-repo-install-prereq.md` (moved/retired install
   surfaces), `env-vars.md`, `cross-plugin-whoami-contract.md` (described substantively across four
   citing pages, absent everywhere in the repo).
@@ -387,7 +388,7 @@ figure in its default path for that reason.
 
 ## When it runs
 
-`/update-docs` Phase 11m, DoE-only. Nothing else invokes it, deliberately: it is a corpus-state
+`/update-docs` Phase 11m, maintainer-only. Nothing else invokes it, deliberately: it is a corpus-state
 check, not a code test, so it stays out of the test tiers — `test_citation_integrity_cli.py`
 asserts the gate contract over synthetic fixtures and never against the live corpus, which ~20
 concurrent writers mutate continuously. A tier that goes red because a peer is mid-edit teaches
@@ -398,6 +399,42 @@ on something a human has not yet classified, and the classification it needs —
 *point*, or merely *mention* — is the one thing no mechanism here can do. Accepting a genuinely
 new member into the baseline is legitimate when a detection class is introduced; laundering an
 unexamined defect into it is not, and the two are indistinguishable in the file afterwards.
+
+## Decision citations — a bare `DR-` id has no `.md` to check
+
+A prose `DR-nnn` or `SC-DR-nnn` token carries no filename, so every `.md`-shaped grammar above is
+blind to it. `coordinator/bin/check-decision-citations.py` is the checker for that class: it
+scans the repo's markdown for such tokens and resolves each against two id carriers plus one
+heading home.
+
+- **Carrier 1 — filename number.** A record under `docs/decisions/` whose name begins `DR-<n>-`.
+- **Carrier 2 — frontmatter `id:`.** A record whose frontmatter declares `id: DR-<n>`, whatever
+  its filename (slug-named and date-named records carry the number only here). A filename-only
+  index reports each of these as an orphan.
+- **SC-DR headings.** `SC-DR-<n>` ids are defined by headings that *begin* with the id in
+  `scoped-safety-commits.md`. A heading that merely mentions an id does not define it.
+
+A cited id that no carrier defines is **orphaned**; it is listed with its citing-file count in a
+generated artifact under `docs/decisions/`. The artifact is regenerated, never hand-edited:
+
+```
+# PowerShell host: & "$env:COORDINATOR_SETTINGS_HOME\bin\check-decision-citations.exe"
+"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/check-decision-citations" --emit    # rewrite the artifact
+# PowerShell host: & "$env:COORDINATOR_SETTINGS_HOME\bin\check-decision-citations.exe"
+"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/check-decision-citations" --check   # exit 1 + diff on drift
+```
+
+`--check` compares the regenerated artifact with the committed one byte-for-byte, excluding the
+one `pinned_sha:` line; the pin is provenance, not verified. A missing artifact exits 2.
+
+The date-shaped form is **refused**: a sibling repo names records `DR-<year>-<month>-<day>-<slug>`,
+and a naive `DR-\d+` match would read the year, month and day as three separate decision ids.
+The grammar rejects a number followed by `-<digit>`, so such a name yields no citation.
+A slug continuation (`DR-<n>-<slug>`) still yields `DR-<n>`.
+
+An orphan here may be a record of a sibling repo, not a typo: see `decisions-corpus.md` § Reading
+DR-numbers from a peer repo. The artifact does not classify origin. Put an illustrative id that is
+not a real citation inside a fenced block; the scanner skips fences.
 
 ## See also
 

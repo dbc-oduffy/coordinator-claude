@@ -6,7 +6,8 @@
 The four guards this dispatcher used to fold in-process
 (`guard-doctrine-surface-bash-write.py`, `guard-repo-setup-claude-home-
 refusal.py`, `guard-host-subagent-bash-ban.py`,
-`guard-host-subagent-bash-spawn-shapes.py`) are now registered by the
+`guard-host-subagent-bash-spawn-shapes.py`) and
+`guard-subagent-heavy-ue-launch.py` are registered by the
 control-plane engine itself; this stub is a pure relay to the engine-backed
 dispatch below. The four guard scripts still live on disk in this directory
 and remain independently invocable -- only the fold machinery that used to

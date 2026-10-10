@@ -62,15 +62,13 @@ divergence rollup, straight off disk. The ledger is the read path this harvest s
 `## Tasks` block at all, falls back to the prior git-log/handoff reconstruction — the ledger
 answers nothing there.
 
-**Emitted workflow scripts.** `docs/plans/*.workflow.mjs` and their `.emitted.json` receipts are
-pruned by the engine op `fleet.prune_emitted_output`, which the housekeeping cycle runs:
-`python3 -m coordinator_core.invoke fleet.prune_emitted_output "{}" --repo <root>`. It keeps any
-tracked file, any file under an hour old, and any file whose plan is still `executing` or claimed.
-`state/**/fire-*.mjs` and `state/**/*.mjs.emitted.json` are outside its reach, so sweep them here:
-list candidates with the Glob tool over both patterns (ignored copies included).
-Delete a script and its receipt only when its workflow has finished: older than 24 h and its plan
-`implemented` or `abandoned`, or its blitz/trail closed. Leave a younger or still-executing one.
-Then untrack any that are committed: `git rm --cached -- <paths>` followed by a commit made from the
+**Emitted workflow scripts.** `docs/plans/*.workflow.mjs`, `state/**/fire-*.mjs` and their
+receipts (`*.mjs.emitted.json`, `state/**/*.mjs.emitted.json`) are pruned, script and receipt together, by the engine op
+`fleet.prune_emitted_output`, which the housekeeping cycle runs:
+`python3 -m coordinator_core.invoke fleet.prune_emitted_output "{}" --repo <root>`. It deletes a
+finished unit (its plans implemented or abandoned, or its blitz wave landed) and ages out an unowned
+one after 7 days; it keeps tracked files, live claims and executing plans. Never hand-delete one.
+Untrack any that are committed: `git rm --cached -- <paths>` followed by a commit made from the
 index (`git commit -m <msg>` with nothing else staged, never `git commit -- <paths>`, which re-adds
 them). A `.gitignore` lacking the two patterns gets them appended first
 (`AN-EMITTED-WORKFLOW-SCRIPT-IS-NEVER-COMMITTED`).

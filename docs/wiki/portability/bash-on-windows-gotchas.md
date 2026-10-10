@@ -546,12 +546,14 @@ Liveness ≠ identity. A live process at PID N tells you the kernel has a proces
 Liveness checks on a recorded PID must verify identity by matching the process's `CommandLine` against a known sentinel string:
 
 **PowerShell:**
+
 ```powershell
 Get-CimInstance Win32_Process -Filter "ProcessId = $pid" |
     Where-Object CommandLine -like '*known-identifier*'
 ```
 
 **POSIX:**
+
 ```bash
 ps -p "$pid" -o args= | grep -q 'known-identifier'
 ```
@@ -581,7 +583,7 @@ Any hit on a PID-from-file probe without an identity verification step is the bu
 python3: Argument list too long   # exit 126
 ```
 
-`cc_invoke` surfaces this as rc 2 with a non-ImportError stderr, so `/workstream-complete`'s three-state contract classifies it as case (b) HALT — and its "re-run" recovery is futile, because the overflow is deterministic. The primary (pipeline-inverted) `/workstream-complete` path therefore **cannot complete on Windows** for any session large enough that resolved_state exceeds ARG_MAX.
+`cc_invoke` surfaces this as rc 2 with a non-ImportError stderr, so `/workstream-complete`'s three-state contract classifies it as case (b) HALT — and its "re-run" recovery is futile, because the overflow is deterministic. The retired pipeline-inverted `/workstream-complete` path therefore could not complete on Windows for any session large enough that resolved_state exceeds ARG_MAX.
 
 ### Fix
 
@@ -966,7 +968,7 @@ the working tree), applied to a length assertion rather than a syntax check.
 | Python `subprocess` calling `git -C /c/...` (or `/d/...`) without `cygpath -w` / explicit `returncode` check | Windows-native git.exe can't resolve the MSYS path → empty stdout masquerades as a clean tree (§10); enumerate in bash, or pass a Windows path and check returncode |
 | Script reads a `git status` count under `GIT_OPTIONAL_LOCKS=0` and acts on it | Refresh computed in memory but never persisted → `--porcelain` and `--short` disagree second-to-second (§11); trust the stable repeated read, persist via a real `git add` |
 | `coordinator_core.invoke <op> <params_json>` with a large round-tripped `params_json` on argv | Windows/msys ARG_MAX (~32 KB) overflow → `Argument list too long` exit 126, deterministic (§13); pass params via stdin/temp file |
-| CLI prints `str(Path)` at a seam a shell later execs, no `.as_posix()` | Native `<drive>:\...` backslash-drive form → `\D` escape collapses the path → ENOENT bricks every consumer (§14); normalize at the emit seam with `resolved.as_posix()` | <!-- abs-path-ok: illustrative backslash-drive form, not a location claim -->
+| CLI prints `str(Path)` at a seam a shell later execs, no `.as_posix()` | Native `<drive>:\...` backslash-drive form → `\D` escape collapses the path → ENOENT bricks every consumer (§14); normalize at the emit seam with `resolved.as_posix()` <!-- abs-path-ok: illustrative backslash-drive form, not a location claim --> |
 | Hook/script shells out to `git push` over SSH on Windows with no `core.sshCommand` pin | Git can select a bundled MSYS `ssh.exe` instead of Win32-OpenSSH → agent unreachable, push fails auth (**reproduced**, not theoretical — §15 control table); PowerShell parent is not the fix — the pin to `C:/Windows/System32/OpenSSH/ssh.exe` is **required, not recommended**, and the hook exits 0 either way so `push-failures.log` is the only signal |
 | Literal `:` (or a `${VAR:+:${VAR}}` guarded join) building `PYTHONPATH`/path-lists in shell | Fails OPEN on Windows (`;` separator) → a facade/strangler router reads the seam as unimportable and silently falls back to legacy, no error, no log (§18); use an `OSTYPE` case or `os.pathsep`, and fix the membership check too |
 | Helper call inside `@pytest.mark.parametrize` arguments or class-body statements that shells a platform-specific tool | Collection-time failure fires before `skipif` is ever consulted → the whole module fails to collect, silently zeroing every test class in it (§19); parametrize over a static constant, call the helper inside the test body |

@@ -19,23 +19,29 @@ Each entry is one YAML file: `state/<queue>/<id>.yaml`. The directory is the que
 **Closure mechanic:**
 
 1. Stamp closure frontmatter BEFORE moving the file — edit `state/<queue>/<id>.yaml` to set:
+
    ```yaml
    status: closed
    closed_at: <ISO date>        # e.g. 2026-06-15
    closed_by: <commit-sha>      # SHA of the fix commit
    ```
+
 2. Move the file to archive:
+
    ```bash
    git mv state/<queue>/<id>.yaml archive/<queue>/<YYYY-MM>/<id>.yaml
    ```
+
 3. Commit the stamped-then-moved file in the same commit as the fix. The commit subject names the closed entry ID.
 
 **Audit trail:** `git log --oneline -- state/<queue>/<id>.yaml` shows the entry's history; `git log --oneline -- archive/<queue>/<YYYY-MM>/<id>.yaml` shows closure history. Git preserves the full per-entry history through the `git mv` because git tracks content, not paths.
 
 **Empty-directory guard:** After batch closures, an empty source directory causes `git mv` to abort. Handle with:
+
 ```bash
 rmdir state/<queue>/ 2>/dev/null || true
 ```
+
 Run this after all `git mv` operations in the batch, before committing.
 
 **Never annotate inline.** A `## Closed` section in a directory-form queue's index file (if any) is forbidden — closure is via `git mv` to archive, not inline annotation. There is no index file to annotate; each entry is its own file.

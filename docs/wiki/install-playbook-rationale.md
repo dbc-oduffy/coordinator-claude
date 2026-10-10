@@ -12,9 +12,9 @@ cut failure-mode essays duplicating what INSTALL.md already states inline. -->
 The repo is public, but this step still needs a working git credential — it clones over SSH.
 `claude plugin marketplace add owner/repo` resolves the shorthand to `git@github.com:owner/repo.git`
 and prints `Cloning via SSH:` as it does so. That is Claude Code's behaviour, not a coordinator
-setting, and the requirements table's `gh auth login` does **not** satisfy it — `gh auth status` on
-an HTTPS-configured box reports `Git operations protocol: https` and there may be no `~/.ssh/id_*`
-at all. If this step fails with `git@github.com: Permission denied (publickey)`, add an SSH key to
+setting, and the requirements table's `gh auth login` does **not** satisfy it — an HTTPS-configured box
+(`gh config get git_protocol` prints `https`) may have no `~/.ssh/id_*` at all. Check gh auth with
+`gh api user`, not `gh auth status` (false-negative wherever `GH_TOKEN` is a proxy placeholder). If this step fails with `git@github.com: Permission denied (publickey)`, add an SSH key to
 the GitHub account, or clone over HTTPS and register the local directory as the marketplace source
 instead — noting the live-edit and portability caveats below.
 
@@ -113,7 +113,7 @@ from the repo root and confirm the output includes both an `Allowlist enforcemen
 The warning firing means `.percolate-identity` is either absent or has an empty
 `PERSONAL_REVIEW_PATTERNS` — go back to the provisioning step above. A dry-run that instead reports
 the version-consistency gate as "not found" is not a clean install either — it means
-`check-version-consistency.py` (also claude-klabauter-resident, same
+`check-version-consistency.py` (also engine-resident, same
 `$(python3 coordinator/hooks/scripts/_engine_root.py)/coordinator/bin/`) didn't resolve, and
 publishing would proceed with that surface unchecked.
 

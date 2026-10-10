@@ -11,9 +11,11 @@ A lookup table is built by accumulating outputs from many runs over time. Once a
 A live consumer reads its input from the current state of the producer. If the producer regenerated since the lookup was last updated, the consumer's input may diverge from the lookup's recorded form for the same conceptual entry.
 
 Post-condition tests that gate on "entry exists in lookup" catch one class of bug:
+
 - **Fabrication.** An ID that was never produced (typo, hallucinated, off-by-one). The lookup is the right witness — if it's not there, it wasn't produced.
 
 They do NOT catch:
+
 - **Staleness.** An ID that was produced under contract V1 but the live consumer expects contract V2. The lookup has the V1 entry; the test passes; the consumer fails downstream because the V2 reader can't parse V1's shape.
 
 ## Rule

@@ -19,6 +19,7 @@ config = repos.project_rag / "subdir/file.toml"
 ```
 
 **API contract:**
+
 - `repos.<key>` resolves `repos.<key>` from the registry and returns a `pathlib.Path`.
 - Missing key raises `AttributeError` (not `KeyError`) — Python protocol; `hasattr`/`getattr(default)` work correctly.
 - Dunder/underscore-prefixed names are guarded — `repos.__foo__` never resolves a registry key.
@@ -50,6 +51,7 @@ echo "$REPO_PROJECT_RAG/subdir/file.py"
 ```
 
 **Contract:**
+
 - Source once per session; idempotent (guarded by `CLAUDE_MACHINE_LOCAL_SOURCED`).
 - Exports `$REPO_<NAME>` for every declared `repos.*` key.
 - Key transformation: `repos.project_rag` → `REPO_PROJECT_RAG` (dots and hyphens → underscores, lowercase → uppercase).
@@ -92,6 +94,7 @@ Production traffic is unaffected (env var arrives unset from outside); the failu
 **Consequence for plugin CLI shims:** a plugin needing bare-name cross-shell reach MUST ship its shim (or a thin exec-forwarder) in its **own** `plugins/<plugin>/bin/` directory — not in `~/.claude/bin/`. The harness injects `plugins/<plugin>/bin/` unconditionally; `~/.claude/bin/` gets no bare-name reach on any platform.
 
 `~/.claude/bin/` retains two valid roles:
+
 - **Absolute-path callers** — health-check probes that call an installer-authored `~/.claude/bin/<tool>` path explicitly are always correct, for whichever plugin still mints a forwarder there. Coordinator mints none (see below): a probe should not reference `~/.claude/bin/machine-local` — no forwarder exists at that path.
 - **Persistence across reinstalls** — the directory is stable user-space; installer-authored files there survive plugin upgrades.
 
@@ -108,6 +111,7 @@ Production traffic is unaffected (env var arrives unset from outside); the failu
 Empirically: `%APPDATA%\npm` is NOT on PATH for Git Bash or PowerShell on Windows (only cmd.exe via the standard Node installer); `/usr/local/bin` doesn't exist on Windows shells; `npm link` ships a file that satisfies `ls` but fails `which` for the agent's actual shell. The harness-injected plugin bin is the only directory guaranteed for bare-name invocation on all platforms.
 
 **Tenancy contract** for any plugin shipping into its own `plugins/<plugin>/bin/`:
+
 - Namespaced by binary name (e.g. `example-game-repo-control{,.cmd}`) — no collisions across plugins.
 - Uninstall removes those exact files — no orphan shims.
 - Drift reporting surfaces via the plugin's own doctor probe — not the coordinator's.
@@ -131,6 +135,7 @@ The contract is a one-paragraph wiki addition for the consuming plugin; the prod
 Canonical live install per the vacate mandate is `<settings-home>/bin/{claude_machine_local.py,claude-machine-local.sh,claude-machine-local.ps1}`. The installer mints these three helpers there only — the prior `~/.claude/bin/` compat mirror (the Step 3c-compat producer and its `compat_bin_dst` mkdir) is retired (Gate 6); a fresh install mints nothing into `~/.claude/bin/`.
 
 All three helpers live at two locations:
+
 - Live install: `<settings-home>/bin/{claude_machine_local.py,claude-machine-local.sh,claude-machine-local.ps1}`
 - Template mirrors: `coordinator/templates/bin/` (byte-identical)
 

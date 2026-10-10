@@ -3,8 +3,8 @@ title: Slash-command helper extraction discipline
 created: 2026-05-27
 type: doctrine
 related:
-  - plugins/coordinator/agents/code-reviewer.md
-  - plugins/coordinator/docs/wiki/install-playbook-rationale/install-surface-completeness.md
+  - plugins/coordinator-claude/coordinator/agents/code-reviewer.md
+  - plugins/coordinator-claude/coordinator/docs/wiki/install-playbook-rationale/install-surface-completeness.md
 ---
 
 
@@ -95,6 +95,7 @@ to a fully simulated marketplace install layout is a separate infra workstream.
 
 The **Path-resolution on extracted helpers** sub-lens in `agents/code-reviewer.md`
 § Spec completion lens is the enforcement point. The lens fires when:
+
 - the diff extracts slash-command bodies into helper scripts, OR
 - the diff introduces `${CLAUDE_PLUGIN_ROOT}` / plugin-root path interpolation.
 

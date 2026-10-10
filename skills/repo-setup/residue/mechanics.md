@@ -64,7 +64,8 @@ skill on first use — except `state/orientation_cache.md` (below).
 
 **`.gitignore`.** Source the block from `templates/gitignore.project.template` (never the
 settings-home `dotgitignore.tmpl`). Ensure the canonical block (`.coordinator-local/`,
-settings.local.json, scratch/, per-session sentinels, ceremony/coverage transients, the group-EM
+settings.local.json, scratch/, per-session sentinels, the doctrine-edit approval sentinel (honoured
+by mtime, so a committed copy re-arms on every checkout), ceremony/coverage transients, the group-EM
 watch trio — `state/group-em-watch.json`, `state/group-em-watch-parked.json`,
 `state/group-em-watch-spool.jsonl` — the engine-provenance ledger
 `state/engine-provenance-counts.jsonl`, `state/housekeeping-liveness.json`, `state/orientation_cache.md`, the emitted workflow scripts

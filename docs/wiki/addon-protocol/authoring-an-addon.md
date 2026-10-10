@@ -64,6 +64,7 @@ across all registered addons at boot, populates `SourceRegistry`, and serves ban
 and the blended-query backend.
 
 **What the addon must guarantee:**
+
 - `band_name` is unique across the addon's own bands (host enforces global uniqueness at boot; collision raises immediately).
 - `applicable_kinds=None` for universal bands (queryable from any project kind).
 - Non-empty `applicable_kinds` for engine-specific or language-specific bands.
@@ -78,6 +79,7 @@ command iterates the catalog, runs each probe step, and surfaces findings with
 `hint_template`-derived remediation text.
 
 **What the addon must guarantee:**
+
 - Each row's `id` field is globally unique across the merged catalog (use an addon-namespace prefix, e.g. `A-F-N` for the UE addon, `U-F-N` for Unity).
 - The canonical seven fields are present (see §8 for the authoritative field list).
 - `contributor` matches the addon's entry-point name.
@@ -189,9 +191,11 @@ Every corpus addon should ship:
 
 - `scripts/setup.{ps1,sh}` with a Phase 4 step that calls the host's registration
   helpers via the addon's own CLI subcommand:
+
   ```
   python3 -m <addon_cli_module> register-with-project-rag --target-project-root <consumer_root>
   ```
+
 - An optional Phase 5 step that downloads the corpus artifact if absent locally
   (only relevant for addons distributing a pre-built corpus).
 - `data/` directory at `<addon-root>/data/` as the `corpus_root` base.
@@ -379,11 +383,11 @@ to the UE addon; only the band names, `applicable_kinds` strings, and `contribut
 ## 12. Worked example C — coordinator meta-knowledge corpus (non-engine, universal)
 
 This is the Z-3 worked example. The producer is a follow-on plan (coordinator-plugin-bundled
-addon at `~/.claude/plugins/coordinator/project_rag_addon/`); this example
+addon at `~/.claude/plugins/coordinator-claude/coordinator/project_rag_addon/`); this example
 documents the binding shape that the template-addon already demonstrates.
 
 ```python
-# ~/.claude/plugins/coordinator/project_rag_addon/__init__.py
+# ~/.claude/plugins/coordinator-claude/coordinator/project_rag_addon/__init__.py
 # (shape only — actual content is a follow-on plan)
 import pluggy
 from core.addon_protocol import CorpusBand

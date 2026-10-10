@@ -127,27 +127,32 @@ It globs `archive/completed/*/*.md` — the month-subdir pattern — and exclude
 > (label-vs-executable).
 
 **Cluster pass (workday-complete):**
+
 ```bash
 query-completions --where "created=2026-05-19" --sort "chain" --format json
 ```
 
 **Editorial bucketing (workweek-complete):**
+
 ```bash
 query-completions --since "7d" --where "status=pending-release" --format json
 ```
 
 **Release-notes consumption (merge-to-main):**
+
 ```bash
 query-completions --where "status=pending-release" --sort "nature" --format markdown-list
 ```
 
 **Path list for scoped git-add (merge-to-main release flip):**
+
 ```bash
 ENTRY_PATHS=$(query-completions --where "status=pending-release" --format paths)
 git add -- $ENTRY_PATHS archive/release-notes/<release-file>
 ```
 
 The `--format markdown-list` display for type `completion` renders as:
+
 ```
 - **<title>** [<nature>] (chain: <chain|none>) — <commits>
 ```
@@ -251,9 +256,11 @@ monoliths to `archive/completed/legacy/` automatically before writing the first
 per-entry file.
 
 **Option B — Manual migration helper (PM-invoked):**
+
 ```bash
 migrate-completion-log-legacy.py
 ```
+
 Detects all monoliths at `archive/completed/YYYY-MM.md`, moves them to
 `archive/completed/legacy/` via `git mv`, and prints a summary. Idempotent —
 running again when `legacy/` is already populated is a no-op.
@@ -272,6 +279,7 @@ A static-grep tripwire (`check-no-monolith-completion-append.py`, registered in
 `/workday-complete`, `/update-docs`, `agents/executor.md`.
 
 **Allowed exceptions** (excluded from grep firing):
+
 - Paths under `archive/completed/legacy/`
 - `migrate-completion-log-legacy.py`'s own `git mv` source argument
 - Docstrings and comments in `docs/wiki/` (instructional path mentions)
@@ -510,35 +518,43 @@ entries capture intentional investment.
 
 **bug-sweep:**
 Hot-zone identification via:
+
 ```bash
 query-completions --since "30d" --where "nature=bugfix"
 ```
+
 Cooldown rule: deprioritize paths that shipped a bugfix in the last 7 days — recent
 fix activity signals either a live regression loop (don't poke it without new info) or
 resolved debt (don't re-fix).
 
 **learn-lessons:**
 Verify structural enforcement of a tripwire or lesson by querying:
+
 ```bash
 query-completions --where "title~<tripwire-name>"
 ```
+
 If an entry appears after the lesson was supposed to be codified, the enforcement is
 working. If the lesson fires repeatedly with no corresponding "fix-codified" entry, the
 structural fix hasn't landed.
 
 **code-health:**
 Scope to today's completion entries instead of all of HEAD:
+
 ```bash
 query-completions --where "created=<today>"
 ```
+
 This focuses the health pass on surfaces actually touched this session rather than
 running a broad sweep over the full working tree.
 
 **workday-start Step 1.5:**
 Query recent roadmap entries to orient the session:
+
 ```bash
 query-completions --since "90d" --where "nature=roadmap" --sort "-loe.agent_dispatches" --limit 10 --format markdown-list
 ```
+
 Zero-row rendering: always emit the count ("0 roadmap entries in the last 90 days") —
 do not skip the step silently.
 
@@ -550,17 +566,21 @@ not apply. Rank on a numeric field; `loe.em_tokens` is null in every completion 
 
 **spinoff:**
 Surface related-chain discovery at spinoff-authoring time via:
+
 ```bash
 query-completions --where "workstream=<slug>"
 ```
+
 Gives the PM context on how much prior work exists under the same workstream slug
 before authorizing a new spinoff.
 
 **the Staff Engineer + the VP-Product Reviewer personas:**
 Pre-review chain query for incremental review orientation:
+
 ```bash
 query-completions --where "chain=<plan-path>" --sort "created"
 ```
+
 Lets the reviewer see what prior sessions shipped under the same plan before reviewing
 the current diff — avoids re-litigating settled decisions.
 
@@ -604,12 +624,14 @@ and `yq` is not in the coreutils dependency surface.
 The registry carries no `path:` field — on-disk paths are machine-local-derived and
 resolved per `shortname` via . Extract each entry's
 `shortname:` from the registry, then resolve it to a path:
+
 ```bash
 _cc_claude_klabauter="${REPO_CLAUDE_KLABAUTER:-${COORDINATOR_ENGINE_ROOT:-}}"
 if [ -z "$_cc_claude_klabauter" ]; then
   _cc_claude_klabauter="$(python3 "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_engine_root.py" 2>/dev/null)"
 fi
 if [ -z "$_cc_claude_klabauter" ] || [ ! -d "$_cc_claude_klabauter" ]; then
+  # repos.claude_klabauter lives in <settings-home>/machine-local/registry.local.toml
   echo "ERROR: claude-klabauter root unresolved (checked REPO_CLAUDE_KLABAUTER, CLAUDE_KLABAUTER_ROOT, and the coordinator settings-home registry/pointer via _engine_root.py) — set REPO_CLAUDE_KLABAUTER, or run: machine-local set repos.claude_klabauter <path>" >&2
   exit 1
 fi
@@ -653,6 +675,7 @@ A version bump is a user-facing signal: "something you'd notice has changed." Wh
 
 
 The dispatched-agents tracker file uses tab-delimited records in Phase 2:
+
 ```
 <agentId>\t<model>\t<subagent_type>
 ```

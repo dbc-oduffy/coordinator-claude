@@ -11,8 +11,8 @@ argument-hint: "[<seed-id> ...] [--interaction-mode hands-on|pm|ceo]"
 
 Batches `coordinator:goal-setting`: the VP-Product Reviewer (`coordinator:vp-product`, Opus, effort high) sets each OKR
 from the seed's context, a second the VP-Product Reviewer pass critiques it, the VP-Product Reviewer integrates, a blitz-em checks readiness,
-and the VP-Product Reviewer ratifies the whole set once at the end. A seed that already states an objective is input the VP-Product Reviewer
-may refine; the VP-Product Reviewer's version is what lands. Nothing reaches `state/goals/` before that ratification. Rationale: wiki `planning/goal-blitz`
+and the VP-Product Reviewer ratifies the whole set once at the end. A seed's own objective is input the VP-Product Reviewer
+may refine. Nothing reaches `state/goals/` before that ratification. Rationale: wiki `planning/goal-blitz`
 — read when a rule looks wrong, never to decide whether to follow one. The wave fires from the
 top-level EM only — a dispatched agent cannot fan out (`A-SKILL-PHASE-NAMES-ITS-ACTOR`).
 
@@ -22,7 +22,7 @@ top-level EM only — a dispatched agent cannot fan out (`A-SKILL-PHASE-NAMES-IT
 
 | Mode | Target set |
 |---|---|
-| **Sweep** (default, no args) | every goal-seed baton (`kind: goal-seed`) with `deployment_state: awaiting_gate`, and every sizing with `route: goal-setting` and `status: sized` or `routed`. Landing stamps a consumed sizing `shipped`. |
+| **Sweep** (default, no args) | every `kind: goal-seed` baton at `deployment_state: awaiting_gate`, and every `route: goal-setting` sizing at `status: sized` or `routed`. Landing stamps a consumed sizing `routed` with its `goal_id`. |
 | **Targeted** (`<seed-id> ...`) | the ids you pass. Everything unnamed is not a candidate. |
 
 **Check `unmatched_targets` on every targeted run** — a quietly dropped target is worse than a refusal.
@@ -74,7 +74,7 @@ The workflow ratifies nothing; it returns ready drafts in `awaitingRatification`
 **the VP-Product Reviewer** (`coordinator:vp-product`) for every `interactionMode`; the result's `approver` reports
 `vp-product`. No PM or APM path ships.
 
-Dispatch the VP-Product Reviewer **once**, Opus at effort `high`, over the whole `awaitingRatification` set. Give it the
+Dispatch the VP-Product Reviewer **once**, at the agent's own pinned effort (an override is refused), over the whole `awaitingRatification` set. Give it the
 paths of each ready draft (`<trail>/<seed-id>.goal-draft.yaml`) and its critique, and ask for per
 draft the verdict ratified or declined with the VP-Product Reviewer's own words. Write each answer **verbatim** into
 `<trail>/ratification.json`, shaped `{seed_id: {verdict, ratifier: "vp-product", utterance}}`. Never
@@ -92,12 +92,19 @@ writes nothing on a ready draft with no ratification record. A CLI failure mid-l
 every path the run wrote, so fix the cause and re-run. **Read its exit code and stderr; never route
 around a refusal.**
 
-### 5. Offer the chain
+### 5. Chain — by mode
+
+**pm or ceo: chain, never ask.** The PM's ask to execute is the chain ack: invoke
+`coordinator:plan-blitz` over the landed roadmap-seed batons (its scouts size each one), then
+execute, reporting each landing in one line as it goes. `roadmap-blitz` takes only a sizing with
+`xl_exit: roadmap`, which a landed seed is not.
+
+**hands-on: offer, and wait.**
 
 > _"{N} goal(s) landed with {M} roadmap-seed stub(s). Want me to chain into `/roadmap-planning`
 > now, or review the stubs first?"_
 
-**Wait for the PM.** Never auto-chain; roadmap-seed stubs stay `awaiting_gate`.
+Roadmap-seed stubs stay `awaiting_gate` until the PM answers.
 
 ---
 

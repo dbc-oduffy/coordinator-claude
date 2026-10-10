@@ -21,6 +21,10 @@ Below, "your mailbox", "your claims", and "your summary" mean the three files fo
 
 ## Your Job
 
+If your summary's first line reports `sources_read` below the brief's `min_sources`, or is missing,
+first fetch more sources for your assignment, revise your claims and summary, and rewrite that
+first line with the new count. Then:
+
 1. Read your mailbox. Every line after your last `{"read": true}` marker is unread; the CHALLENGE,
    CONTRADICTION, and OVERLAP lines need an answer.
 2. Answer each challenge with evidence (WebSearch and WebFetch are available), or concede.

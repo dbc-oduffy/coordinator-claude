@@ -151,6 +151,13 @@ Greppable signal words for abstention triggers: `UObject`, `UCLASS`, `UFUNCTION`
 
 If coordinator-claude routing claims something is producer-agnostic but F-L4 audits it as UE-semantic, **F-L4 wins** — that's the seam contract from §12.1.
 
+## Adopting a sibling's convention into universal substrate
+
+When a sibling repo's convention is promoted into coordinator substrate, adopt its env-agnostic
+**marker** (the vocabulary token, the sentinel name), not its stack-specific **mechanism** (the
+env-var plumbing, the framework hook). The marker generalizes; the mechanism imports the sibling's
+stack into every consumer.
+
 ## Cross-references
 
 - Source roadmap §0 — full four-repo polarity statement and historical context (multi-rag-coexistence)

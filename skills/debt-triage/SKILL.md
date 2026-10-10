@@ -11,9 +11,8 @@ allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskU
 
 **Announce at start:** "I'm using the coordinator:debt-triage skill to review the debt backlog."
 
-An **EM-PM conversation**, not a dispatched agent — the EM reads the backlog, applies judgment,
-and presents recommendations. Trigger on demand, at >20 open items, or after a refactor that may
-have resolved several. Rationale, clustering detail, structural-probe calibration: wiki.
+An **EM-PM conversation**, not a dispatched agent: the EM reads the backlog and recommends. Trigger
+on demand, at >20 open items, or after a refactor that may have resolved several. Rationale, clustering detail, structural-probe calibration: wiki.
 
 **On a PowerShell host, every CLI below takes its `.exe` launcher through the call operator**
 (Shape W), never the `${...}` POSIX-shell form shown. Ladder and shapes:

@@ -5,11 +5,11 @@ author: claude-central-em
 status: active
 kind: wiki
 related:
-  - plugins/coordinator/docs/wiki/cross-repo-communication.md
-  - plugins/coordinator/docs/wiki/install-playbook-rationale/live-install-drift-audit.md
-  - plugins/coordinator/docs/wiki/install-playbook-rationale/coordinator-installer-shape.md
-  - plugins/coordinator/docs/wiki/hook-best-practices/machine-local-registry.md
-  - plugins/coordinator/docs/wiki/cross-repo-communication/cross-repo-handshake-doctrine.md
+  - plugins/coordinator-claude/coordinator/docs/wiki/cross-repo-communication.md
+  - plugins/coordinator-claude/coordinator/docs/wiki/install-playbook-rationale/live-install-drift-audit.md
+  - plugins/coordinator-claude/coordinator/docs/wiki/install-playbook-rationale/coordinator-installer-shape.md
+  - plugins/coordinator-claude/coordinator/docs/wiki/hook-best-practices/machine-local-registry.md
+  - plugins/coordinator-claude/coordinator/docs/wiki/cross-repo-communication/cross-repo-handshake-doctrine.md
 keywords:
   - install surface
   - clean install
@@ -62,7 +62,7 @@ Explicit catalogue. Any write to these surfaces triggers the completeness rule:
 
 If you wrote to a file or registry that a fresh `~/.claude/` clone wouldn't have, you're on install surface. Default to "yes, this is install surface" when uncertain.
 
-**Bootstrap gap — machine-local/ creation and seeding.** `coordinator/lib/install-substrate.py:81` (`mkdir -p "$_ml_dst"`) DOES create `~/.claude/machine-local/` on the `coordinator:install` Phase 3 path. The OSS path (`plugins/coordinator/dist/publish-repo-setup/install.sh`, ~59.9 KB) uses a "minimal mirror" that calls `install-substrate.py --setup-only` (C7a/C7b), so both populations — `coordinator:install` users AND OSS `setup/install.sh` users — receive the full machine-local layer (dir creation, tracked baselines including `hardware.toml`, registry seed, bin/ resolver shims, hardware audit). The deprecated `publish-targets.sh` fallback silently activates when the registry directory is absent; it remains in place as a bootstrap backstop until all installations have been migrated to the new seeding path. Any work that depends on `machine-local/` keys must verify which install population the operator used and direct them to the appropriate re-run path (see `coordinator-doctor.md` hardware-probe remediation text for the two-population wording).
+**Bootstrap gap — machine-local/ creation and seeding.** `coordinator/lib/install-substrate.py:81` (`mkdir -p "$_ml_dst"`) DOES create `~/.claude/machine-local/` on the `coordinator:install` Phase 3 path. The OSS path (`plugins/coordinator-claude/coordinator/dist/publish-repo-setup/install.sh`, ~59.9 KB) uses a "minimal mirror" that calls `install-substrate.py --setup-only` (C7a/C7b), so both populations — `coordinator:install` users AND OSS `setup/install.sh` users — receive the full machine-local layer (dir creation, tracked baselines including `hardware.toml`, registry seed, bin/ resolver shims, hardware audit). The deprecated `publish-targets.sh` fallback silently activates when the registry directory is absent; it remains in place as a bootstrap backstop until all installations have been migrated to the new seeding path. Any work that depends on `machine-local/` keys must verify which install population the operator used and direct them to the appropriate re-run path (see `coordinator-doctor.md` hardware-probe remediation text for the two-population wording).
 
 ## The completeness test — three concrete checks
 
@@ -109,7 +109,7 @@ A "yes" to any of these without the named mitigation is incomplete work, not a f
 
 *Source: . [universal]*
 
-**The rule itself lives in its own decision record — read it there.** Registered as `MAINTAINER-SIGNAL-DIAGNOSIS`: a DoE-only signal (`.content-root`, `COORDINATOR_CONTENT_ROOT`, a machine-local key) may **classify** an install — "dev or OSS?" — but its absence must never be **evidence that an install is unhealthy**. The discriminator is polarity, not vocabulary: `.coordinator-dev-repo` is exactly as DoE-only and is entirely legitimate, because absence there is a designed fact landing on a fully-supported path. This section carries only what that ruling implies *for install-surface work specifically*, and exists so prior-art-checker surfaces the class on install-touching plans.
+**The rule itself lives in its own decision record — read it there.** Registered as `MAINTAINER-SIGNAL-DIAGNOSIS`: a maintainer-only signal (`.content-root`, `COORDINATOR_CONTENT_ROOT`, a machine-local key) may **classify** an install — "dev or OSS?" — but its absence must never be **evidence that an install is unhealthy**. The discriminator is polarity, not vocabulary: `.coordinator-dev-repo` is exactly as maintainer-only and is entirely legitimate, because absence there is a designed fact landing on a fully-supported path. This section carries only what that ruling implies *for install-surface work specifically*, and exists so prior-art-checker surfaces the class on install-touching plans.
 
 **Maintainer-green is not clean-install-green.** This wiki's § Rule says local-green is not clean-install-green; the guard-time sibling is that verifying a fix on the maintainer's own box is the one observation that *cannot distinguish* the two outcomes. This repo is one person's tree; `coordinator` ships to dozens, so the absent-signal branch is the **majority** branch and earns primary-path scrutiny.
 
@@ -168,7 +168,7 @@ Each of these codifies a specific install surface or specific failure shape. Thi
 - **`coordinator-installer-shape.md`** — the coordinator's own installer (`/coordinator:install`) and its three audiences (OSS adopters, internal users, meta-repo operators).
 - **`machine-local-registry.md`** — per-machine value writes (install roots, sibling-repo paths, vendor SDKs) under `~/.claude/machine-local/`. Authors the schema-vs-value distinction.
 - **`cross-repo-handshake-doctrine.md`** — when a sentinel crosses a repo boundary, it must self-document its preconditions inline; producer-only documentation is invisible at consumption time.
-- **`cross-repo-communication.md`** — the single `cross-repo/` surface and the doctrine-vs-code altitude distinction. Cross-repo memos (dirty files placed in the receiver's `cross-repo/` via the CLI) are signalling artifacts — they do not alter what runs in the receiver repo. The install-surface completeness rule (this wiki) applies to implementation-intent changes; memo delivery is governed by the lifecycle in `cross-repo-communication.md § Cross-repo memo lifecycle`.
+- **`coordinator/docs/wiki/cross-repo-communication.md`** — the single `cross-repo/` surface and the doctrine-vs-code altitude distinction. Cross-repo memos (dirty files placed in the receiver's `cross-repo/` via the CLI) are signalling artifacts — they do not alter what runs in the receiver repo. The install-surface completeness rule (this wiki) applies to implementation-intent changes; memo delivery is governed by the lifecycle in `cross-repo-communication.md § Cross-repo memo lifecycle`.
 
 ## For trio repos (project-rag / project-rag-ue-addon / example-game-workbench-repo)
 
@@ -362,6 +362,51 @@ A `git push` that dies with "Device not configured" (or falls through to an inte
 
 **Fix:** `gh auth setup-git` installs a global non-interactive credential helper that routes git's HTTPS auth through the `gh` token. On dev machines prefer an SSH agent (e.g. 1Password SSH agent) as the primary path with `gh`-token as the headless fallback. Do not chase this as a token-scope or firewall problem — verify the credential-helper wiring first. (Source: example-game-workbench-repo.)
 
+## A layout migration re-derives every repo-root-relative path, including scoped-out subsystems
+
+Moving a tree changes the meaning of every path declared relative to the repo root. Re-derive
+**all** of them — manifests, registries, test fixtures, hook wiring — including the subsystems the
+migration declared out of scope. Scoping a subsystem out of the work does not scope it out of the
+layout it lives in.
+
+## Shipped probes test a capability, never an owner-specific resource
+
+A probe that ships to other operators must test the capability it names, not a resource only the
+author can reach. A clone-auth probe that tried the author's own repository passed for its author
+and reported "unreachable" for everyone else. Probe something every operator's install can
+legitimately reach, or the operator's own configured target.
+
+## A warn-only delegated step defeats a presence-only validation
+
+A seed or provisioning step delegated to a subprocess with `|| echo WARN` lets the install
+continue after it fails, and a validation that checks only directory presence then passes green on
+an incomplete install. Validation asserts the specific artifacts the delegated step produces, and
+fails hard when they are absent.
+
+## A secret map consumed by a publish transform lives outside what publishes
+
+A codename-to-placeholder map used by a publish-time transform must not be inlined in a transform
+script that itself ships: it publishes the secrets it hides. Keep the map in an ignored sibling
+file, and add a check that greps the real publish target for the secrets.
+
+## Retiring a script means extracting its unrelated side effects first
+
+Before deleting a script or install phase, grep it for side effects unrelated to what is being
+retired (a marketplace registration that also disabled an LSP server). Extract the survivor into
+its own unit first.
+
+## Delete a placeholder only after checking for live data and live writers
+
+A file labelled as a migrated placeholder can still hold live entries a writer keeps appending.
+Before removing it, check for live content and for any writer still targeting it, and fix the
+writer in the same change.
+
+## A diagnostic that hardcodes the plugin's install path misses `--plugin-dir` installs
+
+A doctor probe or tool that looks for a plugin surface at its canonical `~/.claude` install path
+silently skips on machines that load the plugin with `--plugin-dir`. Resolve the location through
+the machine-local `repos.*` ladder, the same way the plugin's own resolver does.
+
 ## When this rule does NOT apply
 
 - **Pure runtime path resolution** — covered by `docs/wiki/hook-best-practices/machine-local-registry.md` § 4 Resolution Order (formerly `Build For Someone Else's Machine` in coordinator/CLAUDE.md), not this rule. That rule says "explicit flag → env var → marker auto-discovery → silent skip / hard error"; this rule says "and your installer must produce the marker."
@@ -420,7 +465,7 @@ Empirical basis (Machine-c portability-tracked-per-machine-config C5): moving a 
 
 An editable `pip install -e` of a coordinator-owned Python package into the bare system `python3` failed in two independent ways that were invisible at authoring time. First, Homebrew Python and Debian Python now refuse direct `pip install` into the system interpreter (PEP 668 — "externally managed environment"), so the install command errored on fresh macOS/Linux machines. Second, even where the install initially succeeded, a system Python bump (e.g. Homebrew upgrading from 3.12 to 3.13) silently invalidated the `.dist-info` entry — the package raised `ImportError` after the upgrade with no signal pointing at the coordinator install.
 
-The fix: a coordinator-owned venv builder — originally `bin/ensure-coordinator-venv.sh`, since ported to the native `coordinator_core.install.ensure_venv` (claude-klabauter-resident, invoked via `/coordinator:install` Phase 3 Step 6 / `install-substrate`) — creates a coordinator-owned venv under the home directory (`.coordinator-venv/`), seeds the dependency-bearing package via editable install into that venv, and writes the absolute interpreter path to the machine-local registry as `coordinator.python`. The `coordinator.python` resolution contract resolves `COORDINATOR_PYTHON` env → `machine-local get coordinator.python` → PATH fallback, with a loud error if the pin is stale (formerly implemented by `lib/resolve-python.sh`; that FLOOR shim is retired — see `machine-local-registry.md § coordinator.python resolution contract`). The coordinator doctor (P-5) uses the resolved interpreter, not bare `python3`, so it catches venv-absent and pin-stale states and self-heals via the venv builder (`/coordinator:install` Phase 3 Step 6).
+The fix: a coordinator-owned venv builder — originally `bin/ensure-coordinator-venv.sh`, since ported to the native `coordinator_core.install.ensure_venv` (engine-resident, invoked via `/coordinator:install` Phase 3 Step 6 / `install-substrate`) — creates a coordinator-owned venv under the home directory (`.coordinator-venv/`), seeds the dependency-bearing package via editable install into that venv, and writes the absolute interpreter path to the machine-local registry as `coordinator.python`. The `coordinator.python` resolution contract resolves `COORDINATOR_PYTHON` env → `machine-local get coordinator.python` → PATH fallback, with a loud error if the pin is stale (formerly implemented by `lib/resolve-python.sh`; that FLOOR shim is retired — see `machine-local-registry.md § coordinator.python resolution contract`). The coordinator doctor (P-5) uses the resolved interpreter, not bare `python3`, so it catches venv-absent and pin-stale states and self-heals via the venv builder (`/coordinator:install` Phase 3 Step 6).
 
 This instance illustrates the **editable-install label drift** failure shape (§ Three recurring failure shapes, shape 2) combined with a **PEP-668 install block** that prevents recovery via the old remediation path. The venv is the canonical solution: interpreter isolation + drift-proof re-pinning via the registry + doctor-driven self-heal closes all three gaps.
 
@@ -663,6 +708,7 @@ echo '[ -f ~/.bashrc ] && [ -r ~/.bashrc ] && . ~/.bashrc' >> ~/.bash_profile
 # sentinel guards (_NE_START_SENTINEL/_NE_END_SENTINEL) and uses an atomic
 # write (mktemp + mv) instead of appending directly to ~/.bash_profile.
 ```
+
 <!-- Review: code-reviewer F7 — fixed three divergences from the real C2 impl:
      (1) export PATH was APPEND form ($PATH:$entry); changed to PREPEND ($entry:$PATH).
      (2) used 'source ~/.bashrc'; changed to '. ~/.bashrc' (POSIX; matches shipped code).
@@ -720,7 +766,7 @@ Composes with § De-LFS at tip is incomplete (the *removal* side of the same LFS
 
 **Onboarding install legs and restart-after-bootstrap instructions must explicitly direct the new Claude Code session to open with `~/.claude` as cwd — `/workday-start` and `/pickup` are cwd-scoped and silently resolve handoffs against the wrong folder when opened from a sibling repo.**
 
-`/workday-start` and `/pickup` resolve handoff files relative to the current working directory's `state/handoffs/`. A bootstrap leg that seeds batons into the install-baton rendezvous (a machine-shared, per-machine folder at `$(coordinator-settings-home)/state/handoffs/` — distinct from claude-klabauter-central; see `state-placement-law.md`) and then instructs the operator to "open a new Claude Code session" without naming `~/.claude` as the starting directory causes the durable session to open wherever Claude Code defaults — typically the last-active project repo. The commands appear to work (no error) but operate against an empty or wrong `state/handoffs/` folder, silently skipping every seeded baton.
+`/workday-start` and `/pickup` resolve handoff files relative to the current working directory's `state/handoffs/`. A bootstrap leg that seeds batons into the install-baton rendezvous (a machine-shared, per-machine folder at `$(coordinator-settings-home)/state/handoffs/` — distinct from the engine's central state; see `state-placement-law.md`) and then instructs the operator to "open a new Claude Code session" without naming `~/.claude` as the starting directory causes the durable session to open wherever Claude Code defaults — typically the last-active project repo. The commands appear to work (no error) but operate against an empty or wrong `state/handoffs/` folder, silently skipping every seeded baton.
 
 How to apply: any INSTALL.md, Phase-N restart-note, or handoff-prose that concludes a bootstrap leg must include the explicit instruction `Open Claude Code with ~/.claude as the working directory` (or equivalent `cd ~/.claude` CLI invocation). Pair with `spinoff-handoffs.md § Install-chain heavy installs` which documents the baton-seeding side. (Source: coordinator-improvement-queue L124.)
 
@@ -732,7 +778,7 @@ How to apply: any INSTALL.md, Phase-N restart-note, or handoff-prose that conclu
 
 The trap deepens post-cutover: `machine-local` **itself lives in this repo's clone**, so it cannot be the resolver that *finds* this repo's clone — a chicken-and-egg. The registry can't bootstrap the path to the registry.
 
-**Correct design.** The installer **projects** the registry's `repos.content_root` into a stable, cold-readable settings-home artifact — a pointer file (`<settings-home>/machine-local/.content-root`, with a read-only legacy `~/.claude/.content-root` fallback rung) or a value baked into the shim — that the `claude()` shell function reads via `REPO_CONTENT_ROOT`. The registry stays the single source of truth; the projection is a **bootstrap cache** the cold terminal can read before any plugin loads. Setting `repos.content_root`, registering coordinator, and generating the shim from the registry is a **P0 install-surface-completeness requirement** for the maximalist install (its exact inverse is the coordinator-uninstall path). Hand-baking a literal path into one machine's `~/.bashrc` to unblock is a this-machine stopgap, not the install solution. Composes with § Publish-Target Parity (`repos.*` resolution + bootstrap precondition) and § Install-surface bugs must be fixed at the emitter (the projection is emitted by the installer, never hand-edited on one box).
+**Correct design.** The installer **projects** the registry's `repos.content_root` into a stable, cold-readable settings-home artifact — a pointer file (`<settings-home>/machine-local/.content-root`, with a read-only legacy `~/.claude/.content-root` fallback rung) or a value baked into the shim — that the `coordinator` shell function reads via `REPO_CONTENT_ROOT`. The registry stays the single source of truth; the projection is a **bootstrap cache** the cold terminal can read before any plugin loads. Setting `repos.content_root`, registering coordinator, and generating the shim from the registry is a **P0 install-surface-completeness requirement** for the maximalist install (its exact inverse is the coordinator-uninstall path). Hand-baking a literal path into one machine's `~/.bashrc` to unblock is a this-machine stopgap, not the install solution. Composes with § Publish-Target Parity (`repos.*` resolution + bootstrap precondition) and § Install-surface bugs must be fixed at the emitter (the projection is emitted by the installer, never hand-edited on one box).
 
 ## Installed-tree verification must use per-file content/blob-set membership, not a whole-tree digest
 
@@ -765,3 +811,9 @@ A passing install-surface test is not by itself evidence the surface is correct:
 A `local _base` left declared-but-uninitialized in a bash fallback ladder crashed under `set -u` — but only in the exact condition the fallback rung exists for: the `coordinator-settings-home` CLI absent from `PATH` (the post-reset state). Reading the code never triggers the bug, because the primary rung (CLI present) never reaches the uninitialized variable; the failure is invisible to inspection and surfaced only as 37 failing install tests. A Python addon mirror of the same ladder carried the identical wrong-fallback bug, caught the same way.
 
 **Rule.** When reviewing or writing any shell resolution ladder with a CLI rung (or any fallback tier that only fires when a preferred tool is absent), actually exercise the fallback: run the function in a subshell with a scrubbed `PATH` and confirm it resolves cleanly rather than crashing. Composes with § Corollary — `set -u` latent crash (variable set only in one code path but referenced in another) — this is the same class of bug, specific to fallback-ladder rungs that ordinary review paths never execute.
+
+## Field rules
+
+- **Refresh one deployed file by copying that file.** A full `--setup-only` re-run to refresh a single file rewrites unrelated live state.
+- **A hook fix is live only in sessions started after it landed.** Running sessions keep the hook set they loaded; validate a repointed or fixed hook in a fresh session before calling it broken.
+- **An explicit setuptools `packages` list needs a declared-vs-on-disk equality test.** A new subpackage is otherwise absent from installs while repo-root tests pass.

@@ -165,6 +165,7 @@ The economics that still bite are the ones the ban doesn't touch: **shared-tree 
 *coordinator-claude.* When a cluster of related fixes shares a single architectural shape (one novel pattern + N surgical follow-ups that mirror it), front-load the review ceremony on the novel item and direct-dispatch the surgical follow-ups against the established pattern. Full plan-review + prior-art-check + post-impl code-review on every cluster member is ceremony inflation — the second through Nth instances re-verify the same pattern with diminishing return.
 
 **Rule:**
+
 - **Item 1 (the novel one):** full ceremony — plan, prior-art-check, the Staff Engineer, post-impl review.
 - **Items 2..N (surgical follow-ups of the same shape):** direct executor dispatch with the item-1 spec as reference. EM spot-check post-commit.
 
@@ -216,3 +217,7 @@ A sizing object's scout evidence — collected to justify its route — also ans
 - → anti-monolith HARD RULE — a large job is fanned out or chunked per-fresh-agent, never one agent grinding chunk after chunk
 - → "Many agents often beat one [universal]" — empirical antecedent for fanning out over grinding one agent through independent chunks serially
 - → `skills/pickup/SKILL.md` (handoff Step 6 + memo M3 Accept) and `skills/workstream-start/SKILL.md` (§ Engage + § Load task context) route grabbed-baton work through dispatch-by-default — "run" = dispatch an executor, not type it yourself.
+
+## Field rules
+
+- **Once a red set is known, stop re-running the full gate to re-observe it.** Investigate, fix, and verify per file; each redundant full run is load on every peer sharing the box.

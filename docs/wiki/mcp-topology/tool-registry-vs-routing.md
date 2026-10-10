@@ -47,7 +47,7 @@ Sourced from `tasks/dogfood-runs/2026-05-14-181057-cd81/tool_catalog.json`; `pro
 | 15 | `project_rag_instructions` | meta | **no** |
 | 16 | `project_symbol_source` | L1 (LSP byte offset) | **no** |
 | 17 | `project_engine_examples` | engine RAG | implied (UE) |
-| 18 | `project_engine_pattern_check` | engine RAG | implied (UE) |
+| 18 | `project_engine_pattern_check` | 3 deterministic rules, no corpus | implied (UE) |
 | 19 | `project_engine_session_primer` | engine RAG | **no** |
 | 20 | `project_engine_document_symbols` | engine RAG | **no** |
 | 21 | `project_engine_type_hierarchy` | engine RAG | **no** |

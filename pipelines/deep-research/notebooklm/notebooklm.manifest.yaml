@@ -1,6 +1,6 @@
 schema_version: 1
 pipeline: notebooklm
-description: "NotebookLM research: scout, one worker per notebook, sweep"
+description: "NotebookLM research: scope, prior-art, scout, one worker per notebook, sweep, coverage audit"
 inputs:
   brief: required
   scratch_dir: optional
@@ -8,6 +8,23 @@ inputs:
     notebooks:
       kind: strings
 stages:
+  - id: scope
+    phase: Scope
+    agent_type: general-purpose
+    model: sonnet
+    template: scope-prompt-template.md
+    produces_brief: true
+    web_caller: false
+    output: "{{scratch_dir}}/strategy.md"
+  - id: prior-art
+    phase: Scope
+    agent_type: "coordinator:prior-art-checker"
+    model: sonnet
+    template: prior-art-prompt-template.md
+    optional: true
+    web_caller: false
+    depends_on: [scope]
+    output: "{{scratch_dir}}/prior-art-check.md"
   - id: scout
     phase: Scout
     agent_type: "coordinator:notebooklm-research-scout"
@@ -15,6 +32,7 @@ stages:
     template: scout-prompt-template.md
     web_caller: true
     optional: true
+    depends_on: [prior-art]
     output: "{{scratch_dir}}/sources.md"
   - id: workers
     phase: Workers
@@ -35,3 +53,19 @@ stages:
     web_caller: true
     depends_on: [workers]
     output: "{{scratch_dir}}/merged-claims.json"
+  - id: coverage
+    phase: Coverage
+    agent_type: "coordinator:coverage-auditor"
+    model: sonnet
+    template: coverage-prompt-template.md
+    web_caller: false
+    depends_on: [sweep]
+    output: "{{scratch_dir}}/coverage-audit-ptr.md"
+    schema:
+      type: object
+      properties:
+        sidecarPath:
+          type: string
+        absentClaims:
+          type: integer
+      required: [sidecarPath, absentClaims]

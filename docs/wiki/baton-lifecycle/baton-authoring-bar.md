@@ -68,6 +68,18 @@ baton.
 This is the same failure DEC-1 names for parking (a named reason vs. a default sink) applied
 to bundling: a cluster is not itself a justification, and a title is not itself a thesis.
 
+## A repo negative-spec yields to PM direction
+
+A negative-spec in a repo runbook ("never retrieve secrets via X", "never store Y in Z") is a
+default written before the PM's direction existed. When the PM directs the banned path, the
+direction governs: act on it, and amend the runbook in the same session so the next agent does not
+argue the PM from a stale ban. Absent a direction, the ban binds. A negative-spec written into a
+baton or plan Anti-scope follows the same rule, except where it quotes the PM's own words.
+
+Failure observed: a runbook banned an agent-retrieval path and a storage location; the PM directed
+both, and agents kept citing the runbook until it was amended. Tripwire:
+`coordinator/docs/wiki/coordinator-tripwires/a-repo-negative-spec-yields-to-pm-direction.md`.
+
 ## Where this bar is enforced (DEC-5, revised)
 
 **Not at the scaffolder.** `coordinator-doc-new` is a scaffolder — every `_scaffold_*`

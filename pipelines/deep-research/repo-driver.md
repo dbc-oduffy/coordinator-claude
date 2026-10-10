@@ -1,5 +1,5 @@
 ---
-description: "PM-GATED — only invoke when the PM explicitly asks; EM must ask first if it thinks it's warranted; NEVER invoke from a subagent. Pipeline B (Repo Research) as a chatty Workflow — optional Opus survey for holistic orientation, scouts (Haiku for small repos, Sonnet for large) build file inventories, 4 Sonnet specialists analyze and optionally compare, 1 Opus synthesizer produces the final document. In --deepest mode: three-phase pipeline with atlas sketch and refinement."
+description: "EM-fired on a sizing; never fired from a subagent. Pipeline B (Repo Research) as a chatty Workflow — optional Opus survey for holistic orientation, scouts (Haiku for small repos, Sonnet for large) build file inventories, 4 Sonnet specialists analyze and optionally compare, 1 Opus synthesizer produces the final document. In --deepest mode: three-phase pipeline with atlas sketch and refinement."
 allowed-tools: ["Agent", "Workflow", "Read", "Write", "Bash", "Glob", "Grep"]
 argument-hint: "<repo-path> [--compare <project-path>] [--code-compare <peer-target> --axes <axis-list>] [--survey] [--deeper] [--deepest] [--scout-model {haiku|sonnet}]"
 ---
@@ -61,7 +61,7 @@ Full mode description, architecture rationale, and record-schema detail:
 10. If `--deeper`: set repomap path: `{scratch-dir}/repomap.md`
 11. If `--survey` or `--deepest`: set survey path: `{scratch-dir}/survey.md`; set survey output path: `docs/research/YYYY-MM-DD-repo-{topic-slug}-survey.md`
 12. If `--deepest`: set atlas sketch (scratch) and refined-output (docs/research/) paths — see `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/repo-research-internals.md` § Atlas Path Conventions for the 3 sketch + 4 final artifact paths.
-13. Set claims path: `docs/research/YYYY-MM-DD-repo-{topic-slug}.claims.json` — durable queryable index of per-specialist claim records merged by the synthesizer.
+13. Set claims path: `docs/research/YYYY-MM-DD-repo-{topic-slug}.claims.json` — durable queryable index of per-specialist claim records merged by the synthesizer. A requested output path overrides steps 7-13: every durable path derives from it, never from `docs/research/`.
 
 Announce: "Running Pipeline B (repo research, chatty Workflow{', deepest mode' if --deepest}{', deeper mode' if --deeper and not --deepest}{', survey mode' if --survey and not --deepest}{', comparison mode' if --compare}) on {repo-path}."
 
@@ -104,98 +104,7 @@ If `--survey` is set and the EM judges a holistic overview is warranted:
 
 ## Step 3 — Orient and Scope Repository (EM Direct)
 
-This is judgment work — the EM does it directly. Two phases: orient first, then scope.
-
-### Phase 1: Structural Orientation (do this BEFORE defining chunks)
-
-Read the repo's structural skeleton to ground your scoping in reality, not assumptions:
-
-1. **Read the README** — understand the repo's purpose and architecture
-2. **Pin the version** — record the repo's current version (git tag, release, or commit hash)
-3. **Survey repo structure** — 2-3 `ls` commands on the target repo, plus `find {repo-path} -name '*.py' -o -name '*.ts' -o -name '*.go' | wc -l` (or similar) for file count estimates
-4. **Answer four orientation questions** (write answers into scope.md):
-   - What are the entry points? (main files, CLI entry, request handlers, etc.)
-   - What are the 5 most important directories?
-   - What is the architecture pattern? (monolith, microservices, layered, plugin, etc.)
-   - What external dependencies are material to the analysis questions?
-5. **Check for LLM context files** — look for `CONTEXT.md`, `CLAUDE.md`, `AGENTS.md`, `.cursorrules`, or similar. If present, read them — they're high-signal orientation material that should be surfaced to all specialists.
-
-### Phase 1.5: Repomap Generation (only if `--deeper`)
-
-Generate a dependency-weighted repomap before defining chunks — gives structural centrality data for chunk scoping and specialist deep-read prioritization. Five steps: (A) detect primary language(s), (B) extract import edges via language-appropriate grep, (C) resolve to files and count cross-references, (D) extract key exports, (E) write `{scratch-dir}/repomap.md` (Tier 1/2/3 by ref count) or skip if the import graph is too thin (<5 files with 2+ refs).
-
-**Full grep patterns per language, repomap template, and skip criteria:** see `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/repo-research-internals.md` § Phase 1.5.
-
-### Phase 2: Scoping (informed by orientation{' and repomap' if --deeper})
-
-6. **Define exactly 4 chunks** — domain-aligned, based on the repo's own architecture as understood from orientation. (4 chunks because the workflow's specialist stage runs one specialist per chunk, four in all, on both scout tiers.) If `--deeper` produced a repomap, review Tier 1 file distribution across chunks — avoid concentrating all core files in a single chunk.
-7. **Assign chunks to scouts** — the mapping is tier-dependent (derive the tier at Step 5 Phase A; the estimates in step 8 feed it). **Haiku tier: 2 scouts, Scout 1 gets chunks A+B, Scout 2 gets chunks C+D. Sonnet tier: one scout per chunk (4 scouts, 1 chunk each)** — halving each scout's load attacks the exact failure mode the tier exists to avoid.
-8. **Estimate file counts per chunk** — rough counts from the survey (these become `[EXPECTED_FILE_COUNT]` in specialist prompts, used as a tripwire for detecting thin scout output)
-9. **Write focus questions using execution-trace framing** — instead of "describe the architecture of X", prefer "trace the request from [entry] to [exit]" or "how does data flow from [input] to [output]?" Execution-trace questions produce more accurate specialist output than structural questions.
-10. **If `--compare`:** identify the project's domain keywords per chunk for comparison file identification. For comparison mode: specialists will analyze each codebase independently first, then compare answers against the focus questions — not compare code directly.
-11. **Ask the PM for timing preferences:**
-    > "Research timing: default is 5-15 min specialist window with 3-file minimum deep-read. For a small repo, I'd suggest 3-10 min / 3 files. For a large repo, 5-20 min / 5 files. What ceiling works for you?"
-
-Write scope to `{scratch-dir}/scope.md`. This file is the run's **brief**: the stage templates read every per-run parameter from it, so nothing about the run lives anywhere else. Field names are fixed — the templates name them:
-
-```markdown
-# Repo Research Scope
-
-**Repository:** {repo-name}
-**Path:** {repo-path}
-**Version:** {version}
-**Date:** {date}
-**Run ID:** {run-id}
-**Comparison:** {project-name and project-path, or "none"}
-**Survey:** {true/false}
-**Deeper mode:** {true/false}
-**Deepest mode:** {true/false}
-**Repomap:** {repomap path or "skipped — thin import graph" or "N/A"}
-
-## Run Parameters
-
-**Output path:** {output-path from Step 1}
-**Advisory path:** {advisory path from Step 1}
-**Gap analysis path:** {gap analysis path, or "N/A"}
-**Claims path:** {claims path from Step 1}
-**Scout tier:** {haiku or sonnet — Step 5 Phase A}
-**Scout ceiling (minutes):** {5, or 8-12 on the Sonnet tier — Step 5 Phase A}
-**Large-chunk breadth:** {true/false — Step 5 Phase A}
-**Min minutes:** {specialist floor, default 5}
-**Max minutes:** {specialist ceiling, default 15}
-**Min deep-read files:** {default 3}
-
-## Structural Orientation
-
-**Entry points:** {main files, CLI entry, request handlers}
-**Key directories:** {top 5 most important directories}
-**Architecture pattern:** {monolith, microservices, layered, plugin, etc.}
-**Material dependencies:** {external deps relevant to analysis}
-**LLM context files:** {CONTEXT.md, CLAUDE.md, etc. — "none" if absent}
-
-## Chunks
-
-| Chunk | Scout | System | Description | Directories/Files | Est. Files | Focus Question |
-|-------|-------|--------|-------------|-------------------|-----------|----------------|
-| A | 1 | {system name} | {one line} | {dirs} | ~{count} | {question} |
-| B | 1 | {system name} | {one line} | {dirs} | ~{count} | {question} |
-| C | 2 | {system name} | {one line} | {dirs} | ~{count} | {question} |
-| D | 2 | {system name} | {one line} | {dirs} | ~{count} | {question} |
-
-The Scout column holds the scout key: `1`/`2` on the Haiku tier. On the Sonnet tier it holds the chunk letter itself. Step 5 Phase A fixes the tier.
-
-{If --compare:}
-## Comparison Targets
-| Chunk | Project Domain Keywords |
-|-------|----------------------|
-| A | {keywords for globbing} |
-| B | {keywords} |
-| C | {keywords} |
-| D | {keywords} |
-
-## Sweep Worklist
-{Optional. Facts that entered the run from outside it — a peer's claim, a PM steer, a cross-repo memo — for the comparison-target sweep to verify. Omit when there are none.}
-```
+Orientation and scoping are the manifest's `scope` stage: `repo-scope-prompt-template.md` writes `{scratch-dir}/scope.md`, the brief every later stage reads (repomap generation: `repo-research-internals.md` § Phase 1.5).
 
 ## Step 4 — Stage Order and Mailboxes
 
@@ -433,14 +342,7 @@ When you receive the Workflow's completion notification (its result is the synth
    ```
    `--out` takes the stem (`{claims-path}` minus `.claims.json`); the CLI writes `{run-stem}.claims.json` and `{run-stem}.claims.meta.json` together. `--ran-at` must be RFC3339 and timezone-aware (naive, date-only, or empty is rejected — day precision recovered from the run-stem does not satisfy it); `--pipeline` must be non-blank and is never derived from `--producer`. Exit 0 = both written, 1 = producer-side failure, 2 = invalid invocation. A failed emission is a no-op on disk — an occupied stem is restored byte-for-byte, so re-running over an existing run-stem is safe.
 
-5. **Dispatch the coverage auditor** — always-on for repo. Read the auditor prompt template from `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/coverage-auditor-prompt-template.md`, select the Pipeline B input block, fill in `[SYNTHESIS_PATH]`, `[RUN_STEM]` (strip `docs/research/` prefix and `.md` suffix from `{output-path}`), and `[SCRATCH_DIR]`, then dispatch as a plain `Agent(...)` (same pattern as the survey at Step 2 and atlas-refinement at Step 7.5):
-   ```
-   Agent(
-     model: "sonnet",
-     prompt: <filled coverage-auditor prompt — Pipeline B input block>
-   )
-   ```
-   The auditor reads `{scratch-dir}/*-claims.json` and `*-summary.md`, cross-references against the synthesis, and writes `{output-path minus .md}-coverage-audit.md`. It does not write the synthesis output path. Wait for `DONE: {sidecar-path}` before proceeding.
+5. **Read the coverage audit** — always-on for repo. It runs as the manifest's `coverage` stage (`repo-coverage-prompt-template.md`) before the Workflow returns and writes `{output-path minus .md}-coverage-audit.md`.
 
 6. **Fidelity relay — `--deepest` only.** If `--deepest` was set, the Workflow ran the relay before it returned: the synthesizer's pass 1 drafted the document and returned, the script dispatched a continuation agent for each specialist carrying the `FIDELITY_RELAY` request, each answered `FIDELITY_OK` or `FIDELITY_CORRECTION` in `mail/synthesizer.jsonl`, and the synthesizer's pass 2 integrated corrections scoped strictly to misrepresentation of existing synthesis prose. The relay mechanics live in `agents/research-synthesizer.md` (C5). repo-driver's role is only to state the gate: **the relay runs if and only if `--deepest`**. For `--deeper`-only or default runs, the relay does not fire.
 

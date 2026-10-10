@@ -20,11 +20,13 @@ related:
 **Spinoff:** the EM hands off the problem. The forked workstream has `predecessor: none`, its own authoring session, and its own `/pickup` / `/handoff` chain. The original session does not integrate spinoff output — the spinoff author does.
 
 Choose sub-plan delegation when:
+
 - the problem space is too large for one plan but the EM can stay present to integrate
 - sub-problems are parallel and their outputs converge at a defined seam
 - the decomposition is the insight — losing it to a spinoff means starting cold on integration
 
 Choose a spinoff when:
+
 - the scope balloons such that integration cannot happen in-session
 - the sub-problem has diverged into its own domain the EM cannot hold
 - PM authorizes a new independent workstream — see `coordinator/skills/handoff/SKILL.md` § Handoff Lineage and `docs/wiki/baton-lifecycle/spinoff-handoffs.md`
@@ -76,6 +78,7 @@ EM never delegates integration. The value of sub-plan delegation over spinoffs i
 ## When to Escalate Sub-plan → Spinoff
 
 Escalate when any of the following is true:
+
 - The integration step cannot complete in-session (scope balloons mid-wave)
 - The EM cannot hold the problem space for a sub-plan's domain
 - A sub-plan's output requires a second full plan-enrich-review cycle before the EM can integrate

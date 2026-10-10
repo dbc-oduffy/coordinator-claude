@@ -73,6 +73,7 @@ digraph tdd_cycle {
 One minimal test, one behavior, clear name, real code (no mocks unless unavoidable).
 
 <Good>
+
 ```typescript
 test('retries failed operations 3 times', async () => {
   let attempts = 0;
@@ -86,9 +87,11 @@ test('retries failed operations 3 times', async () => {
   expect(attempts).toBe(3);
 });
 ```
+
 </Good>
 
 <Bad>
+
 ```typescript
 test('retry works', async () => {
   const mock = jest.fn().mockRejectedValueOnce(...).mockResolvedValueOnce('success');
@@ -97,6 +100,7 @@ test('retry works', async () => {
 });
 // Vague name, tests mock not code
 ```
+
 </Bad>
 
 ### Verify RED — Watch It Fail (MANDATORY)
@@ -180,26 +184,31 @@ When one of these fires, the cleanest path is to re-derive from the test: write 
 **Bug:** empty email accepted.
 
 **RED**
+
 ```typescript
 test('rejects empty email', async () => {
   const result = await submitForm({ email: '' });
   expect(result.error).toBe('Email required');
 });
 ```
+
 `FAIL: expected 'Email required', got undefined` ✓
 
 **GREEN**
+
 ```typescript
 function submitForm(data: FormData) {
   if (!data.email?.trim()) return { error: 'Email required' };
   // ...
 }
 ```
+
 `PASS` ✓
 
 ## Verification Checklist
 
 Before marking work complete:
+
 - [ ] Every new function/method has a test
 - [ ] Watched each test fail before implementing
 - [ ] Each test failed for expected reason (feature missing, not typo)
@@ -272,6 +281,7 @@ Tests must verify real behavior, not mock behavior. Mocks are a means to isolate
 ## Anti-Pattern 1: Testing Mock Behavior
 
 **The violation:**
+
 ```typescript
 // ❌ BAD: Testing that the mock exists
 test('renders sidebar', () => {
@@ -281,6 +291,7 @@ test('renders sidebar', () => {
 ```
 
 **Why this is wrong:**
+
 - You're verifying the mock works, not that the component works
 - Test passes when mock is present, fails when it's not
 - Tells you nothing about real behavior
@@ -288,6 +299,7 @@ test('renders sidebar', () => {
 **The PM's correction:** "Are we testing the behavior of a mock?"
 
 **The fix:**
+
 ```typescript
 // ✅ GOOD: Test real component or don't mock it
 test('renders sidebar', () => {
@@ -314,6 +326,7 @@ BEFORE asserting on any mock element:
 ## Anti-Pattern 2: Test-Only Methods in Production
 
 **The violation:**
+
 ```typescript
 // ❌ BAD: destroy() only used in tests
 class Session {
@@ -328,12 +341,14 @@ afterEach(() => session.destroy());
 ```
 
 **Why this is wrong:**
+
 - Production class polluted with test-only code
 - Dangerous if accidentally called in production
 - Violates YAGNI and separation of concerns
 - Confuses object lifecycle with entity lifecycle
 
 **The fix:**
+
 ```typescript
 // ✅ GOOD: Test utilities handle test cleanup
 // Session has no destroy() - it's stateless in production
@@ -369,6 +384,7 @@ BEFORE adding any method to production class:
 ## Anti-Pattern 3: Mocking Without Understanding
 
 **The violation:**
+
 ```typescript
 // ❌ BAD: Mock breaks test logic
 test('detects duplicate server', () => {
@@ -383,11 +399,13 @@ test('detects duplicate server', () => {
 ```
 
 **Why this is wrong:**
+
 - Mocked method had side effect test depended on (writing config)
 - Over-mocking to "be safe" breaks actual behavior
 - Test passes for wrong reason or fails mysteriously
 
 **The fix:**
+
 ```typescript
 // ✅ GOOD: Mock at correct level
 test('detects duplicate server', () => {
@@ -428,6 +446,7 @@ BEFORE mocking any method:
 ## Anti-Pattern 4: Incomplete Mocks
 
 **The violation:**
+
 ```typescript
 // ❌ BAD: Partial mock - only fields you think you need
 const mockResponse = {
@@ -440,6 +459,7 @@ const mockResponse = {
 ```
 
 **Why this is wrong:**
+
 - **Partial mocks hide structural assumptions** - You only mocked fields you know about
 - **Downstream code may depend on fields you didn't include** - Silent failures
 - **Tests pass but integration fails** - Mock incomplete, real API complete
@@ -448,6 +468,7 @@ const mockResponse = {
 **The Iron Rule:** Mock the COMPLETE data structure as it exists in reality, not just fields your immediate test uses.
 
 **The fix:**
+
 ```typescript
 // ✅ GOOD: Mirror real API completeness
 const mockResponse = {
@@ -479,6 +500,7 @@ BEFORE creating mock responses:
 ## Anti-Pattern 5: Integration Tests as Afterthought
 
 **The violation:**
+
 ```
 ✅ Implementation complete
 ❌ No tests written
@@ -486,11 +508,13 @@ BEFORE creating mock responses:
 ```
 
 **Why this is wrong:**
+
 - Testing is part of implementation, not optional follow-up
 - TDD would have caught this
 - Can't claim complete without tests
 
 **The fix:**
+
 ```
 TDD cycle:
 1. Write failing test
@@ -502,6 +526,7 @@ TDD cycle:
 ## When Mocks Become Too Complex
 
 **Warning signs:**
+
 - Mock setup longer than test logic
 - Mocking everything to make test pass
 - Mocks missing methods real components have
@@ -514,6 +539,7 @@ TDD cycle:
 ## TDD Prevents These Anti-Patterns
 
 **Why TDD helps:**
+
 1. **Write test first** → Forces you to think about what you're actually testing
 2. **Watch it fail** → Confirms test tests real behavior, not mocks
 3. **Minimal implementation** → No test-only methods creep in

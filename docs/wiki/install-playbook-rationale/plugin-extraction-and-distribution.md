@@ -68,8 +68,7 @@ Agents at runtime read from `~/.claude/plugins/<name>/` (the installed copy), NO
 
   Canonical propagation primitive: `refresh-plugin-live-install.py <plugin>` — executes both legs atomically, with pre-flight (clean working tree check) and post-flight (drift probe). Both legs must close together; advancing git HEAD without re-running `uv pip install -e .` leaves the venv leg stale and can cause silent `ImportError`.
 
-- **Live install IS the canonical source:** there is no source → live propagation step because source and live point at the same directory. These plugins carry `propagation_mode = "source_is_live"` in `~/.claude/machine-local/registry.local.toml::plugin.mirrors`, where both `source_path` and `live_path` resolve to that directory. The drift probe treats them as structural no-ops; the refresh script skips them. **Coordinator-specific note (post-2026-07-04 cutover):** the coordinator plugin's `source_is_live` directory is now the doctrine-repo clone (`<DoE>/coordinator/`), resolved live via `--plugin-dir` — NOT `~/.claude/plugins/coordinator-claude/`. The OSS distribution (`coordinator-claude`) is a separate snapshot repo that receives publishes; it is not the live source. Pre-cutover, `~/.claude/plugins/coordinator-claude/` was the `source_is_live` path.
-
+- **Live install IS the canonical source:** there is no source → live propagation step because source and live point at the same directory. These plugins carry `propagation_mode = "source_is_live"` in `~/.claude/machine-local/registry.local.toml::plugin.mirrors`, where both `source_path` and `live_path` resolve to that directory. The drift probe treats them as structural no-ops; the refresh script skips them.
   **`source_is_live` rename mechanic.** When renaming a file or directory inside a `source_is_live` plugin (i.e. a plugin where `source_path` and `live_path` both point at the same directory — the canonical source), the git index at both the canonical side and the consumer side must be updated together. The correct sequence:
 
   ```bash
@@ -197,7 +196,7 @@ The adjudicating rule for packaging calls: **coordinator ships a coherent operat
 
 A SessionStart/PreToolUse/etc. hook registered in `~/.claude/settings.json` works on the author's machine but doesn't follow the plugin to marketplace consumers — install lays down the script but never registers the event. Always ship `hooks/hooks.json` alongside the script in the plugin tree so install auto-wires it. User-scope settings is for non-plugin overrides only. Treat this as a portability check at extraction time: grep `~/.claude/settings.json` for any hook entry whose script lives under the plugin tree, and migrate it to the plugin's `hooks/hooks.json` before shipping.
 
-**`--plugin-dir` delivery exception.** ONLY when the plugin is delivered via `--plugin-dir` (which disables plugin-declared hook auto-wire, observed behavior; issue ref #38699 — approximate, spot-check before OSS publish), generate `settings.json` hooks from `hooks.json` as a machine-local delivery artifact; marketplace/OSS consumers keep `hooks.json` as SSOT with the normal auto-wire. (DoE-internal research record: `coordinator/docs/wiki/install-playbook-rationale/external-plugin-live-resolution.md` § 10. Adoption — External/OSS Consumers: the `settings.json` hook-registration approach documented inline above is the workaround.)
+**`--plugin-dir` delivery exception.** ONLY when the plugin is delivered via `--plugin-dir` (which disables plugin-declared hook auto-wire, observed behavior; issue ref #38699 — approximate, spot-check before OSS publish), generate `settings.json` hooks from `hooks.json` as a machine-local delivery artifact; marketplace/OSS consumers keep `hooks.json` as SSOT with the normal auto-wire. (maintainer-internal research record: `coordinator/docs/wiki/install-playbook-rationale/external-plugin-live-resolution.md` § 10. Adoption — External/OSS Consumers: the `settings.json` hook-registration approach documented inline above is the workaround.)
 
 ### 11. Port-time absolute-path sweep + sibling-layout convention
 
@@ -242,13 +241,12 @@ The shared publish-target topology (which targets exist, what each publishes) is
 name|mode|publish-mirror:<key>|source_subdir|dest_subdir[|native_slugs]
 ```
 
-Field 3 starts with `"publish-mirror:"` so no absolute paths appear in the tracked file. The resolver derives the DEST root from `machine-local get publish.mirrors.<key>.path` (e.g. `publish.mirrors.coordinator_claude.path`, `publish.mirrors.deep_research_claude.path`). The SOURCE root is the meta-repo (script-derived); `source_subdir` is meta-repo-relative. An empty `dest_subdir` means the publish-repo root.
+Field 3 starts with `"publish-mirror:"` so no absolute paths appear in the tracked file. The resolver derives the DEST root from `machine-local get publish.mirrors.<key>.path` (e.g. `publish.mirrors.coordinator_claude.path`). The SOURCE root is the meta-repo (script-derived); `source_subdir` is meta-repo-relative. An empty `dest_subdir` means the publish-repo root.
 
-**Provisioning a new machine** requires only two registry writes — the tracked `.portable` file does the rest:
+**Provisioning a new machine** requires only one registry write — the tracked `.portable` file does the rest:
 
 ```bash
 machine-local set publish.mirrors.coordinator_claude.path /path/to/coordinator-claude
-machine-local set publish.mirrors.deep_research_claude.path /path/to/deep-research-claude
 ```
 
 After that, `publish.py` reads the topology from `setup/publish-targets.portable` and resolves all DEST roots automatically. Zero hand-authored rows needed in `setup/publish-targets.portable` or the registry.
@@ -297,7 +295,7 @@ Enumerate and repoint all of them, then **verify a real commit fires clean in ev
 
 ## Dry-Run Is Not Hook-Invoking — a Clean Dry-Run Is Not Clean-Publish Evidence
 
-Percolate machinery built for one plugin layout breaks silently under another, and the dry-run will not tell you. The 2026-07 flat-repo (v3) cutover surfaced this: the then-live `publish.sh` still assumed the old nested `plugins/coordinator/` layout and resolved `COORDINATOR_BIN` to a stale `plugins/` path — so `install-sentinel-write` was never found (`version.txt` never written) and `check-version-consistency.py` was silently skipped. The **dry-run looked clean because the publish driver does not invoke post-rsync hooks on `--dry-run`** — only the real percolate runs them (still true of `publish.py`, its Python successor).
+Percolate machinery built for one plugin layout breaks silently under another, and the dry-run will not tell you. The 2026-07 flat-repo (v3) cutover surfaced this: the then-live `publish.sh` still assumed the old nested `plugins/coordinator-claude/coordinator/` layout and resolved `COORDINATOR_BIN` to a stale `plugins/` path — so `install-sentinel-write` was never found (`version.txt` never written) and `check-version-consistency.py` was silently skipped. The **dry-run looked clean because the publish driver does not invoke post-rsync hooks on `--dry-run`** — only the real percolate runs them (still true of `publish.py`, its Python successor).
 
 Rule: after any layout/path cutover to the publish pipeline, a clean dry-run is advisory only. Confirm with a **real percolate plus an empirical `grep`/`comm` of the published tree against the prior release** — the dry-run cannot witness hook-dependent output (sentinels, version stamps, verification gates) it never fired.
 
@@ -308,6 +306,7 @@ When coordinator skills need data from a plugin (project root, transport URL, ca
 The 2026-05-21 dogfood failure surfaced one instance: `/workday-start` Step 3.6 parsed `mcpServers.project-rag.args[-1]` to extract `--project-root` and crashed with `KeyError` after project-rag's HTTP-shape entry has no `args` array. The fix was not "guard `args[-1]` with a `type == 'stdio'` check" — the fix was to stop parsing project-rag's config entirely and let `project-rag-cli staleness-survey` resolve its own root via env (`PROJECT_RAG_PROJECT_ROOT`) or cwd-walk. See `2026-05-21-coordinator-side-dogfood-followup.md` under `docs/plans/` for the worked example.
 
 The rule generalizes:
+
 - **Pass env vars or cwd to influence resolution.** `PROJECT_RAG_PROJECT_ROOT="$(pwd)" project-rag-cli ...` is the right shape.
 - **Do not parse the plugin's MCP entry shape from coordinator.** If you need state the plugin's CLI/daemon doesn't expose, ask the plugin author to add an endpoint (e.g. project-rag's planned `/state` endpoint) — don't reverse-engineer it from the registration.
 - **Plugin CLIs own their own resolution chain.** If a CLI doesn't yet resolve its own root, that's an upstream improvement; document it as a plugin-author ask, not a coordinator hack.
@@ -338,15 +337,15 @@ Two paired tools enforce the boundary:
 
 - **Publish-repo CI gate.** `.github/scripts/check-persona-names.py` runs as a tracked-files scan auto-discovered by `run-all-checks.py`. Hard-fails any commit/PR where canonical-layer files (`*.md`, `*.sh`, `*.py`; excludes `archive/`, `tasks/`, `experiments/`, `evals/`, `docs/{plans,research,decisions,specs}/`) contain bare persona display names. Suppression: `# noqa: persona-names` inline, or `.github/.persona-names-allowlist` file-based (`filepath:line_number` per line).
 
-- **Meta-repo registered hook.** `setup/percolate-hooks/<target>/post-rsync/10-transform.sh` is a thin wrapper around `publish-time-transform-py` (the naked-Python successor to the retired `publish-time-transform.sh`) in the engine repo's `coordinator/bin/`. The depersonalize CLI itself supports `--check` (exit 1 on hits) or `--fix` (in-place rewrite to role labels, with `.bak` backups). The hook receives the destination path as `$1` and the synced-files list via stdin (newline-delimited), then `--fix`es each `*.md`/`*.sh`/`*.py` file. Registered for `coordinator-claude` and `deep-research-claude` (open-source publish targets); deliberately NOT registered for `example-game-repo` (keeps persona names natively). Only the hook lives meta-repo-local; the CLI it calls is shipped with the coordinator plugin and percolates with it. The `--fix` mode handles the common "the X" / "The X" article cases including the "the X" double-article it would otherwise produce.
+- **Meta-repo registered hook.** `setup/percolate-hooks/<target>/post-rsync/10-transform.sh` is a thin wrapper around `publish-time-transform-py` (the naked-Python successor to the retired `publish-time-transform.sh`) in the engine repo's `coordinator/bin/`. The depersonalize CLI itself supports `--check` (exit 1 on hits) or `--fix` (in-place rewrite to role labels, with `.bak` backups). The hook receives the destination path as `$1` and the synced-files list via stdin (newline-delimited), then `--fix`es each `*.md`/`*.sh`/`*.py` file. Registered for `coordinator-claude` (the open-source publish target); deliberately NOT registered for `example-game-repo` (keeps persona names natively). Only the hook lives meta-repo-local; the CLI it calls is shipped with the coordinator plugin and percolates with it. The `--fix` mode handles the common "the X" / "The X" article cases including the "the X" double-article it would otherwise produce.
 
-**`publish.py` is the authority for percolation — manual `cp` is wrong.** Percolating to `coordinator-claude` (or any registered publish target) means running `python3 coordinator/bin/publish.py <target>` (the engine repo's `coordinator/bin/publish.py`), not copying files by hand. Manual `cp` bypasses the depersonalize pipeline, the content-leakage scan, and the `.percolate-ignore` filter — the resulting publish repo may contain persona names, local paths, or excluded files the author didn't intend to ship. The publish-targets list at `setup/publish-targets.portable` is the authority; if a target is missing from it, register it there rather than working around it with ad-hoc copies.
+**`publish.py` is the authority for percolation — manual `cp` is wrong.** Percolating to `coordinator-claude` (or any registered publish target) means running `"$_py" "$_mk/coordinator/bin/publish.py" <target>` (the engine repo's `coordinator/bin/publish.py`), not copying files by hand. Manual `cp` bypasses the depersonalize pipeline, the content-leakage scan, and the `.percolate-ignore` filter — the resulting publish repo may contain persona names, local paths, or excluded files the author didn't intend to ship. The publish-targets list at `setup/publish-targets.portable` is the authority; if a target is missing from it, register it there rather than working around it with ad-hoc copies.
 
-> **Double-prefix trap — source layout ≠ target layout; never re-append the plugin subpath.** The recurring failure behind hand-built paths is conflating the *source-side* layout with the *target-side* layout. Source side, the coordinator plugin lives at `~/.claude/plugins/coordinator/...`; publish side, it lives at `<drive-letter>:/coordinator-claude/plugins/coordinator/...` — **`plugins/coordinator/`, not `plugins/coordinator/`.** A hand-built `cp` that takes the publish-repo root `<drive-letter>:/coordinator-claude` and appends the *source* relative path produces the doubled `<drive-letter>:/coordinator-claude/plugins/coordinator/...` (stale entries of exactly this shape were found frozen in `.claude/settings.local.json` and removed). <!-- foreign-path-ok: worked example of the double-prefix bug shape, not an asserted install location --> The same trap bites runtime tooling: the `coordinator-claude` registry mirror's `live_path` (`~/.claude/plugins/coordinator-claude/coordinator`) is **already the full coordinator root** under `propagation_mode = "source_is_live"` — any consumer that treats it as `~/.claude` and re-appends `plugins/coordinator-claude/coordinator` doubles it (symptom: `Get-ChildItem ...coordinator\plugins\coordinator-claude\coordinator` cannot-find-path). Rule: `live_path` is the root, not a base to join onto; and the only correct way to reach a target path is to let `publish.py` map source→target — never hand-construct it.
+> **Double-prefix trap — source layout ≠ target layout; never re-append the plugin subpath.** The recurring failure behind hand-built paths is conflating the *source-side* layout with the *target-side* layout. Source side, the coordinator plugin lives at `~/.claude/plugins/coordinator-claude/coordinator/...`; publish side, it lives at `<drive-letter>:/coordinator-claude/plugins/coordinator/...` — **`plugins/coordinator/`, not `plugins/coordinator-claude/coordinator/`.** A hand-built `cp` that takes the publish-repo root `<drive-letter>:/coordinator-claude` and appends the *source* relative path produces the doubled `<drive-letter>:/coordinator-claude/plugins/coordinator-claude/coordinator/...` (stale entries of exactly this shape were found frozen in `.claude/settings.local.json` and removed). <!-- foreign-path-ok: worked example of the double-prefix bug shape, not an asserted install location --> The same trap bites runtime tooling: the `coordinator-claude` registry mirror's `live_path` (`~/.claude/plugins/coordinator-claude/coordinator`) is **already the full coordinator root** under `propagation_mode = "source_is_live"` — any consumer that treats it as `~/.claude` and re-appends `plugins/coordinator-claude/coordinator` doubles it (symptom: `Get-ChildItem ...coordinator\plugins\coordinator-claude\coordinator` cannot-find-path). Rule: `live_path` is the root, not a base to join onto; and the only correct way to reach a target path is to let `publish.py` map source→target — never hand-construct it.
 
 Workflow during percolation:
 
-1. Run `python3 "$CLAUDE_KLABAUTER_ROOT/coordinator/bin/publish.py" <target>` (a.k.a. percolate / push-to-publish-repo — `publish.py` migrated to the engine repo) — or `/percolate <target>` for the dry-run-confirm-real-run skill wrapper.
+1. Run `"$_py" "$_mk/coordinator/bin/publish.py" <target>` (a.k.a. percolate / push-to-publish-repo — `publish.py` migrated to the engine repo) — or `/percolate <target>` for the dry-run-confirm-real-run skill wrapper.
 2. `publish.py` discovers and runs every executable script in `setup/percolate-hooks/<target>/{pre-rsync,post-rsync,pre-ci}/*.sh` in lexical order at the corresponding boundary. The depersonalize hook fires automatically at `post-rsync` for any target with one registered. Failure-semantics: non-zero hook exit aborts the publish; post-rsync abort = destination partially mutated, recovery is to fix the hook and re-run (`--check`/`--fix` is idempotent).
 3. CI on the publish repo re-runs `python .github/scripts/check-persona-names.py` on push as the safety net — even if a hook is mis-registered, the gate catches regressions.
 
@@ -377,23 +376,24 @@ The hook registry is conventional-discovery, no manifest required. Key mechanics
 - **Failure semantics:** non-zero hook exit aborts publish (`set -euo pipefail`). Post-rsync abort = destination partially mutated. Recovery: fix the hook and re-run `/percolate` — depersonalize is idempotent.
 - **Out-of-percolation guard:** `setup/percolate-hooks/` lives at meta-repo root, OUTSIDE every `SOURCE_DIR`. Runtime guard MUST assert `$hooks_dir` is not a subpath of `$SOURCE_DIR`.
 - **Hook discovery logging:** even in non-dry-run, emit one line per hook-point: `"  <hook-point> hooks: <comma-sep-names or '(none)'>"`.
-- **Depersonalize hook is a thin wrapper** calling `publish-time-transform-py` (successor to the retired `publish-time-transform.sh`). Registered as `post-rsync/10-transform.sh` for `coordinator-claude` and `deep-research-claude`; deliberately absent for `example-game-repo`. Only the hook lives meta-repo-local; the CLI it calls ships with the coordinator plugin and percolates with it.
+- **Depersonalize hook is a thin wrapper** calling `publish-time-transform-py` (successor to the retired `publish-time-transform.sh`). Registered as `post-rsync/10-transform.sh` for `coordinator-claude`; deliberately absent for `example-game-repo`. Only the hook lives meta-repo-local; the CLI it calls ships with the coordinator plugin and percolates with it.
 
 ### /percolate Skill — Step Sequence and Gates
 
-The `/percolate` skill wraps `publish.py` with a structured confirmation gate. The seven steps are:
+The `/percolate` skill wraps `publish.py` with a structured confirmation gate. The six steps are:
 
 1. **Pre-flight:** verify target name exists in `setup/publish-targets.portable`. If not, list registered targets and exit non-zero.
-2. **Dry-run:** `python3 "$CLAUDE_KLABAUTER_ROOT/coordinator/bin/publish.py" --dry-run <target>`. Capture stdout + exit code. Compute coverage-drift panel: `find "$source_dir" -type f -newer "$source_dir/.percolate-ignore" 2>/dev/null | head -20` (surface if non-empty; shows files changed since policy was last reviewed).
-3. **PM confirmation gate:** fires iff a deletion is present, OR dry-run touches ≥10 files, OR dry-run touches sensitive paths (`CLAUDE.md`, `settings.json`, `hooks/`, `agents/`). If dry-run reports zero changes: skip gate AND real run, but still run CI smoke (Step 5).
-4. **Real run:** `python3 "$CLAUDE_KLABAUTER_ROOT/coordinator/bin/publish.py" <target>`. Surface any `WARNING: REVIEW` lines from Phase 4 verbatim.
-5. **Optional CI smoke:** if target repo has `.github/scripts/run-all-checks.py`, run it from repo root. Skip silently if missing. Call `run-all-checks.py`, not `check-persona-names.py` directly.
-6. **Unified summary** (4 lines): dry-run exit / real-run exit or "skipped (no-op)" / CI-check exit or "n/a" / overall verdict. `PASS` = all exits 0 AND no Phase 4 REVIEW lines; `PASS-WITH-WARNINGS` = all exits 0 AND REVIEW lines present; `FAIL` = any non-zero exit.
-7. **Stop on first failure:** print failing step's stderr + one-line manual-recovery hint.
+2. **Dry-run:** `"$_py" "$_mk/coordinator/bin/publish.py" --dry-run <target>`. Capture stdout + exit code. Compute coverage-drift panel: `find "$source_dir" -type f -newer "$source_dir/.percolate-ignore" 2>/dev/null | head -20` (surface if non-empty; shows files changed since policy was last reviewed).
+3. **PM confirmation gate:** fires iff a deletion is present, OR dry-run touches ≥10 files, OR dry-run touches sensitive paths (`CLAUDE.md`, `settings.json`, `hooks/`, `agents/`). If dry-run reports zero changes: skip gate AND real run.
+4. **Real run:** `"$_py" "$_mk/coordinator/bin/publish.py" <target>`. Surface any `WARNING: REVIEW` lines from Phase 4 verbatim.
+5. **Unified summary** (3 lines): dry-run exit / real-run exit or "skipped (no-op)" / overall verdict. `PASS` = all exits 0 AND no Phase 4 REVIEW lines; `PASS-WITH-WARNINGS` = all exits 0 AND REVIEW lines present; `FAIL` = any non-zero exit.
+6. **Stop on first failure:** print failing step's stderr + one-line manual-recovery hint.
+
+A round is diff-scaled: a warm round reads its base from the destination's `Percolate-Round`, `Percolate-Source-Head` and `Percolate-Signature` trailers and lands only the changed paths in one commit. A cold round names its reason (`Round plan (...): cold: <code>`); a hand commit without trailers reads as `foreign-commit`. A cold round removes only paths the publisher's own history shipped and later deleted, never another publisher's files. No test runs inside a round.
 
 The skill does NOT call `publish-time-transform-py` directly, does NOT modify `publish.py`/`publish-targets.portable`, does NOT commit/push publish-repo results. All triggers (percolate, push to publish repo, publish to `<target>`, sync meta to publish) map to this skill.
 
-**Dogfood discipline:** a clean-tree no-op pass does NOT satisfy convergence. The acceptance-test sequence must include: (1) clean no-op, (2) trivial-edit happy path, (3) sensitive-path edit forcing confirmation, (4) bad-target name (Step 1 exit), (5) missing source-dir (Step 7 failure), (6) CI smoke on clean target, (7) verify summary line counts in all cases.
+**Dogfood discipline:** a clean-tree no-op pass does NOT satisfy convergence. The acceptance-test sequence must include: (1) clean no-op, (2) trivial-edit happy path, (3) sensitive-path edit forcing confirmation, (4) bad-target name (Step 1 exit), (5) missing source-dir (Step 6 failure), (6) verify summary line counts in all cases.
 
 **Cygwin/fork-exhaustion note:** `publish.py` is a single Python process and does not fork per-line, so a fork-heavy grep/sed driver's Cygwin-shell wedge failure mode (`"fork: retry: Resource temporarily unavailable"` on large dry-run output) does not apply to it.
 
@@ -416,7 +416,7 @@ A further authoring source (in addition to those listed in `### Publish-Repo Con
 
 ### Publish-Repo Content Authoring (setup scripts and top-level docs)
 
-**The publish repo is a percolation target, not a source of truth.** All publish-repo content is authored in Claude Central (`~/.claude/`) and percolated outward via `python3 coordinator/bin/publish.py` (the engine repo's `coordinator/bin/publish.py`). Editing the publish repo directly is always wrong — it bypasses the planning, review, and doctrine pipeline that governs the rest of the coordinator system.
+**The publish repo is a percolation target, not a source of truth.** All publish-repo content is authored in Claude Central (`~/.claude/`) and percolated outward via `"$_py" "$_mk/coordinator/bin/publish.py"` (the engine repo's `coordinator/bin/publish.py`). Editing the publish repo directly is always wrong — it bypasses the planning, review, and doctrine pipeline that governs the rest of the coordinator system.
 
 The four authoring flows:
 
@@ -427,13 +427,13 @@ The four authoring flows:
 
 **Why this matters.** Direct publish-repo edits drift silently across sessions: they accumulate as orphan branches, rot when the next percolation run overwrites them, and compound without any doctrine trail. The 2026-05-21 audit (cross-repo memo at `archive/cross-repo/`) found three orphan setup scripts and eight orphan top-level docs that had been edited in the publish repo over multiple sessions; the back-percolation work documented in `2026-05-21-back-percolate-publish-repo-orphans.md` under `docs/plans/` is the corrective.
 
-**Flat-namespace note.** The `dist/publish-repo-*` naming is a flat namespace. Future siblings (e.g. `dist/publish-repo-workflows/` if `.github/workflows/` ever back-percolates) are parallel entries, not nested under any current member. Nesting under an `oss-distribution/` umbrella is intentionally declined: the coordinator system has multiple publish repos (`coordinator-claude` and `deep-research-claude`), and the explicit publish-repo prefix is clearer than a presumed-singular umbrella.
+**Flat-namespace note.** The `dist/publish-repo-*` naming is a flat namespace. Future siblings (e.g. `dist/publish-repo-workflows/` if `.github/workflows/` ever back-percolates) are parallel entries, not nested under any current member. Nesting under an `oss-distribution/` umbrella is intentionally declined: `coordinator-claude` itself carries multiple `dist/publish-repo-*` members, and the explicit publish-repo prefix is clearer than a presumed-singular umbrella.
 
 **Recovery — when a publish-repo edit happens anyway:**
 
 1. Copy the edited file from the publish repo back into the appropriate `coordinator/dist/publish-repo-*/` source directory. Manual `cp` is correct here — back-percolation is the genuine exception to "publish.py is the authority," which governs the source → publish-repo direction only.
 2. Commit in Claude Central with a `back-percolate:` subject prefix.
-3. Re-run `python3 "$CLAUDE_KLABAUTER_ROOT/coordinator/bin/publish.py" <target>` to verify the source-of-truth now drives the publish-repo state.
+3. Re-run `"$_py" "$_mk/coordinator/bin/publish.py" <target>` to verify the source-of-truth now drives the publish-repo state.
 4. Surface the incident in `state/lessons/` if the edit was substantive, so the doctrine compounds.
 
 **Per-target `.percolate-ignore`.** Publish-repo-owned infra files (e.g. `.gitignore`, `.python-version`, `version.txt`, `subagent-sandbox-policy.yaml`) are protected via `dist/publish-repo-toplevel/.percolate-ignore`. These files remain owned by the publish repo by design; back-percolating them is a separate, per-file decision, not an automatic consequence of this doctrine.
@@ -469,7 +469,7 @@ The substitution pass in `publish-time-transform-py --fix` handles more than per
 
 **Dev-tree → publish-tree path form.** In the meta-repo, plugin files are authored under `plugins/coordinator-claude/<plugin>/` (one extra segment for the upstream source repo). The publish tree drops that segment: the canonical install path is `plugins/<plugin>/`. The substitution table rewrites every occurrence of the dev-tree form to the publish-tree form across all percolated `.md`, `.sh`, and `.py` files.
 
-**Two-segment collapse for the central plugin.** The coordinator plugin itself lives at `plugins/coordinator/` in the dev tree. At percolate time this collapses to `plugins/coordinator/` — a two-segment reduction, not one. The substitution table carries this as a separate rule from the general one-segment drop, because the intermediate `coordinator-claude/coordinator` path is the coordinator plugin's dev-side nesting and must not survive into publish artifacts.
+**Two-segment collapse for the central plugin.** The coordinator plugin itself lives at `plugins/coordinator-claude/coordinator/` in the dev tree. At percolate time this collapses to `plugins/coordinator/` — a two-segment reduction, not one. The substitution table carries this as a separate rule from the general one-segment drop, because the intermediate `coordinator-claude/coordinator` path is the coordinator plugin's dev-side nesting and must not survive into publish artifacts.
 
 **Plugin enumeration — floor plus discovery.** The substitution pass seeds its path-rewrite table from a static floor of five known plugins: `coordinator`, `data-science`, `deep-research`, `game-dev`, `web-dev`. It then discovers additional published plugins by enumerating `$TARGET/plugins/*/` in the destination tree. The static floor is a correctness guarantee for the core set; the enumeration step picks up plugins that were added since the floor was last updated without requiring a table edit.
 
@@ -482,7 +482,7 @@ The substitution pass in `publish-time-transform-py --fix` handles more than per
 The `publish-time-transform-py` hook and the percolate Step 2c content scan are **safety nets for inherited content**, not authoring licenses. When writing any doc, skill, or agent file that will be percolated, never hardcode local working-tree paths — even as "doctrine source" citations. Use abstract repo references instead:
 
 - Wrong: `<drive-letter>:/coordinator-claude/docs/wiki/foo.md` — the hardcoded path IS the anti-pattern being critiqued
-- Right: `docs/wiki/foo.md` (relative to plugin root) or `plugins/coordinator/docs/wiki/foo.md` (from meta-repo root)
+- Right: `docs/wiki/foo.md` (relative to plugin root) or `plugins/coordinator-claude/coordinator/docs/wiki/foo.md` (from meta-repo root)
 
 Local path leaks survive substitution-table updates (new paths not yet in the regex) and require hand-edits at percolation time. The drift is silent until the per-publish scan catches it. Authoring discipline prevents the class entirely; the hook is the last line of defense, not the first.
 
@@ -524,6 +524,7 @@ Plugin doctrine wikis (wikis cited from plugin files like SKILL.md, CLAUDE.md, a
 **Rationale:** Wikis at `~/.claude/docs/wiki/` resolve only on the authoring machine. Marketplace consumers install the plugin into their `~/.claude/plugins/cache/<marketplace>/<plugin>/<sha>/`. References to `docs/wiki/<name>.md` from plugin files must resolve against the plugin's own directory, not the consumer's home directory (which does not contain the demoted content).
 
 **Convention:**
+
 - Plugin doctrine wikis → `plugins/<plugin>/docs/wiki/<name>.md` (bundled inside plugin)
 - Project-level wikis (atlas, codebase-specific patterns) → consumer's `~/.claude/docs/wiki/` (NOT cited from plugin files)
 - References in plugin files → `docs/wiki/<name>.md` resolved relative to plugin root
@@ -691,7 +692,6 @@ Two structural hazards in the hook to be aware of when extending:
 
 The gate is structurally inert from `~/.claude` cwd unless a per-plugin command tells it what to scope. The registry shape is identical to `plugin.mirrors.<name>.refresh_cmd` — sibling field `reverse_drift_cmd` registers the per-plugin invocation; Step 4g iterates registered plugins. This generalizes naturally to future `copy_install` plugins.
 
-
 ## Reverse-drift gate surfaced pre-existing game-dev live-install drift
 
 The reverse-drift gate fix didn't just close the scoping gap — it also surfaced pre-existing game-dev live-install drift that the gate's prior structural inertness had been masking. The fix-the-gate / find-the-existing-drift pairing is the normal shape: gate hardening exposes accumulated debt, not just the change under review.
@@ -730,6 +730,7 @@ Host-consumer dependency invariant (per b4g-049): the host plugin and the addon 
 **`--for-git-ops`** — returns the `.git`-backed clone. Use this for drift probes, `git log`, `refresh-plugin-live-install.py`, and any operation that reads git history.
 
 Precedence:
+
 1. `COORDINATOR_CLONE` env var (non-empty; must point to a dir with `.git/`)
 2. `plugin.mirrors.coordinator-claude.live_path` from `~/.claude/machine-local/registry.local.toml`
 3. Flat layout `~/.claude/plugins/coordinator-claude/coordinator` — only if it has `.git/`
@@ -738,6 +739,7 @@ Precedence:
 **`--for-content`** — returns the highest-precedence readable payload dir. Use this for loading libs, agents, snippets, templates, `query-records.js`, and any coordinator content file.
 
 Precedence:
+
 1. `CLAUDE_PLUGIN_ROOT` env var (harness/install-script injection; test-sandbox wins)
 2. `COORDINATOR_ROOT` env var (explicit content-root override)
 3. Registry `live_path` — the registered clone is authoritative for content when it exists; dev-loop edits in the clone stay live
@@ -881,7 +883,7 @@ A Python caller in-tree imports `subprocess` directly rather than shelling out t
 
 <!-- spec-backlink: state/lessons.md:38 (2026-06-15) -->
 
-When a plugin is in `propagation_mode = "source_is_live"` (e.g. `coordinator-claude` installed over `~/.claude/`), file content may be tracked by two separate git repos simultaneously — the canonical source repo and the meta-repo that git-tracks the symlinked tree. A `git mv` in the meta-repo moves the index entry without touching the underlying filesystem path (the symlink target owns that), which leaves file content at the old path in the canonical repo while the meta-repo's index points to the new name.
+When a plugin is in `propagation_mode = "source_is_live"`, file content may be tracked by two separate git repos simultaneously — the canonical source repo and the meta-repo that git-tracks the symlinked tree. A `git mv` in the meta-repo moves the index entry without touching the underlying filesystem path (the symlink target owns that), which leaves file content at the old path in the canonical repo while the meta-repo's index points to the new name.
 
 **Correct rename sequence for a file behind a `source_is_live` symlink:**
 

@@ -136,5 +136,10 @@ accumulating override surface is the same smell read from the other side.
      believed that of their own guard. Duration is measured against the protected operation, not
      against the author's intent. -->
 
-<!-- seeded 2026-08-13 from claude-klabauter-em's guard-proportionality-antipattern proposal memo;
-     incident evidence is that plane's path-touch claim gate, deleted rather than tuned. -->
+<!-- seeded 2026-08-13 from the engine EM's guard-proportionality-antipattern proposal memo;
+     incident evidence is the engine's path-touch claim gate, deleted rather than tuned. -->
+
+## Field rules
+
+- **A first-non-None guard chain needs an enforced band contract.** Derive membership from the live chain plus synthetic violators; an earlier guard returning can disarm a later one.
+- **Guards assert a claim's referent, not its form.** A parity test pinning a sentence's shape, a baseline nobody re-measured, or a stat on the non-authoritative field all pass while the claim is false.

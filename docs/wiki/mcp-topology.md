@@ -2,7 +2,7 @@
 
 > A typed, standalone declarative view over coordinator's first-party MCP servers — the architecture-level answer to MCP tool proliferation.
 >
-> Declaration file: `plugins/coordinator/mcp-topology.yaml`
+> Declaration file: `plugins/coordinator-claude/coordinator/mcp-topology.yaml`
 
 ---
 
@@ -74,7 +74,7 @@ A 3-proxy "collapse" (example-game-repo's `execute_domain_tool` / `manage_<domai
 
 `mcp-topology.yaml` is **not** a `schemas/` entry. This distinction is load-bearing.
 
-All 26 files under `schemas/` are **record-collection frontmatter validators**: each declares `applies_to:` and `kind:` values that the engine repo's `coordinator/bin/query-records.js` uses to route queries across a collection of many same-kind YAML records (handoffs, plans, lessons, improvement-queue entries). `bin/verify-schema-registry-sync.py` line 129 makes this contract explicit — schemas without an `applies_to:` key are skipped entirely, because without it they cannot participate in the `query-records.js` dispatch surface.
+The files under `schemas/` are **record-collection frontmatter validators**: each declares `applies_to:` and `kind:` values that the engine repo's `coordinator_core/ops/records_query.py` (`_TYPE_TO_GLOB`) uses to route queries across a collection of many same-kind YAML records (handoffs, plans, lessons, improvement-queue entries). `bin/verify-schema-registry-sync.py` line 129 makes this contract explicit — schemas without an `applies_to:` key are skipped entirely, because without it they cannot participate in the `records_query.py` dispatch surface.
 
 `mcp-topology.yaml` is categorically different: it is a **body-shape spec for a single declaration file** — there is only ever one topology file, not a collection. It describes the structure of its own body, not the frontmatter of a record set. Adding it to `schemas/` would misuse the schemas/ machinery (which is keyed by collection cardinality and `applies_to:/kind:` routing) for an object of an entirely different kind.
 
@@ -127,6 +127,7 @@ The declaration file is excluded from the OSS percolation path (`.percolate-igno
 **What IS shared substrate:** the type model (the YAML shape — `configKey`, `loadPolicy`, `optOutUnit`, `tools`, `notes`) and this wiki. OSS coordinator users can read this wiki, understand the model, and author their own `mcp-topology.yaml` at their plugin root for the servers they actually ship. The wiki and type model percolate; the declaration instance does not.
 
 **If you are an OSS coordinator user setting up your own topology:**
+
 1. Create `<your-plugin-root>/mcp-topology.yaml` following the shape documented in § 1 and the existing file as a structural template.
 2. Declare only the servers your plugin or operator setup actually ships.
 3. Add your instance to your own `.percolate-ignore` if you publish to a downstream OSS repo and your instance references setup-specific servers.
@@ -140,6 +141,7 @@ The declaration file is excluded from the OSS percolation path (`.percolate-igno
 When a server is gated via `settings.json` `enabledPlugins` (see `per-project-plugin-gating.md`), the correct opt-out unit is the plugin gate entry — the unit a project disables to drop the whole tool family. Using the `.mcp.json` key as `optOutUnit` for a plugin-gated server would misidentify the opt-out mechanism: the `.mcp.json` entry may still be present while the plugin gate suppresses it.
 
 **Concrete rule:**
+
 - **`example-game-repo-control`** is gated via `settings.json` `enabledPlugins` entry `example-game-repo-control@example-game-workbench-repo`. Its `optOutUnit` is `example-game-repo-control@example-game-workbench-repo` — that is the unit you disable in `settings.json` to suppress the 170-tool surface on non-UE projects.
 - **`project-rag`** and **`notebooklm-mcp`** are raw per-project MCP servers loaded directly via `.mcp.json` — they are NOT gated via `enabledPlugins`. Their `optOutUnit` equals the server key (`project-rag`, `notebooklm-mcp` respectively); removing from `.mcp.json` is the opt-out mechanism. `notebooklm-mcp` (jacob-bd/gemini-notebook-mcp-cli, v0.9.8) is the external, user-installed replacement for the retired vendored NotebookLM server — the user registers it themselves via `nlm setup add claude-code`, so it is absent from a session entirely until installed, exactly like `project-rag`.
 - **`context7`** is a third, distinct shape: a user-scope plugin (`context7@claude-plugins-official`), enabled fleet-wide by default. Its opt-out is two-tier: the `settings.json` `enabledPlugins` gate for `context7@claude-plugins-official` (unlike `example-game-repo-control`'s gate, this one DOES drop the tool surface, because the server itself comes from the plugin rather than being registered independently at user scope), plus a finer per-project `disabledMcpServers` entry naming `plugin:context7:context7` — this repo uses the latter.
@@ -154,8 +156,12 @@ This distinction matters when an agent needs to understand what to disable: for 
 
 `~/.claude.json` holds one `oauthAccount`/`userID` plus one top-level `mcpServers` block, and that block is **scoped to the active login**. Hot-swapping accounts on one machine therefore drops all *locally-installed* MCP registrations — the new login sees an empty (or different) `mcpServers`. Server-side claude.ai MCPs are immune (they ride the account, not the local file); only the locally-registered `.mcp.json`-class servers vanish.
 
-**Heal at the doctrine-repo/host layer, never per-consumer.** The fix is a host-owned `ensure-local-mcps` SessionStart hook that reconciles the active `mcpServers` block against a `machine-local/always-on-mcps.json` manifest — re-registering anything the account swap dropped. Do NOT patch this per-project or by hand-editing `settings.json`. SessionStart hooks wire via `coordinator/hooks/hooks.json` → `gen-settings-hooks.py` regeneration, not by editing the generated `settings.json` directly.
+**Heal at the doctrine-repo/host layer, never per-consumer.** After an account swap, re-assert the dropped registrations by hand from the `machine-local/always-on-mcps.json` manifest; no hook does it automatically. Do NOT patch this per-project or by hand-editing `settings.json`.
 
-This is orthogonal to `loadPolicy` (§ 3): load-policy governs *when* a declared server loads; identity-scoping governs whether the registration *survives an account swap* at all. A `deferred` server that was correctly registered still disappears from `mcpServers` on login change — the host-layer heal is what restores it.
+This is orthogonal to `loadPolicy` (§ 3): load-policy governs *when* a declared server loads; identity-scoping governs whether the registration *survives an account swap* at all. A `deferred` server that was correctly registered still disappears from `mcpServers` on login change — re-asserting it from the manifest is what restores it.
 
 *Source: MCP-registration-drift-on-account-swap.*
+
+## Field rules
+
+- **Adopting an upstream MCP tool is a double obligation:** list it in the agent's `tools:` and use it in a ToolSearch `select:` bootstrap plus at least one operating step. A tool left unwired is absent from both.

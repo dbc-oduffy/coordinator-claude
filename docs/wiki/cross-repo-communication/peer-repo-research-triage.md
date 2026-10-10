@@ -22,6 +22,7 @@ Transport-shape filters (HTTP, gRPC, CLI surface) are cheap to evaluate but nois
 ## Practical recipe
 
 For each plan claim:
+
 - Grep `repo-registry.md` for topic tags first.
 - If zero hits, broaden to vocabulary terms.
 - If still zero, *then* consider transport-shape — and degrade the prior-art-checker verdict to `DEGRADED` per `prior-art-checker.md`.

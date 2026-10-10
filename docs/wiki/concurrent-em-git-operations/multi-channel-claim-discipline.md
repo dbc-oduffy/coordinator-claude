@@ -68,7 +68,7 @@ The rule above splits claims on one axis (positive vs. absence). There is a seco
 
 **The rule for the fourth quadrant: locate the witness before asserting, not after being corrected.** A positive claim about a fleet seam is licensed by a witness *wherever that witness lives*. If it lives on a peer's disk, read the peer's disk and cite it — `file:line` plus the branch or commit you read it at. If you cannot read it, the sentence is an **ask**, not an assertion; send it as a question.
 
-**Why this quadrant is invisible: the grammatical subject and the truth-condition come apart.** "Our Delphi content routes through their ledger" has *our* data as its subject, so it reads as a claim about us — but nothing in it is decidable from our tree. The heuristic everyone actually runs is *"am I talking about their repo?"*, which keys on the subject. When subject and truth-condition diverge, the heuristic fires clean and the claim is still unwitnessed.
+**Why this quadrant is invisible: the grammatical subject and the truth-condition come apart.** "Our Example-Studio content routes through their ledger" has *our* data as its subject, so it reads as a claim about us — but nothing in it is decidable from our tree. The heuristic everyone actually runs is *"am I talking about their repo?"*, which keys on the subject. When subject and truth-condition diverge, the heuristic fires clean and the claim is still unwitnessed.
 
 **Tell — verbs of custody and direction.** `--seed`, `project`, `land`, `publish`, `route`, `cross into`, `write into`, `hand off to`. Each *sounds* like a transfer whose destination you own, and frequently the destination-side fact is the peer's. Any sentence carrying one is a fourth-quadrant candidate: find the witness.
 

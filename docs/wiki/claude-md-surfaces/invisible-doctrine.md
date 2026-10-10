@@ -574,3 +574,7 @@ evidence for a ceremony gate where the PM is already present, never for a plan A
 ratified plan carrying this shape gets the AC struck on the record with the ruling, not skipped
 silently and not marked met on scoped evidence it was never written to accept. Tell: an AC whose
 verb is "run" rather than "is true of the thing this plan changed."
+
+## Field rules
+
+- **A block declared carried verbatim across N files is generated from one source.** Copy-paste drifts on the first amendment; a generator plus a drift test discharges the rule.

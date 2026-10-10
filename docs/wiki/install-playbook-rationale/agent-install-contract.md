@@ -155,7 +155,8 @@ note). Stated here so the contract is the greppable home; the teeth land when th
 | `severity` | `enum` | yes | `hard`, `soft`, or `optional` — see §Severity semantics. |
 | `sibling_dir_name` | `string` | yes | Expected directory name of the sibling clone, relative to the consumer repo's parent directory. The chain-walker checks for presence at `<parent>/<sibling_dir_name>` before running the functional probe. |
 | `upstream_url` | `string` | yes | Canonical GitHub HTTPS URL for cloning this dep. |
-| `functional_probe` | `FunctionalProbe` | yes | Verifies the dep is not only present but functional. See §Functional probe kinds. |
+| `functional_probe_kind` | `enum` | yes | Verifies the dep is not only present but functional. See §Functional probe kinds. |
+| `functional_probe_args` | `object` | **no** | Kind-specific probe arguments (`path`, `expr`, or `cmd`); omitted or empty for kinds that take none. See §FunctionalProbe fields. |
 | `consumer_install_args` | `array<string>` | **no** (v2+) | Optional. Args the consumer wants passed to this upstream's standalone setup script — mode selection (e.g. `--consumer-only`) and version selection (e.g. `--ue-version 5.7`). Composed by the chain-walker with `--i-am-agent` and the **upstream's** `override_flags`; does NOT include the upstream's override flags (those are read from the upstream manifest at dispatch time). Omit version-tag literals (e.g. `--corpus-tag`) where the upstream supports a newest-for-line resolution convention — let the upstream resolve to avoid pin-to-deleted-tag skew. |
 
 `DirectDep` retains `additionalProperties: false`. `consumer_install_args` is an additive optional property, so a v1 consumer manifest validates clean under the v2 schema (forward-compatible).
@@ -317,10 +318,12 @@ string-equality against a previous run's exact output.
 
 | Field | Type | Conditional | Description |
 |---|---|---|---|
-| `kind` | `enum` | always | One of `sibling_dir_exists`, `file_exists`, `python_import`, `command_succeeds`. |
-| `path` | `string` | required when `kind` is `file_exists` | Path relative to the sibling repo root. |
-| `expr` | `string` | required when `kind` is `python_import` | Python import expression evaluated via the resolved Python interpreter. |
-| `cmd` | `string` | required when `kind` is `command_succeeds` | Shell command that must exit zero for the dep to be considered functional. |
+| `functional_probe_kind` | `enum` | always | One of `sibling_dir_exists`, `file_exists`, `python_import`, `command_succeeds`, `claude_klabauter_seam_resolvable`. |
+| `functional_probe_args.path` | `string` | required when the kind is `file_exists` | Path relative to the sibling repo root. |
+| `functional_probe_args.expr` | `string` | required when the kind is `python_import` | Python import expression evaluated via the resolved Python interpreter. |
+| `functional_probe_args.cmd` | `string` | required when the kind is `command_succeeds` | Shell command that must exit zero for the dep to be considered functional. |
+
+`DirectDep` carries the flat `functional_probe_kind` / `functional_probe_args` pair; there is no nested `functional_probe` object. `SystemPrereq.probe` is a separate object (`{kind, cmd, ...}`).
 
 ---
 
@@ -340,14 +343,14 @@ The severity values below apply to **manifest `DirectDep` entries** (chain-walke
 | `optional` | Offer once. No warning if the user declines. Proceed silently. |
 
 > **Coordinator-owner ruling — `coordinator-claude` is canonically `soft`.** Severity is consumer-authored (each consumer declares how hard *it* couples to the dep), but where consumers diverge on `coordinator-claude` specifically — example-game-repo declared `soft`, project-rag-ue-addon declared `hard` — the authoritative classification is **`soft`**. `coordinator-claude` is the DAG-root doctrine/pipeline layer (its own `direct_deps` is `[]`): a non-blocking *enhancer*, not a runtime prerequisite. A consumer can install and operate — degraded, without the pipeline/reviewers — when it is absent, which is exactly the `soft` contract (warn loudly, offer to walk-and-install, proceed if declined). `deep-research-claude` declares it `soft`; consumers should align to `soft`.
-
+>
 > **Coordinator-owner ruling — override-flag-name divergence is by design.** The consent-gate override flag has different spellings per upstream — example-game-repo `--accept-hallucination-risk`, coordinator/project-rag `--accept-missing-deps-risk`, ue-addon `--accept-corpus-poisoning-risk`. This is **sanctioned, not a defect**: per § Why the split matters, the chain-walker reads `override_flags` from the *upstream's own* manifest at dispatch time, so each upstream names the risk it actually gates (AI hallucination, missing deps, corpus poisoning) with zero drift hazard. The coordinator-canonical/generic spelling is **`--accept-missing-deps-risk`**; repos keep their semantic flag and are not required to rename. A shared alias is optional polish, not a contract obligation.
-
+>
 > **Coordinator-owner ruling — canonical OSS install-probe path is `.claude-plugin/plugin.json`, not `coordinator/CLAUDE.md`.** No spelling of a `CLAUDE.md` path is diagnostic of a working `coordinator-claude` install: `coordinator/CLAUDE.md` (the EM operating-doctrine file) is not a member of `setup/publish-targets.portable`'s `coordinator-claude` mirror allowlist — that allowlist enumerates `bin,lib,hooks,skills,agents,commands`, a short named `docs/wiki/*.md` set, `.claude-plugin`, `cockpit-contract/schema`, two schemas, and several `templates/*` entries (including `templates/CLAUDE.md.tmpl`) — `CLAUDE.md` itself is absent from that list. A `CLAUDE.md` does exist at the OSS mirror's repo root, but it is the generic project-principles template rendered from `templates/CLAUDE.md.tmpl` — unrelated boilerplate, not doctrine content.
 >
 > The OSS mirror's installed sibling-repo tree is **flat single-plugin** at the repo root, with **no `coordinator/` segment anywhere** — `bin/`, `lib/`, `hooks/`, `skills/`, `agents/`, `commands/`, `docs/wiki/`, `.claude-plugin/` all sit directly under the sibling repo root. A consumer pins this path once and does not need to chase the layout again.
 >
-> **Canonical probe:** a `coordinator-claude` `functional_probe` of kind `file_exists` MUST declare `path: ".claude-plugin/plugin.json"`. It is in the publish allowlist and is Claude Code's own native plugin manifest — structurally required for the plugin to be installable at all, not an artifact of our own naming that could get reorganized out from under a probe.
+> **Canonical probe:** a `coordinator-claude` functional probe of kind `file_exists` MUST declare `path: ".claude-plugin/plugin.json"`. It is in the publish allowlist and is Claude Code's own native plugin manifest — structurally required for the plugin to be installable at all, not an artifact of our own naming that could get reorganized out from under a probe.
 
 ---
 
@@ -355,8 +358,8 @@ The severity values below apply to **manifest `DirectDep` entries** (chain-walke
 
 The chain-walker runs two checks for each dep, in order:
 
-1. **Implicit sibling presence check** (`sibling_dir_exists`): does the directory `<parent>/<sibling_dir_name>` exist? This check is always implicit — it runs regardless of the declared `functional_probe.kind`.
-2. **Functional probe** (declared in `functional_probe.kind`): is the dep actually usable?
+1. **Implicit sibling presence check** (`sibling_dir_exists`): does the directory `<parent>/<sibling_dir_name>` exist? This check is always implicit — it runs regardless of the declared `functional_probe_kind`.
+2. **Functional probe** (declared in `functional_probe_kind`): is the dep actually usable?
 
 The initial set of probe kinds (extensible — new kinds require a contract version bump):
 
@@ -366,6 +369,7 @@ The initial set of probe kinds (extensible — new kinds require a contract vers
 | `file_exists` | The file at `path` (relative to the sibling repo root) exists. | `path` |
 | `python_import` | The Python import expression in `expr` succeeds via the resolved Python interpreter. | `expr` |
 | `command_succeeds` | The shell command in `cmd` exits zero. Escape hatch for non-Python upstreams. | `cmd` |
+| `claude_klabauter_seam_resolvable` | Bypasses the sibling-dir gate and confirms via a live `find_spec("coordinator_core.invoke")` check; for the registry/env-resolved engine-repo dep. | none |
 
 A dep may be `present` (sibling dir exists, functional probe passes), `missing` (sibling dir absent), or `present-but-broken` (sibling dir exists, functional probe fails).
 
@@ -386,10 +390,12 @@ Are you running this script as an autonomous agent rather than via /<setup-skill
 ```
 
 Responses:
+
 - **y**: print the path to `docs/install/AGENT.md` and exit **92** (agent-direct-invocation-detected). The agent should dispatch the setup skill instead.
 - **N** (or enter): continue as interactive human-mode.
 
 Override mechanisms (suppress the prompt entirely):
+
 - `--i-am-agent` flag: acts as y by itself (exit 92); paired with the upstream's `override_flags` pair, runs in agent mode (see §Walker composition).
 - `--i-am-human` flag: acts as N (continue).
 - Equivalent environment variable (e.g. `EXAMPLE_GAME_REPO_RUN_MODE=agent` / `=human` in the example-game-repo reference impl; consumer repos may declare an analogous repo-scoped env var).
@@ -427,6 +433,7 @@ If a probe needs to inspect the install ledger while the write gate is active, i
 ### Step (b) — Dependency probing
 
 For each declared dep, the script runs the implicit sibling check then the functional probe:
+
 - `hard` dep missing or broken: capture for the consent gate (step d).
 - `soft` dep missing: warn loudly, offer to clone-and-walk via gh CLI, proceed if declined.
 - `optional` dep missing: print a one-line offer, proceed silently if declined.
@@ -575,9 +582,11 @@ To handle diamond-DAG and cycle detection across recursive subagent dispatches (
 **`<settings-home>` definition (cold-safe, computable without any bin dependency; POSIX-host
 form — a PowerShell host resolves the same value via rung 0 / Shape W, see
 `coordinator/snippets/resolve-coordinator-bin.md`):**
+
 ```
 ${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}
 ```
+
 The canonical install-chain write prefix is `<settings-home>/`, relocated from `~/.claude/` (durable-substrate-to-settings-home plan). Consumers repoint their own chain-walk and install-status writers per this relocated protocol. During the migration window, a consumer MAY additionally read the legacy `~/.claude/<repo-id>/` path as a fallback.
 
 **Example (example-game-repo concrete example):** `<settings-home>/example-game-repo/chain-walk-<session-id>.json`
@@ -603,9 +612,9 @@ The relocation above did not move the entire `~/.claude/<repo-id>/` directory �
 
 ### Consumer durable-data plane
 
-> Added by the consumer-durable-data-plane-uninstall-boundary plan (cluster 11) — DoE-altitude
+> Added by the consumer-durable-data-plane-uninstall-boundary plan (cluster 11) — maintainer-altitude
 > doctrine-seeding under PM direction (project-rag-em's inbound proposal, PM-accepted).
-> Per `cross-repo-communication.md` § Doctrine seeding vs.
+> Per `coordinator/docs/wiki/cross-repo-communication.md` § Doctrine seeding vs.
 > code/install-surface change (lines 562-574), this is a legitimate direct wiki edit: it shapes *how*
 > sibling repos understand a shared contract surface, authored from doctrine-repo altitude on PM direction, not
 > a code/install-surface change to any sibling's own tree. The receiving repo's EM (project-rag-em) may
@@ -813,6 +822,7 @@ A **soft-dep** consumer (one that takes coordinator-claude as a soft, not hard, 
 **Ruling:** a consumer MUST resolve the settings-home prefix **defensively** for the visited-set write. If `coordinator-settings-home` is unavailable, fall back to `~/.claude/<repo-id>` for the (then-unused) visited-set rather than allowing an empty substitution.
 
 **Canonical shell idiom:**
+
 ```
 _SETTINGS_HOME="$(coordinator-settings-home 2>/dev/null || true)"
 VISITED_DIR="${_SETTINGS_HOME:-${HOME}/.claude}/<repo-id>"
@@ -843,9 +853,11 @@ VISITED_DIR="${_SETTINGS_HOME:-${HOME}/.claude}/<repo-id>"
 1. **Top-level invocation start:** delete any `chain-walk-*.json` files in `<settings-home>/<repo-id>/` older than 1 hour (stale-cleanup). Then create a new `chain-walk-<session-id>.json` with an empty `visited` array.
 2. **Before each clone+walk:** read the visited-set file. If the dep ID is already in `visited`, log "already walking <dep-id>, skipping" and continue to the next dep.
 3. **Before dispatching the subagent:** atomically append the dep ID to the `visited` array using a stdlib-only read-modify-write (Python `json` module — no `pyyaml` or other non-stdlib dep):
+
    ```
    python -c "import json, os, sys; p=sys.argv[1]; d=json.load(open(p)); d['visited'].append(sys.argv[2]); json.dump(d, open(p,'w'), indent=2)" <path-to-visited-set> <dep-id>
    ```
+
 4. **Subagents** read the same file (path derived from `$SESSION_ID` passed in the constructed prompt) and follow steps 2–3 for their own deps.
 
 #### Stale-cleanup
@@ -923,7 +935,7 @@ install-chain spine that drives every leg to conclusion before the install works
 > Do **not** invent a `tasks/spinoffs/` (or `tasks/install-chain/`) directory: no coordinator
 > machinery scans it, so a baton dropped there is invisible to `/pickup`, `query-records`, and
 > `/workday-start`. The standard `state/handoffs/` folder is the only surface all three already read.
-
+>
 > **Compat read (transition window).** A consumer resolving the rendezvous MUST read-new-first: try
 > `$(coordinator-settings-home)/state/handoffs/`, and only if a baton is not found there, fall back to
 > the legacy `~/.claude/state/handoffs/` location for the duration of the migration window. This is a
@@ -1076,7 +1088,7 @@ single-capability install.
 ### Guidance for conforming (downstream) repos
 
 This is the "teach the other side in a wiki, don't code their ceremony" half of the contract (per
-`cross-repo-communication.md` § When lifting a cross-repo primitive). To align:
+`coordinator/docs/wiki/cross-repo-communication.md` § When lifting a cross-repo primitive). To align:
 
 1. Add a **seed step** to your standalone setup script that writes a `kind: spinoff` baton (with
    `repo`, `install_chain_order`, `authoring_session`) into the rendezvous handoffs folder at
@@ -1345,7 +1357,7 @@ surface remediation, halt the walk.
 ### Downstream-repo guidance
 
 This subsection is the "teach the other side in a wiki" half of the `chain-preinstall`
-contract (per `cross-repo-communication.md` § When lifting a cross-repo primitive). A
+contract (per `coordinator/docs/wiki/cross-repo-communication.md` § When lifting a cross-repo primitive). A
 heavy-install leg implements `chain-preinstall` as follows:
 
 1. **Gate on token** (per § Phase-level gate / exit-92 interaction): check
@@ -1424,7 +1436,8 @@ For consumers and upstreams adopting v3, the per-repo mechanical steps are:
 This contract's ecosystem-wide canonical home is `coordinator-claude` (the chain root), migrated
 from its original `example-game-workbench-repo` (chain leaf) home, bilaterally co-developed with
 `project-rag-ue-addon`.
-- This file in the upstream doctrine repo (`coordinator/docs/wiki/install-playbook-rationale/agent-install-contract.md`) is the single canonical source; `~/.claude/plugins/coordinator/docs/wiki/install-playbook-rationale/agent-install-contract.md` is its published mirror (propagated outward via the engine repo's `coordinator/bin/publish.py` to consumer projects).
+
+- This file in the upstream doctrine repo (`coordinator/docs/wiki/install-playbook-rationale/agent-install-contract.md`) is the single canonical source; `~/.claude/plugins/coordinator-claude/coordinator/docs/wiki/install-playbook-rationale/agent-install-contract.md` is its published mirror (propagated outward via the engine repo's `coordinator/bin/publish.py` to consumer projects).
 - `example-game-workbench-repo/docs/wiki/install-playbook-rationale/agent-install-contract.md` becomes a one-line pointer redirect to this file.
 - `project-rag-ue-addon` and other consumers (`project-rag`, `deep-research-claude`) cite this file rather than mirroring it.
 - Per-repo `docs/install/agent-install-manifest.schema.json` files **stay in each repo** — the schema is the per-repo implementation of this contract; this doc is the contract spec. Moving schemas would change every `$id` URL and is deferred until a third consumer makes the duplication pressure obvious (current state: example-game-repo + addon are the only two repos with schemas).
@@ -1470,6 +1483,7 @@ reader. Re-open contact only if a KeepBlank clean-consumer smoke run surfaces an
 invocation-composition gap.
 
 **Exit-code taxonomy for dep-chain walk:**
+
 - `0` success, `1` generic failure, `2` repo-shape mismatch, `11` missing system dep,
   `12` uv missing → actionable install stops.
 - `92` / `93` → invocation bugs (wrong flags); fix `override_flags` in upstream manifest.
@@ -1490,7 +1504,7 @@ and future, inherits by virtue of being in the fleet, not a per-repo goodwill ta
 
 This section is the **doctrine layer**. The **schema layer** (optional-additive `agent-install-manifest.schema.json`
 fields encoding points 1/2/3/4/6) and the **enforcement layer** (`validate-install-contract.py`, a
-DoE-local opt-in-scoped compliance gate) are separate, cross-linked surfaces — see the
+maintainer-only opt-in-scoped compliance gate) are separate, cross-linked surfaces — see the
 `packageability-compliance` marker note below and `2026-07-11-packageability-contract-fleet-doctrine.md` under `docs/plans/`
 for the full six-chunk delivery.
 
@@ -1567,7 +1581,7 @@ chain-walk invocation and is the Point-2 fallback only when `programmatic_entry_
 
 **Coordinator-claude's own declaration.** The manifest's `standalone_setup_script` names
 `scripts/setup.py` (engine-root-relative — resolves against either the
-live `repos.claude_klabauter` checkout or the declared `claude-klabauter` dependency, whichever
+live `repos.claude_klabauter` checkout (key in `<settings-home>/machine-local/registry.local.toml`) or the declared `claude-klabauter` dependency, whichever
 `_engine_root.py` returns) — the install-chain **walker**, with `entry_point_contract` flags
 `--i-am-agent` (non-interactive) / `--check` (check-only). `setup.py` performs no mechanical
 install work for this repo on its own; it is the chain-walk dispatch target, distinct from the
@@ -1656,7 +1670,7 @@ the entry point has been *executed-and-verified* on from platforms the repo mere
 for* (`present_platforms`). A platform absent from `tested_platforms` MUST NOT be marketed as
 supported parity even when it's present in `present_platforms`.
 
-**PROMOTION rule.** A platform enters `tested_platforms` ONLY via the DoE-owned generator,
+**PROMOTION rule.** A platform enters `tested_platforms` ONLY via the plugin source repo's generator,
 never by hand-edit. The generator computes membership from `state/platform-outcomes/` records —
 one record per real ceremony run, capturing platform, surface, command, exit status, SHA,
 machine, and UTC timestamp — filtered to records whose `surface` resolves to a manifest-declared
@@ -1677,6 +1691,7 @@ demotion rule does *not* fire on: a platform *already* present in `tested_platfo
 claim is *preserved* with a `grandfathered: <platform> has no backing records` advisory rather
 than silently demoted to `[]`. This is a bootstrap provision, not a loophole, and its scope is
 deliberately tight:
+
 - It fires only on the **absence** of records, never in the presence of a failing or stale one — a
   bad record always demotes.
 - It can only ever **preserve an existing** entry; it can **never introduce a new** platform. A
@@ -1718,7 +1733,7 @@ MUST NOT be presented to an end user as supported.
 
 A v3 manifest declares fleet-wide compliance by carrying a top-level optional
 `packageability_compliance: { "declared": true }` object. This is the **opt-in signal** — the
-DoE-local `validate-install-contract.py` gate fires its per-point completeness checks only when
+maintainer-only `validate-install-contract.py` gate fires its per-point completeness checks only when
 `packageability_compliance.declared === true`. A v3 manifest that omits the field entirely **skips
 clean** — it is not failing, it has simply not opted in yet. This keeps the "active compliance gate"
 directive at full strength for repos that have declared, without regressing any sibling that hasn't

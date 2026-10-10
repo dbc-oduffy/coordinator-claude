@@ -25,6 +25,7 @@ This is the naming corollary of the **instance-#3 rule** (`ceremony-calibration.
 Log fields are contracts, not labels. A field must measure exactly one fact, named for that fact. Misnamed fields decay diagnosis: a field reporting NVML probe state but named `cuda_available` (a torch concept) confuses reviewers, operators, and agents downstream — everyone reasons from the name, not the implementation. Treat a rename to match what the field actually measures as a *fix*, not cosmetic.
 
 Two checks at field-add time:
+
 - **Is the name a check (the question being asked) or an outcome (the answer)?** Prefer check-shaped names (`pynvml_importable`, `vram_gate_active`) — they survive when the outcome interpretation shifts. Outcome-shaped names (`cuda_available`) lock in one interpretation and silently mislead when the underlying check changes.
 - **Does the name promise more than the value delivers?** A boolean named `gpu_ready` that only checks driver presence promises a richer assertion than it makes. Narrow the name to what the value actually proves.
 

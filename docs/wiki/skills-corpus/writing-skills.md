@@ -209,6 +209,7 @@ details to `--help`. Cross-reference rather than duplicate. Compress examples ru
 with `wc -w`.
 
 **Cross-referencing other skills** — name only with explicit requirement marker:
+
 - `**REQUIRED BACKGROUND:** see docs/wiki/test-design-discipline/test-driven-development.md`
 - Do NOT use `@skills/...` syntax — it force-loads files immediately, burning context.
 
@@ -248,6 +249,7 @@ good") is a guess wearing the costume of a reference.
 ### RED: Write Failing Test (Baseline)
 
 Run pressure scenario WITHOUT the skill. Document exact behavior:
+
 - What choices did the agent make?
 - What rationalizations did they use (verbatim)?
 - Which pressures triggered violations?
@@ -297,12 +299,14 @@ rejects.
 ### When to Test
 
 Test skills that:
+
 - Enforce discipline (TDD, testing requirements)
 - Have compliance costs (time, effort, rework)
 - Could be rationalized away ("just this once")
 - Contradict immediate goals (speed over quality)
 
 Don't test:
+
 - Pure reference skills (API docs, syntax guides)
 - Skills without rules to violate
 - Skills agents have no incentive to bypass
@@ -310,23 +314,27 @@ Don't test:
 ### Different Skill Types Need Different Tests
 
 **Discipline-enforcing skills** (rules/requirements — TDD, verification-before-completion):
+
 - Academic questions: do they understand the rules?
 - Pressure scenarios: do they comply under stress?
 - Multiple pressures combined: time + sunk cost + exhaustion
 - Success: agent follows rule under maximum pressure.
 
 **Technique skills** (how-to guides — condition-based-waiting, root-cause-tracing):
+
 - Application scenarios: can they apply the technique correctly?
 - Variation scenarios: do they handle edge cases?
 - Missing information tests: do instructions have gaps?
 - Success: agent successfully applies technique to new scenario.
 
 **Pattern skills** (mental models):
+
 - Recognition scenarios: do they recognize when the pattern applies?
 - Counter-examples: do they know when NOT to apply?
 - Success: agent correctly identifies when/how to apply pattern.
 
 **Reference skills** (documentation/APIs):
+
 - Retrieval scenarios: can they find the right information?
 - Gap testing: are common use cases covered?
 - Success: agent finds and correctly applies reference information.
@@ -334,18 +342,22 @@ Don't test:
 ### Writing Pressure Scenarios
 
 **Bad scenario (no pressure):**
+
 ```markdown
 You need to implement a feature. What does the skill say?
 ```
+
 Too academic. Agent just recites the skill.
 
 **Good scenario (single pressure):**
+
 ```markdown
 Production is down. $10k/min lost. Manager says add 2-line fix now.
 5 minutes until deploy window. What do you do?
 ```
 
 **Great scenario (multiple pressures):**
+
 ```markdown
 You spent 3 hours, 200 lines, manually tested. It works.
 It's 6pm, dinner at 6:30pm. Code review tomorrow 9am.
@@ -504,6 +516,7 @@ Claude is already smart — only add context Claude doesn't already have. Challe
 "does this justify its token cost?"
 
 **Set appropriate degrees of freedom.** Match specificity to the task's fragility:
+
 - High freedom (text instructions) — multiple valid approaches, judgment-driven.
 - Medium freedom (pseudocode/templates) — repeatable shape, varying details.
 - Low freedom (scripts) — deterministic, fragile, must-not-vary outputs.
@@ -555,6 +568,7 @@ host, `${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/<cli
 Read the rest of this section as a record of upstream guidance, applicable when authoring skills
 for a non-coordinator distribution — not as license to bundle code into a coordinator skill.
 When the skill ships a script (`scripts/*.py`, `bin/*.sh`):
+
 - The script does the work; the skill describes when to invoke it, not how to reimplement its logic.
 - Pin runtime expectations — Python version, required packages, OS scope. State them at SKILL.md top
   and inside the script's docstring.
@@ -591,15 +605,18 @@ Newly-shipped agents are not discoverable by the parent EM until the Claude Code
 **The in-session workaround:** simulate the new agent using a `general-purpose` Sonnet dispatch. Copy the agent's `allowed-tools`, identity, and prompt body verbatim into the `general-purpose` prompt. This exercises the agent's logic and instruction set in-session, before the restart that would properly register it.
 
 **What the smoke loop confirms:**
+
 - The agent's instructions produce the expected output shape.
 - The `allowed-tools` list is sufficient for the task (no silent tool-missing failures).
 - The output template / sidecar format is well-formed.
 
 **What it does NOT confirm:**
+
 - That the agent triggers correctly from description-based routing (requires restart + real dispatch).
 - That frontmatter name/description fields are valid YAML (run a YAML linter separately).
 
 **Protocol:**
+
 1. Ship the agent file.
 2. Dispatch a `general-purpose` Sonnet with the agent body verbatim as the prompt, using a representative scenario.
 3. Verify the output shape matches the expected deliverable.
@@ -615,6 +632,7 @@ If your agent writes a sidecar markdown file (verdict report, resolution log, re
 
 **`allowed-tools` must be a YAML list, not a scalar.** `allowed-tools: Write` silently passes YAML
 parsing but fails schema check. Correct form:
+
 ```yaml
 allowed-tools:
   - Write
@@ -675,14 +693,34 @@ at that latitude — don't defer to a distant doctrine page.
 
 ---
 
+### Do not name an agent-def concept after a harness parameter
+
+A selector called `mode` in an agent definition collides with the Agent tool's real `mode`
+parameter: dispatchers pass `mode: "standalone"` as the tool argument and the call fails
+validation. Prefer brief-driven behavior; if a discriminator is needed, give it a name no harness
+tool uses (`review_posture`, not `mode`, `model`, `tools`, `effort`, `isolation`).
+
+### Inline op-call snippets break silently when the op evolves
+
+A skill that hand-rolls an IPC call to an evolving op breaks when the op gains a required envelope
+field, and if the skill degrades to "skip" on failure the break is invisible. Call the shared
+client instead, and live-run skills that call evolving surfaces.
+
+### Re-plan versus re-shape
+
+When a landed decision invalidates a stub's mechanism but not its problem set, route to
+`coordinator:plan` (re-plan how), not `coordinator:shape` (re-open what).
+
 ## Skill Creation Checklist
 
 **RED — Write Failing Test:**
+
 - [ ] Create pressure scenarios (3+ combined pressures for discipline skills)
 - [ ] Run WITHOUT skill — document baseline verbatim
 - [ ] Identify patterns in rationalizations/failures
 
 **GREEN — Write Minimal Skill:**
+
 - [ ] Name: letters, numbers, hyphens only
 - [ ] Frontmatter: name + description (see § Frontmatter for which char cap governs which surface)
 - [ ] Description starts "Use when...", third person, specific triggers
@@ -692,6 +730,7 @@ at that latitude — don't defer to a distant doctrine page.
 - [ ] Run WITH skill — verify agents comply
 
 **REFACTOR — Close Loopholes:**
+
 - [ ] Identify new rationalizations from testing (design input for you, not a section to ship)
 - [ ] Close each gap by shape: misdirection → make the right path obvious (offer-shape); genuine
       incentive → structural typed-override checkpoint, not Authority-pressure (see
@@ -699,12 +738,14 @@ at that latitude — don't defer to a distant doctrine page.
 - [ ] Re-test until the skill holds under pressure
 
 **Quality:**
+
 - [ ] Flowchart only if decision non-obvious
 - [ ] Quick reference table
 - [ ] Common mistakes section
 - [ ] No narrative storytelling
 
 **Dependency discipline (hard-dep vs soft-dep):**
+
 - [ ] For each external reference, classify: would this skill produce *wrong* output without the
       reference, or just *less-sharp* output?
 - [ ] Hard-dep (wrong without it) → keep an explicit pointer (`Run /X first if not configured`)
@@ -713,6 +754,7 @@ at that latitude — don't defer to a distant doctrine page.
 - [ ] Default to soft-dep when uncertain
 
 **Deployment:**
+
 - [ ] Commit and push to your fork (if configured)
 - [ ] Consider contributing back via PR
 - [ ] Run Anthropic's checklist: description triggers correctly, loads under smallest target model,

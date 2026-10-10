@@ -17,14 +17,19 @@ REFUSALS, all before the first write (exit 2, nothing on disk touched):
   - a ratified seed whose draft is missing or fails shape (objective, 1-5 key results,
     `period` enum, `period_value`);
   - a result that is neither a goal-blitz result nor an envelope wrapping one.
+  - a `parent_goal_id` naming neither a seed in this landing nor a landed goal, or a parent cycle.
+
+A `parent_goal_id` (a seed id resolves to its landed goal; parents land first) goes into the goal's
+frontmatter, so sibling OKRs link rather than read as duplicates.
 
 A `declined` record is honoured: the seed lands nothing and is reported. A ratification for a
 seed the readiness gate did not mark ready is ignored and reported, never landed.
 
 A consumed `kind: goal-seed` baton is stamped `deployment_state: shipped` with the sanctioned
 `substantively-shipped-no-commit:<date>` token, because the landing commit cannot cite its own
-SHA. A consumed `kind: sizing` seed is stamped `status: shipped` through the engine's `sizing.ship`
-op, which is what keeps the next sweep from picking it up again.
+SHA. A consumed `kind: sizing` seed is stamped `status: routed` with its `goal_id` through the
+engine's `sizing.mark_routed` op; the goal's key-result cascade ships it later. The `goal_id` is
+what keeps the next sweep from landing it again.
 
 Usage:
 
@@ -65,9 +70,24 @@ class CliFailure(RuntimeError):
     """A resolved coordinator CLI exited non-zero."""
 
 
+def _read_json(path: Path, remedy: str):
+    """Parse an operator-supplied JSON file, or raise a one-line Refusal naming file, decoder message and remedy."""
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise Refusal(f"{path}: not valid JSON ({exc.msg}: line {exc.lineno} column {exc.colno}); {remedy}") from exc
+    except UnicodeDecodeError as exc:
+        raise Refusal(f"{path}: not UTF-8 text (byte {exc.start}); {remedy}") from exc
+
+
+_RESULT_REMEDY = ("pass the Workflow task-output file the completion notification named, unedited; "
+                  "never a hand-built result.")
+_TRAIL_REMEDY = "restore the file the goal-blitz fire wrote into the trail dir, unedited; never hand-edit it."
+
+
 def _goal_blitz_result(path: Path) -> dict:
     """The workflow's returned object, from the raw file or the task-output envelope."""
-    data = json.loads(path.read_text(encoding="utf-8"))
+    data = _read_json(path, _RESULT_REMEDY)
     if isinstance(data, dict) and "ready" not in data and isinstance(data.get("result"), dict):
         data = data["result"]
     if not isinstance(data, dict) or not isinstance(data.get("ready"), list):
@@ -82,7 +102,7 @@ def _load_ratification(trail: Path) -> dict:
     path = trail / "ratification.json"
     if not path.is_file():
         return {}
-    data = json.loads(path.read_text(encoding="utf-8"))
+    data = _read_json(path, _TRAIL_REMEDY)
     if not isinstance(data, dict):
         raise Refusal(f"{path}: not a JSON object keyed by seed id.")
     return data
@@ -136,6 +156,9 @@ def _load_draft(trail: Path, seed_id: str) -> dict:
         raise Refusal(f"{path}: period {draft.get('period')!r} is not one of {'|'.join(PERIODS)}.")
     if not str(draft.get("period_value") or "").strip():
         raise Refusal(f"{path}: empty period_value.")
+    parent = draft.get("parent_goal_id")
+    if parent is not None and not (isinstance(parent, str) and re.fullmatch(r"[\w.-]+", parent)):
+        raise Refusal(f"{path}: parent_goal_id must be a goal id or a seed id landing in this run.")
     for key in ("roadmap_seeds", "goal_seeds"):
         items = draft.get(key) or []
         if not isinstance(items, list) or not all(isinstance(i, str) and i.strip() for i in items):
@@ -148,7 +171,7 @@ def _seed_index(trail: Path) -> dict[str, dict]:
     path = trail / "candidates.json"
     if not path.is_file():
         return {}
-    data = json.loads(path.read_text(encoding="utf-8"))
+    data = _read_json(path, _TRAIL_REMEDY)
     if isinstance(data, dict):
         data = data.get("seeds") or []
     return {row["id"]: row for row in data if isinstance(row, dict) and row.get("id")}
@@ -176,6 +199,44 @@ def plan_landing(result: dict, ratification: dict, trail: Path) -> tuple[list[tu
         if seed_id not in ready:
             notes.append(f"ratification for {seed_id} ignored: the readiness gate did not mark it ready")
     return to_land, notes
+
+
+def _existing_goal_ids(repo_root: Path) -> set[str]:
+    """Goal ids already landed under `state/goals/`."""
+    goals = repo_root / "state" / "goals"
+    ids = set()
+    for f in goals.iterdir() if goals.is_dir() else ():
+        if f.suffix in (".yaml", ".md"):
+            try:
+                ids.add(_goal_id(f.read_text(encoding="utf-8")))
+            except CliFailure:
+                pass
+    return ids
+
+
+def _parents_first(to_land: list[tuple[str, dict]], existing: set[str]) -> list[tuple[str, dict]]:
+    """Order sibling drafts so a parent lands before its child; refuse an unresolvable parent.
+
+    A `parent_goal_id` naming a seed in this landing resolves to that seed's goal at land time; any
+    other value must be a goal already on disk. Without the link two sibling ledgers read as duplicates.
+    """
+    seeds = {seed_id for seed_id, _ in to_land}
+    for seed_id, draft in to_land:
+        parent = draft.get("parent_goal_id")
+        if parent and parent not in seeds and parent not in existing:
+            raise Refusal(f"{seed_id}: parent_goal_id {parent!r} is neither a seed landing in this run "
+                          "nor a goal under state/goals/.")
+    ordered: list[tuple[str, dict]] = []
+    pending = list(to_land)
+    while pending:
+        placed = {seed_id for seed_id, _ in ordered}
+        ready = [(s, d) for s, d in pending if d.get("parent_goal_id") not in seeds - placed]
+        if not ready:
+            raise Refusal("parent_goal_id links among this run's seeds form a cycle: "
+                          + ", ".join(s for s, _ in pending))
+        ordered += ready
+        pending = [p for p in pending if p not in ready]
+    return ordered
 
 
 def _settings_bin() -> Path:
@@ -247,6 +308,8 @@ def _fill_goal(scaffold: str, draft: dict) -> str:
         (r"^period_value:.*$", f"period_value: {_yaml_str(str(draft['period_value']).strip())}"),
         (r"^status:.*$", "status: active"),
     )
+    if draft.get("parent_goal_id"):
+        edits += ((r"^#?\s*parent_goal_id:.*$", f"parent_goal_id: {_yaml_str(draft['parent_goal_id'])}"),)
     for pattern, replacement in edits:
         scaffold, n = re.subn(pattern, lambda _m, r=replacement: r, scaffold, count=1, flags=re.M)
         if n != 1:
@@ -294,6 +357,15 @@ def _dirty(repo_root: Path) -> set[str]:
     return {ln[3:].split(" -> ")[-1].strip().strip('"') for ln in out.splitlines() if ln[3:].strip()}
 
 
+_GOALS_LOG = "state/goals-log.*.jsonl"
+
+
+def _goals_log_state(repo_root: Path) -> dict[str, bytes]:
+    """Content of every per-machine goals-log shard. `emit-goal-from-artifact` appends to one as a
+    direct consequence of a landing, so a shard that appeared or changed belongs in its commit."""
+    return {p.relative_to(repo_root).as_posix(): p.read_bytes() for p in repo_root.glob(_GOALS_LOG)}
+
+
 def land_one(repo_root: Path, seed_id: str, draft: dict, seed_row: dict | None, clis: dict,
              undo: dict[str, str | None], run=_run) -> str:
     """Land one ratified draft; `undo` records each touched path's prior text (None: created here)."""
@@ -334,7 +406,8 @@ def land_one(repo_root: Path, seed_id: str, draft: dict, seed_row: dict | None, 
                 source.write_text(stamped, encoding="utf-8", newline="\n")
         elif seed_row.get("kind") == "sizing":
             undo.setdefault(rel, original)
-            if not _invoke(clis["invoke"], "sizing.ship", {"sizing_path": rel}, repo_root, run)["applied"]:
+            if not _invoke(clis["invoke"], "sizing.mark_routed", {"sizing_path": rel, "goal_id": goal_id},
+                           repo_root, run)["applied"]:
                 del undo[rel]
     return goal_id
 
@@ -389,6 +462,7 @@ def main(argv=None, run=_run) -> int:
     try:
         result = _goal_blitz_result(result_path)
         to_land, notes = plan_landing(result, _load_ratification(trail), trail)
+        to_land = _parents_first(to_land, _existing_goal_ids(repo_root))
         clis = {
             "doc_new": [args.doc_new_cli] if args.doc_new_cli else _launcher("coordinator-doc-new", engine_root),
             "emit_goal": _launcher("emit-goal-from-artifact", engine_root),
@@ -406,11 +480,17 @@ def main(argv=None, run=_run) -> int:
 
     seeds = _seed_index(trail)
     before = _dirty(repo_root)
+    logs_before = _goals_log_state(repo_root)
     undo: dict[str, str | None] = {}
     landed: list[str] = []
     try:
+        landed_by_seed: dict[str, str] = {}
         for seed_id, draft in to_land:
+            parent = draft.get("parent_goal_id")
+            if parent in landed_by_seed:
+                draft = {**draft, "parent_goal_id": landed_by_seed[parent]}
             landed.append(land_one(repo_root, seed_id, draft, seeds.get(seed_id), clis, undo, run))
+            landed_by_seed[seed_id] = landed[-1]
             print(f"land-goals: landed {landed[-1]} from {seed_id}")
     except (CliFailure, OSError) as exc:
         print(f"land-goals: FAILED mid-landing — {exc}", file=sys.stderr)
@@ -420,7 +500,9 @@ def main(argv=None, run=_run) -> int:
             print(f"    {path}", file=sys.stderr)
         return EXIT_PARTIAL
 
-    paths = sorted(undo)
+    logs_after = _goals_log_state(repo_root)
+    logs_written = {rel for rel, body in logs_after.items() if logs_before.get(rel) != body}
+    paths = sorted(set(undo) | logs_written)
     strays = sorted(_dirty(repo_root) - before - set(paths))
     for path in strays:
         print(f"land-goals: NOT committed, appeared during the landing and was not named by a CLI: {path}",

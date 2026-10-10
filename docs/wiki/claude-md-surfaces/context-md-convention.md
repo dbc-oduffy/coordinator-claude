@@ -84,6 +84,7 @@ Two skills produce `CONTEXT.md` entries as a side-effect of their natural work:
 Skills that read `CONTEXT.md` for orientation use canonical terms in their output, but do NOT write entries. Writing is the producers' job.
 
 Current consumers (this plan, v1):
+
 - `coordinator:brainstorming` (reads before first PM question, if present)
 - `coordinator:plan` (reads before file-mapping, if present)
 - `/architecture-survey` synthesizer (reads if present; flags glossary candidates without writing)
@@ -105,6 +106,7 @@ This is a load-bearing rule, not a style preference. The coordinator system alre
 **When to create:** First time a term is resolved during a brainstorming or coordinator:plan session that would clearly recur in future sessions. The signal is: "I'm about to write this term in the plan, and if I don't record the canonical form, the next session will use the wrong synonym."
 
 **When NOT to create:**
+
 - Project onboarding (even if the project is terminology-heavy)
 - Start of a session before any dialogue has happened
 - Any time the only reason to create it is "it would be nice to have"

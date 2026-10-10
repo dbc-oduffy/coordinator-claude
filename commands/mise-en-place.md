@@ -29,8 +29,7 @@ Soft signals ("overnight," "it's late") do not authorize hibernate. Default stan
 it.** No claimed-baton list in `additionalContext` means the hook did not fire, and its bootstrap
 fails OPEN: a missing or unresolved script produces silence, not an error, so a run that skipped
 this phase's engine inputs reads exactly like one that had them. Claim by hand
-(`pickup-assemble apply <path>`), say so in the announcement, and carry on — the run is correct
-either way, but only if you noticed. Then resolve open judgment points and claim residue. Not ready → `pickup-assemble drop <path>`;
+(`pickup-assemble apply <path>`), say so in the announcement, and carry on. Then resolve open judgment points and claim residue. Not ready → `pickup-assemble drop <path>`;
 readiness-routed but still coherent → keep the claim, name routed items in the Phase 1 ledger and
 the successor handoff. No brief → `pickup-assemble brief <path> [AND <path>]...`. Announce:
 "Claimed N batons: [paths]. [M put back down: reason.]" Detail: wiki.
@@ -45,29 +44,38 @@ is the drop this shape exists to stop. Contract: wiki.
 
 ## Resolving the scripts this ceremony runs
 
-These live only in the doctrine repo's `coordinator/bin/` and get no settings-home launcher, so
-rung 2 404s. Open every fence below with the exact fence in
-`snippets/resolve-coordinator-bin.md` § CLIs with no launcher — `_content_root` does not survive from
-one Bash call to the next.
+These live in the doctrine repo's `setup/doe-tools/` or the engine's `coordinator/bin/` and get no settings-home launcher, so
+rung 2 404s. Open every fence below with the fence in
+`snippets/resolve-coordinator-bin.md` § CLIs with no launcher (`_content_root` does not survive between Bash calls).
 
 ## Phase 0: Readiness Gate
 
 **Stranded-run sweep — before anything else on a resume.** For each emitted
 `state/mise-inventory/*.workflow.mjs` whose run has no completion receipt (its run died: usage limit,
-container reclaim), fire `coordinator-invoke dispatch.terminal_commit` with `script_path` set to it
-(`inline_review` omitted) so its DONE rows land. `a-dead-run-strands-its-done-rows-uncommitted`.
+container reclaim): settled waves are already landed by their wave commits. A run that reached review lands through
+`dispatch.terminal_commit` with `script_path` and `task_output_path` (the digest carries
+`inline_review`). One that died before review: same session, resume with `resumeFromRunId`; new
+session, land its DONE rows with `emit-dispatch-workflow --inventory <inv> --review-only --rows <ids>
+--run-base <sha>` (fire it; its digest yields the `terminal_commit_cli` line), then re-emit the
+rest with `--only-incomplete` (a plan) or `--resume-from <run-id>-continuance.md` (an inventory). Never hand-stage a dead run's files. `a-dead-run-strands-its-done-rows-uncommitted`.
 
 **Certification leg — runs first, and the bypass below does not reach it.** Plan-sourced items
-only; an item with no plan has nothing to certify and is not refused for it. One revalidation
-step, two ordered legs: recompute the plan body sha against `mise_prepped_sha` (pure, spawn-free);
+only; an item with no plan has nothing to certify and is not refused for it. One command runs it:
+`<settings-home>/bin/mise-certify <plan>... --json` prints each plan's state, then the census; a
+nonzero exit means STALE, MALFORMED or DRIFT. One revalidation step, two ordered legs: recompute the plan body sha against `mise_prepped_sha` (pure, spawn-free);
 only if that passes, re-run each `census[].command` and diff against `result`. Fire on sha-leg
 CERTIFIED with no entry-level census DRIFT; an unclosed census leg (`UNDECIDABLE` / `REFUSED` /
 `UNRUNNABLE`, per-entry or rolled up) does not block the fire — record it as a named,
 non-blocking finding in the Phase 1 ledger. STALE → re-gate (`<settings-home>/bin/mise-prep-gate <plan>`, `<settings-home>` resolved per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`), then re-stamp;
 UNSTAMPED → gate and stamp; MALFORMED → a hand-written stamp, repair the frontmatter; census
-drift → the premise moved, re-plan. **Name the state** — "not certified" sends an author to the
+drift → the premise moved, re-plan — unless format-only (same value, different formatting) or caused by the plan's own landed rows: the EM records entry and reason as a Phase 1 ledger finding and fires. **Name the state** — "not certified" sends an author to the
 wrong repair. A handoff can assert executability; it cannot assert a sha. States, recipe and the
 four repairs: `coordinator/docs/wiki/lesson-triage/mise-prepped-attest.md`.
+
+`mise-certify` also runs the seam leg over the fire set: `SEAM-REFUSED` is a named state beside
+those, repaired by routing the finding and re-prepping the set. `capabilities-undeclared` blocks
+here and its repair is the `capabilities` frontmatter key (no re-stamp). Detail:
+`coordinator/docs/wiki/lesson-triage/mise-seam-check.md`.
 
 Bypass only if the invoking handoff asserts **executability** (not merely pickup-readiness) for
 the named items in its body — a stated stop condition or `deployment_state: awaiting_gate` always
@@ -124,17 +132,20 @@ already read → inline instead. Template/sources: wiki.
 
 ## Pre-Dispatch Verification
 
-Backlog/plan-sourced items: Haiku agent per item, `still-open` vs `already-fixed` at HEAD. Drop
-`already-fixed` before queuing.
+The emitted Workflow runs it ahead of Execute on every emit (Haiku, per item, `still-open` vs
+`already-fixed` at HEAD) and drops `already-fixed` rows; the digest lists them under
+`predispatch.already_done`. The EM runs no separate pass.
 
-**Falsifier integrity**, same phase, plan-sourced items whose frontmatter carries
-`prime_exit_criterion.falsifier`: one `falsifier-integrity-reviewer` dispatch each. Run
-`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/instrument-can-report-red" --json` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\instrument-can-report-red.exe"`, same arguments) over the instrument first and pass
-the on-disk JSON path as the brief's `can_report_red_report` — a brief field, never an instruction
-to go compute it. Verdict `SOUND` | `BROKEN` | `UNREVIEWABLE`, naming the tell; it reports and
-never refuses. `BROKEN` routes the item out of the wave with the tell named — the existing
-dropped-item behaviour. An item with no `falsifier` sub-object is not reviewed and is not a
-finding here. Inputs the phase marshals, and the blinding invariant that bounds them:
+**Falsifier integrity is the emitted Workflow's own phase, not an EM pass.** The inventory emit
+reviews every plan whose frontmatter carries `prime_exit_criterion.falsifier`, writing each
+can-report-red report itself; the EM runs no review, hand-sent or Workflow, before firing — a
+second pass is a second sample of the same non-deterministic reader, and the two disagree.
+Verdict `SOUND` | `BROKEN` | `UNREVIEWABLE`, naming the tell; it reports and never refuses. The reviewer stays on Sonnet: a cheaper reader fails toward a false `SOUND`, which lets the judge self-stamp; cost is a per-plan verdict cache's job, never a tier cut.
+**`BROKEN` is advisory, never a route-out:** the plan executes, and its terminal judge may not
+self-stamp `implemented` (the task output's `next_action.params.falsifier_broken` names it) —
+close-out goes through the re-judge route in
+`coordinator/docs/wiki/reviewer-pipeline/terminal-judge.md`. A weak falsifier costs the run its
+self-stamp, not its execution. Inputs and the blinding invariant:
 `coordinator/docs/wiki/reviewer-pipeline/falsifier-integrity.md`.
 
 ## Phase 2: Sequence and Parallelize
@@ -207,7 +218,13 @@ spec path is itself a plan carrying a `` ```yaml plan-tasks `` spine expands int
 chunk DAG — `<item-id>.<chunk-id>` per chunk — inside this SAME emitted Workflow, never a second
 `--plan` emit; a plain row with no such spine stays one executor.
 
-When slicing an inventory into tranches, rows writing the same path go in the same tranche — the emitter serializes same-path writers only within one script.
+**Tranche step.** One inventory does not run a cross-plan DAG in one go: `depends_on_plan`
+dependents wait for the next run, so a set with plan-to-plan chains runs as successive tranches.
+The EM chooses how aggressive each tranche is and what it includes: emit the combined inventory
+with `--row-budget N` (N ≤ 100), trimming the inventory first to leave plans out. The emitter takes
+plans whose `depends_on_plan` predecessors are `coded`, keeps same-path writers together, writes
+`<inventory>-t<N>.md` and reports `tranche.deferred`, `skipped` and `remaining.passes_remaining`.
+Fire it; after it lands, emit the next. `a-cross-plan-mise-set-runs-as-tranches`.
 
 **Ignore the Stop-hook's "commit and push" advisory mid-run** — the dirt it flags is a live
 wave's footprint. Commit only by § Who commits; never widen it to satisfy the hook.
@@ -230,6 +247,11 @@ and resume with `resumeFromRunId` of the same run so finished agents replay from
 Across sessions, `emit-dispatch-workflow --resume-from <run-id>-continuance.md --out
 <run-id>.workflow.mjs` re-emits each lane without the rows already `coded`; an empty lane reports
 `nothing_unlanded`.
+
+`SEAM-DRIFT` at a wave boundary holds the implicated plans' rows inside the Workflow; move those
+plans to `## Withheld / routed out` with the finding and the run continues. Never override it by
+re-emitting with `--force`; `capabilities-undeclared` is reported there and holds nothing.
+`coordinator/docs/wiki/lesson-triage/mise-seam-check.md`.
 
 **Resume admitted by the classifier.** Check and allowlist edits land in their own earlier commit.
 State the resume as resuming this run's own workflow (`resumeFromRunId` of the run just fired),
@@ -378,14 +400,15 @@ check, anti-vacuity gate, diff freeze, inventory archival (COMPLETE only), track
   may not appear as the run's disposition unless the exhaustion check passed. Item-level,
   wave-level and task-level uses of 'completed' (TaskUpdate, tracker sweep, baton
   disposition) are unaffected.
-- **Composite disclaimer, once, beside the verdict.** Three instruments feed this line and each
+- **Composite disclaimer, once, beside the verdict.** Four instruments feed this line and each
   is honest alone: `mise_prepped_*` certifies a defect-class floor and attests nothing about
   completion; the orphan check is necessary-not-sufficient; an all-`accept` adjudication is a
-  null result. Nothing composes them, so a reader seeing `COMPLETE` from a run that was
-  prepped, orphan-checked and adjudicated reads a strong claim no constituent makes. Print the
-  composition, not three caveats in three contracts nobody reads together:
-  `COMPLETE — entry floor certified, no orphan found, nothing revoked. None of the three is a
-  correctness verdict.`
+  null result; the seam check reads declared paths and capabilities, not behaviour. Nothing
+  composes them, so a reader seeing `COMPLETE` from a run that was prepped, orphan-checked,
+  adjudicated and seam-checked reads a strong claim no constituent makes. Print the
+  composition, not four caveats in four contracts nobody reads together:
+  `COMPLETE — entry floor certified, no orphan found, nothing revoked, seam check clean. None of
+  the four is a correctness verdict.`
 
 **Close:** scoped footprint clean, commit residue, report the verdict, discharge review routing.
 Standard stops there. Hibernate additionally verifies+pushes (never on push failure), authors+

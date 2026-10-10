@@ -76,8 +76,7 @@ derivation matches nothing. It refuses unless all hold:
 ## `closed_reason` on a memo-deliverable handoff — send the stand-down notice
 
 
-Closing a handoff into this vocabulary's `closed` + `closed_reason:` 
-is one write short of done when the handoff's own deliverable was a
+Closing a handoff into this vocabulary's `closed` + `closed_reason:`is one write short of done when the handoff's own deliverable was a
 cross-repo memo to a named receiver: send that receiver a stand-down notice
 before treating the close as terminal, so their side doesn't keep watching
 for a baton that already landed. This is the upstream→sibling direction
@@ -166,8 +165,8 @@ Signal 2's re-verification is only as durable as the paths inside the refs, and
 those paths point into a repo whose EM owes this record nothing. On 2026-07-25,
 a sibling repo's renamed 63 `coordinator/bin/*.test.py` files to
 pytest-collectable names — a good change, correctly scoped to their own tree —
-and in doing so invalidated **nine** `verified_by` refs held by a single DoE-side
-cutover record (`closed-reason-terminal`). Nothing on either side noticed. It
+and in doing so invalidated **nine** `verified_by` refs held by a single cutover record
+on the plugin side (`closed-reason-terminal`). Nothing on either side noticed. It
 surfaced only because their EM happened to spot one stale path while answering an
 unrelated question.
 
@@ -271,8 +270,7 @@ before being trusted, not just unit-tested in isolation.
 
 <!-- spec-backlink: run 2026-08-06-14h38, nugget c7-030 -->
 
-`close-handoff --reason` is now a landed verb, filling the vocabulary gap the overhaul 
-widened for but never wired a writer to. This is the concrete fix for
+`close-handoff --reason` is now a landed verb, filling the vocabulary gap the overhaulwidened for but never wired a writer to. This is the concrete fix for
 the exact gap the `roadmap-lvv-07` corruption (§ The derive-don't-trust rule,
 above) exposed three days after that overhaul shipped: the vocabulary existed, but no
 CLI verb could write `closed` + `closed_reason` for a handoff, so an executor
@@ -317,8 +315,7 @@ convention for the same thing.
 - **Multi-consumer compat windows**.
 - **The handoff-vocabulary overhaul** — the worked instance ("recount before applying, not before
   deciding") and the live near-miss (`archive-stamp-cli`) this primitive's
-  first exemplar record 
-  tracks.
+  first exemplar record  tracks.
 
 ## Established cross-repo pattern — reader-first ordering
 
@@ -329,8 +326,7 @@ the producer's widen. This follows the already-ratified reader-first rule:
 reader-first widen is a *consumer* responsibility, and that section's own
 header instructs callers to reference the established pattern rather than
 re-derive it. The narrower producer-emit-hold-removal /
-reader-first-consumer-owned memo 
-is the concrete instance of the same rule this plan cites elsewhere; this wiki
+reader-first-consumer-owned memois the concrete instance of the same rule this plan cites elsewhere; this wiki
 is its canonical, repo-general form — the memo stays scoped to its own
 producer/consumer pair, this page is where the rule lives for every future
 cutover.

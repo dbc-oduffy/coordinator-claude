@@ -3,13 +3,13 @@ title: plan-coverage-checker pre-review doctrine
 created: 2026-05-18
 type: doctrine
 related:
-  - plugins/coordinator/agents/plan-coverage-checker.md
-  - plugins/coordinator/snippets/plan-coverage-check-consumption.md
-  - plugins/coordinator/docs/wiki/reviewer-pipeline.md
-  - plugins/coordinator/docs/wiki/reviewer-pipeline/docs-checker-pre-review.md
-  - plugins/coordinator/docs/wiki/reviewer-pipeline/prior-art-checker.md
-  - plugins/coordinator/docs/wiki/reviewer-pipeline/external-pattern-checker.md
-  - plugins/coordinator/docs/wiki/ceremony-calibration.md
+  - plugins/coordinator-claude/coordinator/agents/plan-coverage-checker.md
+  - plugins/coordinator-claude/coordinator/snippets/plan-coverage-check-consumption.md
+  - plugins/coordinator-claude/coordinator/docs/wiki/reviewer-pipeline.md
+  - plugins/coordinator-claude/coordinator/docs/wiki/reviewer-pipeline/docs-checker-pre-review.md
+  - plugins/coordinator-claude/coordinator/docs/wiki/reviewer-pipeline/prior-art-checker.md
+  - plugins/coordinator-claude/coordinator/docs/wiki/reviewer-pipeline/external-pattern-checker.md
+  - plugins/coordinator-claude/coordinator/docs/wiki/ceremony-calibration.md
   - state/lessons/
   - the plan-coverage-checker plan under docs/plans/
   - the full-coverage-and-deferred-harvest plan under docs/plans/
@@ -191,6 +191,7 @@ existed without checking `hooks.json`, on a corpus that had just deregistered ni
 Sidecar path: the plan-derivable `.coordinator-local/plan-sidecars/<plan-stem>.plan-coverage-check.md` home (D0).
 
 Six finding sections:
+
 - **Missed audit items** — oracle items with no slate entry and no architectural OOS, with the three valid resolution options stated per item (add-to-slate / architectural-OOS / oracle-was-wrong)
 - **Ambiguous audit items** — signal-partial matches, informational only, do not gate INCOMPLETE
 - **Weak OOS / hedges** — appetite-based deferrals with doctrine citation
@@ -199,6 +200,7 @@ Six finding sections:
 - **Deferral arguments** — candidate scope-cut rows whose `case_against` is absent, empty, or vacuous (one per row, quoting the field), plus at most one plan-level prompt when the plan carries more than 4 candidate cuts. See Lens 2b checks 3–4.
 
 Five verdicts:
+
 - **COMPLETE** — zero MISSED, zero weak-OOS, zero substrate-drift, zero unratified-deferrals, zero malformed-rows, zero deferral-argument findings. AMBIGUOUS does not gate.
 - **INCOMPLETE** — one or more gating findings. EM folds before reviewer dispatch. When the verdict is INCOMPLETE, the sidecar's verdict line gains a per-lens sub-label: `INCOMPLETE — Mechanical: N, Judgment: M` where Mechanical = Substrate-drift + Malformed-rows bucket counts (Lens 3 + Lens 2b malformed half — typically auto-foldable) and Judgment = Missed + Weak-OOS + Hedges + Unratified-deferrals + Deferral-arguments bucket counts (Lens 1 + Lens 2 + Lens 2b ratification half + Lens 2b checks 3–4 — needs EM/PM decision; a missing `case_against` is Judgment, never Mechanical, because writing one is an argument the EM has to actually make). The sub-label is a cost estimate: Mechanical findings are usually a rewrite away; Judgment findings require an EM/PM decision (add-to-slate / architectural-OOS / oracle-was-wrong / promote-OOS-to-slate / PM ratifies / EM un-defers). Verdict enum values are unchanged — back-compat preserved.
 - **BLOCKED-SURFACE-TO-PM** — ≥20% of oracle items MISSED (MISSED count alone, not MISSED+AMBIGUOUS), OR ≥3 substrate-drift findings.
@@ -339,3 +341,6 @@ The reviewer-side consumption block (`snippets/plan-coverage-check-consumption.m
 
 The sync verifier is auto-discovered by `/update-docs` Phase 11b. The tripwire entry lives in `coordinator/docs/wiki/coordinator-tripwires/`.
 
+## Field rules
+
+- **Citation verification and population verification are different checks.** A cited field can exist and be populated on almost no records; count population before building a leg on it.

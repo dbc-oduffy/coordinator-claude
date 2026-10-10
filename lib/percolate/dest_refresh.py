@@ -38,20 +38,36 @@ name no remote branch at all is refused, and detached HEAD still is (there is no
 landing branch to measure).
 
 NEGATIVE SPEC. This module never forces, resets, rebases, or discards: every
-update here is fast-forward-only. A landing branch that has diverged from its
-upstream is a human's call -- the round refuses and says so, and no code path
-here can turn a divergence into a silent overwrite. There is deliberately no
-override flag; a caller that wants to publish from a stale clone has to make
-the clone not stale.
+update here is fast-forward-only, with one exception narrow enough to name. A
+landing branch that has diverged from its upstream is a human's call -- the
+round refuses and says so, and no code path here can turn a divergence into a
+silent overwrite. There is deliberately no override flag; a caller that wants
+to publish from a stale clone has to make the clone not stale.
+
+THE ONE RECONCILED DIVERGENCE: A SUBSUMED PEER PUBLISH. Two boxes publish the
+same mirror; when box B publishes from source X and box A later merges X into
+its own source, A's clone diverges from origin by B's publish commit -- whose
+bytes A's source already carries. Nothing human-shaped remains to decide, yet
+the refusal stranded every A publish until someone hand-merged a mirror the
+`bump-foreign-repo-write` guard forbids touching. So when EVERY upstream-only
+commit stamps a `[source-head <sha>]` that is an ancestor of the publishing
+source's HEAD, the branch records upstream as a parent with our tree kept
+(`merge -s ours`); the round then republishes the whole surface from a source
+that contains B's. One unstamped commit, or one stamp the source cannot place
+in its history, keeps the refusal.
 """
 
 from __future__ import annotations
+
+import re
 
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, TextIO
 
 from coordinator_core.git.run import GitResult, run_git
+
+_SOURCE_HEAD_STAMP = re.compile(r"\[source-head ([0-9a-f]{7,40})\]")
 
 
 @dataclass(frozen=True)
@@ -225,7 +241,35 @@ def _no_upstream_base(
     return base, None
 
 
-def refresh_dest_from_origin(repo_root: Path, *, out: TextIO, err: TextIO) -> RefreshResult:
+def _subsumed_by_source(
+    repo_root: Path, upstream: str, source_root: Optional[Path]
+) -> Optional[List[str]]:
+    """The upstream-only commits' source stamps when every one is already in
+    `source_root`'s HEAD history; `None` when any is not (or cannot be told)."""
+    if source_root is None:
+        return None
+    log = _git(repo_root, ["log", "--format=%s", "HEAD.." + upstream])
+    if log.returncode != 0:
+        return None
+    subjects = [line for line in log.stdout.splitlines() if line.strip()]
+    stamps: List[str] = []
+    for subject in subjects:
+        match = _SOURCE_HEAD_STAMP.search(subject)
+        if match is None:
+            return None
+        stamps.append(match.group(1))
+    if not stamps:
+        return None
+    for stamp in stamps:
+        probe = _git(Path(source_root), ["merge-base", "--is-ancestor", stamp, "HEAD"])
+        if probe.returncode != 0:
+            return None
+    return stamps
+
+
+def refresh_dest_from_origin(
+    repo_root: Path, *, out: TextIO, err: TextIO, source_root: Optional[Path] = None
+) -> RefreshResult:
     repo_root = Path(repo_root)
     branch, upstream, name_err = _branch_and_upstream(repo_root)
     if name_err is not None or upstream is None:
@@ -273,6 +317,30 @@ def refresh_dest_from_origin(repo_root: Path, *, out: TextIO, err: TextIO) -> Re
             branch=branch,
             upstream=upstream,
         )
+
+    subsumed = _subsumed_by_source(repo_root, upstream, source_root) if ahead and behind else None
+    if subsumed is not None:
+        merge = _git(repo_root, ["merge", "-s", "ours", "--no-edit", upstream])
+        if merge.returncode != 0:
+            _git(repo_root, ["merge", "--abort"])
+            subsumed = None
+        else:
+            print(
+                "[dest-refresh] {0}: {1} diverged from {2} only by peer publish(es) of "
+                "source already merged here ({3}); recorded {2} as a parent, tree kept".format(
+                    repo_root, branch, upstream, ", ".join(subsumed)
+                ),
+                file=out,
+            )
+            return RefreshResult(
+                repo_root,
+                ok=True,
+                branch=branch,
+                upstream=upstream,
+                ahead=ahead,
+                behind=behind,
+                fast_forwarded=True,
+            )
 
     if ahead and behind:
         return RefreshResult(

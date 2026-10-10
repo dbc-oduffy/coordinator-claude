@@ -15,7 +15,7 @@ surface added to install gets a matching removal step there in the same change.
 
 ## Step Zero — preflight
 
-`repos.claude_klabauter` is a hard precondition `setup.py --preflight` cannot
+`repos.claude_klabauter` (in `<settings-home>/machine-local/registry.local.toml`) is a hard precondition `setup.py --preflight` cannot
 work around — it calls `_resolve_claude_klabauter_root()` before anything else runs.
 (An engine-source-only spelling: the publish transform rewrites every engine-repo name
 identifier on the way out, so this name exists in no published mirror. The
@@ -31,12 +31,14 @@ library: `coordinator_core.install.prereq_probe` (native Python, engine-resident
 read-only SSOT that never mutates. An `inconclusive` result is advisory WARN.
 
 **`clone_auth` interactive script:**
+
 ```
 clone_auth probe: no GitHub auth found.
 Offer: run `gh auth login` to authenticate now? [Y/n]
   → Y: runs `gh auth login`; re-probes; proceeds on pass.
   → N: re-run with --accept-no-git-auth to skip this gate, or configure auth manually first.
 ```
+
 `--non-interactive` with no auth/no `--accept-no-git-auth`: FAIL-LOUD, no TTY
 to run the offer (exit-90 spirit, matches the manifest hard-dep non-TTY
 pattern). `--check-only` never blocks — reports what would happen only.
@@ -62,7 +64,30 @@ hasn't been run: `machine-local set repos.<engine-repo> <engine-repo-root>`.
 The engine repo is currently private; the maintainer grants access on
 request, same model as `project-rag`.
 
-## Structural fork — the three states in full
+## Install track — the installer decides
+
+The installer picks the track. `coordinator_install.py --plan` reports
+`environment.track` (`fresh`, `update` or `repair`) with `track_reason` and
+`track_steps`, computed by `detect_track`. The agent reads it and never infers
+a track from home-directory probes.
+
+| `environment.track` | installer's own predicate | `track_steps` prefix | agent action |
+|---|---|---|---|
+| `fresh` | no coordinator plugin installed | `plugin_install` | run the install (`--answers`/`--i-am-agent`), then the restart gate |
+| `update` | installed, published version newer | `plugin_update`, `engine_setup`, `engine_check` | same execute call; the installer does the update, the agent runs no `claude plugin update` by hand |
+| `update` (`track_reason: already current`) | installed, current, engine healthy | (configure steps only) | same execute call; every step reports SKIPPED/INHERITED |
+| `repair` | installed, not newer, engine check fails or engine unlocatable | `engine_setup`, `engine_check` | same execute call; report `track_reason` to the human |
+
+A cold box has no plugin root to run `--plan` from. It is `fresh` by the
+installer's own predicate, and its entry is the engine installer's cold path
+(`python <engine-root>/scripts/setup.py --i-am-agent`).
+
+The track and the home state below are orthogonal axes. A `configured` home can
+be on any track, and a `fresh` track can land on a `used-vanilla` home. The
+track routes the install; the home state only decides what is disclosed to the
+human.
+
+## Structural fork — the three states in full (disclosure, not routing)
 
 - **`pristine`** — Claude Code never run here. No caveat needed; nothing to
   merge or collide with.
@@ -84,8 +109,9 @@ request, same model as `project-rag`.
 
   Do NOT offer a merge engine or selective-adoption UI.
 
-`track=` is a backward-compat binary alias (`configured → B`, else `A`) for
-older callers only — never key new logic on it.
+`track=` on `detect-existing-claude-home.py`'s output is a backward-compat
+string (`configured → B`, else `A`). It never routes the install; the track
+comes from `environment.track` alone.
 
 ## 1a.0 bash version — full detail
 
@@ -127,7 +153,7 @@ killed 2026-07-21/22 in the bash-kill campaign; no lifecycle skill sources a
 bash-4-guarded lib live any more, but the risk class persists for any future
 bash lib. The probe is physics-irreducible — it reports on the shell that
 invoked IT, a child process cannot observe the invoking shell's own version —
-and stayed claude-klabauter-resident rather than porting.
+and stayed engine-resident rather than porting.
 
 No SessionStart advisory re-checks drift later (a `chsh` back to zsh, a new
 terminal profile) — boot carries only the fast orientation injector. This
@@ -220,7 +246,7 @@ folded into global doctrine at `~/.claude/CLAUDE.md`. Doctrine reaches the main 
 session via a SessionStart hook when the plugin is enabled, not an `@`
 import — see `coordinator/templates/CLAUDE.md.tmpl` § Coordinator Operating
 Doctrine ("Do NOT re-add an `@import`"). A stale
-`@~/.claude/plugins/coordinator/CLAUDE.md` import should
+`@~/.claude/plugins/coordinator-claude/coordinator/CLAUDE.md` import should
 be flagged for removal — the target doesn't exist.
 
 ## Phase 2 — operator identity, full detail
@@ -256,6 +282,7 @@ the first-run gate.
 individual — this ships to end users, AC9):**
 
 *"How do you want the coordinator EM to work with you day to day?"*
+
 - **Precision** — "I want to be consulted often and closely, before things
   change, not just told after — whether that means reviewing diffs and
   weighing in on refactor mechanics, or simply wanting to see and approve
@@ -516,8 +543,8 @@ registrations apply from the next session; nothing else waits on it.
 > Your `~/.claude` is the surface you evolve — git-track it and back it up;
 > the coordinator plugin source lives in the doctrine-plane clone
 > (`repos.content_root`), resolved live via `claude-author`. Bare `claude` works
-> via the installed `claude()` shim — it reads the `.content-root` pointer and
-> delegates to `claude-author` automatically. If not yet active in your current
+> via the installed `coordinator` function — it reads the `.content-root` pointer and
+> delegates to `claude-author` automatically; bare `claude` stays the plain binary. If not yet active in your current
 > shell, run `claude-author` directly or open a new terminal. Never copy plugin
 > source into `~/.claude/plugins/`.
 
@@ -537,3 +564,22 @@ body. Two rows worth flagging for a reader assembling the table by hand:
   (from the structural-fork probe).
 - `orientation: PENDING | completed | skipped (--check-only)` is mandatory in
   every non-`--check-only` run — never silently absent.
+
+## § canonical launch trinity — detail
+
+1. `.content-root` pointer (written by the `session-start-register-coordinator-content-repo-root.py` SessionStart hook) — cold-readable bootstrap cache of the
+   doctrine-plane repo root.
+2. `claude-author` wrapper (`install-claude-author-wrapper`) — the exec target under the local bin dir;
+   execs `claude --plugin-dir` at the doctrine plugin dir.
+3. `coordinator` shell function (`gen-claude-author-shim`) — launches `claude-author` with
+   `--dangerously-skip-permissions` so the operator need not set env manually.
+
+They are enumerated together because a live-disk survey alone is a structural blind spot on a box
+where a given member was never installed.
+
+## Windows dogfood launch shape — why
+
+An interposed `cmd.exe`/`python.exe` between the shell and the interactive `claude.exe` corrupts
+the console input mode, and the only mitigation is disabling the shim, which strips the plugin
+from every session. The test reads the rendered launch artifacts and walks the real Win32 process
+tree to prove parentage.

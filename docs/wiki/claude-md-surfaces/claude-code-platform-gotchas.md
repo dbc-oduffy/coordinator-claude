@@ -76,6 +76,7 @@ On Windows, `.git/HEAD` can store a mixed-case ref name (`work/<MACHINE>/2026-05
 
 **Defense-in-depth** (see `daily-branch-discipline.md` § Enforcement surfaces for the
 authoritative current state; do not restate the situation here beyond this pointer):
+
 1. Runtime fix: the engine repo's `coordinator/bin/coordinator-auto-push` is case-agnostic in branch ref handling.
 2. Creation-time tripwire: **not live.** No creation-time PreToolUse hook polices mixed-case
    `work/*` creation.
@@ -190,6 +191,7 @@ On a Windows working tree with `git config core.autocrlf=true`, `bash -n` false-
 On Windows, `%LOCALAPPDATA%\Microsoft\WindowsApps\python*.exe` are symlinks into `%ProgramFiles%\WindowsApps\PythonSoftwareFoundation.Python.3.*\` — the Microsoft Store install. It's sandboxed: filesystem and registry writes are redirected to per-package virtualized locations, `pip --user` lands in a hidden tree, package permissions are inconsistent. Always prefer the python.org installer at `%LOCALAPPDATA%\Programs\Python\Python3*\` (per-user) or `%ProgramFiles%\Python3*\` (system). <!-- foreign-path-ok: fixed Windows system paths, identical on every Windows machine -->
 
 `coordinator/lib/resolve-python.sh` used to handle this for any code that sourced it, before the bash-kill campaign retired the FLOOR shim in favor of a plain resolution contract (`COORDINATOR_PYTHON` env → `machine-local get coordinator.python` → PATH fallback — see `machine-local-registry.md § coordinator.python resolution contract`):
+
 1. Directly probed python.org install dirs first, windowless variant preferred (no PATH dependency).
 2. Fell back to `command -v` PATH lookup but **rejected any match whose absolute path contained `WindowsApps`** (`_resolve_python_is_store`).
 3. Fell back to the `py`/`pyw` launcher with `-3` (the launcher reads PEP 514 registry, which prefers python.org).
@@ -208,6 +210,7 @@ On many Windows hosts, `python3` is NOT on PATH. Only `python` (e.g. Python 3.13
 > **WARNING: this minimal snippet does NOT reject Store Python or seed PATH.** The `resolve-python.sh` lib this warning used to point production callers at is retired (see preceding section); current production callers use the `COORDINATOR_PYTHON`/registry/PATH resolution contract (`machine-local-registry.md § coordinator.python resolution contract`) instead. The snippets below are retained as documentation of the pattern's history and for contexts where that contract is not reachable.
 
 **PYTHON_BIN resolver pattern:**
+
 ```bash
 if command -v python3 &>/dev/null; then PYTHON_BIN=python3
 elif command -v python &>/dev/null; then PYTHON_BIN=python
@@ -226,6 +229,7 @@ else echo "ERROR: no Python found" >&2; exit 1; fi
 ```
 
 Apply the `WindowsApps` exclusion if using `command -v python3`:
+
 ```bash
 _path=$(command -v python3 2>/dev/null)
 case "$_path" in */WindowsApps/*|*\\WindowsApps\\*) _path="" ;; esac
@@ -267,6 +271,7 @@ The Claude Code harness prepends every installed plugin's `bin/` dir to PATH for
 **The core invariant:** both `bin/X` and bare `X` are **PATH-namespace** references — they name "the coordinator bin tool X", which resolves the same from any cwd in any repo. Neither is cwd-relative. The failure to avoid is resolving `bin/X` against the *current repo's* `./bin/` — an EM standing in a consumer repo checkout (`project-rag`, wherever it's cloned) that looks for `./bin/X`, finds nothing, and wrongly concludes the script "isn't mirrored here." <!-- foreign-path-ok: illustrative example of the cwd-relative failure mode, not a location claim -->
 
 **Citation rule for doctrine prose (CLAUDE.md, wikis, skills, commands):**
+
 - **Invokable scripts** — executable `.sh` and extensionless-executable commands (`fan-out-dispatch.py`, `check-plugin-drift.py`, `machine-local`, `cross-repo-memo`) → **cite by the explicit settings-home forwarder path, never bare name.** (Bare-name citations were originally correct on the strength of the plugin `bin/` PATH injection; the executable-surface migration retired that premise — see the STALE box above. None of these resolve bare today: the coordinator entrypoints moved out of any plugin's `bin/` into the engine repo, and the settings-home forwarder family (`machine-local`, `cross-repo-memo`, etc.) was never harness-PATH-injected on macOS/Linux to begin with.) The current citation form in a runnable block follows the precedence ladder in
 `coordinator/snippets/resolve-coordinator-bin.md`: rung 0 / Shape W on a PowerShell host,
 `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/<cli>"` on a POSIX host
@@ -274,8 +279,8 @@ The Claude Code harness prepends every installed plugin's `bin/` dir to PATH for
 skill/command fence, cite the `resolve-coordinator-bin` snippet instead of a hardcoded path. Bare name stays correct only as a prose *label* (naming the tool, not invoking it) — see the label/executable-usage split in the next bullet, which now applies to this whole category too.
 - **Non-bare-invokable tools** — interpreter scripts run via a launcher (`bin/render-handoff-tracker.js` → `node …`, `bin/extract-lessons.py` → `python …`), data files (`bin/doctor-probes.toml`), and tools cited without a uniquely-resolvable name (`bin/query-records` ships as `.js`, run via `node`) → **the `bin/X` shorthand stays only as a prose label, never in a runnable block.** Distinguish two usages:
   - **Label usage** (prose: "prefer `bin/query-records` over static lists", a Tier-2 table cell, a "this is the query engine" reference) → `bin/X` shorthand is correct. It names the namespace tool, not a file; bare `X` would not run, so `bin/X` is the readable label. Still PATH-namespace, still never cwd-relative.
-  - **Executable usage** (inside a ```bash block, or any inline command an EM will copy-paste-run verbatim) → **cite the full launcher path: `node "$HOME/.claude/plugins/coordinator/bin/query-records.js"`** (matching how every other coordinator bin tool is cited in runnable blocks — `render-template.py`, `coordinator-auto-push`, etc.). The bare `bin/query-records` shorthand **fails `command not found`** even though `bin/` *is* on PATH (harness-provided, per the invariant above — verified via `command -v query-records.sh` and `command -v fan-out-dispatch.sh` both resolving — both have since been ported to Python and neither `.sh` form exists any more). The reason is the **extensionless citation**: `query-records` ships only as `query-records.sh` and `query-records.js`, so there is no file named `query-records` for the bare name to resolve to — `command -v query-records` returns MISSING with `bin/` fully on PATH. (This is the trap in the earlier "bin not on PATH" diagnosis: `command -v query-records` empty does **not** prove `bin/` is off PATH; it proves only that no *extensionless* `query-records` exists. The right probe is `command -v query-records.sh`.) The failure is silent because callers wrap the call in `2>/dev/null`, so command-not-found stderr is swallowed and empty stdout reads as "no records" — a false-negative that masked 5 `ready_to_fire` handoffs in a project-rag workday-start briefing. A runnable bare-`bin/query-records` (or bare extensionless `query-completions`) block is the bug; reach for the full launcher path. The bare-`.sh` form no longer applies — `query-records` has since been ported to `query-records.js` only — option B (full launcher path) is the chosen citation because it carries zero PATH dependency.
-- **Filesystem location** ("the hook lives at X", a path you'd `cat`/edit) → full repo-relative path from the plugin root: `plugins/coordinator/bin/X`, or the `~/.claude/plugins/.../bin/X` absolute form. Here the prefix is correct because you're naming a file, not a command.
+  - **Executable usage** (inside a ```bash block, or any inline command an EM will copy-paste-run verbatim) → **cite the full launcher path: `node "$HOME/.claude/plugins/coordinator-claude/coordinator/bin/query-records.js"`** (matching how every other coordinator bin tool is cited in runnable blocks — `render-template.py`, `coordinator-auto-push`, etc.). The bare `bin/query-records` shorthand **fails `command not found`** even though `bin/` *is* on PATH (harness-provided, per the invariant above — verified via `command -v query-records.sh` and `command -v fan-out-dispatch.sh` both resolving — both have since been ported to Python and neither `.sh` form exists any more). The reason is the **extensionless citation**: `query-records` ships only as `query-records.sh` and `query-records.js`, so there is no file named `query-records` for the bare name to resolve to — `command -v query-records` returns MISSING with `bin/` fully on PATH. (This is the trap in the earlier "bin not on PATH" diagnosis: `command -v query-records` empty does **not** prove `bin/` is off PATH; it proves only that no *extensionless* `query-records` exists. The right probe is `command -v query-records.sh`.) The failure is silent because callers wrap the call in `2>/dev/null`, so command-not-found stderr is swallowed and empty stdout reads as "no records" — a false-negative that masked 5 `ready_to_fire` handoffs in a project-rag workday-start briefing. A runnable bare-`bin/query-records` (or bare extensionless `query-completions`) block is the bug; reach for the full launcher path. The bare-`.sh` form no longer applies — `query-records` has since been ported to `query-records.js` only — option B (full launcher path) is the chosen citation because it carries zero PATH dependency.
+- **Filesystem location** ("the hook lives at X", a path you'd `cat`/edit) → full repo-relative path from the plugin root: `plugins/coordinator-claude/coordinator/bin/X`, or the `~/.claude/plugins/.../bin/X` absolute form. Here the prefix is correct because you're naming a file, not a command.
 
 **Windows caveat (extensionless scripts) — historical, does not license bare-name doctrine citation.** This note predates the 2026-07-22 migration and describes only the Windows-side ShellExecute Open-With-picker hazard, not a citation form: on Windows, `coordinator:install` Step 3's `machine-local.cmd` shim and its real-`python3.exe`-on-PATH placement (the `python3.cmd` shim it once used is retired — see `windows-cmd-shims.md`) make bare *invocation* safe from the picker, where it would otherwise fire. That is orthogonal to whether bare name is the right thing to *write in doctrine* — it isn't, per the citation rule above: the settings-home forwarder family is off PATH on macOS/Linux regardless of the Windows shim story, so the cross-platform-correct citation follows `coordinator/snippets/resolve-coordinator-bin.md`'s
 precedence ladder: rung 0 / Shape W on a PowerShell host, the explicit
@@ -288,13 +293,14 @@ Source: `fan-out-dispatch.sh` doctrine citations read as repo-relative and misle
 
 *sibling-repo universal.* The POSIX idiom `os.kill(pid, 0)` ("send signal 0 to test whether the process exists") **does not port to Windows**. On win32, Python maps signal `0` to `CTRL_C_EVENT` and routes it through `GenerateConsoleCtrlEvent`, which delivers a Ctrl-C to the **process GROUP** — so "liveness-checking" your own PID (or a recycled PID that now belongs to the test runner) sends Ctrl-C to the caller. In a test suite this is a deterministic suite-killer: the liveness probe terminates the harness that issued it.
 
-**Rule:** on Windows, never use `os.kill(pid, 0)` for a liveness check. Use `psutil.pid_exists(pid)` (cross-platform, side-effect-free). Guard any remaining `os.kill(pid, 0)` behind `if os.name != "nt"`. (NB: this is the general platform rule; a project-scoped instance with a named locus — project-rag's `embed_sidecar` — is tracked separately in that repo and is not superseded by this entry.)
+**Rule:** on Windows, never use `os.kill(pid, 0)` for a liveness check. Use `psutil.pid_exists(pid)` (cross-platform, side-effect-free). Guard any remaining `os.kill(pid, 0)` behind `if os.name != "nt"`. Note that `pid_exists` is also True for an un-reaped zombie: a parent/child-death check uses `psutil.Process(pid).status() != psutil.STATUS_ZOMBIE`. (NB: this is the general platform rule; a project-scoped instance with a named locus — project-rag's `embed_sidecar` — is tracked separately in that repo and is not superseded by this entry.)
 
 ### Windows console window flash — process window flags
 
 Processes spawned from hooks (post-commit, SessionStart) may open console windows on Windows when the parent has no console (e.g. spawned under `pythonw.exe` or from Claude's windowless process). Each child that inherits no console gets a fresh one allocated.
 
 **Fix pattern:**
+
 - Shell: `powershell.exe -NonInteractive -NoProfile -WindowStyle Hidden`
 - Python subprocess: `creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)` — the **portable** form. Do NOT write a bare `creationflags=subprocess.CREATE_NO_WINDOW` / `0x08000000`; that raises `ValueError` on macOS/Linux (the attribute is Windows-only). The `getattr` form is `CREATE_NO_WINDOW` on Windows and `0` (no-op) elsewhere, so it is safe to write unconditionally in cross-platform code.
 - Registry: `HKCU\Console\%%Startup\Delegation{Console,Terminal}` — switch from Windows Terminal to Console Host so allocations don't open focus-stealing WT tabs
@@ -811,6 +817,7 @@ curiosity is legitimate; the method of satisfying it by tripping the monitor is 
 **Rule:** `ssh-add -l` returning "agent has no identities" does NOT mean 1Password cannot sign. 1Password signs via its own integration path, not the standard SSH agent socket. A commit that succeeded is signed; a genuine signing failure is loud ("1Password: agent returned an error").
 
 Two unreliable proxies to avoid:
+
 - **`ssh-add -l`** — 1Password's agent is not exposed via `ssh-add`; "no identities" is a correct reading of the standard agent, not of 1Password's signing path.
 - **`%G?` / `git log --show-signature`** — requires a configured `gpg.ssh.allowedSignersFile` to verify locally. `%G?=N` with an "allowedSignersFile needs to be configured" error is a verification-side config gap, NOT proof the commit is unsigned.
 
@@ -823,6 +830,7 @@ Empirical basis (Machine-c workstream-complete): a subagent reported "1Password 
 ### ExitPlanMode PostToolUse payload delivers the plan at `tool_response.plan`, not `tool_input`
 
 **Rule:** the ExitPlanMode PostToolUse hook payload carries:
+
 - `tool_response.plan` — the full plan markdown (NOT `tool_input`, which is `{}`)
 - `tool_response.filePath` — the harness-written working draft path (`~/.claude/plans/<harness-random-slug>.md`)
 - `tool_response.isAgent`, `tool_response.hasTaskTool` — metadata flags
@@ -834,3 +842,7 @@ Empirical basis (Machine-c workstream-complete): a subagent reported "1Password 
 **Ground truth method:** the official hooks docs are silent on this payload shape. The only authoritative method is capture-then-build: instrument a registered hook, fire one real ExitPlanMode, read raw stdin. Do not rely on docs; do not infer from `tool_input`.
 
 Empirical basis (Machine-c plan-persistence-hook-automation C0, Claude Code 2.1.170).
+
+## Field rules
+
+- **An Agent SDK host does not load `source_is_live` plugins.** `settingSources` brings CLAUDE.md and marketplace plugins only; pass `plugins: [{type: 'local', path: <content-root>/coordinator}]` explicitly, and commands register namespaced (`/coordinator:pickup`).

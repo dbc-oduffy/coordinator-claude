@@ -129,9 +129,11 @@ To prove your own-language emitter conforms:
 
 1. **Vendor the fixture.** Copy `tests/fixtures/step-zero-conformance.json` into your repo under a path you control. _(Vendoring is correct for this stable, ratified contract — but wrong for a HEAD-tracking drift-check, where it induces blindness to DoE-HEAD drift; see `emission-conformance-contract.md` § Dedicated-Ref Freshness Protocol and § EM-Response-2a.)_
 2. **Pin `eol=lf` on your vendored copy.** Add the following line to a `.gitattributes` file **inside your vendored copy's directory** (not inherited from a parent):
+
    ```
    step-zero-conformance.json text eol=lf
    ```
+
    The shipped fixture carries **no inheritable `eol` attribute**. The meta-repo `.gitattributes` that enforces LF in coordinator's own checkout does NOT ship to OSS consumers or get copied to sibling repos when they vendor the file. Without this explicit pin, git may silently rewrite fixture bytes to CRLF on Windows — invalidating the byte-equality check. The pin must live inside the vendored directory so it travels with the file.
 3. **Wire a `bin/check-fixture-sync.sh`** that fetches the canonical fixture from this repo and asserts it is byte-identical to your vendored copy. See `docs/wiki/cross-repo-communication/cross-repo-contract-test-discipline.md` for the skip-if-prerequisite-absent pattern.
 4. **Run your emitter against every case.** For each entry in `cases`:

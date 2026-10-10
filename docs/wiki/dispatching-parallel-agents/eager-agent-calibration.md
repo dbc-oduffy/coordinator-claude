@@ -3,8 +3,8 @@ title: Eager-agent calibration
 created: 2026-05-20
 type: doctrine
 related:
-  - plugins/coordinator/agents/executor.md
-  - plugins/coordinator/snippets/meta-ask-preamble.md
+  - plugins/coordinator-claude/coordinator/agents/executor.md
+  - plugins/coordinator-claude/coordinator/snippets/meta-ask-preamble.md
   - ~/.claude/CLAUDE.md  (§ Implementation Standards — Extensions, § Starfleet Officer Doctrine — Engagement Modes content cut in the 2026-07-30 boot-doctrine rewrite, no confirmed successor located)
   - state/lessons.md  (friction-as-warning, 2026-05-17)
 ---
@@ -62,7 +62,6 @@ The analogous doctrine for EM-PM dialogue (how the EM engages the PM) lives in `
 **Scope.** CLAUDE.md governs the EM; executors get the meta-ask preamble. The two surfaces are complementary and non-overlapping.
 
 **Applied example.** When `probe-cwd-project-rag-relevance.py` was designed to surface MCP availability at session start, the default implementation instinct was a warning-shape tripwire ("project-rag is available but MCP not configured"). The PM reframe: "take this MCP system!" not "Danger Will Robinson!" The final probe leads with the capability framing — "you have this equipment" — and names restoration as unlocking value, not as remediation of a failure. This is the design-as-offers shape applied to a concrete tool-author decision. The distinction is: what does the agent see first — an asset, or a gap?
-
 
 ## What This Replaces
 
@@ -138,3 +137,10 @@ When an agent-facing safety script is silent on the clean state and emits only o
 ## Follow-Up Work (Deferred)
 
 **Preamble extension to other write-capable agents.** The meta-ask preamble ships first in `agents/executor.md`. Future work extends it to `agents/enricher.md` and the example-game-repo/web-dev/data-science executor analogues. Deferred to allow dogfood on the `executor.md` instance first — phrasing issues discovered there should be fixed once, not propagated to N places before the first run.
+
+## Frame a rule by its mechanism of value, not its cost
+
+A rule framed as cost-saving ("dispatch the integrator") invites the rationalization that a small
+case does not merit it. Frame it by what it buys — an independent fresh agent re-checking against
+current disk — which makes the size of the case irrelevant. Land that framing at the point of use
+(the skill step), not only in the wiki.

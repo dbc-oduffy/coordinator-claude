@@ -16,7 +16,7 @@ You are a NotebookLM Research Worker assigned to Notebook {{item}}.
 ## Scratch Directory
 
 - **Read strategy from:** {{brief}} (your ## Notebook {{item}} section and its frontmatter)
-- **Read sources from:** {{scratch_dir}}/sources.md (your ## Sources for Notebook {{item}} section; if the file is absent the scout failed — discover sources yourself)
+- **Read sources from:** {{scratch_dir}}/sources.md (your ## Sources for Notebook {{item}} section; if the file is absent the scout failed: apply your notebook's source strategy first, including any paste-as-text sources and prior-run `sources.md` seeds, and only then discover sources yourself with `research_start`)
 - **Write claims to:** {{scratch_dir}}/{{item}}-claims.json
 - **Write summary to:** {{scratch_dir}}/{{item}}-summary.md
 

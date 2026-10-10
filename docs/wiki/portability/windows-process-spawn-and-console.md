@@ -224,6 +224,7 @@ that line and does not re-apply it to code added alongside it in the same commit
 reading the diff sees a correct fix, because it is one.
 
 **Rules.**
+
 1. State a resource-access invariant as a **signature**, not a comment: have one function own the
    read (with its explicit `encoding=`) and hand the decoded bytes/text down, so a second read
    anywhere downstream is a signature change, not a quiet addition — "be careful here" is not a

@@ -1,0 +1,21 @@
+# Scouts value class: one or two Sonnet agents each write a short sourced digest to scratch.
+schema_version: 1
+pipeline: scouts
+description: One or two Sonnet scouts research a question each and write a short sourced digest to scratch; no claims JSON, no synthesis.
+inputs:
+  brief: required
+  scratch_dir: optional
+  lists:
+    questions:
+      kind: strings
+stages:
+  - id: scout
+    phase: Scout
+    agent_type: general-purpose
+    model: sonnet
+    template: scouts-prompt-template.md
+    fan_out:
+      over: inputs.questions
+    max_concurrent: 2
+    web_caller: true
+    output: "{{scratch_dir}}/digest-{{item}}.md"

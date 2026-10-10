@@ -428,13 +428,12 @@ Removes a string-scalar key from ONE file — `registry.local.toml` by default, 
 > refute it (19 `repos.*` keys on the reference machine, only 2 of which are
 > engine-working).
 
-The `repos.*` namespace serves **one purpose**: sibling-repo discovery for scripts and agents (§5) — i.e. it is not a publish-mirror namespace. Publish-target mirror paths live in the distinct `publish.mirrors.*` namespace (§5c.2): DEST roots for the publish tool's targets resolve via `publish-mirror:<key>` portable rows, which resolve via `machine-local get publish.mirrors.<key>.path` exclusively (see §5c.2). `repos.coordinator_claude` and `repos.deep_research_claude` do not exist — the equivalent values live at `publish.mirrors.coordinator_claude` / `publish.mirrors.deep_research_claude`.
+The `repos.*` namespace serves **one purpose**: sibling-repo discovery for scripts and agents (§5) — i.e. it is not a publish-mirror namespace. Publish-target mirror paths live in the distinct `publish.mirrors.*` namespace (§5c.2): DEST roots for the publish tool's targets resolve via `publish-mirror:<key>` portable rows, which resolve via `machine-local get publish.mirrors.<key>.path` exclusively (see §5c.2). `repos.coordinator_claude` does not exist — the equivalent value lives at `publish.mirrors.coordinator_claude`.
 
 The shared publish topology (which targets exist and what they publish) is committed to `setup/publish-targets.portable` and travels via git. Only the per-machine mirror DEST path stays in gitignored `registry.local.toml` — now under `[publish.mirrors.*]` tables. Provisioning a new machine:
 
 ```bash
 machine-local set publish.mirrors.coordinator_claude.path   /abs/path/to/coordinator-claude
-machine-local set publish.mirrors.deep_research_claude.path /abs/path/to/deep-research-claude
 ```
 
 After that, the engine repo's `coordinator/bin/publish.py` reads the portable topology from `setup/publish-targets.portable` and resolves all DEST roots from the registry — zero hand-authored absolute rows.
@@ -466,21 +465,14 @@ Each publish mirror is a nested TOML table split across tracked `registry.toml` 
 [publish.mirrors.coordinator_claude]
 owner = "claude-central-em"
 
-[publish.mirrors.deep_research_claude]
-owner  = "claude-central-em"
-aliases = ["deep-research", "deep-research-em"]   # legacy shortnames — not derivable from key
-
 # registry.local.toml (GITIGNORED — per-machine absolute paths)
 [publish.mirrors.coordinator_claude]
 path = "/abs/path/to/coordinator-claude"
-
-[publish.mirrors.deep_research_claude]
-path = "/abs/path/to/deep-research-claude"
 ```
 
 ### `publish-mirror:` sigil in `setup/publish-targets.portable`
 
-Portable rows use `publish-mirror:<key>` in field 3. The resolver (the engine repo's `coordinator/bin/publish-resolve-target.py`) routes that sigil exclusively through `machine-local get publish.mirrors.<key>.path` — no `repos.*` read occurs in that branch. The legacy `repo:` branch is retained for backward-compat, but any residual `repo:coordinator_claude` / `repo:deep_research_claude` row rc1-fails because those `repos.*` keys do not exist.
+Portable rows use `publish-mirror:<key>` in field 3. The resolver (the engine repo's `coordinator/bin/publish-resolve-target.py`) routes that sigil exclusively through `machine-local get publish.mirrors.<key>.path` — no `repos.*` read occurs in that branch. The legacy `repo:` branch is retained for backward-compat, but any residual `repo:coordinator_claude` row rc1-fails because that `repos.*` key does not exist.
 
 ### Migrating an existing machine
 
@@ -507,7 +499,7 @@ This moves `repos.coordinator_claude` / `repos.deep_research_claude` values (and
 
 ### `$REPO_COORDINATOR_CLAUDE` / `$REPO_DEEP_RESEARCH_CLAUDE` env exports
 
-The `claude-machine-local.sh` shell helper exports `$REPO_<NAME>` for every `repos.*` key. `repos.coordinator_claude` and `repos.deep_research_claude` are not in `repos.*` (they are publish DEST keys, never dev-tooling source paths; no active consumers of those env exports exist), so `$REPO_COORDINATOR_CLAUDE` and `$REPO_DEEP_RESEARCH_CLAUDE` are intentionally absent from the helper's export set. Where the publish DEST path is needed, use `machine-local get publish.mirrors.coordinator_claude.path` / `machine-local get publish.mirrors.deep_research_claude.path` directly.
+The `claude-machine-local.sh` shell helper exports `$REPO_<NAME>` for every `repos.*` key. `repos.coordinator_claude` is not in `repos.*` (it is a publish DEST key, never a dev-tooling source path; no active consumers of that env export exist), so `$REPO_COORDINATOR_CLAUDE` is intentionally absent from the helper's export set. Where the publish DEST path is needed, use `machine-local get publish.mirrors.coordinator_claude.path` directly.
 
 ## 5c.3. `engine.working_repos.*` — Engine Working-Repo Discriminant
 
@@ -535,7 +527,6 @@ namespace's own discriminant) can still be diverted when `engine.target` is read
 `_is_engine_working_repo()` itself refuses. The other disjunct is pending retirement, gated on the
 engine plane's `engine.target` write running live for a cycle. See Consequences for the
 fuller anti-strand argument and the retirement gating.
-
 
 **Why not `repos.*`?** See the disambiguation note at the top of §5c.1 — `repos.*` is sibling-repo discovery (broad, ~19 keys on a reference machine, mostly consumer repos), not the engine-working set (narrow, exactly 2). A design that reads `repos.*` membership as "works on the engine" produces false positives for every consumer repo. See `docs/wiki/coordinator-tripwires/` for the incident.
 
@@ -584,7 +575,7 @@ Two consequences:
   not. Put it on the list when a session is unexpectedly running live-tree bits or resolving none.
 
 Declare a required ref as `publish.mirrors.<key>.track_ref` (§12's name, one vocabulary; absent
-defaults to the remote default). Read by publish and diagnostics, never by the ladder. Channel
+follows the HEAD of the source branch being percolated, never a fixed `main`). Read by publish and diagnostics, never by the ladder. Channel
 metadata must not move to a `publish.toml` concern file — F6 in §5c.2 explains what that drops.
 Render the word as **branch** in banners; "channel" is already a comms term here.
 
@@ -720,7 +711,7 @@ Exports `$REPO_<NAME>` for every declared `repos.*` key — prefix is singular `
 
 Same contract; OS-detects between `machine-local.cmd` (Windows) and the bash wrapper elsewhere.
 
-Templates at `~/.claude/plugins/coordinator/templates/bin/` are byte-identical mirrors of these — they publish to consumer projects via the engine repo's `coordinator/bin/publish.py` alongside the reader.
+Templates at `~/.claude/plugins/coordinator-claude/coordinator/templates/bin/` are byte-identical mirrors of these — they publish to consumer projects via the engine repo's `coordinator/bin/publish.py` alongside the reader.
 
 ## 8. Anti-patterns
 
@@ -757,9 +748,6 @@ This matches the `*.local.*` precedent already established at `~/.claude/`: the 
 
 [publish.mirrors.coordinator_claude]
 path = "<drive>:/coordinator-claude"    # illustrative per-machine value
-
-[publish.mirrors.deep_research_claude]
-path = "<drive>:/deep-research-claude"    # illustrative per-machine value
 ```
 
 On the Mac, `registry.local.toml` contains:
@@ -819,13 +807,13 @@ Machine-local handles operator-set config (key-value, TOML, reader-mediated). Th
 | `~/.coordinator-claude-settings/` | coordinator | **Settings home** — durable coordinator substrate: `machine-local/` (TOML registry), `bin/` (resolver family), `.coordinator-venv/`, `settings-manifest.md` (`setup/` stays at `~/.claude/setup/` — intentionally NOT migrated by the one-time settings-home migration) | A top-level FS namespace, sibling to `~/.claude`. Redirectable via `COORDINATOR_SETTINGS_HOME` env var; sandbox-safe via `CLAUDE_HOME`. See §4e for the full resolution ladder. |
 | `~/.claude/example-game-repo/` | example-game-workbench-repo | install-status.json, install-logs/, setup-state.json; **imminent:** watchdog/status.json, chain-walk-*.json (migrating from `~/.<peer-repo>/`) | Collapses the dual-namespace split (`~/.<peer-repo>/` + `~/.claude/example-game-repo/`) into the canonical root. See `example-game-workbench-repo/state/memos/2026-05-19-doe-question-example-game-repo-namespace-collapse.md` (grandfathered pre-cutoff memo) |
 | `~/.claude/project-rag/` | project-rag host | host runtime state | Existing; predates this doctrine |
-| `~/.claude/machine-local/` | coordinator | **Transitional compat symlink only** — realpath-symlink → `~/.coordinator-claude-settings/machine-local/`. Retained for consumers that read the old absolute path; removed at phase-2 gated tail. **Actual content lives at `~/.coordinator-claude-settings/machine-local/`.** | DoE-altitude: claiming this top-level dir is unchanged; it is now a symlink pointer. |
+| `~/.claude/machine-local/` | coordinator | **Transitional compat symlink only** — realpath-symlink → `~/.coordinator-claude-settings/machine-local/`. Retained for consumers that read the old absolute path; removed at phase-2 gated tail. **Actual content lives at `~/.coordinator-claude-settings/machine-local/`.** | Maintainer-altitude: claiming this top-level dir is unchanged; it is now a symlink pointer. |
 | `~/.claude/plugins/<plugin>/data/` | each plugin | addon-owned on-disk state | Plugin-addressed; orthogonal to top-level project dirs |
 | `~/.claude/.coordinator-venv/` | coordinator-claude | **RELOCATED** to `~/.coordinator-claude-settings/.coordinator-venv/`. This path is the legacy location; the actual venv now lives in the settings home. `coordinator.python` registry key points to the new location. | Legacy path removed after venv rebuild confirms healthy. If you see this path, run `/coordinator:install` Phase 3 to rebuild at the settings home. |
 
-**Adding a new top-level FS namespace under `~/.claude/<project>/`.** This is the DoE-altitude call: claiming a top-level directory under `~/.claude/` is an FS-namespace claim that other projects might collide with, and the §1.2 critique of `~/.<project>/` accretion is what this row exists to prevent. Register here in the same commit that creates the directory on disk; PM-authorized.
+**Adding a new top-level FS namespace under `~/.claude/<project>/`.** This is a maintainer-altitude call: claiming a top-level directory under `~/.claude/` is an FS-namespace claim that other projects might collide with, and the §1.2 critique of `~/.<project>/` accretion is what this row exists to prevent. Register here in the same commit that creates the directory on disk; PM-authorized.
 
-**Distinct from — adding a TOML key or table inside the registry.** Adding a new key in `registry.local.toml`, opening a new dotted namespace (`mything.*`), or even authoring a new concern file under §6 criteria is NOT DoE-altitude. See §5a (authorship vs. value-writing) and §5b (the cheap path for adding values). The FS-namespace gate here is about *new top-level directories on disk*, not about *content inside the registry's existing namespace*.
+**Distinct from — adding a TOML key or table inside the registry.** Adding a new key in `registry.local.toml`, opening a new dotted namespace (`mything.*`), or even authoring a new concern file under §6 criteria is NOT maintainer-altitude. See §5a (authorship vs. value-writing) and §5b (the cheap path for adding values). The FS-namespace gate here is about *new top-level directories on disk*, not about *content inside the registry's existing namespace*.
 
 **Retiring `~/.<project>/` top-level dirs.** When a project still owns a `~/.<project>/` top-level namespace, migrate to `~/.claude/<project>/` and register here. Operator-visible path migration; one release of relocation logic. The `~/.project-rag/wiring.env` retirement (PM-handled, downstream of this registry shipping) is the worked precedent.
 
@@ -851,12 +839,12 @@ must stay trusted or the install orchestrator fail-loud-refuses.
 | Mode | When to use | Drift probe behavior |
 |---|---|---|
 | Default (git-checkout-managed) | Live install is a separate git checkout; source changes must be explicitly propagated via `refresh-plugin-live-install.py` | Checks git-state (commits-behind) and venv-state (editable pin, MAPPING integrity, console-script shims) |
-| `propagation_mode = "source_is_live"` | Live install IS the canonical source (e.g., coordinator — both `source_path` and `live_path` point at the same directory; post-2026-07-04 cutover this is the doctrine-repo clone (`coordinator/`) resolved via `--plugin-dir`, not `~/.claude/`) | Emits `[n/a] propagation_mode=source_is_live` and skips all checks |
+| `propagation_mode = "source_is_live"` | Live install IS the canonical source (e.g., coordinator under a `--plugin-dir` install — `source_path` and `live_path` both point at the authoring clone's `coordinator/`; on a box served a flat published mirror, `live_path` names that mirror, not the authoring checkout `repos.content_root`) | Emits `[n/a] propagation_mode=source_is_live` and skips all checks |
 | `propagation_mode = "copy_install"` | Live install is a file-copy produced by a copy-based installer (e.g., the example-game-repo trio — `example-game-repo`, `example-game-repo-control`, `game-dev`); no git remote in the live path | SHA-sentinel drift class: compares `version.txt` (40-char SHA written by the installer) against `git -C <source_path> rev-parse HEAD`; no git fetch, no venv legs |
 
 ### `source_is_live` rationale
 
-For the coordinator plugin, there is no "source → live" propagation step because `source_path` and `live_path` both resolve to the same directory. Registering this with `propagation_mode = "source_is_live"` communicates the structural distinction to the probe so it does not report false drift. Coordinator's `source_is_live` directory is the doctrine-repo clone (`coordinator/`), resolved live via `--plugin-dir`; the registry entry's `source_path` and `live_path` both point there. (Historically this was `~/.claude/plugins/coordinator/` — edits in `~/.claude/` took effect immediately.) Outward percolation (`install → publish-repo` via the engine repo's `coordinator/bin/publish.py`) is a separate concern and unaffected by this entry. For the publish-direction contract (source → publish-repo, never write-back) and the ban on publish-repo → live-install clobber that motivates `source_is_live`, see `plugin-extraction-and-distribution.md:87` and `live-install-drift-audit.md:21`.
+Which tree a session runs is a per-install fact. Under a `--plugin-dir` install, `source_path` and `live_path` both resolve to the authoring clone's `coordinator/`, so there is no "source → live" propagation step and drift probing is a structural no-op; registering `propagation_mode = "source_is_live"` tells the probe so it does not report false drift. On a box served a flat published mirror, `live_path` names that mirror, not the authoring checkout (`repos.content_root`); the two are separate trust anchors (see the opening paragraph of this section). Outward percolation (`install → publish-repo` via the engine repo's `coordinator/bin/publish.py`) is a separate concern and unaffected by this entry. For the publish-direction contract (source → publish-repo, never write-back) and the ban on publish-repo → live-install clobber that motivates `source_is_live`, see `plugin-extraction-and-distribution.md:87` and `live-install-drift-audit.md:21`.
 
 ### `propagation_mode = "copy_install"`
 
@@ -1003,7 +991,7 @@ machine-local get repos.project_rag                     # P-3 — sample working
 
 Note: `repos.coordinator_claude` is not a `repos.*` key — the equivalent path lives at `publish.mirrors.coordinator_claude.path`. The sample probe above uses `repos.project_rag` as a stable working-repo key. See `coordinator-doctor.md` for the full probe narrative and current remediation steps.
 
-Bare `machine-local …` invocation works on POSIX because a forwarder shim ships in the harness-injected coordinator bin for both `machine-local` and `claude-home` (pre-migration path: `plugins/coordinator/bin/{machine-local,claude-home}`; the forwarders now live in the engine repo's `coordinator/bin/`).
+Bare `machine-local …` invocation works on POSIX because a forwarder shim ships in the harness-injected coordinator bin for both `machine-local` and `claude-home` (pre-migration path: `plugins/coordinator-claude/coordinator/bin/{machine-local,claude-home}`; the forwarders now live in the engine repo's `coordinator/bin/`).
 <!-- review: code-reviewer slice2-F3 — extended to name both resolvers; workstream shipped forwarders for machine-local AND claude-home -->
 
 If any probe fails, coordinator-doctor.md §3 has the remediation steps.
@@ -1077,7 +1065,6 @@ See `templates/machine-local/registry.toml.example` § `[regeneratability]` for 
 | `plugin.mirrors.*` | `idempotent-regeneratable` | Mirror registrations are written by each plugin's installer; re-running the installer restores them. |
 | `publish.targets` | `ephemeral` | Absent until explicitly configured; falls through to `setup/publish-targets.portable` when unset. Publish DEST roots resolve via `publish.mirrors.*.path`, not `repos.*`. |
 | `publish.mirrors.coordinator_claude.path` | `session-accumulated-must-survive-crash` | Per-machine path set by the operator; no installer re-derives it. Resolves the coordinator-claude publish DEST root for the portable topology. Provision: `machine-local set publish.mirrors.coordinator_claude.path /abs/path`. |
-| `publish.mirrors.deep_research_claude.path` | `session-accumulated-must-survive-crash` | Per-machine path set by the operator; no installer re-derives it. Resolves the deep-research-claude publish DEST root for the portable topology. Provision: `machine-local set publish.mirrors.deep_research_claude.path /abs/path`. |
 | `repos.example-sim-repo` | `idempotent-regeneratable` | Derived at runtime by rung-2 marker autodiscovery via `search-roots.toml` for convention-installed repos; rung-4 `registry.local.toml` is the fallback for off-convention repos. |
 | `repos.project_rag` | `idempotent-regeneratable` | Derived at runtime by rung-2 marker autodiscovery via `search-roots.toml` for convention-installed repos; rung-4 `registry.local.toml` is the fallback for off-convention repos. |
 | `repos.project_rag_ue_addon` | `idempotent-regeneratable` | Derived at runtime by rung-2 marker autodiscovery via `search-roots.toml` for convention-installed repos; rung-4 `registry.local.toml` is the fallback for off-convention repos. |
@@ -1100,7 +1087,7 @@ See `templates/machine-local/registry.toml.example` § `[regeneratability]` for 
 
 Manual `machine-local set repos.<slug> /abs/path` (rung 4) is the last-resort fallback for repos that are genuinely off-convention (not discoverable under any `search-roots.toml` entry) and also absent from the tracked exceptions table (`path-exceptions.toml`, rung 3). This is the uncommon case, not the default.
 
-**`repos.claude_klabauter` is a standing rung-4 case, not a transitional one.** It is a non-plugin engine repo with no `.claude-plugin/marketplace.json` marker, so rung 2 structurally cannot resolve it on any machine, ever — it is not "off-convention today, fixable by adding a marker" but off-convention by what the repo *is*. See its dedicated row in § Classification of all coordinator-owned keys above for the writer and the current install-order gap.
+**`repos.claude_klabauter` (value in `<settings-home>/machine-local/registry.local.toml`) is a standing rung-4 case, not a transitional one.** It is a non-plugin engine repo with no `.claude-plugin/marketplace.json` marker, so rung 2 structurally cannot resolve it on any machine, ever — it is not "off-convention today, fixable by adding a marker" but off-convention by what the repo *is*. See its dedicated row in § Classification of all coordinator-owned keys above for the writer and the current install-order gap.
 
 For publish mirror paths, `machine-local set publish.mirrors.<key>.path /abs/path` remains a manual step — there is no autodiscovery mechanism for publish-target DEST roots.
 
@@ -1149,7 +1136,7 @@ coordinator\scripts\first-run.cmd --plan
 4. **Python, Node, uv, git-lfs.** Offers each missing toolchain component; installs on confirmation.
 5. **Machine-local registry seed.** Creates `machine-local/` and seeds it with `registry.toml` defaults so the `machine-local` CLI works.
 6. **Per-machine state regeneration.** Runs in order:
-   - `lib/install-substrate.py` — lays down `machine-local/`, installs `bin/` resolver shims (`machine-local`, `claude-home`), and (via `coordinator_core.install.ensure_venv`, claude-klabauter-resident) creates the coordinator venv at `~/.claude/.coordinator-venv/` and writes the `coordinator.python` registry key (§5c).
+   - `lib/install-substrate.py` — lays down `machine-local/`, installs `bin/` resolver shims (`machine-local`, `claude-home`), and (via `coordinator_core.install.ensure_venv`, in the engine) creates the coordinator venv at `~/.claude/.coordinator-venv/` and writes the `coordinator.python` registry key (§5c).
    - `bin/platform-localize.py` — generates platform-specific state (`settings.local.json`, `known_marketplaces.json`).
 7. **`git lfs install`.** Installs git-lfs hooks into this clone.
 
@@ -1199,3 +1186,7 @@ This section is a **provably complete enumeration** of on-device operator-identi
 - `docs/wiki/cross-repo-communication/cross-repo-citation-conventions.md` — sibling-layout convention and peerless-installs; `MACHINE_LOCAL_<KEY>` is the named successor to the ad-hoc per-repo env-var opt-in (e.g., `EXAMPLE_GAME_REPO_ROOT=`).
 - `docs/wiki/cross-repo-communication/doe-altitude-and-shared-infra.md` — the PM-facilitated doctrine-repo consult methodology that produced the design plan for this registry.
 - `docs/wiki/cross-repo-communication.md` — PM-relay reply-memo pattern used when the doctrine-repo reply memo (Task 6 of the design plan) was dispatched to the bilateral EMs.
+
+## Field rules
+
+- **A config mirror across languages is held by an execution-based conformance test** (each runtime's implementation executed, outputs compared), not by a 'mirrors X' docstring, which rots in the introducing commit.

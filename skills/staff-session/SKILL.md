@@ -31,7 +31,7 @@ Parse `--mode`, `--tier` (both required — fail with usage message if missing),
 
 Generate run ID (`YYYY-MM-DD-HHhMM`), spawn timestamp, topic slug from input. Create
 `docs/research/{run-id}-workdir/` (shared paper-trail convention with
-`/coordinator:notebooklm-research` — detail: wiki). Set output path: plan mode →
+`/coordinator:research` — detail: wiki). Set output path: plan mode →
 `docs/plans/YYYY-MM-DD-{topic-slug}.md`; review mode →
 `state/review-findings/YYYY-MM-DD-{topic-slug}-staff-review.md`. Advisory path:
 `{scratch-dir}/advisory.md`.

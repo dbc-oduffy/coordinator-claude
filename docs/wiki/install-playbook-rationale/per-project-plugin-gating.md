@@ -16,9 +16,11 @@ These are **disabled by default** in `~/.claude/settings.json` (the global user 
 **UE projects opt in via a committed per-project `settings.json`** at `<project>/.claude/settings.json`. Using `settings.json` (committed) rather than `settings.local.json` (gitignored) means multi-machine git checkouts inherit the UE-on state without re-running bootstrap.
 
 The settings hierarchy Claude Code resolves is:
+
 ```
 userSettings → projectSettings → localSettings → flagSettings → policySettings
 ```
+
 `projectSettings` fully overrides `userSettings` for matching keys — a project-level `enabledPlugins` block re-enabling the four UE plugins is sufficient.
 
 ## Three Ways to Populate the Per-Project Override
@@ -28,7 +30,8 @@ userSettings → projectSettings → localSettings → flagSettings → policySe
 Run once per directory; idempotent (re-running on a project that already has the override is a no-op):
 
 ```bash
-python3 $REPO_CLAUDE_KLABAUTER/coordinator/bin/claude-ue-bootstrap.py /path/to/<your-game-repo>
+# PowerShell host: & "$env:COORDINATOR_SETTINGS_HOME\bin\claude-ue-bootstrap.exe"
+"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/claude-ue-bootstrap" /path/to/<your-game-repo>
 ```
 
 The script writes `<project>/.claude/settings.json` with the UE override block. If a `settings.json` already exists, it merges via a right-wins deep update of `enabledPlugins` (existing keys outside `enabledPlugins` are preserved; the four UE plugin keys are set to `true`) using Python's stdlib `json` module — no external `jq`/`node` dependency (naked-Python port, Windows de-bash campaign, chunk I-d).
@@ -41,7 +44,7 @@ Formerly: `ue-knowledge-distrust.sh` detected `.uproject` files and ran the boot
 
 **Rationale, kept for context:** when the hook fired (pre-2026-07-15), the SessionStart hook ran *after* plugin resolution, so a newly-cloned `.uproject` repo loaded lean defaults on the **first session** — UE plugins kicked in on the **second session**, once the hook had written the override and you closed/re-opened Claude Code. The auto-bootstrap does not run today (see the DISABLED status above): closing and re-opening alone does not write the override — it just repeats the same lean-default session indefinitely.
 
-**User-facing instruction (current):** When you clone a new UE repo, run `python3 $REPO_CLAUDE_KLABAUTER/coordinator/bin/claude-ue-bootstrap.py <repo>` (step 1, above) before launching Claude Code — this is now the only way to get UE plugins, including on the very first session. Closing and re-opening Claude Code without running the bootstrap script will not enable UE plugins.
+**User-facing instruction (current):** When you clone a new UE repo, run `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/claude-ue-bootstrap" <repo>` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\claude-ue-bootstrap.exe"`, same arguments) (step 1, above) before launching Claude Code — this is now the only way to get UE plugins, including on the very first session. Closing and re-opening Claude Code without running the bootstrap script will not enable UE plugins.
 
 ### 3. Explicit override in project's own `.claude/settings.json`
 
@@ -53,7 +56,8 @@ If a project's `settings.json` explicitly sets any of the four UE plugin keys to
 
 ```
 UE override SKIPPED — .claude/settings.json explicitly disables UE plugins
-To enable UE plugins in this project, run: python3 $REPO_CLAUDE_KLABAUTER/coordinator/bin/claude-ue-bootstrap.py <cwd>
+# PowerShell host: & "$env:COORDINATOR_SETTINGS_HOME\bin\claude-ue-bootstrap.exe"
+To enable UE plugins in this project, run: "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/claude-ue-bootstrap" <cwd>
 ```
 
 This preserves deliberate disables (e.g., a third-party UE repo where UE plugins are not wanted). The **manual bootstrap script** does NOT check for explicit `false` — if you run it, it overwrites the keys. Own the consequence.

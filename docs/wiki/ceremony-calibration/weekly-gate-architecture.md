@@ -93,6 +93,7 @@ When the run condition is met, dispatch the Staff Engineer (`coordinator:staff-e
 **the Staff Engineer's output:** a tech-debt / refactor-consolidate / YAGNI architectural read. The Staff Engineer **produces candidates only — never auto-authors spinoff files** (spinoff is PM-gated, `/spinoff` Step 0). Read-only at this step.
 
 **EM routes the Staff Engineer's candidates down the disposition ladder** (same ladder as the architecture-audit skill, Strand 3a):
+
 - **Trivial / tradeoff-free AND non-structural** (one-liners, mechanical corrections, no module/interface/cross-system boundary touch) → EM dispatches an executor immediately; ordinary EM remit, no PM gate.
 - **Mid-size cluster** → EM groups into ONE bundled spinoff candidate (`Candidate spinoff: <slug> — <topic>. Authorize?`), surfaced to PM.
 - **Large / genuinely structural** → standalone spinoff candidate or escalate to `/plan`.
@@ -113,7 +114,8 @@ Any boundary-touching finding (module move, interface change, cross-system surfa
 
 The rotational architecture audit (`/architecture-audit`) is easy for the PM to forget. Step 7.6 makes it self-enforcing on two triggers:
 
-**Hard floor (automatic):** `python3 "$_cc_claude_klabauter/coordinator/bin/check-arch-audit-staleness.py"` (guarded trusted-root resolve; see CLAUDE-PLUGIN-ROOT-SOURCE-GUARD, `coordinator/docs/wiki/coordinator-tripwires/draft-plan-aging.md` reads the `Last targeted audit` clock from `state/health-ledger.md`:
+**Hard floor (automatic):** `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/check-arch-audit-staleness"` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\check-arch-audit-staleness.exe"`, same arguments) (guarded trusted-root resolve; see CLAUDE-PLUGIN-ROOT-SOURCE-GUARD, `coordinator/docs/wiki/coordinator-tripwires/draft-plan-aging.md` reads the `Last targeted audit` clock from `state/health-ledger.md`:
+
 - `STALE` (>10 days, or never targeted-audited with a ledger present) → auto-fold a **targeted-on-diff** audit this cycle.
 - `FRESH` → no fold.
 - `UNKNOWN` (no ledger / unparseable) → do NOT auto-fold; note it and move on.

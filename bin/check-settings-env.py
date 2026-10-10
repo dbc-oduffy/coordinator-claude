@@ -128,6 +128,11 @@ def _default_settings_path() -> Path:
     return Path(base) / ".claude" / "settings.json"
 
 
+def _is_cloud_session() -> bool:
+    """The cloud harness marker, as `hooks.day_branch_assert.is_cloud_session` reads it."""
+    return (os.environ.get("CLAUDE_CODE_REMOTE") or "").strip().lower() == "true"
+
+
 def _local_sibling(path: Path) -> Path:
     """`settings.local.json` beside `settings.json` — Local scope, which OUTRANKS User scope."""
     return path.with_name("settings.local.json")
@@ -224,7 +229,7 @@ def _apply(path: Path, findings: list[dict[str, object]]) -> list[str]:
     repairable = [f for f in findings if f["repairable"]]
     if not repairable:
         return []
-    doc = json.loads(path.read_text(encoding="utf-8"))
+    doc = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     doc.setdefault("env", {})
     for finding in repairable:
         if finding["kind"] == "stale-key":
@@ -263,8 +268,16 @@ def main(argv: list[str] | None = None) -> int:
     path = args.settings or _default_settings_path()
     local = _local_sibling(path)
 
+    if not args.apply and not path.exists() and _is_cloud_session():
+        # A cloud container is provisioned with no user settings.json; nothing is drifted.
+        print(f"check-settings-env: SKIP — {path} absent in a cloud container")
+        return 0
+
     def _current() -> list[dict[str, object]]:
-        return _evaluate(_load_env_block(path), _load_env_block(local, required=False))
+        # --apply writes the file, so its absence is the empty block it starts from.
+        return _evaluate(
+            _load_env_block(path, required=not args.apply), _load_env_block(local, required=False)
+        )
 
     findings = _current()
 

@@ -49,10 +49,12 @@ by precedence.
 
 ## Your Outputs
 
+Write only to the paths the brief's Run Parameters name and to `{{scratch_dir}}`; never invent a `docs/research/<date>-<slug>` path of your own. Record secrets by key name only, never by value: a credential, token or key found in the studied tree appears in your documents as its name and file:line. Detect secrets by pattern and report the key name plus file:line only. Never print, quote or echo a matched value, in your reasoning, your documents or tool output: use counting or file-listing greps (`grep -c`, `grep -l`, `grep -q`) or anchored patterns that do not echo the match, never a bare `grep` that prints the matching line.
+
 **Write assessment to:** <output path>
-**Also write to:** {{scratch_dir}}/synthesis.md (backup copy)
+**Also write to:** {{scratch_dir}}/synthesis.md (backup copy; skip when the output path is that file)
 **Comparison mode only — write gap analysis to:** <gap analysis path>
-**Write advisory to (if applicable):** <advisory path> AND {{scratch_dir}}/advisory.md
+**Write advisory to (if applicable):** <advisory path> AND {{scratch_dir}}/advisory.md (once when they are the same file)
 **Write merged claims (scratch only):** {{scratch_dir}}/merged-claims.json — never <claims path> (EM-only, see § Durable Index Artifacts)
 
 ## Startup — Specialists Have Returned
@@ -177,7 +179,7 @@ The GAP-ANALYSIS references both repos freely.
 
 After completing all synthesis and gap analysis output, reflect on what you noticed beyond the research scope. If you have substantive observations — framing concerns about the research questions, blind spots (topics that appeared repeatedly but weren't in scope), surprising connections, source ecosystem observations, or confidence and quality notes — write a prose advisory.
 
-Write advisory to BOTH <advisory path> AND {{scratch_dir}}/advisory.md.
+Write advisory to BOTH <advisory path> AND {{scratch_dir}}/advisory.md (once when they are the same file).
 
 If nothing substantive to say beyond scope, skip this step entirely — do not write a placeholder file.
 
@@ -252,7 +254,7 @@ with no marker, nothing reads it.
 
 ## Durable Index Artifacts (emit before marking complete)
 
-> Output must conform to `coordinator/schemas/research-synthesis.schema.json` and `coordinator/schemas/research-claim.schema.json`.
+> Output must conform to `research-synthesis.schema.json` and `research-claim.schema.json` under `${CLAUDE_PLUGIN_ROOT}/schemas/` (when that variable is unset, `<content-root>/coordinator/schemas/`, with `<content-root>` read from `~/.claude/.content-root`). Read `research-claim.schema.json` before merging: for example `topic_tags` is an array of strings, and claim `id` values must be unique across the merged array, so rename a collision before you write `merged-claims.json`.
 
 **emit frontmatter deterministically; DO NOT provide a body template — the body stays agent-authored.**
 

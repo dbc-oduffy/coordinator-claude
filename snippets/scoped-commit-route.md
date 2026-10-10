@@ -5,7 +5,8 @@
 
 **Commit exactly the paths you own, never a sweep.** `git add -A`, `git add .`, `git add -u`, and
 `git commit -a` are forbidden at every ceremony seam, in every posture, with no override. That
-rule is invariant; only the mechanism underneath it changes.
+rule is invariant; only the mechanism underneath it changes. Address another directory with
+`git -C <dir>`, never `cd <dir> && git`, which a guard rewrites or refuses.
 
 ## The route
 

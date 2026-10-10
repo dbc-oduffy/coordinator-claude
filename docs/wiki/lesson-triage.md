@@ -39,6 +39,7 @@ Treat the three as one workflow seen from different time horizons (in-session �
 ### Queue routing — universal vs project-specific
 
 Every entry in the central structured queue (the engine repo — `$(python3 coordinator/lib/coordinator-state-root.py --central)/improvement-queue/`, `queue_scope: central` — see `state-placement-law.md`) should route to one of:
+
 - **universal** — applies to any coordinator user / any project type → keep in the central queue in the engine repo (`queue_scope: central`, append via `coordinator-queue-append --schema improvement-queue --queue-scope central`)
 - **project-specific** — rooted in a specific project's codebase → route to `state/improvement-queue/` in that repo
 - **delete (resolved/dropped)** — already applied/marked resolved/promoted; no signal left in keeping it
@@ -200,7 +201,7 @@ When the synthesis produces multi-file changes (the "promote universals into N f
 
 ### Promotion patterns observed
 
-- **In-place promotion to CLAUDE.md is gated by the char-budget gate** in `skills/learn-lessons/SKILL.md` § CLAUDE.md char-budget pre-flight — projected size > 40K is hard-refused, 38K–40K requires a demote target, and the DoE-only gate on `doctrine-edit` filters most CLAUDE.md proposals to wiki-* before they reach this surface. Wiki guides are first-class via the `prior-art-checker` mechanism; CLAUDE.md is reserved for cross-cutting tripwires.
+- **In-place promotion to CLAUDE.md is gated by the char-budget gate** in `skills/learn-lessons/SKILL.md` § CLAUDE.md char-budget pre-flight — projected size > 40K is hard-refused, 38K–40K requires a demote target, and the maintainer-only gate on `doctrine-edit` filters most CLAUDE.md proposals to wiki-* before they reach this surface. Wiki guides are first-class via the `prior-art-checker` mechanism; CLAUDE.md is reserved for cross-cutting tripwires.
 - **Three commits per integration round, not one bundled.** When R2 produces auto-fixes + W1 polish + architecture refactor, three commits make the audit trail per category greppable.
 - **Phase 11d frontmatter-drift sweep reports only, never auto-fixes.** Schema violations frequently encode an intentional decision; auto-fix would silently corrupt those. Carve out: tradeoff-free fixes on records the EM authored *this same session*.
 

@@ -93,7 +93,7 @@ dedicated claude-klabauter-transport-failure code) with the four-rung remediatio
 
 1. `CLAUDE_KLABAUTER_ROOT` environment variable.
 2. `<settings-home>/machine-local/.claude-klabauter-root` pointer file.
-3. `machine-local get repos.claude_klabauter` registry entry.
+3. `machine-local get repos.claude_klabauter` registry entry (in `<settings-home>/machine-local/registry.local.toml`).
 4. If none resolve: clone `claude-klabauter` as a sibling repo
    (`git clone https://github.com/dbc-oduffy/claude-klabauter`) and register it, or set
    `CLAUDE_KLABAUTER_ROOT` directly, then re-run `/coordinator:setup` or `/coordinator:install`.
@@ -258,4 +258,4 @@ the install docs).
 ---
 
 <!-- spec-backlink: ~/.claude/archive/specs/2026-06/2026-06-15-coordinator-install-chain-application-phase-b.md §7 C1 -->
-<!-- spec-backlink: plugins/coordinator/docs/wiki/install-playbook-rationale/agent-install-contract.md -->
+<!-- spec-backlink: plugins/coordinator-claude/coordinator/docs/wiki/install-playbook-rationale/agent-install-contract.md -->

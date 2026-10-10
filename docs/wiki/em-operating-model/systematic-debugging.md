@@ -3,10 +3,10 @@ title: Systematic Debugging
 system: systematic-debugging
 status: distilled
 distilled_from:
-  - plugins/coordinator/skills/systematic-debugging/SKILL.md
-  - plugins/coordinator/skills/systematic-debugging/root-cause-tracing.md
-  - plugins/coordinator/skills/systematic-debugging/defense-in-depth.md
-  - plugins/coordinator/skills/systematic-debugging/condition-based-waiting.md
+  - plugins/coordinator-claude/coordinator/skills/systematic-debugging/SKILL.md
+  - plugins/coordinator-claude/coordinator/skills/systematic-debugging/root-cause-tracing.md
+  - plugins/coordinator-claude/coordinator/skills/systematic-debugging/defense-in-depth.md
+  - plugins/coordinator-claude/coordinator/skills/systematic-debugging/condition-based-waiting.md
 distilled_at: 2026-05-06
 ---
 
@@ -112,6 +112,7 @@ If you cannot state the prediction — the hypothesis is a vibe. Discard it or s
 ## Red Flags — STOP and Follow Process
 
 If you catch yourself thinking:
+
 - "Quick fix for now, investigate later"
 - "Just try changing X and see if it works"
 - "Add multiple changes, run tests"
@@ -261,19 +262,24 @@ Bugs often manifest deep in the call stack (git init in wrong directory, file cr
 
 1. **Observe the symptom** — `Error: git init failed in project/packages/core`.
 2. **Find immediate cause.** What code directly causes this?
+
    ```typescript
    await execFileAsync('git', ['init'], { cwd: projectDir });
    ```
+
 3. **Ask: what called this?**
+
    ```
    WorktreeManager.createSessionWorktree(projectDir, sessionId)
      → Session.initializeWorkspace()
      → Session.create()
      → test at Project.create()
    ```
+
 4. **Keep tracing up.** What value was passed?
    - `projectDir = ''` (empty string!) — empty string as `cwd` resolves to `process.cwd()` (the source code directory).
 5. **Find the original trigger.** Where did the empty string come from?
+
    ```typescript
    const context = setupCoreTest();         // Returns { tempDir: '' }
    Project.create('name', context.tempDir); // Accessed before beforeEach!
@@ -344,6 +350,7 @@ Single validation: "We fixed the bug." Multiple layers: "We made the bug impossi
 #### The Four Layers
 
 **Layer 1 — Entry Point Validation.** Reject obviously invalid input at the API boundary.
+
 ```typescript
 function createProject(name: string, workingDirectory: string) {
   if (!workingDirectory || workingDirectory.trim() === '') {
@@ -360,6 +367,7 @@ function createProject(name: string, workingDirectory: string) {
 ```
 
 **Layer 2 — Business Logic Validation.** Ensure data makes sense for this operation.
+
 ```typescript
 function initializeWorkspace(projectDir: string, sessionId: string) {
   if (!projectDir) {
@@ -370,6 +378,7 @@ function initializeWorkspace(projectDir: string, sessionId: string) {
 ```
 
 **Layer 3 — Environment Guards.** Prevent dangerous operations in specific contexts.
+
 ```typescript
 async function gitInit(directory: string) {
   // In tests, refuse git init outside temp directories
@@ -385,6 +394,7 @@ async function gitInit(directory: string) {
 ```
 
 **Layer 4 — Debug Instrumentation.** Capture context for forensics.
+
 ```typescript
 async function gitInit(directory: string) {
   const stack = new Error().stack;
@@ -569,7 +579,29 @@ When an insert bug is a schema-mismatch (omitting a NOT-NULL column, wrong colum
 
 **Rule:** on any NOT-NULL / schema-mismatch insert fix, `grep` **every writer** of the affected table (every `INSERT`, `INSERT-SELECT`, and `REPLACE` naming it), not just the inserter the failure pointed at, and apply the fix to all of them in the same change. Sister to § Audit Your Own Fix for the Bug Class You Just Fixed and to the same "inventory every column/writer of the same shape" discipline applied to DB/indexer path-typed columns.
 
+## Read the component's own log before restarting anything
+
+On a runtime-surface failure (a daemon reporting a missing corpus, an MCP tool error, a sidecar
+that will not load), read the component's own error/output log for the actual exception before any
+restart, reinstall, or re-download, and reproduce the failing operation with a minimal standalone
+call to separate store, reader, and environment.
+
+## Locate a process-lifecycle fix by the actual spawn graph
+
+A fix placed by assuming which process spawns a child fails when another process owns it. Cite the
+real spawn call before choosing the fix locus.
+
+## A new op on a resident daemon is invisible until it restarts
+
+A resident engine daemon freezes its op registry at startup: a newly registered op returns
+`-32601` over the live socket while in-process tests pass. Verify a new op against the live socket,
+and read `-32601` as "restart needed", not "not implemented".
+
 ## Reference
 
 - **Aux script:** `find-polluter.py` — bisection-based test polluter finder.
 - **Related doctrine:** [verification-before-completion](./verification-before-completion.md), [stuck-detection](./stuck-detection.md).
+
+## Field rules
+
+- **Flipping a stubbed gate live surfaces latent reds in sibling suites.** Those tests passed only because the gate was stubbed; prove causation by revert-and-recheck before owning or dismissing them.

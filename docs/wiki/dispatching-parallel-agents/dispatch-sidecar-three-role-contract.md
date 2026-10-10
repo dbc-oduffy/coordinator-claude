@@ -3,10 +3,10 @@ title: Dispatch sidecar — the flight recorder's three-role contract (R1)
 created: 2026-07-09
 type: doctrine
 related:
-  - plugins/coordinator/docs/wiki/em-operating-model/workflow-orchestration.md
-  - plugins/coordinator/docs/wiki/schema-and-validation-contracts/schema-version-gate.md
-  - plugins/coordinator/docs/wiki/coordinator-tripwires.md
-  - plugins/coordinator/schemas/run-report.schema.json
+  - plugins/coordinator-claude/coordinator/docs/wiki/em-operating-model/workflow-orchestration.md
+  - plugins/coordinator-claude/coordinator/docs/wiki/schema-and-validation-contracts/schema-version-gate.md
+  - plugins/coordinator-claude/coordinator/docs/wiki/coordinator-tripwires.md
+  - plugins/coordinator-claude/coordinator/schemas/run-report.schema.json
   - coordinator/docs/wiki/skills-corpus/computed-engine-model.md
   - coordinator/docs/wiki/claude-md-surfaces/invisible-doctrine.md
 ---
@@ -267,7 +267,7 @@ still confirm against current disk, but this specific gap is closed.
 
 **(c) Spec-surface widening — sent, accepted, landed.** The genuinely new ask in C9 was a
 **first-wave cross-repo memo** (topic `executor-spec-surface-widening`) sent to
-`claude-klabauter-em` proposing that `block_subagent_plan_body_write.py`'s immutable-path regex
+the engine repo's EM proposing that `block_subagent_plan_body_write.py`'s immutable-path regex
 widen beyond `docs/plans/**/*.md` to also cover `docs/problems/**` — the ratified `/shape`
 problem-set surface, executor-writable today only because no guard currently names it. The
 proposal deliberately excluded `docs/wiki/**` and `docs/decisions/**` from the widened
@@ -340,6 +340,7 @@ is a reaping-correctness risk, not merely a cosmetic inconsistency: a reaper mat
 convention will silently skip (or worse, wrongly sweep) sidecars produced under the other.
 
 ## Dispatch-encouragement doctrine binds by placement, not wording
+
 <!-- PROVENANCE: run 2026-08-06-14h38, derives from nugget c9-004
      (source: 2026-07-28-adhoc-215a34.md) -->
 
@@ -407,6 +408,7 @@ individually reasoned about and happened to converge — the more likely explana
 neither pass revisited the other's default.
 
 ## Dispatch consent grounding — breaking the harness-directive circularity
+
 <!-- PROVENANCE: run 2026-08-06-14h38, derives from nugget c11-049
      (source: 2026-08-02-adhoc-9f65b5.md) -->
 

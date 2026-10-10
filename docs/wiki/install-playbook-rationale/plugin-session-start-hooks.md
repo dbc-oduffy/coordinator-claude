@@ -9,6 +9,7 @@ These are the **`SessionStart` platform hooks that constitute the SessionStart h
 Claude Code executes SessionStart hooks declared in a plugin's `hooks/hooks.json`. When a declared hook command references a script that doesn't exist on disk, Claude Code silently no-ops the command — no error surfaces, no log entry, no indication the hook didn't fire. A botched plugin install that leaves a missing hook script is therefore invisible until the operator notices the expected session-boot behavior never fires.
 
 `scan-addon-health.py --red-and-stale` (Third pass) catches this by:
+
 1. Parsing `hooks.json` for each installed plugin.
 2. Resolving the script path declared in each SessionStart command against the plugin's directory.
 3. Emitting a `[health] <plugin>: SessionStart hook references missing script '...'` line for any that are absent.
@@ -39,6 +40,7 @@ SessionStart hooks fire with an **unpredictable working directory**. The only st
 ```
 
 **Incorrect — will break on any machine where `cwd` differs:**
+
 ```json
 "command": "bash ./hooks/scripts/session-init.sh"
 "command": "bash ~/.claude/plugins/myplugin/hooks/scripts/session-init.sh"

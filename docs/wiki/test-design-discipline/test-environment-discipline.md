@@ -161,10 +161,12 @@ def _isolate_home(request, monkeypatch, tmp_path):
 A test that opens a large native-backed store **in-process** while another session holds the write lock races into a native access violation (Windows `0xC0000005` in chromadb's Rust layer) that **aborts the entire pytest process with a raw stack dump**. A native crash cannot be caught with `try/except` — the interpreter is gone before any Python handler runs. On a multi-session machine (e.g. ~15 concurrent EM sessions, RAM-saturated) this is not rare; it is the expected outcome.
 
 **Concrete failures.**
+
 - *ragaddon-L8:* `test_corpus_chunks_carry_provenance_module` opened the 3.6GB `chroma.sqlite3` directly while the corpus-extraction session was mid-write — native access violation, raw stack dump, pytest aborted.
 - *ragaddon-L427:* the fix commit subprocess-isolated the ONE test that fired but left `test_embedding_model_parity.py:87` doing the identical unguarded open — a still-live landmine for the next full `pytest tests/`. **A point-fix on the test that happened to crash is not a fix.**
 
 **Rule.**
+
 1. **Isolate the entire class of live-store reads in a subprocess** (e.g. `tests/_read_corpus_provenance.py`), not one test at a time. The parent interprets a crash returncode as an actionable fail — "store written concurrently (dev) or corrupt (CI)" — never as a segfault that takes the suite down.
 2. **Grep every test for the open primitives** (`PersistentClient`, `_evs_dir`, `resolve_addon_data_root`, raw `sqlite3.connect` on the canonical store path) and route all of them through the subprocess reader. The discriminator is "reads a large native-backed store on a multi-session machine," not "the test that crashed today."
 3. **Pair with a heavy-workstream lock** serializing pytest against pipeline/embedding writes, and cap concurrent sessions.
@@ -292,3 +294,8 @@ When a code relocation carries source but leaves its test-gate wiring behind, th
 - `docs/wiki/test-design-discipline.md` — broader test discipline (fixture hygiene, assertion granularity, round-trip contract tests); §32–33 (HOME-isolation, fixture-substitution), §38 (stale-bytecode flake), §44 (bound every run), §91 (fast-tier-without-xdist strip only -n/--dist), §97 (never disable xdist for "determinism")
 - `docs/wiki/test-design-discipline/round-trip-contract-tests.md` — producer/consumer seam tests; native-store subprocess reads use the pinned venv interpreter (§1)
 - `docs/wiki/test-design-discipline/substrate-pin-doctrine.md` — CPU-vs-GPU wheel-pin enforcement at install time; paired concern with the device-pin foot-gun above
+
+## Field rules
+
+- **Run a full suite once, bounded, captured to a file.** Bound workers, redirect to the scratchpad, and answer follow-ups by grepping the capture; repeated unbounded runs exhaust the box.
+- **A blind gate is louder than a red one.** Distinguish "collection aborted, nothing ran" from "tests ran and failed" when surfacing a validate exit code.

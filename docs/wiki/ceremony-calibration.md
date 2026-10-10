@@ -60,6 +60,7 @@ When you accept an inbound cross-repo memo-ask, the ceremony it earns is the **r
 
 **Second valid override shape — prospective-demand (instance-#1 with instances #2 and #3 named, structurally dependent, same producer surface):**
 The retrospective-magnitude argument above is not the only valid exception shape. The prospective-demand argument substitutes for the retrospective-magnitude argument when:
+
 - **(i)** The named instances are not speculative — they live in handoff items, plans, or active workstreams, not in hypothetical future demand.
 - **(ii)** The structural dependence is on the **same producer surface**, making the duplicate cost concrete: three consumers of the same primitive with divergent implementations means bugs in one don't fix the others.
 
@@ -159,6 +160,7 @@ kills the loop under `set -euo pipefail`), it becomes gate-as-theater. (Motivati
 one was broken under pipefail — all blocking daily wrap-up for work unrelated to what they checked.)
 
 **Placement rule:**
+
 - Machine-config diagnostics → standalone manual helpers, never auto-fired by ceremony
 - Pre-publish style lints → weekly or PR cadence, advisory-only
 - Cross-repo path-drift checks → /workday-start advisory section or standalone doctor
@@ -208,7 +210,9 @@ When the PM questions a budget ceiling at pickup ("is N really the right limit? 
 
 ## `wsc_commit`'s internal timeout is not extendable via the invoke wrapper
 
-`ceremony.wsc_commit`'s own `coordinator_core.ipc` timeout (30s) is independent of the `cc_invoke` wrapper's `CC_INVOKE_TIMEOUT_SECS` — raising the wrapper's value to 90 does not help, because the op's own internal timeout fires first regardless of what the caller allows. Under concurrent-fleet index contention the ceremony tail (scaffold, stamp, stage, commit, push, claim-release) can time out mid-tail, after the scaffold/stamp steps land but before the commit. Recovery is further complicated if a concurrent `fleet.archive_completed_plans` moves the governing plan out of `docs/plans/` mid-run. Recovery path: finish the deterministic tail by hand — `reconcile-completion-commits.sh --append`, an explicit-path commit of the completion entry plus lesson plus sidecars plus handoff-stamp, let the auto-push hook push, then `cs_release_artifact plan <slug>`. Don't retry the whole ceremony call expecting a longer wrapper timeout to help; it won't.
+*Dormant path: `/workstream-complete` does not call `ceremony.wsc_commit`; this applies only to a caller that invokes the op directly.*
+
+`ceremony.wsc_commit`'s own `coordinator_core.ipc` timeout (30s) is independent of the `cc_invoke` wrapper's `CC_INVOKE_TIMEOUT_SECS` — raising the wrapper's value to 90 does not help, because the op's own internal timeout fires first regardless of what the caller allows. Under concurrent-fleet index contention the ceremony tail (scaffold, stamp, stage, commit, push, claim-release) can time out mid-tail, after the scaffold/stamp steps land but before the commit. Recovery is further complicated if a concurrent `fleet.archive_completed_plans` moves the governing plan out of `docs/plans/` mid-run. Recovery path: finish the deterministic tail by hand — an explicit-path commit of the completion entry plus lesson plus sidecars plus handoff-stamp, let the auto-push hook push, then `cs_release_artifact plan <slug>`. Don't retry the whole ceremony call expecting a longer wrapper timeout to help; it won't.
 
 ## "Environmental" is a diagnosis to test, not a verdict to stop on
 

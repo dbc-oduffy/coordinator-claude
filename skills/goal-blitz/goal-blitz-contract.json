@@ -33,6 +33,7 @@
     "period_value": "Q4-2026",
     "roadmap_seeds": ["Title of a roadmap-seed stub this goal spawns"],
     "goal_seeds": ["Title of a deferred vision-slice goal-seed stub"],
+    "parent_goal_id": "goal-example-parent",
     "critique_ref": "<trailDir>/<seed-id>.critique.md",
     "ratification": null
   },

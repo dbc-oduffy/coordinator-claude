@@ -3,13 +3,14 @@
 The discipline governing which branch an EM's checkout sits on, day to day, and what makes a workstream branch legitimate.
 
 > **The rule.** In any project's main checkout, the active branch is **either** an active workstream branch **or** `main` (read-only). Two legitimate workstream shapes:
+>
 > 1. **Canonical** — span-aware `work/{machine}/{date-or-span}` (e.g. `work/machine-a/2026-05-07` or `work/machine-a/2026-05-07to08`). Hook-allowed by default.
 > 2. **Named long-lived workstream** — `migration/...`, `release/...`, `feature/<name>`, etc., created via inline `COORDINATOR_OVERRIDE_BRANCH=1` when the PM authorizes a multi-day bus that's structurally separate from generic dailies. Once it exists with commits ahead of main, workday-start treats it as a legitimate workstream bus and reconciles it with origin/main daily, the same as a canonical branch.
 >
 > The hook polices branch *shape* at create-time, not branch *date* at workday-start — commit-time date-enforcement (Check 6) was decommissioned per PM call. The daily ritual is **reconcile with origin/main** (`/workday-start` Step 0.4.5), not branch-rotation. Cutting a fresh daily off main when an active workstream exists would abandon ongoing work; doctrine explicitly prohibits this.
 >
 > **Honest-name rule.** At midnight-rename (Step 0 Check 4): `COMMITS_AHEAD > 0` → span suffix `{start}to{today}` (honest WIP); `COMMITS_AHEAD == 0` → today-only `work/{machine}/{today}` + ff-to-main, because the history has all merged and a span would advertise WIP that has already landed. Still reconciliation, not rotation — the ref is renamed, not abandoned. (`/merging-to-main` *deletes* the merged branch; rename preserves it.)
-
+>
 > **The shape.** An active workstream branch (canonical or named) is a **shared bus for every concurrent EM session on this machine** — not a single-session workspace. Multiple sessions committing in parallel is the default; sibling commits and out-of-scope dirty files belong to peer sessions, not to contamination. Scoped-staging (`coordinator-safe-commit --scope-from`, runtime overlap gate) is the everyday discipline that makes shared-bus safe.
 
 ## Concurrent sessions share the branch, not only the tree
@@ -206,6 +207,7 @@ The hook does **not** ban stash. It bans creating a sibling branch first. Park W
   mechanism for you, so a partial-hunk stage never needs hand-classifying (→ `scoped-safety-commits.md` §).
   Test-breadth posture at commit time is proportional — commit is not a test gate; run the full tier only at cadence checkpoints.
 - **Stash on the daily.** Do not change branches first.
+
   ```
   git stash push -u -m "<subject>"
   ```
@@ -321,12 +323,14 @@ Mapped to the postmortem patterns. No hook *script* catches Patterns 2 and 4; it
 **How it is caught:** the `is_canonical_branch` oracle checks whether a proposed `work/*` name is already in canonical lowercase form and rejects the mixed-case creation with a remediation message naming the canonical form. The delivery mechanism changed — it was a creation-time PreToolUse hook script, it is now the engine-side `block_noncanonical_branch_creation` guard (see status block, § Enforcement surfaces above) — the check itself did not.
 
 **What catches this today:**
+
 1. Creation-time rejection via the `is_canonical_branch` oracle — **enforced again**, now as the engine-side `block_noncanonical_branch_creation` guard rather than the retired hook script (see status block, § Enforcement surfaces). A mixed-case `work/*` name is non-canonical, so it fires.
 2. Runtime canonicalization in coordinator-auto-push (case-agnostic push) — still live; a second net at push time.
 3. Migration helper: `migrate-branch-canonical-case.py` (idempotent: rename local + remote) — still available for cleanup after the fact.
 4. Doctrine: global `CLAUDE.md` § Concurrent-EM Git Operations bullet 1 span-aware framing — the doctrine reference behind the guard.
 
 **Contact points requiring sync:**
+
 1. The native `is_canonical_branch` + `compute_machine` resolvers (the successors to an earlier shell-script implementation) — survive as unwired, importable Python; still worth keeping correct even though nothing calls them at tool-use time.
 2. Global `CLAUDE.md § Concurrent-EM Git Operations` bullet 1
 3. This wiki (daily-branch-discipline.md)
@@ -513,3 +517,28 @@ The `cs_compute_machine` function body now lives natively in the machine-resolve
 ## See also
 
 - [`scoped-safety-commits.md`](./scoped-safety-commits.md) — sibling enforcement on commit *content* (which files); this page enforces commit *location* (which branch). This page's create-time hook is retired and unwired (see status block, § Enforcement surfaces), so the two pages do not share a PreToolUse Bash matcher on this page's side; `scoped-safety-commits.md`'s own hook may or may not still be live (check that page directly rather than trusting this cross-reference for its status).
+
+## Consolidate-git — relocated rationale
+
+- **Transient orphan read.** A fetch or a peer's push landing mid-run can make an already-landed
+  commit read merge-base-not-ancestor for one snapshot and reachable the next. Re-run the
+  merge-base check once the tree settles and look for a recovering merge commit; try the
+  cherry-pick first (empty result = already applied; never force an empty cherry-pick or re-commit
+  duplicate content).
+- **Refs that hold objects.** A `backup/`- or `pre-*` ref is doing its job when identical to its
+  source, so it reads as pure redundancy by unique-commit count. "Merged into HEAD" differs from
+  "safe to lose": the gap is a ref whose objects live on no pushed remote.
+- **Conflict-resolved shared infra.** Last-writer-wins silently reverts edits when both sides
+  touched a hunk and the conflict was resolved naively; check the canonical phrase of each known
+  change, weighting shared files (plugin internals, scripts, project configs).
+- **Cross-device reconciliation.** A cherry-pick silently drops whichever side is not replayed;
+  a hunk can vanish from a parent that never conflicted, hence verify against each parent.
+- **Dirty worktrees.** Worktrees are forbidden (override needs explicit PM permission via the
+  EM), so a dirty one is debris to drain; the lock is a stale signal, the dirt is not.
+
+## Reconciling append-queue files across a long divergence
+
+A naive union of an append-queue file (lessons, queues) across a long-divergent branch re-admits
+entries the other line already triaged out. Take the more recently triaged side, then append only
+the other side's net-new delta (`git diff <merge-base>..<other> -- <file>`). Also grep `.sh`/`.ps1`
+parity pairs for flags that landed on one wrapper only before declaring the reconcile done.

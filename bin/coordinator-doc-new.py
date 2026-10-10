@@ -3033,8 +3033,12 @@ def _scaffold_spinoff(
     kind: str = "spinoff",
     governing_plan: str | None = None,
     next_steps: Sequence[str] = (),
+    origin: "SpinoffOrigin | None" = None,
 ) -> str:
     """Generate validator-clean spinoff frontmatter + canonical section skeleton.
+
+    origin, when supplied, replaces the per-call `_resolve_spinoff_origin()` scan: a bulk
+    minter resolves the origin once and passes it to every scaffold. Absent, unchanged.
 
     kind="session-handoff" emits the same work-spec sections under a
     session-handoff header: no origin_* fields, no "What travels with this
@@ -3227,7 +3231,7 @@ def _scaffold_spinoff(
         _authoring_session_line,
     ]
     if not _is_session:
-        _origin = _resolve_spinoff_origin()
+        _origin = origin if origin is not None else _resolve_spinoff_origin()
         _origin_handoff_id = origin_handoff_id or _origin.origin_handoff_id
         lines.append(f"origin_session: {_yaml_quote(_authoring_session_value)}")
         lines.append(
@@ -3358,6 +3362,17 @@ def _spinoff_marker(
     return f"<!-- spinoff: {created} by {who} during {authoring_session} -->"
 
 
+_STUB_PREFIX_RE = re.compile(r"^(?P<prefix>.+)-\d+$")
+
+
+def _roadmap_workstream(workstream: str | None, stub_id: str) -> str | None:
+    """Explicit workstream, else the stub-id slug prefix (`rmp-03` -> `rmp`); None when neither exists."""
+    if workstream and workstream.strip():
+        return workstream.strip()
+    m = _STUB_PREFIX_RE.match(stub_id or "")
+    return m.group("prefix") if m else None
+
+
 def _scaffold_roadmap_baton(
     title: str,
     branch: str,
@@ -3373,6 +3388,7 @@ def _scaffold_roadmap_baton(
     predecessor: str | None = None,
     goals: list[str] | None = None,
     covers: list[str] | None = None,
+    workstream: str | None = None,
 ) -> str:
     """Generate validator-clean roadmap-baton frontmatter + canonical section skeleton.
 
@@ -3428,11 +3444,9 @@ def _scaffold_roadmap_baton(
     Graph field placeholders (sprint, wave, loe, blocked_by, scope) are
     best-effort stubs — the author fills them via Edit after the topo sort via
     bin/roadmap-number-stubs (skills/roadmap-planning/SKILL.md § Step 2.1.5).
-    gate_dependency is the deprecated single-string gate field (C2); when not
-    supplied a scaffolded stub instead gets a blocking_notes placeholder (C1 of
-    docs/plans/2026-08-03-gate-dependency-template-emission-spec.md) — the
-    non-deprecated field satisfies the same cross-field OR without writing the
-    field the template was deprecating it away from.
+    gate_dependency is the deprecated single-string gate field (C2). Supplied, the
+    stub is awaiting_gate on it; absent, the stub is ready_to_fire with no gate
+    field and no blocking_notes (baa11c6df3).
 
     pickup_ready is OMITTED per SKILL § Phase 2.1 note: absence triggers a non-blocking
     /pickup warn; awaiting_gate + a named gate (blocking_notes, gate_dependency, or
@@ -3472,6 +3486,7 @@ def _scaffold_roadmap_baton(
     _category = category if category else "roadmap"
     _validate_category(_category)
     _predecessor = predecessor.strip() if predecessor and predecessor.strip() else "none"
+    _workstream = _roadmap_workstream(workstream, stub_id)
     lines = [
         "---",
         f"title: {_yaml_quote(title)}",
@@ -3487,11 +3502,11 @@ def _scaffold_roadmap_baton(
         # See skills/roadmap-planning/SKILL.md § Step 2.1, authoring_session field semantics.
         f"authoring_session: {_yaml_quote(f'state/roadmap/{roadmap_id}/')}  # path-shaped; /pickup reads origin context here",
         # _yaml_quote applied to authoring_session interpolation (matches adjacent quoted fields)
-        "workstream: PLACEHOLDER  # replace with roadmap short prefix slug",
+        *([f"workstream: {_yaml_quote(_workstream)}"] if _workstream else []),
         "sprint: 1  # fill from roadmap-number-stubs topo output (Step 2.1.5)",
         "wave: 1    # fill from roadmap-number-stubs topo output (Step 2.1.5)",
         "loe: M",
-        "deployment_state: awaiting_gate",
+        f"deployment_state: {'awaiting_gate' if gate_dependency else 'ready_to_fire'}",
     ]
     _blocks = [b.strip() for b in (blocks or []) if isinstance(b, str) and b.strip()]
     if _blocks:
@@ -3516,16 +3531,10 @@ def _scaffold_roadmap_baton(
     ]
     if sizing_object:
         lines.append(_sizing_object_line(sizing_object))
-    # awaiting_gate requires at least one of gate_dependency (deprecated),
-    # blocked_by, or blocking_notes (CROSS_FIELD_RULES). An explicit
-    # --gate-dependency writes the deprecated field as before; otherwise the
-    # stub gets a blocking_notes placeholder — non-dominating scaffolding is
-    # not possible here (both fields dominate gate_eval rule 1/1a), but the
-    # placeholder at least stops parking the deprecated field by default.
+    # An explicit --gate-dependency is the only gate a stub is born with; it
+    # satisfies awaiting_gate's cross-field OR (CROSS_FIELD_RULES).
     if gate_dependency:
         lines.append(f"gate_dependency: {_yaml_quote(gate_dependency)}  # deprecated; superseded by blocked_by/blocking_notes")
-    else:
-        lines.append("blocking_notes: PLACEHOLDER — name the condition gating this baton, or delete this line once blocked_by names it")
     if handoff_id:
         lines.append(f"handoff_id: {_yaml_quote(handoff_id)}")
     _goals = [g.strip() for g in (goals or []) if isinstance(g, str) and g.strip()]
@@ -3599,6 +3608,7 @@ def _scaffold_goal_seed(
     predecessor_id: str | None = None,
     category: str | None = None,
     summary: str | None = None,
+    workstream: str | None = None,
 ) -> str:
     """Generate validator-clean goal-seed frontmatter + canonical section skeleton.
 
@@ -3619,15 +3629,9 @@ def _scaffold_goal_seed(
     omitted entirely (not null) when not supplied, matching handoff_id's
     optional-omit convention.
 
-    deployment_state defaults to awaiting_gate — a vision-slice stub is dormant
-    until a PM picks it up via the goal-setting ceremony's second entry point.
-    An explicit gate_dependency writes the deprecated single-string gate field
-    (C2 of handoff.schema.json); when not supplied the stub instead gets a
-    blocking_notes placeholder, which satisfies the same cross-field OR
-    (handoff.schema.json § awaiting_gate needs at least one of gate_dependency
-    (deprecated), blocked_by, or blocking_notes) without scaffolding the
-    deprecated field by default (C1 of
-    docs/plans/2026-08-03-gate-dependency-template-emission-spec.md).
+    deployment_state is awaiting_gate only on an explicit gate_dependency (the
+    deprecated single-string gate field, C2 of handoff.schema.json); otherwise the
+    stub is ready_to_fire with no gate field and no blocking_notes (baa11c6df3).
 
     origin_handoff_id/predecessor_id are pure carry-through ID-companions (C2) —
     see _scaffold_handoff's docstring for the full carry-not-mint contract.
@@ -3672,7 +3676,7 @@ def _scaffold_goal_seed(
         "status: open",
         "predecessor: none",
         "kind: goal-seed",
-        "deployment_state: awaiting_gate",
+        f"deployment_state: {'awaiting_gate' if gate_dependency else 'ready_to_fire'}",
         f"category: {_category}",
         f"summary: {_yaml_quote(summary if summary else placeholder_summary)}",
     ]
@@ -3693,18 +3697,12 @@ def _scaffold_goal_seed(
         _minted_by_line = _resolve_minted_by_line()
         if _minted_by_line:
             lines.append(_minted_by_line)
-    else:
-        lines.append("authoring_session: PLACEHOLDER")
-    lines.append("workstream: PLACEHOLDER")
-    # awaiting_gate requires at least one of gate_dependency (deprecated),
-    # blocked_by, or blocking_notes (CROSS_FIELD_RULES). An explicit
-    # --gate-dependency writes the deprecated field as before; otherwise the
-    # stub gets a blocking_notes placeholder instead of defaulting the
-    # deprecated field.
+    if workstream:
+        lines.append(f"workstream: {_yaml_quote(workstream)}")
+    # An explicit --gate-dependency is the only gate a stub is born with; it
+    # satisfies awaiting_gate's cross-field OR (CROSS_FIELD_RULES).
     if gate_dependency:
         lines.append(f"gate_dependency: {_yaml_quote(gate_dependency)}  # deprecated; superseded by blocked_by/blocking_notes")
-    else:
-        lines.append("blocking_notes: PLACEHOLDER — name the condition gating this baton, or delete this line once blocked_by names it")
     if goals:
         lines.append("origin_goal_id:")
         lines.extend(f"  - {_yaml_quote(g)}" for g in goals)
@@ -3762,6 +3760,7 @@ def _scaffold_roadmap_seed(
     predecessor_id: str | None = None,
     category: str | None = None,
     summary: str | None = None,
+    workstream: str | None = None,
 ) -> str:
     """Generate validator-clean roadmap-seed frontmatter + section skeleton.
 
@@ -3786,14 +3785,9 @@ def _scaffold_roadmap_seed(
     empty goals list here is a SKILL-process gap, not a valid deferred state.
     Emitted as an array per Rule C2-2b; caller (goal-setting ceremony) supplies it.
 
-    deployment_state defaults to awaiting_gate (PM fire required). An explicit
-    gate_dependency writes the deprecated single-string gate field (C2 of
-    handoff.schema.json); when not supplied the stub instead gets a
-    blocking_notes placeholder, which satisfies the same cross-field OR
-    (handoff.schema.json § awaiting_gate needs at least one of gate_dependency
-    (deprecated), blocked_by, or blocking_notes) without scaffolding the
-    deprecated field by default (C1 of
-    docs/plans/2026-08-03-gate-dependency-template-emission-spec.md).
+    deployment_state is awaiting_gate only on an explicit gate_dependency (the
+    deprecated single-string gate field, C2 of handoff.schema.json); otherwise the
+    stub is ready_to_fire with no gate field and no blocking_notes (baa11c6df3).
 
     origin_handoff_id/predecessor_id are pure carry-through ID-companions (C2) —
     see _scaffold_handoff's docstring for the full carry-not-mint contract.
@@ -3841,7 +3835,7 @@ def _scaffold_roadmap_seed(
         "status: open",
         "predecessor: none",
         "kind: roadmap-seed",
-        "deployment_state: awaiting_gate",
+        f"deployment_state: {'awaiting_gate' if gate_dependency else 'ready_to_fire'}",
         f"category: {_category}",
         f"summary: {_yaml_quote(summary if summary else placeholder_summary)}",
     ]
@@ -3864,22 +3858,16 @@ def _scaffold_roadmap_seed(
         _minted_by_line = _resolve_minted_by_line()
         if _minted_by_line:
             lines.append(_minted_by_line)
-    else:
-        lines.append("authoring_session: PLACEHOLDER")
+    if workstream:
+        lines.append(f"workstream: {_yaml_quote(workstream)}")
     lines.extend([
-        "workstream: PLACEHOLDER  # replace with roadmap short prefix slug",
         f"deliverable_id: {_dlv}",
         f"initiative: {_ini}  # FK to state/initiatives/<id>.yaml; null when no named initiative",
     ])
-    # awaiting_gate requires at least one of gate_dependency (deprecated),
-    # blocked_by, or blocking_notes (CROSS_FIELD_RULES). An explicit
-    # --gate-dependency writes the deprecated field as before; otherwise the
-    # stub gets a blocking_notes placeholder instead of defaulting the
-    # deprecated field.
+    # An explicit --gate-dependency is the only gate a stub is born with; it
+    # satisfies awaiting_gate's cross-field OR (CROSS_FIELD_RULES).
     if gate_dependency:
         lines.append(f"gate_dependency: {_yaml_quote(gate_dependency)}  # deprecated; superseded by blocked_by/blocking_notes")
-    else:
-        lines.append("blocking_notes: PLACEHOLDER — name the condition gating this baton, or delete this line once blocked_by names it")
     if goals:
         lines.append("origin_goal_id:")
         lines.extend(f"  - {_yaml_quote(g)}" for g in goals)
@@ -4115,7 +4103,8 @@ def _scaffold_plan(
         # producer of this block, DoE's `coordinator/templates/plans/plan.md.tmpl`.
     ]
     _accepted = (_cited_exit_criterion or {}).get("accepted") if _cited_exit_criterion else None
-    if _cited_exit_criterion and isinstance(_accepted, dict):
+    # The engine's own skip record is no one's acceptance: the criterion stays proposed here.
+    if _cited_exit_criterion and isinstance(_accepted, dict) and _accepted.get("source") != "engine-size-rule":
         # ACCEPTED — carry the PM's criterion verbatim (Design § Inheritance,
         # C3): no `<REPLACE: ...>` markers, derived_from names the cited
         # sizing. The falsifier stays commented — it is still authored per
@@ -4183,6 +4172,20 @@ def _scaffold_plan(
         # complete and true declaration; a placeholder criterion is neither.
         "census: []  # counted premises as question/command/result rows; [] declares none —",
         "            # a claim a reviewer can falsify. Bar: coordinator/bin/mise-prep-gate.py.",
+        # `capabilities` is never scaffolded as a live `[]`: that is the positive claim
+        # that the plan delivers no user-facing capability, and a scaffold cannot make it.
+        # A schema-valid entry of `<REPLACE:` markers keeps the plan refused by
+        # plan_scaffold_markers until filled, and still validates as plan frontmatter.
+        "capabilities:",
+        '  - id: "<REPLACE: capability id, unique in this plan; replace this list with [] only if the plan delivers no user-facing capability>"',
+        '    statement: "<REPLACE: what the user can do>"',
+        '    role: "<REPLACE: who reaches it>"',
+        '    click_path: "<REPLACE: nav entry to page>"',
+        '    ui_consumer: {chunk: "<REPLACE: chunk id>"}',
+        "    # ui_consumer takes exactly one form; use one of these in its place, or ui_carve_out:",
+        "    #   ui_consumer: {plan: <plan path, omit for this plan>, chunk: <chunk id>}",
+        "    #   ui_consumer: {shipped: <path tracked at HEAD>}",
+        "    #   ui_carve_out: \"<the PM's own words leaving the UI out>\"",
         # Fleet brightlines — emitted LIVE, deliberately not commented out like
         # the `prime_exit_criterion` block directly above. That block is
         # conditionally owed (read-side keyed on `estimate.tshirt` M/L/XL, which
@@ -4828,6 +4831,38 @@ def _is_placeholder_text(value: object) -> bool:
     return _PLACEHOLDER_RE.match(value.strip()) is not None
 
 
+def _foreign_baton_edge(edge: object, sizing_rel: str, repo_root: str) -> str | None:
+    """The other sizing a `baton:` edge's file cites, when it is not ``sizing_rel``; else None.
+
+    Only a baton that exists and names a different `sizing_object` is provably foreign. A
+    missing file or a baton citing no sizing stays the caller's refusal: an archived baton
+    reads as missing, and minting over it would duplicate shipped work.
+    """
+    if not (isinstance(edge, str) and edge):
+        return None
+    path = os.path.join(repo_root, edge)
+    if not os.path.isfile(path):
+        return None
+    from coordinator_core.frontmatter.primitives import read_fm_field_unquoted  # noqa: PLC0415
+
+    with open(path, encoding="utf-8") as fh:
+        cited = read_fm_field_unquoted(fh.read(), "sizing_object")
+    if _is_null_scalar(cited) or cited.replace("\\", "/") == sizing_rel:
+        return None
+    return cited
+
+
+def _baton_rel_for_sizing(sizing_rel: str) -> str:
+    """`state/handoffs/<sizing stem>.md`: unique per sizing, so sibling sizings never collide.
+
+    A stem without the `YYYY-MM-DD-` lead gets today's date, keeping the handoff naming shape.
+    """
+    stem = os.path.splitext(os.path.basename(sizing_rel))[0]
+    if not re.match(r"\d{4}-\d{2}-\d{2}-", stem):
+        stem = f"{_today()}-{stem}"
+    return f"state/handoffs/{stem}.md"
+
+
 def _write_baton_file(out_abs: str, content: str) -> None:
     """Create the baton exclusively; an existing file at the path is an error."""
     os.makedirs(os.path.dirname(out_abs), exist_ok=True)
@@ -5034,6 +5069,16 @@ def mint_baton_from_sizing(
         fields.append("intent")
         reasons.append("intent is absent")
     existing = meta.get("baton")
+    stray_edge = _foreign_baton_edge(existing, sizing_rel, repo_root)
+    if stray_edge:
+        # Proven stray: the named baton cites another sizing. Treated as edge-less; the edge
+        # write below replaces it, so no write happens ahead of the refusals.
+        print(
+            f"coordinator-doc-new: replacing stray baton edge {existing} on {sizing_rel} "
+            f"(that baton cites {stray_edge})",
+            file=sys.stderr,
+        )
+        existing = None
     existing_abs = None
     join_edge = False
     if baton:
@@ -5132,7 +5177,7 @@ def mint_baton_from_sizing(
     else:
         deliverable_id = _mint_deliverable_id_from_title(title, "session-handoff", repo_root)
     handoff_id = _mint_artifact_id_from_title("hnd", title, "session-handoff", "handoff_id")
-    out_rel = f"state/handoffs/{_today()}-{_slug_from_title(title)}.md"
+    out_rel = _baton_rel_for_sizing(sizing_rel)
     out_abs = os.path.join(repo_root, out_rel)
     if os.path.exists(out_abs):
         raise SizingMintRefused(
@@ -5161,11 +5206,17 @@ def mint_baton_from_sizing(
             ["intent"], f"--from-sizing refused for {sizing_rel}: baton scaffold failed validation ({exc})"
         ) from exc
 
-    old_text = _write_sizing_baton_edge(sizing_abs, out_rel, repo_root, deliverable_id)
+    # Baton first, created exclusively: a racing mint fails here, before any sizing write.
     try:
         _write_baton_file(out_abs, content)
+    except FileExistsError as exc:
+        raise SizingMintRefused(
+            ["baton"], f"--from-sizing refused for {sizing_rel}: {out_rel} already exists"
+        ) from exc
+    try:
+        _write_sizing_baton_edge(sizing_abs, out_rel, repo_root, deliverable_id)
     except Exception:
-        _revert_sizing_reverse_edge(sizing_abs, old_text, repo_root)
+        os.remove(out_abs)
         raise
     try:
         from coordinator_core.cli_entry import recording_declared_writes  # noqa: PLC0415
@@ -6677,6 +6728,88 @@ def _default_output_path(
 
 
 # ---------------------------------------------------------------------------
+# --from-body: put canonical frontmatter around an already-written body
+# ---------------------------------------------------------------------------
+
+_TOP_LEVEL_KEY_RE = re.compile(r"^([A-Za-z_][\w-]*):")
+
+
+def _split_frontmatter(text: str) -> tuple[str | None, str]:
+    """Split `text` into (frontmatter lines joined by \\n, body). Frontmatter is
+    None when the text does not open with a `---` fence closed by a later one;
+    the body is then the whole text, byte for byte."""
+    for opener in ("---\r\n", "---\n"):
+        if text.startswith(opener):
+            m = re.search(r"^---[ \t]*\r?$", text[len(opener):], re.MULTILINE)
+            if m is None:
+                return None, text
+            fm = text[len(opener):len(opener) + m.start()]
+            rest = text[len(opener) + m.end():]
+            rest = rest[2:] if rest.startswith("\r\n") else rest[1:] if rest.startswith("\n") else rest
+            return fm.replace("\r\n", "\n").rstrip("\n"), rest
+    return None, text
+
+
+def _frontmatter_blocks(fm: str) -> list[tuple[str | None, list[str]]]:
+    """Group frontmatter lines into (top-level key, lines) blocks; indented,
+    blank and comment lines ride with the key line above them."""
+    blocks: list[tuple[str | None, list[str]]] = []
+    for line in fm.split("\n"):
+        m = _TOP_LEVEL_KEY_RE.match(line)
+        if m or not blocks:
+            blocks.append((m.group(1) if m else None, [line]))
+        else:
+            blocks[-1][1].append(line)
+    return blocks
+
+
+def _adopted_title_and_id(text: str) -> tuple[str | None, str | None, str]:
+    """(title, id, body) read from an existing document so the generator can be
+    seeded with them; title falls back to the body's first H1."""
+    fm, body = _split_frontmatter(text)
+    title = doc_id = None
+    for key, lines in _frontmatter_blocks(fm) if fm is not None else []:
+        value = lines[0].split(":", 1)[1].strip().strip("\"'") if key else ""
+        if key == "title" and value:
+            title = value
+        elif key == "id" and value:
+            doc_id = value
+    if title is None:
+        h1 = re.search(r"^#[ \t]+(.+?)[ \t]*$", body, re.MULTILINE)
+        title = h1.group(1) if h1 else None
+    return title, doc_id, body
+
+
+def _adopt_body(generated: str, existing: str) -> str:
+    """Wrap `existing`'s body in the generator's canonical frontmatter.
+
+    `generated` is the fresh scaffold for the type; its frontmatter decides
+    which fields exist and in what order. A field the existing document already
+    carries keeps its own value; fields the document lacks keep the generator's
+    default; fields only the document carries trail the block so schema
+    validation, not this function, judges them.
+    """
+    gen_fm, _skeleton = _split_frontmatter(generated)
+    if gen_fm is None:
+        raise ValueError("generated scaffold has no frontmatter to adopt around")
+    old_fm, body = _split_frontmatter(existing)
+    old_blocks = {
+        key: lines for key, lines in (_frontmatter_blocks(old_fm) if old_fm else []) if key
+    }
+    out: list[str] = []
+    used: set[str] = set()
+    for key, lines in _frontmatter_blocks(gen_fm):
+        if key and key in old_blocks:
+            lines = old_blocks[key]
+            used.add(key)
+        out.extend(lines)
+    for key, lines in old_blocks.items():
+        if key not in used:
+            out.extend(lines)
+    return "---\n" + "\n".join(out) + "\n---\n" + body
+
+
+# ---------------------------------------------------------------------------
 # Argument parsing
 # ---------------------------------------------------------------------------
 
@@ -6773,6 +6906,19 @@ Spec backlink (workflow): pln-workflow-skeleton-stamper-maki-adab0d
             ".coordinator-local/subagent-share/<session-id>/YYYY-MM-DD-codereview-sliceID-SLUG.md (review-findings), "
             "state/strategic/self-description.yaml (strategic-self-description — single canonical per-repo path, not date/slug-derived). "
             "run-report (and its flight-recorder alias) has NO default — --out is REQUIRED."
+        ),
+    )
+
+    parser.add_argument(
+        "--from-body",
+        dest="from_body",
+        default=None,
+        metavar="PATH",
+        help=(
+            "Wrap the existing file at PATH in this --type's canonical frontmatter, "
+            "keeping its body bytes. Partial frontmatter it already carries is "
+            "conformed through the same generator (its values win per field). "
+            "Writes back to PATH unless --out names another file."
         ),
     )
 
@@ -7482,6 +7628,16 @@ Spec backlink (workflow): pln-workflow-skeleton-stamper-maki-adab0d
         ),
     )
     parser.add_argument(
+        "--workstream",
+        dest="workstream",
+        default=None,
+        metavar="SLUG",
+        help=(
+            "(roadmap-baton, goal-seed, roadmap-seed) workstream: slug. roadmap-baton "
+            "derives it from --stub-id's prefix when omitted; the seeds omit the key."
+        ),
+    )
+    parser.add_argument(
         "--gate-dependency",
         dest="gate_dependency",
         default=None,
@@ -7492,8 +7648,8 @@ Spec backlink (workflow): pln-workflow-skeleton-stamper-maki-adab0d
             "blocked_by/blocking_notes). deployment_state=awaiting_gate (the "
             "default for all three types) requires at least one of "
             "gate_dependency, blocked_by, or blocking_notes. When omitted, the "
-            "scaffold writes a blocking_notes placeholder instead — fill via "
-            "Edit before the stub is pickup-ready."
+            "scaffold writes deployment_state: ready_to_fire and no gate field; "
+            "roadmap-blitz-stage re-gates batons that gain blocked_by."
         ),
     )
 
@@ -7705,6 +7861,23 @@ def main(argv: "list[str] | None" = None) -> int:
         _, _early_error = _validate_sizing_flags(args)
         print(f"error: {_early_error}\n  Nothing was written.", file=sys.stderr)
         return 1
+
+    _adopt_existing: str | None = None
+    _adopt_id: str | None = None
+    if args.from_body:
+        try:
+            with open(args.from_body, "r", encoding="utf-8", newline="") as _fh:
+                _adopt_existing = _fh.read()
+        except OSError as exc:
+            print(f"error: cannot read --from-body {args.from_body}: {exc}", file=sys.stderr)
+            return 1
+        _adopt_title, _adopt_id, _ = _adopted_title_and_id(_adopt_existing)
+        if not args.title and _adopt_title:
+            args.title = _adopt_title
+        if not args.out:
+            args.out = args.from_body
+        if os.path.realpath(args.out) == os.path.realpath(args.from_body):
+            args.force = True
 
     # Resolve title default.
     title = args.title
@@ -8489,7 +8662,9 @@ def main(argv: "list[str] | None" = None) -> int:
     # numbering namespace, not the write target of this particular invocation.
     # Spec backlink: cross-repo/inbox/2026-07-20-example-game-repo-em-dr-number-allocator-collision.md
     _resolved_dr_id: str | None = None
-    if doc_type == "decision":
+    if doc_type == "decision" and _adopt_id:
+        _resolved_dr_id = _adopt_id
+    elif doc_type == "decision":
         _dr_repo_root = _current_repo_root() or "."
         _decisions_dir = os.path.join(_dr_repo_root, "docs", "decisions")
         # Unprefixed ids go through the shared mint, whose reservation is
@@ -8754,8 +8929,15 @@ def main(argv: "list[str] | None" = None) -> int:
             sizing_object=args.sizing_object,
         )
     elif doc_type == "roadmap-baton":
-        roadmap_id = args.roadmap_id if args.roadmap_id else "placeholder-rm"
-        stub_id = args.stub_id if args.stub_id else "placeholder-stub-1"
+        if not (args.roadmap_id and args.stub_id):
+            _missing = [f for f, v in (("--roadmap-id", args.roadmap_id), ("--stub-id", args.stub_id)) if not v]
+            print(
+                f"coordinator-doc-new: --type roadmap-baton requires {' and '.join(_missing)}.",
+                file=sys.stderr,
+            )
+            return 1
+        roadmap_id = args.roadmap_id
+        stub_id = args.stub_id
         _goals_list = [g.strip() for g in args.goals.split(",") if g.strip()] if args.goals else None
         content = _scaffold_roadmap_baton(
             title=title,
@@ -8772,6 +8954,7 @@ def main(argv: "list[str] | None" = None) -> int:
             predecessor=args.predecessor,
             goals=_goals_list,
             covers=args.covers,
+            workstream=args.workstream,
         )
     elif doc_type == "goal-seed":
         _goals_list = [g.strip() for g in args.goals.split(",") if g.strip()] if args.goals else None
@@ -8785,6 +8968,7 @@ def main(argv: "list[str] | None" = None) -> int:
             predecessor_id=args.predecessor_id,
             category=args.category,
             summary=args.summary,
+            workstream=args.workstream,
         )
     elif doc_type == "roadmap-seed":
         _goals_list = [g.strip() for g in args.goals.split(",") if g.strip()] if args.goals else None
@@ -8800,6 +8984,7 @@ def main(argv: "list[str] | None" = None) -> int:
             predecessor_id=args.predecessor_id,
             category=args.category,
             summary=args.summary,
+            workstream=args.workstream,
         )
     elif doc_type == "memo":
         content = _scaffold_memo(
@@ -8919,6 +9104,9 @@ def main(argv: "list[str] | None" = None) -> int:
             )
             return 2
         raise AssertionError(f"unreachable doc_type: {doc_type!r}")
+
+    if _adopt_existing is not None:
+        content = _adopt_body(content, _adopt_existing)
 
     # Resolve output path.
     out_path = args.out

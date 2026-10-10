@@ -553,11 +553,22 @@ def _cmd_chains(repo_root: Path, stranded_only: bool = False) -> int:
 
 
 def _chain_containing(repo_root: Path, handoff_path: str):
-    target = Path(handoff_path).resolve()
+    target = Path(handoff_path)
+    if not target.is_absolute():
+        target = repo_root / target
+    target = target.resolve()
     unreadable = []
-    for members in build_chains(load_all_batons(repo_root, unreadable)).values():
+    chains = list(build_chains(load_all_batons(repo_root, unreadable)).values())
+    for members in chains:
         if any(m.path.resolve() == target for m in members):
             return members, unreadable
+    # A terminal baton is archived by the close's own sweep, so a path named
+    # before that sweep no longer exists. Its basename identifies it only when
+    # exactly one chain carries that name.
+    if not target.exists():
+        named = [c for c in chains if any(m.path.name == target.name for m in c)]
+        if len(named) == 1:
+            return named[0], unreadable
     return None, unreadable
 
 

@@ -120,6 +120,7 @@ The `system` block carries provenance metadata for cockpit indexing and historic
 A record with **no `system` block** (the ~309 historical flat records that predate ccos-3) is treated as `provenance_completeness: unknown` by default. This is an **honest marker, NOT fabricated back-fill** — `unknown` is the truthful annotation for records whose provenance cannot be determined. Raw-record consumers (ccos-4/5/6 pipelines) MUST resolve completeness via the shared helper `bin/lib/provenance.get_provenance_completeness(record)` — **never assume the block is present** or re-derive the default inline.
 
 `unknown` intentionally covers two structurally distinct cases:
+
 1. **Historical-absent** — no `system` block at all (pre-ccos-3 flat record).
 2. **Write-time-unresolved** — a present `system` block exists (possibly with `linked_sessions`) but completeness cannot be confirmed at write time.
 

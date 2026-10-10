@@ -1,0 +1,116 @@
+"""
+plan-evidence-append — record per-row evidence for a plan WITHOUT editing the plan body.
+
+A trampoline over claude-klabauter's plan.tasks.mutate 'evidence-append' verb
+(coordinator_core/ops/plan_tasks_mutate.py, _evidence_append). The evidence lands in
+`<plan-stem>.evidence.yaml` beside the plan, so the plan body bytes and `approved_body_sha`
+never move (a body append would make dispatch.emit refuse "plan body changed since
+approval"). Cite the sidecar from the row's disposition_detail via plan-tasks-resolve.
+
+No shebang (POSIX-EXEC-ASSUMPTION-GUARD): invoked via plan-evidence-append.cmd on Windows or
+`python coordinator/bin/plan-evidence-append ...` on POSIX. Holds no domain logic; the verb
+enforces every gate.
+
+Usage:
+  plan-evidence-append --plan <plan-path> --id <row-id> (--file <path|-> | --text <text>)
+
+Exit codes:
+  0 — evidence recorded.
+  1 — op-level refusal (unknown row id, empty evidence, plan not found, ...).
+  2 — usage error, unreadable --file, or transport failure (engine unresolvable).
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+
+_BIN_DIR = os.path.dirname(os.path.abspath(__file__))
+_LIB_DIR = os.path.join(_BIN_DIR, "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+
+import cc_invoke  # noqa: E402
+
+_OP = "plan.tasks.mutate"
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="plan-evidence-append",
+        description="Append row evidence to the plan's evidence sidecar; the plan body is never touched.",
+    )
+    parser.add_argument("--plan", required=True, dest="plan_path", help="path to the plan file (docs/plans/...)")
+    parser.add_argument("--id", required=True, dest="row_id", help="the task row's id")
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--file", dest="file", help="file holding the evidence text ('-' reads stdin)")
+    source.add_argument("--text", dest="text", help="the evidence text")
+    return parser
+
+
+def _read_text(args: argparse.Namespace) -> str:
+    if args.text is not None:
+        return args.text
+    if args.file == "-":
+        return sys.stdin.read()
+    with open(args.file, encoding="utf-8") as handle:
+        return handle.read()
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = _build_parser()
+    args = parser.parse_args(argv if argv is not None else sys.argv[1:])
+
+    try:
+        text = _read_text(args)
+    except OSError as exc:
+        print(f"plan-evidence-append: cannot read evidence: {exc}", file=sys.stderr)
+        return 2
+
+    cc_invoke.require_engine_on_path(__file__)
+
+    repo_root = os.getcwd()
+    try:
+        from coordinator_core.git.repo_root import show_toplevel
+
+        resolved = show_toplevel()
+        if resolved:
+            repo_root = resolved
+    except OSError:
+        pass
+
+    def _no_legacy() -> None:
+        raise RuntimeError(
+            "plan-evidence-append: coordinator_core.invoke seam absent — no legacy "
+            "path exists for plan.tasks.mutate. Verify COORDINATOR_ENGINE_ROOT "
+            "and the claude-klabauter coordinator_core install."
+        )
+
+    try:
+        result = cc_invoke.route_mutation(
+            _OP,
+            {"verb": "evidence-append", "plan_path": args.plan_path, "id": args.row_id, "text": text},
+            repo_root,
+            _no_legacy,
+        )
+    except cc_invoke.RouteMutationError as exc:
+        print(f"plan-evidence-append: {exc}", file=sys.stderr)
+        result_obj = exc.result if isinstance(exc.result, dict) else {}
+        raw = result_obj.get("exit_code")
+        try:
+            code = int(raw) if raw is not None else 1
+        except (TypeError, ValueError):
+            code = 1
+        return code if code != 0 else 1
+    except RuntimeError as exc:
+        print(f"plan-evidence-append: {exc}", file=sys.stderr)
+        return 2
+
+    message = result.get("message", "") if isinstance(result, dict) else ""
+    if message:
+        print(message)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

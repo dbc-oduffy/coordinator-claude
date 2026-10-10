@@ -292,3 +292,14 @@ When a protection (pre-commit guard, commit-time check) fires only conditionally
 Dismissing a downstream throw/guard risk with "the input can't be malformed, it's always already-canonical by construction" is sound only if *every* producer of that value is structural, not incidental. A render-path throw risk was dismissed with "the value comes from the store, already canonicalized" — but the store had a second producer (an RAG-backed row source) that could synthesize a non-canonical, multi-segment value, so the no-throw guarantee did not actually hold.
 
 **How to apply.** Before arguing a value can't hit a guard/throw because it's "always X," enumerate every producer of that value (every row source, ingest path, fallback), not just the one in mind — and prefer the non-throwing wrapper on any render/read path regardless of the structural argument.
+
+## Field rules
+
+- **A surface migration sweeps non-code callers.** Grep `.md` command fences and `hooks.json` for the moved path, not only executable code — no linter or test sees those.
+- **Diff a bulk migration's dry-run count against an independently derived count.** A small gap is the cheapest defect detector a migration has (a parser silently skipping records shows up there first).
+- **Scope a migration by counting both shapes.** Report N broken beside M already-correct; a grep that excludes the target shape by construction hides finished work and invites a churn rewrite.
+- **A port's substrate census globs every test exercising the subject basename,** not the tests a plan happens to name.
+- **A `status: proposed` decision record is a recommendation, not a ruling.** Check status before quoting a DR as settled; proposed DRs are written in ruling language.
+- **Derive a migration's remaining work by enumerating the surface and subtracting,** never by searching for the new form — that finds only finished work.
+- **Grep a config write-target's history for a paired frozen guard before pinning write-files.** A test asserting equality with the config does not announce itself from the config side.
+- **Before mass-repointing citations, verify what each names.** An edge to a live stub is not stale because the stub's own pointer resolves to a tombstone; fix the locus, not the symptoms.

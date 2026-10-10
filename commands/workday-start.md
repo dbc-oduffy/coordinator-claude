@@ -275,6 +275,8 @@ continues:
 Shape W above / Shape A/B POSIX — `snippets/resolve-coordinator-bin.md`. `--repo` flag refused
 (`scope='none'`); `repo` goes in the JSON params, not omitted.
 
+**The register stall check** (advisory): `coordinator-invoke requirement_register.stall_report '{"today":"<YYYY-MM-DD>"}'`; render findings under `### Register stall check` (stale rows, stuck plans, unclaimed rows); omit when empty or op absent.
+
 ## Step 1.10: Addon Health Sentinels
 
 `coordinator-doctor-sentinel --full` (writes the sentinel, silent GREEN, brief AMBER/RED) stays
@@ -442,7 +444,7 @@ failure is reported as-is and the prior cache stays.
 
 ## Step 5.66: Refresh the structural index
 
-Run `<plugin-root>/bin/structural-index-refresh.py` (non-blocking, always exit 0; `COORDINATOR_STRUCTURAL_INDEX_REFRESH_OFF=1` disables) — report its line if it prints one.
+Run `"$_py" "$COORDINATOR_SETTINGS_HOME/bin/structural-index-refresh"` (POSIX; on PowerShell `& "$env:COORDINATOR_SETTINGS_HOME\bin\structural-index-refresh.exe"`, `snippets/resolve-coordinator-bin.md`) (non-blocking, always exit 0; `COORDINATOR_STRUCTURAL_INDEX_REFRESH_OFF=1` disables) — report its line if it prints one.
 
 ## Step 5.7: Offer to Volunteer as Group EM
 

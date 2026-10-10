@@ -1108,6 +1108,8 @@ def install_currency_banner(repo_root: Optional[str]) -> None:
     makes every other read of this cache untrustworthy. A later reader must not "harmonize" these
     two banners into one shared unknown-handling rule -- the plan (C2 body, and the boot-banner
     plan's Related-plan note) requires this divergence to stay visible and explained, not collapsed.
+    The one silent case is an absent cache on a cloud container: no daily refresh runs there, so
+    absence reports no broken refresh, only a fresh container.
 
     `source_is_live` silences only the PLUGIN surface covered by this function -- it must never be
     read as silencing the engine-currency surface (§ Engine anchor — converged contract,
@@ -1133,12 +1135,8 @@ def install_currency_banner(repo_root: Optional[str]) -> None:
     try:
         cache_text = cache_path.read_text(encoding="utf-8")
     except Exception:
-        if _is_cloud_container():
-            _w(
-                "── Install currency: not yet recorded on this cloud container (expected on a "
-                "fresh one) — /workday-start populates it ──\n"
-            )
-        else:
+        # A fresh cloud container never has the cache; a line on every boot is noise.
+        if not _is_cloud_container():
             _w(
                 "── Install currency: absent — no doctor-last-run.json cache found; "
                 "/workday-start populates it ──\n"

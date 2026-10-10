@@ -53,7 +53,7 @@ Aggregator-side interpretation rules (enforced in the engine repo's `coordinator
 
 ## Worked example
 
-`docs/architecture/systems/coordinator-skills.watch.sh` is the seed worked example: it counts `SKILL.md` files under `plugins/coordinator/skills/*/SKILL.md` and compares the count against the atlas-claimed value (29 at seed time). On match: `FRESH coordinator-skills skill_count=29`. On mismatch: `DRIFT coordinator-skills skill_count expected=29 got=<N>`.
+`docs/architecture/systems/coordinator-skills.watch.sh` is the seed worked example: it counts `SKILL.md` files under `plugins/coordinator-claude/coordinator/skills/*/SKILL.md` and compares the count against the atlas-claimed value (29 at seed time). On match: `FRESH coordinator-skills skill_count=29`. On mismatch: `DRIFT coordinator-skills skill_count expected=29 got=<N>`.
 
 That shape — count-or-grep a structural fact the atlas asserts, compare against an inline constant the atlas page also asserts, emit one line — is the canonical pattern. Other reasonable shapes:
 
@@ -64,6 +64,7 @@ That shape — count-or-grep a structural fact the atlas asserts, compare agains
 ## Within-atlas clock split
 
 Atlas frontmatter carries two date clocks under the `Last targeted audit` rubric:
+
 - `last_mapped:` — most recent body rewrite (content rotation).
 - `last_attested:` — most recent currency assertion. Bumped by every audit (Branch A) AND every bare re-attestation (Branch B).
 

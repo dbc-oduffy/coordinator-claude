@@ -118,7 +118,7 @@ explicit ask to each named consumer team) found exactly one still needed: `_prob
 survives as a standalone script, `coordinator/bin/host-gpu-probe.py`, invoked by absolute path —
 **never imported, never a package** — emitting `{"gpu": {...}}` on stdout. Consumers that shelled
 out to `python -m coordinator_whoami.machine` and read `envelope["gpu"]` now shell out to
-`python <repo>/coordinator/bin/host-gpu-probe.py` and read `envelope["gpu"]` from that script's
+`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/host-gpu-probe"` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\host-gpu-probe.exe"`, same arguments) and read `envelope["gpu"]` from that script's
 own JSON — same shape, same twelve keys, different invocation string. Any repo-wide search for
 who calls the old package must therefore also search for who calls the new script, using the
 same inline-invocation checklist above (item 2, `python -c`/`-m` stanzas) rather than assuming a

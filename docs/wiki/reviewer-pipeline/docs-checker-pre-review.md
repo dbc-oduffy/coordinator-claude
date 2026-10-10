@@ -5,8 +5,8 @@ last_calibrated: 2026-05-03
 calibrated_against: Claude Opus 4.7 (1M context)
 type: doctrine
 related:
-  - plugins/coordinator/agents/docs-checker.md
-  - plugins/coordinator/snippets/docs-checker-consumption.md
+  - plugins/coordinator-claude/coordinator/agents/docs-checker.md
+  - plugins/coordinator-claude/coordinator/snippets/docs-checker-consumption.md
 ---
 
 # docs-checker Pre-Review Doctrine
@@ -122,10 +122,10 @@ The docs-checker changelog is part of the permanent review record.
 
 The reviewer-side consumption block is synced via `verify-snippet-sync docs-checker-consumption --fix` from `snippets/docs-checker-consumption.md` to all Opus reviewer prompts:
 
-- `plugins/coordinator/agents/staff-eng.md` (the Staff Engineer)
-- `plugins/coordinator/agents/eng-director.md` (the Director of Engineering)
-- `plugins/coordinator/agents/staff-data-sci.md` (the Data Science Reviewer)
-- `plugins/coordinator/agents/senior-front-end.md` (the Front-End Reviewer)
+- `plugins/coordinator-claude/coordinator/agents/staff-eng.md` (the Staff Engineer)
+- `plugins/coordinator-claude/coordinator/agents/eng-director.md` (the Director of Engineering)
+- `plugins/coordinator-claude/coordinator/agents/staff-data-sci.md` (the Data Science Reviewer)
+- `plugins/coordinator-claude/coordinator/agents/senior-front-end.md` (the Front-End Reviewer)
 - `<plugin-consumer>/game-dev/agents/staff-game-dev.md` (optional domain-plugin the Game Dev Reviewer variant — resolved via a machine-local registry key when the sibling domain repo is present locally; skipped otherwise)
 
 See the "Adding a Convention" tripwire entry for this doctrine. The sync script is added to `/update-docs` Phase 11c alongside the calibration and project-rag-preamble syncs. Never edit consumer sentinel blocks directly — the `--fix` pass overwrites them.

@@ -10,32 +10,33 @@ authoritative_source: previously skills/writing-plans/SKILL.md (deleted in clean
 
 ## Overview
 
-Write comprehensive implementation plans assuming the engineer has zero context for our codebase and questionable taste. Document everything they need to know: which files to touch for each task, code, testing, docs they might need to check, how to test it. Give them the whole plan as bite-sized tasks. DRY. YAGNI. TDD. Frequent commits.
+Write implementation plans assuming the engineer has zero context for our codebase and questionable taste. Document what they need: files to touch per task, code, tests, docs to check. Give them the whole plan as bite-sized tasks. DRY. YAGNI. TDD. Frequent commits.
 
-Assume they are a skilled developer, but know almost nothing about our toolset or problem domain. Assume they don't know good test design very well.
+Assume a skilled developer who knows little of our toolset, domain, or good test design.
 
 **Save plans to:** `docs/plans/YYYY-MM-DD-<feature-name>.md`
 
 ## Scope Check
 
-If the spec covers multiple independent subsystems, it should have been broken into sub-project specs during brainstorming. If it wasn't, suggest breaking into separate plans — one per subsystem. Each plan should produce working, testable software on its own.
+A spec covering multiple independent subsystems should have been split during brainstorming. If it wasn't, suggest one plan per subsystem, each producing working, testable software on its own.
 
 ## Sub-plan delegation under a master plan
 
-**Master + N sub-plans: EM holds the problem space.** When a plan's scope crosses ≥3 logical workstreams that would normally each spinoff to their own session but the architectural integration is tight enough that a spinoff would lose context, an alternative shape is one master plan with N sub-plans dispatched in sequence by the same EM. The master plan owns the problem space (cross-workstream invariants, sequencing, integration checks); each sub-plan owns one workstream's body.
+**Master + N sub-plans: EM holds the problem space.** When a plan crosses ≥3 workstreams that would each normally spin off to their own session, but integration is tight enough that a spinoff would lose context, use one master plan with N sub-plans dispatched in sequence by the same EM. The master plan owns the problem space (cross-workstream invariants, sequencing, integration checks); each sub-plan owns one workstream's body.
 
-**Distinct from spinoffs and monolithic plans.** Spinoffs fork to new sessions and are appropriate when workstreams are genuinely independent. Monolithic plans walk every workstream linearly in one document and become unwieldy at ≥3 workstreams. The master+sub-plan shape sits between them: shared EM context without a single unwieldy document.
+**Distinct from spinoffs and monolithic plans.** Spinoffs fork to new sessions, for genuinely independent workstreams. Monolithic plans walk every workstream in one document and become unwieldy at ≥3. Master+sub-plan sits between: shared EM context, no unwieldy document.
 
 **Use when all three hold:**
+
 - (a) Sub-workstreams share invariants that no single sub-plan should re-derive independently.
 - (b) The same EM has corpus and tool access to execute them in-session without context loss.
 - (c) Spinoff overhead (session boundary, handoff, pickup ceremony) would exceed the per-sub-plan size.
 
-**Shape:** The master plan body is a ≤40-line orchestration brief (cross-workstream invariants, integration checks, sequencing rationale) plus links to the N sub-plans. Each sub-plan is a normal plan body following all the standard plan conventions in this wiki. Order of dispatch is declared in the master plan — it is not a freestyle EM decision made at execution time.
+**Shape:** The master plan body is a ≤40-line orchestration brief (cross-workstream invariants, integration checks, sequencing rationale) plus links to the N sub-plans. Each sub-plan is a normal plan body. Dispatch order is declared in the master plan, not decided at execution time.
 
 ## Scope Mode (required header field)
 
-Every plan declares one scope mode. The mode shapes review depth, acceptable tradeoffs, and what counts as "done." Don't skip — pick one before drafting tasks.
+Every plan declares one scope mode, picked before drafting tasks. It shapes review depth, acceptable tradeoffs, and what counts as "done."
 
 | Mode | Use when | Rules | Evidence bar |
 |------|----------|-------|--------------|
@@ -113,7 +114,7 @@ Before dispatching a build-task agent or entering plan mode for a non-trivial fe
 4. **Reference impl seen.** For any nontrivial pattern, can I point to a working implementation (OSS or in our codebase) that demonstrates it? **(See `Codebase Research (before file mapping)` above.)**
 5. **Root cause known (bugs only).** For bug fixes, do I have evidence the diagnosis is correct, not just plausible?
 6. **No-fabrication.** For any plan asserting on a frontmatter key, env var, config field, or schema column, have I greped for the literal field name? (See § Negative-Search Before Drafting.)
-7. **Fix-locus discrimination.** For each proposed patch, have I identified the upper-layer registry/dispatch/extension site by `file:line` and named a concrete reason patching the upper layer is wrong? (See § Fix-locus discrimination.)
+7. **Fix-locus discrimination.** For each proposed patch, have I identified the upper-layer registry/dispatch/extension site by `file::function` (or `file:line`) and named a concrete reason patching the upper layer is wrong? (See § Fix-locus discrimination.)
 
 All seven green → dispatch. Any red → loop back to investigation tier 1-3 or escalate to PM.
 
@@ -130,17 +131,22 @@ Read `CONTEXT.md` if present at the project root; if absent, proceed silently �
 ## Codebase Research (before file mapping)
 
 <!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->
+
 **Code lookup: project-rag first.**
 `ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
 `project_staleness_check`; callers `project_symbol_callers`/`_references`; impact `project_referencers`; else `project_rag_instructions`.
+Bodies, members, UE engine types: load `project_symbol_source`, `project_engine_*` by name; a `project_symbol` stub is not "corpus can't answer".
+If a project-rag call errors or its tools are absent (daemon down), fall back to Grep/Read and carry on.
 Friction: memo `project-rag-em` / `gh issue create -R dbc-oduffy/project-rag`.
 <!-- END project-rag-preamble -->
 
-Before defining the file structure, check what's already been documented about the relevant systems. Read these if they exist (skip silently if they don't):
+Before defining the file structure, check what's already been documented about the relevant systems. Read these:
 
 1. `docs/architecture/systems-index.md` → relevant system pages in `docs/architecture/systems/`
 2. `docs/wiki/DIRECTORY_GUIDE.md` → relevant wiki guides in `docs/wiki/`
 3. `.claude/repomap.md` (or task-scoped variant)
+
+**Two tiers.** Below L, all three reads are soft: read what exists and skip silently what doesn't. At L and above (`estimate.tshirt` on the sizing object the plan's `sizing_object:` frontmatter cites), item 1 is a discharged consult, recorded in the plan's `atlas_consult` object: `pages` (each page's `path` and `last_attested`) and a `finding` stating what the consult changed about the plan, including "nothing, because …". When no page matches, record `pages: []` plus a finding. The consult is advisory. A page whose `last_attested` is more than 30 days old is STALE and is named in the finding. roadmap-planning records the same consult under `### Atlas consult` in `OVERVIEW.md`. Items 2 and 3 stay soft at every size.
 
 This gives you the structural context to make informed file-mapping decisions without redundant grep discovery. Use Glob/Grep after this to fill specific gaps — exact line numbers, recent additions not yet in the atlas, etc.
 
@@ -212,6 +218,7 @@ Before committing to a prescribed shape, run a negative search to surface prior 
 **Durability assertions over a multi-writer file must enumerate ALL writers.** An assertion like "this file is durable across restarts" is quantified over every path that can write or overwrite the file. Single-writer coverage of a multi-writer surface produces a silently-false durability claim: if any writer resets the file, the durability contract is broken regardless of how careful the one covered writer is. Before asserting durability, grep for every writer of the target file (open for write, atomic rename, truncate+write) and enumerate them in the plan body.
 
 **A policy-activation or value-relocation change that looks like a 2-file edit is usually an N-consumer + co-writer sweep — enumerate both directions at plan-write.** Two change shapes hide their real blast radius behind a small surface:
+
 - **Monkey-patch passthrough → active policy.** When a patched API shifts from passthrough to enforcing a policy, every existing caller of that API becomes a new policy consumer. Grep every direct caller of the patched API (e.g. `git grep 'chromadb.PersistentClient'`) and check each against the new policy; add the call-site audit as a substrate-findings bullet. Treat "monkey-patch policy change" as a plan-coverage trigger to enumerate the patched-API call-site set as the oracle.
 - **Untracking a machine-specific value from a shared tracked file.** A value in a shared file has N readers AND M writers. Moving it breaks any reader still pointed at the old file, and risks a clobber if a full-rewrite writer drops a co-tenant table. Grep every reader AND every writer, classify each as moved-key vs stays, and check install ORDER between co-writers — a later full-rewrite writer must preserve the earlier writers' tables.
 
@@ -240,6 +247,7 @@ Before committing to a prescribed shape, run a negative search to surface prior 
 **Failure mode prevented:** the prior checklist returning green while the plan is patch-shaped at a call site where an upper-layer gate exists or should exist.
 
 **Cross-references:**
+
 - `coordinator/docs/wiki/dispatching-parallel-agents/pre-dispatch-verification.md` § Plan-Time Verification Checklist, "Audit symptom is correct; locus may be wrong" — conceptual ancestor, firing at investigation time.
 - `coordinator/docs/wiki/dispatching-parallel-agents/pre-dispatch-verification.md` § Plan-Time Verification Checklist, "Reviewer rationale must discriminate chosen shape from alternatives" — analogous discipline at review time.
 
@@ -275,6 +283,7 @@ This is the **plan-time twin** of the dispatch-time "promote shared-API to a pre
 ## Bite-Sized Task Granularity
 
 **Each step is one action (2-5 minutes):**
+
 - "Write the failing test" - step
 - "Run it to make sure it fails" - step
 - "Implement the minimal code to make the test pass" - step
@@ -299,7 +308,6 @@ Global or cadence-scoped verification (Tier F/Tier U) still has a legitimate hom
 
 **The rule holds at every altitude a plan states a criterion, not only at the chunk's test-surface row.** `coordinator/templates/plans/plan.md.tmpl` § `## Exit criteria — verification` is the scaffold SSOT for this rule's full enumerated text — read it there rather than here; this page states only the plan-altitude framing above and does not restate the enumeration, to keep one home for the rule's prose.
 <!-- Review: overengineering-reviewer (Finding 4) — a full-prose restatement here duplicates plan.md.tmpl's enumerated list and drifts from it. This page cites the template instead; plan.md.tmpl is the sole full-text home. -->
-
 
 **Worked example.** One plan's chunk row named, among its deliverables, "run full suite green" — a Tier-U instruction baked into the chunk brief itself. That's the anti-pattern this section exists to catch: it reads fine at plan-review time and only surfaces as malformed once execute-plan tries to dispatch it. A corrected row would instead name the chunk's own scoped test file — the file the chunk itself writes, run at Tier T — as the test surface, with the full-suite run dropped from the chunk entirely; if a global check is warranted it belongs to the EM's wave-boundary verification, not the chunk's write-files or deliverables list. That plan's dispatch-ledger row went uncorrected on disk for a time — a live specimen of the anti-pattern this section exists to catch.
 
@@ -362,6 +370,7 @@ prime_exit_criterion:
 ```
 
 **Why these fields are required:**
+
 - **Scope mode** routes review depth and the evidence bar. Reviewers and `/merging-to-main` read it.
 - **Acceptance criteria** are what reviewers check against and what the ship verdict scores. Without them, "done" reduces to "the agent says it implemented it." A criterion that must be discharged is a spine row (see § Machine-Parseable Task Spine below); everything else is carried by the prime exit criterion and its falsifier (see § Prime Exit Criterion below).
 - **Non-goals** are the most-skipped field and the single highest source of scope drift. Spend 30 seconds on them.
@@ -493,6 +502,14 @@ skip review, implement, let `code-reviewer` catch the diff. The M rung still get
 review. The light terminal is an instance of "no review", not a third reviewer tier — the fork
 stays two-valued.
 
+### Register claims (register-bearing sizings)
+
+A plan whose sizing, or whose seed's ancestor sizing, carries `requirement_register` declares
+`register_claims: {sizing: <root register sizing>, rows: [...]}`, naming the sizing that holds
+the root register. A row the plan cannot deliver is left unclaimed or ruled deferred on the
+sizing — never silently omitted. The terminal commit refuses `implemented` while any row is
+unclaimed, or any row this plan claims is not met and wired from its named surface.
+
 ## Gated Exit Criteria (Fleet Brightlines)
 
 `gated_exit_criteria` is a top-level frontmatter list, sibling to `prime_exit_criterion`, that
@@ -550,7 +567,7 @@ Each row is `{brightline, statement, met}`, plus an optional `evidence`:
   `close_out_and_stamp` contains no reference to `gated_exit_criteria` today, so an unmet row does
   not currently block the stamp; which sizes/created-dates a future arm covers is
   `close_out_and_stamp`'s to settle, not this doctrine's. Tracked via this plan's relay memo to
-  `claude-klabauter-em` and a `state/improvement-*/` entry, closed the day the arm ships.
+  the engine's EM and a `state/improvement-*/` entry, closed the day the arm ships.
 - **`evidence`** is optional, written at close-out beside the `met` flip: what was actually
   observed that shows the `statement` held. `statement` is the plan-time question, `evidence` is
   the answer — never put proof text in `statement`, and never strip a recorded observation to get
@@ -579,6 +596,11 @@ hardcoded path, check CI ran on three OSes) — `gated_exit_criteria` stays a li
 mechanically gated (see the comment above the AC table in the template); a brightline that landed
 there would be present but not gated, which is the exact failure mode this field exists to close.
 See `coordinator/docs/wiki/coordinator-tripwires/brightlines-are-gated-not-remembered.md`.
+
+## Standing rules
+
+A rule every row executor obeys ("never run UBT without the EM's slot") goes in frontmatter
+`standing_rules:`, never pasted into row bodies; emit injects each into every executor prompt.
 
 ## Machine-Parseable Task Spine
 
@@ -618,7 +640,8 @@ Each list item is a task object with the following fields:
 | `change_kind` | enum | required | The **WIDER UNIVERSAL** enum: `doctrine-edit`, `agent-prompt-edit`, `hook-edit`, `script-edit`, `snippet-sync-update`, `wiki-new`, `wiki-append`, `skill-edit`, `doc-edit`, `test-edit`, `code-edit`, `config-edit`, `verification`. The value names the **surface changed**, not the flavour of the change — do not coin a work-shape token (a bash-to-Python port of a `bin/` utility is `script-edit`); a non-member routes nowhere on harvest, which is how a ratified deferral gets dropped. `verification` is the one member for a row whose deliverable is evidence, not a diff. |
 | `surface` | string | required | The harvest/coverage **PRIMARY-TARGET** field — a single path or subsystem. Maps to the queue entry's `surface` field ONLY. This is deliberately **not** the wave-map's write-files set (which may enumerate many files) — `surface` names the one primary target a triager would look at first. |
 | `queue_scope` | enum `project`\|`central` | optional (default `project`) | Which improvement-queue the harvest writes into. `central` is a per-deferral opt-in, mapping to `coordinator-queue-append --queue-scope central`. |
-| `execution_mode` | enum `agent`\|`operator` | optional (default `agent`) | WHO can run the row. `operator` means the work needs a human at an interactive terminal, so the row is excluded from dispatch and surfaced to a human instead — on the same non-dispatchable path an uncleared `external_gate` takes (`plan-tasks.schema.json` >= 1.11.0). It is an execution-capability claim, not a resolution state: the row stays `disposition: open`, keeps its `writes`, and close-out still counts it. Do not reach for `external_gate` (its `owner_repo` names another repo, and a fabricated one fails the whole emission), `deferred: true` (asserts a scope cut the row has not taken), or a closed `disposition` (a stealth-skip — the work has not happened). |
+| `execution_mode` | enum `agent`\|`operator` | optional (default `agent`) | WHO can run the row. `operator` means the work is something only a person can physically do (a credential, hardware, an interactive login), so the row is excluded from dispatch and surfaced to a human instead — on the same non-dispatchable path an uncleared `external_gate` takes (`plan-tasks.schema.json` >= 1.11.0). It is an execution-capability claim, not a resolution state: the row stays `disposition: open`, keeps its `writes`, and close-out still counts it. Do not reach for `external_gate` (its `owner_repo` names another repo, and a fabricated one fails the whole emission), `deferred: true` (asserts a scope cut the row has not taken), or a closed `disposition` (a stealth-skip — the work has not happened). A review, stakeholder alignment included, is never `operator`: the row names a reviewer persona and dispatches as `agent`. |
+| `performer` | enum `executor`\|`em` | optional (default `executor`) | WHICH dispatch seat performs the row (`plan-tasks.schema.json` >= 3.5.0). `em` means the EM performs the row itself, so the emitter keeps it out of the executor schedule and leaves its dependents unblocked. It is not `execution_mode: operator`: `performer: em` names an agent seat that can do the work, `operator` says only a person can and surfaces the row to a human. A row that needs a held capability an executor lacks (live credentials, a browser session, seeded users) is never left `executor`: `em` when the EM's session holds it, `operator` when only a person does. A row that messages a peer session (`SendMessage`, a same-repo peer the memo channel cannot reach) is `em`: executors hold no `SendMessage`. |
 | `agent_type` | string | optional | WHICH agent runs the row, **overriding the write-target derivation entirely** (`plan-tasks.schema.json` >= 1.13.0). Absent, the emitter derives the type from `writes` as it always has — plan/problem-body paths to `coordinator:enricher`, everything else to `coordinator:executor` — so a spine omitting it emits unchanged. Optionally plugin-qualified (`coordinator:workflow-maker`). Malformed fails loud at emit; a well-formed unknown passes through, because the engine does not own this repo's agent roster. **NOT the fan-out escape hatch:** a chunk whose work is dispatching N sub-agents is N chunks — one worker per row, disjoint `writes`, all depending on the row producing their shared input. Reach for `agent_type` only where decomposition does not dissolve the need. The mixed-row refusal still fires first: naming an agent does not reconcile a row writing both an immutable body and ordinary code. |
 | `agent_model` | string | optional, but **required alongside any `agent_type` the engine carries no model row for** — the emit refuses and names this field | WHICH model that agent runs on. The emitter resolves models by table lookup with a silent default, so an agent type it does not know emits `sonnet` with nothing raised and nothing logged — naming an Opus persona and quietly getting Sonnet is the failure this field exists to prevent. |
 | `deferred` | bool | **LEGACY — read-tolerance only, no live authoring path** | Formerly `true` meant this row is NOT shipped by this plan. Superseded by `disposition: backlogged` (see below). Retained on the schema only because a live consumer's corpus still contains it; do not write it on new rows. |
@@ -630,10 +653,12 @@ Each list item is a task object with the following fields:
 | `body` | string block | optional | Multi-line detail. Maps to the queue entry's `body` field. |
 | `writes` | array of strings | **required on every non-deferred row** (`deferred: true` rows are exempt — harvest candidates, never dispatch candidates) | Repo-relative paths this task writes (plain strings; no glob syntax in this version). This is the surface-vs-write-files-set distinction `surface` points at above: `surface` is the single harvest/coverage primary target, `writes` is the net-new full write set, and write-overlap/wave-map derivation is a pure function of `writes` across the spine's rows. **Three spellings; name the one you wrote and never call any of them "empty".** Key **absent**, or **present with no value** (YAML null — colon, then nothing): equivalent, both *not-yet-knowable*. Such a row is not provably disjoint from any other, so it lands in a solo wave, which then refuses at commit time until the row is filled in. `writes: []` is the opposite — a **positive claim that this row writes nothing**: it may share a wave with declared-writes rows, and is excluded from that wave's commit pathspec. **Every entry is a file.** A trailing `/` or `\` is refused by the schema (`plan-tasks.schema.json` >= 2.0.0) and by the emitter; stripping the separator strands the wave. A memo row writes nothing here (`memo.send` commits in the receiver), so it spells `writes: []`. |
 | `writes_under` | array of strings | optional | Directory prefixes, each ending in `/` or `\`, for a row whose filenames are chosen at run time: a dated audit, a live run's output, a write into a growing corpus. Joins write-overlap and ordering like `writes`. The executor names the files it wrote under each prefix and the commit takes exactly those, bounded to the row's own prefixes. A row with a prefix and no `writes` reads as `writes: []`, never undeclared. A file you can name now belongs in `writes`, not here. |
+| `appends` | array of strings | optional | Subset of `writes` this row only appends one entry to (a shared registry or index). Plans that only append to a path don't collide on it; an append still collides with an in-place write. |
 | `reads_at_head` | array of strings | optional | A **HEAD-time reference read** — the path as it stands when this row starts. **Never orders**: a sibling row that writes this same path does NOT order this row after it. Same string-array shape as `writes`. Declare this by default for a read that is only consulted, not consumed. |
 | `consumes` | array of strings | optional | The row needs another row's **output** at this path. **Orders**, exactly as legacy `reads` does: a path here that a sibling row `writes`/`writes_under` orders that writer before this row. Reach for this only where the row genuinely needs the sibling's produced content. |
 | `reads` | array of strings | **LEGACY — not authored on new rows** | Ordered exactly as `consumes` is ordered (never reinterpreted as a HEAD read — doing so silently drops ordering on a plan already carrying it). A live plan's owner splits it by hand into `reads_at_head`/`consumes` when they next touch the spine; `plan-spine-check` prompts this with a non-fatal `LEGACY-READS` line. Refused by the schema alongside either `reads_at_head` or `consumes` on the same row — a mixed row has no single honest reading (`plan-tasks.schema.json` >= 3.2.0). |
 | `depends_on` | array of objects | optional; **absence is a positive claim of no non-computable gate on this row** | One entry per predecessor row this task's execution is gated on — object shape `{chunk, gate_kind, note?}`, never a bare chunk-id list. Required wherever the author imposes a gate the write-overlap graph cannot derive on its own (never for write-overlap itself — the wave-builder computes that from `writes`/`writes_under`/`consumes`). Full field shape, valid `gate_kind` values, and a worked example: § Substrate-Migration Sequencing below. |
+| `depends_on_plan` | array of objects | optional | One entry per chunk of ANOTHER plan in this repo this row waits on — `{plan, chunk, gate_kind}`, `plan` a repo-relative path (no `..`, no leading `/`), `gate_kind` as in `depends_on`. The emitter withholds the row, and its dependents transitively, until the named chunk is `coded`; a missing plan, unknown chunk or terminal non-coded predecessor is refused (`mise-prep-gate`: `predecessor-plan-dangling`). Not sequenced within one mise run: the dependent waits for the next. Cross-repo blockers use `external_gate`. Tripwire: `A-SAME-RUN-PLAN-DEPENDENCY-IS-NOT-SEQUENCED-WITHIN-THE-RUN`. |
 | `external_gate` | array of objects | optional | Declared blockers on work owned by ANOTHER repo — one entry per blocking party. Each entry: `owner_repo` (required, bare hyphenated repo shortname; confirm the spelling with `machine-local keys | grep '^repos\.'`; never this repo's own shortname — that's an intra-plan blocker, belongs on `depends_on` — and never a session id), `condition` (required, prose — what must become true before this row executes), `closure_evidence` (optional — memo path, commit SHA, or probe naming HOW closure is or will be verified; clears nothing on its own), `cleared` (optional bool — asserts the gate IS discharged; `cleared: true` clears it outright, `cleared: false` is an explicit negative that overrides a truthy `closure_evidence`), `closure_key` (optional object, `{kind, id}` — the machine-matchable IDENTITY of what discharges the gate, `kind` one of `deliverable`\|`memo-thread`; a reader matches it against a `discharges.closure_key` block on a cross-repo memo from `owner_repo` and may propose the `cleared: true` flip, never perform it), `blocks` (optional, enum `execution`\|`ac-closure`, default `execution` — whether the gate blocks the row's execution or only a named acceptance criterion's closure). A sibling field to `depends_on`, not nested in it: an external blocker has no local predecessor row, so it cannot fill `depends_on[].chunk`. NOT for intra-plan edges (use `depends_on`) and NOT a substitute for the write-overlap gate the wave-builder computes from `writes`/`writes_under`/`consumes` (legacy `reads`). |
 | `traces_to_brief` | string | **required on every non-`deferred`, open/coded row when the plan body carries a `## PM brief` section** | A substring of that section's text, after whitespace normalisation, naming the brief phrase this row serves. Checked by `plan-spine-check.py` (`trace_ok`), which reports STRUCTURAL for a row that omits it or whose value paraphrases rather than quotes. A plan with no `## PM brief` section is exempt — the checker reports an informational `NO-BRIEF` line instead. A row that can quote no phrase is scope growth: surface it in the row body rather than inventing a trace. |
 
@@ -749,6 +774,12 @@ drafting discipline, not a scheduler feature:
 - **`reads_at_head` by default, `consumes` only for real output consumption.** A row that only
   consults a sibling's file, never its output, orders itself needlessly behind that sibling if it
   declares `reads`/`consumes` — declare `reads_at_head` instead, which never orders.
+- **Shared append-only registry** (a contracts or gate index many plans add to): rows that add to it
+  declare it in `appends` (and `writes`); rows that only read it declare `reads_at_head`. A
+  `consumes` on such a hub orders the reader after every writer across every plan and cycles
+  against declared plan order. A hub that every plan only appends to goes once in the repo's
+  `coordinator.local.md` frontmatter `append_only_paths` (comma-separated). The seam check then
+  treats every writer of it as appending, with no per-row `appends`.
 - **Critical path ≤ ~⅓ of dispatchable rows**, measured by `plan-spine-check`'s `WIDTH` line
   (`max=<n> critical-path=<k>/<N> share=<k/N>`). This is an authoring target, not a gate — the
   checker reports the share, it never refuses on it.
@@ -883,7 +914,6 @@ entry is also accepted.
 
 ## Full-Coverage Scoping — Default Is the Complete Problem Set
 
-
 **Default plan scope is the complete problem set the PM named — not the slice that fits
 one session.** A plan's job is to cover the problem; a session boundary is a scheduling
 constraint on execution, not a scoping input on the plan body. Planning MAY legitimately
@@ -926,8 +956,17 @@ from the closing handoff or the `/workstream-complete` step, which is what hands
 **Adoption note.** The machine-parseable spine (`## Machine-Parseable Task Spine` above)
 is built for the executing EM's ease, not as process overhead bolted on top of planning —
 one YAML block per plan, fields you'd be tracking in prose anyway, no new ceremony. Give
-it a go on the next plan you write; a longer, persuasive case for the format lives in a
-separately spun-off roadmap document and is deliberately not re-litigated here.
+it a go on the next plan you write; the case is `## Why the Task Spine Pays Off — the
+Design-as-Offers Case` below.
+
+## Why the Task Spine Pays Off — the Design-as-Offers Case
+
+Each row you write once is work you skip doing by hand:
+
+- Several deferrals approve in one command (`plan-tasks-stamp`, `plan-tasks-resolve`; `planning/plan-tasks-mutate-cli.md`).
+- The dispatch brief is emitted from your row.
+- The orchestration script is generated from the plan, and digression paperwork lands as wiki material (`dispatching-parallel-agents/dispatch-sidecar-three-role-contract.md`).
+- Review findings land as precise field edits.
 
 ## Task Structure
 
@@ -995,6 +1034,7 @@ Digression from a proven path requires EM approval before the executor proceeds.
 **Digression:** an executor chooses a different primitive sequence because the proven path hit an unexpected obstacle, or because the alternative "looks simpler."
 
 **Protocol when a digression arises:**
+
 1. **Name the proven path** — cite it by file:line or by verb + expected input/output signature.
 2. **Describe the specific mismatch** — what exact input/output gap makes the proven path inapplicable here?
 3. **Name the alternative** — describe the proposed alternative sequence explicitly (not just "a different approach").
@@ -1328,11 +1368,13 @@ step 3. See `coordinator/docs/wiki/planning/plan-execute-session-split.md` for t
 **Which approach?"**
 
 **If Parallel Session chosen (default):**
+
 - Write an execution handoff via `/handoff`; stop
 - New session picks it up via `/pickup` and uses `/execute-plan`, which mints the plan frontmatter
   `execution_authorized_by`/`execution_authorized_at` from that invocation
 
 **If Executor-Driven chosen (carve-out):**
+
 - Follow `docs/wiki/dispatching-parallel-agents/delegate-execution.md` to dispatch Executor agents
 - Stay in this session
 - Fresh Executor agent per task + code review via `/review-code`
@@ -1346,6 +1388,93 @@ When a plan ports logic from a reference implementation (another repo, upstream 
 **Trust the grep, not the plan's own enumerated consumer list, before finalizing a delete-chunk's file scope.** A plan chunk that deletes a shared artifact (a JSON/data file, a generated module, a retired code path) must independently grep every importer before finalizing scope — the plan's own stated consumer list is a hypothesis, not an oracle. Empirically, a chunk planned to delete a shared JSON data file listing only one panel as consumer; a second module also imported it and would have broken the build had the import grep not caught it before the delete landed.
 
 **The import grep must cover dynamic imports and test files, not just static imports of the source path.** A static-import grep (`import X from`) misses `await import(...)` / dynamic-import consumers, and misses tests that reach the retired path indirectly (an un-injected pipeline test that exercised the real path only once it stopped being mocked). Before any cutover/deletion plan's consumer-repoint chunks are considered complete, enumerate: (a) every dynamic-import consumer a static grep misses, and (b) every TEST file that reaches the real path being retired — not just the source callers.
+
+## Cross-Repo Port Checklist
+
+- **Import against the host's published API surface**, not against what a peer addon already
+  imports. A peer's de-facto import of a host internal is not a contract; the host's published
+  surface is.
+- **Switching a shell-out to a sibling-owned interpreter is per call site.** A sibling's venv
+  carries only the sibling's dependencies. For each call site, run the target module under the new
+  interpreter and check it both imports and produces full output — a find-replace across sites
+  proves nothing.
+- **A plan's "Source" column cites the live producer's artifact**, captured by running the
+  producer, not a scout's inferred map of what it emits. Inferred maps get top-level keys wrong.
+
+## Schema Rules Against Existing Artifacts
+
+- **A new required field or cross-field rule on a shared schema** invalidates every existing
+  fixture and live artifact of the old shape. Before shipping, grep test fixtures and validate the
+  live corpus against the tightened schema; plan substrate checks and coverage checkers do not do
+  this for you.
+- **A schema for artifacts that already exist** sets `required` to the intersection of what the
+  existing population carries; richness belongs to the producer, not the validator. Requiring
+  fields legacy artifacts lack recreates a write-guard that fights every edit.
+- **A conformance pass spans definition, instances, and tests.** Tightening `required` or an enum
+  breaks instances and old-shape tests; validate mirror-source schema copies with a real
+  JSON-Schema validator, not by eye.
+- **Ownership follows dependency locality.** A precedent like "the consumer shells the producer's
+  verify entry" transfers its shape, not its dependency graph — re-derive who owns the op from
+  which repo the dependencies actually live in.
+
+## Verify-Before-Prescribe Rules
+
+- **Grep a field's declared type before prescribing a rewrite of its value.** A generated enum or
+  literal-union field is welded: rewriting it requires opening the upstream enum first. A free
+  string is not.
+- **"X moved/renamed/changed in vN" is checked against both versions' actual trees.** Source-tree
+  scouting mis-frames pre-existing latent bugs as version divergence.
+- **A thesis "pattern X causes behavior Y" is verified across every corpus instance of X.** Fixing
+  only the obvious loci contradicts the thesis.
+- **A shared monotonic counter (a version, a count, a route number) on a concurrent branch is
+  computed from disk at integration.** The AC asserts the delta and a range, not a literal another
+  session will have bumped.
+- **A scout's reading of structure is hypothesis.** Scouts normalize what they read (nested YAML
+  rendered as flow maps, one branch traced as the whole behavior). When a plan rests on structure,
+  parse the raw artifact or run a planted fixture.
+
+## Plan-Write Checks Against Reality
+
+- **A ratified filter predicate is checked against real data at plan-write.** "Exclude PRIVATE"
+  can empty the feature when the emitting repo is itself private. Run the predicate over the actual
+  population, and reconcile again at execute time.
+- **A pilot spans every routing axis.** A pilot chosen on one axis (glob-only) misses the others
+  (kind-keyed routing) and the failures surface at full rollout.
+- **Check a sketched mechanism against every AC.** A substrate investigation's mechanism can be
+  subtly wrong (an AND gate where an AC needs an authoritative override).
+- **"Nothing exposes X" is a coverage hypothesis.** Grep the producing surface (dispatch table,
+  registry, handlers) for each named primitive before drafting a greenfield chunk.
+- **A cross-repo contract change greps the consumer's vendored copy** (version and the specific
+  field) at plan time; the consumer may already have moved.
+- **A protective guard names the exact protected path, never its parent.** A guard specified as
+  "`$HOME`" when it protects `~/.claude` breaks every legitimate operation under `$HOME`.
+- **A teardown's wiring map greps the subsystem's whole vocabulary** — concept names, schema
+  columns, env vars, decision topics — not only its executable's filename.
+- **Prefer a completeness invariant to an existence check.** A simplification that only checks
+  "something is there" can miss the exact failure it must catch (first-writer-wins).
+- **A schema for a shapeless population sharing a glob with a typed one** gets a more-specific-glob
+  permissive container (`required` empty, `additionalProperties` open) — not a strict schema, which
+  forces grandfathering churn, and not a glob exclusion, which `applies_to` cannot express.
+
+## Substrate Reading Discipline
+
+- **Read the enclosing docstring and negative-spec, not just the cited line.** A cited line ("no
+  authorization gate here") can sit twenty lines below a "handlers MUST NOT write" rule.
+- **When a migration changes what an identity resolves to, grep the assertion about where it
+  lives**, not every occurrence of the name; fixtures using the still-valid name are not stale.
+- **Before a load-bearing cross-repo chunk, read the sibling's actual contract.** A decision
+  adjudicated from the host's architecture alone can be reversed by the sibling's frozen producer
+  contract.
+- **Draw facade-chunk boundaries from the real caller enumeration**, and map each caller's noun
+  (which directory or store it touches) individually rather than by family grouping.
+- **A cross-repo contract block follows the producer's conventions and the writer's emitted
+  form** (casing, key names, scalar types, identity qualification) — not a consumer's local
+  scaffolding, even scaffolding built ahead of the contract.
+- **Name schema fields by capability from day one.** A field named after one workflow leaks that
+  vocabulary into a general schema; mechanical coverage checks cannot judge naming generality.
+- **A vendored-content sha pin and its bundle bytes advance together.** Advancing the pin without
+  re-copying leaves a pin naming content that is not on disk; add a byte-identity leg to the
+  drift check.
 
 ## Re-Export Shim Blast Radius Before Deleting a Vendored Constant
 
@@ -1650,6 +1779,7 @@ For any real I/O side-effect the doctrine change triggers (e.g., a foldering mig
 **Why:** the 2026-06-18 /distill reshape plan's ACs initially named behavior fixtures that have no test rig — the distill pipeline isn't fixture-tested. The honest, verifiable criteria were the specific invariant text in the shipped docs plus a real regression script for the 102-file foldering migration.
 
 **Shape:** doctrine-change plan AC table has:
+
 - Criteria for the specific text invariants the doctrine ships (verifiable by grep)
 - Criteria for concrete filesystem side-effects the change introduces (verifiable by script)
 - Reviewer-judgment criteria for runtime behavior or semantic quality assessments
@@ -1663,3 +1793,112 @@ the closing paragraph, an internal contradiction that survived to code review.
 
 The list is the surface an editor looks at; the cardinality word hides in the prose around it.
 Put the grep in any doc-edit executor brief whose change grows a set.
+
+## Plan skill residue — Branch A/B/D rationale
+
+Rationale moved out of the resident `plan` skill (`SKILL.md`, `residue/shared-corpus.md`, `residue/plan-corpus.md`). The rules stay resident; this is the reasoning behind them.
+
+- **Concurrent-session pre-flight.** Two concurrent EMs independently planning the same work is the failure mode, caught before any scout or reviewer spends tokens. The `source_memo:` leg catches only the plan-routed collision; a commit-only or `inline` realization is caught by the memo claim-lock (while `in_progress`) and the archived `realized_by` claim-of-record.
+- **Scope-path staleness.** The pre-flight greps `docs/plans/` and `source_memo:`; neither looks at the paths the plan proposes to change, so a peer shipping the fix into the plan's own scope files passes silently. A moved cited line number is the cheapest staleness signal. Composition on a large plan takes long enough for a peer to land the work mid-draft, so a clean B.0 says nothing about commit time. A peer's acceptance landing mid-draft inverts the stated blast radius: chunks written for the decline branch describe a shape the delivered thing deliberately lacks. No pre-flight lens reads the cross-repo inbox. `peer_sha_lint` also flags in-repo SHAs and session ids, so it runs near-100% false-positive on a single-repo plan.
+- **Eighth dimension.** It resolves to the same loop-back as the seven so Branch B keeps a two-valued exit. Widening `_LARGE_TSHIRTS` would reroute M-sized `jtbd_unclear` asks from `plan` to `shape`. The trampoline exists to stop contingent chunks that assume an unproven mechanism works. A bare `/spike` without the DEC-4 `trampoline: true` signal is always PM-gated.
+- **Verified-scope collapse.** `roadmap`/`pm-decision` are unreachable because `--probe-signal collapse` only moves the t-shirt down. Branch A's trampoline and this edge have disjoint re-entry points, so no cycle guard is needed.
+- **Self-evident behavioral facts** (a matcher's path-relativity, a cache's invalidation trigger, an API's ordering guarantee) skip verification precisely because they look obvious; a wrong one invalidates the mechanism at execution rather than at review.
+- **Fix-locus liveness vs discrimination.** A green `docs-checker` verifies the external API claim, not that the in-repo symbol still has the assumed shape; a concurrent session may have shipped, renamed, or removed it. A positional call site with a cut parameter shifts the trailing argument into the vacated slot: silent, review-invisible corruption.
+- **Registry and host-seam rows.** A parallel `else if` re-introduces dispatch fragility; a parallel addon front-end duplicates routing and turns every host upgrade into a re-port. Cross-references to a renumbered value rot silently when only the declaration site is found.
+- **Tier T.** Naming the fast tier or full suite as a chunk's test surface defers the identical deny until after the plan is reviewed and ratified on a row that was never enforceable.
+- **Fan-out chunking.** A plan collapsing N disjoint-write deliverables under "file-overlap" has mistaken read-overlap for write-overlap. `writes:`/`depends_on:` make wave-map derivation a pure function of the spine.
+- **Rename closeout.** Renames orphan inbound links the renaming executor never sees; private-repo absolute self-URLs return 401/404 and carry no signal.
+- **Handoff/spinoff chunks.** "Chunk N: write a spinoff" launders the PM gate through plan approval; by execution time it reads as a checklist item and the spinoff's Step 0 never fires. Unmarked fenced bash gets transcribed into broken shell.
+- **Branch D.** Substrate drift is plan-substrate failure, not executor failure; importing the full lane's chain into the S lane re-adds the gate the lane exists to remove, and silently expanding scope bypasses the lenses, prior-art check, and reviewer pass. Autonomous mode suppresses handoff nudges, not product judgment.
+- **Branch A.** The sizing wall's absence is covered only by EM behaviour: omitted `--sizing-object` writes clean and a body-only citation is invisible to both checks. Handoff sizing runs low on cross-repo co-design because it sees the structural problem, not the blast radius. A sent memo is an output of the plan, so a later wave can contradict it.
+- **Plan-corpus.** The coverage evidence is already computed by `plan-coverage-checker` Lens 1. Amend vs supersede are distinct tokens: the supersede note is a backstop seen at next `/workstream-start`, not a substitute for HEAD-drift discovery. `git log` busy with no debt row means the pattern was never named.
+
+## Field rules
+
+- **Scope a doc-corpus chunk from the corpus's INDEX location.** Find where the corpus and its index file actually live before naming the path; a hand-typed scope sends the executor to the wrong tree.
+- **Trace a rendered field end-to-end before planning to render it.** Present in the contract schema and fixtures does not mean present at render: follow it through ingest → store → loader → DTO; ingest can drop it silently.
+- **A passing grep oracle covers only the tokens it names.** A negative-assertion / over-claim oracle is not proof of no over-claim; pair it with a reading review.
+- **Before reshaping a plan on a cited doctrine, check for a same-day ruling on the seam.** Run prior-art-checker and grep sibling inboxes; an affirmed wiki can be superseded by a ruling hours old.
+- **Read a library's shipped source before adjudicating library-vs-CLI transport.** If the library spawns the same binary over the same protocol, the conflict dissolves without a tiebreaker.
+- **Verify a config-key premise against the code that reads it.** Which file and which semantics govern (local override only, non-empty value only) is decided by the resolver, not by a file that happens to hold the key.
+- **A handoff's stated fix mechanism is a hypothesis.** Before scoping, grep the fix locus for invariant comments (especially same-day ones) and check whether the target signature already supports the need.
+- **A chunk that authors a registrable artifact owns its registration site.** Put the registry wiring in the same chunk's write-files, or the artifact ships green and inert.
+- **A chunk's write set covers what its title and body promise.** Cross-check title/body against `writes:`; a narrower write set ships the chunk half-wired.
+- **Pair a cross-plan collision audit with a negative-space pass.** Parallel plans each disclaiming "consumed, not built" leave the question unowned, and a clean collision audit cannot see it.
+- **When a chunk states an assertion twice, mark which formulation is normative.** Executors implement the most operational-looking one (a regex sketch over the prose intent).
+- **Every gate a plan introduces has an achievable trigger.** A chunk gated on a memo the plan forbids sending deadlocks; re-check after any correctness-motivated reorder.
+- **A memo chunk closes on delivery evidence, never on the staged draft.** Staged drafts stay gitignored; closure cites the receiver's inbox path plus the delivery commit SHA, with the sent-ledger row as local corroboration ([cross-repo-memo-lifecycle § Delivery is receiver-side](../cross-repo-communication/cross-repo-memo-lifecycle.md#delivery-is-receiver-side--key-a-closure-identifier-to-the-receivers-inbox-never-the-senders-outbox)).
+- **An anti-scope handing a surface to another plan cites the consuming call site.** A non-zero grep makes built-not-wired detectable at review.
+- **A chunk that deletes or renames a script enumerates every test that spawns it.** Unowned spawn targets grade the code being replaced.
+- **Take a file's coupling from its test loaders, not its docstring.** Grep which tests load any file a plan leaves untouched or hand-edits.
+
+## Plan skill residue
+
+Full text relocated from `skills/plan/residue/shared-corpus.md`:
+
+Plan review altitude is graded by lane: a named Opus persona on the `plan` route, a Sonnet
+`plan-reviewer` lens ahead of it on the accepted-XL lane, and on the `spec-dispatch` lane a
+single pre-dispatch `plan-reviewer` pass and no Opus review. The lane's compensating control is
+the light terminal's own mandatory scoped `code-reviewer` pass (§ `spec-dispatch` row), binding
+on every exit; the pre-dispatch pass reviews the plan body and does not replace `code-reviewer`'s
+post-hoc review of the executor's diff.
+
+---
+
+  → **Schedule a post-execution `doc-link-checker` dispatch as the closeout chunk, subject to the precondition below.**
+  → **Precondition, checkable inline:** grep the repo for inbound links to each moved path (`grep -rn "<old-path>" --include=*.md`), then diff against what `validate-references` already covers. Schedule the closeout chunk ONLY when the residual is non-empty. **Skip, and note why, when** inbound links are private-repo absolute self-URLs or already covered by `run-all-checks`.
+  → **When the gate fires and the plan hands the move to an executor**, the chunk brief MUST carry the rename procedure (`coordinator/agents/executor.md` § Moving or Renaming Files — plain `mv`, not `git mv`; report both path sets to the EM), and the chunk's `writes:` MUST enumerate BOTH sides — old paths and new. `writes:` takes plain strings, no glob syntax (`coordinator/schemas/plan-tasks.schema.json:107-110`); a directory-shaped move is enumerated path-by-path.
+
+---
+
+  → **Resume — all seven routes disposed:** **`plan`** → resumes at **Branch C**, not Branch B; full terminal. **`spec-dispatch`** → Branch C at S-lane weight; light terminal. **`dispatch`** → abandon the pass and dispatch directly. **`shape`** → leave `plan`, shape's exit chains back here. **`roadmap`/`pm-decision`/`goal-setting`** → **unreachable by construction** (the probe signal only moves the t-shirt down); one returning anyway means the probe signal was mis-fed — stop and re-read the Branch B evidence.
+
+---
+
+    - **(a) Timing.** Fires HERE, before Branch C begins; the deferred plan-authoring intent is captured in the verdict record's **`gated route`** field, never a plan-body stub or parked chunk list.
+    - **(b) Dispatch.** Invoke `coordinator:spike` on the specific mechanism, carrying the DEC-4 structural `trampoline: true` signal, which the Branch B entry path supplies; a bare `/spike` without it is always PM-gated — do not fabricate the signal outside this entry path.
+    - **(c) Resume.** On a `viable` verdict, **resume re-enters Branch B — NOT a fresh Branch A triage, NOT a full seven-dimension re-run.** Only the eighth dimension flips; carry the other seven forward. Continue into Branch C.
+
+### Relocated from plan/SKILL.md Branch A rows
+
+  → **What the machine actually enforces.** `scaffold-plan --sizing-object` refuses an unresolvable path; `assert-plan-sizing-citation` sweeps frontmatter only. Neither catches ABSENCE; only the trampoline does, as EM behaviour.
+
+---
+
+  - **Provenance-blind.** A picked-up cross-repo memo's `ask` is novel work in THIS repo — it needs the lobby too.
+
+---
+
+  - **The existence of a sibling is not the trigger — negotiated co-design is.** A *memo* (one ask) does not escalate here. If you cannot name the coordinating party and the shared contract still being negotiated, this row has not fired.
+
+---
+
+ **Termination:** sizing always writes an object before returning, so re-entry lands on the conform detent, never back here.
+
+### Relocated from plan-corpus.md
+
+**Un-gaming clauses for step (2)** — a yes/no "I have the shape ✓" is banned:
+
+1. The least-certain item must be **the scope boundary whose wrong guess costs the most rework**, not merely "something you're unsure about."
+2. State the **probability-weighted consequence** ("if I'm wrong about X, chunks C2–C4 are rework"). A trivial selection self-evidently fails this.
+3. It must be a **PM-altitude question** (product intent, scope boundary, success criteria). Tactical uncertainties (naming, test framework, commit shape, file structure) are **disqualified as off-altitude**, not merely low-stakes — resolve them, never surface them.
+
+---
+
+**If the criterion is not observable in artifact state, the CRITERION is wrong — never add a chunk
+to make it observable.** Rewrite it against what the work actually produces, or accept a narrower
+one you can observe.
+
+**An artifact-state check must respect a ratified absence** — a plan may rule an artifact out of
+scope (no migration, no shim, no row). **Where the plan has ratified an absence, the instrument
+observes THAT — the absence is the expected state, and its appearance is the failure.** Check what
+the plan decided before writing a presence assertion. Measured failure tells behind these three
+rules, and the review cycle their absence cost: writing-plans.md § Prime Exit Criterion.
+
+---
+
+  → **Name no execution vehicle.** Anti-scope binds the change; the vehicle is the executing EM's
+  call at dispatch time, default a background Workflow. *"Do not fan this out"* / *"EM-sequenced,
+  chunk at a time"* will be overridden, so write the real constraint instead: a shared write target
+  is a `depends_on` edge on the spine, a Workflow-inexpressible shape is a named carve-out
+  (`coordinator/docs/wiki/em-operating-model/workflow-orchestration.md`). Tripwire: `A-PLAN-DOES-NOT-PICK-THE-EXECUTION-VEHICLE`.

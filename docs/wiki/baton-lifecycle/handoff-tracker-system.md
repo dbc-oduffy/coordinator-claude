@@ -8,11 +8,12 @@ snapshot.
 
 >
 > Back-citations:
->   - coordinator/CLAUDE.md § Live Queries vs. Scaffolded Indices — retired, no confirmed successor located (why no hand-maintained table)
->   - docs/wiki/ceremony-calibration/workday-workweek-cadence.md "Handoffs are the atom; the week-changelog is the index"
->   - docs/wiki/release-and-distribution/completion-log-release-loop.md § Phase 2 (canonical archive glob for archive reads)
->   - docs/wiki/baton-lifecycle/spinoff-handoffs.md (lineage DAG edge-kinds — `predecessor`, `additional_predecessors`,
->     `forked_from`, `origin_*` — is the canonical home for fan-in/fan-out lineage; not duplicated here)
+>
+> - coordinator/CLAUDE.md § Live Queries vs. Scaffolded Indices — retired, no confirmed successor located (why no hand-maintained table)
+> - docs/wiki/ceremony-calibration/workday-workweek-cadence.md "Handoffs are the atom; the week-changelog is the index"
+> - docs/wiki/release-and-distribution/completion-log-release-loop.md § Phase 2 (canonical archive glob for archive reads)
+> - docs/wiki/baton-lifecycle/spinoff-handoffs.md (lineage DAG edge-kinds — `predecessor`, `additional_predecessors`,
+> `forked_from`, `origin_*` — is the canonical home for fan-in/fan-out lineage; not duplicated here)
 
 ---
 
@@ -60,6 +61,7 @@ spinoff is strategically significant but temporally a handoff.
 `summary` on handoffs that predate the schema extension.
 
 Operating rules:
+
 - **Active-only by default** — only processes `state/handoffs/` (not the archive).
   Archived handoffs are immutable records; backfilling them changes the historical record
   without benefit.
@@ -69,7 +71,7 @@ Operating rules:
 
 ### Running ad-hoc
 
-`normalize-handoff-frontmatter.js` migrated to the engine repo's `coordinator/bin/` — resolve `$REPO_CLAUDE_KLABAUTER` per `percolate-setup.md` § PERCOLATE_ROOT and CLAUDE_KLABAUTER_ROOT.
+`normalize-handoff-frontmatter.js` migrated to the engine repo's `coordinator/bin/` — resolve `$REPO_CLAUDE_KLABAUTER` per `coordinator/docs/wiki/percolate-setup.md` § PERCOLATE_ROOT and CLAUDE_KLABAUTER_ROOT.
 
 ```sh
 # Dry-run (preview only):
@@ -159,10 +161,10 @@ if superseded-and-dropped), optionally with `consumed_by: <successor-basename>`.
 handoff with an active status is not a stale record, it is a dangerous one — a reader or sweep can
 treat it as still fireable.
 
-**`handoff.ship_and_archive` receipts are not proof the DoE-side mutation ran.** The
-Claude-klabauter-driven (pipeline-inverted) `/workstream-complete` `wsc_commit` op records "ship consumed
+**`handoff.ship_and_archive` receipts are not proof the repo-side mutation ran.** The
+the retired engine-driven (pipeline-inverted) `/workstream-complete` `wsc_commit` op recorded "ship consumed
 handoff" and stub-close as receipt nodes but has been observed NOT to execute the corresponding
-DoE-side mutation — the consumed handoff stays `consumed`/`in_flight` and the roadmap stub-index
+repo-side mutation — the consumed handoff stays `consumed`/`in_flight` and the roadmap stub-index
 stays stale even though the receipt says the step ran. After a chain-terminal `wsc_commit`,
 verify the handoff and any origin stub on disk rather than trusting the receipt; if unshipped,
 ship and refresh them manually via the archive-stamp CLI's stamp-only mode. A stub-close call
@@ -209,8 +211,7 @@ for the authorization-stamp mechanics themselves).
 
 A 2026-07-17 fleet-wide sweep found **120 de-facto execution handoffs across 8 repos** already
 using this shape informally, with **five divergent dialects** across siblings. The 2026-07-17
-contract 
-formalized this into schema rather than leaving it as convention, and shipped it same-day.
+contractformalized this into schema rather than leaving it as convention, and shipped it same-day.
 
 ### An orthogonal field, not a new kind
 
@@ -384,39 +385,23 @@ attached.
 Two independent sweep mechanisms recover handoffs left in inconsistent states by crashed or
 abandoned sessions.
 
-### Reaper: dead holders release their claim
+### Orphaned claims: released by hand, never abandoned
 
-`reap-orphaned-in-flight-handoffs.py` reclaims handoffs whose `deployment_state: in_flight` claim
-outlived its holder session. Automated resolution to `abandoned` followed by archival is not
-performed — only a session's own resolution should ever produce `abandoned`. The reaper
-first runs a ship-check: it ships an orphan as `shipped` when four predicates ALL hold — that dead
-holder genuinely ran a terminal completion ceremony, which IS resolution by a session:
-
-- **P1** — the orphan handoff itself is not a `kind: spinoff-roadmap` node with a populated
-  `deliverable_id` (those belong to `promote-shipped-in-flight-stubs.py`'s separate
-  deliverable-spine join and skip this reaper's ship-check entirely).
-  <!-- Review: code-reviewer Finding 2 — reworded from "the dead holder session is not
-       promoter-owned" (a session-level framing) to the actual per-handoff frontmatter
-       gate; a single dead session can hold claims on both a spinoff-roadmap node and an
-       ordinary handoff simultaneously, so "session is not promoter-owned" isn't coherent. -->
-- **P2** — the dead holder session consumed **exactly one** handoff. If ≥2 handoffs share the same
-  `consumed_by`/`claimed_by`, the reaper falls through to release rather than guess which one shipped — this
-  guards against a false-positive ship attribution when a session's claim history is ambiguous.
-- **P3** — the dead holder session has exactly one completion-log entry.
-- **P4** — at least one SHA in that completion entry is git-reachable (resolvable).
-
-If any predicate fails, the reaper falls through to **release**, not abandonment: it dispatches
-`archive-stamp-cli`'s `unconsume-handoff` verb, returning the handoff to the pool (`status: active`,
-`deployment_state: ready_to_fire`, `consumed_by`/`claimed_by` and `consumed_at`/`claimed_at` stripped, a `park_note:` recording
-the release). The handoff stays in `state/handoffs/` and is NOT archived — archival only ever
-happens after a handoff reaches `shipped` via the engine repo's `coordinator/bin/sweep-terminal-handoffs.py`, run from `/workday-start` Step 1.47 on demand, or via `/workday-complete`'s `reap-orphaned-in-flight-handoffs` + `handoff-housekeeping` pair, which owns the dead-holder case. Not on any boot-time trigger — that sweep is killed.
+A handoff whose `deployment_state: in_flight` claim outlived its holder session is released with
+`archive-stamp-cli unclaim-handoff`, returning it to the pool (`status: active`,
+`deployment_state: ready_to_fire`, `consumed_by`/`claimed_by` and `consumed_at`/`claimed_at`
+stripped, a `park_note:` recording the release). A genuinely shipped orphan is stamped `shipped`
+with a git-resolvable `shipped_in` instead. The handoff stays in `state/handoffs/` and is NOT
+archived by the release — archival only happens after a handoff reaches `shipped` via the engine
+repo's `coordinator/bin/sweep-terminal-handoffs.py`, run from `/workday-start` Step 1.47 on demand,
+or via `/workday-complete`'s `handoff-housekeeping` directive. Not on any boot-time trigger — that
+sweep is killed.
 **There is no liveness-based auto-abandonment.** `abandoned` is reachable only by
-explicit human/session decision, never by this sweep — a fail-closed-to-`abandoned` default
-silently destroys handoffs and must not be restored.
-
-The reaper re-reads state at act-time (TOCTOU guard — the holder-liveness and claim state can
-change between the sweep's initial read and its write) and `--dry-run` reports the decision without
-mutating anything.
+explicit human/session decision — a fail-closed-to-`abandoned` default
+silently destroys handoffs and must not be restored. Before releasing, confirm the holder is dead
+(`live_session_ids` / `claim_holder_live`, never a stored pid) and the governing plan is not
+`implemented`; a live holder mid-Workflow can look dead on a stale heartbeat, and releasing its
+claim exposes the workstream to duplicate pickup.
 
 
 ### Ship-oracle design — ship, don't abandon
@@ -448,10 +433,10 @@ mechanisms were found, each needing separate triage treatment:
 explicit PM decision. Do not default to reviving a stranded/orphaned handoff just because it
 still exists on disk.
 
-### Stale claim-lock pruning (open defect, DoE-owned as of 2026-07-13)
+### Stale claim-lock pruning (open defect, owned by the plugin's source repo)
 
 Claim locks at `.git/coordinator-sessions/handoff-claims/<handoff>/{pid,session_id,claimed_at}` are
-**never pruned by PID liveness** by the reaper described above. A dead-PID lock reads as a "live
+**never pruned by PID liveness** by the claim-lock reaper. A dead-PID lock reads as a "live
 claim" to the archival no-live-claim gate, so any consumed/terminal handoff under a stale lock is
 retained indefinitely. (Repro observed 2026-07-13: 7 claim locks present, all 7 PIDs dead, one even
 already-archived, with the reaper's `.last-reap` sentinel itself 6h stale.) Per

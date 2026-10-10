@@ -79,7 +79,7 @@ committing a ledger the grind left, run
 `backlog-grind-assemble grind-row sweep --profile-dir D --profile P --queue Q [--queue Q ...] --repo-root R`
 and commit its deletions. Name every queue dir the profile reads: a dir left out reads as closed and
 its live ledgers settle. An engine without `sweep` answers unknown-subcommand; settle each orphan with
-`grind-row settle --profile P --row-id R --repo-root R` instead. Tripwire:
+`backlog-grind-assemble grind-row settle --profile P --row-id R --repo-root R` instead. Tripwire:
 `A-HAND-CLOSED-GRIND-ROW-ORPHANS-ITS-LEDGER`.
 
 ## Ratified ancestor — this generalizes an existing PM ruling, it does not invent one
@@ -154,7 +154,7 @@ disk. Every consumer downstream of emission is blind to it. A class that is expr
 file but not in the wire format is not yet fleet-visible.
 
 <!-- Negative-spec: an earlier revision of this section claimed the
-     unknown value "hard-fails cockpit emission". That was wrong — corrected by claude-klabauter-em
+     unknown value "hard-fails cockpit emission". That was wrong — corrected by the engine repo's EM
      after they traced the per-record catch. Do not restore the hard-fail framing;
      the quarantine is real and the distinction matters when planning around it. -->
 
@@ -233,7 +233,7 @@ merges, splits, or discards proposed clusters before a baton is authored.
 The terminus prefers, in order:
 
 1. A **registered engine op** wrapping the clustering leg (queue-family-generic, per DEC-4) —
-   the target state once the claude-klabauter-side op work lands.
+   the target state once the engine-side op work lands.
 2. **Degraded but still mechanical:** the shipped `detect-initiative-candidates` CLI in
    the engine repo, invoked directly. This CLI already ships title-keyword (and other) clustering
    generic over queue family (`UNATTACHED_TYPES` spans bug/debt/improvement/roadmap/handoff/plan)

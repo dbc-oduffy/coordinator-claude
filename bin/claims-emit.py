@@ -9,7 +9,7 @@ _TRANSPORT_FAIL = 3
 
 _USAGE = (
     "usage: claims-emit --producer <slug> --out <stem> --ran-at <rfc3339> "
-    "--pipeline <token>\n"
+    "--pipeline <token> [--local-only]\n"
     "\n"
     "Reads a bare top-level JSON array of claim records from STDIN.\n"
     "--ran-at (RFC3339, timezone-aware) and --pipeline (non-blank, never\n"
@@ -48,6 +48,7 @@ def main(argv: list[str]) -> int:
     out: str | None = None
     ran_at: str | None = None
     pipeline: str | None = None
+    local_only = False
     i = 0
     while i < len(argv):
         tok = argv[i]
@@ -72,6 +73,9 @@ def main(argv: list[str]) -> int:
                 return 2
             ran_at = argv[i + 1]
             i += 2
+        elif tok == "--local-only":
+            local_only = True
+            i += 1
         elif tok == "--pipeline":
             if i + 1 >= len(argv):
                 print("claims-emit: --pipeline requires a value", file=sys.stderr)
@@ -132,6 +136,7 @@ def main(argv: list[str]) -> int:
         ran_at=ran_at,
         pipeline=pipeline,
         out_stem=out,
+        local_only=local_only,
     )
 
 

@@ -66,7 +66,7 @@ all four justification checks answered inline. **Do NOT auto-apply `doctrine-edi
 `memory-pointer` records, regardless of mode** — they always require doctrine-owner authoring, the Staff Engineer
 review, and PM surface.
 
-### DoE-only adjudication on CLAUDE.md edits
+### Maintainer-only adjudication on CLAUDE.md edits
 
 CLAUDE.md loads at every session start across every project — blast radius is maximum. The receive-side gate must match that asymmetry.
 
@@ -192,9 +192,9 @@ The same gate applies whether the target is `~/.claude/CLAUDE.md`, `global-doctr
 
 ### Apply dispatch by change-kind
 
-- `doctrine-edit`, `memory-pointer` → **DoE-only.** Workers MUST NOT reach this branch —
+- `doctrine-edit`, `memory-pointer` → **Maintainer-only.** Workers MUST NOT reach this branch —
   worker records arriving with either change-kind are downgraded to `wiki-*` +
-  `doe_escalation: true` at consolidation. Only DoE-authored plans (drafted after reviewing
+  `doe_escalation: true` at consolidation. Only maintainer-authored plans (drafted after reviewing
   the escalation bucket, clearing the four-check justification gate, and clearing the
   char-budget pre-flight) reach this dispatch step. Plan → the Staff Engineer review → integrator →
   executor.
@@ -286,6 +286,7 @@ Each lesson extracted from `state/lessons/` is classified into one of four scope
 **Per-project `state/lessons/` capture queues accumulate war stories specific to that project's domain. The central-mode run is the mechanism for surfacing universal patterns buried in domain-specific language.**
 
 Triage tier:
+
 - **Tier 1** — pattern applies universally → coordinator structural change (skill/command/agent-prompt/wiki); tag `[universal]`, promote to central queue.
 - **Tier 2** — pattern is project-structural → stays in `state/improvement-queue/` for that repo.
 - **Tier 3** — already encoded in existing doctrine → `discard`.

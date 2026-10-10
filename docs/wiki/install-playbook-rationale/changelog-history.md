@@ -146,6 +146,7 @@ Minor release. New publish-flow skills, sanitization hardening, plugin-wiki bund
 **This is a major release.** Three skill renames, one branch-naming change, and a new validator gate make this incompatible with v1.x consumers. See **Breaking Changes** and **Migration** below.
 
 Five themes:
+
 - A — Super-skill pattern (`coordinator:plan` / `coordinator:review` / `coordinator:review-code` as decision-tree super-skills)
 - B — Loop-closure (`/bug-blitz`, `coordinator:learn-lessons`, `/dogfood` fully integrated into discovery surfaces)
 - C — Daily-branch span-aware refactor (silent midnight rename; `work/{m}/{date}to{dd}` format)
@@ -213,16 +214,19 @@ Targeted fixes in `bin/`, `hooks/`, `lib/` from the 2026-05-06 sweep. Highlights
 CLAUDE.md tightening (40.6k→33.9k chars; rule density preserved, redundant inline enumerations collapsed to one-liners + links to authoritative wikis). Snippet-system maturation: 6 verify-sync scripts (`prior-art`, `docs-checker`, `default-routing`, `text-only-recovery`, `reviewer-calibration`, `project-rag-preamble`). Prior-art-checker pre-flight agent integrated into `/review-dispatch` Phase 2.7b — Sonnet recall over project wikis + global wikis + lessons + improvement queue, sidecar at `<plan-path>.prior-art-check.md`. Description-length validator (`bin/check-description-length.sh`) added with `description-budget` exemption frontmatter. New wikis: `dogfooding-doctrine.md`, `tiered-context-loading.md`, `prior-art-checker.md`, `docs-checker-pre-review.md`, `oom-reproducer-strategy.md`, `parallel-enrichment-seam-review.md`, `reviewer-routed-workers.md`, `round-trip-contract-tests.md`, `scoped-safety-commits.md`, `cleanup-sweep-hazards.md`, `claude-code-platform-gotchas.md`, `plugin-extraction-and-distribution.md`, `per-project-plugin-gating.md`, `example-game-repo-for-your-ue-project.md`, `rag-bait-conventions.md`, `reviewer-premise-challenge.md`.
 
 ### Also Added
+
 - ISSUE_TEMPLATEs (command_request, docs_improvement, install_problem, reviewer_request) and `evals/` stub (W6 author-feedback roadmap).
 - Role-first reviewer presentation + contracts index (W4 author-feedback roadmap).
 - 13 user-typed commands migrated `commands/<n>.md` → `skills/<n>/SKILL.md` for bare-form slash invocation (pickup, handoff, spinoff, execute-plan, daily-review, code-health, architecture-rotation, enrich-and-review, bug-sweep, generate-repomap, staff-session, review-dispatch, session-start, session-end). Auto-runners stayed in `commands/` by design.
 
 ### Fixed
+
 - `setup/install.sh --profile full` no longer warns: `deep-research` added to `PLUGIN_REGISTRY`.
 - Windows console-flash regression: `coordinator-auto-push` and `hooks.json` SessionStart pwsh now invoked with `-WindowStyle Hidden`. Tripwire `bin/verify-no-powershell-flash.sh` greps shell + hook JSON.
 - `git branch --show-current` Windows case-fragility: `coordinator-auto-push` canonicalizes via `git for-each-ref` before push, eliminating mixed-case daily-branch push failures.
 
 ### Removed
+
 - **`remember` plugin removed.** Agent-summarized session memory (rolling daily/weekly/archive files under `.remember/`) was duplicating the work the handoff/commit/plan pipeline already does, at worse fidelity, with its own staleness modes and Windows-path-quirks. Recording-without-routing was the wrong layer to invest in; v2.0.0 invested in *consumers* (prior-art-checker, `/learn-lessons`, `/bug-blitz`) instead. Rationale captured in the loop-closure chapter of the (now-retired) evolution doc set. Live references purged from README, `setup/install.sh`, `docs/architecture.md`, `docs/wiki/install-playbook-rationale/getting-started.md`, `docs/agent-install.md`, `dist/publish-repo-docs/safety.md`. `setup/patch-remember-plugin.sh` deleted. Historical references in older changelog entries and in the registry-submission-readiness design plan left intact as historical record.
 
 ## [1.10.0] — 2026-05-06
@@ -234,6 +238,7 @@ Four themes in this release: workday/workweek cadence split, layered reviewer-pr
 `/workday-complete` had grown to 306 lines doing double duty: lightweight daily housekeeping AND release-grade ceremony. Multi-day workstreams don't fit a daily wrap, so the heavy half either got skipped or fired at the wrong cadence. This release splits the cadence into daily and weekly bookends, with a structured `state/week-changelog/` ledger acting as a thin index over handoffs (which remain the unit of session continuity).
 
 ### Added
+
 - **`/workweek-start`** (new) — PM-invoked strategic orient at the start of a week. Reads the prior week's changelog, surfaces stalled workstreams, runs an orphan sweep, prompts the PM for 1–3 priorities, and resets-or-updates the week-changelog header file under `state/week-changelog/` based on whether a `/workweek-complete` has occurred since the last `/workweek-start`.
 - **`/workweek-complete`** (new) — PM-invoked release-grade close. Reads the week-changelog as canonical record, runs full validation + `/update-docs` + ShellCheck + Codex review + improvement-queue triage + scc snapshot, drafts release notes from changelog + `archive/completed/`, surfaces a version bump, invokes `/merge-to-main`, archives the daily files, and resets the HEADER.
 - **`state/week-changelog/`** convention — per-machine daily files (`YYYY-MM-DD-{hostname}.md`) + shared `HEADER.md`. Per-machine layout eliminates concurrent-write conflicts when multiple machines wrap the same calendar day.
@@ -242,15 +247,18 @@ Four themes in this release: workday/workweek cadence split, layered reviewer-pr
 - **`docs/wiki/ceremony-calibration/workday-workweek-cadence.md`** — tutorial guide for the new cadence.
 
 ### Changed
+
 - **`/workday-complete`** rewritten (307 → 210 lines). Drops `/update-docs`, scc, ShellCheck, Codex review gate, and improvement-queue triage action — all moved to `/workweek-complete`. Adds: read-only improvement-queue depth nudge (≥5 entries surfaces a one-liner, no triage), changelog append (synthesises today's block from handoffs + `/daily-review` summary, does NOT re-author), staleness check (surfaces "weekly is stale" when thresholds cross). `Validation:` field on the daily block is auto-filled from gate exit codes, never LLM-authored.
 - **`plugins/coordinator/CLAUDE.md`** — new "Workday/Workweek Cadence" doctrine section ("handoffs are the atom, the changelog is the index"); existing improvement-queue triage rule updated to reflect daily-nudge / weekly-action split.
 
 ### Migration
+
 - Existing projects do not need to do anything. The week-changelog header file under `state/week-changelog/` is shipped as a seed template; first `/workweek-start` populates it. Until then, `bin/check-weekly-staleness.sh` returns `UNKNOWN` (no nudge fires).
 - Existing `/workday-complete` workflows continue to work — the command does less, but everything it still does was already there.
 - `/pickup` enhancement is additive; same-day handoffs (the common case) are unaffected.
 
 ### Design source
+
 The originating design plan (workweek-cadence-split) was reviewed by the Staff Engineer, APPROVED_WITH_NOTES — all findings folded in.
 
 ### Theme B — Reviewer premise challenge (layered W1–W5 defense)
@@ -258,6 +266,7 @@ The originating design plan (workweek-cadence-split) was reviewed by the Staff E
 Closes the "shape-correct, premise-wrong" gap surfaced by the 2026-05-04 example-game-repo `.uplugin Modules` incident: a plan was empirically refuted post-review because it reintroduced something `state/lessons/` and the wiki had explicitly forbidden 5 days earlier; no checkpoint surfaced the prior prohibition. The layered defense adds challenge points across the pipeline so the same failure mode is caught at multiple stages rather than relying on any single agent.
 
 #### Added
+
 - **W1 — `writing-plans` skill** gains a negative-search step and a reversal-verb hint that suggests a staff-session at PM discretion when a plan reverses a recently-shipped decision.
 - **W2 — `repo-specialist` agent** gains a counter-evidence pass with a hard always-read rule for `state/lessons/`.
 - **W3 — `staff-eng` (the Staff Engineer)** gains "Pass 0 — Premise & Alternatives" with three new structured fields, a `REJECTED` verdict (refuted alone — no architectural-superiority clause), and five hard guardrails. Self-reviewed `REJECTED`-trigger inconsistency caught and integrated.
@@ -265,12 +274,15 @@ Closes the "shape-correct, premise-wrong" gap surfaced by the 2026-05-04 example
 - **W5 — `review-integrator`** treats `REJECTED` as advisory; EM override requires a verbatim PM quote.
 
 #### Changed
+
 - Calibration block byte-identical across all reviewers (`verify-calibration-sync` clean).
 
 #### Design source
+
 The originating design plan (reviewer-premise-challenge) was reviewed by the Staff Engineer, APPROVED_WITH_NOTES — all 7 findings integrated.
 
 #### Note
+
 The same source-side commit also carried an early-write probe addition to `plugins/deep-research/agents/repo-specialist.md` — orthogonal to the W1–W5 work but mixed into the same commit and percolated together via `publish.sh`.
 
 ### Theme C — PM-native operating layer
@@ -278,6 +290,7 @@ The same source-side commit also carried an early-write probe addition to `plugi
 The repo has always implemented a PM-EM split, but the README and surrounding doctrine framed it as "a Claude Code productivity framework." This release sharpens the framing: a *PM-native operating layer for AI engineering work* — turning product intent into scoped plans, delegated implementation, evidence, and ship/no-ship decisions, while keeping the PM technical enough to spot when something looks wrong. The framing acknowledges higher-altitude (fully non-technical PM) operation as future work, not current default; the current sweet spot is a technical-evaluating PM.
 
 #### Added
+
 - **the VP-Product Reviewer** (`plugins/coordinator/agents/vp-product.md`) — new primary reviewer (`coordinator:vp-product`), VP of Product (they/them), with software-engineering instincts. Stress-tests engineering choices: shape (concurrency model, sync vs. async, polling vs. event-driven, abstraction altitude), refactor-vs-patch calibration when AI execution makes refactors cheap, the dumb questions experienced engineers skip ("why single-threaded when threading is 30 lines?"), YAGNI-vs-laziness distinction, and "have you considered a different shape?" alternatives. Distinct from the Staff Engineer (code quality) and the Ambition Advocate (`coordinator:ambition-advocate`) (Staff Engineer backstop). Synced calibration block; `bin/verify-calibration-sync.sh` consumer list updated.
 - **Scope modes in `writing-plans` skill** — required header field with explicit rules per mode: prototype, production-patch, feature, architecture, spike. Routes review depth and the evidence bar.
 - **Acceptance Criteria + Non-Goals as required plan-header sections** — ends "done means whatever the agent says it means."
@@ -288,6 +301,7 @@ The repo has always implemented a PM-EM split, but the README and surrounding do
 - **`docs/evolution/` doc set** — README + 6 chapters: origin, handoffs-over-compaction, personas-as-ergonomics (the honest negative-result story), investigation-funnel, failure-modes (12-mode taxonomy with detection signals + prevention rules + recovery moves), what-we-rejected (the taste chapter, including external-review proposals declined with reasoning). The publish-repo answer to "evidence ledger" — outside readers evaluating the system see that the model has been pressure-tested and learns from failure.
 
 #### Changed
+
 - **README rewritten around PM-native thesis.** New lede framing, "What This Is *Not*" section to head off miscategorization, commands reorganized around 5 flows (build a feature, fix a bug, resume work, autonomous sprint, architecture change). Inventory table demoted to collapsed appendix.
 - **Coordinator CLAUDE.md gains "Challenging the PM" doctrine** — explicit pushback triggers (request doesn't serve stated objective; change is larger than PM realizes; request hides a product decision; cheaper experiment available; scope expanding; acceptance criteria missing or unverifiable; PM asking to ship despite insufficient evidence).
 - **Coordinator CLAUDE.md gains "PM Escalation Triggers — Ask vs. Don't Ask"** — explicit list cutting the ambiguity between EM implementation discretion and PM product authority.
@@ -333,18 +347,21 @@ Net effect: `remember` was redundant infrastructure for a problem already solved
 Promotes the `docs-checker` Sonnet agent from optional reporting-only to a suggested pre-flight before Opus reviewer dispatch, with authority to apply AUTO-FIX-class corrections inline. Reviewer awareness propagated to all five Opus reviewers via a new sentinel-snippet sync surface, parallel to the existing calibration and project-rag-preamble patterns.
 
 ### Added
+
 - **`docs/wiki/reviewer-pipeline/docs-checker-pre-review.md`** — full doctrine page: EM Decision Rules table (always-run for C++/UE; EM judgment elsewhere; freshness-marked against the current model), AUTO-FIX allowlist + hard prohibitions, scope constraint (artifact-only, never referenced files), project-RAG staleness rule, sidecar YAML schema, edit-budget cap, integrator-bypass rollback story.
 - **`snippets/docs-checker-consumption.md`** — canonical consumer-side block (synced into all five Opus reviewer prompts).
 - **`plugins/coordinator/bin/verify-docs-checker-sync.sh`** — sync verifier with `--fix` and `--list` modes; clone of `verify-calibration-sync.sh`.
 - **`plugins/coordinator/CLAUDE.md`** new section "Pre-Review Mechanical Verification" (terse rule + pointer to wiki) + tripwire under "Adding a Convention to the Coordinator System".
 
 ### Changed
+
 - **`plugins/coordinator/agents/docs-checker.md`** — gains `Edit` tool + seven `mcp__project-rag__*` tools, project-RAG bootstrap subsection, expanded scope (in-repo symbols verifiable when project-RAG present), 5-tier verification source hierarchy with explicit staleness handling, new "Inline Auto-Fix Authority" section (allowlist, scope constraint, edit-budget cap, sidecar YAML schema, hard prohibitions, oscillation stuck-detection), removal of "Apply fixes" from "What You Do NOT Do", verification-table `Action` column.
 - **`plugins/coordinator/agents/staff-eng.md`** (the Staff Engineer), **`plugins/game-dev/agents/staff-game-dev.md`** (the Game Dev Reviewer), **`plugins/data-science/agents/staff-data-sci.md`** (the Data Science Reviewer (`data-science:staff-data-sci`)), **`plugins/web-dev/agents/senior-front-end.md`** (the Front-End Reviewer (`web-dev:senior-front-end`)) — sentinel-block docs-checker-consumption inserted (replaces inline block in staff-eng; new in the others).
 - **`plugins/coordinator/commands/review-dispatch.md`** — Phase 2.7 promoted from optional to suggested pre-flight; embeds the EM Decision Rules table; integrator-bypass note + mandatory EM spot-check after Opus review.
 - **`plugins/coordinator/skills/requesting-code-review/SKILL.md`**, **`plugins/coordinator/skills/requesting-staff-session/SKILL.md`** — pointer to docs-checker pre-flight in review-setup steps.
 
 ### Internal
+
 - Landed as a single source commit on the pre-publish source mirror's `main`. The Staff Engineer's R1 review (REQUIRES_CHANGES, 11 findings) → integrator (all 11 AUTO-FIX-applied) → the Staff Engineer's R2 review (APPROVED, 0 findings). Plan + reviews preserved at `state/reviews/2026-05-03-docs-checker-pre-flight-*.md` in the source repo.
 
 ## [1.7.1] — 2026-05-03
@@ -354,14 +371,17 @@ Promotes the `docs-checker` Sonnet agent from optional reporting-only to a sugge
 Patch release. README plugin enumeration was stale (still listing 4 plugins and pointing at the retired `deep-research-claude` companion repo); social preview stats were stale; one cross-platform fix and one universal-tier doctrine sync had landed without a release marker.
 
 ### Changed
+
 - **README plugin enumeration** updated to reflect the 7 plugins shipped via `marketplace.json` — `deep-research` and `notebooklm` are bundled (not external companions), and `remember` is now surfaced. Directory tree refreshed with current counts (23 commands, 34 skills, 11 coordinator agents).
 - **Social preview** (`assets/social-preview.{html,png}`) regenerated — 7 plugins, 36 skills, 26 agents, 4 research pipelines.
 - **`plugins/coordinator/.claude-plugin/plugin.json`** bumped 1.6.0 → 1.7.1 (1.7.0 release shipped without a manifest bump).
 
 ### Fixed
+
 - **`hooks/scripts/track-tier-usage.sh`** — normalize MSYS/Git-Bash cwd before slug derivation so the W3 telemetry counter writes to the correct per-repo log on Windows (mirror of a PR against the pre-publish source mirror).
 
 ### Internal
+
 - Promoted 5 universal-tier lessons from `/workday-start` triage queue (mirror of a PR against the pre-publish source mirror).
 
 ## [1.7.0] — 2026-05-01
@@ -371,14 +391,17 @@ Patch release. README plugin enumeration was stale (still listing 4 plugins and 
 Three workstreams percolated from `$HOME/.claude` HEAD as a single bundle (R2 APPROVED_WITH_NOTES, all 7 findings integrated). Schemas + lint belt, live-query primitives, and tiered context-loading doctrine — each tackling a different decay mode in the coordinator pipeline.
 
 ### Added
+
 - **W1 — Frontmatter schemas + lint belt + PreToolUse validator.** New `schemas/{handoff,plan,review,decision,worker-run,lesson-entry}.yaml`, shared `bin/lib/schema.{js,test.js}` validator (with code-span / link-text robustness), `bin/lint-frontmatter.{sh,js}` CLI, and `hooks/scripts/validate-frontmatter-schema.{js,test.js}` PreToolUse hook (default WARN mode; `COORDINATOR_SCHEMA_STRICT=1` to deny).
 - **W2 — Live queries CLI + sentinel-block primitives.** `bin/query-records.{js,sh}` queries frontmatter-indexed records; `bin/refresh-queries.{js,sh}` regenerates `<!-- BEGIN query: ... -->` callouts in markdown (consumed by `/update-docs` Phase 11c); `bin/lib/sentinel-blocks.{js,test.js,cli.js}` factor out shared sentinel-block extraction (now delegated by `verify-preamble-sync.sh` and `verify-calibration-sync.sh`).
 - **W3 — Tiered context loading doctrine + telemetry.** New `docs/wiki/skills-corpus/tiered-context-loading.md` canonical guide; `coordinator/CLAUDE.md` "Codebase Investigation" section rewritten to enumerate tiers 0–4 plus the tier-4 rationale rule; `hooks/scripts/track-tier-usage.sh` PostToolUse telemetry counter classifies each tool call by tier and detects the rationale preamble; `/session-end` Step 0 emits a tier-usage report.
 
 ### Changed
+
 - **Doctrine + preamble syncs** across `CLAUDE.md`, `agents/staff-eng`, and commands `{distill, handoff, mise-en-place, session-start, session-end, update-docs}` to thread the new tiered-context model and rationale rule through the agent surfaces that consume them.
 
 ### Internal
+
 - Test coverage for `schema.js` (code-span / link-text edge cases), `query-records`, and `sentinel-blocks` modules.
 
 ## [1.6.0] — 2026-05-01
@@ -388,6 +411,7 @@ Three workstreams percolated from `$HOME/.claude` HEAD as a single bundle (R2 AP
 In response to a 2026-05-01 postmortem (15 commits stranded for 22 hours on a branch whose source-PR had already merged, with downstream sessions actively rewriting docs to claim "shipped"), the coordinator pipeline gains structural defenses against orphan branches and false "shipped" claims. Three shared helpers, six surfaces hardened, one paragraph of doctrine.
 
 ### Added
+
 - **`bin/orphan-branch-sweep.sh`** — enumerates `work/*` and `feature/*` branches owned by the user, classifies CRITICAL (commits added after a PR merged from this branch) / WARNING (no PR, ahead, ≥2 days old or >36h) / OK. JSON or text output, `--severity-min` filtering eliminates `| jq` / `| grep` parsing at every call site.
 - **`bin/sync-main.sh`** — fetch + ff-only invariant called before any branch creation. Uses `git fetch origin main:main` refspec form so local `main == origin/main` regardless of which branch the working tree is on. Every `git checkout -b` site in the coordinator pipeline now runs this first.
 - **`bin/check-shipped-on-main.sh`** — thin wrapper around `git merge-base --is-ancestor` so "shipped" claims have a single authoritative answer.
@@ -396,6 +420,7 @@ In response to a 2026-05-01 postmortem (15 commits stranded for 22 hours on a br
 - **Tracking file `tasks/.deferred-branches.md`** — single-line entries managed by the Branch Reconciliation Decision flow; surfaced when re-check date arrives.
 
 ### Changed
+
 - **`coordinator/skills/handoff/SKILL.md`** — pre-flight reachability check on completed-work commits. When commits aren't on `origin/main`, "shipped" wording is replaced with "complete on branch, not yet merged" and a `## Not Yet On Main` section is appended. (Editorial note: this mechanism is absent from the current skill file — record of what shipped, not a live pointer.)
 - **`commands/update-docs.md`, `commands/distill.md`, `commands/architecture-audit.md`** — explicit DO-NOT-MERGE prohibition inline in Sonnet dispatch prompts. Closes the 2026-05-01 rogue-merge trigger (a doc-maintenance Sonnet ran `gh pr merge` autonomously). (Editorial note: `commands/architecture-audit.md` is absent from current trees; its doctrine lives in `coordinator/skills/architecture-audit/SKILL.md`. Entry text otherwise unchanged as a record of what shipped.)
 - **`skills/merging-to-main/SKILL.md`** — Step 4 5-min quiet gate (cross-platform `gh`+Python snippet, override via `--force-merge-active-branch`); Step 6 reports other unmerged branches owned by the user.
@@ -403,9 +428,11 @@ In response to a 2026-05-01 postmortem (15 commits stranded for 22 hours on a br
 - **`coordinator/CLAUDE.md`** — one paragraph added to "Verification Before Done" ("Shipped means on `origin/main`, not on a branch tip"), one bullet under "Git Commit Policy" pointing at `sync-main.sh` + the workday-start contract, and a tripwire entry naming the three skills that must carry the gh-merge prohibition. Aggressive compression — ~5 lines total addition, lean per-PM-direction.
 
 ### Internal
+
 - **Test fixture** `tests/plugins/orphan-sweep.test.js` covering the three severity classes with stubbed `gh`.
 
 ### Why this matters
+
 The git tree is the only authoritative answer to "is this shipped." Handoffs, docs, and orientation cache are downstream artifacts that inherit any lie planted upstream — in the postmortem, a single false "shipped" claim propagated through five layers of artifacts in 24 hours, and a follow-on session struck a real shipped tool from the docs as "never built." This release closes the surfaces where that lie can be authored.
 
 ## [1.5.0] — 2026-04-30
@@ -415,25 +442,30 @@ The git tree is the only authoritative answer to "is this shipped." Handoffs, do
 A run of small, related changes converging on one principle: the code we ship runs on machines we've never seen, in projects we don't own, in shells we didn't configure. Portability is the baseline, not a feature.
 
 ### Added
+
 - **Agent-driven install as first-class path** — `README.md` Quick Start replaces the `git clone && bash install.sh` block with a paste-to-agent prompt pointing at `docs/agent-install.md`. The agent reads the playbook, runs the installer, validates the result, and queues `/repo-setup` (was `/project-onboarding` pre-2026-06-08) as the immediate post-restart step. New `docs/agent-install.md` is written second-person to the agent — prereq checks, plugin selection guidance, manual fallback section, failure modes. Manual install steps remain in `docs/wiki/install-playbook-rationale/getting-started.md` but are no longer surfaced from the front page.
 - **Doctrine rule: "Build For Someone Else's Machine"** (in `coordinator/CLAUDE.md`) — generalizes the older "Shipped Code Has No Home Field" intuition into a concrete fallback chain: explicit flag → env var → marker auto-discovery → silent skip (opt-in) or hard error with remediation (explicitly invoked). Hardcoded local paths are last-resort only. Project-scoped tools need a cwd-scope guard. Test fixtures and battle-story comments are exempt.
 - **Project-RAG project-scope guard** — single-source preamble (`snippets/project-rag-preamble.md`) gains a guard so agents skip project-RAG calls when the indexed repo doesn't match the current working directory. Propagated to all 8 sentinel-fenced consumers via `bin/verify-preamble-sync.sh --fix`. Prevents wrong-project pollution when an agent is dispatched in repo A while project-RAG is indexed against repo B.
 
 ### Changed
+
 - **UE distrust hook runbook** (`docs/testing/`) genericized — dropped a hardcoded machine-specific path that was leaking out of one author's environment. Runbook is now reproducible on any UE project layout.
 
 ### Internal
+
 - No surface API changes for end users beyond the README Quick Start. The installer (`setup/install.sh`) is untouched and remains the canonical mechanism — agents and humans both invoke it, the difference is who types the command.
 
 ## [1.4.0] — 2026-04-29
 
 ### Added
+
 - **Project-RAG readiness (W1–W6)** — generic project-RAG detection hook (cross-platform), single-source preamble snippet with sentinel-fenced inline distribution to 8 consumers + `verify-preamble-sync.sh`, `docs/wiki/claude-md-surfaces/rag-bait-conventions.md` (4 patterns including function-level purpose lines), executor RAG-bait stanza, Staff Engineer generic project-RAG block alongside the UE block.
 - **Reviewer-routed workers** — four Sonnet workers (`test-evidence-parser`, `security-audit-worker`, `dep-cve-auditor`, `doc-link-checker`) named in reviewer findings; EM dispatches. Generalizes the Staff Engineer → Front-End Reviewer escalation pattern.
 - **Mandatory release notes on every merge** — `merging-to-main` Step 1.5 always runs. Detects `CHANGELOG.md`, groups by Added/Changed/Fixed/Deps/Internal, suggests version bump (advisory).
 - **example-game-repo overlay Phase 1** — Staff Engineer UE-specific workers subsection (`project_type: unreal` gated) and `merging-to-main` Step 1.6 UE check items.
 
 ### Changed
+
 - **`/distill` reframed** — trim+archive specs (not delete), allowlist/denylist rubric, mandatory re-homing, Decision Rationale extraction, schema-pinned distillation log, broader link-heal sweep, negative-AC set-diff token check.
 - **`/update-docs`** — gates atlas-enumeration + repomap-regen on RAG presence; adds preamble-sync phase; per-run repomap audit log.
 - **`/architecture-audit`** — reframed to narrative + judgment with flag-drift-from-RAG check.
@@ -442,6 +474,7 @@ A run of small, related changes converging on one principle: the code we ship ru
 - **Plan-First Workflow** — adds "investigate before planning" doctrine; bug reports and consumer docs are framing, not ground truth.
 
 ### Internal
+
 - Coordinator hook test suite wired as blocking gate in `workday-complete` and `merging-to-main`; reviewer-calibration sentinel sync via `bin/verify-calibration-sync.sh`.
 
 ## [1.3.0] — 2026-04-02
@@ -453,10 +486,12 @@ Coordinator-claude is now fully self-contained. The soft dependency on [superpow
 Superpowers gave us our start — we installed it when plugins first shipped, before coordinator-claude existed as a formal system. Its core skills (TDD, systematic debugging, planning, verification) became the behavioral floor we built on. Over time, the philosophical gap widened: superpowers treats the agent as a system to be hardened against its own optimization tendencies; coordinator-claude treats the agent as a professional with defined authority (the PM/EM model). Both work, but for different reasons — and the layered approach was paying context budget for parallel instructions we were overriding.
 
 **New:**
+
 - **`coordinator:brainstorming` skill** — PM/EM-native design gate. Turns intent into a committed spec through collaborative dialogue. HARD-GATE prevents implementation once brainstorming starts, but the EM has judgment on when to invoke (not "always brainstorm"). Includes targeted rationalization resistance and scope-splitting. Output feeds directly into `coordinator:writing-plans`.
 - **`docs/specs/` convention** — brainstorming specs land at `docs/specs/YYYY-MM-DD-<topic>-design.md`.
 
 **Changed:**
+
 - **`skill-discovery` flowchart** — brainstorming gate is now judgment-based ("spec exists or EM judges brainstorming unnecessary?"), not mandatory.
 - **`using-git-worktrees`** — removed `$HOME/.config/superpowers/worktrees/` path convention.
 - **`README.md`** — coordinator positioned as self-contained; superpowers install recommendation removed.
@@ -471,6 +506,7 @@ Superpowers gave us our start — we installed it when plugins first shipped, be
 Anthropic now enforces mandatory user permission grants for any writes inside the `.claude/` directory (recursively). Several default output paths were inside `.claude/`, causing permission friction for autonomous pipelines and subagents.
 
 **Changes:**
+
 - **Research output fallback:** `$HOME/.claude/docs/research/` → `$HOME/docs/research/` in `commands/research.md`, `notebooklm/pipelines/team-protocol.md`, and both cache versions (1.0.0, 1.1.0).
 - **`settings.json` permissions:** Added explicit `Edit($HOME/.claude/**)` and `Write($HOME/.claude/**)` allow entries to cover platform-owned paths (task storage, plan mode output, team metadata) that cannot be relocated.
 - **Task storage documentation:** The `$HOME/.claude/tasks/{team-name}/N.json` reference in `deep-research/pipelines/team-protocol.md` and `structured-team-protocol.md` (source + cache) now notes these are platform-internal and must not be directly read/written by agents.
@@ -480,6 +516,7 @@ Anthropic now enforces mandatory user permission grants for any writes inside th
 Archived handoffs contain valuable architectural knowledge that was being treated as ephemera. The distillation pipeline now explicitly treats them as first-class inputs.
 
 **Changes to `coordinator/pipelines/artifact-distillation/PIPELINE.md` and `agent-prompts.md` (source + cache):**
+
 - **Phase 0 inventory** now includes `docs/research/` and `$HOME/docs/research/` as artifact directories.
 - **Special classification rules** added to the Phase 0 reality-check: archived handoffs are always `NEW` (never ephemeral); research outputs are always `NEW`; Pipeline C structured outputs (files containing `manifest_version:`) are `PRESERVE` — copied verbatim, never deleted.
 - **Phase 1 scanner prompt** now includes explicit handoff section parsing: `## What Was Accomplished` → `[KNOWLEDGE]`, `## Key Decisions Made` → `[DECISION]`, `## Blockers or Issues` → `[KNOWLEDGE:gotchas]`.
@@ -490,6 +527,7 @@ Archived handoffs contain valuable architectural knowledge that was being treate
 ## [1.2.0] — 2026-04-01
 
 ### Codex Review Gate — Independent-Model Second Opinion
+
 - **New `codex-review-gate` skill** wraps the Codex plugin's `/codex:review` command with graceful error handling and structured result reporting. Codex (GPT-5.4) provides a different model family's perspective on code changes, catching issues that intra-family reviewers may share blind spots on.
 - **`/workday-complete` Step 3.8 — on by default.** The day's full diff against main is reviewed by Codex as a second opinion alongside the existing daily review. Falls back gracefully if Codex CLI is not installed, not authenticated, or credits are exhausted — the existing daily review from Step 3 stands alone when Codex is unavailable. Designed for users on limited ChatGPT plans: one bounded review per end-of-day, not continuous.
 - **`/bug-sweep --codex-verify` — opt-in flag.** After Claude's sweep identifies and fixes bugs, Codex reviews the fix diff for regressions or issues that Claude's own reviewers might miss. Captures a pre-fix baseline ref in Phase 2 for precise diff scoping. Codex findings go to the backlog for PM triage, not auto-fix.
@@ -499,38 +537,45 @@ Archived handoffs contain valuable architectural knowledge that was being treate
 ## [1.1.1] — 2026-04-01
 
 ### Strategic Daily Review (new command)
+
 - **`/daily-review` replaces `/code-health` as the default end-of-day check** in `/workday-complete`. The review-heavy build pipeline (plan → enrich → chunk → review) already catches code-level issues; end-of-day now focuses on whether the day's accumulated decisions create technical debt, lock into patterns, or miss opportunities for the product's longer-term direction.
 - **Three-phase pipeline.** Haiku scout inventories the day's commits, file changes, plans, and handoffs. Sonnet analyst produces a narrative work summary identifying explicit and implicit architectural decisions. Sonnet reviewer provides a strategic assessment against the project's roadmap and vision.
 - **Reusable daily summary artifact.** Output saved to `archive/daily-summaries/YYYY-MM-DD.md` — feeds `/update-docs`, `/distill`, completed work register, and next-morning orientation. Fills the gap between terse commit logs and verbose in-flight handoffs.
 - `/code-health` remains available for on-demand detailed code-level review.
 
 ### Reviewer Strategic Awareness
+
 - **All five domain reviewers now read project roadmap and vision documents** (when available) before reviewing. Reviewers flag when an implementation — even a correct one — creates accidental lock-in, forecloses a roadmap option, or misses a low-cost bridging opportunity toward planned future capabilities.
 - Strategic findings use `minor`/`nitpick` severity with `architecture` category — they inform, they don't block.
 - Each reviewer's strategic lens is adapted to their domain: the generalist reviewer focuses on architecture and extensibility; the game development reviewer on engine system choices and scalability; the front-end reviewer on design system evolution; the UX reviewer on user journey trajectories; the data science reviewer on model and pipeline architecture.
 - Guardrails prevent false positives: no strategic findings when no roadmap exists, when concerns are purely speculative, or when work is explicitly temporary.
 
 ### Orientation Cache Enhancement
+
 - `/workday-start` now includes a "Yesterday's Strategic Review" excerpt in the orientation cache, giving every subsequent session automatic strategic context without reading a separate file.
 
 ### Handoff Deletion Policy
+
 - **Explicit policy: `/workday-complete` never deletes handoffs.** Handoffs are archived (moved to `archive/handoffs/`) by `/update-docs`, but only `/distill` may delete them — after careful knowledge extraction and PM approval.
 
 ## [1.1.0] — 2026-03-31
 
 ### Remember Plugin (new)
+
 - **Temporal memory system.** New `remember` plugin adds session-scoped memory persistence. PostToolUse hooks capture key actions as they happen; SessionStart hooks inject the last N days of session history into context automatically.
 - **Haiku-powered compression pipeline.** Raw session events are compressed by `claude-haiku` into structured NDC (Notable Decisions & Changes) summaries, then consolidated into daily memory files. Designed for minimal token overhead at session start.
 - **Coordinator integration.** `session-end`, `update-docs`, and `workday-complete` commands now include a `/remember` step to persist session state before closing out.
 - **Marketplace registration.** Plugin is registered in `marketplace.json` for one-command install.
 
 ### Deep Research — Pipeline A v2.2 (Internet Research)
+
 - **Iterative deepening.** After Team 1 completes, the sweep agent produces a structured gap report (YAML severity scores + Gap Targets table). If significant gaps remain, the EM dispatches a smaller Team 2 (1-3 gap-specialists + merge-mode sweep) for targeted follow-up. Hard cap at 2 passes. `--shallow` flag skips the decision gate for single-pass behavior.
 - **Structured gap reporting.** Sweep's gap report now includes machine-readable YAML front-matter (`deepening_recommended`, `coverage_score`, `high_severity_gaps`) and a Gap Targets table with severity, type, and suggested queries.
 - **Gap-specialist prompt template.** New specialist variant for Team 2 with Prior Findings context, tighter timing (3 min floor / 8 min ceiling), D-prefixed claim IDs, and `resolves_gap` field linking claims to gap targets.
 - **Merge-mode sweep.** Team 2's sweep produces a delta document (`deepening-delta.md`) instead of a full replacement. The EM merges the delta seamlessly into Team 1's synthesis.
 
 ### Deep Research — Pipeline A v2.1 (Internet Research)
+
 - **Consolidator eliminated.** Specialists now report directly to the sweep agent, freeing one agent slot and reducing pipeline latency.
 - **Adversarial specialist interaction.** Specialists are expected to challenge each other's claims via `SendMessage`. A resolution protocol is defined for contested findings.
 - **Structured claims output.** Specialists produce dual output: `{letter}-claims.json` (machine-readable, typed claims with confidence scores) and `{letter}-summary.md` (human-readable).
@@ -538,6 +583,7 @@ Archived handoffs contain valuable architectural knowledge that was being treate
 - **EM scoping checklist.** Sub-question quality gates from published multi-agent research ensure scoping produces decomposable, answerable questions.
 
 ### Deep Research — Pipeline B v2.1 (Repo Research)
+
 - **Structural orientation pass.** EM performs a codebase orientation (entry points, key directories, architecture pattern) before scoping, so focus questions are grounded in actual structure.
 - **Execution-trace framing.** Specialists frame analysis around execution paths rather than file-by-file inventory, producing more actionable findings.
 - **`file:line` citation enforcement.** Specialist prompts now require `file:line` citations for all claims, making findings directly navigable.
@@ -545,19 +591,21 @@ Archived handoffs contain valuable architectural knowledge that was being treate
 - **Independent-analysis-first comparison mode.** When comparing two repos, specialists analyze each independently before cross-referencing to avoid anchoring bias.
 
 ### Deep Research — Pipeline B v2.2 (Repo Research)
+
 - **`--deeper` mode.** EM generates a dependency-weighted repomap during scoping (Phase 1.5). Language-aware import extraction (Python, JS/TS, Go, Rust, C/C++, Java) with cross-reference counting and tiered output (Tier 1/2/3). Specialists read repomap before inventories for prioritization. Graceful fallback if import graph is thin.
 - **`--deepest` mode.** Two-wave pipeline: Wave 1 is the standard 7-agent team (unchanged), Wave 2 dispatches a Sonnet atlas subagent after synthesis. Produces 4 architecture atlas artifacts: file index, system map, connectivity matrix, and architecture summary. `--deepest` implies `--deeper`. Atlas failure is non-blocking.
 
 ### NotebookLM — Pipeline D v2
+
 - **Strategist elimination.** Removed the separate Opus strategist agent. EM now scopes directly with baked-in NLM best practices, saving one agent dispatch and ~2 minutes.
 - **NLM-adapted claims schema.** Workers now output structured `{letter}-claims.json` with NLM-specific fields (`transcription_suspect`, `source_type`, `nlm_citation`) alongside `{letter}-summary.md`.
 - **Synthesizer → sweep rename.** Final agent renamed from "synthesizer" to "sweep" to match Pipeline A naming and reflect its actual role (adversarial coverage check + gap-filling, not just synthesis).
 - **Notebook preservation (default).** Notebooks are now kept after research runs by default — they represent significant ingestion work and are valuable for follow-up queries. New `--cleanup` flag opts in to deletion.
 
 ### Developer Ergonomics
+
 - **Plugin command naming cleanup.** Removed redundant plugin-name prefixes from all commands: `deep-research-web.md` → `web.md`, `deep-research-repo.md` → `repo.md`, `notebooklm-research.md` → `research.md`, etc. 26 files updated, all cross-references synced.
 
 ## [1.0.0] — 2026-03-28
 
 Initial public release. 8 plugins, 24 agents, 37 skills.
-

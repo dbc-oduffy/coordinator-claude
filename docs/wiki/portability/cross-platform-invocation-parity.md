@@ -178,3 +178,7 @@ doctrine cites the snippet rather than restating either form.
   the invocation-layer instance of; § Exec-bit policy for why no path may depend on the index mode.
 - The ratifying decision record lives in the doctrine source repo's `docs/decisions/` and does
   not ship; its absence downstream is expected.
+
+## Field rules
+
+- **Repairing an invocation path sweeps documented fallback rungs too.** Fallbacks live in prose, so call-site greps miss them and they outlive the fix as trap-offers.

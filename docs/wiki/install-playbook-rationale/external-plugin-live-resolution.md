@@ -82,6 +82,7 @@ this run** (`rm -rf $SPIKE_ROOT/_doe-spike`) — throwaway; verdict captured her
 
 **Test A (executed):** booted fresh with `claude --plugin-dir $SPIKE_ROOT/_doe-spike/doe-spike-plugin`. **Split
 result:**
+
 - **Skill leg — PASS.** `doe-spike-echo` loaded; skill base dir resolved to the EXTERNAL path
   `$SPIKE_ROOT/_doe-spike/doe-spike-plugin/skills/doe-spike-echo`, with **no cache copy** and **no
   registry/settings entry** anywhere. Live-external resolution confirmed.
@@ -155,7 +156,7 @@ answer came back positive: `/reload-plugins` works, so there is no *unfixable* d
 detect, only an unprompted one. Building it is also not the drop-in it first appears — the
 obvious host is a `Stop` hook, whose own contract forbids exactly what the check needs ("no
 filesystem probes… a future editor adding just one more check is adding that cost to every
-turn-end in the fleet"), and detection *logic* in a DoE-resident hook runs into the transport seam's
+turn-end in the fleet"), and detection *logic* in a source-repo-resident hook runs into the transport seam's
 pointer-only rule for the transport seam. That is a scoped follow-up with a real plane-boundary
 call in it, not a paragraph of this one.
 
@@ -287,6 +288,7 @@ session-identity/machine-state infra is deliberately NOT moved:
 
 **Phase 2 — historical record (this block described a forward-looking action list at cutover time;
 items have since resolved independently — see per-item disposition below, not as a live TODO):**
+
 1. **DONE — three times over, not as originally speculated.** The whoami source WAS relocated, the
    registry seam WAS added, and the `WHOAMI_PKG` fallback logic WAS written — but not via the path or
    mechanism this item named. The registry seam `coordinator.whoami_src` is set
@@ -296,12 +298,12 @@ items have since resolved independently — see per-item disposition below, not 
    the durable-substrate-to-settings-home plan (chunks C5 + C10a, both committed) and
    is codified in `state-placement-law.md:260` and `coordinator-installer-shape.md:408`. The `WHOAMI_PKG`
    registry-seam-with-fallback resolution this item asked someone to write already exists natively as
-   `_resolve_whoami_pkg` in `coordinator_core/install/ensure_venv.py` (claude-klabauter-resident) — `ensure-coordinator-venv.sh`,
+   `_resolve_whoami_pkg` in `coordinator_core/install/ensure_venv.py` (engine-resident) — `ensure-coordinator-venv.sh`,
    the artifact this item named, was deleted. Regression coverage:
    the engine repo's `coordinator/tests/test_install_substrate.sh` (test 4a, test 5b).
 2. **Still open — superseded by a dedicated owning artifact.** `git rm` the
-   `~/.claude/plugins/coordinator-claude` tree + remove the marketplace / `enabledPlugins` entry, to
-   achieve the W4.1s singularity end-state (`~/.claude/plugins/coordinator-claude` absent), now belongs
+   `~/.claude/plugins/coordinator-claude` copied tree. Removing the tree
+   achieves the W4.1s singularity end-state (`~/.claude/plugins/coordinator-claude` absent) and now belongs
    to a dedicated phase-2 flat-tree-removal plan (`status: draft`, AC2/AC3/AC4/AC7 pending, two
    hard gates outstanding), which cites this wiki block as its source runbook. Track it there, not here.
 3. **Contingent on item 2, not yet asserted either way.** "W5 (percolation upstream→OSS) and W6.4
@@ -310,7 +312,7 @@ items have since resolved independently — see per-item disposition below, not 
 
 **Verification owed (PM relaunch):** boot via `claude-author`; confirm coordinator skills/agents resolve
 from `<DoE>/coordinator` (skill base dir external, zero `~/.claude/plugins/coordinator-claude` in
-resolution) and settings.json SessionStart hooks fire at boot from DoE-absolute paths.
+resolution) and settings.json SessionStart hooks fire at boot from absolute paths into the source repo.
 
 ## Resolution-altitude model: COLD vs WARM
 
@@ -331,9 +333,10 @@ skill/command markdown file, or any surface where `machine-local` is unavailable
 > `machine-local` itself now lives inside the doctrine-repo clone it would need to locate. This is why the install
 > step must project the registry value into a cold-readable bootstrap artifact (the `.content-root` pointer
 > file) rather than relying on any tool-mediated resolution for the first cold read.
-
+>
 > **A rung that invokes an executable is not PATH-hardened just because YOU call it by absolute path —
 > the callee inherits the same scrubbed env (coordinator-core-shim P0).** `_resolve_claude_klabauter_root`
+(engine-source spelling; published mirrors carry it as `_resolve_engine_root`)
 > fell back from a bare `machine-local` call (PATH-miss) to an *absolute-path* `machine-local` call — but
 > `machine-local` itself exits 2 under a scrubbed harness PATH, because it in turn shells out to tooling not
 > on PATH. Only the pure-file-read rung (direct `cat` of `registry.local.toml`, zero executable dependency)
@@ -347,7 +350,7 @@ the settings-home pointer
 (`${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/machine-local/.content-root`),
 falling back to the legacy `cat "${CLAUDE_HOME:-$HOME}/.claude/.content-root"` during the transition
 window — zero tool dependency either way. The
-`claude()` shim (`~/.claude/shell/claude-author-shim.sh`) and the inline fallbacks in the 10
+`coordinator` shim (`~/.claude/shell/claude-author-shim.sh`) and the inline fallbacks in the 10
 skill/command markdown files use this path. The fail-loud idiom is load-bearing — never use the bare
 `${CLAUDE_PLUGIN_ROOT:-$(cat …/.content-root)/coordinator}` form, which silently expands to the literal
 `/coordinator` when the pointer file is absent:
@@ -381,16 +384,12 @@ registry — fixes stale-path clobber post-cutover" for the canonical warm-surfa
 
 ### The pointer is a projection of the registry — coherence assertion
 
-`gen-content-root-pointer.py` writes `<settings-home>/machine-local/.content-root` = the doctrine repo's root
-(projected from `repos.content_root`), beside its sibling `.claude-klabauter-root`. It writes only the
-settings-home copy — never the git-tracked `~/.claude/.content-root`, because that path syncs between
-machines, so each machine would commit its own absolute clone path over the last one's and the
-loser would silently mis-resolve. `~/.claude/.content-root` is a read-only legacy fallback for
-machines installed before the move to settings-home. The pointer is a **bootstrap cache**, not
-a second source of truth. It is (re)generated at install time and self-healed at boot: the
-SessionStart hook calls `gen-content-root-pointer.py` if the pointer is absent but the registry is
-set, so a `git pull` without re-running the installer does not leave migrated inline sites
-fail-louding on pointer-miss.
+The `session-start-register-coordinator-content-repo-root.py` SessionStart hook writes `.content-root` (and its `.coordinator-content-root` twin) = the doctrine repo's root,
+at both `<settings-home>/machine-local/` and `~/.claude/`, whenever the session resolves a genuine coordinator-content-repo clone (the
+`.coordinator-dev-repo` sentinel with `slug: coordinator-content-repo`). It writes when the pointer is absent or names a different clone and
+leaves a matching one untouched. The pointer is a **bootstrap cache**, not a second source of truth: every session start in the
+clone refreshes it, so a `git pull` without re-running the installer does not leave migrated inline sites fail-louding on
+pointer-miss.
 
 **Coherence assertion (verified at install):**
 `"$(cat <settings-home>/machine-local/.content-root)/coordinator"` == `plugin.mirrors.coordinator-claude.source_path`

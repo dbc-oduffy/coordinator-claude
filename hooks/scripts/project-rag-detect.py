@@ -82,10 +82,15 @@ def main() -> int:
     from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
     _place_engine_root_on_path(root)
 
+    # The published engine mirror renames this module; the engine's authoring
+    # tree (live-tree override) keeps the original name. Published name first.
     try:
-        from coordinator_core.hooks.project_rag_detect import detect_banner
+        from coordinator_core.hooks.example_retrieval_repo_detect import detect_banner
     except Exception:
-        return 0  # engine unimportable -> fail-open
+        try:
+            from coordinator_core.hooks.project_rag_detect import detect_banner
+        except Exception:
+            return 0  # engine unimportable -> fail-open
 
     try:
         banner = detect_banner(os.getcwd())

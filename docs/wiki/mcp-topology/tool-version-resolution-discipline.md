@@ -9,6 +9,7 @@
 The same tool name (`python`, `pip`, `node`, `git`, a project CLI, an MCP server, the editor's headless driver) is installed in multiple places — system package, user package, venv shim, Homebrew, scoop, Windows Store, MSI. PATH ordering decides which one fires. The script that "should be running the project venv's python" instead runs the system python, succeeds on the import (because both have the dep), and silently produces wrong results because the version is older.
 
 Common amplifiers:
+
 - Windows Store python shims that exist as `python.exe` stubs even when no real python is installed there.
 - `uv`-managed venvs whose `python` is a hard-link or shim that disagrees with `which python`.
 - `nvm` / `pyenv` shims whose version pin changes mid-session via a config file in a parent directory.

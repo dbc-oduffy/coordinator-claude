@@ -36,6 +36,11 @@ With no plan arguments the set is every APPROVED plan the engine's plan gate rep
 mise-prep's own entry set, taken from the same seam `mise-prep-entry.py` reads, never
 re-derived from plan frontmatter.
 
+After every plan is gated, one seam check runs over the whole set (`plan.seam_record` at
+`phase: prep`; `plan.seam_check` under `--dry-run`, which writes no sidecar). A plan the check
+implicates is not stamped and reads SEAM-REFUSED with one `seam:` line per finding, each ending in
+its route. An op error is a refusal (exit 2), never a pass.
+
 Exit 0 when every plan in the set ends CERTIFIED, 1 when at least one does not (the
 report names which and why), 2 on a refusal that stopped the run.
 
@@ -143,6 +148,74 @@ def _invoke(repo_root: Path, op: str, params: dict) -> dict:
     if not isinstance(result, dict):
         raise ValueError(f"{op} returned a non-dict result: {result!r}")
     return result
+
+
+#: The op's bare verdicts collide with this command's own exit-2 `REFUSED`, so every caller-facing
+#: surface spells them with the `SEAM-` prefix; the bare values live only in the op reply.
+_SEAM_SPELLING = {"REFUSED": "SEAM-REFUSED", "DRIFT": "SEAM-DRIFT"}
+_SEAM_OPS = {False: "plan.seam_record", True: "plan.seam_check"}
+#: Each refusal carries its own route: the engine and the command text publish separately.
+_ROUTE_AUTHOR = "route: plan-author, declare capabilities"
+_ROUTE_APM = "route: coordinator:apm, scope"
+_FINDING_FIELDS = ("capability", "missing_consumer", "counterpart_plan", "path", "row", "detail")
+
+
+def _seam_call(repo_root: Path, plans: list[str], phase: str, named_set: bool, read_only: bool) -> dict:
+    """One `plan.seam_record` (`plan.seam_check` when `read_only`) call over the whole set.
+
+    A named set is checked with `universe` on: its gaps against open plans outside the set come
+    back as non-blocking `missing-seam` findings rather than blocking `unpromised-export`, so an
+    out-of-set dependency never refuses the stamp. The default set is every approved plan, so it
+    has no outside worth the extra parse.
+
+    Raises `ValueError` on an op error or a reply without `verdict`/`per_plan`: a seam check that
+    did not answer is never a pass.
+    """
+    op = _SEAM_OPS[read_only]
+    reply = _invoke(
+        repo_root, op, {"plans": list(plans), "phase": phase, "named_set": named_set, "universe": named_set}
+    )
+    if not isinstance(reply.get("verdict"), str) or not isinstance(reply.get("per_plan"), dict):
+        raise ValueError(f"{op} returned a reply without `verdict` and `per_plan`")
+    return reply
+
+
+def _seam_spell(verdict: str | None) -> str | None:
+    return _SEAM_SPELLING.get(verdict, verdict)
+
+
+def _seam_implicated(reply: dict, plan: str) -> bool:
+    per_plan = reply.get("per_plan") or {}
+    verdict = per_plan.get(plan, per_plan.get(Path(plan).as_posix()))
+    return verdict in _SEAM_SPELLING
+
+
+def _seam_findings_for(reply: dict, plan: str) -> list[dict]:
+    """The findings that name `plan`. A finding carrying no `plan` key is attributed to every
+    implicated plan, since the pinned reply names `counterpart_plan` but not the owner."""
+    out = []
+    for f in reply.get("findings") or []:
+        if not isinstance(f, dict):
+            continue
+        owner = f.get("plan")
+        if owner is None:
+            if _seam_implicated(reply, plan) or not f.get("blocking"):
+                out.append(f)
+        elif plan in (owner, f.get("counterpart_plan")):
+            out.append(f)
+    return out
+
+
+def _seam_route(finding: dict) -> str:
+    return _ROUTE_AUTHOR if finding.get("class") == "capabilities-undeclared" else _ROUTE_APM
+
+
+def _seam_line(finding: dict) -> str:
+    parts = [str(finding.get("class"))]
+    parts += [f"{k}={finding[k]}" for k in _FINDING_FIELDS if finding.get(k) not in (None, "")]
+    if not finding.get("blocking"):
+        parts.append("(not blocking)")
+    return "seam: " + " ".join(parts) + f" — {_seam_route(finding)}"
 
 
 def _failing_classes(gate: dict) -> list[str]:
@@ -444,6 +517,7 @@ def main(argv=None) -> int:
         )
 
     rows = []
+    gates: dict[str, dict] = {}
     for plan in plans:
         try:
             gate = _invoke(repo_root, "plan.prep_gate", {"plan": plan})
@@ -475,6 +549,7 @@ def main(argv=None) -> int:
         # "how many of them does this run actually write". Without it every plan in the
         # set reads `would-stamp`, CERTIFIED ones included, and a set with nothing to do
         # is indistinguishable from a set where all of it is pending.
+        gates[plan] = gate
         row = {
             "plan": plan,
             "verdict": gate.get("verdict"),
@@ -485,7 +560,24 @@ def main(argv=None) -> int:
             "stamp_state": (gate.get("stamp") or {}).get("state"),
             "outcome": None,
         }
+        rows.append(row)
 
+    named_set = bool(args.plans or args.roadmap_id)
+    try:
+        seam = _seam_call(repo_root, plans, "prep", named_set, read_only=args.dry_run)
+    except ValueError as exc:
+        return refuse(f"seam check: {exc}")
+
+    for row in rows:
+        plan = row["plan"]
+        row["seam"] = _seam_findings_for(seam, plan)
+        if _seam_implicated(seam, plan):
+            row["outcome"] = "SEAM-REFUSED"
+
+    for row in rows:
+        plan, gate = row["plan"], gates[row["plan"]]
+        if row["outcome"] == "SEAM-REFUSED":
+            continue
         if gate.get("verdict") == "PREPPED" and not args.dry_run:
             try:
                 stamp = _invoke(repo_root, "plan.stamp_prepped", {"plan": plan})
@@ -506,8 +598,6 @@ def main(argv=None) -> int:
                 else "would-stamp"
             )
 
-        rows.append(row)
-
     # In a dry run `would-stamp` IS the pass — the gate returned PREPPED and only the
     # write was withheld. Counting it as short would report a clean set as a failing one
     # and send an author to fix plans that need nothing, which is the wrong half of the
@@ -519,7 +609,13 @@ def main(argv=None) -> int:
     if args.json:
         print(
             json.dumps(
-                {"plans": rows, "certified": len(certified), "dryRun": args.dry_run}, indent=2
+                {
+                    "plans": rows,
+                    "certified": len(certified),
+                    "dryRun": args.dry_run,
+                    "seam": _seam_spell(seam["verdict"]),
+                },
+                indent=2,
             )
         )
     else:
@@ -533,6 +629,8 @@ def main(argv=None) -> int:
                 held = r.get("mise_prepped_findings") or []
                 tail = f"  [{len(held)} row(s) withheld: {', '.join(held)}]" if held else ""
                 print(f"  {r['outcome']:<18} {r['plan']}{tail}")
+                for f in r.get("seam") or []:
+                    print(f"                     {_seam_line(f)}")
             else:
                 print(f"  {(r['outcome'] or r['verdict'] or 'NOT-PREPPED'):<18} {r['plan']}")
                 if r["failing"]:
@@ -543,14 +641,25 @@ def main(argv=None) -> int:
                     print(f"                     upgrade: {r['upgraded']}")
                 elif r["verdict"] != "PREPPED":
                     print(f"                     {_repair_line(r['failing'], r['plan'])}")
+                for f in r.get("seam") or []:
+                    print(f"                     {_seam_line(f)}")
 
     if short:
-        print(
-            f"\nmise-prep-run: {len(short)} plan(s) are not certified. A plan that fails the "
-            "bar needs authoring, not a stamp — the classes above name where. Author it via "
-            "/mise-prep: one coordinator:plan-author per plan, then re-run.",
-            file=sys.stderr,
-        )
+        refused = [r for r in short if r["outcome"] == "SEAM-REFUSED"]
+        unprepped = len(short) - len(refused)
+        lines = []
+        if unprepped:
+            lines.append(
+                f"\nmise-prep-run: {unprepped} plan(s) are not certified. A plan that fails the "
+                "bar needs authoring, not a stamp — the classes above name where. Author it via "
+                "/mise-prep: one coordinator:plan-author per plan, then re-run."
+            )
+        if refused:
+            lines.append(
+                f"\nmise-prep-run: {len(refused)} plan(s) are SEAM-REFUSED. Follow each "
+                "finding's own `route:` line above; re-authoring does not clear them."
+            )
+        print("\n".join(lines), file=sys.stderr)
         return EXIT_NOT_ALL_CERTIFIED
     return EXIT_OK
 

@@ -99,6 +99,7 @@ The author and lineage/predecessor concepts exist in both types but are spelled 
 | `superseded_by` | optional | Set by receiver when a newer memo supersedes this one |
 
 **Load-bearing divergences — deliberately kept:**
+
 - Memo `from`/`to` encode receiver-routing semantics that handoff `machine`/`authoring_session` do not. These fields are the delivery address; consolidating them with handoff author fields would break the single-surface delivery mechanism in the engine repo's `coordinator/bin/cross-repo-memo`. They are explicitly marked as `deliberate-keep-with-architectural-reason` in `schemas/cross-repo-memo.schema.json`.
 - Handoff `predecessor` (ancestry) vs memo `supersedes`/`superseded_by` (supersession chain): same concept, but memos express the chain bidirectionally because the receiver may re-issue under a different memo ID. The handoff does not need bidirectional pointers because it uses `consumed_by`/`claimed_by` + `shipped_in` to record the lifecycle transition in place.
 
@@ -203,10 +204,9 @@ candidate-selecting `coordinator/bin/sweep-terminal-handoffs.py`) also require t
 childless, hold no live session claim, and — for the `shipped` subclass — carry a resolvable
 `shipped_in` commit SHA.
 
-**Never manufacture a resolution to make a record archive-safe.** The crash-orphan reaper
-(the engine repo's `coordinator/bin/reap-orphaned-in-flight-handoffs.py`) releasing a dead holder's
-claim, or upgrading a genuinely-shipped orphan to `shipped` on resolvable ship evidence, is the
-sanctioned resolution path, not a violation — it acts on real evidence, never a fabrication.
+**Never manufacture a resolution to make a record archive-safe.** Releasing a dead holder's
+claim by hand (`archive-stamp-cli unclaim-handoff`), or upgrading a genuinely-shipped orphan to
+`shipped` on resolvable ship evidence, is the sanctioned resolution path, not a violation — it acts on real evidence, never a fabrication.
 
 ### Design-Complete Mapping Table
 
@@ -274,6 +274,7 @@ before tc-1/tc-2 inherit the doctrine.
 | workstream-event | — | (field-scoped mutation record, no status/lifecycle field) | N/A — no status/lifecycle enum | n/a |
 
 **Hard-case rationale for reviewers:**
+
 - `wontfix` → DONE: a wontfix entry is a conscious terminal decision ("we will not fix this"). It is not deferred — there is no future action. It resolves the artifact's lifecycle cleanly, the same as `closed`. Treating it as LIVE or BLOCKED would pollute "open work" fleet views with permanently-rejected items.
 - `deferred` (bug-backlog, debt-backlog) → BLOCKED: a deferred item is gated on a future condition (time, priority, prerequisite). It is not actionable now, but is not terminal. BLOCKED correctly models "exists, not ready, not done."
 - `open for-weekly-arch-review` (debt-backlog) → **consolidated by tc-2**: this enum value was eliminated in the tc-2 queue-schema unification (C6 port). Entries carrying it are ported to `status: open` + `tags: [weekly-arch-review]`. The LIVE semantics are preserved on the tag axis — items tagged `weekly-arch-review` remain surfaceable at the next ceremony and are treated as LIVE by the liveness predicate (their status value is `open`). The original rationale (not gated on an external dependency; actionable at the next weekly) remains correct, now expressed via the tag rather than a space-bearing enum value.
@@ -516,6 +517,7 @@ in-tree existence proof that the move is achievable. **That plan is cited as pro
 wiki does NOT extend its scope or couple to its implementation.**
 
 Consolidation is guided by two tests:
+
 1. **Same concept, N spellings → consolidate.** Author (4 spellings: plan `author`,
    handoff `machine`+`authoring_session`, decision `deciders`+`authors`), predecessor/lineage
    (4 spellings), liveness/status (1 key name, multiple incompatible enums). These are the
@@ -530,11 +532,13 @@ Consolidation is guided by two tests:
 
 The schema registry (`schemas/*.schema.json`)
 currently drives two altitudes:
+
 - **VALIDATE** — the warn-not-block hook (offer-shape at the prose seam)
 - **QUERY** — `query-records.js` derives its `--type` set from the registry at startup;
   adding a schema automatically makes a new `--type` available
 
 The `cli-scaffold-deterministic-docs` workstream ratifies a third altitude as a **producer obligation**:
+
 - **GENERATE (producer obligation)** — `coordinator-doc-new --type handoff|spinoff|memo …`
   is the **required entry point** for creating a schema-registered document; hand-authoring
   the frontmatter is a producer obligation violation (tripwire: `SCHEMAED-DOC-GENERATE-OBLIGATION`
@@ -598,7 +602,7 @@ encodes for the altitude it actually drives.
 | `spine` | `schemas/spine.schema.json` | `state/roadmap/*/SPINE.md` |
 | `health-status` | `schemas/health-status.schema.json` | `state/health/*.md` |
 | `decision-guide` | `schemas/decision-guide.schema.json` | `docs/guides/*-decisions.md` |
-| `skill` | `schemas/skill.schema.json` | `plugins/coordinator/skills/*/SKILL.md` |
+| `skill` | `schemas/skill.schema.json` | `coordinator/skills/*/SKILL.md` |
 | `research-synthesis` | `schemas/research-synthesis.schema.json` | `docs/research/*.md` |
 | `research-claim` | `schemas/research-claim.schema.json` | `docs/research/*.claims.json` |
 | `coverage-audit` | `schemas/coverage-audit.schema.json` | `docs/research/*-coverage-audit.md` |
@@ -1045,7 +1049,7 @@ warn-not-block enforcement posture or the baton-blob doctrine established above.
 
 > Spec backlink: `docs/plans/2026-06-25-example-initiative-tc-3-expressive-audit-canonical-shape.md § C5`
 
-Week-changelog daily files (`state/week-changelog/<machine>/<YYYY-MM-DD>-<machine>.md`) carry
+Week-changelog daily files (`state/week-changelog/<YYYY-MM-DD>.md`, plus `<YYYY-MM-DD>-<host>-backfill.md` for synthesized gap days) carry
 a bold-label key/value block whose label **set** is the machine-addressable contract; the
 label values range from machine-filled one-liners to rich expressive prose. The producing
 command is `commands/workday-complete.md § Step 9` (→ claude-klabauter `coordinator/bin/workday-complete-step9-append-changelog.py`).
@@ -1074,6 +1078,60 @@ architectural decision (tc-3 Out of scope): declaration precedes enforcement, an
 already machine-enforces the two auto-filled labels (`Validation:` and `Reviewed:`), bounding
 the mechanical risk. See `docs/plans/2026-06-25-example-initiative-tc-3-expressive-audit-canonical-shape.md
 § Out of scope` for the full deferral rationale.
+
+#### Week-changelog frontmatter block
+
+Each day file and backfill file opens with one file-top YAML block, an index over the bold-label
+set. Never `HEADER*.md`.
+
+```yaml
+---
+date: 2026-08-17                      # ISO, matches the filename stem
+repo: dbc-oduffy/coordinator-content-repo           # resolve_repo_name(<main worktree root>)
+synthesized: true                     # backfill files only; omitted on append_day output
+machines:
+  - {machine: machine-b, branch: work/machine-b/2026-08-26, commits: 232, range: "<first-sha>..<last-sha>", plans_touched: 13, validate: not-run, plugin_suite: n/a, blockers: none}
+---
+```
+
+- **Position.** Only position 0 is frontmatter. A mid-file `---` is a thematic break, and the
+  corpus already contains them; a per-section fenced block is indistinguishable from one. Prose
+  sections sit below the block and are never touched by it.
+- **Per-machine upsert.** `machines[]` is upserted by `machine`, never overwritten as a whole: a
+  peer machine's entry survives, and every entry carrying the writer's own `machine` collapses to
+  one, so a hand-resolved merge that kept both sides heals on that machine's next write.
+- **One line per entry, sorted by `machine`.** Day files carry no merge driver, so a cross-clone
+  divergence is an ordinary text conflict, and one line per side is the only shape a resolver can
+  keep-both safely. Sorting makes a line's position a function of the data, so a re-run moves
+  nothing.
+- **Serialize with a YAML emitter, wrapping disabled.** Free-prose values (`blockers`, a `branch`
+  with punctuation) carry `:`, `,`, `{` and `#`, which break a hand-assembled flow mapping; a
+  default line width folds a long mapping across lines.
+- **Absent means not computed.** The backfill emitter writes the same schema with a single-entry
+  `machines:` and `synthesized: true`, omitting every key it does not compute. Emitters are
+  key-identical, not byte-identical.
+- **`reviewed` and `scope` are not fields.** `Reviewed:` stays prose so the reviewed-lines writer
+  keeps its byte-identical-elsewhere contract and never touches the block; `Scope:` is the
+  free-prose home no schema flattens.
+- **Three block states.** No block: prepend one holding only this machine's entry, leaving the
+  prose byte-unchanged. Parseable block (a `machines` list whose entries all carry `machine`):
+  upsert. Malformed block (unclosed fence, unparseable YAML, `machines` not a list, an entry with
+  no `machine`): fail loud naming the file, write nothing, leave the file byte-unchanged; a
+  rebuild from one machine's data would drop the peers' entries.
+- **The prose is authoritative.** Every block value is derived from the value the prose renders,
+  in the same write: `commits` and `range` from `**Commits:**`, `plans_touched` the entry count of
+  `**Plans touched:**` (0 for `none`), `validate` and `plugin_suite` the `validate=` and
+  `plugin-suite=` tokens of `**Validation:**` (enum authority: the cadence wiki cited in the table
+  above), `branch` and `blockers` the label values verbatim. On disagreement the block is stale and
+  the next write from that machine rewrites both. A consumer that wants the label set without the
+  block parses the bold labels directly; the block exists for typed counts, a fixed-position
+  filterable line per machine, and the positive `synthesized` marker.
+- **`repo` is the emitting-repo identity**, the `owner/repo` slug of the `origin` remote or
+  `local/<basename>` when there is none. It is the identity the per-repo emission feed attributes
+  with, never a directory name or a per-box registry key.
+- **Not a registered schema.** Week-changelog stays a generated digest, not an authored lifecycle
+  artifact; the block is an informal structured-index layer under the body-scoped-exemption
+  posture. There is no `schemas/week-changelog.yaml`.
 
 ### Atlas top-level files — frontmatter format
 
@@ -1133,3 +1191,7 @@ thereafter.
 
 **Glob:** `docs/guides/*-decisions.md` — matches `docs/guides/architecture-decisions.md` and the
 general `*-decisions.md` convention used across repos in the fleet.
+
+## Field rules
+
+- **Check resolution precedence before widening a variant schema.** A purpose-built variant is dead if resolution order never selects it.

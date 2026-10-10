@@ -209,7 +209,7 @@ The system scales — a typo fix is a two-word instruction; a system rewrite is 
 <details>
 <summary><strong>All Commands (appendix)</strong></summary>
 
-The plugin ships **46** commands. Listed below are the 45 that are useful in a consumer install, grouped by where they sit in a session. The 46th, `/percolate`, publishes a working tree to a downstream mirror repo — it is a maintainer tool for shipping *this* project and has no use in an install that is the target of a publish rather than its source.
+The plugin ships **45** commands. Listed below are the 44 that are useful in a consumer install, grouped by where they sit in a session. The 45th, `/percolate`, publishes a working tree to a downstream mirror repo — it is a maintainer tool for shipping *this* project and has no use in an install that is the target of a publish rather than its source.
 
 **Session cadence**
 
@@ -236,8 +236,7 @@ The plugin ships **46** commands. Listed below are the 45 that are useful in a c
 | `/plan` | Decision-weight planning: multi-file, abstraction, cross-system, agent scaffold, reversed prior |
 | `/staff-session` | PM-gated: Agent Teams review for architecture calls (plan or review mode) |
 | `/roadmap-planning` | PM-gated: shape research into a ratified, graphed roadmap of batons |
-| `/research` | PM-gated deep research — web, repo, or structured |
-| `/notebooklm-research` | PM-gated: NotebookLM research for video/audio sources |
+| `/research` | Research by value class: scouts, corpus (web, repo, structured, NotebookLM), or deep |
 
 **Execution**
 

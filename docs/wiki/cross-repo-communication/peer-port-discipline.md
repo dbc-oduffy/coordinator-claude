@@ -11,7 +11,7 @@ The shared failure shape across all three rules below: **a cross-repo artifact c
 Verbatim-adopting a sibling-authored helper that calls **your** package's API can carry a latent bug: the sibling coded against whatever contract your API had when they wrote it. Your API may have evolved since.
 
 - **Case (functional_probe adoption from example-game-repo → project-rag-ue-addon):** example-game-repo's `verify_engine_corpus.py` (authored for us, copied verbatim per the memo) `.exists()`-checked the return of `_paths.engine_structural_index_path()`. But this repo's per-band layout later changed that resolver to **raise** `AddonResolutionError` on absent corpus instead of returning a non-existent path. The copied code let the raise escape as an uncaught traceback on the most common install state ("corpus not downloaded yet"); the exit code was coincidentally still 1, so the contract held but the operator saw a scary stack trace.
-- **How to apply:** before trusting an adopted call site that invokes a module **you** own, grep that module's *current* return/raise contract (sentinel vs. raise? which exception?) and confirm the adopted code handles it. "Complete / already reviewed upstream" is sender-side and predates your API's evolution. Converges with the inbound-memo-conformance-is-a-hypothesis rule (`cross-repo-communication.md`): re-verify sibling artifacts — claims **and** code — against your own current reality.
+- **How to apply:** before trusting an adopted call site that invokes a module **you** own, grep that module's *current* return/raise contract (sentinel vs. raise? which exception?) and confirm the adopted code handles it. "Complete / already reviewed upstream" is sender-side and predates your API's evolution. Converges with the inbound-memo-conformance-is-a-hypothesis rule (`coordinator/docs/wiki/cross-repo-communication.md`): re-verify sibling artifacts — claims **and** code — against your own current reality.
 
 ## Rule 2 — Scrub copied metadata fields (license / author / copyright / URLs) before propagating
 
@@ -37,6 +37,6 @@ A peer-comparison gap-audit must include an **"already-shipped-in-this-repo"** c
 ## Related
 
 - `peer-repo-polarity.md` — which repo owns which capability (the ownership axis; this wiki is the adoption/comparison axis)
-- `cross-repo-communication.md` — memo content is hypothesis; verify before acting
+- `coordinator/docs/wiki/cross-repo-communication.md` — memo content is hypothesis; verify before acting
 - `repo-registry.md` — peer-repo prior-art lookup
 - CLAUDE.md § Implementation Standards — "existence ≠ fit" (a reused helper's *shape* must match, the in-repo correctness analog of Rule 1)

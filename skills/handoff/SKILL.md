@@ -10,10 +10,9 @@ argument-hint: "[optional context]"
 ## Handoff Lineage
 
 **Predecessor is the baton this session was born with.** A session that writes a CONTINUATION
-always has one — the assembler resolves it, never the EM. Deflection kinds (`spinoff`,
+always has one; the assembler resolves it, never the EM. Deflection kinds (`spinoff`,
 `goal-seed`, `roadmap-seed`) carry `predecessor: none` by schema invariant
-(`handoff.schema.json`'s `kind`/`predecessor` cross-field rule) — also not an EM inference; this
-does not mean every handoff has a predecessor. Spinoffs are PM-authorized forks only, never
+(`handoff.schema.json`'s `kind`/`predecessor` cross-field rule), not EM inference. Spinoffs are PM-authorized forks only, never
 self-authored. Tripwire: `A-SESSION-IS-NEVER-STANDALONE`.
 
 > **The baseline trigger is involuntary** — context pressure forcing a stop mid-workstream before
@@ -30,14 +29,13 @@ self-authored. Tripwire: `A-SESSION-IS-NEVER-STANDALONE`.
 > **Continuation vs. fork.** This skill writes a *continuation* — work this session was doing that
 > someone resumes. A *different* mid-session topic for someone to pick up cold is `/spinoff`
 > (`kind: spinoff`, `predecessor: none`). **The next phase of the same multi-phase workstream
-> (research → goal-setting → plan → execute → verify) is a continuation**, even when the phase
-> boundary reads as a new topic — never redirect it to `/spinoff`.
+> (research → goal-setting → plan → execute → verify) is a continuation**, never a `/spinoff`.
 
 > **A `roadmap-baton`'s successor is a `roadmap-baton`** and inherits `stub_id`, `roadmap_id`,
 > `blocks`, `blocked_by`, `sprint`, `wave`. The predecessor is superseded and archived in the same
-> move — succession kills the originator, roadmap batons included. Both halves or neither:
-> `blocked_by` resolves by `stub_id`: inheriting without archiving duplicates a globally-unique id,
-> archiving without inheriting strands the dependent.
+> move, roadmap batons included. Both halves or neither: `blocked_by` resolves by `stub_id`, so
+> inheriting without archiving duplicates a globally-unique id, archiving without inheriting strands
+> the dependent.
 >
 > **The archival half runs via `d6`'s supersession route** (see § Supersession) — `mode='supersede'`
 > needs `--continued-into` naming the successor; do not hand-stamp `deployment_state: continued`
@@ -64,8 +62,8 @@ No brief block in context means the entry hook failed open: run `baton-assemble 
 with no artifact-path, resolved per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`
 (`coordinator-tripwires/an-autofire-hook-that-did-not-fire-is-silent.md`).
 
-Once `apply`'s commit lands, best-effort trigger project-rag's SCIP rebuild in the background —
-never waits, never blocks this ceremony: `"$_py"
+Once `apply`'s commit lands, trigger project-rag's SCIP rebuild in the background (best-effort,
+never blocks): `"$_py"
 "${CLAUDE_PLUGIN_ROOT:-<content-root>/coordinator}/bin/scip-rebuild-at-ceremony.py" --ceremony handoff`
 (§ Plugin-local `coordinator/bin/`, `resolve-coordinator-bin.md`).
 

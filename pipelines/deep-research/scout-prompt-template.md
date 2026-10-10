@@ -14,11 +14,13 @@ write it to `{{scratch_dir}}/source-corpus.md`.
 
 ## Timing
 
-**Ceiling:** 3 minutes — begin wrapping up and write what you have.
+**Ceiling:** the brief's `scout_ceiling_minutes` (5 when absent) — begin wrapping up and write what you have.
 **How to check time:** Run `date +%s` via Bash as your first action and record it as your
   start. Check it periodically; subtract the start and divide by 60 for elapsed minutes.
 
 ## Your Job
+
+Source quality: a client-rendered docs page often returns only a heading through WebFetch. Try a raw or alternate URL (the repo's raw file, a `/raw` or `.md` form, a cached or API form) or another source before dropping the topic. A product name that collides with an unrelated project needs disambiguating query terms (vendor, language, category); check the first results are about the right thing.
 
 1. Read the search queries from the brief — the EM has written suggested queries
 2. Execute each query via WebSearch

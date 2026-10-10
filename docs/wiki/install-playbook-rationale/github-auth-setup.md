@@ -60,7 +60,9 @@ of the *identical* design:
 | Windows | Git Credential Manager (`manager`) / `wincred` | same `git remote set-url … https://…`; GCM ships by default on Git-for-Windows |
 
 The gh token (scope `repo`) already in the keyring/keychain serves the push; no new PAT is needed if
-`gh auth status` shows a `repo`-scoped token. Reverse with `git remote set-url origin
+`gh api repos/<owner>/<repo> --jq .permissions.push` prints `true`. Decide auth by `gh api user`, push
+by that `.permissions.push` read — never by `gh auth status`, which false-negatives wherever `GH_TOKEN`
+is a proxy placeholder (every cloud container) and answers nothing about per-repo push. Reverse with `git remote set-url origin
 git@github.com:<owner>/<repo>.git`.
 
 **Exception — a repo whose branches touch `.github/workflows/`.** A `gh`-issued OAuth token
@@ -172,6 +174,7 @@ helper) and WARNs advisory if none do. This doc + the setup script are the **fix
 Tier-1 case. The probe stays auth-method-agnostic; the 1Password path is one way to make it pass.
 
 ## See also
+
 - `install-surface-completeness.md` — why a fresh-machine credential path must be wired at install
 - `machine-local-registry.md` — why secrets don't live in the registry
 - `claude-code-platform-gotchas.md` — Windows 1Password SSH agent specifics

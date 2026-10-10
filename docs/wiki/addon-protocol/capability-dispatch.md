@@ -24,6 +24,7 @@ The host has no registry of known strings — the string is opaque to the host; 
 the claiming addon's hookimpl recognises it.
 
 **Conventions:**
+
 - Lowercase snake_case ASCII: `ue_editor`, `libclang`, `uecheckhost`.
 - No product version embedded in the string (version-specific branching is the
   hookimpl's responsibility, not the capability string's).
@@ -49,6 +50,7 @@ gate execution. These fields are **retired in v6** with no transition alias (PM
 2026-05-16 OQ-2 disposition: **stop, not warn**).
 
 **v6 shape:**
+
 ```python
 @dataclass(frozen=True)
 class AddonProducerSpec:
@@ -88,6 +90,7 @@ The text below is reproduced verbatim from the hookspec docstring in
 > (e.g. UE editor not running, libclang not found) MUST return
 > `AddonCapabilityResult(satisfied=False, reason=<human-readable string>)`.
 > The host distinguishes these two cases at the ledger layer:
+>
 > - all hookimpls returned None → `status="capability_unclaimed"` row
 > - first non-None returned `satisfied=False` → `status="capability_unsatisfied"` row
 >

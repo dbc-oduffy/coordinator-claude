@@ -244,7 +244,6 @@ These are orthogonal failure modes at different capture points. Running both is 
 
 ## Spec Backlink
 
-This wiki documents the primitives shipped by: `2026-05-21-plugin-source-live-mirror-doctrine.md` under `docs/plans/`
 
 The plan contains the implementation rationale and dispatch decomposition. This wiki is the operator-facing reference.
 
@@ -252,8 +251,8 @@ The plan contains the implementation rationale and dispatch decomposition. This 
 
 ## Cross-References
 
-- `2026-05-21-plugin-source-live-mirror-doctrine.md` under `docs/plans/` — implementation spec and rationale for Default + source_is_live modes
 - `2026-05-23-copy-install-drift-coverage.md` under `docs/plans/` — implementation spec for copy_install mode
+
 ## Directionality Verification Before Back-Propagation
 
 Reverse-drift detector can't tell direction — forward drift (live behind source) presents as "hand-edited, at risk." Live-ahead-of-source shows as a reverse-drift false positive. Always diff directionally before back-propagating: if the live install is ahead of the source (contains changes the source doesn't), back-propagating would DESTROY those changes. Apply: before any back-prop, run `diff <source> <live>` and classify direction; only back-propagate when live is verified to be a SUBSET of source.

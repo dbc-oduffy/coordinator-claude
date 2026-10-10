@@ -1,6 +1,6 @@
 # Repo Mail-Check Prompt Template
 
-> Used by the `repo` pipeline manifest (`repo.manifest.yaml`) for the `mailcheck` stage. It runs after round-1 specialists return and names the roles whose mailbox holds unread mail; the `rebuttal` stage fans over its return.
+> Used by the `repo` pipeline manifest (`repo.manifest.yaml`) for the `mailcheck` stage. It runs after round-1 specialists return and names the roles whose mailbox holds unread mail or whose assessment is under the deep-read floor; the `rebuttal` stage fans over its return.
 
 ## Template
 
@@ -15,8 +15,11 @@ For each role, read its mailbox if the file exists. The role has unread mail whe
 follows its last read marker, or when it has message lines and no marker. A missing or empty file
 means no unread mail.
 
-Return `failed`: the role names (`specialist-a` and so on) that have unread mail, and an empty
-list when none do. Do not answer any message, do not edit any file, and do not append a read marker.
+A role is also under its floor when the first line of {{scratch_dir}}/<chunk letter, upper-case>-assessment.md
+is missing, is not `deep_read_files: <N>`, or gives an N below the `Min deep-read files` field of
+your brief at {{brief}}.
 
-Your brief at {{brief}} needs no reading.
+Return `failed`: the role names (`specialist-a` and so on) that have unread mail or are under their
+floor, each once, and an empty list when none do. Do not answer any message, do not edit any file,
+and do not append a read marker.
 ```

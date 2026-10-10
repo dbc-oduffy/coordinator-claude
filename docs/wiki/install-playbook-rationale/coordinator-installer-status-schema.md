@@ -37,7 +37,7 @@ by the installer redesign (marked **new**):
 | Identifier | Display label in table | What it checks |
 |---|---|---|
 | `git_repo` | Git repository | Whether the current directory is inside a git repo (`git rev-parse --is-inside-work-tree`) |
-| `agent_teams_env` | Agent Teams env var | Whether `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` is set |
+| `agent_teams_env` | Agent Teams env var | Retired flag; the step reports it as not to be set |
 | `scc` | Code stats (scc) | Whether the `scc` binary is on `$PATH` (optional capability) |
 | `deep_research` | Deep research plugin | Whether the deep-research plugin is registered (optional capability) |
 | `notebooklm` | NotebookLM (Pipeline D) | Whether the notebooklm MCP server is reachable (optional capability) |
@@ -59,7 +59,6 @@ by the installer redesign (marked **new**):
 
 **Total: 20 rows** (11 pre-redesign + 3 new + 1 persona-customization row + 1 retired, unemitted coordinator_whoami row + 3 brew bash / shellenv rows + 1 bash_version row).
 
-
 ---
 
 ## Status value vocabulary
@@ -80,7 +79,6 @@ bug in the producer.
 | `would write` | Under `--check-only`, indicates what would be created without the flag. Used for `operator_identity`, `meta_repo_doctrine`, and similar rows that write files. Not emitted in normal (mutating) mode. |
 | `not_invoked` | For `non_interactive_contract`: the `--non-interactive` flag was not passed; the row is informational (no prompt-fallback behavior occurred). |
 | `applied (skipped: N, defaulted: M, failed: 0)` | For `non_interactive_contract`: the `--non-interactive` flag was active; the parenthetical is a per-site outcome summary — `skipped` is the count of `skip-with-note` callsites, `defaulted` is the count of `default-with-warning` callsites, `failed` is the count of `fail-loud` callsites that fired. |
-
 
 ---
 

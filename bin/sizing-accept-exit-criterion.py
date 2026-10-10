@@ -6,7 +6,7 @@ Records the PM's verbatim acceptance of a sizing-object's exit criterion
 rule, this file owns only the argv grammar and the `--help` text.
 
 Usage:
-    sizing-accept-exit-criterion.py --sizing PATH (--pm-quote TEXT | --apm-ruling TEXT)
+    sizing-accept-exit-criterion.py --sizing PATH (--pm-quote TEXT | --apm-ruling TEXT --ruling-ref PATH)
         [--statement TEXT] [--mode {hands-on,pm,ceo}] [--supersede]
 
 Exit codes:
@@ -66,7 +66,13 @@ def build_parser() -> argparse.ArgumentParser:
     who.add_argument(
         "--apm-ruling",
         help="the APM's verbatim ruling standing in for the PM; only in pm/ceo mode and "
-        "never over a PM acceptance.",
+        "never over a PM acceptance. Needs --ruling-ref.",
+    )
+    p.add_argument(
+        "--ruling-ref",
+        default=None,
+        help="where the APM ruling is recorded (its file path, or a bug-row id); required "
+        "with --apm-ruling.",
     )
     p.add_argument(
         "--statement",
@@ -98,6 +104,8 @@ def build_params(argv: list[str]) -> dict[str, object]:
         params["pm_quote"] = ns.pm_quote
     if ns.apm_ruling is not None:
         params["apm_ruling"] = ns.apm_ruling
+    if ns.ruling_ref is not None:
+        params["ruling_ref"] = ns.ruling_ref
     if ns.statement is not None:
         params["statement"] = ns.statement
     if ns.mode is not None:

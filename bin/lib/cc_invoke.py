@@ -2438,6 +2438,38 @@ def _capture_warm_reach(
     return response, _buf.getvalue()
 
 
+def _capturing_stderr(fn: Callable[..., Any], *args: Any) -> tuple[Any, str]:
+    """`(fn(*args), stderr_text)`: the stderr and engine diagnostics `fn` emitted,
+    returned instead of printed -- what a cold spawn's captured stderr is. When
+    `fn` raises, the captured text is re-printed to real stderr first, so a
+    raising op's reason is never lost with the exception."""
+    import contextlib
+    import io
+
+    buf = io.StringIO()
+    diagnostics: list[str] = []
+    # Not imported here: an unloaded entry_seam means no warm request is in
+    # scope, so there is no diagnostics sink to rebind and the import is pure cost.
+    seam = sys.modules.get("coordinator_core.warm.entry_seam")
+    scope: Any = (
+        seam.collecting_diagnostics(diagnostics) if seam is not None else contextlib.nullcontext()
+    )
+    try:
+        with scope, contextlib.redirect_stderr(buf):
+            value = fn(*args)
+    except BaseException:
+        text = buf.getvalue()
+        if text.strip():
+            sys.stderr.write(text if text.endswith("\n") else text + "\n")
+            sys.stderr.flush()
+        raise
+    text = buf.getvalue()
+    extra = [d for d in diagnostics if d.strip() and d.strip() not in text]
+    if extra:
+        text = text + ("" if not text or text.endswith("\n") else "\n") + "\n".join(extra)
+    return value, text
+
+
 def _apply_warm_envelope(
     op: str,
     envelope: dict[str, Any],
@@ -2506,6 +2538,7 @@ def _apply_warm_envelope(
         raise RuntimeError(
             f"cc_invoke: op returned JSON-RPC error envelope (op={op}, warm hit): "
             f"code={code} message={message}"
+            + (f"\n  stderr: {stderr_text.strip()}" if stderr_text.strip() else "")
         )
 
     if "result" not in envelope:
@@ -2699,20 +2732,24 @@ def cc_invoke(
 
     global last_rung
     last_rung = None
-    _in_engine = _try_in_engine_dispatch(op, params, repo_root, claude_klabauter_root)
+    _in_engine, _in_engine_stderr = _capturing_stderr(
+        _try_in_engine_dispatch, op, params, repo_root, claude_klabauter_root
+    )
     if _in_engine is not None:
         last_rung = "warm"
-        return _apply_warm_envelope(op, _in_engine, "", _stderr_sink)
+        return _apply_warm_envelope(op, _in_engine, _in_engine_stderr, _stderr_sink)
 
     _warm_response, _warm_stderr = _capture_warm_reach(op, params, repo_root)
     if _warm_response is not None:
         last_rung = "warm"
         return _apply_warm_envelope(op, _warm_response, _warm_stderr, _stderr_sink)
 
-    _stamped = _try_stamped_in_process_dispatch(op, params, repo_root, claude_klabauter_root)
+    _stamped, _stamped_stderr = _capturing_stderr(
+        _try_stamped_in_process_dispatch, op, params, repo_root, claude_klabauter_root
+    )
     if _stamped is not None:
         last_rung = "in-process"
-        return _apply_warm_envelope(op, _stamped, "", _stderr_sink)
+        return _apply_warm_envelope(op, _stamped, _stamped_stderr, _stderr_sink)
 
     last_rung = "spawn"
     try:
@@ -2867,10 +2904,12 @@ def cc_invoke_bare(
 
     global last_rung
     last_rung = None
-    _in_engine = _try_in_engine_dispatch(op, params, repo_root, claude_klabauter_root)
+    _in_engine, _in_engine_stderr = _capturing_stderr(
+        _try_in_engine_dispatch, op, params, repo_root, claude_klabauter_root
+    )
     if _in_engine is not None:
         last_rung = "warm"
-        return _apply_warm_envelope(op, _in_engine, "", _stderr_sink)
+        return _apply_warm_envelope(op, _in_engine, _in_engine_stderr, _stderr_sink)
 
     _warm_response, _warm_stderr = _capture_warm_reach(op, params, repo_root)
     if _warm_response is not None:

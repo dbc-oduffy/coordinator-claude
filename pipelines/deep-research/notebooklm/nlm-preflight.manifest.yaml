@@ -1,0 +1,28 @@
+schema_version: 1
+pipeline: nlm-preflight
+description: "NotebookLM preflight: one Haiku stage checks nlm auth and the MCP registration, halting the run with the PM's exact commands"
+inputs:
+  brief: required
+  scratch_dir: optional
+stages:
+  - id: preflight
+    phase: Preflight
+    agent_type: general-purpose
+    model: haiku
+    effort: low
+    template: preflight-prompt-template.md
+    web_caller: false
+    halts_unless: ok
+    output: "{{scratch_dir}}/preflight.json"
+    schema:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        remedy:
+          type: array
+          items:
+            type: string
+        checks:
+          type: object
+      required: [ok, remedy]

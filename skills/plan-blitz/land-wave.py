@@ -381,6 +381,34 @@ def _refuse_live_tree_on_a_stamped_engine(engine_root, live_engine_tree: bool) -
 _LANDING_ROOTS = ("state/handoffs/", "archive/handoffs/", "state/roadmap/", "docs/plans/")
 
 
+def _commit_own_records(repo_root: Path, engine_root: Path | None, paths: list[str],
+                        wave_index, live_engine_tree: bool) -> tuple[list[str], list[str]]:
+    """Commit `paths` as one scoped commit; return `(committed, held)`.
+
+    A refusal that names some of `paths` (a peer holds them) drops exactly those and retries
+    with the remainder, so a peer-held path is reported once instead of one refusal per run.
+    A refusal naming none of them holds everything: the pathspec is never widened and a
+    failure never reads as a commit.
+    """
+    remaining = list(paths)
+    held: list[str] = []
+    message = f"plan-blitz: land wave {wave_index} records"
+    while remaining:
+        try:
+            _invoke(repo_root, engine_root, "ceremony.commit_v2",
+                    {"paths": remaining, "message": message}, live_engine_tree)
+            return remaining, held
+        except ValueError as exc:
+            named = [p for p in remaining if p in str(exc)]
+            if not named:
+                print(f"land-wave: the scoped commit of the wave's records failed — {exc}",
+                      file=sys.stderr)
+                return [], sorted([*held, *remaining])
+            held.extend(named)
+            remaining = [p for p in remaining if p not in named]
+    return [], sorted(held)
+
+
 def _repo_relative(value: str, repo_root: Path) -> str | None:
     """`value` as a forward-slash repo-relative path, or None when it names nothing here.
 
@@ -620,6 +648,11 @@ def main(argv=None) -> int:
     ap.add_argument("--branch", default="main", help="branch recorded on any minted replan baton")
     ap.add_argument("--limit", type=int, default=8, help="max batons in the emitted next wave")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument(
+        "--no-commit",
+        action="store_true",
+        help="leave the records this landing wrote uncommitted and name them instead",
+    )
     args = ap.parse_args(argv)
 
     def refuse(msg: str) -> int:
@@ -803,6 +836,13 @@ def main(argv=None) -> int:
                 # the summary must not read as a landing that failed.
                 print(f"land-wave: could not write the landing summary under {trail}: {exc}",
                       file=sys.stderr)
+
+    if uncommitted and not args.no_commit:
+        committed, uncommitted = _commit_own_records(
+            repo_root, engine_root, uncommitted, wave_index, args.live_engine_tree
+        )
+        if committed:
+            print(f"land-wave: committed {len(committed)} record path(s).", file=sys.stderr)
 
     if args.json:
         print(

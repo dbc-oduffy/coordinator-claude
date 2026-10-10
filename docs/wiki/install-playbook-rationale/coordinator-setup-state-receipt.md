@@ -18,7 +18,12 @@ Flat YAML. Each `*_at` is an ISO-8601 UTC timestamp, **set once (first occurrenc
 
 ```yaml
 version: 1
-setup_concluded_at: 2026-05-23T14:02:11Z       # /setup reached Phase 7 (always fires)
+setup_concluded_at: 2026-05-23T14:02:11Z       # a completed install run: every mandatory phase succeeded
+setup_receipt:                                  # written in the same atomic write as setup_concluded_at
+  phases_ran: ["..."]
+  phases_skipped: [{id: "...", reason: "..."}]  # elective skips only; a mandatory skip writes no stamp
+  coordinator_version: "..."
+  engine_ref: "..."
 orientation_started_at: 2026-05-23T14:05:40Z    # guided tour began (elective)
 orientation_completed_at: 2026-05-23T14:31:08Z   # guided tour completed (elective)
 ```
@@ -29,9 +34,13 @@ The single writer/reader primitive is `coordinator-setup-state.py` (idempotent, 
 
 | Milestone | Recorded by | When |
 |---|---|---|
-| `setup_concluded` | `/setup` Phase 7 Step 0 | Mechanically, on every full (non-`--check-only`) `/setup` run that reaches Phase 7. **This is the chaining gate** — it fires whether or not the operator takes the elective tour. |
+| `setup_concluded` + `setup_receipt` | the engine's `record_setup_concluded`, at the end of a completed install run | Only when every mandatory phase succeeded in that run; a skipped or failed mandatory phase writes nothing, so the gate stays shut. No other path stamps it. **This is the chaining gate** — it fires whether or not the operator takes the elective tour. An existing stamp is never rewritten. |
 | `orientation_started` | `/setup` guided-onboarding offer (on accept) **and** `getting-started.md` facilitation (tour start) | When the guided tour begins. Double-recording is harmless — first occurrence wins. |
 | `orientation_completed` | `getting-started.md` facilitation | When the operator finishes the tour. |
+
+### A Phase 2 skip still stamps — read `phases_skipped`
+
+Operator identity capture (install.md Phase 2) is interactive, so the installer cannot run it and records it as an elective skip. An identity-less install therefore still writes `setup_concluded_at`, with the Phase 2 entry listed in `setup_receipt.phases_skipped`. The bare stamp means "the machine substrate is installed", not "an operator identity exists". A sibling whose chaining needs operator identity reads `phases_skipped` for the Phase 2 entry, or checks `~/.claude/coordinator-identity.yaml` directly.
 
 ### Why the gate is `setup_concluded`, not orientation
 
@@ -56,12 +65,13 @@ fi
 **Or use the helper verb** (when the coordinator plugin is install-resolvable):
 
 ```bash
-python3 "$REPO_CLAUDE_KLABAUTER/coordinator/bin/coordinator-setup-state.py" \
+# PowerShell host: & "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-setup-state.exe"
+"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-setup-state" \
     check setup_concluded && echo "ready to chain"
 ```
 
 (`coordinator-setup-state.py` migrated to the engine repo's `coordinator/bin/` —
-resolve `$REPO_CLAUDE_KLABAUTER` per `percolate-setup.md` § PERCOLATE_ROOT and CLAUDE_KLABAUTER_ROOT.)
+resolve `$REPO_CLAUDE_KLABAUTER` per `coordinator/docs/wiki/percolate-setup.md` § PERCOLATE_ROOT and CLAUDE_KLABAUTER_ROOT.)
 
 `status` prints the whole receipt (exit non-zero if absent, or if seeded but no milestone is recorded yet).
 
@@ -78,6 +88,6 @@ Documenting this contract here is doctrine seeding (Director-of-Engineering alti
 ## Cross-references
 
 - [`plugin-identity-and-health-sentinels.md`](./plugin-identity-and-health-sentinels.md) — receipt vs. identity vs. scanner decay discipline; this receipt is the justified second disk sentinel.
-- `commands/install.md` Phase 7 Step 0 — `setup_concluded` writer.
+- the engine installer `coordinator_core/install/maximalist.py` → `coordinator_core/ops/coordinator_setup_state.py :: record_setup_concluded` — the `setup_concluded` writer.
 - `docs/wiki/install-playbook-rationale/getting-started.md` — orientation facilitation playbook (`orientation_*` writers).
 - `coordinator-setup-state.py` — the primitive and its tests.

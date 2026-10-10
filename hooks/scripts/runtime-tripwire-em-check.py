@@ -1456,6 +1456,66 @@ def _baton_advisory_text(baton_path: str, git_root: str) -> str:
     return f"WORK JOURNAL — {display_path} — your durable work journal, script-managed"
 
 
+def _turn_log_clause(turn_log_name: str) -> str:
+    return f"; PM prompts saved beside it in {turn_log_name} land in your next sizing"
+
+
+_HARNESS_WRAPPER_PREFIXES = ("<task-notification>", "<cross-session-message")
+_SYSTEM_REMINDER_ONLY_RE = re.compile(
+    r"(?:\s*<system-reminder>.*?</system-reminder>)+\s*", re.DOTALL
+)
+
+
+def _is_harness_injected_prompt(prompt: str) -> bool:
+    """True when the whole prompt is a harness wrapper rather than human words.
+    A human prompt that merely quotes a wrapper mid-text is not matched."""
+    body = prompt.strip()
+    if body.startswith(_HARNESS_WRAPPER_PREFIXES):
+        return True
+    return _SYSTEM_REMINDER_ONLY_RE.fullmatch(body) is not None
+
+
+def _append_pm_turn(
+    git_root: str, session_id: str, sessions_dir: str, hook_event: str, prompt,
+    baton_msg,
+):
+    """Appends a human PM prompt to the engine's per-session turn log (after
+    the mint, so turn 0 is the first prompt) and returns `baton_msg`, with the
+    work-journal line extended to name the log only when the append succeeded.
+    Silent no-op on import failure, `ok: false`, or any error."""
+    if hook_event != "UserPromptSubmit" or not sessions_dir:
+        return baton_msg
+    if not session_id or not _ID_CHARSET_RE.match(session_id):
+        return baton_msg
+    if not isinstance(prompt, str) or not prompt.strip():
+        return baton_msg
+    if _is_harness_injected_prompt(prompt):
+        return baton_msg
+    try:
+        root = _resolve_claude_klabauter_root()
+        if not root:
+            return baton_msg
+        from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
+        _place_engine_root_on_path(root)
+        _arm_lazy_ops()
+        from coordinator_core.ops.baton_pm_turns import append_turn
+
+        result = append_turn(prompt, session_id=session_id, cwd=git_root)
+        if not (isinstance(result, dict) and result.get("ok") is True):
+            return baton_msg
+        log_path = result.get("log_path")
+        if (
+            not isinstance(log_path, str)
+            or not baton_msg
+            or not baton_msg.startswith("WORK JOURNAL — ")
+        ):
+            return baton_msg
+        first, sep, rest = baton_msg.partition("\n")
+        return first + _turn_log_clause(os.path.basename(log_path)) + sep + rest
+    except Exception:
+        return baton_msg
+
+
 def _minted_advisory_text(artifact_path: str, git_root: str) -> str:
     try:
         display_path = os.path.relpath(artifact_path, git_root)
@@ -1935,6 +1995,18 @@ def main() -> int:
         hook_event,
         payload.get("prompt"),
         default=(None, None),
+    )
+
+    # --- PM-TURN-LOG: every human prompt, after the mint so turn 0 exists. ---
+    baton_msg = _fail_open(
+        _append_pm_turn,
+        git_root,
+        session_id,
+        sessions_dir,
+        hook_event,
+        payload.get("prompt"),
+        baton_msg,
+        default=baton_msg,
     )
 
     # --- Subagent-overrun tripwire: REMOVED (PM ruling 2026-07-31 stood it

@@ -146,8 +146,12 @@ You manage your own timing. Nothing will interrupt you.
 
 The brief's `Min minutes`, `Max minutes` and `Min deep-read files` fields set the numbers below.
 
-**Floor:** You MUST research for at least `Min minutes` minutes AND deep-read at least
-  `Min deep-read files` files before you are allowed to converge.
+**Floor:** Do not begin convergence before BOTH `Min minutes` minutes have elapsed AND you have
+  deep-read at least `Min deep-read files` files. Self-check before every convergence step: run
+  `date +%s`, compute elapsed minutes, and count your deep-read files; if either is under the floor,
+  keep reading (trace another path, test a peer's claim), and say in your assessment if a floor could
+  not be met and why. The first line of `{{item}}-assessment.md` is `deep_read_files: <N>`, the count
+  of files you deep-read; the gate stage checks it against `Min deep-read files`.
 **Ceiling:** You MUST begin convergence after `Max minutes` minutes regardless of state.
 **Diminishing returns:** Between floor and ceiling, if your last 2 consecutive file reads
   added no new architectural insights, begin convergence.
@@ -184,6 +188,8 @@ Analyze the repo on its own merits. Do NOT compare against any other project.
 
 ## Phase 2: Comparison (only if comparison mode is enabled: the brief's `Comparison` field names a project)
 
+When the brief's `Comparison` field is `none`, skip this entire phase, including the gap checks below; write no comparison file.
+
 After completing the assessment, compare against the project. The comparison
 uses an independent-analysis-first approach: your Phase 1 assessment is the
 reference for the target repo. Now analyze the project independently against
@@ -212,7 +218,7 @@ repo files to project file candidates. Start with those files.
 - Read project files thoroughly. Find actual numeric constants.
 - If a mechanism does not exist in the project, say so EXPLICITLY
 - Do not assume the project does something because "it should" — FIND THE CODE
-- Look specifically for:
+- When the comparison project is a codebase under audit, look specifically for:
   1. Code that exists but is never called from the right place
   2. Data computed but fed to the wrong downstream consumer
   3. Mechanisms present in isolation but disconnected from the pipeline
@@ -231,7 +237,7 @@ Challenges are **expected** — actively test peers' claims, don't just share fi
 **Self-check: "Have I challenged at least one peer claim?"**
 
 Max 3 mailbox lines per peer — quality over quantity.
-Read your own mailbox before you converge and incorporate what peers sent you.
+Re-read your own mailbox after each source or file you deep-read, and once more just before you write your output; peers append while you work, and a mailbox read once at the end misses slower peers. Incorporate what peers sent you. A specialist that converges early re-checks its mailbox once more before returning, since slower peers may still be writing.
 **Resolution protocol:** Challenged specialists answer in the rebuttal round (a continuation
 agent runs it after round 1) with evidence or concede. A challenge still unresolved after it produces a
 [CONTESTED] finding.
@@ -245,7 +251,7 @@ Begin convergence when ANY of these conditions are met (AND the floor is satisfi
 
 **Convergence steps:**
 1. Append final challenges and findings to peers' mailboxes (within the 3-per-peer cap)
-2. Read your own mailbox and answer what you can with evidence
+2. Re-read your own mailbox (even if you read it recently) and answer what you can with evidence
 3. Write your complete output files (assessment + comparison if enabled)
 4. Append `{"read": true}` to your own mailbox if you read it
 5. Return one line naming the paths written: `{{item}}-assessment.md` (plus `{{item}}-comparison.md` in comparison mode)

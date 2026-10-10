@@ -34,7 +34,9 @@ value is one line: `DONE: <paths written>`.
 
 ## Job 1 — rebuttal
 
-Read your mailbox and answer every message. Concede, or answer a challenge with file:line
+If your assessment's first line reports `deep_read_files` below the brief's `Min deep-read files`,
+or is missing, first deep-read more files in your chunk, revise the assessment and claims, and
+rewrite that first line with the new count. Then read your mailbox and answer every message. Concede, or answer a challenge with file:line
 evidence. A challenge still unresolved after your answer marks the finding [CONTESTED]. Revise
 your assessment, comparison and claims files where the mail changes them, append
 `{"read":true}` to your mailbox, and return one line naming the files you revised.

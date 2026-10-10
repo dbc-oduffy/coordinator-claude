@@ -120,8 +120,7 @@ published mirror `c587c774`, where `coordinator/lib/percolate/allowlist.py`,
 union and not in any single row's restricted tree, so grading them per-row
 manufactures false positives — the same defect as the 372 measured on
 `-coordinator-bin` (2026-08-13) that this gate's row scoping exists to
-avoid. The assembled union is `assembled_mirror_gate`'s question, not this
-one's.
+avoid.
 
 `scripts/` publishes only `setup.py`/`setup.cmd` and `bin/` is not a
 first-party import root in any row, so neither can produce that false
@@ -185,6 +184,24 @@ def _handler_catches_import_error(handler: ast.ExceptHandler) -> bool:
     return not _is_bare_reraise(handler.body)
 
 
+_STATEMENT_CHILD_FIELDS = ("body", "orelse", "finalbody", "handlers", "cases")
+
+
+def _iter_statements(module: ast.Module):
+    """Every statement node under `module`, descending only through statement
+    containers. An `Import`/`ImportFrom` is a statement and no expression holds
+    one, so this finds exactly what `ast.walk` would for them without visiting
+    the expression subtrees (the bulk of the node count)."""
+    stack: list[ast.AST] = [module]
+    while stack:
+        node = stack.pop()
+        for field in _STATEMENT_CHILD_FIELDS:
+            children = getattr(node, field, None)
+            if children:
+                stack.extend(children)
+                yield from children
+
+
 def _pytest_raises_aliases(module: ast.Module) -> tuple[set[str], set[str]]:
     """Return `(pytest_module_names, raises_func_names)` — every local name
     that resolves to the `pytest` module (`import pytest`, `import pytest as
@@ -197,7 +214,7 @@ def _pytest_raises_aliases(module: ast.Module) -> tuple[set[str], set[str]]:
     of the same guard."""
     pytest_names: set[str] = set()
     raises_names: set[str] = set()
-    for node in ast.walk(module):
+    for node in _iter_statements(module):
         if isinstance(node, ast.Import):
             for alias in node.names:
                 if alias.name == "pytest":
@@ -301,7 +318,12 @@ def _unguarded_import_nodes(module: ast.Module) -> list[ast.stmt]:
     handler that would actually catch the failure counts as a guard, and it
     is no longer unconditionally lenient about function-locality either."""
     collected: list[ast.stmt] = []
-    pytest_names, raises_names = _pytest_raises_aliases(module)
+    aliases: list[tuple[set[str], set[str]]] = []
+
+    def pytest_aliases() -> tuple[set[str], set[str]]:
+        if not aliases:
+            aliases.append(_pytest_raises_aliases(module))
+        return aliases[0]
 
     def visit(nodes: list[ast.stmt], in_try_body: bool) -> None:
         for node in nodes:
@@ -325,6 +347,7 @@ def _unguarded_import_nodes(module: ast.Module) -> list[ast.stmt]:
                     visit(node.body, in_try_body)
                     visit(getattr(node, "orelse", []), in_try_body)
             elif isinstance(node, (ast.With, ast.AsyncWith)):
+                pytest_names, raises_names = pytest_aliases()
                 guards_import_error = any(
                     _is_pytest_raises_import_error_guard(item, pytest_names, raises_names)
                     for item in node.items

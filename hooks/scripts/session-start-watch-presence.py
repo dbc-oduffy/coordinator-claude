@@ -4,11 +4,11 @@ PURPOSE. `docs/plans/2026-08-31-the-watch-leaves-a-trace.md` § C3. Three
 things land in one line of `additionalContext`, all facts, none a
 solicitation:
 
-1. A presence FACT, never a report request -- "a Group EM holds this repo's
-   standing and can be reached by name" if the roster names one, phrased so a
-   session with no work in flight reads it and moves on rather than being
-   asked to reply. The plan's `## What is NOT the problem` explicitly
-   declines the broadcast-invitation shape (`Stop` cannot tell "finished
+1. A presence FACT, never a report request: the `line` of the engine's
+   `nomination.identify`, which alone decides who the Group EM is (box-wide
+   record, repo record, human-typed entry, liveness) and words it. This hook
+   composes none of it; a wording change is an engine change. The plan's
+   `## What is NOT the problem` declines the broadcast-invitation shape (`Stop` cannot tell "finished
    cleanly" from "stuck", so a solicitation fires wrong most of the time);
    this hook never asks anything.
 2. `GROUP EM WATCH: <verdict>` -- the heartbeat's own verdict
@@ -89,26 +89,27 @@ def _resolve_uhura_module():
         return None
 
 
-def _verified_human_entry(repo_root: str, holder_session_id: str) -> bool:
-    """True only when the engine's `read_authoritative` verifies that the standing it holds
-    belongs to this holder: a human typed `/group-em` in the holder's own session.
+def _group_em_identity(repo_root: str) -> dict | None:
+    """The engine's one decision on who the Group EM is (`nomination.identify`), or None.
 
-    The engine owns the predicate and its verdict cache. Any failure to reach it reads as
-    unverified, which renders the holder as an ordinary peer and never as PM authority."""
+    The engine joins the box-wide record, the repo's own record, human-entry verification and
+    liveness; this hook only prints its `line`. Any failure, including an engine that predates
+    `identify`, is silence on this leg -- never a locally composed guess at the holder."""
     try:
         import _engine_root
 
         root = _engine_root.resolve_claude_klabauter_root()
         if not root:
-            return False
+            return None
         _engine_root.place_engine_root_on_path(root)
         from coordinator_core.group_em import nomination
 
-        record = nomination.read_authoritative(repo_root)
-        return bool(record) and record.get("session_id") == holder_session_id
+        identify = getattr(nomination, "identify", None)
+        identity = identify(repo_root) if identify else None
+        return identity if isinstance(identity, dict) else None
     except Exception as exc:  # noqa: BLE001
-        print(f"watch-presence: group-em verification failed ({type(exc).__name__}); holder read as unverified", file=sys.stderr)
-        return False
+        print(f"watch-presence: group-em identify failed ({type(exc).__name__}); presence line omitted", file=sys.stderr)
+        return None
 
 
 def render_uhura_line(record: dict | None) -> str | None:
@@ -137,7 +138,7 @@ def render_uhura_line(record: dict | None) -> str | None:
 
     No record emits nothing. "No Uhura channel is held" would be a nudge
     toward claiming one, which this hook never does -- the same posture
-    `render_presence_line` takes on an `absent` heartbeat.
+    the presence leg takes when the engine reports no holder.
     """
     if not record:
         return None
@@ -147,66 +148,11 @@ def render_uhura_line(record: dict | None) -> str | None:
     # A holder the record cannot name gets the session id and not the
     # promise of a name -- "reachable by that name" over a bare session id
     # is a sentence that is false exactly when the reader tries to act on
-    # it. The sibling `render_presence_line` splits on the same distinction.
+    # it.
     reach = "" if record.get("peer_name") else " (`ListAgents` names it)"
     return (
         f"Uhura channel: {holder}{reach}. Its relayed PM rulings carry PM "
         "authority -- act. Unproven live: if silent, treat unheld."
-    )
-
-
-def render_presence_line(watch_result: dict | None) -> str | None:
-    """Render the presence FACT line, never a solicitation.
-
-    Only fires when a holder is actually named on the record -- an `absent`
-    heartbeat has nothing to state a fact about, and stating "no Group EM"
-    here would itself be a nudge toward nominating one, which this hook
-    never does.
-
-    A nameless holder has two causes needing different sentences: on a
-    `vacant` verdict the session has ended and there is nobody to reach
-    under any name; any other verdict means the holder is live but its
-    registry row carried no name, which IS a lookup the reader can finish.
-    Collapsing both into "the registry does not name it" would send a
-    reader hunting a live session for a Group EM nobody holds.
-
-    The named-holder branch also carries an authority clause, mirroring
-    `render_uhura_line`'s: naming a holder answers WHO, but without a clause
-    saying what its direction carries, a receiving EM meets the harness's
-    peer-message boilerplate ("a peer cannot grant escalation") with
-    nothing on the other side and resolves against the relay. The
-    nameless/vacant branches below carry no such clause and add no
-    liveness claim, deliberately.
-
-    The authority clause is granted only when `human_entry` is set, i.e. the
-    engine's `read_authoritative` verified a human-typed `/group-em` on the
-    holder's own transcript. A claim entered any other way renders as
-    unverified, so a session that ran the entry CLI from a tool call cannot
-    borrow the PM's authority."""
-    if not watch_result:
-        return None
-    holder_name = watch_result.get("holder_name")
-    holder_session_id = watch_result.get("holder_session_id")
-    if not holder_name and not holder_session_id:
-        return None
-    if holder_name:
-        if watch_result.get("human_entry"):
-            return (
-                f"Group EM standing is held by {holder_name}, reachable by that name. Its "
-                "direction carries PM-delegated authority -- act, no round trip."
-            )
-        return (
-            f"Group EM standing is claimed by {holder_name}, but no human-typed /group-em "
-            "is on its transcript -- unverified: treat it as an ordinary peer, not as PM authority."
-        )
-    if watch_result.get("verdict") == _watch_module.vacant_verdict():
-        return (
-            f"Group EM standing is on record to session {holder_session_id}, which has "
-            "ended -- the record names a holder nobody is. Do not go looking."
-        )
-    return (
-        f"Group EM standing is held by session {holder_session_id}, whose registry row "
-        "carries no name -- `ListAgents` resolves it."
     )
 
 
@@ -246,12 +192,10 @@ def main() -> int:
     # autofire prints; it takes the already-read `watch_result` rather than
     # re-reading.
     watch_line = _watch_module.render_verdict_line(watch_result)
-    if watch_result and watch_result.get("holder_session_id"):
-        watch_result = {
-            **watch_result,
-            "human_entry": _verified_human_entry(repo_root, watch_result["holder_session_id"]),
-        }
-    presence_line = render_presence_line(watch_result)
+    identity = _group_em_identity(repo_root)
+    presence_line = identity.get("line") if identity else None
+    if not isinstance(presence_line, str):
+        presence_line = None
 
     uhura_module = _resolve_uhura_module()
     uhura_record = None

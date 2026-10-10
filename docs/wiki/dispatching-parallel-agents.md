@@ -6,7 +6,7 @@ related:
   - global-doctrine/CLAUDE.md
   - coordinator/snippets/em-operating-doctrine.md
   - docs/wiki/dispatching-parallel-agents/delegate-execution.md
-  - plugins/coordinator/commands/mise-en-place.md
+  - plugins/coordinator-claude/coordinator/commands/mise-en-place.md
 ---
 
 # Dispatching Parallel Agents
@@ -31,7 +31,7 @@ When you have multiple unrelated failures (different test files, different subsy
 
 **The `min(16, cpu_cores - 2)` cap is real but scoped to Workflow scripts only.** It is platform-enforced by the Workflow runtime on `agent()` calls inside a Workflow script, per the Workflow tool contract. It does NOT apply to the manual fan-out path (`fan-out-dispatch.py` / Agent-tool). The manual path has **no automatic structural backstop on concurrency** now that the numeric cap-breach HARD STOP was removed — rules (a) and (b) plus the cores-scaled NOTE below are the guards, by design (PM-affirmed). (This is distinct from the chunk-shape suitability HARD STOP at § Executing a Fan-Out Wave → Step 0.5, which is about *what* a chunk contains, not *how many* agents run.) Do NOT let the Workflow cap appear to cover a path it does not.
 
-A custom research harness has a SECOND, LOWER ceiling beneath the Workflow cap: the **web-tool throttle**. When a Workflow (or any hand-authored fan-out) fans out web-tool/agent research calls — WebSearch, WebFetch, or agents that themselves call them — a concurrency-triggered server-side rate limit (`429 "Server is temporarily limiting requests (not your usage limit)"`) trips well below the `min(16, cpu−2)` Workflow cap. The Workflow cap is exactly the kind of "path it does not cover" warned about above: it bounds total concurrent `agent()` calls, not concurrent web-tool callers. So any hand-authored Workflow that fans out web research MUST respect the same effective ceiling the canonical `/deep-research` skill enforces: **≤5 concurrent web-tool callers**. That is the canonical pipeline's specialist-phase peak — its phases run strictly serialized (scout, THEN ≤5 specialists concurrently, THEN 1 sweep agent (Opus)), so the safe number is the ≤5 specialist count, NOT the full teammate roster total. Over-cap web fan-out self-throttles **indistinguishably from a platform gate** — see `coordinator/docs/wiki/coordinator-tripwires/` § RE-FIRE-INTO-THROTTLE for the re-fire anti-pattern. The upstream cause is the most common EM failure mode — hand-rolling a workflow with raw `Agent()` calls instead of using the skill: EM bypasses the skill → harness exceeds the ceiling → 429 → misdiagnosis.
+Web-tool research fan-out carries no ceiling of its own beneath the Workflow cap. A uniform `429 "Server is temporarily limiting requests (not your usage limit)"` across a fan-out is a server-side throttle, not a platform gate: lower the concurrency before any re-fire (`coordinator/docs/wiki/coordinator-tripwires/` § RE-FIRE-INTO-THROTTLE). Drive research through the pipeline routes (`emit-dispatch-workflow --pipeline`), never a hand-authored harness.
 
 **Maximize utilization; memory is the real ceiling, not cores.** Because we optimize for speed, the target is to **maximize** hardware utilization without degrading the machine — not to stay under some agent count. Core count is not a cap: a CPU time-slices far more than `cores` concurrent tasks, so past `~n` agents you do not stop, you begin paying a scheduling-contention tax (returns taper, they don't cliff). CPU and GPU parallelize gracefully under that tax; the dimension that actually degrades the machine is **memory commit (RAM and VRAM)**. So the resource to be careful about is memory, and CPU/GPU saturation is fine. The cores-scaled threshold below is a first-cut proxy for "where parallel returns start tapering"; its higher-value successor — a memory-commit-aware signal — now ships as `coordinator/bin/probe-memory-headroom.py` (cross-platform best-effort RAM/VRAM read), wired into `fan-out-dispatch.py` as the "headroom tight" NOTE below.
 
@@ -58,12 +58,14 @@ If you find yourself writing a specialist brief that includes "then consolidate 
 **Mechanism is harness-dependent — and the `run_in_background` param's presence has flip-flopped across builds, so pass it explicitly.** It was absent in the 2.1.176 fork/async-by-default window (dispatches returned a poll handle immediately; nothing to pass) and **re-exposed in 2.1.178**. Don't rely on an implicit default: where the `Agent` tool exposes `run_in_background`, pass `run_in_background: true`. The foreground-dispatch deny hook (`enforce-agent-dispatch-mode.py` Concern G) handles the flip-flop by **learning the build's capability per session**: it always denies a present-and-`false` value; it denies an absent key once any dispatch this session has carried the param (proving the build exposes it — recorded at `.git/coordinator-sessions/<sid>/.harness-bg-capable`); and it passes an absent key only in an uncalibrated session, so a genuinely param-less build is never bricked. Either way the EM gets the same non-blocking, notify-on-completion behaviour described below.
 
 This applies to:
+
 - Enricher agents (10-15 min each)
 - Executor agents (5-15 min each)
 - Research scouts and verifiers (Haiku/Sonnet phases within pipelines)
 - Code health reviewers
 
 **Exceptions** (keep foreground):
+
 - Agents whose results you need *immediately* to make the next decision (e.g., a quick Haiku lookup before choosing an approach)
 - Agents in a strictly sequential pipeline where the next dispatch depends on the previous result AND you have no other work to do while waiting
 - Cheap, bounded agent types named in `SYNC_RETURN_TYPES` (`_foreground_dispatch_strip.py`) — the commit agent and the single-pass checkers. The foreground gate honours an explicit foreground dispatch for these and returns `None` (no reroute, no notice) rather than backgrounding them. `A-BOUNDED-AGENT-REROUTED-TO-BACKGROUND-COSTS-A-TURN`.
@@ -95,6 +97,7 @@ digraph when_to_use {
 ```
 
 **Use when:**
+
 - 3+ test files failing with different root causes
 - Multiple subsystems broken independently
 - Each problem can be understood without context from others
@@ -103,6 +106,7 @@ digraph when_to_use {
 - Surgical follow-ups to a novel cluster — full ceremony on the novel item, direct dispatch on the rest with explicit file-scope partitioning.
 
 **Don't use when:**
+
 - Failures are related (fix one might fix others)
 - Need to understand full system state
 - Agents would interfere with each other
@@ -302,6 +306,7 @@ asking the reviewer to run it.
 **The canonical predicate (single definition — all other files cite this section):**
 
 > **Shared-Expensive-Substrate (SES)** fires at `/execute-plan` ledger-construction time when, across the draft chunk set, **both** hold:
+>
 > 1. **Shared** — the same source file appears in the read-set (files a chunk must understand to author, distinct from its write-files) of **≥2** chunks; **and**
 > 2. **Expensive** — the PRIMARY signal is a **cold-substrate** flag: the shared read-set files have no atlas/wiki coverage OR the EM has not already loaded them this session (genuinely unfamiliar), OR any chunk is flagged **`needs-bespoke-fixture: true`**. SECONDARY corroborating signals (do NOT fire alone on a warm/familiar surface): the shared read-set is **≥3 files**; OR any chunk's read-set exceeds its write-files by **≥3 files**. Breadth alone on a warm/familiar shared surface does **not** fire.
 >
@@ -520,12 +525,14 @@ This composes with the existing destructive-action prohibition and the disk-firs
 **Git worktrees are structurally banned for parallel agent dispatch, fleet-wide.** All dispatch — parallel or sequential — runs in the current, shared working tree. There is no worktree-based dispatch mode to select between; this section's title is retained for inbound-reference stability, but the choice it once described does not exist.
 
 **Why.** Two reasons, both structural, not situational:
+
 - **Windows degradation.** Windows is the primary machine and audience. Git worktrees degrade badly there, in ways that don't show up on a Unix-only development loop.
 - **Fleet scale.** Worktrees don't scale to a concurrent agentic fleet. The merge overhead — branch creation, conflict resolution, integration verification — exceeds the time saved by parallelism at agent execution speed, and multiplies badly once many concurrent sessions are each spinning up their own isolated trees.
 
 **The only exit is PM permission, granted through the EM.** An EM override exists for cases that genuinely require branch-level isolation (e.g., separate PRs targeting different base branches), but it is not a default decision an EM makes unilaterally — it requires explicit PM permission. Enforcement is structural (hooks/guards), not prose-based, so this section describes the standing rule rather than a menu of options.
 
 **Decision rule for dispatch into the shared tree:**
+
 - **Disjoint file sets → parallel, same tree.** Agents write to different files; the filesystem is the coordination mechanism. Each dispatch brief names an explicit in-scope file list, disjoint from every sibling's. No merge ceremony needed.
 - **Overlapping files → sequential, same tree.** Run agents one after another so each sees the previous agent's changes. "Theoretically non-conflicting" edits in the same file (e.g., appending to different sections) are fragile; sequential execution eliminates the risk for negligible time cost.
 - **EM-serial commits, path-limited.** Executors never commit (see the executor's own commit-discipline doctrine). The EM commits the union afterward, using a pathspec scoped to the files that dispatch actually touched — never a whole-tree `git add -A`/`.` or `git commit -a` on a tree other agents may be concurrently writing to.
@@ -535,6 +542,7 @@ This composes with the existing destructive-action prohibition and the disk-firs
 ### 1. Identify Independent Domains
 
 Group failures by what's broken:
+
 - File A tests: Tool approval flow
 - File B tests: Batch completion behavior
 - File C tests: Abort functionality
@@ -544,6 +552,7 @@ Each domain is independent - fixing tool approval doesn't affect abort tests.
 ### 2. Create Focused Agent Tasks
 
 Each agent gets:
+
 - **Specific scope:** One test file or subsystem
 - **Clear goal:** Make these tests pass — verify with a Tier-T invocation naming its own test file (`pytest path/to/its_test.py`), never the fast or full tier. See § Test-Breadth Ladder below.
 - **Constraints:** Don't change other code
@@ -562,6 +571,7 @@ Task("Fix tool-approval-race-conditions.test.ts failures")
 ### 4. Review and Integrate
 
 When agents return:
+
 - Read each summary
 - Verify fixes don't conflict
 - **EM runs the full suite, once, after the wave** — Tier-U, and only with a live authorization grant (an explicit PM grant, or a ceremony that structurally requires green). See § Test-Breadth Ladder below.
@@ -570,6 +580,7 @@ When agents return:
 ## Agent Prompt Structure
 
 Good agent prompts are:
+
 1. **Focused** - One clear problem domain
 2. **Self-contained** - All context needed to understand the problem
 3. **Specific about output** - What should the agent return?
@@ -670,6 +681,7 @@ read-only half of this pattern and the disk-first framing it shares.
 The anti-hallucination failure mode is real: the EM reads inline findings, mentally notes them, continues other work, and the findings evaporate under context pressure before they land anywhere durable. The fix is **agent self-persist via Bash-redirect** — a findings/report/audit agent with scaffold-Bash writes findings directly to disk (heredoc `cat > file`, per `snippets/findings-self-persist-bash.md`) and returns `DONE: <path>`. The harness blocks the subagent *Write tool* for report files; it does **not** block Bash-redirect writes — that is the self-persist path. Self-persisting findings agents carry the same disk-first DONE gate as executors: ~30% Haiku / ~10% Sonnet under load hallucinate TEXT ONLY and dump inline; the gate surfaces this before the EM relies on a phantom file.
 
 **Decision rule:** self-persist requires EITHER (a) an agent with scaffold-Bash on its tool surface, OR (b) an EM-pre-scaffolded sentinel file the agent Edits. Absent BOTH, EM-persist is the labeled fallback. When condition (a) or (b) holds, append `snippets/disk-first-done-preamble.md` to the agent brief and instruct it to write findings via Bash-redirect and reply `DONE: <path>`. **Two named residual EM-persist cases:**
+
 1. **Runtime-only-fact capture** — irreducible; the fact exists only in the live session, not on a writable surface.
 2. **Findings agent dispatched with neither scaffold-Bash nor a pre-scaffolded sentinel** — cannot self-persist by either mechanism; EM receives inline output and persists immediately at dispatch-completion (`TaskCreate` per actionable finding, or write to the relevant tracker/findings file). Treat dispatch-completion as the trigger, the same way an executor's commit is a trigger.
 
@@ -718,6 +730,7 @@ The anti-hallucination failure mode is real: the EM reads inline findings, menta
 **Scenario:** 6 test failures across 3 files after major refactoring
 
 **Failures:**
+
 - agent-tool-abort.test.ts: 3 failures (timing issues)
 - batch-completion-behavior.test.ts: 2 failures (tools not executing)
 - tool-approval-race-conditions.test.ts: 1 failure (execution count = 0)
@@ -725,6 +738,7 @@ The anti-hallucination failure mode is real: the EM reads inline findings, menta
 **Decision:** Independent domains - abort logic separate from batch completion separate from race conditions
 
 **Dispatch:**
+
 ```
 Agent 1 → Fix agent-tool-abort.test.ts
 Agent 2 → Fix batch-completion-behavior.test.ts
@@ -732,6 +746,7 @@ Agent 3 → Fix tool-approval-race-conditions.test.ts
 ```
 
 **Results:**
+
 - Agent 1: Replaced timeouts with event-based waiting
 - Agent 2: Fixed event structure bug (threadId in wrong place)
 - Agent 3: Added wait for async tool execution to complete
@@ -745,12 +760,14 @@ Agent 3 → Fix tool-approval-race-conditions.test.ts
 For chunks that are too large for any single executor but have natural seam boundaries, use the **coordinator-supervised sequential** pattern instead of pure parallel dispatch.
 
 **When to use:**
+
 - Stub has 10+ human-indexed hours of estimated work
 - The work has natural seam boundaries (independent API endpoints, separable subsystems)
 - Each sub-part is independently correct but the whole must cohere
 - A single executor would run out of context
 
 **The pattern — Opus tech lead with Sonnet executors:**
+
 1. **Dispatch a dedicated Opus agent as tech lead** — not the coordinator itself. The coordinator's context is the scarcest resource in the system; don't fill it with sub-task orchestration for one deliverable. Think of it like an EM delegating to a senior technical lead rather than managing individual contributors directly.
 2. The tech lead holds the full enriched spec and owns the deliverable:
    - Decomposes into sequential sub-tasks at seam boundaries
@@ -764,6 +781,7 @@ For chunks that are too large for any single executor but have natural seam boun
 **Why not supervise from the coordinator directly?** The coordinator session may have many parallel workstreams, an ongoing PM conversation, and portfolio-level context. Routing every sub-task completion through that session fragments its attention on implementation minutiae. A dispatched Opus tech lead has fresh context, full focus on one deliverable, and the judgment to make micro-calls autonomously.
 
 **When NOT to use this — use a single Sonnet executor instead:**
+
 - The stub is small enough for one executor (the common case)
 - The system is tightly coupled but the enriched spec has exact code sketches — a single Sonnet can follow a well-specified blueprint regardless of coupling
 - If the spec is genuinely incomplete, fix the spec first or have the EM handle it directly — don't dispatch an Opus executor (see `docs/wiki/dispatching-parallel-agents/delegate-execution.md` Phase 2 rubric)
@@ -805,6 +823,7 @@ When a dispatched agent spawns a background shell process (installer, pipeline r
 ```
 
 **EM polling protocol:**
+
 - Poll `last_heartbeat_utc` — if stale by >2× the expected heartbeat interval, treat as hung.
 - Check `status` field before reading `phases_completed` — a `failed` status with a non-empty `phases_completed` means partial work was done; use this to resume from the last checkpoint, not re-run from scratch.
 - Do NOT derive status from log file size or line count — these are unreliable proxies.
@@ -818,6 +837,7 @@ When a dispatched agent spawns a background shell process (installer, pipeline r
 Each parallel executor is blind to the others' output at authoring time. If Executor A authors a module scaffold (`.Build.cs`, dir layout) and Executor B authors code that imports from that scaffold, the cross-module include/link contract is owned by neither executor unless it is pinned verbatim in both briefs. On macOS hosts that cannot compile Unreal or Windows C++ in-process, there is no compiler to surface the gap at dispatch time — the EM is the verification layer.
 
 **EM verify on return (no-compiler environments):**
+
 - Grep that the `#include` path B authored resolves against what A's module exposes (Public dir, out-of-line symbol exports).
 - Confirm B's Build.cs dep entry matches A's module name exactly.
 - Check that any type B uses from A is actually declared in A's produced headers.
@@ -1176,6 +1196,7 @@ A single executor handed >5 files of mechanical edits accumulates wall-clock lat
 *self.* Parallel executor waves for wiki-append work scale cleanly when each executor edits exactly one wiki and does no queue touches and no commits. The EM holds the queue-delete + commit step serially after each wave. Wiki-append briefs are short (1-3 lines of doctrine appended to a named section), making per-executor work small but parallelism gains substantial when ~30+ named-destination entries need landing.
 
 **Rule:** for `learn-lessons` central-clear runs with ≥10 wiki-append entries across ≥5 distinct destination wikis, prefer fan-out over EM-direct serial editing. Each executor's brief:
+
 - Names the exact wiki path and section anchor.
 - Carries the substance to append verbatim.
 - Explicitly forbids queue edits and commits.
@@ -1228,6 +1249,7 @@ Three corollaries:
 **A parallel wave that fans out into a single *new* package directory bleeds scope even with disjoint write-targets and explicit out-of-scope blocks — the first-started executor scaffolds the whole tree (package `__init__`, shared config, dir skeleton) and collides with its peers.** The standard file-overlap pass clears this wave (each executor's *named* write-target is disjoint), but a brand-new package has implicit shared substrate no executor owns: the directory itself, the package marker, the shared `conftest`/`index`/`mod.rs`. Whichever executor starts first creates them; the rest either duplicate or clobber. Disjoint *declared* targets + a nonexistent shared parent = hidden write-overlap on the scaffolding.
 
 **Rule:** for a fan-out whose targets all live in a not-yet-existing package/module dir, pick one:
+
 1. **Predecessor-skeleton-then-fan-out** (preferred) — a tiny predecessor wave lands the package skeleton (dir, `__init__`/marker, shared config) and is verified, *then* the consumer executors fan out into the now-existing tree with no scaffolding ambiguity. This is the § Shared-API Gap pattern applied to *directory* substrate rather than a symbol.
 2. **EM-side reconcile** — let the wave run, then the EM resolves the duplicated/clobbered scaffolding files at merge via `git` (dedup the `__init__`, pick one shared config) before the wave commit.
 
@@ -1275,6 +1297,7 @@ The next genuinely-wide mechanical sweep that runs it is the re-measurement.
 **For any plan whose intent is "port verb X" or "expose Y as MCP/RPC/IPC," the AC table must include a producer-side dispatcher route AC BEFORE any smoke AC.** TS-side verb registration proves the verb is callable from the client; it does NOT prove the server has a route. These are two independent facts — both must be in the AC table.
 
 **Minimum AC set for a new MCP verb:**
+
 1. `grep:<verb>@<module>/RegisterHandlers` (or equivalent registration surface) — proves the producer registered it.
 2. `grep:<verb>@<module>/ProcessRequest` (or equivalent dispatch surface) — proves the producer can route it.
 3. Smoke AC (end-to-end call from client) — proves the full chain.
@@ -1292,6 +1315,7 @@ In one case, embed-pipeline-hardening Phase 1.5 walked the dispatch-gate graph a
 ## Verification
 
 After agents return:
+
 1. **Review each summary** - Understand what changed
 2. **Check for conflicts** - Did agents edit same code?
 3. **EM runs the full suite, once** - Tier-U, gated on a live authorization grant (see § Test-Breadth Ladder). This is the EM's integration step, not something any dispatched agent does.
@@ -1463,7 +1487,7 @@ directly-invoked-op probe, not the post-restart observation.
 
 **When a fan-out wave pins a shared interface via "precedent from repo X," enumerate every source file:path verbatim — never a directory glob.** A glob (`scripts/lib/*`) is an under-specified precedent: if the source tree has moved, been renamed, or contains multiple candidates, each parallel executor independently resolves to a different point in the precedent space. Only explicit file-path enumeration produces a singular anchor every chunk reads identically.
 
-**Empirical basis (coord Phase B execution).** C3's substrate row enumerated all 6 source file:paths verbatim (`plugins/deep-research/scripts/lib/dep_check.sh`, etc.) rather than `scripts/lib/*`. C2's substrate row pinned to the *actual* `_co_*`/`Test-Co*` exports POST-C3-commit, not "the precedent." Wave 2 (C1+C3+C5+C6+C4b parallel) shipped without a C2-fixup wave; C2 dispatched in Wave 3 with no rename mismatches. The prior DR Phase B plan used a glob and needed three fixup waves for function-name and argument-signature alignment.
+**Empirical basis (coord Phase B execution).** C3's substrate row enumerated all 6 source file:paths verbatim (`plugins/coordinator-claude/deep-research/scripts/lib/dep_check.sh`, etc.) rather than `scripts/lib/*`. C2's substrate row pinned to the *actual* `_co_*`/`Test-Co*` exports POST-C3-commit, not "the precedent." Wave 2 (C1+C3+C5+C6+C4b parallel) shipped without a C2-fixup wave; C2 dispatched in Wave 3 with no rename mismatches. The prior DR Phase B plan used a glob and needed three fixup waves for function-name and argument-signature alignment.
 
 **Corollary — the pinned artifact must be SINGULAR.** When three peer-repos carry the same install-surface pattern with three different sibling-naming conventions (`_pr_*` vs. `_hd_*` vs. `_dr_*`), a reference to "the peer-repo precedent" is multi-valued: each executor picks a different point. The interface-pinning row in the plan body must NAME the singular pinning artifact (file path + grep target for function names). If the precedent space is multi-valued, either (a) serialise so one chunk lands the interface first and IS itself the pinning artifact, or (b) write the pinned interface VERBATIM into the plan body so all parallel chunks reference the same authoritative source.
 
@@ -1689,6 +1713,7 @@ green wrote a correct, passing test in ~10 minutes — then flailed for ~64 more
 write→run→re-orient→compact loop it could not exit, 5x the 15-minute ceiling.
 
 **Apply:**
+
 - **Split authoring from verification.** An author-only agent writes the test; the EM (or a
   separate dispatch) runs it. Don't hand one executor both "write this" and "run this until it's
   green."
@@ -1748,8 +1773,122 @@ chunk M," M's brief must explicitly name the wiring hand-off as its own delivera
 plan must schedule a whole-surface security audit (a dedicated read-only audit agent over the
 realized, composed files) after the last chunk lands, since no single chunk's test suite can see a
 seam that spans chunk boundaries.
+
 - **A delivery receipt is not evidence a Claude read the message.** `success: true`, or a status
   change, is only evidence something was accepted — not that the recipient session acted on it.
 - **Idle is the resting state of a session, not evidence it is finished.** A fleet decays to idle
   without active monitoring; this is the PM's ruling from thousands of hours of observation, and a
   watcher must not read idle-fleet-wide as "the fleet is done."
+
+## Resolve concept-phrased chunk specs to files before declaring them disjoint
+
+A file-overlap gate compares file lists. A chunk specified by concept ("update the resolver", "fix
+the install docs") has no file list, so the gate passes vacuously. Resolve every chunk to the
+concrete paths it will write before running the disjointness check.
+
+## Restate the source decision in an adjudication brief
+
+A precise answer to a mis-framed question is still wrong, and the dispatched persona will not catch
+a framing error baked into its prompt. When dispatching an adjudicator or researcher, restate the
+decision the work serves, in the source's own terms, and check that the question asked matches it.
+
+## A registry registration is one coherent chunk
+
+Registering a probe, op, or catalog entry often touches ten or more coupled surfaces (module,
+catalog, registry, manifest, regenerated text, doc gate, golden tests). Splitting them leaves the
+suite red between halves. Dispatch it as one chunk even when over budget, and have the executor
+mirror an existing sibling row (grep its id) rather than derive the surface list.
+
+## "Exact analog of Y" copies Y's side effects
+
+An executor told to make X an exact analog of Y copies Y's whole body and cannot tell the pattern
+being borrowed from Y's incidental coupling (a sentinel publish, a once-only token). Enumerate in
+the brief which parts of Y to mirror and which to leave out.
+
+## A full fast-tier run at the merge point after a multi-executor fix pass
+
+File-disjoint ownership prevents write collisions; it does not bound what a source change breaks.
+Tests in unowned files that import or mock the changed source go red where no executor looks. After
+a multi-executor pass, run the full fast tier at the merge point, and an executor removing a
+"now-unused" symbol greps the whole repo first.
+
+## Briefs for in-place edits carry disk-verified paths
+
+A brief for editing an existing file states its exact path, checked on disk. At verify, scan
+`git status` for untracked files where an in-place edit was briefed — an unexpected `??` is a
+confabulated duplicate until proven otherwise.
+
+## Collision-deferral needs a named owner
+
+Deferring work for fear of colliding with a concurrent session requires a named owner — a scope
+block, an active handoff, a live claim. A dirty file is not one: it is often stale or already
+committed elsewhere.
+
+## Filesystem-only executors, serial commits
+
+When N executors move, delete, or create files on disjoint targets, have them perform filesystem
+operations only — no git — and stage and commit each chunk serially from the EM. Parallelism is
+kept, and shared-index races disappear.
+
+## Crash recovery runs the existing suite for every touched file
+
+A killed executor's partial edit can leave existing tests red while its own new test passes.
+Before keep, revert, or fix-forward, run the existing tests that cover every file it touched.
+
+## Pin the parse idiom when executors share a producer's output
+
+When N executors each parse the same producer's stdout, put the exact extraction one-liner in the
+shared brief. Otherwise each reinvents it and some get it wrong.
+
+## Invariant overlap makes chunks serial
+
+The file-overlap check misses a test or guard asserting parity or a round trip across the surfaces
+two chunks touch: neither half is green alone, so the chunks are serial-coupled even though they
+write different files.
+
+## Pin the spec backlink verbatim
+
+Where the codebase uses `Spec backlink:` docstrings, the brief carries the exact backlink line.
+Executors otherwise attribute the code to a salient nearby plan.
+
+## Keep executor verification light under the stream watchdog
+
+A no-progress watchdog kills executors in long verification steps; their file edits persist. Keep
+per-executor verification short, run heavy verification at the EM merge point, and treat a stall as
+"verify on disk", not "redispatch".
+
+## A reviewer's verdict is provisional against an authoritative cross-repo statement
+
+If, mid-execution, the other repo states its own contract in a way that reverses a reviewer's
+ownership or root-cause verdict, halt as plan-invalidating, fold the reframe through the integrator,
+and re-review at the cross-repo seam.
+
+## Briefs touching a gated path pin the sanctioned bypass
+
+When a chunk works near a blocking guard (a revendor sentinel, a hold file), the brief names the
+exact sanctioned route around it and the executor asserts the blocker is present before and after.
+The EM confirms the blocker survived. An executor otherwise deletes the blocker to make its step
+pass.
+
+## Pre-split large coherence-restoring rewrites
+
+A single executor given a whole transport collapse (remove the server, rewrite dispatch, add an
+entrypoint, delete tests) runs out of budget mid-chunk. Split it into removal, rewrite, creation,
+and test-deletion dispatches.
+
+## Commit explicit owned paths on a shared branch
+
+On a concurrent branch, hot shared files change between reads. Commit only the explicit paths you
+own, never directory globs, and verify the commit against `HEAD` before reporting it.
+
+## Field rules
+
+- **An executor brief carries the chunk's acceptance criterion verbatim.** A paraphrase can drop a branch of a decided hybrid; after the wave, check each AC branch on disk.
+- **A shared-vocabulary change has every reader as a consumer.** Grep validators and readers that hardcode the old field name before marking a chunk 'no change needed'.
+- **In shared-worktree fan-out the EM runs the authoritative suite once the tree settles.** Mid-wave executor runs see siblings' transient reds; check every 'pre-existing' claim against a clean-HEAD baseline, never a tree-wide stash.
+- **The union of the wave-map's write-files must cover the plan's `scope:` block.** A scope path no chunk row claims is a coverage gap, typically introduced by splitting a chunk on its `surface:` field alone.
+- **Coupled fan-out needs one real end-to-end smoke at EM verify.** Per-chunk mocked green cannot see cross-chunk wiring (right shape, wrong producer).
+- **Parallel doc-edit waves need a merge-time coherence sweep.** Grep the full claim tree-wide, including files outside plan scope; a section rename is incomplete until inbound `§ <title>` references are repointed.
+- **Apply the per-executor budget per chunk, not per lane.** A file-write-overlap lane can still hold fat chunks; a spine row enumerating many items across disjoint files is a decomposition signal.
+- **An inherited audit or inventory gets a full-breadth verification fan-out before the first fix dispatch** — one small read-only scout per item, executing each claim rather than reading it.
+- **Verify an agent's deliverable from its DONE report and the final disk state, never a mid-flight snapshot** of a file it is still editing.

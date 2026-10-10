@@ -528,6 +528,39 @@ def _baton_arg(record: dict) -> dict:
     }
 
 
+def _unlinked_split_line(records: list[dict]) -> str:
+    """Why each unlinked baton has no `planPath`, and whether any of it needs the driver.
+
+    Buckets are exclusive, in priority order. Only `broken` needs action: the baton names a
+    plan (or several tie) that no link basis resolved, so the planner would author over it.
+    The rest are the expected reasons a planning wave holds a baton with no plan.
+    """
+    buckets = {"broken": [], "held": [], "routed": [], "unsized": [], "planless": []}
+    for r in records:
+        if r.get("unlinked_plan_claim") or r.get("ambiguous_plan_link"):
+            key = "broken"
+        elif r.get("held"):
+            key = "held"
+        elif r.get("waiting_on_execution"):
+            key = "routed"
+        elif not r.get("sized"):
+            key = "unsized"
+        else:
+            key = "planless"
+        buckets[key].append(r["id"])
+    split = (
+        f"  unlinked {len(records)}: {len(buckets['planless'])} plannable-planless, "
+        f"{len(buckets['unsized'])} unsized, {len(buckets['routed'])} routed to execution, "
+        f"{len(buckets['held'])} held, {len(buckets['broken'])} broken link. "
+    )
+    if buckets["broken"]:
+        return (
+            split + f"Action: {buckets['broken']} name a plan no link basis resolves; "
+            "write `governing_plan:` onto each, re-freeze."
+        )
+    return split + "No action: the wave plans the rest."
+
+
 def _engine_ref(repo_root: Path, script_source: Path) -> dict:
     """What code this fire is a frozen copy of, recorded at emit time.
 
@@ -1002,6 +1035,14 @@ def _effective_route(sizing: dict) -> object:
     return effective_route(sizing)
 
 
+def _acceptance_skipped(sizing: dict) -> bool:
+    """The engine size rule on the recorded route and size: nobody is asked to accept."""
+    import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
+    from coordinator_core.ops.dispatch_emit.sizing_fire import _acceptance_skipped
+
+    return _acceptance_skipped(sizing)
+
+
 def _collect_sizing_refusals(sizing: dict) -> list[str]:
     """Every failing fire-or-mint input of a sizing, one message each; empty when fireable."""
     out: list[str] = []
@@ -1009,9 +1050,9 @@ def _collect_sizing_refusals(sizing: dict) -> list[str]:
     ec = ec if isinstance(ec, dict) else {}
     if not ec.get("statement"):
         out.append("`exit_criterion.statement` is absent — nothing to hand off as the prime exit criterion")
-    if ec.get("accepted") is None:
+    if ec.get("accepted") is None and not _acceptance_skipped(sizing):
         out.append("`exit_criterion.accepted` is null — the exit criterion is not accepted yet "
-            "(accept it with `--pm-quote` or `--apm-ruling`)")
+            "(accept it with `--pm-quote`, or `--apm-ruling` plus `--ruling-ref`)")
     if not sizing.get("interaction_mode"):
         out.append("`interaction_mode` is absent")
     route = _effective_route(sizing)
@@ -1097,6 +1138,69 @@ def _stamp_fire_hold(baton_path: Path, repo_root: Path, fire_script: Path) -> No
         locked_rmw(baton_path, _mutate, repo_root=repo_root)
     except Exception as exc:  # noqa: BLE001 -- the hold is evidence; the fire script is the deliverable
         print(f"  WARNING: could not stamp the fire hold on {baton_path.name}: {exc}", file=sys.stderr)
+
+
+def _emit_chain_from_sizing(
+    args, repo_root: Path, trail_dir: Path, script_source: Path, wave_args: dict,
+    wave_number: int, baton: dict, baton_path: Path, sizing_rel: str,
+    interaction_mode: str, route: object, tshirt: object,
+) -> int:
+    """`--from-sizing --chain`: write the chain manifest and print the one background driver call."""
+    import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
+    from coordinator_core.ops.plan_chain import contract
+
+    refusals = []
+    if interaction_mode not in ("pm", "ceo"):
+        refusals.append(f"`interaction_mode` is {interaction_mode!r}, not pm or ceo")
+    if route != "plan":
+        refusals.append(f"`route` is {route!r}, not 'plan'")
+    if tshirt not in ("M", "L"):
+        refusals.append(f"`estimate.tshirt` is {tshirt!r}, not M or L")
+    if refusals:
+        return _refuse_from_sizing(f"{sizing_rel} cannot be chained: " + "; ".join(refusals))
+
+    def _rel(p: Path) -> str:
+        try:
+            return p.resolve().relative_to(repo_root.resolve()).as_posix()
+        except ValueError:
+            return str(p)
+
+    manifest_file = contract.manifest_path(
+        trail_dir, wave_number, contract.chain_key(baton["id"], args.deliverable_id))
+    manifest = contract.ChainManifest(
+        sizing_object=sizing_rel,
+        baton=baton["path"],
+        deliverable_id=args.deliverable_id,
+        interaction_mode=interaction_mode,
+        repo_root=str(repo_root),
+        trail_dir=_rel(trail_dir),
+        wave_args=wave_args,
+        script_source=_rel(script_source),
+        accepted_route=str(route),
+        accepted_tshirt=str(tshirt),
+    )
+    try:
+        contract.write_manifest(manifest_file, manifest)
+    except contract.ChainManifestCollision as exc:
+        return _refuse_from_sizing(str(exc))
+    _stamp_fire_hold(baton_path, repo_root, manifest_file)
+    if args.json:
+        print(json.dumps({"waveIndex": wave_number, "chain": {
+            "manifest": str(manifest_file), "batons": [baton["id"]],
+        }}, indent=2))
+        return EXIT_OK
+    print(
+        "  WARNING: --chain runs every stage as a headless background child, outside any "
+        "session's view or control. The default in-session Workflow fire does the same work visibly.",
+        file=sys.stderr,
+    )
+    print(f"emit-wave-fire: chain fire for {baton['id']} (mode=single, chain).")
+    print(f"  uncommitted pair for the EM: {baton['path']}  {sizing_rel}")
+    print(
+        f'\n  Bash(run_in_background: true): {contract.CHAIN_BIN} --manifest "{manifest_file}"'
+        "   # its exit is your wake"
+    )
+    return EXIT_OK
 
 
 def _emit_single_from_sizing(
@@ -1213,6 +1317,12 @@ def _emit_single_from_sizing(
     if arming_check_cli:
         wave_args["armingCheckCli"] = arming_check_cli
 
+    if args.chain:
+        return _emit_chain_from_sizing(
+            args, repo_root, trail_dir, script_source, wave_args, wave_number,
+            baton, baton_path, sizing_rel, interaction_mode, route, tshirt,
+        )
+
     try:
         text = _bind(script_source, wave_args, args.live_engine_tree)
     except ValueError as exc:
@@ -1254,6 +1364,17 @@ def main(argv=None) -> int:
         help="with --from-sizing: repo-relative path of an existing baton to fire instead of minting one",
     )
     ap.add_argument(
+        "--chain",
+        action="store_true",
+        help="with --from-sizing: emit the headless plan-chain-run fire instead of the in-session "
+        "Workflow fire, with a warning. Refuses a sizing that cannot chain",
+    )
+    ap.add_argument(
+        "--plan-only",
+        action="store_true",
+        help="with --from-sizing: the in-session Workflow fire, already the default; kept for callers",
+    )
+    ap.add_argument(
         "--deliverable-id",
         help="with --from-sizing: the deliverable id the baton must carry; a mismatch refuses",
     )
@@ -1268,8 +1389,9 @@ def main(argv=None) -> int:
         "--wave-index",
         type=int,
         default=0,
-        help="which wave OF THE FROZEN REPORT to fire. `roadmap.plan_gate` numbers `waves` "
-        "from the READ, so every wave of a run arrives as 0 and this is almost always 0.",
+        help="0-based index into the frozen gate's `waves` list, NOT the run's wave number "
+        "(use --wave-number for that). `roadmap.plan_gate` numbers `waves` from the READ, so "
+        "this is almost always 0; out of range is refused.",
     )
     ap.add_argument(
         "--wave-number",
@@ -1367,6 +1489,13 @@ def main(argv=None) -> int:
         )
         return EXIT_REFUSED
 
+    if args.chain and args.plan_only:
+        print("emit-wave-fire: REFUSED — --chain and --plan-only are mutually exclusive.", file=sys.stderr)
+        return EXIT_REFUSED
+    if (args.chain or args.plan_only) and not args.from_sizing:
+        print("emit-wave-fire: REFUSED — --chain and --plan-only apply only with --from-sizing.", file=sys.stderr)
+        return EXIT_REFUSED
+
     repo_root = Path(args.repo_root).resolve()
     trail_dir = Path(args.trail_dir).resolve()
     plugin_root = Path(args.plugin_root).resolve() if args.plugin_root else _resolve_plugin_root()
@@ -1455,9 +1584,11 @@ def main(argv=None) -> int:
         waves = _wave_id_lists(payload.get("waves") or [])
     except ValueError as exc:
         return refuse(f"malformed gate report: {exc}")
-    if args.wave_index >= len(waves):
+    if not 0 <= args.wave_index < len(waves):
         return refuse(
-            f"the report has {len(waves)} wave(s); wave {args.wave_index} is not one of them"
+            f"the frozen gate has {len(waves)} wave(s); --wave-index {args.wave_index} is a "
+            "0-based index into it, not the run's wave number. Use --wave-number for the run's "
+            "wave."
         )
     wave_ids = list(waves[args.wave_index])
     if not wave_ids:
@@ -1582,6 +1713,9 @@ def main(argv=None) -> int:
         f"adopted {len(adopted)} from this trail",
         file=sys.stderr,
     )
+    unlinked = [by_id[e["id"]] for e in entries if not e.get("planPath")]
+    if unlinked:
+        print(_unlinked_split_line(unlinked), file=sys.stderr)
     if adopted:
         print(
             f"  ADOPTED {len(adopted)} plan(s) from this trail that the gate report does not link "

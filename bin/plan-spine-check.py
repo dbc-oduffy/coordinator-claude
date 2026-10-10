@@ -44,6 +44,8 @@ execution-bound. Without the flag, an `open`, `execution_mode: agent` row with U
 (key absent or null, and no `writes_under`) is reported `advisory`, never fatal. WITH the flag,
 that same finding is STRUCTURAL and sets the failing exit. `writes: []` is a positive "writes
 nothing" assertion (the schema's own spelling) -- DECLARED, never UNDECLARED, under either flag.
+(A path in both `reads_at_head` and `consumes`/`reads` is the one exception: STRUCTURAL, the
+predicate being `spine_read.contradictory_read_paths`, the same one dispatch.emit refuses on.)
 Two more findings live in this class and are never fatal, flag or no flag: a `reads_at_head` path
 another row writes (declare `consumes` instead if the output is actually needed), and a `consumes`
 path no row writes (orders nothing -- use `reads_at_head`). `LEGACY-READS` is a plain notice on
@@ -244,11 +246,48 @@ def check_plan(path: Path, for_execution: bool = False) -> dict:
             report["verdict"] = "INVALID"
         else:
             report.setdefault("advisories", []).append(body_finding)
+    anchor_finding = _falsifier_anchor_advisory(text)
+    if anchor_finding is not None:
+        report.setdefault("advisories", []).append(anchor_finding)
     goal_finding = _goal_falsifier_finding(path, text, for_execution)
     if goal_finding is not None:
         report["rows"].append(goal_finding)
         report["verdict"] = "INVALID"
     return report
+
+
+def _falsifier_anchor_advisory(text: str):
+    """Advisory only: the falsifier `how` decides on an unanchored single-word substring."""
+    _ensure_engine_on_path()
+    import yaml
+    from coordinator_core.execute_plan_assemble.falsifier_shape import (
+        _falsifier_block,
+        falsifier_how_unanchored,
+    )
+    from coordinator_core.frontmatter.primitives import split_frontmatter
+
+    split = split_frontmatter(text)
+    if split is None:
+        return None
+    try:
+        fm = yaml.safe_load(split.fm_text)
+    except yaml.YAMLError:
+        return None
+    if not isinstance(fm, dict):
+        return None
+    falsifier = _falsifier_block(fm.get("prime_exit_criterion"))
+    word = falsifier_how_unanchored(falsifier["how"]) if falsifier else None
+    if word is None:
+        return None
+    return {
+        "row": "-",
+        "error": (
+            f"UNANCHORED-FALSIFIER: `how` matches `{word}` as a bare substring, so any line "
+            "containing it passes — anchor it (`^`, `-w`, `-x`, `==`)"
+        ),
+        "at": "prime_exit_criterion.falsifier.how",
+        "class": "advisory",
+    }
 
 
 def _goal_falsifier_finding(path: Path, text: str, for_execution: bool):
@@ -377,6 +416,25 @@ def _check_spine(path: Path, text: str, for_execution: bool) -> dict:
                     "error": "LEGACY-READS: split into `reads_at_head`/`consumes` when next touched",
                     "at": "reads",
                     "class": "advisory",
+                }
+            )
+        _ensure_engine_on_path()
+        from coordinator_core.ops.dispatch_emit.spine_read import contradictory_read_paths
+
+        both = contradictory_read_paths(
+            [*(row.get("reads") or []), *(row.get("consumes") or [])],
+            row.get("reads_at_head") or [],
+        )
+        if both:
+            findings.append(
+                {
+                    "row": label,
+                    "error": (
+                        f"CONTRADICTORY-READS {both!r} in both `reads_at_head` and "
+                        "`consumes`/`reads` — dispatch.emit refuses; keep one"
+                    ),
+                    "at": "reads_at_head",
+                    "class": "structural",
                 }
             )
         for p in (row.get("reads_at_head") or []):

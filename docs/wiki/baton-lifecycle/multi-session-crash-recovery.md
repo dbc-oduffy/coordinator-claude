@@ -66,6 +66,7 @@ each writing to `state/recovery/<date>-crash/<repo>-findings.md`. Plus one crash
 ### Transcript forensics technique (put verbatim in every investigator brief)
 
 `.jsonl` = one JSON object per line, large — **never `Read` whole; parse with node/jq**. Field guide:
+
 - `type`: `user`/`assistant` = conversation; `summary`/`system`/`queue-operation`/`permission-mode`/`file-history-snapshot`
   = metadata (ignore for content). **A crashed transcript's trailing lines are often bulk-appended metadata, not the
   last real turn** — parse, don't `tail`.
@@ -75,9 +76,11 @@ each writing to `state/recovery/<date>-crash/<repo>-findings.md`. Plus one crash
 - `cwd`, `gitBranch`, `timestamp` ride on turns. FIRST user turn usually holds the opening task or a `/pickup`.
 
 Extraction one-liner (dump text/tool turns, mark sidechain):
+
 ```bash
 node -e 'const fs=require("fs"),ls=fs.readFileSync(process.argv[1],"utf8").split("\n").filter(Boolean);for(const l of ls){let o;try{o=JSON.parse(l)}catch{continue}; if(o.type!=="user"&&o.type!=="assistant")continue; const c=(o.message&&o.message.content)||[]; const t=Array.isArray(c)?c.map(x=>x.type==="text"?x.text:x.type==="tool_use"?("[TOOL "+x.name+" "+JSON.stringify(x.input).slice(0,200)+"]"):"").filter(Boolean).join(" "):c; if(t&&t.trim())console.log((o.isSidechain?"[SIDE] ":"")+o.message.role+": "+t.replace(/\s+/g," ").slice(0,400))}' <file>
 ```
+
 Focus each investigator: FIRST few turns (the goal) + LAST ~15 turns (in-flight at crash). Check `TodoWrite` calls
 (todo state) and the last `tool_use` before death.
 
@@ -106,6 +109,7 @@ the transcripts to true EOF.
 ### Crash-cause agent (Windows)
 
 Runs in parallel; answers "what killed us." Git-Bash can call PowerShell: `powershell.exe -NoProfile -Command '…'`.
+
 - **Unexpected shutdown / power:** `Get-WinEvent` System log IDs **41** (Kernel-Power unexpected), **6008**
   (unexpected shutdown), **1074** (initiated), **6005/6006** (log start/stop).
 - **BugCheck / BSOD:** System log ID **1001** (BugCheck).

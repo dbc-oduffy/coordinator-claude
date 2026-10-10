@@ -22,6 +22,7 @@ When `rsync` syncs a delta — say, 3 changed files out of 200 in the destinatio
 A mutating post-sync hook MUST accept the rsync touched-file list on stdin and operate only on those paths. The hook is a pure function of `{rsync output} → {destination mutations}` — not of the destination tree's current state.
 
 **Contract:**
+
 ```
 # hook receives one relative path per line on stdin (rsync's --out-format='%n')
 # and operates only on those paths in the destination
@@ -156,6 +157,7 @@ The operative distinction is not "root-level" vs. "nested" — it is "content th
 vs. "content the mirror never touched."
 
 Cross-references:
+
 - `docs/wiki/install-playbook-rationale/agentic-install-integrity.md` §3 — the version.txt carve-out this section generalises
 - `plugins/coordinator-claude/.percolate-ignore` — `coordinator/dist/oss-only-skills/` exclusion
   that makes the inject the sole delivery path (prevents double-ship)

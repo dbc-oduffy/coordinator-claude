@@ -331,6 +331,15 @@ def _build_parser() -> argparse.ArgumentParser:
             "--owner-repo and --evidence"
         ),
     )
+    exits.add_argument(
+        "--reopen",
+        dest="reopen",
+        action="store_true",
+        help=(
+            "not a disposition: return a wrongly coded row to open via the reopen "
+            "verb; needs one --id and --disposition-detail naming why the stamp was wrong"
+        ),
+    )
     parser.add_argument(
         "--owner-repo",
         dest="owner_repo",
@@ -541,8 +550,20 @@ def main(argv: list[str] | None = None) -> int:
     if not args.task_ids:
         parser.error("--id is required")
 
-    if args.clear_gate:
-        params = _clear_gate_params(args, parser)
+    if args.clear_gate or args.reopen:
+        if args.reopen:
+            if len(args.task_ids) != 1:
+                parser.error("--reopen takes exactly one --id")
+            if not (args.disposition_detail and args.disposition_detail.strip()):
+                parser.error("--reopen requires --disposition-detail: why the coded stamp was wrong")
+            params = {
+                "verb": "reopen",
+                "plan_path": args.plan_path,
+                "id": args.task_ids[0],
+                "disposition_detail": args.disposition_detail,
+            }
+        else:
+            params = _clear_gate_params(args, parser)
         try:
             result = cc_invoke.route_mutation(_OP, params, _resolve_repo_root(), _no_legacy)
         except cc_invoke.RouteMutationError as exc:

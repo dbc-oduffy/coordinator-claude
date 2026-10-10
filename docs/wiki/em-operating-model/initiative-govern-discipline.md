@@ -155,6 +155,7 @@ over-proliferation.
 ### Why this rule exists
 
 The cut-bar requires human judgment that no automated heuristic reliably supplies:
+
 - Whether two clusters are genuinely distinct from an existing initiative.
 - Whether the timing is right (an initiative named too early dissolves; too late and the work
   is already finished without attribution).
@@ -193,7 +194,7 @@ queue in a paused burn-down initiative is a signal to consider reactivating it.
 ### Completion (dated) initiatives
 
 `target_date: <ISO date>`. These are time-bounded bets with a declared delivery target —
-launches, milestones, external commitments. Examples: "Delphi Pro Launch 2026-Q3",
+launches, milestones, external commitments. Examples: "Example-Studio Pro Launch 2026-Q3",
 "Fleet Spine Migration 2026-07-15".
 
 **Govern posture:** the `target_date` is a forcing function. In the weekly triage cadence,
@@ -213,6 +214,7 @@ at `workweek-complete` Step 4) surfaces the unattached queue depth, candidate cl
 current initiative status. The EM presents the picture; the PM makes the ordering call.
 
 Concretely:
+
 - `query-records --unattached` surfaces the unattached queue depth. **First-run note:** initial output is high-volume because handoffs and plans carry an `initiative` FK but most existing records predate the discipline (initiative: null/absent). Run `--unattached --limit 50` for a manageable first pass; re-run with `--type bug`, `--type debt`, etc. for per-type deep inspection.
 - `detect-initiative-candidates` surfaces clusters above the ≥3-item floor.
 - The PM decides which candidates to name, which burn-down initiatives to reactivate or

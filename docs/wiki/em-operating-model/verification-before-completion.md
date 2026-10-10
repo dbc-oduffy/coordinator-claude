@@ -104,12 +104,11 @@ Executor and apply-agents consistently under-count their own work in chat (obser
 2. **Empty diff for an agent that claimed work = re-dispatch** with the explicit list of unfinished files. Do not accept "I completed all files" alongside a zero-line diff.
 3. For spec-driven dispatches that mandate a canonical phrase or pattern across N files, also run `grep -l "<canonical phrase>" <target-files>`. File count alone is not proof — the canonical content must actually appear.
 
-
 ### (c) Edit tool success is not proof of change
 
 After a sequence of Edit calls — especially before claiming a fix is in or before commit — the diff (`git diff <file>` or `git diff --stat`) is what confirms the bytes actually moved. Edit returns success on no-ops where the new_string already matched.
 
-### (d) Subagents may "fix" things without producing diffs (game T1.4)
+### (d) Subagents may "fix" things without producing diffs (example-stats-repo T1.4)
 
 Subagents conflate "this is correct now" with "I made it correct." Actual diff stats (`git status --short` + `git diff --stat`), not self-narrated counts of intended changes, are what a fix-applied claim rests on. "No-op, target was already correct" is a valid outcome — and an honest one.
 
@@ -169,13 +168,14 @@ A companion verifier that only checks a guard's **presence** (marker within N li
 
 **Rule.** A presence check ("marker appears near the resolve-site") is not a correctness check. Two nets close this: (1) a **functional test** that exercises the guarded entry points and asserts they never emit the guard-rejection string on legitimate input; (2) a **placement lint** flagging a `/../`-primary variable guarded unconditionally (excluding `$(cd … && pwd)` runtime-normalized paths). Verify the guard *does its job on real input*, not that its text is present.
 
-## Format Validation (game T1.3)
+## Format Validation (example-stats-repo T1.3)
 
 For batch outputs with a known schema, existence checks are not enough. Prefer a sweep confirming each file contains the canonical block before reporting completion.
 
 **Why this is distinct from existence checks:** A file can exist and still be schema-nonconformant. In a 64-nation pipeline, 3 nations produced prose-only syntheses (no JSON block) and 2 had non-standard JSON root keys — 5/64 files would have silently passed an existence check.
 
 **Sweep pattern:**
+
 ```bash
 # Confirm JSON block present
 grep -l '```json' outputs/*.md
@@ -185,6 +185,7 @@ for f in outputs/*.json; do jq -e '.expected_root_key' "$f" > /dev/null || echo 
 ```
 
 **Failure modes to check explicitly:**
+
 - Prose-only output when structured format was required (no code fence / no JSON block)
 - Non-standard root keys (e.g. `data` instead of `results`, `output` instead of expected key)
 - Truncated output (file exists but JSON is incomplete / malformed)
@@ -194,30 +195,35 @@ Run this sweep before reporting batch completion — not after.
 ## Key Patterns
 
 **Tests:**
+
 ```
 ✅ [Run test command] [See: 34/34 pass] "All tests pass"
 ❌ "Should pass now" / "Looks correct"
 ```
 
 **Regression tests (TDD Red-Green):**
+
 ```
 ✅ Write → Run (pass) → Revert fix → Run (MUST FAIL) → Restore → Run (pass)
 ❌ "I've written a regression test" (without red-green verification)
 ```
 
 **Build:**
+
 ```
 ✅ [Run build] [See: exit 0] "Build passes"
 ❌ "Linter passed" (linter doesn't check compilation)
 ```
 
 **Requirements:**
+
 ```
 ✅ Re-read plan → Create checklist → Verify each → Report gaps or completion
 ❌ "Tests pass, phase complete"
 ```
 
 **Agent delegation:**
+
 ```
 ✅ Agent reports success → Check VCS diff → Verify changes → Report actual state
 ❌ Trust agent report
@@ -226,6 +232,7 @@ Run this sweep before reporting batch completion — not after.
 ## Why This Matters
 
 From 24 failure memories:
+
 - your human partner said "I don't believe you" - trust broken
 - Undefined functions shipped - would crash
 - Missing requirements shipped - incomplete features
@@ -235,6 +242,7 @@ From 24 failure memories:
 ## When To Apply
 
 **ALWAYS before:**
+
 - ANY variation of success/completion claims
 - ANY expression of satisfaction
 - ANY positive statement about work state
@@ -243,6 +251,7 @@ From 24 failure memories:
 - Delegating to agents
 
 **Rule applies to:**
+
 - Exact phrases
 - Paraphrases and synonyms
 - Implications of success
@@ -501,6 +510,7 @@ Two separately-landed doctrines can collide inside a single file, and the shim t
 **Rule:** a fix whose net *committed*-test delta is negative is evidence of a **design conflict between two landed doctrines**, not a bug to be ground down with a bigger hammer. The signal is diagnostic, not incidental: committed tests encode a peer's ratified intent, so breaking more of them than you fix means your fix is fighting a decision, not a defect.
 
 **When the signal fires:**
+
 1. **Revert the fix unlanded** — do not commit a change that reds committed tests to green a gate.
 2. **Trace to the root conflict** — name the two doctrines colliding and the exact bridging construct that is the violation. The principled fix usually threads the constraint explicitly rather than bridging around it (here: thread an explicit root and keep the in-process callable contract — found on the second pass, landed with all three contract tests untouched).
 3. **File with the rejected alternative recorded** so the next owner does not re-derive and re-attempt the same dead-end mechanical fix.
@@ -530,3 +540,31 @@ Reporting "I routed X to the owning session" describes the act of calling a send
 **Second half — a record's existence is not evidence of its contents.** A durable record can itself be unactionable even though it exists: one improvement-queue entry, treated as authoritative specifically because it was durable, promised an enumeration ("verified present here rather than taken on report — one occurrence each:") and then never delivered it — zero items named. Neither its author nor two sessions citing it noticed, because the record's *existence* satisfied the check that should have inspected its *contents*. The same gap applies one level down from the act/effect gap above: "I filed it" says nothing about whether the filed body carries the thing that makes it actionable, and prose generated from a computed list still reads as complete when the underlying collection came back empty.
 
 **Practical form:** after writing a record whose value IS an enumeration, re-read it and count the items. If the body was generated from a collection, assert the collection was non-empty before trusting the prose around it — and when one such truncation is found, sweep the other artifacts the same session wrote, since the empty source usually fed more than one.
+
+## Field rules
+
+- **A high-risk or recovery-path change needs one end-to-end run through the real substrate before a green verdict.** Mock-based adversarial verification can pass a change that recovers nothing.
+- **A dependency floor-bump closes a CVE only when a fixed version exists at or below the floor.** With no fixed release, write the mitigation as deployment-shape, never as a version closure, and re-check advisory data at pickup.
+- **A differential test (new == old) proves agreement, not correctness.** Both paths can share the bug; pin at least one assertion to an independent oracle — a hand-computed answer or a different tool.
+- **An acceptance eval must be able to fail the design, not only the code.** When it falsifies a decided design, a strict xfail carrying the root cause is the honest result; never weaken the assertion.
+- **Prove a calibration invariant in the production regime, not the fixture's.** A composed-bound fixture can pass because its regime is structurally benign (one lane where production has many); build adversarial arms in the real trigger regime.
+- **Verify a 'pre-existing failure' claim by executing the baseline.** Put `git show HEAD:<path>` in a scratch sandbox and run the test against it; diff inspection is not evidence.
+- **A repo's own prose about itself is not state.** Comments, CLAUDE.md lines and field names drift; verify a self-description against the tree before routing work or a memo on it.
+- **A gate of N checks against one dependency preflights the shared precondition** (version pin, auth, reachability) and reports a distinct BLOCKED/UNKNOWN when it is unmet. Wholesale failure of independent checks is the tell of an unmet precondition, not N domain failures.
+- **Before retiring a reference implementation for a 'verbatim port', run old and new over the same fixture and diff.** Retire-and-delegate cutovers regress with both sides' tests green.
+- **Establish reachability before judging a lane:** does this path ever run? A defect in an unreachable lane survives every review that reasons about it as live.
+- **A regression guard reads the copy the runtime resolves,** not just the repo-tracked one; when config has several runtime-resolved copies, a guard on the tracked copy stays green through drift.
+- **A subagent's verification activity is not the artifact's coverage.** Map each claim to the committed test or check that carries it; what the agent did by hand once protects nothing.
+- **'The input is always canonical, so it cannot throw' is a claim about every producer.** Enumerate the producers of the value before relying on it; the uncommon one is where it breaks.
+- **Verify a subagent's negative claims too.** 'Not committed' can be false because a peer's safety commit swept the work; resolve committed-vs-uncommitted from `git status`/`git log`, never from a report.
+- **A seam AC needs a caller-grep, not just a green unit suite.** Unit tests prove a module works in isolation, never that anything imports it; grep for the call site the AC describes.
+- **Dispatch a read-only verifier on any plan marked all-done.** Premature ACs (memos unsent, wiring incomplete) recur.
+- **Partition a fail-closed gate's triggers into policy and anomaly.** A signal firing on every run is noise; escalate anomalies, report both, and default unclassified conditions to anomaly.
+- **A failed measurement has its own representation.** Never degrade to a clean-looking zero; "could not measure" must be distinguishable from "measured, clean".
+- **Run a new guard end-to-end on real data before trusting it.** A guard can be registered, green, and inert.
+- **A gate's absent-dependency exit-0 branch names what it probed.** A bare "SKIP: absent" is indistinguishable from a pass and can sit inert for weeks.
+- **A verify agent certifies only the paths it ran.** Gate on a positive token naming the surface, not on its absence of complaints.
+- **Classify violations a widened gate reveals before treating them as a regression.** Pre-existing violations on never-scanned records are discoveries.
+- **Reconcile a breakdown's sum before quoting a row.** A table mixing actual and counterfactual figures reads with inverted polarity.
+- **A verification claim names the assertion that would fail if it were false.** If none would, the claim is prose and belongs in a test; a fixture token is not an assertion.
+- **Check a gate's offered remedy against the system's other declarations.** Gates reason about their own invariant; read the deny rationale before admitting something to satisfy a different gate.

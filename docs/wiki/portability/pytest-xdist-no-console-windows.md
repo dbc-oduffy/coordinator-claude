@@ -48,6 +48,7 @@ Both were tried empirically and break xdist worker reaping:
 Workers then inherit that hidden console instead of each allocating their own.**
 
 Key properties:
+
 - Workers spawn **exactly as in a known-good run** — no creationflags changes, no pythonw.
   xdist parallelism + stdout/stderr capture are untouched.
 - `GetConsoleProcessList` is the non-destructive attachment probe (returns 0 ONLY when
@@ -70,7 +71,6 @@ import ctypes
 
 _SW_HIDE = 0
 _STD_HANDLES = (-10, -11, -12)  # STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE
-
 
 def _install_xdist_worker_no_console_patch(config) -> None:
     """In the xdist CONTROLLER, give a truly-console-less process a hidden console.
@@ -109,7 +109,6 @@ def _install_xdist_worker_no_console_patch(config) -> None:
     except Exception:  # noqa: BLE001 — console suppression is best-effort, never fatal
         return
 
-
 def pytest_configure(config):
     _install_xdist_worker_no_console_patch(config)
 ```
@@ -147,5 +146,6 @@ The `/SUBSYSTEM:WINDOWS` pythonw wrapper for standalone scripts (the engine repo
 | pytest-xdist gate (`-n <N>`) | conftest.py AllocConsole+hide (automatic) |
 
 **Never route `pytest -n <N>` through the pythonw wrapper.** pythonw breaks xdist (dead end #1 above).
-The `bin/run-fast-tests.{sh,ps1}` wrappers call the interpreter directly and rely on conftest
-for the popup suppression — that is the correct wiring.
+The fast tier (`fast_test_cmd`, CLAUDE.md § Build & Test) is a plain `python -m pytest ...`
+invocation: it calls the interpreter directly and relies on conftest.py for the popup
+suppression — that is the correct wiring.

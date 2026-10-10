@@ -158,7 +158,7 @@ is EXPECTED — not just sharing findings, but actively testing schema field val
   - **SOURCE:** a useful URL for their research
   - **SCHEMA_OVERLAP:** "While researching <my field>, I found evidence relevant to
     your field <their field>: <value> from <source>. Flagging for your verification."
-- Read your own inbox before you converge and incorporate what peers sent you
+- Re-read your own inbox after each source you verify, and once more just before you write your output; peers append while you work. Incorporate what peers sent you. A verifier that converges early re-checks its inbox once more before returning.
 - **Resolution protocol:** Peers answer your challenges, and you answer theirs, in the
   rebuttal round (the rebuttal stage re-runs a verifier whose topic id a peer reported in
   its `challenged` list). A challenge unanswered after that round

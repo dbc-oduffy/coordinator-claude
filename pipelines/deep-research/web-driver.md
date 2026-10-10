@@ -1,5 +1,5 @@
 ---
-description: "PM-GATED — only invoke when the PM explicitly asks; EM must ask first if it thinks it's warranted; NEVER invoke from a subagent. Pipeline A v3.0 (Internet Research) as a chatty background Workflow — a Haiku scout, Sonnet specialists (adversarial peers exchanging challenges through mailbox files, with structured output), and an Opus sweep, run in stage order by one script. EM scopes research, fires the Workflow, and is freed. Optional iterative deepening: after pass 1 completes, the EM evaluates the gap report and may fire a smaller second Workflow for targeted follow-up."
+description: "EM-fired on a sizing; never fired from a subagent. Pipeline A v3.0 (Internet Research) as a chatty background Workflow — a Haiku scout, Sonnet specialists (adversarial peers exchanging challenges through mailbox files, with structured output), and an Opus sweep, run in stage order by one script. EM scopes research, fires the Workflow, and is freed. Optional iterative deepening: after pass 1 completes, the EM evaluates the gap report and may fire a smaller second Workflow for targeted follow-up."
 allowed-tools: ["Agent", "Workflow", "Read", "Write", "Bash", "Glob", "Grep"]
 argument-hint: "<topic>"
 ---
@@ -35,36 +35,7 @@ Announce: "Running deep research (chatty Workflow) on '{topic}'."
 
 ## Step 2 — Scope Research (EM Direct)
 
-This is judgment work — the EM does it directly. Use the scoping checklist below to ensure quality.
-
-1. Define 3-5 topic areas to investigate
-2. Write focus questions for each topic
-3. List any known sources
-4. Note cross-cutting themes between topics
-5. **Craft search queries for the scout** — for each topic area, write 3-5 suggested search queries:
-   - Varied phrasings targeting different source types (docs, blogs, repos, forums)
-   - Include 1-2 adversarial queries per topic ("X problems", "X limitations", "why not X")
-   - Cross-cutting queries that span multiple topics
-   - These are starting suggestions, not exhaustive instructions — the scout runs them mechanically
-6. **Ask the PM for timing preferences:**
-   > "Research timing: default is 5-15 min with 5-source minimum. For a trivial topic, I'd suggest 3-8 min / 3 sources. For a complex topic, 5-20 min / 5 sources. What ceiling works for you?"
-
-Default 4 topics; topic count is bounded only by the Workflow tool's own agent cap. Write scope AND search queries to `{workdir}/scope.md`; that file is the brief. Beside the scope it carries the fields the prompts read: a topic table (letter, description, focus questions, known sources, effort), `min_sources`, `min_minutes`, `max_minutes` (Step 2's timing answer), `corpus_path`, `output_path`, `advisory_path`, and `run_stem`.
-
-### EM Scoping Checklist (review before dispatching)
-
-Quality gates derived from published guidance (OpenAI, Perplexity, Google, STORM, Anthropic):
-
-- [ ] **Sub-questions are explicit and falsifiable.** Each topic's focus questions have concrete answers that evidence can confirm or deny — not "what is the best X?" without criteria.
-- [ ] **Effort budgets are set per topic.** Mark each topic as surface / moderate / deep. This calibrates how many sources specialists pursue before converging.
-- [ ] **Source-type constraints are specified.** Default: "Prioritize primary sources (official docs, peer-reviewed, original reporting). Flag secondary sources. Note confidence for claims with <3 corroborating sources."
-- [ ] **Adversarial queries are included.** At least 1 query per topic targeting criticism, limitations, or failure modes. Absence of criticism in sources ≠ absence of real limitations.
-- [ ] **Search queries use varied phrasings.** Different wordings surface different source ecosystems. Include at least one query targeting each of: official docs, practitioner blogs, community forums.
-- [ ] **Cross-cutting themes are named.** Connections between topics are where individual specialists have blind spots — name them so the sweep knows to look.
-- [ ] **Each specialist assignment has: (a) specific objective, (b) output format reference,
-      (c) tool/source guidance, (d) clear task boundaries vs. peers.** Vague assignments
-      ("research X") lead to duplication — be specific about what each specialist SHOULD
-      and SHOULD NOT cover.
+Scoping is the manifest's `scope` stage: `web-scope-prompt-template.md` turns the sizing into `{workdir}/scope.md`, the brief every later stage reads.
 
 ## Step 3 — Prepare the Brief and Inputs
 
@@ -136,32 +107,14 @@ When the Workflow's task notification arrives (its result is the sweep's return 
    ```bash
    "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-safe-commit" "deep-research: pass 1 complete — {topic-slug}"
    ```
-7. **Dispatch the coverage auditor** (always-on for web — see § Coverage Auditor Dispatch below).
+7. **Read the coverage audit** (always-on for web — see § Coverage Auditor Dispatch below).
 8. Scratch that persists across runs lives in `{workdir}/`.
 
 **Proceed to Step 6.5** (do NOT archive yet — deepening may add to the work directory).
 
 ### Coverage Auditor Dispatch
 
-The coverage auditor is **always-on for web**. Dispatch it after reading the synthesis (steps 1–4 above) and **before the run concludes** — this is the resolved-decision contract (RD-1). Do not defer it.
-
-**The auditor is a plain `Agent(...)` — dispatched by the EM after the Workflow has completed, not as a stage of the research script.** Precedent: `repo-driver.md` survey (`:65`) and atlas-sketch (`:265`) as plain Agent dispatches.
-
-Fill the dispatch prompt from the Pipeline A block of `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/coverage-auditor-prompt-template.md`. Required fields:
-
-- `[SYNTHESIS_PATH]` → `{output-path}`
-- `[RUN_STEM]` → strip `docs/research/` prefix and `.md` suffix from `{output-path}` (e.g. `docs/research/2026-06-30-topic-web.md` → `2026-06-30-topic-web`)
-- `[SCRATCH_DIR]` → `{workdir}`
-- Pipeline input block: **Pipeline A — Web Research**
-
-```
-Agent(
-  subagent_type: "coordinator:coverage-auditor",
-  prompt: <filled coverage-auditor-prompt-template.md — Pipeline A block>
-)
-```
-
-Await the auditor's return (`{sidecar-path}`) before proceeding to Step 6.5. The sidecar is written to `{output-path minus .md}-coverage-audit.md`.
+The coverage audit is always-on for web and runs as the manifest's `coverage` stage (`web-coverage-prompt-template.md`) before the Workflow returns. Read its sidecar at `{output-path minus .md}-coverage-audit.md` before proceeding to Step 6.5.
 
 **Present the coverage-audit sidecar to the PM in Step 7** alongside the synthesis (see § Step 7 update below).
 

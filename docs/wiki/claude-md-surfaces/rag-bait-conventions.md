@@ -154,3 +154,8 @@ general engineering vocabulary (`function`, `module`) needs no policing.
 | Commented-out code | Never a style choice; delete it, git history is the record. |
 | Current-value comments | `// as of the Sept migration, this is UTC` ages out; state the invariant instead. |
 | Grep-bait tokens | A comment whose body is a search anchor for another tool — cite the wiki/test in the commit and plan, never in source. |
+
+## Field rules
+
+- **A cited upstream worked example names the parameters it was computed under** and shows the re-derivation at local parameters; otherwise the rationale baked into a constant is someone else's.
+- **Stat-check every spec backlink an agent writes before the commit lands.** Correct code is not evidence for a correct citation, and a dangling backlink reads as provenance.

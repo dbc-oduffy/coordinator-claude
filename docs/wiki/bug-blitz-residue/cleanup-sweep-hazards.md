@@ -330,6 +330,7 @@ A code-extraction or dedup refactor (lift a function to a shared helper, collaps
 **Directory-rename sweeps must grep variable-assignment indirections, not just path literals.** A `scripts/` → `project_rag_ue_addon_scripts/` rename left `SCRIPTS_DIR="$ADDON_ROOT/scripts"` in `build_engine_structural_index.sh`, silently breaking the from-source rebuild — every `$SCRIPTS_DIR/...` invocation 404'd, and `--check` masked it by passing pre-flight.
 
 **Rule:** rename sweeps must grep three pattern shapes independently:
+
 1. Direct literals: `oldname/` in path strings
 2. Variable assignments: `<VAR>=.*<oldname>` — catches the indirect case
 3. Module paths: `-m <oldpkg>.` — catches Python module references
@@ -359,6 +360,7 @@ Migrating a source module without co-migrating its test suite produces `ImportEr
 When a workstream pivots or is abandoned mid-flight, the code and spec artifacts are the obvious targets for cleanup. But the highest-risk residue lives in **STATE artifacts**: sentinel files, status JSON blobs, partial migration records, half-updated registry entries, and in-progress handoff bodies that reference the abandoned approach. These state artifacts can mislead future sessions into treating abandoned-work state as current operational state.
 
 **Rule.** When auditing a pivoted or abandoned workstream for residue, explicitly scan:
+
 1. `state/handoffs/` and `archive/handoffs/` — any handoff body that describes the abandoned approach as in-flight.
 2. `machine-local/` registry entries, sentinel files (`*-sentinel.json`, `addon-health-*`), and status JSONs written by the abandoned path.
 3. Any migration helper or partial-apply record that reflects an abandoned schema/path shape.
@@ -384,10 +386,12 @@ A distill / cleanup dry-run that classifies plan-scaffolding for deletion emits 
 **Concrete failure:** both nudge hooks' skill-suppression branch was dead on every real-sized transcript (>64 KB), causing the `/handoff` nudge to fire 100% of the time — caught only in production.
 
 **Rule.** Read into a variable, match via here-string:
+
 ```bash
 content=$(tail -N "$file")
 if grep -qE "PAT" <<< "$content"; then ...
 ```
+
 Keep the early-exiting `grep -q` reader out of the pipeline. Test with a real-sized fixture, not a 3-line one.
 
 ## 40. Fleet-Wide Worktree EOL Strip Assumes an Autocrlf-Normalized LF Index
@@ -483,7 +487,7 @@ A plan becomes archival-eligible the instant its frontmatter is stamped a termin
 **Defense:**
 
 1. Any post-stamp edit window — most notably `/workstream-complete` close-out review-integration, which runs *after* the terminal stamp lands — is vulnerable to the async sweep until those edits are committed. Commit promptly; don't leave a stamped-but-uncommitted plan sitting across a session boundary.
-2. The sweep's working-tree-dirty guard (added as a DoE-side backstop) is exactly that — a backstop, not a license to leave post-stamp edits dirty. Treat "the guard will catch it" the same as treating a snapshot test as a substitute for correct sequencing: it narrows the blast radius, it doesn't remove the race.
+2. The sweep's working-tree-dirty guard (added as a repo-side backstop) is exactly that — a backstop, not a license to leave post-stamp edits dirty. Treat "the guard will catch it" the same as treating a snapshot test as a substitute for correct sequencing: it narrows the blast radius, it doesn't remove the race.
 3. Downstream effect to watch for: `wsc_commit`'s staging step may report a mid-ceremony-archived plan as `missing:<path>` when the sweep has already relocated it. This is a known silent-skip failure mode — a cross-repo memo to the engine repo is open tracking a fix on that stage's path-resolution. Don't assume `missing:<path>` means the edits were lost; check `archive/specs/` for the plan before treating the skip as data loss.
 
 Composes with §38 (re-derive terminal status from disk before deletion) — same underlying fact, opposite direction: §38 is about trusting stale terminal-status labels for a *deletion* decision; this entry is about a *stamp-then-edit* window racing an automated consumer of that same status field.
@@ -493,11 +497,11 @@ Composes with §38 (re-derive terminal status from disk before deletion) — sam
 ## 45. Cross-Repo/Fleet Identity Rename: Classify Every Hit by SHAPE Before Editing
 
 
-A fleet-wide identity rename (e.g. `delphi-cockpit` → `example-store-repo`) is not a single-shape sed-sweep problem — the same literal token recurs across at least six structurally distinct shapes, and each shape carries an *independent* fix-vs-leave disposition:
+A fleet-wide identity rename (e.g. `example-studio-cockpit` → `example-store-repo`) is not a single-shape sed-sweep problem — the same literal token recurs across at least six structurally distinct shapes, and each shape carries an *independent* fix-vs-leave disposition:
 
 1. **Name-ref** (repo/plugin name in prose, config, doc titles) — FIX.
-2. **Env-var** (e.g. `DELPHI_COCKPIT_HOME`) — FIX (with care for downstream consumers still reading the old var).
-3. **Dated spec/plan filename** (e.g. `2026-06-01-delphi-cockpit-something.md`) — LEAVE; the filename is a point-in-time backlink, not a live identity reference.
+2. **Env-var** (e.g. `EXAMPLE_STUDIO_COCKPIT_HOME`) — FIX (with care for downstream consumers still reading the old var).
+3. **Dated spec/plan filename** (e.g. `2026-06-01-example-studio-cockpit-something.md`) — LEAVE; the filename is a point-in-time backlink, not a live identity reference.
 4. **Registry-key code-ref** (a string literal that resolves a registry/config key named after the old identity) — FIX only if the key itself is being renamed in lockstep; otherwise LEAVE, or the code-ref silently stops resolving.
 5. **Point-in-time state record** (ceremony JSON, historical goals-log entries, snapshot artifacts) — LEAVE; rewriting history to match current identity destroys provenance.
 6. **Live-data repo-path segment** (an actual filesystem path a running system reads today) — FIX, but verify no external consumer still writes to the old path first.
@@ -528,3 +532,9 @@ A transitional shim gated on a future condition (e.g. `REMOVE_WHEN: addon_protoc
 ## Skill Checklist Reference
 
 `/distill` and `/update-docs` should reference items 1, 2, and 3 in their dispatch prompts so the agent enforces these checks during sweep operations, not just the EM after the fact. `/bug-blitz` consumers reference item 19 for backlog-currency verification. `/coordinator:plan` Branch B references item 20 when the plan body flips a doctrine value-class. `/coordinator:plan` and `/bug-sweep` reference items 27–30 when the work is a class-scoped sweep — enumerate the construct class, build a class-catching lint (not a site list), and test the guard against an unseen class member. Items 33–34 apply to any cross-repo excision or directory-rename plan — add consumer-grep and variable-indirection grep to the done-criteria. Items 39–40 apply to any shell pipeline using `grep -q` on large inputs or any fleet-wide EOL sweep. Item 41 applies to any sweep that produces downstream-consumer artifacts (memos, doctrine seeds, plan amendments) — keep scratch through PM follow-on opportunity, not just through the commit. Item 42 applies to any `/percolate` / the engine repo's `coordinator/bin/publish.py` flow and any cleanup that discards changes via `git checkout HEAD --` while a stash is in play — source publishes from a committed ref, never the live worktree.
+
+## A keep-if-referenced sweep excludes the doc's own sidecars
+
+A sweep that keeps a doc while any live doc mentions its filename must exclude that doc's own
+derived sidecars (review and check artifacts) from the set of live docs. Otherwise every doc is held
+by its own sidecar and the sweep never fires.

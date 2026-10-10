@@ -202,6 +202,36 @@ A crash boundary is *exactly* where work exists on disk but not in the git index
 - **Predecessor-session background executors can finish mid-pickup** — emitting results inline and writing to disk *after* the picking-up EM has committed. At pickup, reconcile against late-arriving disk writes, not just the pre-pickup commit set. Pickup-reconcile catches pre-pickup commits, not during-investigation ones; peer EMs can close your workstream out from under you.
 - **Review-trail coverage audits must glob `archive/review-trail/**`,** not just the live dir — `/workweek-complete` relocates records on weekly reset, so a live-dir-only audit under-reports coverage.
 
+### A diagnostic probe is itself a hypothesis
+
+A probe that "found nothing" may be mis-wired rather than clean. A PowerShell `ParseFile` probe
+passed `[ref]$null` for its errors out-parameter, discarded every error, and printed clean while
+the runtime failed — and a handoff built a three-mechanism puzzle on that false clean. Before
+reasoning from a probe's negative, confirm the probe can report a positive.
+
+### A failing check's remediation hint is hypothesis too
+
+A gate that predates a refactor of what it inspects can fail with confidence and suggest a fix that
+reintroduces what the refactor removed. Confirm the failure is real — exercise the behavior the
+check claims is broken — before following its hint.
+
+### A load-bearing grep result is re-read, not trusted
+
+A grep count or match reported in a session can be wrong. For a premise that gates a cross-team
+directive or a breaking migration, read the actual lines; when a reviewer's direct read disagrees
+with your grep, re-check a third way before acting.
+
+### A wrapper's exit status is the wrapper's
+
+`build; echo EXIT=$?` run in the background reports the `echo`'s status, and harness notifications
+report the wrapper. Confirm success from the tool's own output (a result line, a pass count), and
+propagate the real status (`rc=$?; exit $rc`).
+
+### Validate a write guard by live fire with same-turn reads
+
+When a guard is validated through a real subagent, the Edit tool's read-first precondition fires
+before the guard and hides it. The subagent reads each target in the same turn as the edit.
+
 ## A Green That Never Touched Its Subject — Make The Check Fail Before You Trust It
 
 A check that cannot fail is not a check, and it is worse than no check: it emits a green signal
@@ -343,7 +373,7 @@ When the defect is in how an input is **parsed, resolved, or normalized**, any h
 
 The 2026-07-31 destructive-`rm` repo-root fix was reported to the engine repo as "verified end to end through the real hook, not only the unit function." It was not. At that guard version `rm -rf ~/.claude` and `rm -rf $HOME/.claude` were both **ALLOWED**; only an absolute path denied. The guard's token loop dropped a raw `~/…` at `if not tgt or not os.path.exists(tgt): continue` (the token is never tilde-expanded) and dropped every `$HOME/…` at the glob/variable filter — so a `deny` was only reachable with an already-absolute target. The probe payload had therefore been expanded before the hook saw it: constructing it in a shell double-quoted string, or via `os.path.expanduser` / `Path.home()` / an f-string, performs exactly the expansion whose absence *was the bug*. The claim was true of the command as intended and false of the bytes on the wire, and it re-ran the leg the unit tests already covered while wearing an end-to-end costume.
 
-**Rule.** Assert on the payload **bytes** before sending — print the JSON and confirm the `~` or `$HOME` literal survived — never on the command you meant to type. Build probe payloads from single-quoted or `json.dumps`'d literals, never a double-quoted shell interpolation or an `expanduser` call. When a fix concerns how a target *spelling* is resolved, the probe corpus must carry every spelling as-typed; a corpus of one absolute path cannot observe a resolution bug. (Caught by claude-klabauter-em; see `docs/wiki/coordinator-tripwires.md § PROBE-PAYLOAD-PRE-NORMALIZED`.)
+**Rule.** Assert on the payload **bytes** before sending — print the JSON and confirm the `~` or `$HOME` literal survived — never on the command you meant to type. Build probe payloads from single-quoted or `json.dumps`'d literals, never a double-quoted shell interpolation or an `expanduser` call. When a fix concerns how a target *spelling* is resolved, the probe corpus must carry every spelling as-typed; a corpus of one absolute path cannot observe a resolution bug. (Caught by the engine-side EM; see `docs/wiki/coordinator-tripwires.md § PROBE-PAYLOAD-PRE-NORMALIZED`.)
 
 ### Mirroring an idiom copies its latent bugs — audit the source, don't trust mirror-fidelity
 
@@ -509,6 +539,7 @@ whether its *behavior* changed, not just whether the bytes showed up in its cont
 ## Related
 
 - CLAUDE.md § Verification Before Done — boot-context rules (shipped-on-main, concurrent-sweep verify, smoke-test dispatch).
+
 ## test baseline run-window overlapping in-flight commit produces transient ImportErrors
 
 A test baseline whose run-window overlaps your own in-flight commit reports transient `ImportError`s, not real failures. The in-progress commit may leave the module in a partially-written state during the baseline run. Sequence the baseline run before your commit series starts, or after it completes cleanly. Apply: if a baseline shows unexpected `ImportError`s, check whether a concurrent commit was in flight during the baseline run before treating the errors as real.

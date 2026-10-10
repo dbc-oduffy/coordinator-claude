@@ -1222,6 +1222,34 @@ def _load_allowlist_generator(bin_dir: Path):
     return module
 
 
+def _carried_forward_pending(module, repo_root: Path) -> list[str]:
+    """Repo-relative files named by the bin row's current field 7 that still
+    exist on disk. Passing them as `--pending` keeps an earlier run's untracked
+    entries; tracked ones are deduped by the generator, deleted ones drop. One
+    stat per listed name, no git spawn and no directory walk."""
+    row = f"{module._BIN_ROW_NAME}|"
+    subdir = module._BIN_SOURCE_SUBDIR
+    try:
+        text = Path(module._PORTABLE_PATH).read_text(encoding="utf-8")
+    except OSError:
+        return []
+    for line in text.splitlines():
+        if not line.startswith(row):
+            continue
+        fields = line.split("|")
+        if len(fields) <= module._ALLOWLIST_FIELD:
+            return []
+        out: list[str] = []
+        for entry in fields[module._ALLOWLIST_FIELD].split(","):
+            if not entry or entry.startswith("!"):
+                continue
+            rel = f"{subdir}/{entry}"
+            if (repo_root / rel).is_file():
+                out.append(rel)
+        return out
+    return []
+
+
 def regenerate_field7(name: str, out_dir: str | os.PathLike, written: list[Path]) -> int:
     """Regenerate `setup/publish-targets.portable` field 7 to cover the files a
     launcher run just produced, so a new bin entrypoint cannot leave the
@@ -1244,6 +1272,9 @@ def regenerate_field7(name: str, out_dir: str | os.PathLike, written: list[Path]
             pending.append(rel)
 
     module = _load_allowlist_generator(bin_dir)
+    for rel in _carried_forward_pending(module, REPO_ROOT):
+        if rel not in pending:
+            pending.append(rel)
     argv = [arg for rel in pending for arg in ("--pending", rel)]
     with contextlib.redirect_stdout(sys.stderr):
         rc = module.main(argv)

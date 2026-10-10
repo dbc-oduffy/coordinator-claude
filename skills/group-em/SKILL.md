@@ -169,7 +169,10 @@ re-runs it, and a roster read is stale within a minute. In this order, as your f
    **You sequence box capacity.** Work that contends for it — test suites, builds, reindexes, UE
    editor/cook runs, large workflows, memory-heavy agents — and any other queue where peers take
    turns (a suite mutex, a shared-tree merge, a publish) is yours to order. Peers ask you for a
-   capacity slot; you release waiting peers in order as headroom allows and cap parallelism.
+   capacity slot; you release waiting peers in order as headroom allows. **Cap what agents run,
+   not how many agents run:** GO terms name the command classes (unscoped vitest and watch
+   modes, `tsc` beyond one per session, builds, `pnpm -r`, long-lived shells) and leave executor
+   counts loose. Tripwire: `A-BOX-CAP-COUNTS-COMMANDS-NOT-AGENTS`.
    A slot is occupied only by a live PID: a "build running" report names the PID it read from
    the process table, and you confirm that PID is alive before holding anyone else back.
    Tripwire: `A-RUNNING-CLAIM-CARRIES-A-LIVE-PID`.

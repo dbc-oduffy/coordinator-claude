@@ -1,9 +1,8 @@
 # Coverage Auditor Prompt Template (v1.0)
 
-> Used by each pipeline's driver to construct the coverage-auditor dispatch prompt.
-> Fill in bracketed fields; select the per-pipeline input block that matches the mode.
-> The EM dispatches this agent as a plain (non-teammate) Agent post-synthesis, at the
-> "On Completion Notification" step before archive and before the run concludes.
+> The shared auditor contract. Each pipeline's manifest `coverage` stage runs its own
+> per-pipeline stage template (see § Per-Pipeline Input Blocks); this file carries the contract
+> those templates share.
 >
 > Agent definition: `agents/coverage-auditor.md`
 
@@ -178,118 +177,12 @@ Read-only on all input files. Write to the audit sidecar only.
 
 ## Per-Pipeline Input Blocks
 
-Select the block matching your pipeline and paste it into the `[PIPELINE_INPUT_BLOCK]`
-placeholder above.
+The per-pipeline input blocks live in the four coverage stage templates, one per manifest:
 
-### Pipeline A — Web Research
-
-```
-**Pipeline mode:** A (web)
-**Specialist claim records:**
-[For each specialist letter A–E as applicable:]
-  [SCRATCH_DIR]/[LETTER]-claims.json
-
-**Gap report (feedstock only — do NOT audit this file):**
-  [SCRATCH_DIR]/gap-report.md
-
-The gap report is feedstock context — read it to understand the synthesizer's known
-gaps, but do NOT include it in your coverage denominator. It answers "did we research
-enough?"; your audit answers "did the synthesis carry what we researched?". These are
-different questions and different artifacts.
-
-**Tool grant:** Read, Grep, Glob, Write — no web access, no team messaging.
-```
-
-### Pipeline B — Repo Research
-
-```
-**Pipeline mode:** B (repo)
-**Specialist claim records:**
-[For each specialist letter A–D as applicable:]
-  [SCRATCH_DIR]/[LETTER]-claims.json
-  [SCRATCH_DIR]/[LETTER]-assessment.md
-
-The assessment files provide section-level context for locating claims in the synthesis.
-Read both for each specialist.
-
-**Tool grant:** Read, Grep, Glob, Write — no web access, no team messaging.
-```
-
-### Pipeline C — Structured Research (reduced auditor)
-
-```
-**Pipeline mode:** C (structured — reduced auditor)
-**Verifier finding records:**
-[For each verifier topic as applicable:]
-  [SCRATCH_DIR]/[TOPIC]-findings.md
-
-**Drop-justification oracle:**
-  [OUTPUT_DIR]/synthesis-annotations.md
-
-Read `synthesis-annotations.md` first. This is the oracle for whether a verifier
-finding was:
-  (a) mapped to a field in the structured output — present-with-pointer
-  (b) explicitly dropped with annotation — present-with-pointer (the annotation is
-      the synthesis presence for this finding)
-  (c) absent from both output and annotations — absent
-
-Your audit for Pipeline C is reduced in scope: verify that every verifier finding
-either maps to a field in the structured output OR appears in synthesis-annotations.md
-with a drop justification. A finding absent from both is the only `absent` case.
-
-You are NOT auditing prose fidelity (there is no prose synthesis in Pipeline C —
-output is schema-conforming YAML/JSON). You are checking coverage completeness only:
-did anything fall through without justification?
-
-**Tool grant:** Read, Grep, Glob, Write — no web access, no team messaging.
-```
-
-### Pipeline D — NotebookLM Research (documented divergence)
-
-```
-**Pipeline mode:** D (notebooklm — documented divergence)
-**Worker claim records:**
-[For each worker letter A–C as applicable:]
-  [SCRATCH_DIR]/[LETTER]-claims.json
-  [SCRATCH_DIR]/[LETTER]-summary.md
-
-The summary files carry `notebook_id` in YAML frontmatter — you will need this for
-notebook queries. Parse the YAML frontmatter (the structured block at the top), not
-the markdown metadata section.
-
-**Notebook access (primary input extension for Pipeline D):**
-The on-disk `{letter}-claims.json` files are a lossy extraction of the NotebookLM
-notebooks. For a load-bearing coverage check, query the actual notebooks for claims
-you cannot locate in the synthesis.
-
-MCP Bootstrap — graduated pattern (mirror from `notebooklm/agents/research-sweep.md`):
-
-Step 1 — Try exact tool names:
-  ToolSearch("select:mcp__notebooklm-mcp__notebook_query,mcp__notebooklm-mcp__cross_notebook_query")
-
-Step 2 — If Step 1 returns no results, try keyword search:
-  ToolSearch("+notebooklm notebook_query", max_results=5)
-
-Step 3 — If both return no results, the notebooklm MCP tools are not available.
-  DEGRADE GRACEFULLY: proceed with claims-only coverage check using the
-  `{letter}-claims.json` files. Note the degradation explicitly in your sidecar
-  header (verbatim contract string):
-  > DEGRADED: notebooklm MCP tools unavailable. Coverage audit based on on-disk claims.json only.
-  > Notebook queries were not run. A re-audit with MCP tools available may surface additional gaps.
-  This is a documented, expected degradation path — not an error.
-
-Notebook IDs/names are sourced from `{letter}-summary.md` YAML frontmatter
-(`notebook_id` / `notebook_name` fields) — never construct them manually. Use
-`notebook_query` to verify a claim against one notebook; use
-`cross_notebook_query(query, notebook_names="…")` to verify a cross-notebook claim
-against all the notebooks it spans in one aggregated call.
-
-CLEANUP NOTE: Do NOT delete notebooks. Notebook cleanup is deferred to the EM's
-post-audit completion step. Your role is read-only on notebooks.
-
-**Tool grant:** Read, Grep, Glob, Write + notebooklm MCP tools (notebook_query and
-cross_notebook_query; see bootstrap above) — no web access, no team messaging.
-```
+- Web (A): `web-coverage-prompt-template.md`
+- Repo (B): `repo-coverage-prompt-template.md`
+- Structured (C, reduced auditor): `structured-coverage-prompt-template.md`
+- NotebookLM (D): `notebooklm/coverage-prompt-template.md`
 
 ---
 

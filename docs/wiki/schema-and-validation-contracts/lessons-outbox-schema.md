@@ -43,7 +43,7 @@ own outbox; the central machine reads across all registered peers via
 | `closed_by` | string | optional | Identifier of the engine closer (or session) that closed this outbox row. Written by the engine closer; never set manually. | `"coordinator-lesson-apply"` |
 
 > **Forward-seam note (post-migration capture):** When a lesson captured post-migration is promoted here, the `evidence` value naturally evolves from a `state/lessons.md:<N>` line reference to the per-entry filename (`state/lessons/<slug>.yaml`).
-
+>
 > **Metadata honesty.** `created` and `from_repo` are emitted as real, non-null values at capture time — not placeholders. If a downstream consumer (e.g. Cockpit date-bounded queries) needs to exclude entries on a promotion-state basis to dodge a null-`created` case, that is a signal the emitter regressed; re-verify against the engine repo's `coordinator-queue-append` before adding query-side workarounds. <!-- src: plan31-007 -->
 
 ### Example entry (complete)

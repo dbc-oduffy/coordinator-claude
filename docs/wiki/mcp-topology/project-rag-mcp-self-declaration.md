@@ -5,7 +5,7 @@ status: active
 created: 2026-05-24
 sources:
   - the MCP self-declaration / content-class-routing plan under docs/plans/
-  - the DoE-side MCP registration-visibility and drift-audit plan under docs/plans/
+  - the source-repo MCP registration-visibility and drift-audit plan under docs/plans/
   - the host-configure-not-edit framing memo under cross-repo/archive/
   - the project-rag readiness spec under archive/specs/
 tags: [project-rag, mcp, content-class-routing, self-declaration]
@@ -43,11 +43,13 @@ The `FastMCP(instructions=...)` block is ≤200 words and leads with content-cla
 Two-axis routing: content class first, query shape second.
 
 **Content-class axis:**
+
 - Consumer-project content (indexed project under `--project-root`): `project_file`, `project_semantic_search`, `project_referencers`, `project_subsystem_profile`, and addon-supplied composition/graph tools when an engine addon is installed.
 - Engine-corpus content (addon-registered first-party APIs): tools registered by the active engine addon — call `project_rag_instructions()` to enumerate at runtime.
 - Cross-class blend: `project_rag_blended_query`.
 
 **Query-shape axis (within a content class):**
+
 - Identity / enumeration / reachability → graph-SQL tools (`project_referencers`, `project_dependencies`, `project_trace`)
 - Similarity / intent → embedding tools (`project_semantic_search`)
 - Raw content retrieval → `project_file` or `project_symbol`
@@ -92,7 +94,9 @@ Two-axis routing: content class first, query shape second.
 **Shared helper:** `project_rag_mcp/tools/_annotations.py` — centralized soft-import guard (~10 lines). All 24 tools use this shim, not direct imports.
 
 **Values:**
+
 | Annotation | Value | Notes |
+
 |---|---|---|
 | `destructive` | False | Universal |
 | `readOnly` | True | Universal |
@@ -105,10 +109,12 @@ Two-axis routing: content class first, query shape second.
 ## Bug ownership boundary
 
 The health envelope's `addon_fields` block identifies which addons are loaded. Bug ownership follows the host/addon split:
+
 - **Host owns:** daemon, embed sidecar, schema, response envelope, consumer-project content paths.
 - **Addons own:** their respective content classes (engine corpora, example corpora, knowledge corpora).
 
 Practical routing for doctors:
+
 - **`/project-rag:doctor`** — project-RAG-in-general health: MCP server liveness, index freshness, basic substrate. Cite when the MCP server is unreachable or degraded.
 - **`/project-rag-ue-addon:doctor`** — UE-specific capability extension: engine corpus access, UE marketplace expansion. Cite when engine corpus is missing on a UE project with an otherwise-healthy project-RAG.
 
@@ -117,6 +123,7 @@ These are NOT interchangeable. Routing to the wrong doctor obscures the bug boun
 ## Why project-RAG is "triply important" for UE
 
 Three compounding reasons (empirical anchor):
+
 1. **Codebase scale:** UE engine source ~100K files — structural queries are the only viable lookup strategy.
 2. **UE-exclusive tool surface:** `project_blueprint_graph`, `project_engine_examples`, `project_engine_pattern_check`, `project_cpp_symbol`, `project_subsystem_profile`, `project_referencers` — no grep substitute for blueprint graph traversal.
 3. **High dead-end cost:** UE work has more "guess instead of look up → 30-minute dead end → discover the correct API existed all along" shape than other stacks. Working without project-RAG on UE is not slower work; it is wrong-work that has to be torn down.
@@ -130,10 +137,12 @@ slow-moving docs ("have we done this before") and exists only where indexed.
 ## Content-agnostic preamble — single-source discipline
 
 The project-RAG preamble for agent/skill dispatch lives at `coordinator/snippets/project-rag-preamble.md` (~40 words, language-neutral, index-gated via `project_staleness_check`, and carries a `ToolSearch("select:...")` bootstrap naming the eight structural/SCIP/semantic tools a consuming agent needs). Each consuming agent/skill file inlines it verbatim, fenced by:
+
 ```
 <!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->
 <!-- END project-rag-preamble -->
 ```
+
 Sync: `verify-snippet-sync project-rag-preamble --check/--fix`. Wired into `/workday-start` Step 1.7. Inline targets: enricher dispatch prompts, executor dispatch prompts, reviewer dispatch prompts, scout dispatch templates in brainstorming/writing-plans/systematic-debugging skills.
 
 **Project detection:** the preamble uses generic any-project detection (not example-game-repo-specific). Example-game-repo deduplication uses positive context detection (`.example-game-repo/` dir or `Saved/ExampleGameRepoProjectRag/` path-up search), not hook-ordering sentinel — order-independent. False positives produce silent banners; false negatives are graceful (no banner, no behavior change).

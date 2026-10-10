@@ -4,6 +4,17 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.4.19] — 2026-10-10
+
+- **Sizing authorizes execution.** An accepted sizing fires the in-session Workflow in every mode; a headless
+  chain fire is opt-in via `--chain`. `interaction_mode` is never read from job mode; APM acceptance takes
+  `--apm-ruling "<ruling>" --ruling-ref <path>`.
+- **Research.** Depth picks the scout tier, local-only runs are recorded on the sizing, and a research fire
+  arms the EM watch in the same turn.
+- **Guards.** Subagents cannot launch heavy UE work; doctrine-surface deny text matches the engine.
+- **PreCompact** prints the engine's compaction-steering text as hook stdout.
+- **Test runner** caps vitest/jest at `--maxWorkers=2`.
+
 ## [4.4.18] — 2026-10-07
 
 - **Engine source tools for agents.** Every project-rag-equipped agent can load `project_symbol_source`

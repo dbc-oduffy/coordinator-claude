@@ -55,13 +55,16 @@ under the same token, direction named.
 
 ### CANNOT-PRODUCE-A-RED-RESULT
 
-No world exists in which `how` yields the criterion's negation. Three sub-shapes:
+No world exists in which `how` yields the criterion's negation. Four sub-shapes:
 
 1. `expected_when_true` and `baseline_output` are not distinguishable — the two poles have
    collapsed and no output tells them apart.
 2. `how` runs against a fixture whose scale cannot exercise the property the criterion is about
    (n=1 against a real population; a toy corpus for a cost claim).
 3. `how` constructs its own input in a way that guarantees the match.
+4. `how` decides by an unanchored substring or keyword match that also occurs in the negation's
+   output (a verdict word such as "met" or "prior" appearing inside an indeterminate report).
+   Name the token and the output that would contain it either way.
 
 Mirror: a FALSE baseline says nothing about whether the instrument could recognise the criterion
 holding. Report both directions here. **An instrument that cannot produce a red result is BROKEN regardless of aim.**

@@ -1,10 +1,10 @@
 {
   "x-effective-delivery": {
     "version": 1,
-    "generated_from_sha": "58c0df79b91b62f692c9a499a53d40ca093b1ed0",
-    "generated_at": "2026-10-05T01:06:55Z",
+    "generated_from_sha": "b8dbfbbe8d771501bdf6bce8f31cf1b7579a0f33",
+    "generated_at": "2026-10-09T12:34:51Z",
     "generated_from_dirty_tree": true,
-    "engine_source_sha": "f99c8d71bf5c828694e38e0e7f3a1b19e47f359e",
+    "engine_source_sha": "0ffe36fe7a7c08adfa3e74d2b6efbb015701886a",
     "engine_source_dirty_tree": false,
     "engine_source_resolution": "resolved-engine/published-target",
     "carriers": {
@@ -259,10 +259,28 @@
             ]
           },
           {
+            "id": "block_hand_authored_handoff_creation",
+            "script": "write_guards/block_hand_authored_handoff_creation.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
             "id": "block_hand_authored_sidecar_creation",
             "script": "write_guards/block_hand_authored_sidecar_creation.py",
             "tool_names": [
               "Write"
+            ]
+          },
+          {
+            "id": "block_hand_set_test_verdict",
+            "script": "write_guards/block_hand_set_test_verdict.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
             ]
           },
           {
@@ -836,6 +854,21 @@
             ]
           },
           {
+            "id": "block-hand-authored-handoff-creation",
+            "script": "bash_guards/block_hand_authored_handoff_creation.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "block-dev-repo-sentinel-removal",
+            "script": "bash_guards/block_dev_repo_sentinel_removal.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
             "id": "block-disarm-marker-sentinel-creation",
             "script": "bash_guards/block_disarm_marker_sentinel_creation.py",
             "tool_names": [
@@ -854,6 +887,62 @@
           {
             "id": "block-subagent-stash-creation",
             "script": "bash_guards/block_subagent_stash_creation.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "block-topic-branch",
+            "script": "bash_guards/block_topic_branch.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "block-perforce-submit",
+            "script": "bash_guards/block_perforce_submit.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "block-unreal-engine-resave",
+            "script": "bash_guards/block_unreal_engine_resave.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "block-editor-kill-by-name",
+            "script": "bash_guards/block_editor_kill_by_name.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "block-whole-filesystem-scan",
+            "script": "bash_guards/block_whole_filesystem_scan.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "block-noncanonical-branch-creation",
+            "script": "bash_guards/block_noncanonical_branch_creation.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "block-subagent-plan-body-bash-write",
+            "script": "bash_guards/block_subagent_plan_body_bash_write.py",
             "tool_names": [
               "Bash",
               "PowerShell"
@@ -893,6 +982,14 @@
           {
             "id": "guard-host-subagent-bash-spawn-shapes",
             "script": "bash_guards/guard_host_subagent_bash_spawn_shapes.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "guard-subagent-heavy-ue-launch",
+            "script": "bash_guards/guard_subagent_heavy_ue_launch.py",
             "tool_names": [
               "Bash",
               "PowerShell"
@@ -1130,22 +1227,6 @@
             ]
           },
           {
-            "id": "block-noncanonical-branch-creation",
-            "script": "bash_guards/block_noncanonical_branch_creation.py",
-            "tool_names": [
-              "Bash",
-              "PowerShell"
-            ]
-          },
-          {
-            "id": "block-subagent-plan-body-bash-write",
-            "script": "bash_guards/block_subagent_plan_body_bash_write.py",
-            "tool_names": [
-              "Bash",
-              "PowerShell"
-            ]
-          },
-          {
             "id": "check-raw-pid-liveness",
             "script": "bash_guards/check_raw_pid_liveness.py",
             "tool_names": [
@@ -1156,6 +1237,14 @@
           {
             "id": "headless-claude-plugin-dir",
             "script": "bash_guards/guard_headless_claude_plugin_dir.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "piped-pytest-exit-advisory",
+            "script": "bash_guards/guard_piped_pytest_exit.py",
             "tool_names": [
               "Bash",
               "PowerShell"
@@ -1335,6 +1424,11 @@
             "tool_names": []
           },
           {
+            "id": "guard_drive_root_new_dir",
+            "script": "scripts/guard-drive-root-new-dir.py",
+            "tool_names": []
+          },
+          {
             "id": "receiver_state_sensor",
             "script": "scripts/receiver-state-sensor.py",
             "tool_names": []
@@ -1469,6 +1563,13 @@
         "id": "guard-config-change-hookstack-selfdefence.py",
         "script": "scripts/guard-config-change-hookstack-selfdefence.py",
         "tool_names": []
+      },
+      {
+        "id": "guard-p4-no-submit-mcp.py",
+        "script": "scripts/guard-p4-no-submit-mcp.py",
+        "tool_names": [
+          "mcp__.*example-game-repo.*"
+        ]
       },
       {
         "id": "nudge-cross-repo-cwd-boundary.py",

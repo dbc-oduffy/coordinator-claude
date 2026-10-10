@@ -16,6 +16,7 @@
 | **Windows Git-Bash** | Must work | Author environment; CRLF + MSYS path-translation quirks (see `claude-code-platform-gotchas.md`). |
 
 **Two independent axes:**
+
 1. **bash version** — Coordinator *requires* bash ≥ 4 (PM-ratified); stock `/bin/bash` 3.2 is not a supported execution target. bash-4 features are allowed **only behind** a `BASH_VERSINFO<4` fail-loud guard with a `brew install bash` hint (so a mis-provisioned Mac gets a clean error, never a cryptic abort). **Namerefs (`local -n`/`declare -n`) raise the floor to 4.3** — guard those scripts at 4.3, not 4.0 (`coordinator-safe-commit` is the live case). The 3.2-subset patterns (parallel arrays, temp-file maps — the historical example was `coordinator-session.sh`, since deleted, session-family-repoint C4a) remain available but are not mandated. `coordinator:install` § 1a.0 checks the PATH-resolved bash version at setup time as a forward backstop to the per-script runtime guards.
 2. **coreutils** — must stay **BSD-portable** regardless of bash version (we do NOT require GNU coreutils): `sed -i` / `date -d`/`%N` / `grep -P` / `realpath` / `readlink -f` have no GNU guarantee.
 
@@ -33,7 +34,7 @@ target. Shipped `.ps1` may use PS7-only syntax without a guard — `??`, `?.`, `
 Two things this does not say. It does not narrow the OS matrix above — Windows stays P0; it narrows
 which PowerShell binary on Windows. And it does not ban invoking `powershell.exe`: a call that
 exists to reach a Windows-only capability Git-Bash cannot (`coordinator-auto-push`'s SSH/1Password
-routing; the `claude()` shim wired into the 5.1 profile so a 5.1 terminal can still launch
+routing; the `coordinator` shim wired into the 5.1 profile so a 5.1 terminal can still launch
 coordinator) is a capability reach or a bootstrap-out, not a compatibility claim, and stays.
 
 **Install posture.** pwsh 7 is a named Windows prerequisite — see
@@ -45,7 +46,6 @@ There is no `powershell` cask — `brew install --cask powershell` fails with
 "you named the wrong tap". Microsoft's own install docs still show the cask form, so the stale
 instruction is upstream and will not correct itself; do not take a cask failure as evidence
 against the formula.
-
 
 ## PATH vs login shell
 
@@ -83,7 +83,7 @@ Cross-reference: `install-surface-completeness.md § Worked example: brew bash o
 | `date -d '<string>'` (GNU parse) | BSD uses `date -v` / `-j -f` | Python `datetime`, or chain `date -d … \|\| date -jf …` |
 | `exec python "$0" "$@"` in a polyglot trampoline | `/usr/bin/python` removed in macOS 12.3+; not on `PATH` on many Linux distros | `exec "$(command -v python3 \|\| command -v python \|\| command -v py)" "$0" "$@"` — three-way probe, single exec. **NEVER** chain `exec X \|\| exec Y`: `exec` failure is fatal in sh and does NOT fall through to `\|\|`. |
 | `bash <script>` or `bash "$hooks_dir/$hook"` subprocess call | bare `bash` PATH-resolves to `/bin/bash` 3.2 on macOS even when parent is bash 5+ | Replace with `"$BASH" <script>` — `$BASH` is the path of the currently-executing interpreter and forwards to children. Apply to every subprocess invocation inside bash-4+ scripts. |
-| Heredoc inside `"$(…)"` with interior pipe: `VAR="$(cmd <<'EOF' … EOF \| filter)"` | bash 3.2 fails to parse this combination with cryptic "unexpected EOF" at file end — the double-quote + heredoc + pipe combination is the trigger; bash 4+ handles it fine | Hoist the heredoc to its own `$()` then herestring the result: `BODY=$(cat <<'EOF' … EOF); VAR=$(cmd <<<"$BODY" \| filter)`. Note: a `BASH_VERSINFO` guard inside the failing script is unreachable (guard can't execute if the script can't parse). | 
+| Heredoc inside `"$(…)"` with interior pipe: `VAR="$(cmd <<'EOF' … EOF \| filter)"` | bash 3.2 fails to parse this combination with cryptic "unexpected EOF" at file end — the double-quote + heredoc + pipe combination is the trigger; bash 4+ handles it fine | Hoist the heredoc to its own `$()` then herestring the result: `BODY=$(cat <<'EOF' … EOF); VAR=$(cmd <<<"$BODY" \| filter)`. Note: a `BASH_VERSINFO` guard inside the failing script is unreachable (guard can't execute if the script can't parse). |
 | Apostrophe inside bash single-quoted embedded scripts (`awk`/`sed`/`python`) | A `'` inside `awk '...'` terminates the bash string silently mid-script; the whole invocation then fails to parse, often surfacing only as a test sweep failure rather than a parse error at edit time | Rephrase the comment to avoid `'` (e.g., `loop-2 tail` not `loop 2's tail`), or escape: `'\''`. Scan all inserted comment text for apostrophes before saving. |
 | `date -r FILE` (file-mtime read) | GNU-only; BSD/macOS `date -r` reads the arg as **epoch seconds**, not a filename → a `\|\| echo 0` fallback then silently zeroes the mtime and bypasses every threshold check (cooldowns, stale-cleanup) | Portable mtime helper: `stat -f %m "$f" 2>/dev/null \|\| stat -c %Y "$f" 2>/dev/null \|\| date -r "$f" +%s 2>/dev/null` (BSD `stat -f` first, GNU `stat -c` second, `date -r` last). Caught in 3 sites by meta-repo /bug-sweep C4 2026-06-14. |
 | `sed 's/old/<value-with-slashes>/'` (templated substitution) | A substitution VALUE containing `/` (a path, URL, regex) collides with the `s///` delimiter → pattern breaks or substitutes wrong text | Prefer bash parameter expansion for templated substitution (`"${str/old/new}"`); if `sed` is required, pick a delimiter absent from the value (`s|old|new|`). 2026-06-17 project-rag. |
@@ -91,6 +91,21 @@ Cross-reference: `install-surface-completeness.md § Worked example: brew bash o
 | `grep -Z` / `grep -z` for NUL-delimited output | BSD/macOS `grep` **silently ignores** the flag — no error, no warning, just newline-delimited output. A downstream `xargs -0` or `read -d ''` then treats the whole stream as one record, or splits on spaces in filenames. The GNU box stays green, so the defect is invisible where it is developed | Iterate with `find … -print0` (portable NUL emission) piped to `xargs -0`; or drop NUL framing entirely and use `while IFS= read -r` on newline-delimited output where filenames cannot contain newlines. |
 | A Windows-style path used as a POSIX path component (a drive-rooted path, or any backslash-separated string) | POSIX has no drive letters and no backslash separator, so the whole string is ONE relative filename. A `mkdir`/open against it silently creates a single backslash-named file **under cwd** — commonly the repo root — instead of failing | Never hand-build a path from a platform-shaped string. Join with `pathlib`/`os.path.join` from components, and assert the result is absolute before writing. See § Patching `os.name` re-flavours `pathlib` for the subtlest way this happens. |
 | `${CLAUDE_HOME:-<path ending in>/.claude}` (`.claude`-substitute) | CLAUDE_HOME is a `$HOME`-substitute, not a `.claude`-substitute — folding `/.claude` into the default branch happens to resolve on a real machine (CLAUDE_HOME unset) but diverges under test isolation (CLAUDE_HOME set), because the caller then appends its own `/.claude` on top. See `coordinator/docs/wiki/coordinator-tripwires/claude-home-is-a-home-substitute-not-a-dot-claude-substitute.md` | Canonical form: `${CLAUDE_HOME:-$HOME}/.claude` — the `/.claude` suffix sits OUTSIDE the `:-` default. Mechanically checked by `coordinator/tests/test_no_claude_home_substitute_footgun.py`. |
+| A literal NUL byte inside a program string passed as an argument (`jq '…\0…'`, `awk '…'`) | argv strings are NUL-terminated — the program text silently truncates at the NUL | Keep the NUL out of the source: write the escape in the program text (`jq` `"\u0000"`), or base64-encode per line and decode inside the program (`@base64d`). |
+| `x=$(cmd \| tr -d '\r')` followed by `\|\| { fail-loud; }` | The substitution's status is the **last** pipeline stage (`tr`, always 0), so `cmd`'s failure never reaches the `\|\|` | Capture first, strip second: `x=$(cmd) \|\| { …; }; x=${x//$'\r'/}`. |
+| `IFS=',' read -ra f <<<"$line"` when field count matters | `read` drops **trailing** empty fields (`a,b,,` yields 2 fields, not 4) | Peel fields manually with `${line%%,*}` / `${line#*,}` in a loop, or parse in Python. |
+| PowerShell interpreter probe via `& py -c "…"` | Runs the interpreter (console popup on Windows, trips the Python-spawn hook) just to learn whether it exists | `(Get-Command python -ErrorAction SilentlyContinue).Source` — resolves the path without executing anything. |
+| `eval "$(cmd)"` as a gate | `$?` after `eval` is the status of the evaluated assignments (0), not of `cmd` — a failing validator is silently bypassed | Capture first: `out=$(cmd) \|\| { …; }; eval "$out"`. |
+| `var=$(cmd)` under `set -euo pipefail` when the failure should be handled | `set -e` aborts at the assignment, before the following `rc` check runs — the failure surfaces as a contentless `exit 1` | `if ! var=$(cmd); then …handle…; fi` — `set -e` is suspended inside the `if` condition. |
+| `x=$(helper \|\| true)` then `"${x:-fallback}"` | `\|\| true` survives an abort but not garbage: a partial or error-text stdout is non-empty, so the fallback never fires | Validate the captured value before use (`[[ -d "$x" ]]`, `Test-Path -PathType Container`), fall back when it fails. |
+| `source "$helper"` for a fail-loud helper | The helper's `exit 1` kills the caller's shell; a `[[ ${BASH_SOURCE[0]} == "$0" ]]`-guarded run block is also skipped | Run it as a child: `"$BASH" "$helper" <args>` — exit-isolated, and independent of the exec bit. |
+| `printf "$fmt"` where the format can begin with `-` | `printf` parses it as an option (`printf: --: invalid option`) | `printf -- "$fmt"`, or `printf '%s\n' "$value"`. |
+| An early branch calling a function defined further down the script | Bash defines functions as it executes; a call before the definition is reached exits 127 under `set -e`. `bash -n` passes — this is runtime order, not syntax | Define every function before the first code path that can call it; exercise each branch with a real invocation. |
+| `while read line` matching a line-1 directive (`#requires`, shebang, frontmatter) | A UTF-8 BOM (`EF BB BF`, mandatory on non-ASCII `.ps1`) prefixes line 1, so `^[[:space:]]*#` never matches | Strip it first: `line=${line#$'\xef\xbb\xbf'}`; keep a BOM fixture in the test. |
+| A per-item predicate built on `printf … \| grep` called N times | Each call forks; on Git-Bash that is ~0.2 s per call — minutes on a real tree | Pure-bash matching: `case "$x" in *"\|"*\|*[[:cntrl:]]*) … ;; esac` or `[[ $x == pattern ]]`. |
+| `await import(absPath)` in Node ESM | A Windows absolute path is not a valid ESM specifier; the import throws | `import(pathToFileURL(absPath).href)`. Never catch the error as "module absent". |
+| `source lib.sh` where `lib.sh` runs `set -uo pipefail` at file scope | The options apply to the whole caller shell — every co-resident function gains nounset/pipefail, a blast radius beyond the diff | Set options inside the lib's functions, or source it in a subshell; never at a sourced file's top level. |
+| bats test locating fixtures via `${BASH_SOURCE[0]}` | bats runs a preprocessed temp copy, so the path resolves into the temp dir | Anchor on `$BATS_TEST_DIRNAME`, and assert the harness actually reached the target so negative tests cannot pass vacuously. |
 
 **NOT a problem (do not "fix"):** bare `mktemp`, `mktemp -d`, `mktemp <tmpl-with-XXXXXX>` (all portable); `grep -E`/`grep -oE` (POSIX ERE); plain `date +%s` / `date -u` / `date +%Y-%m-%d`; `sed` without `-i`.
 
@@ -106,6 +121,14 @@ _portable_realpath() {
 
 CRLF: a `#!/usr/bin/env bash\r` shebang is fatal on Linux/Mac (kernel looks for `bash\r`). Normalize with `sed 's/\r$//'` (temp-file form). `.gitattributes` pins `*.sh eol=lf`.
 
+**Path audits grep both separators.** A cross-platform path audit that greps only `/` misses `.ps1`
+hardcodes written with `\`. Search both forms (`grep -rnE '[/\\]<segment>'`).
+
+**Widen every language reader in lockstep.** A reader-widen-first cutover that widens the `.sh`
+reader and the Python tests but not the `.ps1` reader stays green on the author's OS and fails
+only on the OS the lagging reader serves. Enumerate readers by language before declaring the
+widen done.
+
 ## CRLF from subprocess stdout in `while read` loops
 
 Python on Windows opens stdout in **text mode** by default, emitting `\r\n` line endings. Command substitution `$(...)` strips one trailing `\n` but does NOT strip embedded or trailing `\r`. `IFS= read -r` does NOT strip `\r` either. Result: every captured value carries a trailing carriage return — `"$parent/coordinator-claude\r/docs/..."` → file-not-found, silently.
@@ -117,30 +140,35 @@ Python on Windows opens stdout in **text mode** by default, emitting `\r\n` line
 **Fixes — belt-and-suspenders, in priority order:**
 
 1. **Strip `\r` at the loop (always-safe, bash 3.2+):**
+
    ```bash
    while IFS= read -r dep_id; do
        dep_id=${dep_id%$'\r'}   # strip trailing CR; $'\r' is portable to bash 3.2+
        use "$parent/$dep_id/..."
    done <<< "$dep_ids"
    ```
+
    `$'\r'` is a bash ANSI-C quote; it is portable to bash 3.2+ and is the canonical in-loop defense.
 
 2. **Force binary newline at the Python source:**
+
    ```python
    # Write raw LF bytes — text-mode translation never fires
    sys.stdout.buffer.write(("\n".join(ids)).encode())
    ```
+
    Or reconfigure the stream: `sys.stdout.reconfigure(newline='\n')`.
    **`PYTHONUTF8=1` is NOT sufficient** — it changes the character encoding (UTF-8 vs system codec), not the newline translation mode. Text-mode CRLF survives even with `PYTHONUTF8=1` set.
 
 3. **Pipe through `tr -d '\r'` before `read` (coarse fallback):**
+
    ```bash
    dep_ids=$(... python3 -c "..." ... | tr -d '\r')
    ```
+
    Portable on all platforms; `tr` is POSIX. Use when you cannot change the Python source.
 
 **Regression test.** Feed CRLF-laden input (`$'foo\r\nbar\r\nbaz\r'`) through the loop and assert all three items are captured correctly — a test that feeds clean input only does not catch this trap. The severity-inverting shape means a single-item smoke test is especially dangerous: test with at least two items so the first-item failure is observable.
-
 
 > See also: `§ EOL normalization — index-first, not worktree-strip-first` for bulk CRLF→LF index remediation; `claude-code-platform-gotchas.md` for Windows CRLF quirks in other surfaces.
 
@@ -185,7 +213,6 @@ variable before repeating it — the reporter here had changed tracked state and
 ## The regression net — code-reviewer always-on lens
 
 This doctrine is enforced as a **process safety net**, not a hope. The `code-reviewer` (and `code-reviewer-weekly`) agents carry a **Cross-platform portability lens (always-on)** that fires on any diff touching `*.sh` / `bin/*` / `hooks/**` and flags every construct in the table above. macOS being P0, a non-portable construct in a boot-path hook is **P1**; elsewhere **P2**. This is the diff-time backstop; the support matrix is the standard it enforces. Routed through the existing review pass (the portability-guard enforcement layer) rather than a new hook surface.
-
 
 ## Marketplace first-run traps on stock macOS
 
@@ -267,10 +294,12 @@ Apply the same WindowsApps exclusion when implementing the `COORDINATOR_PYTHON`/
 **Linux symmetry.** `#!/usr/bin/env python` (no `3`) fails on Ubuntu 22.04+ which ships only `python3`. The polyglot trampoline (`bash-on-windows-gotchas.md §9`) is the unified fix: `command -v python3 || command -v python || command -v py` — picks whichever the platform ships. Hard-coding any single name regresses one of the three platforms.
 
 **Detection on operator's machine** (`/coordinator:setup` Step 3c health probe):
+
 ```powershell
 Get-Item "$env:LOCALAPPDATA\Microsoft\WindowsApps\python3.exe" -Force -ErrorAction SilentlyContinue |
   Select-Object Name, Length, Target, LinkType
 ```
+
 Length 0 + LinkType ReparsePoint + no Target ⇒ orphan stub. `Remove-Item -Force`. If Store Python reinstalls, the stub regenerates; re-clean.
 
 ## Hook registration exec form — bare `python3` is safe there
@@ -346,9 +375,11 @@ A script committed at git mode `100644` (no exec bit) on a Windows author's box 
 Recurring shape: Windows `core.fileMode=false` + a path-restricted `git commit -- <files>` resets the exec bit in the index. A boot-hook script that should fire on every session start silently never runs on the next Mac clone.
 
 **Fix at the source, not on the consumer machine.** Set exec bit explicitly on the canonical script set at write-time:
+
 ```bash
 git update-index --chmod=+x bin/<script>
 ```
+
 Then commit. The OSS install-surface productizes this — `coordinator/bin/install-sentinel-write` carries a check + fix at install time as a safety net. Cross-link: `install-surface-completeness.md § Exec-bit doctrine`.
 
 This is not a runtime-syntax portability issue, but it shares the failure shape with the cluster (cryptic error on Mac, silent on Windows author's box, root cause invisible to the user). Wiki cross-link kept here so the next portability sweep grepping for "macOS silent failure" lands on it.
@@ -379,10 +410,11 @@ or, when `env` is present but `bash` is not:
 # <purpose description>
 # POSIX-sh + bash guard — GitHub Desktop's MinGit lacks bash; skip cleanly there.
 command -v bash >/dev/null 2>&1 || exit 0
-exec bash "$HOME/.claude/plugins/coordinator/bin/<helper>" "$@"
+exec bash "$HOME/.claude/plugins/coordinator-claude/coordinator/bin/<helper>" "$@"
 ```
 
 Two key properties:
+
 1. `#!/bin/sh` — resolves to a POSIX shell that every git distribution ships (MinGit, full Git-for-Windows, macOS `/bin/sh`, Linux `/bin/sh`).
 2. `command -v bash >/dev/null 2>&1 || exit 0` — graceful skip when bash is absent. This is correct for coordinator hooks: a GUI commit from GitHub Desktop carries no coordinator session id and needs no auto-push, so the skip is behaviour-preserving, not a loss.
 
@@ -396,10 +428,10 @@ Two key properties:
 
 The `code-reviewer` portability lens (and the `portability-sweep` tool) check `sed -i`, `date -d`/`%N`, `grep -P`, and `stat -c` — but NOT the GNU multiline-sed label/branch construct `:a;N;$!ba`. This is a distinct BSD-divergence class: BSD/macOS `sed` requires a newline (not `;`) between a label definition and the next command — the `;` separator works only in GNU `sed`.
 
-
 **Rule:** treat `sed ':label;N;$!b...'` (and similarly `sed ':l;N;$!bl'`) as a BSD-portability finding at P2 in non-boot-path scripts, P1 in boot-path hooks.
 
 **Portable replacements for whole-input slurp:**
+
 - `tr '\n' '\x01'` then substitute, then `tr '\x01' '\n'` back — portable on all platforms.
 - `awk '{printf "%s ", $0} END {print ""}` — portable; awk is universally available.
 - `perl -0777 -pe 's/pattern/replacement/gs'` — portable where perl is present (see § Implicit interpreter prerequisites; add `command -v perl` preflight).
@@ -409,7 +441,6 @@ The `code-reviewer` portability lens (and the `portability-sweep` tool) check `s
 ## Non-script surfaces — portability audit scope gap
 
 Cross-platform audits scoped to `*.sh` / `bin/*` / hooks miss whole-OS assumptions baked into non-script surfaces. Scripts themselves are guarded (bash-4 guard + BSD-coreutils discipline); the defect class shifts to runtime command / path / shell unconditionally hardcoded to one OS inside JSON config, install manifests, and skill/command/agent markdown that embeds commands.
-
 
 **Defect taxonomy:** *conditional* OS handling (an `if [[ "$OSTYPE" == "darwin"* ]]` branch, or a `cmd /c … || npx …` fallback chain) is the goal — GOOD. *Unconditional* single-OS assumption is the bug.
 
@@ -442,8 +473,8 @@ widened trigger on an existing one — not something to claim as covered here.
 
 A cross-platform PATH or install guarantee must name the MECHANISM (harness injection vs installer write vs shell-profile sourcing) and be verified per-OS. A bare "guaranteed on PATH" assertion with no mechanism named is almost always a Windows-true claim that silently fails on POSIX.
 
-
 **Rule:** When documenting a PATH, bin-visibility, or install guarantee:
+
 1. Name the mechanism: harness injection / installer `PATH` write / shell-profile sourcing / symlink in a standard location.
 2. State which OS(es) the mechanism applies to.
 3. For any OS where the mechanism does not apply, name the alternate or document that it is unsupported.
@@ -480,6 +511,7 @@ today" without that framing.
 Bulk CRLF→LF worktree stripping kills the Git-for-Windows `autocrlf` nag only when the index is already pure LF. A mixed or CRLF index (LFS-heavy repo, older repo without `.gitattributes`, e.g. Example-sim-repo) shows thousands of files "modified" post-strip because the worktree now differs from the un-normalized index.
 
 **Rule:** before running any fleet-wide CRLF→LF strip:
+
 1. Survey the index: `git ls-files --eol` — watch for `i/mixed` or `i/crlf` in the index column. An `i/lf` result means the index is already normalized and strip-then-stage is safe.
 2. If the index is not pure LF, normalize the index first with `git add --renormalize`, then commit, then strip the worktree.
 3. The durable fix is a committed `.gitattributes` with `* text=auto eol=lf` — this survives a fresh clone under `system autocrlf=true` and makes future strips a no-op. Local `core.autocrlf=false` is belt-and-suspenders only; it does not protect a fresh clone.
@@ -492,8 +524,8 @@ When a guard tolerates a trailing allowlist annotation (e.g. `# verify-no-consol
 - **Python** (`python -c`) does accept `#` as a comment.
 - **Shell-trailing** (comment placed after a closing quote, outside the interpreter string) works for any interpreter.
 
-
 **Rule:** When dispatching an annotation executor over a multi-language tree, the brief MUST specify:
+
 - `node -e` / `node --` contexts: use `//` prefix for the allowlist marker (e.g. `// verify-no-console-flash: allow <reason>`).
 - `python -c` / heredoc contexts: `#` is fine.
 - Comment placed after the closing quote (shell-trailing): works for any interpreter and is the safest placement when the string content is long.
@@ -509,7 +541,6 @@ Two agents independently hit this trap writing a glob like `state/roadmap/*/OVER
 ## Python subprocess invocation — sibling-path fallback mandatory on Windows
 
 A Python CLI that invokes a sibling executable via `subprocess.run(['bare-name', ...])` will fail on Windows even when the sibling is on bash's PATH. Python uses the Windows process PATH (no bash-shim hookup) and raises `FileNotFoundError` for a name that bash can resolve without issue.
-
 
 **Rule:** Any Python CLI that invokes a sibling executable via `subprocess` ships with a sibling-path fallback:
 
@@ -587,7 +618,6 @@ Note the two shorthands are different: `{sid}` (bare) = `{sid: .sid}` (input-key
 
 Piping into a `while read` loop (`producer | while read -r line; do …; done`) runs the loop body in a **subshell** — the loop's own exit code is discarded (the pipeline's exit status is the *last command's*, i.e. the `while`, which is near-always `0`), and any variable assigned inside the loop does not survive past `done`. A violation-reporting or accumulator loop written this way silently reports success even when its body detected and should have propagated a failure.
 
-
 **Fix — process substitution (bash-only, avoids the subshell):**
 
 ```bash
@@ -648,7 +678,6 @@ When mirroring a security flag / safety guard between a `.sh` and `.ps1` leg, re
 
 **Why the init-reset is easy to miss:** in bash a shell variable is forgeable via inherited env unless explicitly reset at startup; when the PS1 mirror bridges the flag through `$env:` (PowerShell function scope cannot share locals), the env var *becomes* the trust surface and the startup clobber (`$env:X='false'`) becomes load-bearing — yet a diff that only compares the waiver logic between legs never shows it. Diff the init-reset, not just the check.
 
-
 ## Sourceable shell helpers must not self-locate via `BASH_SOURCE` alone
 
 A helper script meant to be `source`d must NOT resolve its own directory from `BASH_SOURCE` alone — `${BASH_SOURCE[0]}` is **empty** when the file is sourced under `bash -c`, so the self-location silently resolves to the wrong path (or empty). Use a fallback chain:
@@ -659,7 +688,6 @@ A helper script meant to be `source`d must NOT resolve its own directory from `B
 4. `git rev-parse --show-toplevel`.
 
 **Test by sourcing under `bash -c`** (`bash -c 'source ./helper.sh; …'`), not only by direct execution — direct execution populates `BASH_SOURCE` and hides the defect.
-
 
 ## Windows console-popup — fix at the Python spawn site with creationflags
 
@@ -672,11 +700,12 @@ On Windows, a console-subsystem child (`python.exe` incl. `.venv/Scripts/python.
 **Layer status.** The original doctrine was hooks-first and shipped an execution-layer advisory (Layer 0 / C1). **Layer 0 is retired**: it fired on the harness-owned execution-layer flash (the harness-owned popup class), where the only offered fix — the `pythonw` swap — is unusable when output is wanted, and it mis-pointed the fixable Python-spawns-Python case at a bash wrapper instead of `creationflags`. The remaining coordinator layers reinforce the authoring-time fix:
 
 - **~~Layer 0 — `nudge-windows-console-popup.sh`~~ RETIRED.** Hook, live `check_windows_popup` (`coordinator_core.bash_guards`), and `tests/nudge-windows-console-popup.bats` deleted. The residual ad-hoc `python -c` flash is tolerated as harness-owned (the Bash tool's own `bash.exe` already flashes per call anyway).
-- **Layer 0'** — `write_guards/nudge_windows_subprocess_popup.py` (PreToolUse `Write|Edit|MultiEdit`, deny-with-offer): blocks authoring a console-subprocess spawn that lacks `CREATE_NO_WINDOW`/`creationflags` into `.sh`/`.py`/`.ps1`/`.psm1`. **`-WindowStyle Hidden` is NOT an accepted suppression spelling for `.sh`**: it is create-then-hide, so the window may still flash — `verify_no_console_flash.py`'s own docstring and `windows-process-spawn-and-console.md § 2` both say so independently, and the guard had been offering a remedy that does not work. The `.ps1` leg still accepts it, deliberately and **as advisory only**: `_PS1_SUPPRESSION_RE`'s entire body is that one token, so removing it would leave `_should_deny_ps1` permanently unsatisfiable — a wall with no compliant spelling rather than an offer. The remaining accepted `.sh` spellings are `creationflags=`, `CREATE_NO_WINDOW`, `python-quiet.sh`, `pythonw`. **This is the load-bearing layer and stays** — engine-tier only: the DoE-side `hooks/scripts/nudge-windows-subprocess-popup.sh` shell equivalent was dead/unwired (never referenced in `hooks.json`) and was removed along with its dedicated tests (`tests/nudge-windows-subprocess-popup.bats`, `hooks/scripts/tests/test-nudge-windows-subprocess-popup.sh`). **Deny on all platforms** (authored code ships to Windows regardless of the authoring host), with a **throwaway-path exemption** — `*/tasks/*` and `*/state/scratch/*` are session-scratch that never ships, so the deny does not fire there (Option A). Deny is justified because the **portable** suppression one-liner `creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)` is universally available at authoring time. **Caveat:** the offer must show the `getattr` form, NOT a bare `0x08000000` / `subprocess.CREATE_NO_WINDOW` — the integer/attribute is Windows-only and raises `ValueError` off-Windows, so complying with a bare-form offer breaks the author's own host. See § Platform-conditional guard taxonomy.
+- **Layer 0'** — `write_guards/nudge_windows_subprocess_popup.py` (PreToolUse `Write|Edit|MultiEdit`, deny-with-offer): blocks authoring a console-subprocess spawn that lacks `CREATE_NO_WINDOW`/`creationflags` into `.sh`/`.py`/`.ps1`/`.psm1`. **`-WindowStyle Hidden` is NOT an accepted suppression spelling for `.sh`**: it is create-then-hide, so the window may still flash — `verify_no_console_flash.py`'s own docstring and `windows-process-spawn-and-console.md § 2` both say so independently, and the guard had been offering a remedy that does not work. The `.ps1` leg still accepts it, deliberately and **as advisory only**: `_PS1_SUPPRESSION_RE`'s entire body is that one token, so removing it would leave `_should_deny_ps1` permanently unsatisfiable — a wall with no compliant spelling rather than an offer. The remaining accepted `.sh` spellings are `creationflags=`, `CREATE_NO_WINDOW`, `python-quiet.sh`, `pythonw`. **This is the load-bearing layer and stays** — engine-tier only: the plugin-side `hooks/scripts/nudge-windows-subprocess-popup.sh` shell equivalent was dead/unwired (never referenced in `hooks.json`) and was removed along with its dedicated tests (`tests/nudge-windows-subprocess-popup.bats`, `hooks/scripts/tests/test-nudge-windows-subprocess-popup.sh`). **Deny on all platforms** (authored code ships to Windows regardless of the authoring host), with a **throwaway-path exemption** — `*/tasks/*` and `*/state/scratch/*` are session-scratch that never ships, so the deny does not fire there (Option A). Deny is justified because the **portable** suppression one-liner `creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)` is universally available at authoring time. **Caveat:** the offer must show the `getattr` form, NOT a bare `0x08000000` / `subprocess.CREATE_NO_WINDOW` — the integer/attribute is Windows-only and raises `ValueError` off-Windows, so complying with a bare-form offer breaks the author's own host. See § Platform-conditional guard taxonomy.
 - **Layer 1** — per-repo tripwire `tests/templates/test_no_bare_console_subprocess.py`, onboarded via `/coordinator:repo-setup`.
 - **Reach** — `agents/executor.md` + `agents/enricher.md` negative-spec, so doctrine arrives at the executor before it writes the call.
 
 **Two canonical suppression markers (all layers), honored identically across C1/C2/C4:**
+
 - `# popup-intentional-last-resort` — the console popup occurs and is accepted (pythonw fallback or genuine console need).
 - `# popup-safe-env-suppressed` — the popup is suppressed at this site by env-var means and is therefore safe.
 
@@ -718,7 +747,6 @@ These two functions are independent, pre-date the shell helper, and are NOT refa
 
 **Discriminator — filename vs. content.** Only timestamps and slugs that land in a **filename or directory name** are the hazard. ISO-8601-with-colons inside file **content** or YAML frontmatter values (`created:`, `generated_at:`, handoff `dispatched_at:`) is correct RFC-compliant ISO-8601 and MUST be left alone. Converting colons in frontmatter values to hyphens is a bug, not a fix.
 
-
 ## Platform-conditional guard taxonomy — three classes, three stances
 
 A guard that protects against a platform-specific failure mode must pick its stance from *which kind* of risk it guards. Three classes, each with one correct stance. Misclassifying produces either fight-the-hook friction (a guard nagging where the risk cannot occur) or a silent protection hole (a guard going quiet where the risk is live).
@@ -730,6 +758,7 @@ A guard that protects against a platform-specific failure mode must pick its sta
    - (b) **exempt throwaway, non-shipping paths** (`*/tasks/*`, `*/state/scratch/*`) — session-scratch never reaches a Windows operator, so the authoring rationale does not apply and a deny there is pure friction.
    - (c) treat the **commit/CI tripwire as *a* backstop, not *the* backstop** — it is platform-neutral by construction, but in practice it is opt-in (`/repo-setup` *offers* it). The tripwire template (`coordinator/tests/templates/test_no_bare_python_spawn.py`) now carries a `.py` leg — an AST pass over the vendored `coordinator/lib/spawn_detect.py` detector, joined against a second in-process parse to read each call site's suppression keywords — plus a `.ps1` leg, regex-based (PowerShell has no stdlib AST available to us), flagging a bare `Start-Process` missing `-WindowStyle Hidden` and bare `powershell.exe`/`pwsh`/`pwsh.exe` invocations. The live instance (`coordinator/tests/guards/test_no_bare_python_spawn.py`) is being widened scope-by-scope in the same execution that wrote this passage; its intended full scope is fleet-wide, non-optional coverage, not a single hard-coded `SCOPE_SUBDIR`. So do NOT downgrade an authoring guard to advisory-on-non-target on the assumption the tripwire will catch the gap — for `.py`/`.ps1` it will not unless the tripwire is first extended and made non-optional.
    - (d) **the remediation *shape* scales with call-site count — name both forms.** The portable inline offer `creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)` is canonical for a *single* spawn or a one-line hook paste: introducing a helper module there is heavier than the bug it fixes, so the deny-with-offer keeps the `getattr`-0 form. But once the same suppression repeats across a tree (rule of thumb: more than a handful of sites — example-game-repo carries ~40), prefer an **omit-the-key helper** over pasting `getattr`-0 N times:
+
      ```python
      # scripts/lib/subprocess_flags.py  (vendor + SHA-parity-test across copies)
      def no_console_creationflags() -> dict:
@@ -737,6 +766,7 @@ A guard that protects against a platform-specific failure mode must pick its sta
          return {"creationflags": subprocess.CREATE_NO_WINDOW} if sys.platform == "win32" else {}
      subprocess.run([...], **no_console_creationflags())
      ```
+
      Both forms are behaviorally identical on Windows. Off-Windows the helper spreads nothing — every call site reads platform-naive (no spurious `creationflags=0` kwarg) and there is no reliance on POSIX `Popen` accepting `creationflags` at all (defensive, not merely conventional). When the helper is vendored into multiple packages, lock the copies with a SHA-parity test (example-game-repo: `tests/install/test_vendored_primitives_parity.py`) so they cannot drift. `getattr`-0 pasted at 40 sites is the outcome to steer away from. (Origin: example-game-repo-em consult, after their own tree swept nil on the parent taxonomy ask.)
 
      **The helper is one leg of three — offer the triple, not the function.** A sibling that vendors only `no_console_creationflags()` has bought code nobody is obliged to call. The correct path becomes the *default* only when the helper ships with (i) the authoring guard that names it (`write_guards/nudge_windows_subprocess_popup.py`) and (ii) a hot-path regrowth gate (`coordinator_core/tests/test_no_bare_hot_path_spawn.py`). The three legs do **not** share a vendoring axis, and grading them together as "harder to vendor" hides the boundary that matters: the helper vendors as a file with SHA-parity across copies; the **gate** likewise has a vendorable vehicle (§ Layer 1 template); the **guard** does not vendor at all — it is a `~/.claude` PreToolUse hook, i.e. an *install-coordinator-claude* plane boundary. A fleet repo with no `coordinator_core` dependency therefore has no Python-spawn coverage from the guard leg, and none from the Layer-1 tripwire either while that template stays `.sh`-only (see (c)). (Origin: . Adopted here as taxonomy, not asserted as pre-existing canon.)
@@ -796,3 +826,8 @@ some_helper() {
 ```
 
 Two independent defenses, both required: `${tmpfile:-}` so the trap body survives even if it fires somewhere `tmpfile` is unset, and `trap - RETURN` inside the trap body itself so it self-clears on first fire instead of persisting into the caller. Do not rely on `functrace` to scope the trap — it is a global shell option a caller may not have set, and depending on it silently breaks the moment this function is sourced into a script that doesn't.
+
+## Field rules
+
+- **Porting a bash hook to naked Python on Windows — review checklist:** `tempfile.gettempdir()` not `/tmp`; never `os.kill(pid, 0)` as a liveness probe (it terminates on Windows — use `OpenProcess`); write stderr bytes via `sys.stderr.buffer` to avoid CRLF up-conversion; `CREATE_NO_WINDOW` on every subprocess; no internal budget above the hook's own timeout.
+- **The `.sh` extension is the Windows cost, not the shebang.** Kill python-bodied `.sh` files too (extensionless + `.cmd`); a sourced fragment is zero-fork, so replacing it with a spawn adds cost.

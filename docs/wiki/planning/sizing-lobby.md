@@ -165,7 +165,14 @@ well-trodden ground, resolves `shape` regardless of what this table alone would 
 <!-- spec-backlink: run 2026-08-06-14h38, nugget c7-022 -->
 The engine sizes **symmetrically**: it collapses an over-read t-shirt down and raises an
 under-read one, in either direction, rather than only ever correcting downward. The size is then
-delivered to the PM **first**, against visible scope. At a resized t-shirt of M and above the
+delivered to the PM **first**, against visible scope. At XS through L on a plan, dispatch or
+spec-dispatch route, in pm and ceo modes, no PM size approval is needed: the engine skips the size and exit-criterion asks, stamps
+`execution_authorized_by: engine-size-rule`, drops `post_size_prompt_pending`, and the route
+proceeds to execution; the size stays revisable through the `plan⇄sizing` return edge, and a resize
+into XL halts the chain and surfaces it. Hands-on keeps its per-turn asks, the PM's own choice. At
+XL and above, on a shape route at any size, and on a pm-decision route, the PM stays in the chat
+unless the PM says warp-execute; appetite is never inferred, because only the PM knows the budget.
+Where the PM stays, at a resized t-shirt of M and above the
 engine emits the positive `post_size_prompt_pending` detent, and the skill asks one open question
 and stops — *"looks like an XL, shall we go with that or want to split it, cut it, what's up?"* At
 XS and S nothing is asked and the EM proceeds.
@@ -211,6 +218,7 @@ schema, the scaffold tooling, and every consumer that already knows how to read 
 working unmodified.
 
 **The S lane OWES**, in full:
+
 - Branch B substrate verification, in full. This is precisely what makes skipping the plan review
   defensible — the lane is lighter because the substrate is verified, not because the bar is
   lower.
@@ -223,6 +231,7 @@ working unmodified.
   but is untracked nearly escapes the audit trail.
 
 **The S lane SKIPS:**
+
 - Branch C's four-lens body composition. An S-lane body is four parts instead: problem sentence,
   file scope, acceptance criteria, test surface.
 - The Opus plan review at Exit. The honest trade is the one `plan` already articulates for its own
@@ -422,10 +431,9 @@ reconciling this boundary belongs to the quick-wrap plan "if closure ever moves 
 discharged there.
 
 **2. Dispatch-routed (`dispatch` — 18/105, 17%).** No plan is ever minted for this class, so it
-never joins the cascade. Both halves are owned by quick-wrap's Step 2, same as class 1, but as two
-separate bullets rather than one combined step: the status write is scoped to the sizing-object
-that routed this session, and the `git mv` is the route-agnostic archive-on-sight bullet that
-fires for any terminal record the step's scan finds, this session's own or not.
+never joins the cascade. The quick-wrap close stamps it `shipped` (see
+[[a-sizing-with-no-ceremony-still-has-a-terminal]]); the `git mv` is quick-wrap's route-agnostic
+archive-on-sight bullet.
 
 **3. Waypoint routes (`shape`, `pm-decision` — 21/105, 20%).** Neither mints a plan directly, but
 both resolve onward into a room that does: `shape` routes to a re-sized ask that then enters
@@ -445,6 +453,12 @@ to join on, and no engine seam reaches those artifact kinds even once they do. T
 a held schema bump; cascade target-kind coverage for the kinds is spinoff scope, tracked as a
 standing handoff in `state/handoffs/`. Named here as unclosed rather than omitted — a route absent
 from a taxonomy reads as covered.
+
+**A register-bearing sizing is the exception to all of the above.** A sizing carrying
+`requirement_register` is shipped only by the register rollup, whatever its route. The
+plan-implemented cascade (class 1), the quick-wrap stamp (class 2) and the goal route (class 4)
+never write it, and the schema refuses `shipped` while any row is open, partial, unclaimed or
+met-but-unwired. See [[requirement-register]].
 
 **Report, never flip.** Anything sweep-shaped in this taxonomy must REPORT, not FLIP. The
 event model and the control-plane engine's `cascade_backstop_sweep.py` module — whose own stated
@@ -757,9 +771,42 @@ change that actually moved the needle; the turn-one advisory above is the mechan
 the sessions those descriptions can't — the ones that open on a bare ask with no skill invoked
 yet.
 
+## Who sizes — a fresh scout, never the EM
+
+`coordinator:sizing-scout` forms the t-shirt read; the EM triggers it, cross-examines it, and runs
+`sizing-assemble --write`. Skill Step 0 carries the dispatch; this section carries the reasons.
+
+- **The EM's context is the bias.** A session that has read the substrate for an hour counts every
+  file it has seen as complexity. A fresh scout with a bounded brief sizes what must be understood,
+  not what the EM happens to hold.
+- **Depth over breadth.** Touchpoints (files, surfaces, row classes, a notified sibling) are
+  BREADTH and never raise a notch alone. Unknown mechanisms, things unproven from the tree, are
+  DEPTH, and a size is made of them. Prior art lowers a size. A cross-team dependency is a gate,
+  not a size, unless the shared contract is itself still being negotiated.
+- **The brief carries no size.** PM's words verbatim, the `interaction_mode`, repo-relative
+  substrate pointers, and the capabilities this session holds (the scout cannot see a credential,
+  a mounted store, or an operator at a keyboard; Step 1a). No t-shirt, lean, guess, or route: a
+  scout handed a size anchors on it.
+- **The EM keeps `--write`.** `pm_verbatims` is read from the EM session's own PM-turn log; a
+  subagent's write may silently omit it. The scout returns the complete `sizing-assemble` flag set
+  (never `--write`, `--premise-evidence`, `--interaction-mode`, `--express-lane`, or an unquoted
+  `--appetite`), and the EM re-runs it.
+- **The confident-XS predicate is mechanical.** The scout is skipped only when every condition
+  holds: exactly one existing file to change, nameable without a probe; no new file, abstraction,
+  or agent; no path outside this repo; no held capability beyond the checkout; and the change has
+  shipped before in this repo (`--precedent shipped-before`). Any doubt fails the predicate. The
+  EM deciding for itself who sizes is the bias restated, so the gate is a checklist, not a read.
+  S does not take the express lane.
+- **Cross-examination runs both directions.** The EM spot-checks one substantive claim of the
+  report against the tree, and a revision, up or down, names the mechanism that moved it. The
+  scout guards against the EM's breadth inflation; the EM guards against a scout that under-reads
+  or over-reads unfamiliar substrate. A revision with no named mechanism is the bias returning.
+- **Sonnet with an EM spot-check is the backstop.** The scout runs at Sonnet, medium effort; the
+  mandatory review window and the `plan⇄sizing` return edge catch a residual miss.
+
 ## The t-shirt gut-read — calibration table
 
-The Step 1 read is the EM's own honest internal read of ENGINEERING COMPLEXITY, stated as a test —
+The Step 1 read is the scout's honest internal read of ENGINEERING COMPLEXITY, stated as a test —
 never appetite, never human effort or calendar time:
 
 | notch | honest internal read |
@@ -862,6 +909,12 @@ this pair exists to catch. Motivating incident: an EM sized "commit it and push 
 three-clause elaboration naming a per-item publish review and a structural-gap fix the PM never
 asked for; the elaboration was where the scope grew, invisibly, until the flag existed to mark it.
 
+**`pm_verbatims` — the lobby's verbatim record.** Beside `intent`/`intent_source`, the sizing carries
+`pm_verbatims`: the PM's preceding prompts, embedded by `sizing-assemble --write` with no flag,
+newest-first and length-budgeted. The EM curates by cut and paste (trim, or split across sibling
+sizings) and never rewrites their text. `intent` remains the EM's routing restatement. The plan
+brief and `/workstream-complete` read them via the plan's own `sizing_object`.
+
 **`--precedent shipped-before|novel`.** Has this fleet run this operation before, with a runbook
 that landed? `shipped-before` is the single strongest available collapse signal and fires the
 advisory `precedent_shipped_before` — advisory, not an auto-collapse, because a repeat can
@@ -929,3 +982,89 @@ does not reflect, and only a manual audit currently catches it.
   paragraph and before the `<HARD-GATE>`.
 - `coordinator/skills/goal-setting/SKILL.md` § Step 1 — the goal-setting room's conform intake,
   consuming the seam contract's crossing fields.
+
+## Skill rationale (extracted from `coordinator/skills/sizing/SKILL.md`)
+
+### Dispatch authorization (skill preamble)
+
+Invoking the skill IS the request: the dispatches it names are constitutive steps, so a harness
+line permitting dispatch "unless the user requested it" is satisfied here, not overridden. Re-asking
+spends the context the dispatch exists to protect. The rule attaches to skill entry and dissolves no
+PM-authored gate: keyword-gated skills gate entry, and per-session cross-repo-commit assent,
+ask-before-external-action and every gate a skill names for itself still bind.
+
+### Step 1a — what the performer must HOLD
+
+A credential, an authenticated session, a mounted store, a guard-fenced path, an operator at a
+keyboard: an unnamed held capability looks like small work until the dispatch returns INCOMPLETE
+having touched nothing, and re-scouting reproduces the same empty. Measured: one read-only query
+sized XS, and no dispatched executor holds a hosted-tier session. Name the capability in the sizing
+so a blitz can SKIP rather than discover. Name the capability, never the route you tried: a baton
+gated on "an authenticated hosted-tier session" was answered locally in ten minutes, because the
+question was over served BYTES and only the runtime confirm needed the session. Ask once, at
+gate-writing time: what is the question, and what else would answer it?
+
+### Step 1b — premise-provenance
+
+There is no `--evidence` flag; the written justification goes in the sizing-object's own
+`premise.evidence` at Step 4. The engine's `next_move` carries the discharge text.
+
+### Step 4 — `status` cascade
+
+An XS routes to dispatch and has no plan: the quick-wrap close stamps it `shipped` (see
+[[a-sizing-with-no-ceremony-still-has-a-terminal]] for the hand-stamp cases). S and above route into a plan, where the terminal cascade owns the stamp: never
+pre-empt it, never hand-stamp instead of triggering it. The cascade fires from the terminal stamp the
+close-out ceremony produces (`d-stamp-plan-implemented` / `close_out_and_stamp`), from the stamping
+op, not from the landing; a plan whose `status: implemented` was hand-edited and committed directly
+never fires it. Read `status` back: it is the field the cascade writes. A sizing still `routed`
+under a plan stamped through the op is a finding. Under a hand-landed plan it is expected, and the
+repair is to run the close-out (`/workstream-complete`'s `d-stamp-plan-implemented`), not to
+hand-write the sizing row. Hand-write ONLY on a status that did not advance under a plan stamped
+through the op, citing the landing commits and this rule inline; never on one that did (races a
+live writer). Do not read `acted`: it belongs to a different op and is empty either way.
+
+### Step 4b — flight recorder
+
+The chain per route: `dispatch` -> the work -> `quick-wrap`. `spec-dispatch` -> light plan ->
+`/execute-plan` (claims the plan) -> scoped `code-reviewer` applies its own findings -> `quick-wrap`.
+`plan` -> plan -> plan review -> `execute-plan` -> `/workstream-complete`. `shape`/`roadmap`/
+`pm-decision`: the named room owns its chain; record the entry task and stop. Direct executor
+dispatch on a `spec-dispatch` plan skips the plan claim only `/execute-plan` makes, so the plan is
+never stamped done. Where the harness tool is absent, `coordinator-tasks-mirror` carries it. The
+point is that the whole chain is visible from the lobby, and a stage nobody reached is a pending row.
+Downstream steps ADD to the list; a second session-goal task means one of them re-created a recorder
+already open.
+
+### Step 5b / 5c
+
+`pm-decision` bundles the M+ prompt and the XL exit question into one ask, mirroring the engine's
+combined-`next_move` precedence. `xl_exit` tests: `shape` (JTBD not stated, or the EM cannot
+falsifiably restate the problem in the PM's words), `roadmap` (spans >=2 named workstreams, or
+carries/needs an initiative FK; `split` is retired into this exit), `accept_multi_session` (one
+coherent job, clear JTBD, one workstream, simply large, and the PM explicitly assented; writing it IS
+that record). Turn-1 touchpoints by `interaction_mode`: hands-on accepts the size and separately
+execution later; pm accepts size and exit criterion in one ask; ceo accepts the exit criterion only.
+In pm and ceo modes the ask says plainly that accepting authorizes execution without a further ask;
+that sentence makes the accepted sizing the execution authority the turn-3 stamp cites.
+
+## Research asks — the `research` block is the EM's appetite for results
+
+When the ask is research, the sizing-object carries the optional top-level `research` block
+(`coordinator/schemas/sizing-object.schema.json`). `/research` reads it to pick a run; the EM
+writes it, the PM is never asked. The tier map, close per tier and preflight live in
+`coordinator/docs/wiki/skills-corpus/deep-research-pipelines.md`; this section does not restate them.
+
+- **`value_class` (required): `scouts | corpus | deep`**, read from the PM's phrasing. "Searches so I
+  don't spend my own context" is `scouts`; "knowledge for a roadmap" is `corpus`; "unblock us",
+  including over our own repos, is `deep`.
+- **`research.appetite`: `small | medium | large`** shifts the tier one notch: small one notch down,
+  medium as classed, large one notch up. It is the EM's appetite for results, not the PM's budget. The
+  top-level `appetite` (Shape-Up budget, § `appetite` above) is never read for tiering; only
+  `research.appetite` and `research.value_class` are. Do not copy one into the other.
+- **`sources`** (`web | repo | structured | notebooklm`, unique) and **`targets`**
+  (`{source, ref}`: repo path or `machine-local` key, structured spec path, NotebookLM URL) scope a
+  run above scouts. A repo, structured or NotebookLM run cannot be scoped without a `ref`.
+  `depth` (`standard | deeper | deepest`) deepens repo and web passes.
+- **Express lane: a bare `--research --ask "<q>"` is `scouts` with no sizing object.** It follows
+  the same no-sizing-object-left-behind rule as the `--express-lane` bypass (Step 4). Anything above
+  scouts is sized first.

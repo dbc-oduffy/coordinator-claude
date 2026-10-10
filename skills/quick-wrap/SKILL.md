@@ -126,7 +126,7 @@ caller-widened.
 - **The chain-root baton this session claimed and finished** (the only kind test 3 admits): stamp
   `deployment_state: shipped` + `shipped_in: <this session's commit>`; `status` stays `claimed`
   (the schema enum admits only `open`/`claimed`). Both keys, or the baton is stranded in `state/handoffs/` — `sweep-terminal-handoffs` walks past an unstamped record and nothing else catches it. The stamp makes it archivable; the drain below files it.
-- **A `dispatch`-routed sizing that routed this session:** the close stamps it `shipped` when
+- **A `dispatch`-routed sizing that routed this session:** the close stamps it `shipped` (never one with `requirement_register`; its rollup ships it) when
   this session committed the sizing file and non-bookkeeping work; stamp by hand on a
   `j-dispatch-sizing-ship-failed` judgment point or when the sizing file was not in this session's commits. A second XS
   dispatched this session and left unfinished: flip it to `status: declined` before quick-wrap —

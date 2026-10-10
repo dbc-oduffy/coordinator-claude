@@ -111,8 +111,8 @@ Caveat: cross-machine sessions undercounted 30-50%; passive-doctrine skills may 
 ---
 
 ## Phase A Cleanup Actions
-
 PM-authorized cleanup:
+
 - Disabled 5 unused official-marketplace plugins globally
 - Added skillOverrides to hide 4 builtins, name-only 5 builtins + 3 passive-doctrine skills
   - The four hidden builtins (`review`, `security-review`, `simplify`, `init`) plus `deep-research` (gated on plugin presence) are **install-seeded** — a sibling repo's `coordinator/bin/install-health/seed-skill-overrides.sh` (orchestrator drop-in) → its `coordinator/bin/seed-skill-overrides.py` merges them into `~/.claude/settings.json` idempotently on every `coordinator:install`, superseding the hand-curated Phase-A state. See `docs/wiki/claude-md-surfaces/claude-code-platform-gotchas.md` § Bundled-skill collisions.
@@ -147,6 +147,7 @@ The general lesson, which cost a full budget campaign to learn: a validator poin
 ## Per-Project Plugin Gating
 
 Skills are disabled globally and re-enabled per-project via settings.json `enabledPlugins` array:
+
 - game-dev, web-dev, data-science, example-game-repo-control, example-game-repo-docs: disabled globally on non-UE-project machines
 - coordinator: always enabled globally
 - Per-project override: add to project settings.json `enabledPlugins`

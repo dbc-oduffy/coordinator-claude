@@ -22,7 +22,7 @@ The EM will pick up this guide and run the four movements below *with* you — o
 
 The headline ideas, in the order they'll matter:
 
-- **Starfleet Officer Doctrine.** You're the PM (product authority — what to build, what to ship, what to cut). The EM is the EM (implementation authority — how to build it, when to dispatch, how to review). The EM acts on engineering decisions without hand-holding, *and* pushes back when it disagrees with you. More Sisko and Dax than Picard and Riker.
+- **Starfleet Officer Doctrine** (the doctrine section; its default posture is the *First Officer partnership* you choose among at install). You're the PM (product authority — what to build, what to ship, what to cut). The EM is the EM (implementation authority — how to build it, when to dispatch, how to review). The EM acts on engineering decisions without hand-holding, *and* pushes back when it disagrees with you. More Sisko and Dax than Picard and Riker.
 - **The pipeline.** Non-trivial work flows through *plan → enrich → review → execute → review* rather than straight to code. It's cheaper to catch a wrong assumption in a plan than three sessions after shipping. `/coordinator:plan` is the front door.
 - **Reviewer personas.** You have staff-engineer reviewers available at the cost of minutes and tokens — the Staff Engineer (generalist code/architecture), plus domain specialists (the Game Dev Reviewer for game-dev, the Data Science Reviewer for data/ML, the Front-End Reviewer and the UX Reviewer for web/UX) that activate based on your project type. Use them liberally; a second opinion isn't an admission of doubt.
 - **The cadence.** `/workstream-start` and `/workstream-complete` bracket a working session. `/workday-complete` and `/workweek-complete` are daily and weekly ceremonies. They keep context from leaking away unrecorded — the real threat, more than imperfect code.
@@ -42,9 +42,9 @@ And edit it **together**, not solo. Hand-editing `CLAUDE.md` alone is fine, but 
 
 Once the contract reflects how you actually work, the rest is detail.
 
-**Edit your live `~/.claude`, not the `coordinator-claude` repo you installed from.** Claude Code loads doctrine, plugins, and settings from `~/.claude` — that directory *is* your install, and editing it changes how every session behaves. The source repo is a distribution artifact: edits there don't touch your sessions, and your next install overwrites them.
+**Edit your live `~/.claude`, not the `coordinator-claude` repo you installed from.** Claude Code loads doctrine and settings from `~/.claude`, and editing it changes how every session behaves. The plugin itself lives in the plugin cache, which an update overwrites; only `CLAUDE.md`, `.claude/em-context.md` and `settings.json` are yours to edit. The source repo is a distribution artifact: edits there don't touch your sessions.
 
-**A sibling rule for refresh-managed plugins.** Coordinator is *source-is-live* — `~/.claude` *is* the install, so "edit live" and "edit your copy" are the same act. Some plugins (e.g. `project-rag`) are different: their live runtime is a **managed checkout** that a background refresh periodically resets with `git checkout <track_ref>`. For those, the rule inverts to **"configure through the provided verbs; never hand-edit the wiring or the source."** Edits to a refresh-managed checkout do nothing useful (config lives in the registry, env, and per-project wiring — not the source tree) *and* get silently reverted on the next refresh. Reach configuration through each plugin's verbs (`machine-local set …`, the plugin's `setup` / `wire` commands), not by editing files in the checkout. Same mental model either way: you're configuring an infra tool, not maintaining a fork, and drift between a live install and its source is worth auditing periodically for either kind of plugin.
+**A sibling rule for refresh-managed plugins.** Coordinator installed through the `claude plugin` CLI is overwritten on update, so tailoring lives in the user-editable files above. Some plugins (e.g. `project-rag`) are different: their live runtime is a **managed checkout** that a background refresh periodically resets with `git checkout <track_ref>`. For those, the rule inverts to **"configure through the provided verbs; never hand-edit the wiring or the source."** Edits to a refresh-managed checkout do nothing useful (config lives in the registry, env, and per-project wiring — not the source tree) *and* get silently reverted on the next refresh. Reach configuration through each plugin's verbs (`machine-local set …`, the plugin's `setup` / `wire` commands), not by editing files in the checkout. Same mental model either way: you're configuring an infra tool, not maintaining a fork, and drift between a live install and its source is worth auditing periodically for either kind of plugin.
 
 Things worth tweaking on day one (the EM should *offer* the one or two most relevant to your Movement 1 conversation, not dump the whole menu):
 
@@ -52,14 +52,14 @@ Things worth tweaking on day one (the EM should *offer* the one or two most rele
 - **`coordinator.local.md` project type.** Sets which domain specialists route in this repo (`general`, `game-dev`, `web-dev`, `data-science`).
 - **How you want to work — the relationship is yours to tune.** The collaboration style (EM acts on engineering calls and keeps you briefed; you own product direction) is a starting point, not a fixed contract. Tuning it is the intended, supported path — and the EM can work through this with you right now, as part of the tour. Two tiers, drawn far apart:
 
-  - **Tier 1 — supported and reversible (start here):** you didn't start from a blank page. During install, the installer already asked you to choose one of three named posture anchors — **precision** (you're in the planning and the detail, low tolerance for doubling back), **default** (the technical-PM starting point: EM acts on engineering decisions, surfaces tradeoffs, pushes back when it disagrees), or **substrate-free** (briefed at milestones — "you own the code; just surface me when it's done") — three points on one axis: how closely you're consulted, never how technical you are. The anchors select engagement *distance*, not technical altitude. That choice persists per-machine, in `~/.claude/coordinator-identity.yaml`; the rendered overlay itself lands in *this repo's* `.claude/em-context.md`, delivered only to your main session — never the global `~/.claude/CLAUDE.md`, which every dispatched subagent also reads and has no business carrying prose about how the two of you work together (a subagent has no operator to have a posture with). Run the installer in another repo later and it renders that same persisted choice there, at that repo's own setup time — the anchor travels with you; the rendered overlay is per-repo. The installer seeds a marker-delimited managed block (`<!-- coordinator:posture:start -->` … `:end -->`) containing a `## Posture` heading as content, inside `.claude/em-context.md`. That seed is a starting point, not the end of the conversation: edit it, refine it, co-author it with the EM right now — hand-edits go inside the markers, and re-rendering swaps the block in place rather than duplicating it. (If a pre-existing bare `## Posture`/`## Working Style` heading is already there from an earlier hand-edit, the installer detects that as a collision to resolve, not something it silently duplicates.) Want less ceremony? More transparency into reasoning? A different anchor entirely, or a hand-tuned blend? Write it into `.claude/em-context.md`. It is git-tracked; any change is one revert away. This is first-class, encouraged, COMPOSE-not-replace behaviour — the installer seeds it, and this tour is how you and the EM co-evolve it from there, together, over time.
+  - **Tier 1 — supported and reversible (start here):** you didn't start from a blank page. During install, the installer already asked you to choose one of three named posture anchors — **precision** (you're in the planning and the detail, low tolerance for doubling back), **default** (the technical-PM starting point: EM acts on engineering decisions, surfaces tradeoffs, pushes back when it disagrees), or **substrate-free** (briefed at milestones — "you own the code; just surface me when it's done") — three points on one axis: how closely you're consulted, never how technical you are. The anchors select engagement *distance*, not technical altitude. That choice persists per-machine, in `~/.claude/coordinator-identity.yaml`; the rendered overlay itself lands in *this repo's* `.claude/em-context.md`, delivered only to your main session — never the global `~/.claude/CLAUDE.md`, which every dispatched subagent also reads and has no business carrying prose about how the two of you work together (a subagent has no operator to have a posture with). Run the installer in another repo later and it renders that same persisted choice there, at that repo's own setup time — the anchor travels with you; the rendered overlay is per-repo. The installer seeds a marker-delimited managed block (`<!-- coordinator:posture:start -->` … `:end -->`) containing a `## Posture` heading as content, inside `.claude/em-context.md`. That seed is a starting point, not the end of the conversation: edit it, refine it, co-author it with the EM right now — hand-edits go inside the markers, and re-rendering swaps the block in place rather than duplicating it. (If a pre-existing bare `## Posture`/`## Working Style` heading is already there from an earlier hand-edit, the installer detects that as a collision to resolve, not something it silently duplicates.) Want less ceremony? More transparency into reasoning? A different anchor entirely, or a hand-tuned blend? Write it into `.claude/em-context.md`, which is per-operator and untracked (gitignored): back it up yourself, or keep durable working rules in the repo's tracked `CLAUDE.md`. A machine-level `posture_text` in `~/.claude/coordinator-identity.yaml` is composed into every repo's overlay render, so a hand-tuned blend written there survives re-renders. This is first-class, encouraged, COMPOSE-not-replace behaviour — the installer seeds it, and this tour is how you and the EM co-evolve it from there, together, over time.
 
   - **Tier 2 — deep structural surgery (cliff drawn far out):** Only if you restructure the system's own machinery — agent prompts, hook wiring, skill files — does anything here become unsupported. Past that line, coordinator updates won't preserve your changes, and you are effectively maintaining your own fork. This is a deliberate choice for teams building a truly custom install, not an everyday move. Keep "unsupported" and "fork" for this tier only — posture edits via `.claude/em-context.md`, including choosing or hand-refining one of the three seeded anchors, never land here. This is the same boundary this doctrine draws elsewhere: prose/posture is yours to tune, machinery is not.
 
   If a different working posture fits you better, this two-tier path is what "that's part of the tour too" points at.
 
 - **Slim what you don't want.** Coordinator ships opinionated. If a ceremony or a consult chain doesn't fit you, cut it. The methodology of *how to evolve safely* is itself documented — see `ceremony-calibration.md` (when to add vs strip ceremony).
-- **`settings.json`.** Hooks, permissions, env vars (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` unlocks staff sessions and research pipelines).
+- **`settings.json`.** Hooks, permissions, env vars (`CLAUDE_CODE_ENABLE_TODO_TOOLS=1` makes the Task* tools available).
 
 The coordinator is yours after install. Make it serve your actual work, not the other way around.
 
@@ -69,11 +69,11 @@ The coordinator is yours after install. Make it serve your actual work, not the 
 
 ## Movement 3 — Take it for a spin: a real test drive
 
-Reading about the loop and *feeling* it are different things. Pick something small and real — not a toy — and run it through the actual machinery so the difference between "assign a ticket" and "brief a partner" lands viscerally.
+Reading about the loop and *feeling* it are different things. Start a fresh Claude Code session in a throwaway directory first: the install session is rooted in the install clone, which is never a working repo. Pick something small and real, or a scratch project, and run it through the actual machinery so the difference between "assign a ticket" and "brief a partner" lands viscerally.
 
 Good first spins, easiest to most:
 
-1. **`/workstream-start`**, then ask the EM to orient you in one of your real repos — let it load context and tell you what it sees.
+1. **`/workstream-start`**, then ask the EM to orient you in that directory — let it load context and tell you what it sees.
 2. **A tiny plan.** Name a small change you actually want and say "let's plan it." Watch `/coordinator:plan` verify substrate against disk, run its pre-flights, and route the plan through a reviewer before any code is written.
 3. **A review dispatch.** After (or instead), point a reviewer at a recent diff or the plan — `/review` for plans, `/review-code` for diffs — and read what comes back.
 4. **`/workstream-complete`** to close the loop: capture a lesson, update docs, leave the trail tidy.
@@ -84,8 +84,9 @@ Good first spins, easiest to most:
 
 ## Movement 4 — Point it at a project
 
-The tour ends by putting coordinator on real work. Every operator leaves with one repo onboarded,
-not a tailored install and nothing to use it on.
+The tour ends by putting coordinator on real work, opt-in and after the test drive. Start a fresh
+Claude Code session in the chosen repo (the install session is rooted in the clone); every operator who
+opts in leaves with one repo onboarded.
 
 Ask which they have:
 
@@ -99,7 +100,7 @@ Ask which they have:
 whole question. If Movement 3's test drive already ran in one of their repos, that repo is the
 obvious answer; confirm it and run `repo-setup` there rather than asking again. If they have
 nothing in mind, `new-project` on a small real idea beats onboarding a repo they don't intend to
-touch this week. Don't end the tour without one of the two having run.
+touch this week. Offer one of the two; the operator may decline.
 
 ## After the tour
 

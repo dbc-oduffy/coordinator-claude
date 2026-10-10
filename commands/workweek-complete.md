@@ -97,6 +97,8 @@ Resolve from the spine's directives in one pass; advisory rows never block:
   wiki cited ≥3× → revision candidate.
 - **Audience-mismatch (hand-run):** `coordinator_core.ops.audience_mismatch_scan --root .`.
   ≥3-cluster on one gap → route via `coordinator/skills/review/SKILL.md` § A.3 — Sequencing.
+- **The register stall check:** `coordinator-invoke requirement_register.stall_report '{"today":"<YYYY-MM-DD>"}'`;
+  render stale rows, stuck plans, unclaimed rows as a "Register stall check" section (omit when empty or op absent). Advisory.
 - **Bug backlog:** open P1/P2 ≥10 → ask `/bug-blitz` now or defer.
 - **Portability sweep:** handled by Step 7's `code-reviewer-weekly`, not standalone.
 - **Initiative-govern sweep:** `coordinator-initiative create`/`attach` per PM confirmation.

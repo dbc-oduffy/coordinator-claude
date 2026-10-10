@@ -96,11 +96,13 @@ Authenticate:
 nlm login
 ```
 
-Register the MCP server:
+Register the MCP server under the pinned key `notebooklm-mcp`, user scope, never via `nlm setup add claude-code` (its key varies by version; 0.15.x writes `gemini-notebook-mcp`):
 
 ```bash
-nlm setup add claude-code
+claude mcp add -s user notebooklm-mcp -- notebooklm-mcp
 ```
+
+A `gemini-notebook-mcp` entry already present is the misregistration: remove it (`claude mcp remove gemini-notebook-mcp -s user`) after the add.
 
 Then run `needs-restart.py` for the reload-or-restart verdict. `uv` absent: offer defaults to decline. `--non-interactive`/`--check-only`: skip.
 

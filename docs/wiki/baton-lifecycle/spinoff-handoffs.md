@@ -24,6 +24,7 @@ next action blocked on something outside this session, both override the whole l
 3. All in-flight chunks of the active plan have landed and the plan doc is marked complete.
 
 **YES-tests** (only consulted if ALL NO-tests fail):
+
 - In-progress edits not yet at a stopping point, AND a successor session must resume them
 - A plan in flight with remaining unexecuted chunks (not chunks that just landed in this session)
 
@@ -281,6 +282,7 @@ Frontmatter pollution with advisory text causes false "still gated" reports (roa
 ### Format
 
 One bullet per seam, each naming:
+
 - The peer (workstream slug / PR ref / tc-id)
 - The overlap nature (file-region, schema-shape, timing, semantic)
 
@@ -328,6 +330,7 @@ morning batch pass.
 ### Thresholds
 
 Force a re-check when ALL THREE conditions hold:
+
 1. `now − created:` ≥ 14 days
 2. `deployment_state: awaiting_gate`
 3. No `last_gate_recheck:` field present, OR `last_gate_recheck:` is ≥7 days ago
@@ -520,6 +523,7 @@ Six distinct frontmatter fields express handoff/memo lineage and DAG edges, each
 `origin_handoff` and `forked_from` both point at the spawning baton and usually carry the same value, but they are orthogonal axes (different kind-applicability, different archival-guard participation, different producer) — an enforced schema invariant requires them equal WHEN BOTH ARE SET, while permitting `origin_handoff` alone on fork kinds where `forked_from` is illegal.
 
 **`forked_from` vs `additional_predecessors` semantics (load-bearing distinction):**
+
 - `forked_from` records branch-point ancestry for render and archival-guard traversal. The level-of-effort aggregator does NOT follow it — a pure-fork spinoff's effort is isolated to its own thread. To accumulate level-of-effort across a fork, the rejoining handoff must name the fork-point via `additional_predecessors`.
 - `additional_predecessors` participates in both level-of-effort accumulation (forward walk) and archival-guard traversal (reverse-membership check).
 
@@ -618,3 +622,8 @@ The guard is idempotent: a not-yet-seeded baton passes through normally; a re-se
 - `skills/roadmap-planning/SKILL.md` — wave/sprint distinction, soft-seams body section, and Phase 2 exit gate consumers.
 - `skills/spinoff/SKILL.md` (if present) — initial-state authoring for `kind: spinoff`.
 - `coordinator/skills/handoff/SKILL.md` § Handoff Lineage — deployment_state enum, predecessor rules (canonical tripwire form).
+
+## Field rules
+
+- **Verify each Carried-Forward item before executing or deleting it.** Many are already done, premise-wrong, or ratified-permanent; 'delete N dead X' items are often guard-dead but oracle-live. Dispatch verify-first agents told to report when unclear, not guess.
+- **Check a baton's acceptance signal against the governing plan's AC.** A paraphrased recommended-next-step can over-scope the plan and contradict the handoff's own Key Decisions.

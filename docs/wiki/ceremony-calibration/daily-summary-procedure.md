@@ -45,19 +45,23 @@ Use this verbatim when dispatching the Phase 4b analyst agent
 
 2. **Extract baseline:** Parse the `> Baseline:` header line from the inventory to get the commit
    hash and timestamp. Example:
+
    ```bash
    BASELINE=$(grep '^> Baseline:' tasks/daily-review-scratch/inventory.md \
      | sed 's/^> Baseline: //' | awk '{print $1}')
    ```
 
 3. **Read the actual diffs** for architectural understanding:
+
    ```bash
    git diff <baseline>..HEAD
    ```
+
    If the diff exceeds ~3000 lines, focus on the files with the most changes (from the inventory's
    file change table). Use `git diff <baseline>..HEAD -- <path>` for targeted reads.
 
 4. **Read commit messages in full** for context on intent:
+
    ```bash
    git log --since="<baseline>" --format="%H%n%s%n%b%n---"
    ```
@@ -68,6 +72,7 @@ Use this verbatim when dispatching the Phase 4b analyst agent
 6. **Write the daily summary** to `archive/daily-summaries/YYYY-MM-DD-<machine>.md` (per-machine naming — mirrors `state/week-changelog/<date>-<machine>.md`):
 
    Before writing, compute the required coverage anchor values from git — do NOT hand-type these:
+
    ```bash
    # Full 40-char SHA of the newest commit in today's window (same date bounds step9 uses).
    # YESTERDAY and TODAY are YYYY-MM-DD strings for the previous and current calendar day.
@@ -277,11 +282,13 @@ inline code fixes.
 1. **Read** `tasks/daily-review-scratch/inventory.md` (the Step 4a output) and
    `tasks/daily-review-scratch/completions-today.json` to understand today's work. Also read the
    git diff for architectural context:
+
    ```bash
    BASELINE=$(grep '^> Baseline:' tasks/daily-review-scratch/inventory.md \
      | sed 's/^> Baseline: //' | awk '{print $1}')
    git diff "$BASELINE"..HEAD
    ```
+
    (The analyst summary is being written concurrently and is not yet available.)
 
 2. **Read project strategic documents** (check each, skip silently if missing):
@@ -357,6 +364,7 @@ After the reviewer agent completes, update `state/health-ledger.md`:
 1. If it doesn't exist, create it with this shape (two audit clocks above a per-system table —
    the schema established by the weekly-gate/arch-survey restructure; do **not**
    conflate the clocks):
+
    ```markdown
    # Health Ledger
 
@@ -479,5 +487,10 @@ Cockpit parses facts without scraping prose. The keys mirror the cockpit contrac
   narrative: authored | null   # null = generated day index, no written weekly narrative
   ---
   ```
+
 - The body under the frontmatter is prose and free-form beyond the H1
   (`# Daily Summary — YYYY-MM-DD` / `# Week Summary — <start> .. <end>`).
+
+## Field rules
+
+- **Reconstruct past work from ceremony residue first, then git log.** `archive/completed/` under-reports; mise-delivered work often has no entry.

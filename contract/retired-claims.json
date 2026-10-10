@@ -67,6 +67,28 @@
       ],
       "witness": "Legacy `kind:` values (`plan-review`, `review`, `review-sidecar`, `the Staff Engineer-review`, `substrate-adjudication`, `plan-rereview`) remain in `review-sidecar.yaml`'s `kinds:` list and resolve correctly.",
       "legacy_sites": []
+    },
+    {
+      "id": "research-is-pm-gated",
+      "claim": "Deep research (/research, NotebookLM, the deep-research pipelines) runs only when the PM asks for it.",
+      "retired_by": "archive/specs/2026-10/2026-10-08-research-by-value-class.md",
+      "signatures": [
+        "\\b(?:research|notebooklm)\\b[^;.:(\\n—]{0,40}(?<!not )\\b(?:PM-gated|exclusively\\s+PM)\\b(?!-)",
+        "(?<!not )\\b(?:PM-gated|exclusively\\s+PM)\\b(?!-)[^;.:(\\n—]{0,40}\\b(?:research|notebooklm)\\b"
+      ],
+      "witness": "NotebookLM research is PM-gated\nPM-gated /research runs\n/research is exclusively PM",
+      "legacy_sites": []
+    },
+    {
+      "id": "goal-landing-ships-the-sizing",
+      "claim": "Goal ratification or goal-blitz landing stamps a consumed sizing shipped.",
+      "retired_by": "archive/specs/2026-10/2026-10-09-requirement-register-doe.md",
+      "signatures": [
+        "\\bgoal[\\s-]+(?:blitz[\\s-]+)?(?:ratif|land)[^.\\n]{0,60}(?:stamps|marks|writes)[^.\\n]{0,30}shipped",
+        "(?:stamped|marked|written)[^.\\n]{0,30}shipped[^.\\n]{0,60}\\bgoal[\\s-]+(?:blitz[\\s-]+)?(?:ratif|land)"
+      ],
+      "witness": "goal ratification stamps the consumed sizing shipped\nthe sizing is stamped shipped by goal landing",
+      "legacy_sites": []
     }
   ]
 }

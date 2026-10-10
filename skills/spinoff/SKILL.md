@@ -26,6 +26,8 @@ Feed those resolutions back by passing `--decisions-file <path>` to `apply`: a J
 
 No authorization? Surface a one-line proposal — "Candidate spinoff: `<slug>` — `<one-line topic>`. Authorize?" — and wait. Autonomous skills that previously auto-spinoffed (e.g. `/bug-blitz` Phase 2.1) obey this identically. Nothing below Step 0 runs until the PM says yes.
 
+The single standing exception: `/mise-prep` mints staged batons for out-of-set missing-seam flags it could not handle, on the engine mint path and never via this skill, under the PM's "this can at least spawn a spinoff baton" (ruling: `state/apm-rulings/2026-10-08-mise-prep-auto-spinoff.md`).
+
 ---
 
 ## Step 2 — Authoring discipline

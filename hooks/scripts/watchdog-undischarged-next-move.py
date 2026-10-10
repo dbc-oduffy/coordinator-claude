@@ -22,7 +22,7 @@ predicate exists anywhere in this module (grep-asserted by the test suite,
 per A5).
 
 TWO EVENTS, ONE SCRIPT. Registered on BOTH `PostToolUse` (matcher
-`Skill|Agent`) and `Stop` (matcher ""); `main()` branches on the payload
+`Skill|Agent|Workflow`) and `Stop` (matcher ""); `main()` branches on the payload
 shape (`tool_name` a string -> PostToolUse; else `transcript_path` present
 -> Stop) since the two events carry different stdin shapes and neither
 wire format currently sends a distinguishing `hook_event_name` field to
@@ -35,18 +35,22 @@ sibling registrations elsewhere in `hooks.json`.
 
 EMISSION -- a STATIC seam table (`_SEAM_TABLE` below), never an inference.
 Five obligations:
-  sizing-routed    opens on Skill(coordinator:sizing); the resolved next
-                   action is read off the JUST-WRITTEN sizing object's
-                   `route` (via the session's git `touch-record.jsonl`, same
-                   technique `guard-manufactured-blocker.py` uses to find
-                   "the session's routed sizing object" -- read
-                   here through `lib/frontmatter_scan.py`).
-  plan->review     opens on Skill(coordinator:plan) ONLY when that same
-                   sizing object's route is exactly "plan" (the FULL
-                   terminal). A route of "spec-dispatch" does NOT open this
-                   obligation -- its terminal is an executor dispatch, not
-                   review, and that obligation is already covered by
-                   sizing-routed opened at sizing time.
+  sizing-routed    opened by the engine, not by this script: `sizing-assemble
+                   --write` appends an `op: open` row to the session's
+                   obligations-inbound intake (no row without a session id),
+                   carrying the `_ROUTE_TERMINAL` entry for the route it just
+                   wrote. The PostToolUse leg drains the intake BEFORE it
+                   discharges, so a same-turn terminal call closes it. Loading
+                   Skill(coordinator:sizing) opens nothing: the newest sizing
+                   object at load time is a prior one.
+  plan->review     opens on Skill(coordinator:plan) ONLY when the session's
+                   newest sizing object's route is exactly "plan" (the FULL
+                   terminal), found via the session's git `touch-record.jsonl`
+                   (same technique `guard-manufactured-blocker.py` uses to find
+                   "the session's routed sizing object", read through
+                   `lib/frontmatter_scan.py`). A route of "spec-dispatch" does
+                   NOT open this obligation -- its terminal is an executor
+                   dispatch, not review.
   execute->wave    opens on Skill(coordinator:execute-plan); discharged by
                    the next Agent dispatch. Needs no sizing object: this
                    skill's terminal is fixed by the skill itself ("no
@@ -80,9 +84,10 @@ or Skill(coordinator:execute-plan), never a bare executor dispatch (sizing 4b ch
 light plan -> /execute-plan -> executor, and execute-plan is what claims and stamps
 the plan); `plan`/`shape`/`roadmap` -> Skill(coordinator:plan) (the route mints a plan
 next).
-A Skill(coordinator:plan) terminal is ALSO discharged by a Workflow launching an emitted
-`fire-*.mjs` by `scriptPath`: `emit-wave-fire --from-sizing` prints that fire, and the fired run
-is coordinator:plan's turn 2, so demanding the Skill after it is a redundant invocation.
+Route `plan` carries `Skill|Workflow(coordinator:plan|fire-*.mjs)`: the Skill arm discharges on
+the named skill; the Workflow arm discharges only on a `fire-*.mjs` `scriptPath` basename
+(`emit-wave-fire --from-sizing` prints that fire, and the fired run is coordinator:plan's
+turn 2). Any other Workflow script, or any other call, discharges nothing.
 `pm-decision` and `goal-setting` are deliberately ABSENT from the table --
 their whole point is that the next move is a PM call, not a machine-
 resolved one, and `pm-decision` with `xl_exit: null` is additionally
@@ -126,6 +131,7 @@ repo root, or read the ledger falls through to a silent no-op / exit 0.
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import os
 import re
@@ -150,7 +156,6 @@ except Exception:  # import failure degrades to the "cannot evaluate" path
         return ""
 
 
-_SEAM_SIZING_ROUTED = "sizing-routed"
 _SEAM_PLAN_REVIEW = "plan->review"
 _SEAM_REVIEW_A1_A2 = "review-a1-a2"
 _SEAM_EXECUTE_WAVE = "execute->wave"
@@ -163,7 +168,7 @@ _SEAM_PICKUP_NEXT_MOVE = "pickup->next-move"
 _ROUTE_TERMINAL = {
     "dispatch": "Agent(coordinator:executor)",
     "spec-dispatch": "Skill(coordinator:plan|coordinator:execute-plan)",
-    "plan": "Skill(coordinator:plan)",
+    "plan": "Skill|Workflow(coordinator:plan|fire-*.mjs)",
     "shape": "Skill(coordinator:plan)",
     "roadmap": "Skill(coordinator:plan)",
 }
@@ -187,8 +192,6 @@ _REVIEW_TERMINAL = "Skill(coordinator:review)"
 _ANY_CALL_KIND = "Skill|Agent"
 _PICKUP_NEXT_ACTION = "Skill|Agent(the narrated next move)"
 
-_PLAN_SKILL = "coordinator:plan"
-_EMITTED_FIRE_RE = re.compile(r"^fire-.+\.mjs$")
 _SIZING_PATH_RE = re.compile(r"^state/sizings/[^/]+\.ya?ml$")
 _APPETITE_DIVERGENCE_DETENT = "appetite_exceeded"
 _POST_SIZE_PROMPT_DETENT = "post_size_prompt_pending"
@@ -279,23 +282,6 @@ def _sizing_route_and_exemption(repo_root: str, rel_path: str):
     return route, (fork_open or xl_open)
 
 
-def _is_emitted_fire(tool_input) -> bool:
-    """True when a Workflow call launches an emitted `fire-*.mjs` script by `scriptPath`.
-
-    `emit-wave-fire --from-sizing` prints exactly one `Workflow({ scriptPath })` line over a
-    `fire-*.mjs`; that run IS coordinator:plan's turn 2, so firing it discharges a plan-terminal
-    obligation. The match is the basename only: the emitted script's binding to a given sizing
-    is not readable from this PostToolUse payload, and a hand-authored script is never named
-    `fire-*.mjs`. Both separators are split because a Windows path arrives backslash-joined.
-    """
-    if not isinstance(tool_input, dict):
-        return False
-    script_path = tool_input.get("scriptPath")
-    if not isinstance(script_path, str):
-        return False
-    return _EMITTED_FIRE_RE.match(re.split(r"[\\/]", script_path)[-1]) is not None
-
-
 def _split_call(next_action: str):
     """"Skill(coordinator:review)" -> ("Skill", "coordinator:review")."""
     if not next_action or "(" not in next_action or not next_action.endswith(")"):
@@ -308,15 +294,28 @@ def _matches_next_action(next_action: str, tool_name, tool_input) -> bool:
     kind, ident = _split_call(next_action)
     if kind is None:
         return False
+    if kind == "Skill|Workflow":
+        # Each arm checks its own ident: the Skill arm the skill name, the Workflow arm only a
+        # `.mjs` pattern against the scriptPath basename (a Windows path arrives backslash-joined).
+        if not isinstance(tool_input, dict):
+            return False
+        idents = ident.split("|")
+        if tool_name == "Skill":
+            skill = tool_input.get("skill")
+            if not isinstance(skill, str):
+                skill = tool_input.get("command")
+            return skill in idents
+        if tool_name == "Workflow":
+            script = tool_input.get("scriptPath")
+            name = os.path.basename(script.replace("\\", "/")) if isinstance(script, str) else ""
+            return any(fnmatch.fnmatchcase(name, i) for i in idents if i.endswith(".mjs"))
+        return False
     if "|" in kind:
-        # A pipe-joined kind is a set of accepted tool names, not one name: both members
-        # discharge on ANY match. Matching the set rather than special-casing one literal
-        # keeps a third vehicle from needing another branch here.
+        # A pipe-joined kind is a set of accepted tool names, not one name: any member
+        # discharges on ANY match.
         return tool_name in tuple(part for part in kind.split("|") if part)
     if kind == "Skill":
         accepted = tuple(part for part in ident.split("|") if part)
-        if tool_name == "Workflow":
-            return _PLAN_SKILL in accepted and _is_emitted_fire(tool_input)
         if tool_name != "Skill" or not isinstance(tool_input, dict):
             return False
         skill = tool_input.get("skill")
@@ -361,8 +360,13 @@ def _handle_post_tool_use(payload: dict) -> None:
     if not isinstance(tool_input, dict):
         tool_input = {}
 
-    # Discharge first -- this same call may close an obligation opened by an earlier turn,
-    # independent of anything it opens below.
+    # Fold engine-opened obligations first, so a call in the same turn as the opening
+    # discharges it; then discharge -- this call may close an obligation opened by an earlier
+    # turn, independent of anything it opens below.
+    try:
+        _ledger.drain_intake(session_id)
+    except Exception:  # noqa: BLE001
+        pass
     _discharge_matching(session_id, tool_name, tool_input)
 
     if tool_name != "Skill":
@@ -392,7 +396,7 @@ def _handle_post_tool_use(payload: dict) -> None:
         )
         return
 
-    if skill not in ("coordinator:sizing", "coordinator:plan"):
+    if skill != "coordinator:plan":
         return
 
     repo_root = _repo_root(payload)
@@ -403,14 +407,6 @@ def _handle_post_tool_use(payload: dict) -> None:
         return
     route, exempt = _sizing_route_and_exemption(repo_root, rel_path)
     if exempt or route is None:
-        return
-
-    if skill == "coordinator:sizing":
-        next_action = _ROUTE_TERMINAL.get(route)
-        if next_action is not None:
-            _ledger.open_obligation(
-                session_id, _SEAM_SIZING_ROUTED, _SEAM_SIZING_ROUTED, next_action
-            )
         return
 
     # route == "plan" -- only the FULL "plan" terminal opens this obligation; "spec-dispatch"

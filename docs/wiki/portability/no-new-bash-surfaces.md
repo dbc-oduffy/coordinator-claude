@@ -21,7 +21,7 @@ internal surfaces — those are already on the engine's Python track (`cross-pla
 
 1. **No new shell-interpreter-invoked file surfaces.** If you are reaching for a `.sh` to wrap
    tooling, that is the smell. Build the surface in your own repo's first-class runtime instead —
-   for the coordinator itself that realization is **python-native / claude-klabauter-compliant**, but the
+   for the coordinator itself that realization is **python-native**, but the
    invariant every consumer repo owes is the runtime choice, not that specific language. This
    applies especially to surfaces a subagent will invoke, and to anything you would then
    *mandate* in your CLAUDE.md.

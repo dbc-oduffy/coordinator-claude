@@ -5,6 +5,7 @@ scratch/
 scratch-hold/
 state/.repo-setup-just-ran
 state/.workday-start-marker
+/.coordinator-doctrine-edit-approved
 state/orientation_cache.md
 
 # coordinator — ceremony and coverage transients

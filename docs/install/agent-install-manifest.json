@@ -54,7 +54,7 @@
       "id": "notebooklm-mcp",
       "kind": "external_server",
       "tier": "advisory",
-      "description": "External MCP server notebooklm-mcp, served by the PyPI package notebooklm-mcp-cli (CLI: nlm), registered as a Claude Code MCP server exposing tools under the mcp__notebooklm-mcp__ prefix (the registration name is \"Gemini Notebook MCP\" when added by nlm setup).",
+      "description": "External MCP server notebooklm-mcp, served by the PyPI package notebooklm-mcp-cli (CLI: nlm), registered at user scope under the pinned key notebooklm-mcp, exposing tools under the mcp__notebooklm-mcp__ prefix.",
       "why": "Powers deep-research Pipeline D; pipelines A/B/C are unaffected without it.",
       "probe": {
         "kind": "command_succeeds",
@@ -64,7 +64,7 @@
       },
       "install": {
         "mode": "manual",
-        "remediation": "install: uv tool install notebooklm-mcp-cli (requires uv/uvx), then nlm login (a browser flow), then nlm setup add claude-code to register the MCP server. The install script performs the first and last."
+        "remediation": "install: uv tool install notebooklm-mcp-cli (requires uv/uvx), then nlm login (a browser flow), then claude mcp add -s user notebooklm-mcp -- notebooklm-mcp to register under the pinned key (never nlm setup add claude-code, whose key varies by version; remove a gemini-notebook-mcp entry). The install command performs the first and last."
       },
       "reference": "coordinator/docs/wiki/mcp-topology/notebooklm-for-your-research.md"
     }
@@ -106,14 +106,15 @@
     },
     {
       "id": "settings-env",
-      "description": "The `env` block of `~/.claude/settings.json` carrying the all-machines values from templates/settings-manifest.md (CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS, CLAUDE_CODE_ENABLE_TODO_TOOLS). Values, not key presence, are what gate the tools.",
-      "why": "A missing or wrong value removes Agent Teams, the research pipelines and the Task* task graph from every session on the box while the settings read as configured.",
+      "description": "The `env` block of `~/.claude/settings.json` carrying the all-machines values from templates/settings-manifest.md (CLAUDE_CODE_ENABLE_TODO_TOOLS). Values, not key presence, are what gate the tools.",
+      "why": "A missing or wrong value removes the Task* task graph from every session on the box while the settings read as configured.",
       "tier": "semi-hard",
       "probe": {
-        "kind": "json_key_present",
+        "kind": "json_object_key_true",
         "location": "install_root",
         "relative_path": "settings.json",
-        "json_path": "env"
+        "json_path": "env",
+        "key": "CLAUDE_CODE_ENABLE_TODO_TOOLS"
       },
       "install": {
         "mode": "manual",
@@ -127,10 +128,11 @@
       "why": "Without a delivery path no guard or SessionStart doctrine fires; with both, every hook fires twice.",
       "tier": "semi-hard",
       "probe": {
-        "kind": "json_key_present",
+        "kind": "json_object_key_true",
         "location": "install_root",
         "relative_path": "settings.json",
-        "json_path": "enabledPlugins"
+        "json_path": "enabledPlugins",
+        "key": "coordinator@coordinator-claude"
       },
       "install": {
         "mode": "manual",
@@ -140,7 +142,6 @@
     }
   ],
   "required_env_vars": [
-    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS",
     "CLAUDE_CODE_ENABLE_TODO_TOOLS"
   ],
   "override_flags": {
@@ -258,7 +259,7 @@
       },
       "install": {
         "mode": "manual",
-        "remediation": "install bash >= 4.3 recommended (macOS ships 3.2, which works for the install): brew install bash (macOS) — most Linux/WSL/Git-Bash is already 4.3+; ensure the modern bash precedes /bin/bash in PATH. coordinator-safe-commit uses local -n namerefs (bash 4.3+) and runs on every commit; scripts also use declare -A / mapfile."
+        "remediation": "the install itself runs on bash 3.2 (macOS stock), but coordinator-safe-commit needs bash >= 4.3 on every commit: brew install bash (macOS) — most Linux/WSL/Git-Bash is already 4.3+; ensure the modern bash precedes /bin/bash in PATH. coordinator-safe-commit uses local -n namerefs (bash 4.3+) and runs on every commit; scripts also use declare -A / mapfile."
       },
       "reference": "coordinator/scripts/lib/prereq_probe.sh"
     },

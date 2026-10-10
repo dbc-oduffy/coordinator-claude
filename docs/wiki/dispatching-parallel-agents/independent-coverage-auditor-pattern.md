@@ -3,11 +3,11 @@ title: independent-coverage-auditor-pattern
 created: 2026-05-30
 type: doctrine
 related:
-  - plugins/coordinator/docs/wiki/planning/plan-coverage-checker.md
-  - plugins/coordinator/docs/wiki/reviewer-pipeline.md
+  - plugins/coordinator-claude/coordinator/docs/wiki/planning/plan-coverage-checker.md
+  - plugins/coordinator-claude/coordinator/docs/wiki/reviewer-pipeline.md
   - plugins/coordinator-claude/global-doctrine/CLAUDE.md
-  - plugins/coordinator/snippets/em-operating-doctrine.md
-  - plugins/deep-research/agents/coverage-auditor.md
+  - plugins/coordinator-claude/coordinator/snippets/em-operating-doctrine.md
+  - coordinator/agents/coverage-auditor.md
 ---
 
 
@@ -58,13 +58,14 @@ deep-research plan).
 
 ### Instantiation 1 — deep-research `coverage-auditor`
 
-**Agent file:** `deep-research/agents/coverage-auditor.md`
+**Agent file:** `coordinator/agents/coverage-auditor.md`
 
 The coverage auditor for the four deep-research pipelines (A web, B repo, C structured, D
 notebooklm). It is dispatched by the EM at the pipeline driver's "On Completion Notification"
 step — after the synthesis is written, before archive/cleanup (the team auto-cleans on session exit).
 
 **Input universe:** specialist/worker claim records per pipeline:
+
 - A (web), B (repo): `*-claims.json`, `*-assessment.md`
 - C (structured): `*-findings.md` + `synthesis-annotations.md` as drop-justification oracle (OD-1 —
   structured has no prose synthesis to distort; relay is OOS; the auditor checks that every
@@ -144,14 +145,16 @@ Per `coordinator/docs/wiki/coordinator-tripwires.md § Adding a Convention to th
 unless greppable from surfaces agents encounter:
 
 **Deep-research instantiation:**
-- `plugins/deep-research/agents/coverage-auditor.md` — agent body
+
+- `coordinator/agents/coverage-auditor.md` — agent body
 - `pipelines/deep-research/coverage-auditor-prompt-template.md` — per-pipeline field set
 - `commands/research.md` — driver contact point
-- `plugins/deep-research/CLAUDE.md` — plugin-level convention surface
-- `deep-research/pipelines/team-protocol.md` (and repo/structured variants) — protocol contact points
+- `coordinator/docs/wiki/skills-corpus/deep-research-pipelines.md` — plugin-level convention surface
+- `coordinator/pipelines/deep-research/team-protocol.md` (and repo/structured variants) — protocol contact points
 - This wiki entry — canonical pattern doc
 
 **Coordinator instantiation (when it ships):**
+
 - `agents/comprehensiveness-auditor.md` (to be created)
 - `skills/review/SKILL.md` Phase 2.4 (to be wired)
 - This wiki entry — canonical pattern doc

@@ -29,8 +29,8 @@ Announce the resolved mode before starting.
 5. Select scale tier from `counts.bucketed_total`. Threshold table: wiki.
 6. Generate run ID, create the scratch dir.
 7. Run the consume-gate script by absolute path through its interpreter, never a bareword and
-   never through the settings home — `coordinator/bin/` in THIS repo carries no settings-home
-   forwarder (`snippets/resolve-coordinator-bin.md` rung 3: never point a no-forwarder CLI at the
+   never through the settings home — the engine's `coordinator/bin/` carries no settings-home
+   forwarder for it (`snippets/resolve-coordinator-bin.md` rung 3: never point a no-forwarder CLI at the
    settings home), so resolve it against the plugin root:
    `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/survey-consume-gate"` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\survey-consume-gate.exe"`, same arguments), feeding it the JSON config
    (`repo_root`, `claude_klabauter_root`, `run_id`, `census_buckets`, `mode`, `since`, `system_dirs`,

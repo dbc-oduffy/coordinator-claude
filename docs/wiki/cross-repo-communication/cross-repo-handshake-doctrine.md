@@ -109,7 +109,7 @@ But a **top-level-array-additive** bump — a wholly new top-level array added t
 
 ## Resolver-callable over host-side path-derivation for cross-repo value-shape contracts
 
-When a cross-repo contract involves a *value whose shape the producer owns* — a sub-path, a directory layout, a derived key — the producer supplies a `Callable[[], Path]` (a resolver) from day 1, rather than the consumer deriving the path host-side from an assumed layout. Host-side path-derivation bakes the producer's *current* internal layout into the consumer; when the producer reorganizes (e.g. per-band dirs become transient build intermediates discriminated by a metadata filter), every host-side derivation breaks silently. A resolver the producer exports moves the ownership of the shape to the side that owns the shape. *(Related: the per-band-corpus-dir memo — the producer's real model was one merged store discriminated by a metadata filter; a host that had derived per-band paths would have baked the wrong contract. See `cross-repo-communication.md` § Memo framing is hypothesis.)*
+When a cross-repo contract involves a *value whose shape the producer owns* — a sub-path, a directory layout, a derived key — the producer supplies a `Callable[[], Path]` (a resolver) from day 1, rather than the consumer deriving the path host-side from an assumed layout. Host-side path-derivation bakes the producer's *current* internal layout into the consumer; when the producer reorganizes (e.g. per-band dirs become transient build intermediates discriminated by a metadata filter), every host-side derivation breaks silently. A resolver the producer exports moves the ownership of the shape to the side that owns the shape. *(Related: the per-band-corpus-dir memo — the producer's real model was one merged store discriminated by a metadata filter; a host that had derived per-band paths would have baked the wrong contract. See `coordinator/docs/wiki/cross-repo-communication.md` § Memo framing is hypothesis.)*
 
 ## Dated comments are expiration tags during cross-repo migration windows
 
@@ -117,7 +117,7 @@ Concurrent peer-repo migrations create **transitional-correct-then-stale windows
 
 ## Preemptive reviewed-diff handoff for cross-repo protocol bumps
 
-**2026-05-27.** When a protocol/contract bump must cross to a sibling repo and you have the diff in hand, a **preemptive reviewed-diff handoff** (the diff, already reviewed for *handoff-readiness* — not just correctness — packaged for the sibling EM to land) beats a prose memo describing the change. The review lens here is "can the receiving EM apply this without re-deriving my context?", a superset of "is it correct." Route the diff via the `cross-repo-memo` channel (the memo carries/points at the diff) + PM-relay; the sibling EM lands it with their own context. → `cross-repo-communication.md` § Doctrine seeding vs. code/install-surface change (this is a code-altitude change — memo + PM-relay, not a direct write).
+**2026-05-27.** When a protocol/contract bump must cross to a sibling repo and you have the diff in hand, a **preemptive reviewed-diff handoff** (the diff, already reviewed for *handoff-readiness* — not just correctness — packaged for the sibling EM to land) beats a prose memo describing the change. The review lens here is "can the receiving EM apply this without re-deriving my context?", a superset of "is it correct." Route the diff via the `cross-repo-memo` channel (the memo carries/points at the diff) + PM-relay; the sibling EM lands it with their own context. → `coordinator/docs/wiki/cross-repo-communication.md` § Doctrine seeding vs. code/install-surface change (this is a code-altitude change — memo + PM-relay, not a direct write).
 
 ## Carve-out — bare-SHA sentinels for content-equivalence (copy_install)
 
@@ -152,6 +152,7 @@ deferral's trigger and a sibling's deferral both cite the other side's future wo
 ## Cross-references
 
 - [`live-install-drift-audit.md`](../install-playbook-rationale/live-install-drift-audit.md) — canonical convention authority for `version.txt` shape (referenced by the carve-out above).
+
 ## land host-side compute with guarded no-op ahead of sibling DDL
 
 Land host-side compute ahead of a sibling-repo's schema/DDL by gating the write on sibling artifact presence. A guarded no-op (e.g., `if not schema_exists: return`) lets the work ship without blocking on cross-repo sequencing. The sibling lands the DDL on their own timeline; the host code auto-activates on next run. Apply: whenever host code depends on a sibling-owned schema object, add a guard that returns a benign no-op if the schema object is absent.
@@ -180,5 +181,5 @@ When a verification ask in a memo CAN be done locally in-session, do it rather t
 - [`agentic-install-integrity.md`](../install-playbook-rationale/agentic-install-integrity.md) — doctrine wiki for the lifted classifier + deferred extensions (semantic-vs-byte, plugin-spawned state, agent-readable boot sentinel).
 - [`cross-repo-contract-test-discipline.md`](./cross-repo-contract-test-discipline.md) — roadmap-stub schemas speculative-until-grounded; byte-equal fixtures + `eol=lf` pinning as the executable contract oracle.
 - [`cross-repo-citation-conventions.md`](./cross-repo-citation-conventions.md) — how to cite across repos in handoffs and plans
-- `cross-repo-communication.md` — when to use a sentinel vs. PM-relay vs. archive link
+- `coordinator/docs/wiki/cross-repo-communication.md` — when to use a sentinel vs. PM-relay vs. archive link
 - [`scoped-safety-commits.md`](../concurrent-em-git-operations/scoped-safety-commits.md) — staging discipline when sentinel updates ride alongside other work

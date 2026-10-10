@@ -36,6 +36,7 @@ Runs at `SessionStart` (matcher `startup|clear|compact`), first in the block so 
 **On a HEALTHY boot:** refresh the snapshot `.settings-last-good.json`, but only when content actually changed (`cmp -s`) — no mtime churn, no needless writes. Concurrent identical writes are harmless (same content, atomic `mv`).
 
 **On an UNHEALTHY boot:** restore, in priority order —
+
 1. `.settings-last-good.json` snapshot (cwd-independent; works on OSS installs where `~/.claude` is not a git repo).
 2. git `HEAD:./settings.json` of the config dir — fallback when no usable snapshot exists yet and the config dir is a git repo with a healthy commit. (Materialized to a temp file before health-checking — never piped into `jq` via `/dev/stdin`, which is unreliable on Git-Bash.)
 
@@ -48,6 +49,7 @@ The snapshot is both the restore source *and* the evidence that "this install pr
 ## Runtime artifacts
 
 Both gitignored (`.gitignore`), regenerated automatically, never committed:
+
 - `.settings-last-good.json` — last known-good snapshot.
 - `.settings-clobbered.bak` — most recent clobbered copy (forensic).
 

@@ -12,18 +12,17 @@ exactly as the engine-emitted `brief` specifies, and writes its audit report to 
 verification against the tree are genuinely delegable and this is what the assistant
 absorbs on that half.
 
-The remit DOES also include the per-repo sensor half used to hold: the watch
-subprocess (arming `coordinator_core.group_em.watch`), the `Monitor` that wakes the
-assistant off it, park-spool triage, and reading/holding the holder record in
-`group-em-watch.json` under `state/`. The assistant's existing per-repo binding already makes it
-the right home — the sensor half is irreducibly per-repo, exactly like the inbox it
-already reads. What it absorbs nothing of, on either half: no watch loop of its own
-invention, no re-bucketing, no lifecycle-field edit, no outbound memo of its own, no
-hand-edit of the watch holder record, no second `Monitor` over the park spool — the
-negative spec in its own body (`coordinator/agents/group-em-assistant.md`) names all of
-these. **Poke boundary:** the assistant triages and reports; it never nudges a peer.
-Nudging is Navi's alone, or the repo's own Group EM's — the assistant gaining the
-sensor half does not give it a second voice to nudge with.
+The remit does NOT include arming anything. The watch subprocess (`coordinator_core.group_em.watch`)
+and the `Monitor` over it are armed by the Group EM's own main conversation, which re-arms on each
+expiry notice. A `Monitor` dies at the harness's 30-minute cap, and a subagent cannot re-arm
+reliably: it missed 4 of 4 expiries, because a subagent holds no timer and an expiry notice does not
+reliably re-wake it; re-arming from the holder on its own expiry notice measured zero gap. What the
+assistant keeps of the sensor half is park-spool triage and reading `group-em-watch.json` under
+`state/`, on the Group EM's ask. No watch loop of its own, no re-bucketing, no lifecycle-field edit,
+no outbound memo of its own, no hand-edit of the watch holder record, no `Monitor` of any kind — the
+negative spec in its own body (`coordinator/agents/group-em-assistant.md`) names all of these.
+**Poke boundary:** the assistant triages and reports; it never nudges a peer. Nudging is Navi's
+alone, or the repo's own Group EM's.
 
 ## The asymmetric substrate
 
@@ -50,7 +49,7 @@ under two distinct address forms.
 
 Two real buckets, run 2026-08-30 against this repo's live inbox, both dispatched as real
 `coordinator:group-em-assistant` subagents. The `fyi` run is the load-bearing one: it went
-through `/group-em` § Inbox-blitz delegation with the nomination gate resolved first, so it
+through `/group-em` § Fleet inbox grind with the nomination gate resolved first, so it
 exercises the dispatch path the plan's exit criterion actually names, not just the agent.
 
 Measured, in bytes:
@@ -97,7 +96,7 @@ bare module launched it, so a pattern matched against either reports a false dea
 A false death is worse than no arm at all: it teaches the holder to discount the one wire that
 wakes them. The cadence to compare against is the record's own `next_expected_by`, not a fixed
 threshold, because the cadence itself varies by an order of magnitude between a `Monitor` (~12 s)
-and a cron tick (~23 min) — a fixed number is trigger-happy against one and blind against the
+and a wake after an idle stretch — a fixed number is trigger-happy against one and blind against the
 other depending on which instrument stamped last.
 
 ## Arming the watch — the two false premises, worked

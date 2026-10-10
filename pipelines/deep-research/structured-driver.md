@@ -1,5 +1,5 @@
 ---
-description: "PM-GATED — only invoke when the PM explicitly asks; EM must ask first if it thinks it's warranted; NEVER invoke from a subagent. Pipeline C (Structured Research) as a chatty Workflow — schema-conforming research with a Haiku scout, Sonnet verifiers, and an Opus synthesizer, run as ordered stages of one background Workflow. EM reads spec, pre-processes into scout-brief.md, fires the Workflow, and is freed. The Workflow handles everything autonomously."
+description: "EM-fired on a sizing; never fired from a subagent. Pipeline C (Structured Research) as a chatty Workflow — schema-conforming research with a Haiku scout, Sonnet verifiers, and an Opus synthesizer, run as ordered stages of one background Workflow. EM reads spec, pre-processes into scout-brief.md, fires the Workflow, and is freed. The Workflow handles everything autonomously."
 allowed-tools: ["Workflow", "Agent", "Read", "Write", "Edit", "Bash", "Glob", "Grep"]
 argument-hint: "<spec-path> <subject-key>"
 ---
@@ -19,7 +19,7 @@ The scout handles mechanical source discovery so verifiers can focus on schema-m
 - `create <output-dir>` — Create Mode: build a new research spec from the PM's brief (see Step 0)
 - `<spec-path> [subject-key|'next'|'batch']` — Run Mode: execute an existing spec
 
-**Invocation:** `/research --mode=structured create <output-dir>` (Create Mode) or `/research --mode=structured <spec-path> [subject-key]` (Run Mode)
+**Invocation:** Create Mode is the EM-authored step `/coordinator:research` Step 2 names; Run Mode fires via `/coordinator:research --sizing <path>`
 
 ## Step 0 — Create Mode Gate
 
@@ -123,7 +123,7 @@ A score below 5/6 requires PM alignment before proceeding — flag which items f
 
 ## Step 3 — Write the Scope Brief
 
-Write `{scratch-dir}/scout-brief.md` from the spec and Step 2: the scope artifact the engine takes as `--brief`. It carries the Step 2 item 5 content. The engine fills every stage prompt from the `structured-*-prompt-template.md` files; never hand-fill them.
+The manifest's `scope` stage (`structured-scope-prompt-template.md`) writes `{scratch-dir}/scout-brief.md`, the brief every later stage reads. The engine fills every stage prompt from the `structured-*-prompt-template.md` files; never hand-fill them.
 
 ## Step 4 — Fire the Workflow
 
@@ -185,27 +185,8 @@ When the Workflow's task notification arrives carrying the synthesizer's return 
    maps to a schema field in the structured output OR was explicitly dropped with an annotation
    in `synthesis-annotations.md`. Findings absent from both constitute silent coverage loss.
 
-   Read the prompt template from:
-   `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/coverage-auditor-prompt-template.md`
-
-   Select the **Pipeline C — Structured Research (reduced auditor)** input block. Fill in:
-   - `[SYNTHESIS_PATH]` — `{output-path}`
-   - `[RUN_STEM]` — strip `docs/research/` prefix and `.md` suffix from `{output-path}` (e.g. `docs/research/2026-06-30-subject-structured.md` → `2026-06-30-subject-structured`)
-   - `[SCRATCH_DIR]` — `{scratch-dir}`
-   - `[OUTPUT_DIR]` — directory containing `synthesis-annotations.md` (same as `{scratch-dir}`)
-
-   Dispatch as a plain Agent:
-
-   ```
-   Agent(
-     prompt: <filled coverage-auditor prompt with structured input block>,
-     model: "sonnet",
-     subagent_type: "coordinator:coverage-auditor"
-   )
-   ```
-
-   Wait for the auditor to complete and return `DONE: {sidecar-path}`.
-   The sidecar is written to `{output-path minus .md}-coverage-audit.md`.
+   The audit runs as the manifest's `coverage` stage (`structured-coverage-prompt-template.md`)
+   before the Workflow returns. Read its sidecar at `{output-path minus .md}-coverage-audit.md`.
 
    If the auditor reports `absent` findings (verifier findings with no field mapping and no drop
    annotation), read the sidecar and include an `absent_findings` summary in the PM-facing report

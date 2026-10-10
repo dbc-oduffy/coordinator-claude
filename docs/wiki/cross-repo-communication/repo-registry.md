@@ -8,7 +8,7 @@ kind: wiki
 
 # Repo Registry — Schema and Conventions
 
-The repo registry (`$(python3 <claude-klabauter>/coordinator/lib/coordinator-state-root.py --central)/repo-registry.md`, claude-klabauter-resident — see `docs/wiki/hook-best-practices/state-placement-law.md`) is a structured cross-repo inventory powering peer-repo prior-art lookup. This wiki documents the schema, the closed enums, and the procedure for extending either.
+The repo registry (`$(python3 <claude-klabauter>/coordinator/lib/coordinator-state-root.py --central)/repo-registry.md`, which lives in engine state — see `docs/wiki/hook-best-practices/state-placement-law.md`) is a structured cross-repo inventory powering peer-repo prior-art lookup. This wiki documents the schema, the closed enums, and the procedure for extending either.
 
 ## Why this exists
 
@@ -93,7 +93,7 @@ Runs only when `pwd` resolves to `~/.claude`. Skipped by the `/update-docs` doc-
 1. Decode `~/.claude/projects/` dir names via the engine repo `coordinator/bin/decode-claude-projects-dir.py` to candidate paths.
 2. Diff against the active registry block. New paths → append to `<!-- BEGIN repo-registry-candidates -->` block with `status: needs-pm-review`.
 3. For each existing entry: `ls <path>` to verify on-disk. Update `last_verified` if reachable; flip to `status: unreachable` otherwise (don't auto-delete).
-4. End-of-phase output: "Registry has N new candidates. Edit `$(python3 <claude-klabauter>/coordinator/lib/coordinator-state-root.py --central)/repo-registry.md` (claude-klabauter-resident — see `docs/wiki/hook-best-practices/state-placement-law.md`) to promote."
+4. End-of-phase output: "Registry has N new candidates. Edit `$(python3 <claude-klabauter>/coordinator/lib/coordinator-state-root.py --central)/repo-registry.md` (engine state — see `docs/wiki/hook-best-practices/state-placement-law.md`) to promote."
 5. Edits commit in the same Phase 9 commit cycle.
 
 ## EM dispatch heuristic (peer_repos)
@@ -159,6 +159,7 @@ if [ -z "$_cc_claude_klabauter" ]; then
   _cc_claude_klabauter="$(python3 "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_engine_root.py" 2>/dev/null)"
 fi
 if [ -z "$_cc_claude_klabauter" ] || [ ! -d "$_cc_claude_klabauter" ]; then
+  # repos.claude_klabauter lives in <settings-home>/machine-local/registry.local.toml
   echo "ERROR: claude-klabauter root unresolved (checked REPO_CLAUDE_KLABAUTER, CLAUDE_KLABAUTER_ROOT, and the coordinator settings-home registry/pointer via _engine_root.py) — set REPO_CLAUDE_KLABAUTER, or run: machine-local set repos.claude_klabauter <path>" >&2
   exit 1
 fi
@@ -187,9 +188,9 @@ The sentinel-bounded `awk` pattern above is the canonical extraction method. It 
 
 ## Related
 
-- `$(python3 <claude-klabauter>/coordinator/lib/coordinator-state-root.py --central)/repo-registry.md` (claude-klabauter-resident — see `docs/wiki/hook-best-practices/state-placement-law.md`) — the registry file itself
+- `$(python3 <claude-klabauter>/coordinator/lib/coordinator-state-root.py --central)/repo-registry.md` (engine state — see `docs/wiki/hook-best-practices/state-placement-law.md`) — the registry file itself
 - the engine repo `coordinator/bin/decode-claude-projects-dir.py` — projects-dir decoder used by Phase 15 (bundled with the coordinator plugin)
-- `~/.claude/plugins/coordinator/agents/prior-art-checker.md` — peer_repos consumer
-- `~/.claude/plugins/coordinator/commands/update-docs.md` — Phase 15 host
-- `~/.claude/plugins/coordinator/snippets/em-operating-doctrine.md` — EM
+- `~/.claude/plugins/coordinator-claude/coordinator/agents/prior-art-checker.md` — peer_repos consumer
+- `~/.claude/plugins/coordinator-claude/coordinator/commands/update-docs.md` — Phase 15 host
+- `~/.claude/plugins/coordinator-claude/coordinator/snippets/em-operating-doctrine.md` — EM
   dispatch heuristic doctrine

@@ -201,6 +201,7 @@ Without a non-agentic backstop, a single heavy fan-out session can write dozens 
 ---
 
 *See also:*
+
 - `/distill` — knowledge extraction, distinct lifecycle (no filesystem prune)
 - `/update-docs` Phase 8b — artifact pruning in `tasks/`, distinct blast radius
 - `cleanup-sweep-hazards.md` — parent doctrine on never sweeping `state/`, `docs/wiki/`, `archive/`

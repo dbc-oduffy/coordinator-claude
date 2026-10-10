@@ -3,8 +3,8 @@ title: Agent Teams patterns
 created: 2026-05-17
 type: doctrine
 related:
-  - plugins/coordinator/docs/wiki/dispatching-parallel-agents.md
-  - plugins/coordinator/docs/wiki/skills-corpus/staff-sessions.md
+  - plugins/coordinator-claude/coordinator/docs/wiki/dispatching-parallel-agents.md
+  - plugins/coordinator-claude/coordinator/docs/wiki/skills-corpus/staff-sessions.md
 ---
 
 # Agent Teams Patterns
@@ -12,6 +12,8 @@ related:
 Structural patterns for the Agent Teams API — the 7-teammate limit, pipeline composition, and the `blockedBy` gate.
 
 > **As of Claude Code v2.1.178, teams form implicitly on first teammate spawn — there is no `TeamCreate`/`TeamDelete` tool; `team_name` on the Agent tool is accepted but ignored. Source: https://code.claude.com/docs/en/agent-teams.md**
+
+The fleet's pipelines (web, repo, structured, notebooklm deep research) run as chatty workflows — see `chatty-workflows.md`. Agent Teams is not required anywhere; this page applies only to a session that opts into the experimental teams feature on its own.
 
 ## 7-teammate hard limit
 
@@ -37,13 +39,15 @@ The gate between phases is a disk write + EM coordination step. Do not attempt c
 
 A teammate that enters idle state on a `blockedBy` dependency will NOT auto-resume when the dependency resolves. The unblocking teammate must explicitly `SendMessage` to the waiting teammate to wake it. Missing this step causes silent pipeline hangs — all teammates look healthy (no error) but downstream stages never run.
 
+Flag-free equivalent: an opt-in chatty Workflow, where the script owns ordering and wakes a returned member (see `chatty-workflows.md`).
+
 The remediation when a pipeline appears stalled: check whether any teammate is in a `blockedBy`-idle state, identify which upstream task just completed without sending a wake message, and `SendMessage` the idle teammate manually.
 
 ## Cross-machine concurrent pickup is fail-loud
 
 When two machines simultaneously attempt `/pickup` on the same handoff, the fail-loud signal is `consumed_by:` — or its successor `claimed_by:` (write path not yet cut over, corpus mixed on disk; check both) — populated in the handoff's frontmatter after `git fetch`. Do not redispatch over partial work — `SendMessage` the existing agent to resume from transcript. Redispatch over partial work produces two agents writing to the same output paths, which silently corrupts the deliverable.
 
-**`claimed_by` is a session id, and messaging addresses a peer name — resolve the one to the other, don't infer it.** A computed claim decision already carries `send_message_address` on its `competing_claim[]` entry; use that field and never re-derive one. With no claim decision to consult — a sid read off a commit trailer, a queue entry, or a plan body — run `python3 coordinator/bin/resolve-peer-address.py <session-id>`, which prints the peer name and distinguishes *no record* (exit 3) from *record found, process dead* (exit 4). It reads `~/.claude/sessions/<pid>.json` (one record per live session, carrying `name`, `pid`, `cwd`, `status`), the same join the engine repo's `coordinator_core/session/reachability.py` :: `resolve_advisory_address` wraps on the engine plane.
+**`claimed_by` is a session id, and messaging addresses a peer name — resolve the one to the other, don't infer it.** A computed claim decision already carries `send_message_address` on its `competing_claim[]` entry; use that field and never re-derive one. With no claim decision to consult — a sid read off a commit trailer, a queue entry, or a plan body — run `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/resolve-peer-address" <session-id>` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\resolve-peer-address.exe"`, same arguments), which prints the peer name and distinguishes *no record* (exit 3) from *record found, process dead* (exit 4). It reads `~/.claude/sessions/<pid>.json` (one record per live session, carrying `name`, `pid`, `cwd`, `status`), the same join the engine repo's `coordinator_core/session/reachability.py` :: `resolve_advisory_address` wraps on the engine plane.
 
 **Resolve at point of use, and expect empties that are not deaths.** A session id churns inside a single session's lifetime — a resume or `/clear` mints a new `sessionId` while the name and pid persist — so a `claimed_by` stamped earlier can resolve to nothing while its author is still running under the same name. An empty resolution is therefore not evidence the holder is gone; check the registry for a live row on the same workstream before concluding anything. Check `--near <workstream-path>` for a live row on the same tree before concluding anything. When that really does come back empty, stand down and write what the holder needs into the artifact it is working from — never guess a name from roster start times, and never fall back to the redispatch this section forbids.
 

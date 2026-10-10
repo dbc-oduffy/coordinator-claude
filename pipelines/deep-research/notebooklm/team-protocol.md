@@ -1,6 +1,6 @@
 # NotebookLM Research Team Protocol
 
-> Referenced by agent definitions and the `notebooklm-research` command.
+> Referenced by agent definitions and `/research`.
 
 ## Overview
 
@@ -228,7 +228,7 @@ Pipeline D uses the **always-on** coverage auditor — dispatched by the EM as a
    > `DEGRADED: notebooklm MCP tools unavailable. Coverage audit based on on-disk claims.json only.`
    > `Notebook queries were not run. A re-audit with MCP tools available may surface additional gaps.`
 
-**Cleanup-deferred ordering (hard constraint):** notebook deletion (`--cleanup`) MUST be deferred until **after** the auditor sidecar is written. The EM's Step 6 completion sequence is: run auditor → confirm sidecar exists → THEN delete notebooks. This ordering is enforced in `coordinator/commands/notebooklm-research.md` Step 6. The sweep agent does not delete notebooks directly; deletion is an EM-step that runs post-audit.
+**Cleanup-deferred ordering (hard constraint):** notebook deletion (`--cleanup`) MUST be deferred until **after** the auditor sidecar is written. The completion sequence is: run auditor → confirm sidecar exists → THEN delete notebooks. The `coverage` stage of `notebooklm.manifest.yaml` runs the auditor before any deletion, and `/research` closes the run. The sweep agent does not delete notebooks directly; deletion is an EM-step that runs post-audit.
 
 ## Fidelity Relay: OUT OF SCOPE
 
@@ -238,7 +238,7 @@ This is an architectural boundary, not an appetite call. The relay is revisited 
 
 ## Scratch Directory
 
-`docs/research/{run-id}-workdir/` (no trailing `-{topic-slug}` — Pipeline D's run-id, `{topic-slug}-{YYYYMMDD}` per `commands/notebooklm-research.md` Step 1, already carries the slug; unlike the repo/web/structured drivers' timestamp-only run-id).
+`docs/research/{run-id}-workdir/` (no trailing `-{topic-slug}` — Pipeline D's run-id, `{topic-slug}-{YYYYMMDD}` per the `scope` stage of `notebooklm.manifest.yaml`, already carries the slug; unlike the repo/web/structured drivers' timestamp-only run-id).
 
 - Strategy: `{scratch-dir}/strategy.md`
 - Scout output: `{scratch-dir}/sources.md`

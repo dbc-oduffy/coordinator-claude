@@ -21,6 +21,7 @@ Coordinator skills come in two shapes: **narrative** (prose explaining principle
 **What changes.** Long-form doctrine extracts to `docs/wiki/` as reference material. The skill becomes a router into existing doctrine, not a second copy of it.
 
 **Current super-skills (as of 2026-05-07):**
+
 - `coordinator:plan` — replaces `writing-plans`; 5 branches (Triage / Substrate / Body / Exit / Friction)
 - `coordinator:review` — refactored; Branch A outgoing (pre-flight + dispatch) / Branch B incoming (triage + integrate)
 - `coordinator:review-code` — replaces `requesting-code-review`; counterpart for code/diff/PR review
@@ -75,6 +76,7 @@ Multi-session effort. Land the pattern first; build one super-skill per session 
 **Trigger:** EM is about to plan implementation work where the spec carries decision weight (multi-file, new abstraction, cross-system, scaffolds new agents/skills, reverses a prior decision) OR PM typed any of: "write a plan", "let's plan", "break this down", "plan the implementation".
 
 **When NOT to use:**
+
 - Trivial work (single-file fix, typo, link repoint, no abstraction) → just do it, no plan
 - Implementation ambiguity mid-coding → use harness Plan tool inline
 - Architectural-tier (cross-system irreversible, multi-stakeholder) → surface to PM, propose /staff-session
@@ -97,6 +99,7 @@ Multi-session effort. Land the pattern first; build one super-skill per session 
 ## Dogfood Walk-Through Protocol
 
 Each new super-skill must be walk-through validated before shipping:
+
 1. EM walks the decision tree on a real recent scenario that would have triggered the skill
 2. The Staff Engineer walks independently and appends findings to the fixture
 3. Verdict CONCURRENT (no gaps) or CONCURRENT_WITH_NITS (minor gaps applied inline)
@@ -121,12 +124,14 @@ When shipping the Nth instance of a stable super-skill pattern (e.g. a third dec
 `/dogfood` is a decision-tree super-skill in its own right (not a linear checklist), governing how new coordinator capability gets validated before "stable" is declared.
 
 **Binary outcome doctrine — no third path.** Every observation during a dogfood loop resolves one of two ways:
+
 - It's a bug → fix it now, in this session, on this branch.
 - It reveals the thing is fundamentally wrong-shape → stop the loop, switch gears into replan/refactor.
 
 There is no "log to known-bugs and keep going." That is file-and-defer wearing a dogfood costume — the same anti-pattern the improvement-queue admission rule (`coordinator/snippets/em-operating-doctrine.md` § How to Plan and Hand Off, "Improvement Queue") forbids for in-session failures generally.
 
 **Three-tier gate system, declared at invocation, not inferred mid-run.** The skill's scope and intensity are a PM-declared parameter at invocation time:
+
 - `--narrow` (default) — single smoke surface
 - `--broad` — multi-surface happy path
 - `--shakedown` — comprehensive matrix coverage; without a declared coverage matrix, `--shakedown` silently degrades to `--broad`
@@ -134,6 +139,7 @@ There is no "log to known-bugs and keep going." That is file-and-defer wearing a
 **Four pre-flight gates before entering the loop:** (1) idempotent re-run, (2) machine-parseable progress, (3) framing audit, (4) coverage matrix declared (`--shakedown` only).
 
 **Loop exit criteria — all three required:**
+
 1. Primary handoff goal met — succeeds end-to-end on latest pass.
 2. No NEW bugs surfaced inside the fix-through cone in the last iteration.
 3. PM signals stop, OR the EM proposes converge and the PM confirms.
@@ -155,6 +161,7 @@ decide. See `CONTEXT.md § computed skill` for the term's full definition and th
 lineage table (Narrative → Decision-tree super-skill → ASIC helper-extraction → Computed skill).
 
 **When to reach for which — not a replacement, a fork by shape:**
+
 - **Stay with the Generation 2 super-skill contract above** when a skill's branches are
   genuinely judgment-dense — the routing decision depends on human/product context an
   assembler cannot observe (e.g. `coordinator:plan` triage, `coordinator:review` incoming
@@ -182,6 +189,7 @@ until that cross-reference lands, this section is the canonical discovery surfac
 **Definition — two-part fusion, both halves mandatory.** A spike fuses external research (docs, prior art, library capability checks) with local empirical study (throwaway probes against the actual codebase). Neither half alone satisfies the primitive — research-only skips whether it actually works here; probe-only skips whether the approach is sound elsewhere. The verdict is durable: a standalone `spike-result` record under `docs/research/spike-verdicts/`, not a transient chat conclusion and not a handoff — a spike verdict is evidence, not a work-continuance baton, and lives in its own schema-typed home.
 
 **Routing — spike is graph-native, not a side quest.** The pipeline shape is `shape → spike → plan`, with `plan ⇄ spike` back-edges: a plan in progress can trampoline back into a spike when a derisking question surfaces mid-plan, and the spike's verdict routes back into plan authoring or resumption.
+
 - **Viable verdict** → routes to `/plan` (new or resumed).
 - **Not-viable verdict** → routes to `/shape` or directly to the PM — the problem framing itself needs revisiting, not just the plan.
 
@@ -223,9 +231,9 @@ its description or drops from the listing entirely).
 ## Reference
 
 - Pattern spec: `2026-05-06-decision-tree-skill-pattern.md` under `archive/specs/`
-- coordinator:plan: `plugins/coordinator/skills/plan/SKILL.md`
-- coordinator:review: `plugins/coordinator/skills/review/SKILL.md`
-- coordinator:review-code: `plugins/coordinator/skills/review-code/SKILL.md`
+- coordinator:plan: `plugins/coordinator-claude/coordinator/skills/plan/SKILL.md`
+- coordinator:review: `plugins/coordinator-claude/coordinator/skills/review/SKILL.md`
+- coordinator:review-code: `plugins/coordinator-claude/coordinator/skills/review-code/SKILL.md`
 - Writing-skills wiki (skill TDD): `docs/wiki/skills-corpus/writing-skills.md`
 - Skill budget discipline: `docs/wiki/skills-corpus/skill-budget-discipline.md`
 - Dogfood super-skill spec: `2026-05-07-dogfood-super-skill.md` under `archive/specs/2026-05/`

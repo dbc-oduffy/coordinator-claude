@@ -2,8 +2,10 @@
 
 Defines what the idle report must emit so the watcher can act on a whole tick without opening a file.
 
-> What `coordinator_core.group_em.idle_report` must emit for `coordinator:group-em-assistant` to run a
-> whole tick without opening a file. **The doctrine repo owns this contract; the engine repo owns the implementation.**
+> What `coordinator_core.group_em.idle_report` must emit for its consumers — the Navi role
+> (`coordinator/templates/agents/navi.md`, run as a session) and the Group EM's send pass
+> (`coordinator/skills/group-em/SKILL.md` § Send pass) — to run a whole tick without opening a file.
+> `coordinator:group-em-assistant` does not run it. **The doctrine repo owns this contract; the engine repo owns the implementation.**
 > Rule: the watcher acts on the report and nothing else — a fact the report does not carry is a
 > defect in the report, never a licence to go and look.
 
@@ -32,7 +34,7 @@ already been answered. A `--json` arm carries the same fields.
 **`--group-em-session-id` needs an engine at or past the published mirror's current tip.** The
 pre-2026-09-01 spelling was `--crown-session-id`, retained engine-side as a suppressed alias, so
 old text runs on a new engine — but not the reverse: this page's spelling on an engine older than
-that commit is an argparse hard-error in every dispatched `group-em-assistant` agent. A box whose mirror is
+that commit is an argparse hard-error for every consumer. A box whose mirror is
 behind pins the whole tick, not one field. Verify against the engine, never against this page.
 
 ## The verdict vocabulary is closed
@@ -43,7 +45,7 @@ that will be interpreted differently next wake.
 | Verdict | Means | The watcher does |
 |---|---|---|
 | `between-turns` | idle under the floor | nothing; not reported per-peer |
-| `watch` | past the floor, under the threshold | one report line, no send |
+| `watch` | past the floor, under the threshold: the peer is idle 5-30 min. It does not mean the peer runs the watch | one report line, no send |
 | `ESCALATE` | past the threshold | acts per `nudge-shape` |
 | `OUT-OF-WORK` | the session recorded `workstream-complete` or `quick-wrap` | reports to the Group EM for assignment, tells the session that is happening; **never nudged** |
 | `EXITED` | the session is gone, not parked | one dated row, no send; **outranks `ESCALATE`** |

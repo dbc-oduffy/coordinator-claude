@@ -303,6 +303,10 @@ tactic in disguise? (2) Are the KRs real Key Results — measurable outcomes, no
 proxies? (3) Is the SET reasonable — ≤5 KRs; more means the Objective is unfocused? (4)
 Weekly-perceptibility per KR — can an agent or PM observe it move this week? If not, flag as a
 later-impact aspiration with a weekly-perceptible rewrite, or note the PM should defer it.
+(5) Exemptions against seeds, in this same pass: every KR clause that exempts, carves out or
+excludes something is cross-checked against the draft's goal_seeds and roadmap_seeds. Flag a seed
+that reintroduces what a KR or the Objective bans, and an exemption no seed honours. List the
+findings per KR, so the set ratifies in one round.
 
 Return: verdict per element (PASS/FLAG/REJECT), specific rewrite suggestions for
 flagged/rejected elements, a SET-level verdict (GO/REVISE/REFRAME). Give the author the
@@ -371,6 +375,7 @@ Read the seed record in full; the Intent line may state an objective, which you 
     period_value: <e.g. Q4-2026>
     roadmap_seeds: [<titles of roadmap-seed stubs this goal spawns>]
     goal_seeds: [<titles of deferred vision-slice goal-seed stubs>]
+    parent_goal_id: <the goal or seed id this OKR refines, when it is a sibling or child of one; else omit>
     critique_ref: ${critiquePathFor(seedId)}
     ratification: null
 
@@ -420,7 +425,7 @@ Critique: ${critique.critiquePath}
 
 REJECT items are rewritten or dropped. FLAG items are rewritten, or accepted with a stated
 rationale. Weekly-perceptibility notes are rewritten, or deferred to an entry under
-\`goal_seeds\`. Edit the draft in place and keep its key shape and \`ratification: null\`.
+\`goal_seeds\`. After fixing a flagged exemption, re-read every seed against it. Edit the draft in place and keep its key shape and \`ratification: null\`.
 Record each disposition, with your rationale for every accepted FLAG, in the record below.
 Return \`unresolvedRejects\`: the count of REJECT items you could not resolve.
 ${NO_GOAL_WRITE_RULE}

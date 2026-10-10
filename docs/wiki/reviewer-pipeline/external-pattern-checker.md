@@ -5,8 +5,8 @@ type: doctrine
 related:
   - docs/wiki/reviewer-pipeline/prior-art-checker.md
   - docs/wiki/reviewer-pipeline/docs-checker-pre-review.md
-  - plugins/coordinator/agents/external-pattern-checker.md
-  - plugins/coordinator/docs/wiki/reviewer-pipeline.md
+  - plugins/coordinator-claude/coordinator/agents/external-pattern-checker.md
+  - plugins/coordinator-claude/coordinator/docs/wiki/reviewer-pipeline.md
 ---
 
 <!-- Spec backlink: ~/.claude/plans/external-pattern-checker.md Phase 2 -->
@@ -52,6 +52,7 @@ The EM may invoke external-pattern-checker during the reviewer pipeline Phase 2.
 **Condition A:** prior-art-checker returned `Silent` on architecturally-loaded claims — where "architecturally-loaded" means the claim involves a new abstraction, protocol, or doctrine surface (not a constant bump, test fix, or rename).
 
 **Condition B:** The plan is in `scope_mode` `architecture` or `feature` AND the topic is one the project has struggled with empirically, evidenced by **either**:
+
 - ≥ 2 entries in `state/lessons/` or the central structured queue (`state/improvement-queue/`, `queue_scope: central`) sharing a noun-phrase from the plan's central abstractions, **or**
 - ≥ 1 archived handoff in `archive/handoffs/` whose body matches the same noun-phrase AND contains "reverted" / "abandoned" / "rolled back".
 
@@ -73,13 +74,14 @@ If neither condition holds, the EM does not invoke it. The cost exceeds the valu
 
 **Conflating with the `general-purpose` Sonnet web scout.** The `general-purpose` scout produces a free-form brief from an open-ended session. external-pattern-checker produces a structured sidecar with hard caps. They are not interchangeable. Use the scout when you know you need research; use external-pattern-checker when you are uncertain whether external research is warranted.
 
-**Treating external-pattern-checker as a mandatory gate before `/deep-research`.** `/deep-research` is PM-invoked directly when external research is known-needed. external-pattern-checker exists for the case where the EM is *uncertain* whether external research is warranted at all. If the PM has already decided to run `/deep-research`, skip external-pattern-checker — it is redundant in that case.
+**Treating external-pattern-checker as a mandatory gate before `/deep-research`.** The EM fires `/research` at deep or corpus directly when external research is known-needed. external-pattern-checker exists for the case where the EM is *uncertain* whether external research is warranted at all. If the EM has already decided to fire `/research` at deep or corpus, skip external-pattern-checker — it is redundant in that case.
 
 ## Dogfood Expectations
 
 **Cost target:** Each run should consume 5K–20K tokens. A run under 5K tokens likely found no signal (and could have short-circuited earlier); a run over 20K is approaching the DEGRADED threshold and suggests the agent went too deep on a small number of topics.
 
 **Hit rate:** Over the first 30-day window, expect roughly:
+
 - `RESEARCH-RECOMMENDED` or `LIGHT-CONTEXT-AVAILABLE`: ~40–60% of invocations (the trigger gate should filter out low-signal cases before dispatch)
 - `NO-EXTERNAL-SIGNAL`: ~30–40% (the topic was legitimately uncovered in external literature)
 - `DEGRADED` or `SCOPE-MISMATCH`: ≤ 10% (indicates either premature invocation or an unusually expensive topic)

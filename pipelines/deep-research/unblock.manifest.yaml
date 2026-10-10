@@ -1,0 +1,67 @@
+# Deep value class: a chatty diagnostic team that works out why we are stuck on our own code.
+# Shape mirrors staff-session (roster fan-out, mailbox-only talk, mailcheck, challenge round, overseer synthesis).
+schema_version: 1
+pipeline: unblock
+description: "Unblock-us diagnostic: scope the stuck point, optional prior-art, a roster of diagnose/decompose/challenge/source members, one challenge round over unread mail, then an eng-director synthesis"
+inputs:
+  brief: required
+  scratch_dir: optional
+  lists:
+    roster:
+      kind: roster
+stages:
+  - id: scope
+    phase: Scope
+    agent_type: general-purpose
+    model: sonnet
+    template: unblock-scope-prompt-template.md
+    produces_brief: true
+    output: "{{scratch_dir}}/scope.md"
+  - id: prior-art
+    phase: Scope
+    agent_type: coordinator:prior-art-checker
+    model: sonnet
+    template: prior-art-prompt-template.md
+    optional: true
+    depends_on: [scope]
+    output: "{{scratch_dir}}/prior-art-check.md"
+  - id: diagnose
+    phase: Diagnose
+    agent_type_from: inputs.roster
+    model: opus
+    template: unblock-diagnose-prompt-template.md
+    fan_out:
+      over: inputs.roster
+    depends_on: [scope, prior-art]
+    output: "{{scratch_dir}}/{{item}}-position.md"
+  - id: mailcheck
+    phase: Challenge
+    agent_type: general-purpose
+    model: haiku
+    template: unblock-mailcheck-prompt-template.md
+    depends_on: [diagnose]
+    output: "{{scratch_dir}}/mailcheck.json"
+    schema:
+      type: object
+      required: [slugs]
+      properties:
+        slugs:
+          type: array
+          items:
+            type: string
+  - id: challenge
+    phase: Challenge
+    agent_type_from: inputs.roster
+    model: opus
+    template: unblock-challenge-prompt-template.md
+    fan_out:
+      over: stage.mailcheck.return.slugs
+    depends_on: [mailcheck]
+    output: "{{scratch_dir}}/{{item}}-position.md"
+  - id: synthesis
+    phase: Synthesis
+    agent_type: coordinator:eng-director
+    model: opus
+    template: unblock-synthesis-prompt-template.md
+    depends_on: [challenge]
+    output: "{{scratch_dir}}/synthesis.md"

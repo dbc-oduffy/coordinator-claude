@@ -3,10 +3,10 @@ title: /delegate-execution procedure
 created: 2026-05-06
 type: doctrine
 related:
-  - plugins/coordinator/commands/delegate-execution.md
-  - plugins/coordinator/agents/executor.md
+  - plugins/coordinator-claude/coordinator/commands/delegate-execution.md
+  - plugins/coordinator-claude/coordinator/agents/executor.md
   - docs/wiki/dispatching-parallel-agents.md
-  - plugins/coordinator/skills/review-code/SKILL.md
+  - plugins/coordinator-claude/coordinator/skills/review-code/SKILL.md
   - coordinator/skills/enrich-and-review/SKILL.md
 ---
 
@@ -21,6 +21,7 @@ Executors dispatched via this procedure carry the meta-ask preamble (see `snippe
 When invoked, dispatch executor agents to implement enriched and reviewed stubs.
 
 If `$ARGUMENTS` is provided:
+
 - Specific stub IDs (e.g., "2A 2B 2C") → execute only those stubs
 - A directory path → execute all ready stubs in that directory
 - "all" → execute everything with status "Enriched and reviewed"
@@ -77,6 +78,7 @@ Vague specs invite hallucinated completion — agents with vague instructions wi
 **Briefs touching an existing surface MUST name the pre-existing regression-net test file(s) in the verification step — not just newly-authored tests.** Executors verify exactly what they are told to verify. A brief that says "run the new tests" gets green-on-new while the executor's change silently breaks the existing regression net, because the executor never ran it. The blind spot is structural: the executor's verification surface is the brief's verification surface. When a chunk modifies an existing module, enumerate the pre-existing test file(s) covering that module by path in the brief's verification step alongside any new tests, so the executor runs both.
 
 **For independent stubs** (no shared dependencies):
+
 - Dispatch executor agents in parallel using Task tool with `run_in_background: true`
 - Use `subagent_type: "executor"` and the model selected by the rubric above
 - Each executor receives:
@@ -88,12 +90,14 @@ Vague specs invite hallucinated completion — agents with vague instructions wi
   - Instruction: "Follow the executor agent protocol. Read the stub completely before writing code. Your chunk codename is '{codename}' — use it for the canonical tracker sweep."
 
 **For dependent stubs** (shared files or sequential prerequisites):
+
 - Dispatch a **fresh executor per stub/chunk**, one at a time, waiting for completion before starting the next — never one long-lived agent handed chunk after chunk (the overload in slow motion: context accumulation, growing blast radius, degrading judgment).
 - **Distinguish the two dependency kinds before serializing.** A *shared-file* dependency is genuinely serial — file-overlap is the unconditional gate. But a *pure sequential-prerequisite* dependency (B consumes A's output/contract, disjoint files) only gates B's **verification**, not its **authoring**: if A's interface is pinned (full signature written down, authorable-against without asking the producer), B can be authored concurrently with verification concentrated at merge. **By default, author pinned-interface consumers concurrently** — serialize into a predecessor wave only when the interface can't be confidently pinned, or per-chunk blast-radius isolation is worth the serialization on a high-stakes surface. → `docs/wiki/dispatching-parallel-agents.md` § Dispatch-Gate Taxonomy (Author vs. verify).
 - Pass any relevant context from the previous executor's output
 - **A single coupled stub that exceeds the per-executor budget (~5-10 min / one coherent surface, 15 min hard ceiling) is itself decomposed into a sequence of fresh-agent dispatches with EM verify-between.** "Can't parallelize" ≠ "one dispatch" — coupling removes concurrency, not decomposition. This is lighter than the Opus-tech-lead pattern below; reserve that for genuinely large stubs needing a dedicated coordinating context. → `docs/wiki/dispatching-parallel-agents.md` § Coupling Rules Out Concurrency, Not Decomposition.
 
 **For very large stubs with natural seams** (Opus tech lead pattern):
+
 - **Dispatch a dedicated Opus agent as tech lead** — do NOT supervise from the coordinator session directly. The coordinator's context is the scarcest resource in the system; filling it with sub-task orchestration for one large stub wastes capacity that should be reserved for cross-stub decisions, PM conversations, and portfolio-level orchestration.
 - The Opus tech lead receives the full enriched stub spec and owns the deliverable end-to-end:
   - Decomposes the stub into sequential sub-tasks at seam boundaries
@@ -120,6 +124,7 @@ Tracker README: | chunk-2A | Execution in progress (attempt 2/3) | ... |
 **Sidecar alternative (plan-based fan-out):** when there is no tracker README, track attempt counts in the EM's wave-map entry (`skills/execute-plan/SKILL.md` § Phase 1.6) and in the per-chunk run-report sidecar at `state/subagent-share/<session-id>/<provision_key>.md`. See § Flight-Recorder Sidecars below.
 
 After the 3rd attempt, regardless of outcome:
+
 - If still failing: escalate to PM with full dispatch history
 - Do NOT re-dispatch. The problem is structural, not fixable by another executor run.
 - Document all 3 attempts in the stub's `## Execution History` section
@@ -127,6 +132,7 @@ After the 3rd attempt, regardless of outcome:
 **Exception:** The Phase 3 step-4 self-correction loop for deterministic validation failures (type errors, lint) counts as part of one dispatch attempt, not separate attempts. The budget counts coordinator-level re-dispatches, not executor-internal fix iterations.
 
 **Worked example — how budgets nest:**
+
 1. **Dispatch 1 (attempt 1/3):** Executor internally retries fixable errors up to 3-5 times per its own Deterministic Failure Recovery protocol. Reports DONE but validation fails at coordinator level.
 2. **Dispatch 2 (attempt 2/3):** Coordinator re-dispatches with validation errors. Executor retries internally, reports DONE. Validation still fails.
 3. **Dispatch 3 (attempt 3/3):** Coordinator re-dispatches again. If this attempt also fails → PM escalation. No 4th dispatch regardless of failure mode.
@@ -148,6 +154,7 @@ The coordinator then performs the semantic spec compliance check (step 2 below) 
 **Why Haiku:** `git diff`, `tsc --noEmit`, and reading file:line are mechanical. Delegating this data-gathering saves coordinator context for the judgment calls (spec intent matching, gap identification).
 
 **Dispatch template:**
+
 ```
 Agent(
   model: "haiku",
@@ -196,12 +203,14 @@ Agent(
 ```
 
 **If Haiku reports "Stub lacks Acceptance Criteria section":**
+
 1. Check the stub's enrichment status line — was it previously enriched?
    - **If enriched and reviewed:** Spec regression. The enricher should have added ACs. Re-dispatch enricher for this stub only (targeted re-enrichment), then re-queue for execution.
    - **If not enriched:** Hard stop — this stub bypassed the pipeline. Do not execute. Report: "Stub {id} reached execution without enrichment. Pipeline violation."
 2. Do NOT proceed with execution without acceptance criteria — they are the verification contract.
 
 **On DONE/DONE_WITH_CONCERNS report:**
+
 1. Read the executor's completion report + **Haiku verification report**
 2. **Spec compliance check** — the Coordinator verifies (using Haiku data as input):
    - Did the executor implement everything the stub specifies?
@@ -221,6 +230,7 @@ Agent(
 **Anti-dodge framing for executors:** When an executor hits an unexpected gate, BLOCKED is the correct answer — substrate switches are dodges. An executor reaching for a different tool, language, or implementation pattern when the spec's named approach hits resistance is hiding a spec problem behind a self-authorized scope expansion. Pair with a sanity-floor: "if the stated approach can't make it past <named gate>, return BLOCKED with the gate quoted, do not switch substrates."
 
 **On BLOCKED report:**
+
 1. Read the structured escalation report (BLOCKED format)
 2. **Persist attempted approach:** Extract the "Attempted" field from the BLOCKED report and add to the task's `metadata.tried_and_abandoned` via TaskUpdate. Format: `"Tried: [attempted approach] — Blocked: [blocker]"`
 3. Diagnose the issue:
@@ -228,14 +238,17 @@ Agent(
    - **If requires architectural decision:** Make the decision (or escalate to PM), update the stub, then re-dispatch
    - **If fundamental spec problem:** Flag for PM/Coordinator review, do not re-dispatch until resolved
 4. When re-dispatching after BLOCKED, include in the executor prompt if `tried_and_abandoned` is non-empty:
+
    ```
    ANTI-REPETITION: The following approaches were tried on this stub:
    {paste tried_and_abandoned entries}
    The spec has been updated to address the blocker. Use the updated spec, not the old approach.
    ```
+
 5. Document what was changed in the stub and why
 
 **On THRASHING REPORT (self-detected):**
+
 1. Check the executor's return message for post-mortem details (detection type, approaches tried, last error)
 2. **Persist failed approaches:** For each item in the post-mortem's "Approaches tried" list, add to the task's `metadata.tried_and_abandoned` via TaskUpdate. Format: `"Tried: [approach] — Failed: [last error/state]"`. This survives compaction and prevents re-dispatched executors from repeating dead approaches.
 3. Triage by the diagnosis:
@@ -243,11 +256,13 @@ Agent(
    - **environment problem** → investigate the environment issue (missing dependency, permissions, file state) before re-dispatching
    - **architectural gap** → escalate to PM — the stub may need redesign, not just a spec patch
 5. When re-dispatching after THRASHING, include in the executor prompt:
+
    ```
    ANTI-REPETITION: The following approaches were tried and failed on this stub:
    {paste tried_and_abandoned entries}
    Do NOT repeat these approaches. See stub ## Execution Post-Mortem for details.
    ```
+
 6. The re-dispatch budget (3 attempts total) applies — check the tracker README for the current attempt count before re-dispatching.
 
 ### Scope-Conformance Check — After Every Executor Returns (example-repo T1.5)
@@ -281,6 +296,7 @@ After all stubs are executed:
 Executors own their tracker updates (status, commit hashes). The coordinator's role here is verification, not data entry — but verification must be **thorough**.
 
 **5.1: Dispatch tracker verification**
+
 1. Read the dispatch tracker — confirm each executor updated its own status
 2. Fix any gaps (executor crashed before updating, or was dispatched without tracker path)
 3. Note any stubs that remain blocked or require PM decision
@@ -288,10 +304,12 @@ Executors own their tracker updates (status, commit hashes). The coordinator's r
 
 **5.2: Canonical tracker sweep verification**
 For each completed stub, grep its codename across canonical trackers to confirm the executor ran its sweep:
+
 ```bash
 ls tasks/*/todo.md docs/roadmap.md ROADMAP.md 2>/dev/null   # the trackers this sweep reads
 grep -in "<codename>" tasks/*/todo.md docs/roadmap.md ROADMAP.md 2>/dev/null
 ```
+
 - Report the tracker list beside the result. Zero trackers is NOT-APPLICABLE, stated as such: an
   empty grep over no files prints the same nothing as a clean sweep.
 - If a canonical tracker still shows the item as pending/unchecked despite the executor reporting DONE, fix it now
@@ -370,6 +388,7 @@ The required sequence:
 3. **Run `review-findings-ledger verify --sidecar <path>`** against the reviewer's own ledger — never an inline finding list.
 
 The dispatched reviewer's pass itself handles:
+
 - Applying tradeoff-free correctness fixes silently
 - Writing an escalation list for the EM (items needing PM input or genuine disagreement)
 
@@ -491,3 +510,7 @@ and it took a follow-up fix to actually remove it from the tree.
 Git Bash's bundled OpenSSH cannot read 1Password's Windows named pipe (`\\.\pipe\openssh-ssh-agent`). `coordinator-auto-push` detects Git Bash + SSH remote and routes through `powershell.exe -NonInteractive -NoProfile` (Windows OpenSSH has access to the credential manager via the pipe). HTTPS and Linux/macOS go direct.
 
 The post-commit hook delegates to `coordinator-auto-push`; repo-setup installs it on new repos.
+
+## Field rules
+
+- **Reach a ported engine op by the cheapest existing seam:** in-process import, then an existing multi-verb CLI, then the general invoke router; a bespoke per-op trampoline is the last resort.

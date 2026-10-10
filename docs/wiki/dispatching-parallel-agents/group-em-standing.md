@@ -42,6 +42,13 @@ claims and confused-deputy propagation — a compromised or manipulated agent as
 does not hold — are documented risks in the wider multi-agent literature; resolving from the
 record rather than the claim is the mitigation available here.
 
+The record proves who claimed the standing, not who granted it. Authority also needs proof that a
+human typed `/group-em` in the holder's own session, which only the harness can stamp
+(`origin.kind: human` on the holder's transcript). The engine's `read_authoritative` checks for that stamp,
+and the SessionStart presence line grants the PM-delegated clause only when it is found. Any other
+claimant is unverified and gets treated as an ordinary peer. Tripwire:
+`GROUP-EM-AUTHORITY-REQUIRES-A-HUMAN-TYPED-ENTRY`.
+
 ## Every peer is told at boot, in one line
 
 `assert-em-role.py` emits `G-EM active: <name> (<session prefix>)` at SessionStart, iff a live
@@ -96,3 +103,39 @@ acknowledgement storm, an accidental relay hop into a conversation that already 
 channel, a smuggled nudge riding a gate-exempt broadcast, a double-counted offer against the
 digest, and a peer that joins the roster later never learning who holds the crown. A name is not
 an identity — see the section above.
+
+## Slot discipline: kill and cap timers
+
+**Kill by process tree, not parent PID.** `taskkill /T` walks the Win32 parent chain only. MSYS-detached
+children (bash subshells, `sleep` cap timers) survive it, hold the run's log files open, and fail the
+relaunch. Kill a run by matching its tree on command line, creation time, or a job object, and census
+the process table for survivors before relaunching. A kill helper that is code is claude-klabauter's portable
+Python; the rule is stated here. Tripwire: `A-TREE-KILL-MUST-REACH-MSYS-CHILDREN`.
+
+**The HOLD wait lives in the outer driver, ahead of any cap timer.** A cap timer started before a
+HOLD-file wait counts down while the run is held, so the run is capped before it starts. Wait for
+release first, then start the timer. Tripwire: `A-CAP-TIMER-STARTS-AFTER-THE-HOLD`.
+
+**CPU is a slot class: at most about 2 CPU-heavy runs hold the box at once, whatever memory is free.**
+CPU-heavy: builds and cooks, indexer workers and reindexes, extraction, bundle/gzip, engine publishes,
+batches of headless-browser runs, and CPU model inference (its BLAS threads take every core unless
+`OMP_NUM_THREADS`/`MKL_NUM_THREADS` cap them). Group EM releases waiting peers in order as a slot frees, and a
+slot is held only by a live PID — a dead holder frees it. Its box `Monitor` emits `CPU HIGH` when load
+holds at or above 85% for a minute and `CPU OK` when it falls below 70%; a CPU slot is released only
+after `CPU OK`. Tripwire: `A-CPU-HEAVY-RUN-TAKES-A-CPU-SLOT`.
+
+**The GPU is a slot class of one: one VRAM-heavy run holds it at a time.** VRAM-heavy: a UE editor
+or cook on a hardware RHI, a GPU embedder or its sidecars, model inference. A GPU run also takes a
+CPU slot. Read VRAM with `nvidia-smi --query-gpu=memory.used,memory.total --format=csv`; a run that
+exhausts VRAM alone (an editor batch growing per item) is batched smaller, never re-run whole. A
+software renderer (`--use-angle=swiftshader`) holds no GPU slot but rasterises on every core: pin
+its root's affinity (`start /affinity F`) so the children inherit it. The shared project-rag embed
+sidecars hold VRAM and respawn on the next query, so a kill frees nothing: their owner parks them with
+`project_rag_scripts/park_embed_sidecars.py park --minutes N --holder <session>` (repo from
+`machine-local get repos.project_rag`), which lapses on its own. Tripwire:
+`A-VRAM-HEAVY-RUN-TAKES-THE-GPU-SLOT`.
+
+**A slot END states `items=<succeeded>/<attempted>`, and an all-refused batch exits non-zero.** A
+batch that refuses every item inside its loop still exits 0, so the exit code alone frees the slot
+as a success. The Group EM judges a run by `items=`. Tripwire:
+`A-SLOT-END-REPORTS-ITEMS-NOT-ONLY-THE-EXIT-CODE`.

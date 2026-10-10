@@ -92,8 +92,7 @@ hook-quoting issue is solving an already-solved problem with a retired mechanism
 
 ## python-direct shims
 
-Wave 0 of the Windows de-bash campaign 
-rewrote the `.cmd`/`.ps1` shims for every `bin/*` entrypoint that is a pure `.py` file or an
+Wave 0 of the Windows de-bash campaignrewrote the `.cmd`/`.ps1` shims for every `bin/*` entrypoint that is a pure `.py` file or an
 sh/python polyglot to be **python-direct**: they resolve an interpreter and run the entrypoint
 directly, with `py -3` demoted to a last-resort tier instead of being the primary route the older
 "What the shims do" section above describes. `gen-launcher-shim.py` is the generator for this
@@ -185,7 +184,7 @@ sweep confirmed zero `~/.claude/bin` writes, AC6). Step 3b (Windows-only conditi
 settings-home bin dir to the Windows user `PATH` if not already present. Both are idempotent.
 `python3.exe` lands beside the real interpreter (never the settings-home bin dir — the loader
 resolves DLLs and the stdlib relative to the executable's own folder, so a shim dir won't work)
-via a separate, claude-klabauter-owned install leg (`coordinator_core/ops/ensure_python3_exe_shim.py`)
+via a separate, engine-owned install leg (`coordinator_core/ops/ensure_python3_exe_shim.py`)
 — not `coordinator:install` Step 3.
 <!-- Review: code-reviewer — Finding 1: this sentence still claimed the `.cmd` twins land in
      `~/.claude/bin/`, contradicting the sibling "sit unused in the settings-home bin/" sentence
@@ -209,9 +208,11 @@ The `python3.exe` PE covers the PATH-lookup case for `python3` (see "The three `
 When a caller invokes `python3` via `ShellExecute` (Node `child_process.exec`, .NET `Process.Start(UseShellExecute=true)`, PowerShell `& python3` in some contexts), Windows consults the AppX App-Execution-Alias subsystem **independently** of PATH lookup — the two are separate subsystems, not a fallthrough chain. If a `%LOCALAPPDATA%\Microsoft\WindowsApps\python3.exe` stub exists (reparse point registered by an AppX package such as PythonSoftwareFoundation.PythonManager / Python.3.x), the AppX path wins. If the stub's target AppX package is uninstalled or its alias is broken, Windows falls back to "how do you want to open this?" — the picker fires **without** falling through to PATH. The shim on PATH is never reached.
 
 **Detection on operator's box:**
+
 ```powershell
 Get-Item "$env:LOCALAPPDATA\Microsoft\WindowsApps\python3.exe" -Force -ErrorAction SilentlyContinue | Select-Object Name, Length, Target, LinkType
 ```
+
 Length 0 + LinkType ReparsePoint + no Target ⇒ orphan stub. Delete with `Remove-Item -Force`. If you reinstall Store Python the stub regenerates — re-clean. The `/setup` Step 3c health check encodes this same three-condition detection.
 
 ### 2. Store-alias on `command -v` resolution
@@ -219,11 +220,13 @@ Length 0 + LinkType ReparsePoint + no Target ⇒ orphan stub. Delete with `Remov
 A subset of operators have `%LOCALAPPDATA%\Microsoft\WindowsApps` on the **MSYS PATH** (git-bash inheritance from Windows PATH ordering). In that case `command -v python3` from bash returns the stub path — non-empty, so any `command -v python3 || command -v python || echo python` guard "succeeds" with the stub. The stub then gets invoked → picker.
 
 **Mitigation in runtime scripts:** filter PATH results against `WindowsApps`:
+
 ```bash
 case "$_path" in
     */WindowsApps/*|*\\WindowsApps\\*) continue ;;
 esac
 ```
+
 **Prefer:** detect `py.exe` (the Python Launcher bundled with python.org installer) first; only fall through to filtered `command -v` lookup.
 
 ### 3. The bare-`python3` doctrine

@@ -39,7 +39,8 @@ repo's `state/`) regardless of sweep status.
 
 | Artifact class | Post-migration home | Notes |
 |---|---|---|
-| **Central/global state** (`state/lessons/`, `state/trackers/`, `state/queues/`, `state/ledgers/`, `state/memos/`, `state/scratch/`, `state/debt-backlog/`, `state/bug-backlog/`, `state/improvement-queue/`, `state/lessons-outbox/`) | **the engine repo — unconditionally** | Central state for all coordinator-installed repos. `CLAUDE_KLABAUTER_ROOT` is the root; `coordinator-state-root.py --central`'s output is the write target. *Mechanism lag: the subject-classification seam rewire is pending the doe-authoring-repo spinoff — `coordinator-state-root.py --central` routes here unconditionally until that spinoff lands (see § Plan Homes).* |
+| **Central/global state** (`state/lessons/`, `state/trackers/`, `state/queues/`, `state/ledgers/`, `state/memos/`, `state/scratch/`, `state/debt-backlog/`, `state/bug-backlog/`, `state/improvement-queue/`) | **the engine repo — until the subject delegation lands** | Central state for all coordinator-installed repos. `CLAUDE_KLABAUTER_ROOT` is the root; `coordinator-state-root.py --central`'s output is the write target. *Per-class routing today: central `state/improvement-queue/` and the rest of this row go to the engine repo until the engine's native ops delegate central resolution to `coordinator-state-root.py --subject` (see the Resolver Seam sequencing note). `state/lessons-outbox/` is the exception — it already lands in the doctrine repo (next row).* |
+| **Central lessons outbox** (`state/lessons-outbox/`) | **the doctrine repo** — `<doctrine-repo>/state/lessons-outbox/` | The engine's native `queue_promote` outbox root and the `coordinator-lesson-promote` CLI both resolve through the doctrine-repo root, not `CLAUDE_KLABAUTER_ROOT`. Not a candidate for the central-state flip: it is already doctrine-homed. |
 | **Per-repo work state** (`state/` under a sibling project). Includes session-scoped `state/handoffs/`, `state/orientation_cache.md`, `state/review-trail/`, `state/week-changelog/`, `state/audits/`, `state/recovery/` — resolved via `coordinator-state-root.py` (no flag), which for the meta-repo still redirects to the engine repo but for a sibling stays local. | **Unchanged for siblings** — `$GIT_ROOT/state/` | example-os-repo, project-rag, example-game-repo, etc. all keep writing their own `state/`. Only when `$GIT_ROOT` IS the meta-repo (`~/.claude`) does per-repo state redirect to the engine repo. **Exception — install-baton rendezvous:** the shared `state/handoffs/` rendezvous that a downstream repo's installer seeds an install/orient `kind: spinoff` baton into is NOT this per-repo `$GIT_ROOT/state/` and NOT row-36 central engine-repo state — it is machine-shared install substrate at `$(coordinator-settings-home)/state/handoffs/`, distinct from both. See the dedicated **Install-baton rendezvous** row below. **Distill-reap exception — `state/review-trail/` (historical; superseded home is `state/subagent-share/`, see below):** `state/review-trail/findings/*.md` sidecars carrying a `## Integrator Dispositions` block (already integrated into a plan by the review-integrator) ARE reaped by `/distill`'s targeted `bin/reap-integrated-review-findings.py` (`PIPELINE.md` § Phase 5 step 10) — a surgical, named, post-integration reap of one artifact class, distinct from a `/distill` directory purge, and history-preserving (`git rm`, not `rm -rf`). **Disjoint complement — engine-owned, marker-ABSENT-and-aged:** the never-integrated tail — `state/review-trail/findings/*.md` sidecars that are marker-absent AND aged >14d — is reaped by the engine repo's `fleet.reap_unintegrated_findings` op (sanctioned by the engine repo, run on the engine repo's `session.boot_sweep` cadence at session-init + `/workday-start`), NOT by `/distill`. Age is filename-derived only (checkout-invariant — a fresh clone's recent mtimes never disable it — via a three-tier date cascade, fail-closed-to-keep on a genuinely date-less name), the delete is history-preserving (`git rm`, never `-f`, so a concurrently-modified sidecar fails closed and is retained), and each candidate gets an act-time terminality re-verify so a sidecar that gains the `## Integrator Dispositions` marker between scan and reap is skipped. Two disjoint reapers over one artifact class: leg (a) reaps marker-PRESENT (doctrine-repo-owned, `/distill`); leg (b) reaps marker-ABSENT-and-aged (engine-owned, boot_sweep) — no overlap, nothing double-reaped. **`state/review-trail/` is a closed corpus** — nothing writes it; the live home for every provisioned sidecar is `state/subagent-share/`. The two reap legs above govern what is already there. |
 | **Per-repo work state — `state/subagent-share/`** (provisioned subagent run-report sidecars: review findings, staff-eng-review, and general run-reports) | **Unchanged for siblings — `$GIT_ROOT/state/subagent-share/<session>/<provision_key>.md`** (per-repo, same resolver as the row above) | **Not provisioned here:** the plan-pipeline sidecar-emitters — prior-art-check, plan-coverage-check, docs-check (and, when it fires, external-pattern) — do not provision here; their OUTPUT home is the plan-derivable `.coordinator-local/plan-sidecars/<plan-stem>.<lens>.md` (see the **Per-repo work state — `.coordinator-local/plan-sidecars/`** row below), because their path is derivable from the plan itself rather than session-keyed. Reaped by `bin/reap-stale-subagent-sidecars.py` (engine-repo-resident; shipped by chunk C7) under the general delete-by-convention reap rule (see § Delete-by-Convention Reap Doctrine below): ephemeral scaffolding whose durable content has already folded into a consuming artifact (the review-integrator's Disposition block, an executor's doc-handoff contract, etc.) is deletable, gated on session liveness AND/OR an age floor — never `status:` alone. Wired into `/distill` Phase 5, `/update-docs`' sweep, a `/workweek-complete` cron step, and on-demand invocation. |
 | **Per-repo work state — `.coordinator-local/plan-sidecars/`** (plan-pipeline lens sidecars: prior-art-check, plan-coverage-check, docs-check, and — when it fires — external-pattern) | **`$GIT_ROOT/.coordinator-local/plan-sidecars/<plan-stem>.<lens>.md`** (per-repo, gitignored machinery root, plan-derivable — the engine repo's `provision_report`/`machinery_paths.plan_sidecars_dir` is the single path-deriving surface, D0/Z2) | **UNREAPED BY DESIGN** — not swept by `bin/reap-stale-subagent-sidecars.py` or any age/liveness-gated reaper, and deliberately NOT widened into that reaper's scope (the Director of Engineering Z1, rejecting the alternative of folding this class into row above). Rationale: these sidecars ARE the prior-art-checker / plan-coverage-checker false-positive-arbitration feedback-loop archive (`coordinator/agents/prior-art-checker.md:316`, "Never delete a prior sidecar") — a second run of the same lens against the same plan must find the first run's verdict at the same plan-derived path (rename-on-existing, never delete). Deleting them on an age/liveness floor would destroy exactly the cross-run continuity the feedback loop depends on.  Single-machine by the 2026-09-02 fleet-machinery-sweep's relocation off tracked `state/`: the durable copy is the machine that wrote it, not git — `.gitignore` ignores this path accordingly. **`completeness` kind — different write semantics, same bucket:** `machinery_paths.plan_sidecars_dir(repo_root)/<plan-stem>.completeness.md`, one file per plan, is **overwritten in place on every `generate`** — never rename-on-existing, never archived, unlike the prior-art/coverage/docs-check kinds above. Regenerable and derived; explicitly non-authoritative over the spine (`plan-completeness-ledger.md`). |
@@ -54,9 +55,8 @@ repo's `state/`) regardless of sweep status.
 
 **Summary rule:** working data moves to the engine repo; the coordinator plugin source is doctrine-repo-resident (resolved live via `--plugin-dir`); decisions moved to the doctrine-repo clone (see the Decisions row above); other doctrine surfaces (settings, harness config) remain in `~/.claude`.
 
-
 > **`docs/wiki/` is source-only — the naming-collision trap.** The doctrine-repo clone is the coordinator doctrine source of truth; `~/.claude` is the live-install and post-cutover carries no durable coordinator-owned artifact — the one residual, `.content-root`, is a disposable regenerated mirror of the settings-home anchor (see `coordinator-installer-shape.md`). Both trees are named "coordinator-claude"; they are not the same tree. A bare `coordinator/docs/wiki/<name>.md` citation resolves against the doctrine-repo clone only — grepping it under `~/.claude` finds nothing, and that absence is NOT evidence the doctrine doesn't exist. Cross-repo citations must repo-qualify to avoid a false stand-down — see `cross-repo-citation-conventions.md § When to qualify`.
-
+>
 > **Negative-spec (soft-seam):** The authoritative-mutation subset — terminal work-state write + lifecycle stamp (e.g. `cross-repo-memo`'s emit-and-stamp op) — is a strangler candidate that may later relocate to the engine repo's ops without violating this placement law.
 
 ---
@@ -143,7 +143,8 @@ encapsulated inside `machine-local get`):
 1. `$COORDINATOR_ENGINE_ROOT` env var if already set (gated by
    `[[ -z "${COORDINATOR_ENGINE_ROOT:-}" ]]` per `machine-local-registry.md §4b`). The retired
    `CLAUDE_KLABAUTER_ROOT` spelling is not a fallback rung here or anywhere else.
-2. `machine-local get repos.claude_klabauter` — the registry lookup; internally runs the §4c
+2. `machine-local get repos.claude_klabauter` — the registry lookup (the key lives in
+   `<settings-home>/machine-local/registry.local.toml`); internally runs the §4c
    four-rung discovery ladder (explicit flag → OS-keyed search-roots + marker autodiscovery →
    tracked exceptions → `.local.toml` fallback). Do NOT re-implement the inner rungs as outer
    steps; `machine-local-registry.md §4c` is the SSOT.
@@ -190,22 +191,24 @@ full taxonomy, now subject-aware:
 The meta-repo discriminator (`coordinator_is_meta_repo`) canonicalizes both sides (realpath before
 comparison) and fails loud on an empty or unresolvable git root — never silently defaults.
 
-> **Sequencing note — capability landed, live caller-switch pending.** The subject-aware
-> routing above is the *mechanism* (W2.1–W2.3-shell, landed + tested). No central-loop caller passes
-> `--subject`/`--artifact` yet, so doctrine central writes still land in the engine repo until the switch. The
-> live flip is deliberately sequenced **after** the W3 migration populates the doctrine plane and the doctrine-repo
+> **Sequencing note — capability landed, central improvement-queue flip held.** The subject-aware
+> routing above is the *mechanism* (W2.1–W2.3-shell, landed + tested). lessons-outbox already lands in the
+> doctrine repo; central improvement-queue still lands in the engine repo. The live flip is deliberately
+> sequenced **after** the W3 migration populates the doctrine plane and the doctrine-repo
 > clone is fleet-wide — switching callers before then would WARN+skip (silently drop) doctrine writes
-> on any machine without the doctrine repo cloned. The two named central-loop CLIs (`coordinator-lesson-promote`,
-> `coordinator-queue-append`) are **Python with their own engine-repo resolution** — they do not call this
-> shell seam, so routing their doctrine writes to the doctrine repo needs a Python-side subject-router (post-W3).
+> on any machine without the doctrine repo cloned. The remaining move is
+> the engine's native ops delegating central resolution to `coordinator-state-root.py --subject`; it is also
+> gated on cache-invalidation for the engine's zero-spawn resolution cache when the doctrine plane comes online.
 
 **Central write target for any central-state artifact** (`coordinator-state-root.py` is
 engine-repo-resident; resolve `$REPO_CLAUDE_KLABAUTER` first):
+
 ```
 $(python3 "$REPO_CLAUDE_KLABAUTER/coordinator/lib/coordinator-state-root.py" --central)/<artifact-path>
 ```
 
 **Per-repo write target (meta-repo or sibling):**
+
 ```
 $(python3 "$REPO_CLAUDE_KLABAUTER/coordinator/lib/coordinator-state-root.py")/<artifact-path>
 ```
@@ -227,6 +230,7 @@ echo "$data" > "$CENTRAL_ROOT/improvement-queue/$id.yaml"
 ```
 
 This applies to:
+
 - the engine repo's `coordinator-doc-new` (handoff, plan, cross-repo-memo scaffolders)
 - `/handoff`, `/plan`, `/workday-complete`, `/workstream-complete` skills
 - the engine repo's `coordinator-lesson-promote`, `coordinator-queue-append`
@@ -270,6 +274,7 @@ the one-sided-rendezvous hazard this class exists to name.
 
 
 These surfaces are NOT subject to the placement law:
+
 - Plugin source: `bin/`, `lib/`, `hooks/`, `skills/`, `agents/` — **doctrine-repo-resident** (resolved live via `--plugin-dir` from the doctrine-repo clone; NOT a `~/.claude`-resident surface in the current tooling shape — see § Taxonomy).
 - Plans/research/problems: `docs/{plans,research,problems}/` in the doctrine-repo clone — the one home, whatever the deliverable edits (see § Plan Homes). NOT the meta-repo top-level `~/.claude/docs/plans/`, which moved to the engine repo.
 - Wikis: `docs/wiki/` (both coordinator plugin and meta-repo)

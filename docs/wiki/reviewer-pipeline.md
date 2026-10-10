@@ -15,6 +15,7 @@ This wiki is the single authoritative source for the phases that run identically
 **Skill consolidation note.** `/review` and `/review-code` are a single skill, internally `--surface`-branched (plan-shaped vs code-shaped). The phase content this wiki hosts applies identically to both surfaces; only the invoking-skill packaging differs, not the phase numbering or content described above.
 
 **Scope boundary:** This wiki carries numbered phases with their inline framing prose (rationale paragraphs, EM Decision Step tables, On-failure clauses, write-ahead status). It does NOT carry:
+
 - The reviewer routing table — lives in each skill's Branch A.2.
 - The sequential-dispatch HARD RULE — lives in each skill's Branch A.3.
 
@@ -23,6 +24,8 @@ This wiki is the single authoritative source for the phases that run identically
 ## Phase 2.4: Comprehensiveness Auditor (Sonnet, DRAFT — not yet wired)
 
 > **Status: DRAFT.** PM has approved the concept; the implementation has not landed yet. The design below is the spec for a follow-up session to pick up and wire — standard `/plan` + reviewer chain applies. Not staff-session-gated; this is a normal new-skill scaffold, not an architectural decision.
+>
+> **Subsumed by `plan-reviewer`:** the coverage checklist below is carried as a named lens under `agents/plan-reviewer.md` § Lenses (the eight table rows under § Coverage checklist), run on the accepted-XL and `spec-dispatch` lanes (see `coordinator/docs/wiki/plan-reviewer.md`). `plan-reviewer` is advisory and does not block downstream reviewer dispatch, so the "blocks dispatch" clause under § Output sidecar does not carry over. This block stays as the design record; do not build a standalone `comprehensiveness-auditor`.
 
 **Problem this targets.** docs-checker and prior-art-checker both work on what IS in the plan. The Staff Engineer reasons from the plan's claims forward. None of them is structurally well-positioned to ask *what's missing* — the plan didn't write about X, so no reviewer's grep over the plan body surfaces X. The empirical failure shape: plans pass docs-check + prior-art + the Staff Engineer review with no findings, then the executor returns BLOCKED on a substrate gap that any senior engineer would have flagged at draft time ("you didn't say anything about the rollback path", "this plan doesn't address the consumer migration"). The gap is a missing-coverage problem, not a wrong-claim problem.
 
@@ -108,11 +111,13 @@ _Last calibrated: 2026-05-03 against Claude Opus 4.7 (1M context) training distr
 **Heuristic, not law.** The EM applies judgment: scale (1-page stub vs 30-page spec), complexity (3 API calls vs 50), distance from training (UE 5.6 features vs `Array.prototype.map`). When in doubt, run it — it's cheap. **Skip is silent — no flag needed, no justification required.**
 
 **In practice:**
+
 - **C++/UE artifacts:** run docs-checker.
 - **Other languages:** EM judgment — bias toward running for unfamiliar SDKs and pinned versions; skip for routine in-distribution code.
 - **Pure prose artifacts:** skip — nothing to verify.
 
 **Dispatch:**
+
 1. Dispatch `docs-checker` agent with the artifact path
 2. docs-checker applies AUTO-FIX-class corrections inline and writes all edits as a single git-revertible commit
 3. docs-checker emits `state/review-findings/{timestamp}-docs-checker-edits.md` (changelog sidecar) and `state/review-findings/{timestamp}-docs-checker.md` (verification report)
@@ -163,6 +168,7 @@ Before dispatching expensive Opus reviewers, decide whether to run the **prior-a
 **Skip is silent.** No flag needed, no justification required. EM judgment.
 
 **Dispatch:**
+
 1. Dispatch `prior-art-checker` agent with the plan path.
 2. prior-art-checker reads the coordinator's accumulated internal doctrine and decision corpus; cross-references the plan; writes a sidecar at the plan-derivable `.coordinator-local/plan-sidecars/<plan-stem>.prior-art-check.md` home (D0).
 3. Sidecar verdict is `COMPATIBLE`, `WARN`, or `BLOCKED-SURFACE-TO-PM`.
@@ -178,7 +184,7 @@ Before dispatching expensive Opus reviewers, decide whether to run the **prior-a
 
 **The prior-art-checker is a feedback loop on wiki quality.** Repeated false-positive conflicts on a wiki entry are signal — surface to PM as a candidate for wiki revision (the wiki may be outdated, vague, or wrong). This is the recall side of the capture-recall loop; without it, captured wikis decay silently.
 
-**Fleet-capability-index input (cross-repo capability lens).** The prior-art-checker dispatch may optionally carry a `fleet_capability_index:` input — the path to the claude-klabauter-aggregated, persisted fleet-capability index, resolved and TTL-checked by the SKILL at dispatch time. When present, the Platform-capability bucket ("consume, don't rebuild") is consumed by the checker alongside the other buckets in the same pre-flight pass. Failure to resolve/read the index is additive and non-blocking — the checker proceeds without the bucket, matching the existing Phase 2.7b failure posture above. See `docs/wiki/reviewer-pipeline/prior-art-checker.md § Cross-repo capability lens` for the substrate and matching rationale.
+**Fleet-capability-index input (cross-repo capability lens).** The prior-art-checker dispatch may optionally carry a `fleet_capability_index:` input — the path to the engine-aggregated, persisted fleet-capability index, resolved and TTL-checked by the SKILL at dispatch time. When present, the Platform-capability bucket ("consume, don't rebuild") is consumed by the checker alongside the other buckets in the same pre-flight pass. Failure to resolve/read the index is additive and non-blocking — the checker proceeds without the bucket, matching the existing Phase 2.7b failure posture above. See `docs/wiki/reviewer-pipeline/prior-art-checker.md § Cross-repo capability lens` for the substrate and matching rationale.
 
 **Phase 2.7b note:** The reviewer applies prior-art-side edits itself AFTER its own pass, per the direction-of-correction it (and optionally the EM) named — including wiki/registry/lessons edits, logged in its own findings ledger like any other finding. No application pass runs *between* the prior-art-checker and the first named reviewer — pre-flight sidecars are not a sequential reviewer. The prior-art-check sidecar is archived alongside the review findings. Note: this contract applies to prior-art-checker WARN (Conflicts with five valid directions, passing through the reviewer unapplied); plan-coverage-checker INCOMPLETE has a different contract — see Phase 2.7d.
 
@@ -199,6 +205,7 @@ Before dispatching expensive Opus reviewers, decide whether to run the **prior-a
 | Plan is a doc redesign / wiki rewrite | Skip silently. | No fix-slate shape. |
 
 **Dispatch:**
+
 1. Dispatch `plan-coverage-checker` agent with the plan path.
 2. Agent parses oracle + slate, runs three lenses, writes sidecar at the plan-derivable `.coordinator-local/plan-sidecars/<plan-stem>.plan-coverage-check.md` home (D0).
 3. EM reads sidecar before dispatching the Opus reviewer.
@@ -238,6 +245,7 @@ Before dispatching expensive Opus reviewers, decide whether to run the **externa
 **This phase always runs AFTER Phase 2.7b (prior-art-checker).** It reads the prior-art sidecar as input; dispatching it before prior-art-checker runs produces an automatic SCOPE-MISMATCH abstain.
 
 **Dispatch (when both conditions hold):**
+
 1. Dispatch `external-pattern-checker` agent with the plan path. The EM does NOT pass the prior-art sidecar path as an argument — external-pattern-checker DERIVES it itself from the plan-stem convention (`.coordinator-local/plan-sidecars/<plan-stem>.prior-art-check.md`, D0), the same convention its own output home follows. This is the load-bearing proof that the plan-derivable convention closes the coupling gap that a passed-argument would have papered over.
 2. The agent locates and reads the prior-art sidecar via that derivation, identifies architecturally-loaded Silent claims, runs ≤ 2 WebSearch + ≤ 5 WebFetch, and writes a sidecar at the plan-derivable `.coordinator-local/plan-sidecars/<plan-stem>.external-pattern.md` home (D0).
 3. Sidecar verdict is `RESEARCH-RECOMMENDED`, `LIGHT-CONTEXT-AVAILABLE`, `NO-EXTERNAL-SIGNAL`, `DEGRADED`, or `SCOPE-MISMATCH`.
@@ -270,6 +278,7 @@ Before dispatching an expensive Opus reviewer, dispatch a **Haiku agent** to ver
 **When to run:** When the artifact is code or enriched stubs (not plans or docs — those are cheap to review regardless).
 
 **Haiku checks:**
+
 1. **Compilable/parseable** — does the code compile, typecheck, or lint clean? Run the project's validation command.
 2. **Enrichment complete** — are all placeholder/TODO markers in enriched stubs filled? (`grep -r 'TODO\|PLACEHOLDER\|TBD\|\[UNKNOWN\]'`)
 3. **Non-trivial** — is the artifact non-empty and substantive? (not a stub with only headers)
@@ -290,11 +299,13 @@ After each reviewer completes:
 
 2. **If valid JSON found:**
    - Render findings as a Markdown table for human reading:
+
      ```
      | # | File | Lines | Severity | Category | Finding |
      |---|------|-------|----------|----------|---------|
      | 0 | path/to/file.ts | 42-48 | critical | correctness | Description |
      ```
+
    - Write raw JSON to disk at: `state/review-findings/{timestamp}-{reviewer}.json`
      Create `state/review-findings/` directory if it doesn't exist.
    - Report: "Structured output parsed: N findings (X critical, Y major, Z minor, W nitpick)"
@@ -325,7 +336,7 @@ All reviewer output is wrapped in a `ReviewOutput` envelope: `reviewer`, `verdic
 
 - **`ReviewFinding`** (code reviewers — the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, domain reviewers): `file`, `line_start`/`line_end`, `severity`, `category`, `finding`, `suggested_fix`.
 - **`UXReviewerFinding`** (UX reviewer): `flow`, `step`, `file`/`line` (optional — UX findings aren't always code-anchored), `severity`, `category`, `finding`, `suggested_fix`.
-- **`ZoliOutput`** (backstop/DoE-tier dispatches): `subject`, `conservative_stance`, `ambition_challenge`, `tension_level`, `ai_capacity_argument`, `suggested_approach`, `common_ground`, `decision_needed`. The Director of Engineering's output is structurally a tension record, not a findings list — their job is to name the seize-the-moment-vs-defer tradeoff explicitly, not to enumerate line-level defects.
+- **`ZoliOutput`** (backstop and elevated-charter dispatches): `subject`, `conservative_stance`, `ambition_challenge`, `tension_level`, `ai_capacity_argument`, `suggested_approach`, `common_ground`, `decision_needed`. The Director of Engineering's output is structurally a tension record, not a findings list — their job is to name the seize-the-moment-vs-defer tradeoff explicitly, not to enumerate line-level defects.
 
 These schemas are what Phase 3.5's JSON-block parser expects; the field-drift normalization table in Phase 3.5 step 3 exists precisely because reviewers occasionally emit near-miss field names against this canonical shape.
 
@@ -366,11 +377,13 @@ finding and logged it — there is no separate integration dispatch. The EM:
 This phase applies when the primary reviewer (the Staff Engineer or a domain reviewer) has run and the chain calls for a backstop pass. It does NOT apply when the Director of Engineering was the standalone primary reviewer — in that case, those findings flow through the normal reviewer-applies-own-findings path (Phase 3.7) and Phase 4 is a no-op.
 
 When effort level is High AND a primary reviewer (not standalone the Director of Engineering) ran:
+
 1. Verify that the reviewer invoked their backstop partner (the Director of Engineering for the Staff Engineer; the Staff Engineer for domain reviewers; the UX Reviewer for the Front-End Reviewer; the Staff Engineer for the UX Reviewer)
 2. If the backstop was not invoked, prompt the reviewer to do so OR dispatch the backstop directly, describing the ambition-backstop posture in the brief's prose — never as a `mode` argument, which is the harness `Agent` tool's own parameter and errors the dispatch (see `routing.md` § the Director of Engineering Standalone vs. Backstop)
 3. If the backstop disagreed: both perspectives are surfaced to Coordinator/PM per the routing.md reconciliation protocol
 
 When effort level is Medium:
+
 - Backstop invocation is at the reviewer's (or EM's) discretion
 - No verification needed
 
@@ -390,6 +403,7 @@ Summarize the review with a **triage table** — every finding must have an expl
 Dispositions: **Applied** (fix implemented), **Captured** (deferred to backlog — state where), **Dismissed** (with reasoning).
 
 Then summarize:
+
 - Who reviewed, at what effort level
 - Disposition counts: N applied, N captured, N dismissed
 - What was escalated to PM (if anything)
@@ -497,6 +511,7 @@ printed `.diff` path and passes both paths explicitly into the synthesizer dispa
 chunks and write the `.weekly-reviewer-scopes.json` scope file under `state/review-trail/`.
 
 **Step B (parallel — single Agent batch):**
+
 - N × `code-reviewer-weekly` (Sonnet variant, Write-capable for findings files only):
   one instance per seam-first chunk of narrowed scope. Seam-first chunking is a **hard
   constraint** — non-negotiable. Each cross_segment_seam file plus the union of hunks
@@ -514,6 +529,7 @@ covered."
 Synthesizer (Sonnet) reads N chunk-reviewer files + 3 specialist files from disk. Per the
 no-rewrite contract: every finding appears verbatim (quote or omit, never paraphrase).
 Output JSON:
+
 ```json
 {
   "verdict": "BLOCKED|WARN|OK",
@@ -523,11 +539,13 @@ Output JSON:
   "requires_em_resolution": []
 }
 ```
+
 `arch_tier_candidates` collects verbatim `escalate_to_architecture` flags from chunk-reviewers.
 Convergence fires across chunk-reviewer × specialist (different lens domains) or when ≥2
 chunks independently flag the same seam file.
 
 **Step D (gate):**
+
 - `BLOCKED` → halts merge.
 - `WARN` → proceeds with warning in PR body.
 - `OK` → proceeds silently. Subvariant: `OK (the Staff Engineer trail-covered, mechanical clean)` when
@@ -583,9 +601,9 @@ plan-time reviews do not substitute for.
 
 Without the verbatim elevation, the reviewer falls back to default charter — even if the dispatching EM verbally framed the dispatch as elevated. The brief is the contract; chat context is not.
 
-**Authorization gate.** Elevation past charter is **PM-only**. The EM may surface elevation candidates (*"this artifact would benefit from DoE-tier the Director of Engineering, not ambition-backstop"*) but must wait for PM authorization before dispatching the elevated brief. EM-initiated elevation creates a doctrine hole where any EM can promote any reviewer to any charter ad hoc.
+**Authorization gate.** Elevation past charter is **PM-only**. The EM may surface elevation candidates (*"this artifact would benefit from an elevated-charter the Director of Engineering, not ambition-backstop"*) but must wait for PM authorization before dispatching the elevated brief. EM-initiated elevation creates a doctrine hole where any EM can promote any reviewer to any charter ad hoc.
 
-**Companion:** `prior-art-checker.md § Prior-art mutability` — for one specific elevated authority (DoE-override of prior-art-checker findings).
+**Companion:** `prior-art-checker.md § Prior-art mutability` — for one specific elevated authority (a director-level override of prior-art-checker findings).
 
 ## Problems-Only Mode
 
@@ -594,6 +612,7 @@ When `--problems-only` is specified at invocation, append to the reviewer prompt
 > Return only findings that identify problems, bugs, security issues, or correctness concerns. Do not include praise, compliments, or suggestions for optional improvements. Nitpick-severity findings should still be included in your JSON output but will be filtered from the rendered summary.
 
 Three explicit behaviors:
+
 1. Nitpicks are written to the JSON file for audit trail
 2. Nitpicks are omitted from the rendered Markdown table
 3. Nitpicks are NOT auto-applied to the artifact
@@ -614,12 +633,15 @@ at `agents/code-reviewer.md` is the correct tool for workstream-complete review,
 quick review, and all code-output review contexts. Read-only tool surface (no Edit/Write);
 OK/WARN/BLOCKED verdict enum where BLOCKED is advisory (EM retains shipping authority).
 
-**3. Plan review altitude is binary: named Opus persona OR skip.** There is no Sonnet plan
-reviewer. `code-reviewer` is the diff reviewer, scoped to weak tests / dead code / naming /
-correctness on a frozen diff — not architectural judgment on a plan body. If a plan is worth
-reviewing, dispatch the appropriate Opus persona; if it's not worth that ceremony, skip review
-and let `code-reviewer` catch issues on the diff at `/workstream-complete`. Triage happens at
-plan-time (plan-or-just-do-it), not at review-time (review-or-downgrade).
+**3. A Sonnet `plan-reviewer` lens never replaces the named Opus persona.** `plan-reviewer` is a
+static plan-body lens (`effort: low`, advisory, no authority to block downstream dispatch) that runs
+on two lanes only: accepted-XL (`estimate.tshirt == XL` AND `xl_exit == accept_multi_session`),
+ahead of the pre-flights and the persona; and `spec-dispatch`, once before emit-and-dispatch. The
+`plan` route otherwise reviews with a named Opus persona. `code-reviewer` is the diff reviewer,
+scoped to weak tests / dead code / naming / correctness on a frozen diff — not a plan reviewer. On
+`spec-dispatch` the `plan-reviewer` pass does not replace the scoped `code-reviewer` pass over the
+diff. Triage happens at plan-time (plan-or-just-do-it). → `agents/plan-reviewer.md`,
+`coordinator/docs/wiki/plan-reviewer.md`.
 
 **4. Parallel dispatch exception is merge-gate-only.** The carve-out from the sequential-dispatch
 HARD RULE applies exactly when: (a) artifact is a frozen diff at a merge boundary, (b) all

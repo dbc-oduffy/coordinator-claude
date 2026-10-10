@@ -10,12 +10,28 @@ inputs:
     topics:
       kind: strings
 stages:
+  - id: scope
+    phase: Scope
+    agent_type: general-purpose
+    model: sonnet
+    template: web-scope-prompt-template.md
+    produces_brief: true
+    output: "{{scratch_dir}}/scope.md"
+  - id: prior-art
+    phase: Scope
+    agent_type: coordinator:prior-art-checker
+    model: sonnet
+    template: prior-art-prompt-template.md
+    optional: true
+    depends_on: [scope]
+    output: "{{scratch_dir}}/prior-art-check.md"
   - id: scout
     phase: Scout
     agent_type: coordinator:research-scout
     model: haiku
     template: scout-prompt-template.md
     web_caller: true
+    depends_on: [scope]
     output: "{{scratch_dir}}/source-corpus.md"
   - id: specialists
     phase: Specialists
@@ -94,3 +110,20 @@ stages:
         summary:
           type: string
       required: [deepeningRecommended, summary]
+  - id: coverage
+    phase: Coverage
+    agent_type: coordinator:coverage-auditor
+    model: sonnet
+    template: web-coverage-prompt-template.md
+    depends_on: [sweep, sweep-continuation]
+    output: "{{scratch_dir}}/coverage-audit.md"
+    schema:
+      type: object
+      properties:
+        sidecarPath:
+          type: string
+        absentClaims:
+          type: integer
+        deepeningRecommended:
+          type: boolean
+      required: [sidecarPath, absentClaims, deepeningRecommended]

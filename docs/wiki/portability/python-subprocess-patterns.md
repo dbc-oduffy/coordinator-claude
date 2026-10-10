@@ -291,6 +291,7 @@ for the successor content).)
 - Use `locale.getpreferredencoding(False)` to diagnose the active encoding on a suspect machine.
 - Do not rely on `PYTHONIOENCODING` alone — it does not cover subprocess capture.
 - On Windows, prefer `pythonw.exe` (GUI subsystem) over `python.exe` + `CREATE_NO_WINDOW` for truly headless spawns from uv-managed venvs — use a `pythonw_executable()` helper to locate it.
+
 ## subprocess-launched install/setup test must close child stdin (stdin=DEVNULL)
 
 A subprocess-launched install/setup test must close child stdin (`stdin=subprocess.DEVNULL`). A script keying interactivity off `[Console]::IsInputRedirected` alone hangs a non-interactive caller that inherits a console. Two-altitude fix: (1) close stdin in the harness (`stdin=DEVNULL`), AND (2) honor `-NonInteractive` flag in the script. Apply: all install/setup test subprocess calls must include `stdin=DEVNULL` explicitly.

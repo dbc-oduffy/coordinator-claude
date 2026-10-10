@@ -35,8 +35,13 @@ WHAT IT WILL NOT DO, and the reason is the whole design:
   strings lifted out of plan frontmatter that agents wrote. A leg that shells out to whatever it
   finds there would make "certify this plan" an arbitrary-execution surface, on a tree many
   sessions share. Every command is screened against a read-only allowlist first; one that does
-  not clear it is REFUSED by name and never executed. A refusal here is a finding about the
-  plan, not a failure of this tool.
+  not clear it is REFUSED by name and never executed. The screen is
+  `coordinator_core.roadmap.census.screen`, the same function the prep gate refuses against at
+  stamp time, so a REFUSED here means a plan stamped before that gate existed.
+
+  A `count:` BESIDE `result:` IS DECIDABLE. An entry declaring `count: <int>` is compared on the
+  number alone -- MATCH or DRIFT, never UNDECIDABLE -- and `result` is carried as the note. This
+  is what closes "12 (prose)" against an observed 13.
 
 Exit status is a verdict, not a diagnostic, because the caller of this leg is a gate:
   0  every entry MATCHed — the counted premises still hold
@@ -59,7 +64,6 @@ import argparse
 import json
 import os
 import re
-import shlex
 import shutil
 import subprocess
 import sys
@@ -90,118 +94,26 @@ EXIT_DRIFT = 1
 EXIT_UNCLOSED = 2
 EXIT_USAGE = 3
 
-#: Read-only command heads. A CLOSED list, and deliberately short: the point is not to anticipate
-#: every question an author might ask but to make the set of things this leg can execute small
-#: enough to read in one sitting. Extending it is a deliberate act — add a verb only after
-#: checking that no flag of it writes, and note that several entries below are here ONLY because
-#: their mutating subcommands are screened separately (`git`).
-_READ_ONLY_HEADS = frozenset({
-    "grep", "rg", "egrep", "fgrep", "ls", "find", "cat", "head", "tail", "wc", "sed", "awk",
-    "sort", "uniq", "cut", "tr", "basename", "dirname", "stat", "file", "test", "echo", "true",
-    "python", "python3", "git", "jq", "yq", "diff", "comm", "realpath", "readlink", "du", "date",
-    # `cd` mutates only the child shell this leg spawns and dies with it. Present because the
-    # `cd <repo> && grep …` idiom is how an author writes a census question about a sibling tree.
-    "cd",
-})
+def _census():
+    """`coordinator_core.roadmap.census` -- the screen the prep gate stamps against, so a stamped
+    premise is one this leg will run. Resolved on first call, never at import, so the module body
+    stays inert for `serve_classifier`."""
+    own_dir = str(Path(__file__).resolve().parent)
+    if own_dir not in sys.path:
+        sys.path.insert(0, own_dir)
+    import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
+    import cc_invoke
 
-#: `git` subcommands that only read. Everything else under `git` is refused, including the ones
-#: that look harmless: `git stash list` is a read but `git stash` is not, and a screen that has
-#: to reason about which is which per invocation is a screen that will eventually be wrong.
-_GIT_READ_ONLY = frozenset({
-    "log", "show", "diff", "status", "ls-files", "ls-tree", "rev-parse", "rev-list", "cat-file",
-    "grep", "blame", "describe", "shortlog", "branch", "tag", "remote", "config", "count-objects",
-    "merge-base", "name-rev", "for-each-ref", "symbolic-ref", "check-ignore", "var",
-})
+    cc_invoke.require_engine_on_path(__file__)
+    from coordinator_core.roadmap import census
 
-#: Shell metacharacters that route output somewhere. A pipeline of reads is still a read, so `|`
-#: is allowed; a redirect writes a file, so it is not. `$(...)` and backticks are refused because
-#: what they run cannot be screened without evaluating them, which is the thing being avoided.
-_WRITE_SHELL = (">", ">>", "`", "$(")
+    return census
 
 
-def _refuse(reason: str) -> dict:
-    return {"state": REFUSED, "detail": reason}
-
-
-#: Redirect targets that write nothing anybody can read back. `2>/dev/null` is the dominant
-#: idiom in a census command and refusing it rejects a read for being tidy about stderr.
-_NULL_SINKS = frozenset({"/dev/null"})
-
-#: Pipeline separators, as shlex hands them back once the string is parsed.
-_SEPARATORS = frozenset({"|", "||", "&&", ";"})
-
-
-def screen(command: str) -> Optional[dict]:
-    """`None` when the command is read-only; a REFUSED row otherwise.
-
-    PARSE FIRST, THEN SPLIT. The first cut of this screened for metacharacters against the raw
-    string and split the pipeline with a regex before parsing. Both are wrong for the same
-    reason: a shell metacharacter inside a quoted argument is not a metacharacter. It refused 39
-    of project-rag's 189 census commands as "unparseable", every one of them an ordinary
-    `grep -rn 'a\\|b' path | wc -l` whose grep alternation was cut in half mid-quote. A screen
-    that rejects the corpus's most common read is not a conservative screen, it is a broken one.
-
-    Screens every stage of a pipeline, not just the first: `grep -c x | tee out.txt` is a write
-    hiding behind a read, and a screen that looks only at the head reads it as safe.
-    """
-    try:
-        tokens = shlex.split(command)
-    except ValueError as exc:
-        return _refuse(f"unparseable as a command ({exc})")
-
-    # Substitution is screened on the PARSED tokens, so `'$(' inside quotes` — a literal in a
-    # grep pattern — no longer reads as a substitution. A token that still carries it after
-    # parsing is refused: screening what it would run means running it.
-    for tok in tokens:
-        for marker in ("$(", "`"):
-            if marker in tok:
-                return _refuse(f"command substitution ({marker!r}) cannot be screened unevaluated")
-
-    stages: list[list[str]] = [[]]
-    for tok in tokens:
-        if tok in _SEPARATORS:
-            stages.append([])
-            continue
-        stages[-1].append(tok)
-
-    for parts in stages:
-        parts = [p for p in parts if p]
-        if not parts:
-            continue
-        for i, tok in enumerate(parts):
-            if tok in (">", ">>") or re.fullmatch(r"\d?>>?", tok):
-                target = parts[i + 1] if i + 1 < len(parts) else ""
-                if target not in _NULL_SINKS:
-                    return _refuse(f"redirects output to {target or '<nothing>'!r} — not a read")
-            elif re.match(r"^\d?>>?.", tok):
-                target = re.sub(r"^\d?>>?", "", tok)
-                if target not in _NULL_SINKS:
-                    return _refuse(f"redirects output to {target!r} — not a read")
-        head = Path(parts[0]).name
-        if head not in _READ_ONLY_HEADS:
-            return _refuse(f"{head!r} is not on the read-only allowlist")
-        if head == "git":
-            rest = parts[1:]
-            # `git -C <path> <sub>` and `--git-dir=<path> <sub>` both put a value before the
-            # subcommand; skip a flag and, where the flag takes a separate value, its value too.
-            sub = None
-            skip = False
-            for tok in rest:
-                if skip:
-                    skip = False
-                    continue
-                if tok in ("-C", "--git-dir", "--work-tree", "-c"):
-                    skip = True
-                    continue
-                if tok.startswith("-"):
-                    continue
-                sub = tok
-                break
-            if sub not in _GIT_READ_ONLY:
-                return _refuse(f"git subcommand {sub!r} is not a declared read")
-        if head in ("python", "python3") and "-c" in parts:
-            return _refuse("python -c cannot be screened without evaluating it")
-    return None
+def screen(command: str, repo_root: Optional[Path] = None) -> Optional[dict]:
+    """`None` when the command is read-only; a REFUSED row otherwise."""
+    reason = _census().screen(command, repo_root)
+    return None if reason is None else {"state": REFUSED, "detail": reason}
 
 
 def compare(recorded: str, stdout: str) -> dict:
@@ -310,7 +222,7 @@ def run_entry(entry: dict, repo_root: Path, timeout: int) -> dict:
     if not command:
         row.update({"state": REFUSED, "detail": "entry declares no command"})
         return row
-    refusal = screen(command)
+    refusal = screen(command, repo_root)
     if refusal:
         row.update(refusal)
         return row
@@ -349,9 +261,20 @@ def run_entry(entry: dict, repo_root: Path, timeout: int) -> dict:
             "detail": f"exit {proc.returncode}: {(proc.stderr or '').strip()[:200]}",
         })
         return row
-    verdict = compare(recorded, out)
+    count = entry.get("count")
+    count = count if isinstance(count, int) and not isinstance(count, bool) else None
+    verdict = _census().same_value(count, recorded, out)
+    if verdict is None:
+        rec_n, rec_v = _census().split_count(recorded)
+        count = count if count is not None else rec_n
+        if count is not None:
+            verdict = _census().compare_count(count, out)
+        else:
+            verdict = compare(recorded, out)
     row.update(verdict)
-    row["recorded"] = recorded.strip()[:400]
+    shown_n, shown_v = _census().split_count(recorded)
+    shown_n = entry["count"] if "count" in entry else shown_n
+    row["recorded"] = (f"count {shown_n}; " if shown_n is not None else "") + shown_v[:400]
     row["observed"] = out.strip()[:400]
     return row
 

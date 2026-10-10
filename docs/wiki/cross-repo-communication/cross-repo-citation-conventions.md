@@ -13,6 +13,7 @@ Cross-repo line citations use a repo qualifier:
 ```
 
 Examples:
+
 - `project-rag:mcp/graph/extractor.py:2980`
 - `addon-repo:coordinator/bin/verify-coverage:142` (executable surface migrated from the upstream doctrine repo- `example-game-repo-control:src/tools/manage_blueprint.py:51`
 
@@ -39,9 +40,10 @@ The repo qualifier fixes this. Grep then targets the right repo.
 
 **Cross-repo citations** (handoffs, lessons, plans, decision records that may be read from a different repo) — ALWAYS qualify with `<repo>:<path>:<line>`. The qualifier is for human disambiguation across the install chain; no automated rewrite covers this case.
 
-**Intra-coordinator citations** in wiki/skill/command/agent prose under `plugins/coordinator/` may use the dev-tree-rooted path (`plugins/coordinator/<...>`) directly. The publish-time hook (the `depersonalize` percolation-store hook, run via the engine's `coordinator_core.percolate.engine` from `setup/percolate-hooks/coordinator-claude/post-rsync/`) normalizes these to the publish-tree form (`plugins/coordinator/<...>` or `plugins/<plugin>/<...>`) idempotently. Authors do not qualify these — the rewrite is the contract. (Note: this means dev-form paths inside fenced code blocks in this wiki also get rewritten. To preserve a literal dev-form path for documentation purposes, use prose framing — `the plugins/coordinator-claude/... form` — rather than a fenced code block.)
+**Intra-coordinator citations** in wiki/skill/command/agent prose under `plugins/coordinator-claude/coordinator/` may use the dev-tree-rooted path (`plugins/coordinator-claude/coordinator/<...>`) directly. The publish-time hook (the `depersonalize` percolation-store hook, run via the engine's `coordinator_core.percolate.engine` from `setup/percolate-hooks/coordinator-claude/post-rsync/`) normalizes these to the publish-tree form (`plugins/coordinator/<...>` or `plugins/<plugin>/<...>`) idempotently. Authors do not qualify these — the rewrite is the contract. (Note: this means dev-form paths inside fenced code blocks in this wiki also get rewritten. To preserve a literal dev-form path for documentation purposes, use prose framing — `the plugins/coordinator-claude/... form` — rather than a fenced code block.)
 
 Additional qualifications:
+
 - **Doctrine-path citations MUST be upstream-repo-qualified** — `upstream-doctrine coordinator/docs/wiki/<name>.md`, never bare `coordinator/docs/wiki/<name>.md`. The receiver's `~/.claude` live-install does not carry `docs/wiki/` (source-only in the upstream doctrine repo — see `state-placement-law.md § Taxonomy — What Goes Where`), so a bare citation greps clean against an empty result and reads as premise-false doctrine — one step from a wrong stand-down. The naming collision is the trap: `~/.claude/plugins/coordinator-claude` and the upstream doctrine source repo share the string "coordinator-claude" but are not the same tree.
 - Optional in commit messages within a single repo (context is implicit).
 - ALWAYS qualify in the central structured queue in the engine repo at `$(python3 <engine-repo-root>/coordinator/lib/coordinator-state-root.py --central)/improvement-queue/` (cross-repo by construction; entries tagged `queue_scope: central` — see `state-placement-law.md`).
@@ -183,11 +185,13 @@ Governing source: `engine-repo coordinator_core/ops/ceremony/wsc_tail.py:217-220
 `engine-repo docs/plans/<plan>.md § DEC-1/DEC-3/C3`.
 
 **Compliant form:**
+
 ```
 <!-- spec-backlink: claude-klabauter coordinator_core/ops/ceremony/wsc_tail.py:217-220 (DEC-3, 2026-07-22) — steps 5c/5d run UNLOCKED; step 5a commit lock is the only ceremony_lock on the live path -->
 ```
 
 Required fields, all four — omitting any one degrades the backlink to an un-recoverable citation:
+
 - **repo** — which peer repo governs the claim.
 - **path:line-range** — where the governing code lives today. Line ranges drift; this is the
   weakest field and is expected to go stale.
@@ -216,10 +220,10 @@ When verifying a manifest field (skill path, agent path, hook script) lives wher
 
 ```bash
 # Right — verifying skill manifest against source
-rg "^path:" plugins/coordinator/skills/*/SKILL.md
+rg "^path:" plugins/coordinator-claude/coordinator/skills/*/SKILL.md
 
 # Wrong — verifying against the installed mirror
-rg "^path:" ~/.claude/plugins/coordinator/skills/*/SKILL.md
+rg "^path:" ~/.claude/plugins/coordinator-claude/coordinator/skills/*/SKILL.md
 ```
 
 Installed-tree verification masks pre-publish drift: a manifest that's wrong in the repo but right in the install will pass the wrong-tree check and ship broken.
@@ -238,7 +242,7 @@ Apply the discriminator **per reference**, not per file — a single chunk can m
 When a downstream integrator (scout, executor, or worker) needs to act on a file across multiple repos, format paths as a single token `<repo>:<path>` — not split across columns or stitched from separate fields. Integrators that split-and-rejoin lose alignment under concurrent fan-out.
 
 ```
-Right: coordinator-claude:plugins/coordinator/skills/learn-lessons/SKILL.md
+Right: coordinator-claude:plugins/coordinator-claude/coordinator/skills/learn-lessons/SKILL.md
 Wrong: repo=coordinator-claude  path=plugins/.../SKILL.md  (two fields, must rejoin)
 ```
 
@@ -257,6 +261,7 @@ After excising a donor module from a repo, grep consumers for `from <excised_mod
 Cross-repo sentinel blocks (auto-generated regions marked with `<!-- BEGIN ... -->` / `<!-- END ... -->`) MUST document their refresh preconditions inside the sentinel — not in a sibling wiki the maintainer might not read.
 
 Required inline:
+
 - Generator script path (repo-qualified if cross-repo)
 - Input source paths (what the generator reads)
 - Refresh trigger (which `/update-docs` phase, or "manual: `<command>`")
@@ -328,4 +333,3 @@ EXAMPLE_GAME_REPO_ROOT="${EXAMPLE_GAME_REPO_ROOT:-../example-game-workbench-repo
 **Do NOT rewrite the sibling default in scripts that ship to normal-layout deployments** — fixing the `<drive>:/` edge case by hardcoding an absolute path breaks what already works everywhere else. <!-- abs-path-ok: naming the historical drive-letter literal this sentence critiques, not a claim about any real checkout -->
 
 Source: `state/lessons/` § "<drive>:/-rooted `~/.claude` is structurally peerless" (claude-coordinator). <!-- foreign-path-ok: quoting the lesson's own section title, which names the Windows path shape it documents -->
-

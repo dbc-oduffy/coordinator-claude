@@ -47,6 +47,7 @@ Step 3 sub-step 0 (`sync-main.py`) MUST run before the rebase/skip check — it 
 ### Week-changelog `Validation:` schema
 
 The changelog block records:
+
 ```
 Validation: validate=<exit-code-step-1> plugin-suite=<exit-code-step-5>
 ```
@@ -54,6 +55,7 @@ Validation: validate=<exit-code-step-1> plugin-suite=<exit-code-step-5>
 Both fields are auto-filled from ceremony exit codes; neither is LLM-authored prose. On non-UE repos, the Step 1 UBT preamble is a no-op (script absent), so `validate=` reflects the exit code of the resolved command — the three-step resolver checks `$COORDINATOR_FAST_TEST_CMD` (env var), then `fast_test_cmd:` in `coordinator.local.md`, then skips with notice if neither is configured. The `plugin-suite=` field is present even on non-UE repos (reflects Step 5 node test exit code).
 
 `validate=` enum values:
+
 - `validate=<exit-code>` — the resolved command ran; value is its exit code (e.g. `validate=0`).
 - `validate=skipped` — the resolver found no command configured: `$COORDINATOR_FAST_TEST_CMD` was unset and `coordinator.local.md` had no `fast_test_cmd:` key. No test ran. Remediation: set `fast_test_cmd:` in `coordinator.local.md` or export `$COORDINATOR_FAST_TEST_CMD`.
 - `validate=not-run` — Step 1 never emitted `RC_VALIDATE` at all: the ceremony did not reach validation (aborted early, Step 9 invoked out-of-band, or a backfill composed without a Step 1 leg). This is the **unset default** and is a ceremony gap, not a configuration state. Distinct from `skipped`, which is a positive emission meaning validation ran and found nothing configured. Do not conflate the two — that collision is what this value exists to break.

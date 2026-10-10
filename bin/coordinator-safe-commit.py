@@ -207,6 +207,10 @@ def _bootstrap_engine() -> None:
     global _BOOTSTRAP_DONE
     if _BOOTSTRAP_DONE:
         return
+    _bin = str(Path(__file__).resolve().parent)
+    if _bin not in sys.path:
+        # Loaded by spec (tests), the script dir is not sys.path[0] and `lib` misresolves.
+        sys.path.insert(0, _bin)
     try:
         import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
         from cc_invoke import require_engine_on_path  # noqa: E402
@@ -297,6 +301,25 @@ class UsageError(RuntimeError):
     """Raised for CLI usage errors; caught at the top level, prints to stderr, exit 1."""
 
 
+class MissingSeparatorError(UsageError):
+    """Extra positionals with no `--`: renders fact, usage line, and (when every
+    token after the subject is an existing file) the corrected command."""
+
+    SYNTAX = 'coordinator-safe-commit [--body-file F] "<subject>" -- <path>...'
+
+    def __init__(self, positionals: Sequence[str]) -> None:
+        super().__init__("paths need a `--` separator.")
+        self.positionals = list(positionals)
+
+    def render(self) -> str:
+        lines = [f"ERROR: paths need a `--` separator.", f"Usage: {self.SYNTAX}"]
+        subject, rest = self.positionals[0], self.positionals[1:]
+        if rest and all(Path(p).is_file() for p in rest):
+            quoted = " ".join(f'"{p}"' if " " in p else p for p in rest)
+            lines.append(f'Try: coordinator-safe-commit "{subject}" -- {quoted}')
+        return "\n".join(lines)
+
+
 def _import_session():
     """Resolve claude-klabauter root (cc_invoke.require_engine_on_path seam, wrapping
     resolve_engine_root's ladder, DR-047) and import the four
@@ -337,6 +360,7 @@ class Args:
         self.body_file: str = ""
         self.body: str = ""
         self.paths: List[str] = []
+        self.pathspec_from_file: str = ""
         self.declared_reverts: List[str] = []
         self.invoking_command: str = ""
 
@@ -353,12 +377,23 @@ def usage(stream=None) -> None:
   coordinator-safe-commit --dry-run "<subject>"
   coordinator-safe-commit --body-file <path> "<subject>"
   coordinator-safe-commit "<subject>" -- <path> [<path>...]
+  coordinator-safe-commit --pathspec-from-file <file|-> "<subject>"
 
 Optional flags (combinable):
   --allow-out-of-scope-dirty        (--scope-from only) warn instead of error
                                     when dirty files exist outside declared scope
   --include-orphans <pathspec>...   Claim hook/install-script-touched files for
                                     this commit. Variadic until next flag or --.
+  --pathspec-from-file <file>       Read paths from <file> (`-` = stdin): one
+                                    repo-relative path per line, UTF-8, blank
+                                    and `#` lines ignored. Merged with any
+                                    paths after `--`, deduplicated, then
+                                    validated identically. Use it instead of
+                                    `-- <paths>` when the list is long enough
+                                    to hit "Argument list too long" (hundreds
+                                    of paths). A path beginning with `#`
+                                    cannot be listed this way; pass it after
+                                    `--`.
   --declared-revert <path>          A path this commit intentionally restores
                                     to an older state. Repeat per path. Without
                                     it, commit_v2's staged-rollback gate refuses
@@ -390,6 +425,27 @@ guard, not by a flag this script parses (2026-07-24, M4).
 """,
         file=sys.stderr if stream is None else stream,
     )
+
+
+def _read_pathspec_file(source: str) -> List[str]:
+    """Paths from a `--pathspec-from-file` source (`-` = stdin).
+
+    One path per line; surrounding line terminators dropped, blank lines and
+    lines whose first non-space character is `#` ignored. Order preserved."""
+    try:
+        if source == "-":
+            raw = sys.stdin.buffer.read()
+        else:
+            raw = Path(source).read_bytes()
+        text = raw.decode("utf-8-sig")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise UsageError(f"--pathspec-from-file: cannot read {source}: {exc}")
+    paths: List[str] = []
+    for line in text.splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        paths.append(line)
+    return paths
 
 
 def parse_args(argv: Sequence[str]) -> Args:
@@ -432,6 +488,11 @@ def parse_args(argv: Sequence[str]) -> Args:
                 raise UsageError("--body-file requires a path argument.")
             args.body_file = argv[i + 1]
             i += 2
+        elif tok == "--pathspec-from-file":
+            if i + 1 >= n:
+                raise UsageError("--pathspec-from-file requires a file argument (or `-` for stdin).")
+            args.pathspec_from_file = argv[i + 1]
+            i += 2
         elif tok == "--declared-revert":
             # Repeatable single-value, NOT variadic. This flag is combinable
             # with the `-- <paths>` form, where the subject is the token
@@ -467,7 +528,7 @@ def parse_args(argv: Sequence[str]) -> Args:
             # positional token(s) were already collected before `--`.
             i += 1
             saw_pathspec_separator = True
-            args.paths = list(argv[i:])
+            args.paths = [p.rstrip("\r") for p in argv[i:]]
             i = n
             break
         elif tok.startswith("-"):
@@ -484,6 +545,14 @@ def parse_args(argv: Sequence[str]) -> Args:
             positionals.append(tok)
             i += 1
 
+    if args.pathspec_from_file:
+        file_paths = _read_pathspec_file(args.pathspec_from_file)
+        if not file_paths and not args.paths:
+            raise UsageError(
+                f"--pathspec-from-file: {args.pathspec_from_file} names no paths."
+            )
+        args.paths = list(dict.fromkeys(args.paths + file_paths))
+
     if not positionals:
         if saw_pathspec_separator:
             raise UsageError(
@@ -493,6 +562,8 @@ def parse_args(argv: Sequence[str]) -> Args:
             )
         raise UsageError("Commit subject is required.")
     if len(positionals) > 1:
+        if not saw_pathspec_separator:
+            raise MissingSeparatorError(positionals)
         raise UsageError("Too many positional arguments. Quote your subject.")
     args.subject = positionals[0]
     if not args.subject:
@@ -896,6 +967,53 @@ def _holder_context(
     return " ".join(bits)
 
 
+#: Pathspec bytes per git argv. Windows caps a command line at 32,767 chars;
+#: this leaves wide headroom for the fixed prefix and `:(literal)` wrappers.
+_ARGV_PATHSPEC_BUDGET = 12000
+
+
+def _argv_batches(paths: Sequence[str]) -> "List[List[str]]":
+    """`paths` split into runs whose joined length stays under
+    `_ARGV_PATHSPEC_BUDGET`: one run (one spawn) for any ordinary list. Only for
+    git subcommands with no `--pathspec-from-file` (`status`, `ls-tree`,
+    `ls-files`); the list never rides one argv unbounded."""
+    batches: "List[List[str]]" = []
+    current: "List[str]" = []
+    size = 0
+    for p in paths:
+        cost = len(p) + 16
+        if current and size + cost > _ARGV_PATHSPEC_BUDGET:
+            batches.append(current)
+            current, size = [], 0
+        current.append(p)
+        size += cost
+    if current:
+        batches.append(current)
+    return batches
+
+
+def _run_git_batched(
+    prefix: Sequence[str], paths: Sequence[str], cwd: Optional[str], timeout: Optional[float]
+) -> "Optional[str]":
+    """Concatenated stdout of `prefix + batch` over `_argv_batches(paths)`;
+    `None` if any batch exits nonzero. Spawn/timeout errors propagate."""
+    out: "List[str]" = []
+    for batch in _argv_batches(paths):
+        result = subprocess.run(
+            list(prefix) + batch,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        if result.returncode != 0:
+            return None
+        out.append(result.stdout)
+    return "".join(out)
+
+
 def _norm(path: object) -> str:
     """Backslashes to forward slashes, strip leading/trailing `/` -- the one
     spelling of this rule, used everywhere `_paths_with_no_uncommitted_content`
@@ -961,31 +1079,19 @@ def _paths_with_no_uncommitted_content(
         # "I could not tell -> safe to commit" flip this function's own
         # docstring forbids. `sorted(wanted)` is the same set `dirty` is
         # compared against below, deterministic argv order for free.
-        result = subprocess.run(
-            ["git", "status", "--porcelain", "-z", "--untracked-files=all", "--"]
-            + sorted(wanted),
-            cwd=worktree_root,
-            capture_output=True,
-            text=True,
-            # -- was 10s, 20x this repo's 500ms brightline for a call on
-            # every explicit-pathspec commit's hot path. Fails closed to the
-            # empty (refuse-everything) set on timeout, never a corruption
-            # risk, so shortening this costs a spurious refusal under a truly
-            # stuck git, not a wrong answer -- reusing SUSPENSION_BAR_MS
-            # (2000ms, `docs/decisions/DR-344-*`) as the ceiling here, not as
-            # a target: ~80x the ~25ms typical cost this function already
-            # measures, and the same number this repo already treats as
-            # "switch off before this" everywhere else.
-            timeout=2,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        stdout = _run_git_batched(
+            ["git", "status", "--porcelain", "-z", "--untracked-files=all", "--"],
+            sorted(wanted),
+            worktree_root,
+            2,
         )
     except (OSError, subprocess.TimeoutExpired):
         return set()
-    if result.returncode != 0:
+    if stdout is None:
         return set()
 
     dirty: "Set[str]" = set()
-    fields = [f for f in result.stdout.split("\x00") if f]
+    fields = [f for f in stdout.split("\x00") if f]
     index = 0
     while index < len(fields):
         entry = fields[index]
@@ -1141,6 +1247,21 @@ def _refuse_contested_pathspec(paths: Sequence[str], worktree_root: str) -> None
     # holder may never commit or release: promising that it will, the way the
     # unqualified sentence below still does for every ordinary unnamed
     # holder, sends the caller to wait on an event that cannot occur.
+    # One call per named holder carries every path it blocks: the round trip is
+    # the cost, so a holder never gets asked path by path.
+    import json  # noqa: PLC0415 -- refusal branch only; the common path never pays for it
+
+    by_name: Dict[str, List[str]] = {}
+    for path in sorted(contested):
+        for sid in contested[path]:
+            record = registry_snapshot.get(sid) if registry_snapshot else None
+            name = getattr(record, "name", None) if record is not None else None
+            if name:
+                by_name.setdefault(name, []).append(path)
+    for name, held in sorted(by_name.items()):
+        commands = "; ".join(f"session-claim-cli release-artifact artifact {p}" for p in held)
+        message = f"Release request: if you have no pending edit in these, please run: {commands}"
+        print(f"Release request: SendMessage({{to: {json.dumps(name)}, message: {json.dumps(message)}}})", file=sys.stderr)
     unnamed_remedy = (
         "A holder shown without a name is live but not addressable from "
         "here: drop that path and commit the rest -- it frees when that "
@@ -1166,6 +1287,12 @@ def _refuse_contested_pathspec(paths: Sequence[str], worktree_root: str) -> None
         "each one's kind. " + unnamed_remedy,
         file=sys.stderr,
     )
+    # Every blocker in one refusal: a path in neither the worktree nor HEAD
+    # would otherwise surface only after the holders are dropped.
+    unknown = _unknown_paths(worktree_root, paths)
+    if unknown:
+        for line in _unknown_path_refusal_lines(unknown):
+            print(line, file=sys.stderr)
     sys.exit(1)
 
 
@@ -1192,17 +1319,15 @@ def _warn_undeclared_untracked_siblings(paths: Sequence[str], worktree_root: str
     wanted_dirs = {(w.rsplit("/", 1)[0] if "/" in w else ".") for w in wanted}
     dirs = sorted(wanted_dirs)
     try:
-        result = subprocess.run(
-            ["git", "ls-files", "--others", "--exclude-standard", "-z", "--"] + dirs,
-            cwd=worktree_root,
-            capture_output=True,
-            text=True,
-            timeout=2,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        stdout = _run_git_batched(
+            ["git", "ls-files", "--others", "--exclude-standard", "-z", "--"],
+            dirs,
+            worktree_root,
+            2,
         )
     except (OSError, subprocess.TimeoutExpired):
         return
-    if result.returncode != 0:
+    if stdout is None:
         return
 
     def _dirname(p: str) -> str:
@@ -1211,7 +1336,7 @@ def _warn_undeclared_untracked_siblings(paths: Sequence[str], worktree_root: str
     undeclared = sorted(
         {
             _norm(f)
-            for f in result.stdout.split("\x00")
+            for f in stdout.split("\x00")
             if f and _norm(f) not in wanted and _dirname(_norm(f)) in wanted_dirs
         }
     )
@@ -1274,13 +1399,26 @@ def _split_paths_for_commit_v2(worktree_root: str, paths: Sequence[str]) -> "tup
     meant, and it refuses rather than guessing which."""
     present: List[str] = []
     missing: List[str] = []
+    directories: List[str] = []
     for p in paths:
         if not p:
             continue
-        if os.path.exists(os.path.join(worktree_root, p)):
+        full = os.path.join(worktree_root, p)
+        if os.path.isdir(full):
+            directories.append(p)
+        elif os.path.exists(full):
             present.append(p)
         else:
             missing.append(p)
+
+    if directories:
+        for p in directories:
+            print(
+                f"BLOCKED: {p} is a directory -- pass explicit file paths; "
+                "a directory pathspec is refused.",
+                file=sys.stderr,
+            )
+        sys.exit(1)
 
     if not missing:
         return present, []
@@ -1291,19 +1429,35 @@ def _split_paths_for_commit_v2(worktree_root: str, paths: Sequence[str]) -> "tup
     deleted = [p for p in missing if p in tracked]
     unknown = [p for p in missing if p not in tracked]
     if unknown:
-        for p in unknown:
-            print(
-                f"BLOCKED: {p} is neither in the worktree nor in HEAD -- "
-                "refusing to commit it as a deletion.",
-                file=sys.stderr,
-            )
-        print(
-            "Check the path, or run from the repo root. To commit a real "
-            "deletion the path must exist in HEAD.",
-            file=sys.stderr,
-        )
+        for line in _unknown_path_refusal_lines(unknown):
+            print(line, file=sys.stderr)
         sys.exit(1)
     return present, deleted
+
+
+def _unknown_path_refusal_lines(unknown: Sequence[str]) -> List[str]:
+    """One refusal line per path absent from both the worktree and HEAD, then the remedy."""
+    lines = [
+        f"BLOCKED: {p} is neither in the worktree nor in HEAD -- "
+        "refusing to commit it as a deletion."
+        for p in unknown
+    ]
+    lines.append(
+        "Check the path, or run from the repo root. To commit a real "
+        "deletion the path must exist in HEAD."
+    )
+    return lines
+
+
+def _unknown_paths(worktree_root: str, paths: Sequence[str]) -> List[str]:
+    """`paths` absent from both the worktree and HEAD; fails open to none."""
+    missing = [
+        p for p in paths if p and not os.path.exists(os.path.join(worktree_root, p))
+    ]
+    if not missing:
+        return []
+    tracked = _paths_tracked_at_head(worktree_root, missing)
+    return [p for p in missing if p not in tracked]
 
 
 def _classify_paths_for_commit_v2(
@@ -1338,8 +1492,6 @@ def _classify_paths_for_commit_v2(
                 "--name-only",
                 "--diff-filter=D",
                 "-z",
-                "--",
-                *(f":(literal){p}" for p in present),
             ],
             capture_output=True,
             text=True,
@@ -1375,33 +1527,20 @@ def _paths_tracked_at_head(worktree_root: str, paths: Sequence[str]) -> "set[str
     so an absent directory now falls into the `unknown` branch below and is
     refused rather than silently misclassified as a file deletion.
     """
-    result = subprocess.run(
-        [
-            "git",
-            "-C",
-            worktree_root,
-            "ls-tree",
-            "-r",
-            "-z",
-            "--name-only",
-            "HEAD",
-            "--",
-            *paths,
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    stdout = _run_git_batched(
+        ["git", "-C", worktree_root, "ls-tree", "-r", "-z", "--name-only", "HEAD", "--"],
+        list(paths),
+        None,
+        None,
     )
-    if result.returncode != 0:
-        detail = (result.stderr or "").strip() or "git ls-tree failed"
+    if stdout is None:
         print(
             "BLOCKED: could not read HEAD to tell a deletion from a bad "
-            f"path: {detail}",
+            "path: git ls-tree failed",
             file=sys.stderr,
         )
         sys.exit(1)
-    return {line for line in result.stdout.split("\0") if line}
+    return {line for line in stdout.split("\0") if line}
 
 
 def _is_indeterminate_outcome(exc: RuntimeError) -> bool:
@@ -1462,7 +1601,18 @@ def _resolve_pre_sha_for_reconcile(worktree_root: str) -> Optional[str]:
     call itself timed out/errored) — that function's own fallback path
     already handles a missing `pre_sha` safely via an unfiltered, walk-
     bounded `git rev-list --max-count` probe, so failing open to `None`
-    here is correct, not a gap."""
+    here is correct, not a gap.
+
+    Reads HEAD and its ref from disk first (zero spawns); the `git rev-parse`
+    spawn answers only when that read cannot (reftable, odd layouts)."""
+    try:
+        from coordinator_core.git.git_state import head_sha
+
+        sha = head_sha(worktree_root)
+        if sha and re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", sha):
+            return sha
+    except Exception:
+        pass
     try:
         result = subprocess.run(
             ["git", "rev-parse", "HEAD"],
@@ -3589,6 +3739,9 @@ def main(argv: Sequence[str]) -> None:
 
     try:
         args = parse_args(argv)
+    except MissingSeparatorError as exc:
+        print(exc.render(), file=sys.stderr)
+        sys.exit(1)
     except UsageError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         usage()

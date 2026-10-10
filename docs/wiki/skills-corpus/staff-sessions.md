@@ -3,7 +3,7 @@ title: Staff Sessions
 system: staff-sessions
 status: distilled
 distilled_from:
-  - plugins/coordinator/skills/requesting-staff-session/SKILL.md
+  - plugins/coordinator-claude/coordinator/skills/requesting-staff-session/SKILL.md
 distilled_at: 2026-05-06
 distilled_run: 2026-05-06-13h00
 ---

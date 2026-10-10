@@ -145,10 +145,12 @@ No WT setting provides cross-window isolation — a single AV kills every tab an
 **Mitigation options (in preference order):**
 
 - **WT WARP CPU renderer — no throughput penalty.** Add to `settings.json` globals:
+
   ```json
   "experimental.rendering.software": true,
   "experimental.rendering.forceFullRepaint": true
   ```
+
   Switches AtlasEngine to the WARP software path, bypassing the GPU partial-repaint code that faults.
 - **Alternative terminal for fan-out-heavy sessions:** WezTerm, Alacritty, or VS Code integrated terminal — none
   link against `Terminal.Control.dll` and are immune to this fault class.

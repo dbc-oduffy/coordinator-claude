@@ -184,6 +184,7 @@ SYNC_RETURN_TYPES = frozenset(
         "plan-coverage-checker",
         "docs-checker",
         "test-evidence-parser",
+        "sizing-scout",
     }
 )
 

@@ -25,6 +25,7 @@ created: 2026-05-30
 Concatenate block bodies for each selected type (in selection order); blank line between multiple blocks.
 
 **`game-dev` block:**
+
 ```
 ## Unreal Engine Conventions
 
@@ -37,6 +38,7 @@ Concatenate block bodies for each selected type (in selection order); blank line
 ```
 
 **`web-dev` block:**
+
 ```
 ## Web Development
 
@@ -49,6 +51,7 @@ Concatenate block bodies for each selected type (in selection order); blank line
 ```
 
 **`data-science` block:**
+
 ```
 ## Data Science Conventions
 
@@ -90,11 +93,13 @@ if [ -z "$_cc_claude_klabauter" ]; then
   _cc_claude_klabauter="$(python3 "$_cc_root/hooks/scripts/_engine_root.py" 2>/dev/null)"
 fi
 if [ -z "$_cc_claude_klabauter" ] || [ ! -d "$_cc_claude_klabauter" ]; then
+  # repos.claude_klabauter lives in <settings-home>/machine-local/registry.local.toml
   echo "ERROR: claude-klabauter root unresolved (checked REPO_CLAUDE_KLABAUTER, CLAUDE_KLABAUTER_ROOT, and the coordinator settings-home registry/pointer via _engine_root.py) — set REPO_CLAUDE_KLABAUTER, or run: machine-local set repos.claude_klabauter <path>" >&2
   exit 1
 fi
 
-python3 "$_cc_claude_klabauter/coordinator/bin/render-template.py" \
+# PowerShell host: & "$env:COORDINATOR_SETTINGS_HOME\bin\render-template.exe"
+"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/render-template" \
   "$_cc_root/skills/repo-setup/templates/CLAUDE.md.template" \
   -o CLAUDE.md \
   PROJECT_NAME="<derived-name>" \
@@ -109,3 +114,34 @@ The helper substitutes all `{{KEY}}` placeholders, exits non-zero if any remain 
 ## 4. Runtime Conventions Section
 
 Populate the `## Runtime conventions` section bullets from the Phase 1 marker-scan output — one bullet per detected stack line. If the script reported "no known stack markers", replace the placeholder bullets with `- <!-- no runtime markers detected; PM to fill -->`. Do not edit other `<!-- Fill in -->` placeholders.
+
+## Relocated from repo-setup mechanics.md (seed detail)
+
+Copy `test_no_bare_python_spawn.py` + `spawn_detect.py` (verbatim vendored copy, stdlib-only) + the
+`no_console_creationflags()` helper (`_win_portability.py` for hooks, `win_portability.py` for
+lib/bin) into `<scope>/guards/`. Adjust the repo-root hop count via the template's `SCOPE_SUBDIR`
+constant; extend `spawn_detect.DEFAULT_EXCLUDE` with the repo's own ephemera dirname, naming a
+vendored tree by path, never a bare `dist`-shaped dirname. Exemptions are keyed on a stable marker,
+never `file:line`: inline `# guard-allow: <rule-id> <rationale>`, or the central
+`spawn_exemption_register.yaml` + monotonic `RATCHET_MAX` for bulk legacy trees.
+`# popup-intentional-last-resort` is honoured identically to `guard-allow`.
+
+---
+
+**Agent-install-manifest.json seed** (if absent, never overwritten): minimal compliant shape per
+the schema — `agent_install_contract_version: 3`, `repo_id`, `setup_skill`,
+`standalone_setup_script` with `entry_point_contract`, empty `direct_deps`/`required_env_vars`/
+`tested_platforms`, one `configurable_locations` example, `packageability_compliance.declared:
+true`. Substitute `[REPO_NAME]` from the ratified Phase 2 name.
+
+---
+
+**Extended substrate seeds** (Shape W trampolines, run as subprocesses — each is fail-loud, so
+`source`-ing would kill the shell): test-command detection (`setup-detect-test-cmd.py --root`,
+writes `fast_test_cmd`/`full_test_cmd`, fails loud on ambiguous candidates, never silent-picks);
+health-ledger seed (`setup-seed-health-ledger.py`, every row `?`, never fabricates a grade);
+RAG-index decision (`setup-rag-decision.py --root`, *author box only* — UE + daemon present →
+offer to index; everything else → `un-indexed; use Tier-3` written to CLAUDE.md; a consumer box
+skips the step and CLAUDE.md carries no RAG text); fnm pin-resolution (`setup-fnm-pin.py` — acts
+only when `.node-version`/`.nvmrc` present; fails loud if `fnm` is missing, never installs it).
+`coordinator:new-project` inherits all four via delegation.

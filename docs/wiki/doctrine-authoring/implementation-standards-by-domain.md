@@ -292,7 +292,7 @@ When an N-sibling pattern (e.g. N exception-catch sites, N retry loops, N path-n
 
 A cross-cluster sentinel or anchor that must survive human-authored free text must embed a delimiter-safe content HASH via a SHARED token function that BOTH the producer and the consumer call — never the raw identity string.
 
-A sentinel that embeds a free-text identity tuple (e.g. `NodeTitle`, which users can name `Set @@HOLODECK-BODY:foo@@` or include `:` / newlines in) allows field-split corruption or false-sentinel injection when the identity contains delimiter characters. Fix: the sentinel payload is a hex content-token (`[0-9a-f]+`) produced by a single shared `SentinelToken(Id)` function — the free text never reaches the emitted line, only its hash.
+A sentinel that embeds a free-text identity tuple (e.g. `NodeTitle`, which users can name `Set @@EXAMPLE-GAME-REPO-BODY:foo@@` or include `:` / newlines in) allows field-split corruption or false-sentinel injection when the identity contains delimiter characters. Fix: the sentinel payload is a hex content-token (`[0-9a-f]+`) produced by a single shared `SentinelToken(Id)` function — the free text never reaches the emitted line, only its hash.
 
 **How to apply:** for any generated-artifact marker keyed on an identity that carries user-editable free text, hash the identity through one shared function (not two independent stringifications), anchor matches whole-line prefix-to-EOL (never substring), and add a hostile-input round-trip test (a name containing `:`, newlines, and `@` chars). Sister to detect-then-fail-loud.
 
@@ -302,7 +302,7 @@ A sentinel that embeds a free-text identity tuple (e.g. `NodeTitle`, which users
 
 When a code-generator emits a sentinel into source to signal an unresolved/unmapped case, the sentinel must be a compile-BREAKING token (an invalid identifier that surfaces verbatim in a compiler error), not a C-style comment. The preprocessor strips `/* */` and `//` comments before the compiler sees the type position, so a `/*SENTINEL*/` in a type slot silently vanishes — yielding a typeless declaration with NO mention of the sentinel in the error: the opposite of fail-loud.
 
-**Example:** `ResolveCppType` returning `/*HOLODECK-UNMAPPED:<cat>*/` as a `UPROPERTY` type emits nothing in the compile error. Fix: return `EXAMPLE_GAME_REPO_UNMAPPED_<cat>` (non-identifier chars replaced with `_`), which surfaces verbatim in an "undeclared identifier" error.
+**Example:** `ResolveCppType` returning `/*EXAMPLE-GAME-REPO-UNMAPPED:<cat>*/` as a `UPROPERTY` type emits nothing in the compile error. Fix: return `EXAMPLE_GAME_REPO_UNMAPPED_<cat>` (non-identifier chars replaced with `_`), which surfaces verbatim in an "undeclared identifier" error.
 
 **How to apply:** when a sentinel's purpose is to BREAK a downstream compile or parse step, make it a token that survives into the parser's error output (an invalid identifier or a `#error` directive), not a comment or whitespace the toolchain discards before the failure point. Sister to detect-then-fail-loud.
 
@@ -315,16 +315,19 @@ A tool whose runtime correctness depends on a gitignored (or otherwise not-direc
 **Why:** A fresh checkout/install and an existing working tree diverge in opposite ways. Right after provisioning, existence check passes and freshness holds. After the source changes without a corresponding rebuild/redeploy, existence check still passes but the artifact is stale — the consumer either fails with opaque downstream errors ("unknown entity", "type mismatch") or, worse, silently keeps using the stale copy with no error at all. Existence is necessary but not sufficient.
 
 **Anti-pattern (historical/synthetic — illustrates the shape to avoid, not a live citation).** A presence-only idempotency guard standing in for a freshness check looks like this:
+
 ```python
 shim = claude_home / "bin" / "resolve-coordinator-clone"
 if shim.is_file() and os.access(shim, os.X_OK):
     return 0
 ```
+
 If an older deploy emitted the shim and its format/content has since changed upstream, this guard is satisfied by the *stale* shim and returns immediately — never re-invoking the refresh logic that would otherwise catch the drift. The lesson: a presence check standing in for a freshness check is the defect, independent of whether any particular instance is live.
 
 `coordinator/hooks/scripts/bootstrap-substrate.py` does not exist — it was the last live instance of this exact anti-pattern before it was deleted as orphaned dead code (PM-authorized delete-vs-keep ruling: the SessionStart hook was orphaned by the full-kill directive and nothing invoked it). The freshness-inventory audit confirms the `coordinator/{bin,lib,hooks,skills}` tree carries **no live presence-only hazard instances**. Whether this hazard class warrants a shared runtime primitive (vs. staying a per-site review lens) is ratified — per-site, not a runtime primitive.
 
 **Reference implementation (gate done right) — the engine repo's `coordinator/bin/sync-cockpit-contract.py` (formerly `.sh`, lines ~90–113 of the pre-port script).** Vendor-sync staleness check between the canonical `cockpit-contract.schema.json` and a consumer's vendored copy:
+
 ```bash
 if [[ ! -f "$VENDORED" ]]; then
     echo "DRIFT: vendored schema not found at: $VENDORED" >&2
@@ -339,6 +342,7 @@ else
     exit 1
 fi
 ```
+
 The freshness signal here is a **version pin**, not an mtime comparison — and the contrast with the anti-pattern above is the pedagogical point of the pairing: a *missing* vendored copy is treated as `DRIFT` / exit 1, the same hard-fail path as a version mismatch, never a silent skip. Presence alone is never deemed sufficient; the exact inverse of `bootstrap-substrate.py`'s presence-satisfies-everything guard.
 
 **Other live examples showing the range of valid freshness signals** — the mechanism varies, the invariant (some signal checked, mismatch/absence fails loud) doesn't: the engine repo's `coordinator/bin/check-install-divergence.py:178–196` compares git blob SHAs via `git hash-object --path <relpath>` (content hash, not mtime); the engine repo's `coordinator/bin/migrate-bug-backlog.py:380–386` compares a dry-run artifact's `os.path.getmtime()` against a `--stale-hours` threshold (classic mtime gate). A third pattern designs the hazard out entirely rather than gating it: the engine repo's `coordinator/bin/repomap/generate-repomap.py:1209` keys its parse cache as `f"{rel}:{content_hash}"` (`generate-repomap.py:1459`) — staleness is structurally impossible because a changed file simply misses the cache under its old key, no comparison step required.
@@ -398,3 +402,86 @@ The inverse also holds: a property that IS consumed by runtime tooling belongs i
 - `docs/wiki/bug-blitz-residue/cleanup-sweep-hazards.md`
 - `docs/wiki/test-design-discipline/oom-reproducer-strategy.md`
 - `docs/wiki/lesson-triage/document-bloat-trim.md` — extraction doctrine
+
+## A Signal Gaining a Third Value Silently Mis-Reads Every Binary Site
+
+When a previously binary signal gains a third value (`cuda|cpu` becomes `cuda|mps|cpu`; a verdict
+gains `unknown`), every other site that encoded the old binary as `if/else` now silently files the
+new value into one of the old branches and stays green. Grep every reader of the signal when adding
+the value, and make each one handle it explicitly. This is the read-side analogue of enumerating
+every writer.
+
+## A Helper That Locates Its Target From cwd Silently No-Ops Elsewhere
+
+An install or guard helper that finds its target with `git rev-parse` on the current directory, with
+no explicit target argument, does nothing when invoked from another cwd — it can be authored,
+wired, tested, and never once act on the tree it was meant for. Take the target as an explicit
+argument, and wire it at every entry point whose cwd differs.
+
+## A Reused Predicate Carries All of Its Fallbacks
+
+Reusing a predicate for a new branch imports every fallback and legacy special case inside it (a
+`pid == $$` shortcut, a `return 0` default) into that branch. Gate the new use on its own
+condition, or extract the narrow check it actually needs; guards match conditions, not containers.
+
+## An Opt-In Exit Code for a Producer's Legitimate Empty Path
+
+When a producer's "found nothing" path exits 0 and a consumer cannot tell it from success, add an
+**opt-in** flag (default off, output unchanged) that escalates only that path to a distinct exit
+code above the error band. Changing the default exit code regresses every tolerant caller. Name the
+flag after the predicate it asserts — consumers hard-code it — and document the exit-code bands in
+the tool's own help text.
+
+## A Content-Agnostic Claim Needs Both Halves Exercised
+
+A primitive described as content-agnostic can have a generic read/registration half and a producer
+half hard-coded to its first instance (an allowlist, an `== "<first>"` gate). Validate the claim by
+running both the read path and the build path end to end for a new content type, and grep the
+build entry point for literal gates.
+
+## Dropping an Enum Value Needs Writers, Doctrine, and Disk
+
+An enum that models on-disk artifacts must not lose a value on a "never observed" premise until
+three checks pass: no writer produces it, no doctrine surface prescribes it, and zero live
+instances carry it.
+
+## A Flag Rename Is Greppable Only in Its Flag Form
+
+A rename from `proposed_target` to a CLI flag `--proposed-target` leaves the hyphenated references
+in skill docs and CLIs invisible to a grep for the field token. A consumer-update check for a flag
+rename greps the flag form (`grep -- '--old-flag'`) as well as the field.
+
+## A New Record Class That Omits the Discovery Key Is Invisible
+
+When a pipeline adds a record class defined to omit the field its existing discovery keys on, the
+existing sweep never finds the new class, and every dedup or ordering pass over the discovered set
+inherits the gap. When adding the class, change discovery to key on something every class carries,
+and test that each class is discovered.
+
+## Key Membership Is Not a Value Check When the Schema Has Empty Sentinels
+
+A detect-then-fail-loud guard that tests `key in layer` treats an empty-string sentinel (a tracked
+`repos.x = ""` declaration) as a hit, so a required-value resolver never raises. Test for a
+non-empty value, not key presence.
+
+## Measure With Deterministic Proxies, Not Wall Clock or Whole-Output Diffs
+
+Wall clock swings several-fold with machine load because process creation cost rises under
+contention; use spawn count and process time as the acceptance signal. A whole-output byte diff
+cannot pass while siblings mutate the inputs and the output carries run-varying globals; compare
+only records common to both runs, on the fields the change touched, after normalizing run-varying
+values.
+
+## A Validator Shared Across Sibling Ports Takes the Schema as a Parameter
+
+When one validator serves several sibling ops (handoff and memo), the mechanism is shared and the
+schema is pinned per op: the validator takes the schema path as a parameter. A validator with its
+schema baked in cannot be reused.
+
+## Field rules
+
+- **Validate an ASCII-numeric id with `s.isascii() and s.isdigit()` or `re.fullmatch(r'[0-9]+', s)`.** Bare `str.isdigit()` accepts superscript, fullwidth and other Unicode digits.
+- **stdlib `urllib` forwards `Authorization`/`Cookie` across a cross-host redirect.** Any authenticated urllib download overrides `HTTPRedirectHandler.redirect_request` to drop them when the netloc changes.
+- **Audit a gate on two axes: is it correct, and does it fire at the cadence its artifact drifts?** A correct gate nobody runs is the common failure.
+- **Count service instances by listening port, not by process count.** One instance is several processes (launcher, shim, binary share argv), and auto-incrementing dev ports defeat a fixed-port check.
+- **For third-party config, the vendor's behaviour is the contract and its docs are a hypothesis.** Execute the resolution path and assert the case where they diverge.

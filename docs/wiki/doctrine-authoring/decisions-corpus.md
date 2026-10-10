@@ -39,6 +39,31 @@ invocation-authority ruling itself, each refined or extended it.
 Do not use created-date, DR-number ordering, or "the newest passage wins" as the discriminator —
 `status:` is the only field that says whether a record is live.
 
+## Citation integrity — check-decision-citations
+
+`coordinator/bin/check-decision-citations.py` verifies that every cited `DR-nnn` and `SC-DR-nnn`
+id resolves to a record somewhere in the fleet.
+
+- **CLI.** No flags: delta check against the committed baseline. `--emit-baseline`: rewrite
+  the committed baseline file.
+- **Exit codes.** 0 = clean (`decision citations: clean`), or baseline absent (one stderr line,
+  skipped). 1 = new dangling id; one line per id with its citing files. 2 = could not check
+  (`git grep` failed), or emit refused.
+- **Live-token rule.** One `git grep` over tracked `.md/.json/.sh/.py/.yaml/.js` files. A token is
+  live when it is outside a fenced code block, its file is outside `archive/`, `tasks/`,
+  `.structural-index/`, `.coordinator-local/`, and it is not a reserved placeholder id (the all-zero and all-nine
+  ids, with or without the `SC-` prefix). Namespaced ids (`DR-PV1-nnn`) never match.
+- **Resolution keys.** Filename prefix or frontmatter `id:` in `docs/decisions/` or
+  `coordinator/docs/decisions/`; the same in any sibling registry repo's `docs/decisions/` (absent
+  siblings are skipped); `SC-DR` ids resolve against `concurrent-em-git-operations/scoped-safety-commits.md`.
+- **Baseline shape.** A header naming the generating command and the resolved sibling registry
+  keys (never paths); `## Dangling` (id, citing-file count, first citing file; the only gated
+  part); `## Bare cross-repo inventory` (ids resolving only in a sibling, with key and count).
+  Re-emit on an unchanged tree is byte-identical. Emit refuses (exit 2, file untouched) when a
+  sibling key named in the existing header fails to resolve.
+- **Fire response.** Fix the citation, or route a genuinely lost record to the recovery plan.
+  Never run `--emit-baseline` to silence a fire.
+
 
 ## Negative spec
 

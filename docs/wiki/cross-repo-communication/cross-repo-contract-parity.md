@@ -64,6 +64,7 @@ def test_field_drop_safe():
 When the consumer reads producer output **through a closed (`additionalProperties: false`), versioned (`schema_version` const) JSON Schema that it validates against**, the schema IS the consumer's published read surface — a parallel Python `frozenset` is redundant and would introduce a dual-registry drift hazard, collapsing the READ and VALIDATION surfaces this wiki's own anti-patterns section forbids merging (see § Anti-patterns, last bullet). The schema is a *stricter* surface than a frozenset: it is citable (`$id`), versioned (`schema_version`, bump-on-shape-change), closed (enumerates the exact admitted field set), and mechanically enforced at the channel boundary by conformance tests. A frozenset is advisory; the schema is validated.
 
 **Carve-out conditions (both must hold):**
+
 1. The consumer validates producer output against the schema (not merely reads it).
 2. The schema is closed (`additionalProperties: false`) and versioned (`schema_version` const).
 
@@ -187,7 +188,7 @@ When a plan introduces or modifies a producer/consumer contract field across sep
 
 **Discipline.** When local-test semantics disagree with the receiver's validator, the local test is the bug. Cross-repo schema fields must be verified at the *receiver's* assertion site — adjacent to Convention A's polarity rule (the consumer publishes its own surface; the producer asserts against it, not against a copy that may have drifted).
 
-**Strict-inclusive upper-bound pins turn an additive bump into a forced re-release — check for a host-only home first.** Under a strict-inclusive gate (`pv_min <= host <= pv_max`), an *additive* bump on a HOST-consumed field falls OUT of every consumer that pinned `[lo, current]`, forcing each to widen-and-re-release for zero benefit — additive is not free under a strict upper bound. Before bumping the shared protocol version for what is actually a host-only concern, ask whether the field can stay host-internal (a presentation-only façade field no consumer reads needs no shared bump at all). The full discriminator — shared-contract change (coordinate reader-first) vs. host-owned façade field (host-side-only) — lives in `cross-repo-communication.md` § Host-owned façade fields don't need the shared bump. (Source: project-rag.)
+**Strict-inclusive upper-bound pins turn an additive bump into a forced re-release — check for a host-only home first.** Under a strict-inclusive gate (`pv_min <= host <= pv_max`), an *additive* bump on a HOST-consumed field falls OUT of every consumer that pinned `[lo, current]`, forcing each to widen-and-re-release for zero benefit — additive is not free under a strict upper bound. Before bumping the shared protocol version for what is actually a host-only concern, ask whether the field can stay host-internal (a presentation-only façade field no consumer reads needs no shared bump at all). The full discriminator — shared-contract change (coordinate reader-first) vs. host-owned façade field (host-side-only) — lives in `coordinator/docs/wiki/cross-repo-communication.md` § Host-owned façade fields don't need the shared bump. (Source: project-rag.)
 
 ## Wire-field op-classification is an allowlist, not a consumer heuristic
 
@@ -358,6 +359,7 @@ both processes checked their own half against its own spec, and the spec on each
 satisfied.
 
 **Discipline.**
+
 - When a plan proposes a producer/consumer split across repos, name the consumer callsite in the
   *same memo* that asks for the producer change — not as a follow-up, in the memo that requests
   the producer surface at all. A producer built without its caller named has nowhere for the join

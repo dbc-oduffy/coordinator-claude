@@ -3,8 +3,8 @@ title: Review integration doctrine
 created: 2026-05-17
 type: doctrine
 related:
-  - plugins/coordinator/docs/wiki/reviewer-pipeline/prior-art-checker.md
-  - plugins/coordinator/docs/wiki/reviewer-pipeline/docs-checker-pre-review.md
+  - plugins/coordinator-claude/coordinator/docs/wiki/reviewer-pipeline/prior-art-checker.md
+  - plugins/coordinator-claude/coordinator/docs/wiki/reviewer-pipeline/docs-checker-pre-review.md
 ---
 
 # Review Integration Doctrine
@@ -171,3 +171,8 @@ transcription, ever — inline-relayed findings are never a valid handoff format
 
 A single finding reverts through `reject`. A whole review reverts through the EM's single scoped
 commit. Nothing about the record lives in the reviewed artifact.
+
+## Field rules
+
+- **A reviewer's prototype is not evidence for the shipped diff.** Before/after equivalence loads the real old module (from git) and the real new one in one process at one pinned tip.
+- **A preservation audit is in different hands from the deletion and asserts distinctness, not count.** A duplicate can backfill a deleted slot under a count-only check.

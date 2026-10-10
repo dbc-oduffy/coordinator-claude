@@ -61,7 +61,7 @@ session-scoped test-invocation grant, same as Tier U — a chained `fast_test_cm
 denied as Tier U today by a guard equality-check limitation; configure `fast_test_cmd` as a single
 command instead) run per wave; Tier U (full suite / unscoped runner) is reserved for the cadence
 gate at the end — N waves must not mean N full-suite runs. Code review is the emitted workflow's
-own review stages (one parallel review wave, one integration pass), run once at the end of the
+own review stages (one parallel review wave; each reviewer applies its own findings), run once at the end of the
 run, never per chunk and never sequential; `/workstream-complete` is bookkeeping (plan status,
 lessons, docs, commit/merge hygiene, handoff) and carries no reviewer dispatch of its own.
 
@@ -191,6 +191,7 @@ inline (literal CLI signatures, algorithm pseudocode, fixture template) rather t
 source files" — a go-read brief is an instruction to spend the budget exploring.
 
 **On a fire — enrich-once routing, don't dispatch per-chunk executors directly:**
+
 1. Dispatch one enrich-once pass (`enrich_once: true` in the brief, activates
    `enricher.md § Enrich-Once Decomposition Mode`). It reads the shared substrate once and emits a
    `## Enriched Dispatch Stubs (enrich-once)` section: pinned per-chunk stubs (exact CLI
@@ -621,3 +622,205 @@ session, (c) commit-and-stop without a handoff. Never auto-invoke `/workstream-c
 `/merging-to-main`, `/workday-complete`, or `coordinator:finishing-a-development-branch` —
 `/merging-to-main` is keyword-gated by the PM; the others depend on workstream state, which the PM
 picks.
+
+## Preamble — rationale cut from the skill body
+
+- **Cross-repo assent.** On a managed-remote host the per-session cross-repo-commit gate stands
+  down to a warning; the assent is registered at the PR carrying the branch instead, and one repo's
+  work per commit stream is what binds. A plan the PM authorized is authorized to its hot-path edit.
+- **EM-verify.** A dispatch vehicle can narrow the executor's Bash surface below what the tests
+  need (`workflow-orchestration.md`), and an honest executor then reports "PASS (by inspection)".
+  Inspection is not verification. A sibling-host import error reads as a test failure, not a skip,
+  and masquerades as a chunk regression when the interpreter differs from the canonical gate env.
+- **Unit-green is not reachable.** An executor's own note flagging the mechanism as unwired does
+  not discharge the EM's check. The check is a gated step in Phase 3's per-task loop and is
+  re-checked in Phase 4's close-out checklist.
+- **Dispatch authorization.** Invoking a skill requests the actions that skill performs, so a
+  harness line permitting dispatch "unless the user requested it" is satisfied, not overridden —
+  no precedence claim is needed. Re-asking spends the very context the dispatch exists to protect.
+  The rule attaches to skill entry; keyword-gated skills gate entry, and every gate a skill names
+  for itself still binds.
+
+## Phase 1 — rationale cut from the skill body
+
+- **Check-before-mint ordering.** Minting takes a fresh timestamp when the body sha differs from a
+  prior stamp, so minting first would erase the staleness signal the check exists to catch. On
+  STALE-bookkeeping the stamp is correct and only ratification fields moved; advancing
+  `stamp_commit` throws away the drift a later substantive edit must stand out against.
+- **Utterance resolution chain.** Emit walks the plan's `## PM brief`, then
+  `execution_authorized_note`, then the baton's `summary:` plus `## What this covers`. Under
+  `/autonomous` the plan's own `## PM brief` or its baton is the only source.
+- **`mise_prepped_*` axis.** A plan arriving by `plan-blitz → mise-prep` carries both attests; this
+  step writes only the quartet, and the mise attest survives because `mise_prepped_sha` hashes the
+  plan BODY.
+- **Remaining-context gate.** A session carrying plan authorship + review dialogue with LOW
+  remaining context is the narrow carve-out; a fresh session with a full budget is the intended
+  path at any plan size. The failure caught is degraded tool-call reliability in a
+  context-saturated session, so the meter reading, not planning provenance, is what the gate reads.
+  Under pm/ceo modes the accepted sizing is the execution authority.
+
+## Phase 1.5/1.6 — headless fire
+
+`--fire` hands the script to `engine_fire.fire_workflow` (a module function, not a `workflow.fire`
+op dispatch), which spawns a detached `claude -p` child and returns a run handle
+(`{"script": ..., "handle": {...}}`; `fire_id` is what `workflow.fire_status` re-reads). The
+workflow is native to that child, not to any operator: it runs under the child's own
+`--allowedTools` (no `PowerShell`; denials surface only as `permission_denials` in the final JSON
+envelope, which reads identically to a chunk that made no edit), cannot be resumed, and its fire
+log is written only at process exit, so a live run and a killed one are indistinguishable through
+it. Firing in-session is what makes the run the operator's: visible in their workflow list,
+inspectable while it runs, resumable via `resumeFromRunId` (same-session-only), under their
+permissions, costed to their session, completion arriving as a task notification.
+
+**Fired-then-died.** The four named refusals are fire-time; the child never started. A child that
+started and died mid-run shows `log_size_bytes: 0` — it has written nothing yet, whether still
+starting or dead before its first write.
+
+**Workflow-spawned agent catering.** A workflow-spawned agent IS its declared `agentType`, but the
+dispatch-time catering does not apply: no `contract_blocks`, no provisioned report sidecar, no
+dispatched-worker role framing.
+That shapes what a spawn-time catering fix must carry, not whether the emitted workflow is fired.
+
+**Wave shape.** Derived by the op from the file-write graph; a second derivation is a silently
+desyncing source of truth for a fact the graph already knows. A serial dependency removes
+concurrency, not decomposition.
+
+**No checkpoint prompt.** Roll-on removes the EM checkpoint prompt, not the gates; a halted or
+edited phase resumes without re-paying phases that already succeeded.
+
+**Emit and dispatch — one action.** The `Workflow` call carries the same imperative force as the
+emit: it is not EM discretion about whether to dispatch, and it is not hand-dispatch.
+Hand-dispatching after a refusal is the failure this whole surface exists to prevent. The emitted
+script is a disk artifact because plan-body prose or a chat wave table cannot be fired.
+`allow-emitted-workflow-fire.py` (PreToolUse, matcher `Workflow`) auto-approves a `scriptPath`
+whose digest matches and stays silent otherwise.
+
+**One emit per plan — resume mechanics.** Resume serves the longest UNCHANGED prefix of `agent()`
+calls from cache, and the halting call completed with its refusal/BLOCKED verdict, which is
+cached; relaunching untouched replays it. An edited completed step loses its cache and re-runs. The
+run id comes back in the `Workflow` tool result, not from anything the script can read about
+itself. There is no `Commit wave N` phase and no `COMMIT-LANDED <sha>` in the script: the
+Workflow never commits. A second emit produces a narrowed script indistinguishable on disk from
+one always meant to be partial.
+
+**Monitor.** `Monitor` already is the "eyes on it with a chron or something" the PM asked for. Do
+not copy the `CronCreate`/`RemoteTrigger` refusal in
+`coordinator/skills/strategic-self-description-refresh/SKILL.md`: that gate forces a human
+decision, and a fired workflow has none to protect. A filter that matches only the happy path
+stays silent through a stuck or crashed wave, which looks identical to "still running."
+
+**Claim-plan.** `--for-execution` has exactly one caller fleet-wide; a bare `claim-plan` takes the
+lock and leaves the plan reading `draft` through its entire execution. Relinquishment is evidence,
+not liveness. `plan-completeness generate` is an honest snapshot of a recompute-on-read
+projection, not a live signal; nothing reads it to steer dispatch.
+
+**AC cross-check.** `plan-coverage-checker` explicitly excludes the AC table from its oracle, so an
+uncited row renumbers silently under a chunk reshuffle. Test fixture defs and call sites passing a
+removed param break at the same cut a production call site would.
+
+**Terminal commit.** There is no per-wave commit agent; resume-after-halt keys on the
+terminal-commit refusal.
+
+## Phase 2 — cross-repo mirror
+
+Bare, `coordinator-tasks-mirror` resolves its root from cwd and the repo-identity gate refuses the
+write as a MISMATCH — a deliberate cross-repo call is otherwise indistinguishable from the
+`cd`-drift accident that gate exists to catch. The flag takes the ungated EXPLICIT arm and never
+softens the gate on the bare arm.
+
+## Phase 4 — Leg 1 negative-spec
+
+`chunk-commits` never accepts a pathspec-scoped query: a doctrine-conforming chunk commit is
+forbidden from touching the plan document (`snippets/plan-doc-oos-block.md`), which is what Phase
+4's scoped-commit mandate requires, so a pathspec-scoped join returns empty on every conforming
+plan and reports every chunk missing at exit 0. Chunk ids restart at C1 per plan, so an unscoped
+grep can match a different plan's same-numbered chunk; `chunk-commits`' fixed `<add-sha>..HEAD`
+anchor is not caller-overridable, making that failure unreachable through it. The engine-side half
+of this join defect is tracked in the engine repo — one
+contradiction, not two bugs. It has been found three times independently and credited zero: key the detector on
+something the permitted writer produces (the chunk-id commit subject anywhere in range).
+
+**`close-out-and-stamp` reads no commit message.** The subject/`Deliverable-Id` join was deleted
+on measured low recall; its absence is a ruling. The trailer is provenance for other consumers —
+its presence proves nothing about delivery and its absence stamps nothing partial.
+
+**Step rationale.** `disposition_ref` is hand-written and the anti-self-attestation gate cannot
+catch a row pointing at a peer's commit (an ancestor of `HEAD` too): a spine can be fully green and
+fully misattributed. `plan-completeness status` never writes, so the Phase 1.5/1.6 baseline survives;
+the diff between the two rollup lines is the value. A changed-but-non-matching falsifier output is
+still `fail`: non-inertness alone does not prove the criterion, so no separate zero-movement rule is
+needed. Promotability must not gate the stamp — EMs would choose falsifiers for filing convenience
+rather than what they falsify, the vacuous-AC failure in a new costume. The adversarial reader
+exists because a plan that halts is self-flagging and the plan that sails is the one nobody
+re-reads; a reader who never sees AC3 cannot be misled by AC3, and a well-meaning "here is the
+context you need" destroys that. An honest "partial" report does not earn the wrap offer.
+
+## Relationship to other commands
+
+Review can stamp `execution_authorized_at` as supporting evidence and writes an execution handoff.
+For L/XL plans enrichment happened upstream via the size-keyed lane dispatch of
+`coordinator:enricher` over the plan body; `/enrich-and-review` remains a separate
+chunk-directory/stub pipeline.
+
+## Field rules
+
+- **After a home or path migration, live-trace the producing op.** Repointed prose proves nothing about whether the op moved with it.
+- **On a serial chain, verify each chunk before starting the next.** Read failing tests and confirm root cause rather than trusting green-on-first-try; fixture seams surface here.
+- **Removing a fallback surfaces the defects it masked.** Budget for newly visible failures and triage them as discoveries, not regressions.
+- **Mechanism ACs need their artifact grepped before stamping.** A lint, guard, or named test is the AC most likely to be silently unmet because the feature works without it.
+- **Report green as scoped to the tests that exist.** Treat a later test-authoring wave as the real gate for code committed before it.
+- **A stopped runaway with zero writes is a feasibility signal.** Check the brief's required API exists before re-splitting; a smaller dispatch fails identically.
+- **Grep plan-asserted propagation at the call sites before dispatch.** Callers that pass no argument take the default; "inherited for free" is a claim.
+- **Derive the wave-boundary verification set from modules edited,** not chunks authored; a sibling test file of an edited module breaks at collection.
+- **A brief adding a code path names the behaviour to prove,** and the executor confirms the test fails against a revert; a pre-existing green suite is not coverage.
+
+## Fire-time freshness
+
+An emitted Workflow is a snapshot of the spine at emit time. Between emit and a row's dispatch,
+another session can ship that row. A duplicate pickup on 2026-07-16 sent three duplicate memos
+because nothing re-read the row before acting. The emitter therefore re-reads each row's
+disposition at fire and skips a `coded` row. That covers re-delivery of in-tree work. It does not
+cover a side effect already sent outside the tree, because the spine records the row and not the
+effect. So a row with an irreversible external side effect also carries a skip-if-delivered check
+keyed on that effect's own receipt (a memo's sent-ledger entry, a release tag, a remote ref). The
+mechanism is engine-side (`dispatch.emit`); the skill states the contract the emitter owes.
+
+## Reverify a delivery FAIL that fix-forward commits repaired
+
+A `delivery.verdict == FAIL` that fix-forward commits have since repaired is cleared only by
+re-verifying, never by hand-authoring a superseding record:
+`emit-dispatch-workflow --plan <plan> --reverify-delivery <run's integration sidecar> --out
+<plan-stem>.reverify.workflow.mjs`, fire the printed `Workflow(...)`, then
+`python3 -m coordinator_core.ops.dispatch_emit.reverify_delivery record --run-record <same sidecar>
+--result-json <the reverify run's task-output file>`. The run re-judges the exit criterion at HEAD
+too; the append-only verdict it writes under `state/delivery-verdicts/` replaces both the frozen
+FAIL and the frozen criterion at `review-stamp mint`. Re-run step 3.8, then step 4.
+
+## Op-registering chunk — registry-completeness tests
+
+A chunk that registers an op is verified with these engine-repo tests, never the full suite:
+`coordinator_core/authz/tests/test_registration_quad.py`,
+`coordinator_core/ops/tests/test_registry_map_sync.py`,
+`coordinator_core/ops/tests/test_op_inventory_parity.py`,
+`coordinator_core/ops/tests/test_op_registration.py`,
+`coordinator_core/tests/test_op_scope_parity.py`.
+
+## Signature/param-removal chunk scope
+
+A chunk removing a parameter or signature that scopes only production handler signatures is an
+authoring gap. Walk its task list for a scope that also names test fixture defs and call sites, and
+fix it in the plan before dispatching.
+
+## External owner — live session, sent memo
+
+An `external_gate` naming a session is checked against the live roster before dispatch; a dead
+session re-addresses the gate to the repo, never to a session. A memo row (`surface: memo:`,
+`writes: []`) writes no file, so it does not close on dispatch: it closes only on the sender-side
+receipt under `state/memo-outbox/sent/`. Tripwire: `A-EXTERNAL-OWNER-IS-LIVE-AND-ITS-MEMO-IS-SENT`.
+
+## Row dispositions and capability blocks
+
+The engine records a `voided` disposition, with a required reason, for a row whose deliverable
+became unnecessary (engine support pending in claude-klabauter). A row blocked on a capability carries
+`blocked_on: {capability, probe}`; any EM may re-dispatch it to a venue where the same probe
+passes, through the normal dispatch path with every gate unchanged.

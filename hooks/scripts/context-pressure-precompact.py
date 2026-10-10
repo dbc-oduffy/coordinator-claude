@@ -16,10 +16,13 @@ mirroring `preuse-write-dispatch.py`'s
 
 Contract:
   stdin   — PreCompact hook JSON (session_id, transcript_path, …)
-  stdout  — NOTHING. Not because PreCompact output is ignored: it is not.
-            `decision: "block"` / `continue: false` REFUSE the compaction, and
-            `newCustomInstructions` rewrites the summarizer's prompt. We decline
-            both surfaces deliberately.
+  stdout  — the engine's compaction-steering text, verbatim, or NOTHING on any
+            failure. The harness joins a successful hook's trimmed plain stdout
+            into `newCustomInstructions` and appends it AFTER the PM's typed
+            `/compact` args — it steers, never replaces them. It is also echoed
+            to the PM as one display line, which is why the engine caps it.
+            Never emit JSON here: `decision: "block"` / `continue: false`
+            REFUSE the compaction.
   exit 0  — ALWAYS, unconditionally, on every code path including every
             resolve/import/run failure. This is load-bearing, NOT incidental:
             a non-zero exit from a PreCompact hook BLOCKS the compaction, on all
@@ -27,8 +30,8 @@ Contract:
             hooks reference says exit 2 does not prevent compaction; measured
             against claude v2.1.274, it does. So the ordinary habit of exiting
             non-zero on failure would, here, silently strand a session at its
-            context ceiling. Our entire product is the on-disk sentinel +
-            state-snapshot side-effect, or a silent no-op.
+            context ceiling. Our product is the steering text plus the on-disk
+            sentinel + state-snapshot side-effect, or a silent no-op.
 
 Graceful degradation — REQUIRED: any failure to resolve/import/run the
 engine repo falls through to fail-open silent no-op (exit 0, no stdout, no
@@ -38,7 +41,6 @@ files written). A missing sibling engine must NEVER brick a compaction event
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 
@@ -79,7 +81,11 @@ def main() -> int:
         # matches the philosophy of every other Shape-P1 stub in this cohort:
         # a hook body must NEVER be able to brick the PreCompact event, no
         # matter what regressed inside the engine.
-        run(raw)
+        steering = run(raw)
+        # An engine predating the steering return yields None: print nothing.
+        if isinstance(steering, str) and steering.strip():
+            sys.stdout.write(steering)
+            sys.stdout.flush()
     except Exception:
         pass
 

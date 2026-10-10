@@ -108,7 +108,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 _PORTABLE_PATH = _REPO_ROOT / "setup" / "publish-targets.portable"
@@ -168,7 +168,7 @@ class GeneratorError(Exception):
     warning (AC15's "deny-by-default... not opt-out")."""
 
 
-def _git_ls_files(subdir: str, pending: Tuple[str, ...] = ()) -> List[str]:
+def _git_ls_files(subdir: str, pending: Tuple[str, ...] = (), repo_root: Optional[Path] = None) -> List[str]:
     """Tracked paths under `subdir`, plus any `pending` repo-relative paths that
     live under it. `pending` names files the caller has just written and is about
     to track — the only way an untracked file can reach a derivation, and only by
@@ -178,7 +178,7 @@ def _git_ls_files(subdir: str, pending: Tuple[str, ...] = ()) -> List[str]:
     no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     result = subprocess.run(
         ["git", "ls-files", "--", subdir],
-        cwd=str(_REPO_ROOT),
+        cwd=str(repo_root or _REPO_ROOT),
         capture_output=True,
         text=True,
         check=True,
@@ -189,12 +189,14 @@ def _git_ls_files(subdir: str, pending: Tuple[str, ...] = ()) -> List[str]:
     return tracked + [p for p in pending if p.startswith(prefix) and p not in tracked]
 
 
-def _tracked_top_level_names(source_subdir: str, pending: Tuple[str, ...] = ()) -> List[str]:
+def _tracked_top_level_names(
+    source_subdir: str, pending: Tuple[str, ...] = (), repo_root: Optional[Path] = None
+) -> List[str]:
     """Distinct top-level names directly under `source_subdir`, from
     `git ls-files` only (never the filesystem — see module docstring)."""
     prefix_depth = len(Path(source_subdir).parts)
     names = set()
-    for rel_posix in _git_ls_files(source_subdir, pending):
+    for rel_posix in _git_ls_files(source_subdir, pending, repo_root):
         parts = Path(rel_posix).parts
         if len(parts) <= prefix_depth:
             continue
@@ -202,10 +204,10 @@ def _tracked_top_level_names(source_subdir: str, pending: Tuple[str, ...] = ()) 
     return sorted(names)
 
 
-def _load_declarations() -> Dict:
+def _load_declarations(declarations_path: Optional[Path] = None) -> Dict:
     import yaml
 
-    with open(_DECLARATIONS_PATH, "r", encoding="utf-8") as fh:
+    with open(declarations_path or _DECLARATIONS_PATH, "r", encoding="utf-8") as fh:
         data = yaml.safe_load(fh)
     if not isinstance(data, dict) or "rows" not in data:
         raise GeneratorError(
@@ -574,8 +576,10 @@ def _derive_row(
     source_subdir: str,
     portable_text: str,
     pending: Tuple[str, ...] = (),
+    repo_root: Optional[Path] = None,
 ) -> Dict:
-    tracked = _tracked_top_level_names(source_subdir, pending)
+    repo_root = repo_root or _REPO_ROOT
+    tracked = _tracked_top_level_names(source_subdir, pending, repo_root)
     deny_names = _row_declarations(rows, row_name)
 
     # THE INVERSION (PM ruling, 2026-09-01). Admission is `tracked - deny`, not
@@ -610,7 +614,7 @@ def _derive_row(
                     f"'{source_subdir}' — nothing admits it and this row cannot "
                     f"carry it"
                 )
-            if not (_REPO_ROOT / contract_path).exists():
+            if not (repo_root / contract_path).exists():
                 raise GeneratorError(
                     f"'{row_name}': AC9 contract root {contract_path!r} is missing "
                     f"from disk — a silent drop here breaks a cross-repo consumer "
@@ -636,7 +640,7 @@ def _derive_row(
     # exclusion that narrows no admitted path, so a deleted file must drop out.
     tracked_rel = {
         Path(rel).relative_to(source_subdir).as_posix()
-        for rel in _git_ls_files(source_subdir, pending)
+        for rel in _git_ls_files(source_subdir, pending, repo_root)
     }
     exclusions = [
         e for e in _existing_exclusions(row_line)
@@ -664,6 +668,19 @@ def _derive_row(
         "include_count": len(include_root),
         "deny_count": len(deny_names),
     }
+
+
+def regenerate_portable(repo_root: Path, pending: Tuple[str, ...] = ()) -> str:
+    """The `publish-targets.portable` text with field 7 re-derived for both rows
+    of the tree at `repo_root`, `pending` counted as tracked. Writes nothing;
+    raises `GeneratorError` when a row's declarations cannot cover its names."""
+    rows = _load_declarations(repo_root / "setup" / "publish-allowlist-declarations.yaml")
+    portable_text = (repo_root / "setup" / "publish-targets.portable").read_text(encoding="utf-8")
+    lines = portable_text.splitlines(keepends=True)
+    for row_name, source_subdir in _ROWS:
+        d = _derive_row(rows, row_name, source_subdir, portable_text, pending, repo_root)
+        lines[d["line_index"]] = d["new_line"]
+    return "".join(lines)
 
 
 def main(argv=None) -> int:

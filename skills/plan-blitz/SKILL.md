@@ -77,6 +77,7 @@ clears when the peer answers. **An edge is a DISCOVERED dependency, never a way 
 **Suppression is a HOLD: three flat baton keys the gate reads —
 `plan_blitz_hold_reason`, `plan_blitz_hold_cite`, `plan_blitz_hold_until`.** The gate sets
 `candidate: false` and reports the baton under `held`. **A hold with no reason is ignored.**
+**`plan_blitz_hold_cleared_by` (the clearing commit) lifts a hold; the gate reports it under `hold_cleared`.**
 **`external_gate` on a BATON record does nothing** (real on PLAN SPINE ROWS only).
 
 ### 2. Scaffold the trail and freeze the gate

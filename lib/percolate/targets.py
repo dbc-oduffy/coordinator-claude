@@ -323,7 +323,7 @@ def load_targets(
     *,
     target_filter: str = "",
     portable_targets_file: Optional[Path] = None,
-    err: IO[str] = sys.stderr,
+    err: Optional[IO[str]] = None,
 ) -> List[str]:
     """Resolve the full 4-tier publish-target set. `setup_dir` is the
     `setup/`-shaped directory holding `publish-targets.sh` /
@@ -343,6 +343,8 @@ def load_targets(
     form) in first-tier-wins-on-name-collision order. Raises `TargetsError`
     (see class docstring for the `.code` 1/2 split) on any abort path.
     """
+    if err is None:
+        err = sys.stderr  # call-time: an import-time default pins a stream a test capture later closes
     target_filter_set = (
         frozenset(n.strip() for n in target_filter.split(",") if n.strip())
         if target_filter

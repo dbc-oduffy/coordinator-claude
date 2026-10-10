@@ -16,10 +16,26 @@ inputs:
     haiku_scouts:
       kind: strings
 stages:
+  - id: scope
+    phase: Scope
+    agent_type: general-purpose
+    model: sonnet
+    template: repo-scope-prompt-template.md
+    produces_brief: true
+    output: "{{scratch_dir}}/scope.md"
+  - id: prior-art
+    phase: Scope
+    agent_type: coordinator:prior-art-checker
+    model: sonnet
+    template: prior-art-prompt-template.md
+    optional: true
+    depends_on: [scope]
+    output: "{{scratch_dir}}/prior-art-check.md"
   - id: scout-haiku
     phase: Scouts
     agent_type: coordinator:repo-scout
     template: repo-scout-prompt-template.md
+    depends_on: [scope, prior-art]
     fan_out:
       over: inputs.haiku_scouts
     when:
@@ -31,6 +47,7 @@ stages:
     agent_type: general-purpose
     model: sonnet
     template: repo-scout-prompt-template.md
+    depends_on: [scope, prior-art]
     fan_out:
       over: inputs.chunks
     when:
@@ -175,3 +192,20 @@ stages:
       equals: true
     depends_on: [relay]
     output: "{{scratch_dir}}/synthesis-pass-2.md"
+  - id: coverage
+    phase: Coverage
+    agent_type: coordinator:coverage-auditor
+    model: sonnet
+    template: repo-coverage-prompt-template.md
+    depends_on: [synthesize, relay, synthesize-2]
+    schema:
+      type: object
+      required: [sidecarPath, absentClaims, deepeningRecommended]
+      properties:
+        sidecarPath:
+          type: string
+        absentClaims:
+          type: integer
+        deepeningRecommended:
+          type: boolean
+    output: "{{scratch_dir}}/coverage-audit.md"

@@ -78,7 +78,7 @@ One entry per finding: severity, the plan passage quoted verbatim (with heading 
 
 | Severity | Definition |
 |---|---|
-| **P0** | The plan cannot be executed or certified as written: contradicts its own goal, names a path or mechanism that does not exist, or has an uncheckable exit criterion |
+| **P0** | The plan cannot be executed or certified as written: contradicts its own goal, names a path or mechanism that does not exist, or has an uncheckable exit criterion (including a clause naming a step that runs after the terminal judge, such as a peer memo or close-out action) |
 | **P1** | A row or criterion that will fail or be mis-executed: stale premise, writes that omit a touched file, a coverage area silent where its trigger fires |
 | **P2** | Ambiguity, hedge, or weak criterion an executor could resolve wrongly |
 | **P3** | Wording or consistency nits |

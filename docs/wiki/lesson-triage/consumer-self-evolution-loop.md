@@ -72,7 +72,7 @@ The upstream central improvement machinery is **fleet-private**. It does not shi
 by them, and consumers must not expect their local lessons to ever reach upstream.
 
 - **`state/lessons-outbox/` and the central improvement queue
-  (`$(python3 <claude-klabauter>/coordinator/lib/coordinator-state-root.py --central)/improvement-queue/`) are DoE-internal.** The central `learn-lessons`
+  (`$(python3 <claude-klabauter>/coordinator/lib/coordinator-state-root.py --central)/improvement-queue/`) are internal to the source repo.** The central `learn-lessons`
   drain (Phase 2.6, Phase 0.5 dedupe) is a **central-mode-only** operation, PM-invoked from `~/.claude`,
   that enumerates peer repos from *this machine's* `machine-local` registry
   (`skills/learn-lessons/SKILL.md:240-262`). It has no concept of a remote/other-operator machine. A

@@ -120,6 +120,7 @@ report_type_map:
   
   coordinator:falsifier-integrity-reviewer: review-findings
   coordinator:subtractive-adjudicator: review-findings
+  coordinator:sizing-scout: review-findings
   coordinator:blitz-em: staff-eng-review
   coordinator:plan-author: run-report
   coordinator:roadmap-planner: run-report
@@ -263,6 +264,7 @@ dispatch_tier:
   
   coordinator:falsifier-integrity-reviewer: exploration
   coordinator:subtractive-adjudicator: exploration
+  coordinator:sizing-scout: exploration
   
   
   coordinator:queue-grind-op-runner: exploration
@@ -595,6 +597,8 @@ contract_blocks:
     - inline-return-cap
     - return-tldr
   coordinator:subtractive-adjudicator:
+    - inline-return-cap
+  coordinator:sizing-scout:
     - inline-return-cap
   coordinator:queue-grind-op-runner:
     - inline-return-cap

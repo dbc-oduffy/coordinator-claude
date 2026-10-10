@@ -1,12 +1,27 @@
 schema_version: 1
 pipeline: structured
-description: "Structured research, one subject at a time: scout, per-topic verifiers, a rebuttal round, a schema-conforming synthesizer"
+description: "Structured research, one subject at a time: scope, optional prior-art, scout, per-topic verifiers, a rebuttal round, a schema-conforming synthesizer, a coverage audit"
 subjects_mode: sequential
 inputs:
   brief: required
   subjects: optional
   scratch_dir: optional
 stages:
+  - id: scope
+    phase: Scope
+    agent_type: general-purpose
+    model: sonnet
+    template: structured-scope-prompt-template.md
+    produces_brief: true
+    output: "{{scratch_dir}}/scout-brief.md"
+  - id: prior-art
+    phase: Scope
+    agent_type: coordinator:prior-art-checker
+    model: sonnet
+    template: prior-art-prompt-template.md
+    optional: true
+    depends_on: [scope]
+    output: "{{scratch_dir}}/prior-art-check.md"
   - id: scout
     phase: Scout
     agent_type: coordinator:research-scout
@@ -14,6 +29,7 @@ stages:
     template: structured-scout-prompt-template.md
     fan_out: none
     web_caller: true
+    depends_on: [scope, prior-art]
     output: "{{scratch_dir}}/scout-index.md"
   - id: verify
     phase: Verify
@@ -56,3 +72,18 @@ stages:
     web_caller: false
     depends_on: [verify, rebuttal]
     output: "{{scratch_dir}}/synthesis-annotations.md"
+  - id: coverage
+    phase: Coverage
+    agent_type: coordinator:coverage-auditor
+    model: sonnet
+    template: structured-coverage-prompt-template.md
+    fan_out: none
+    web_caller: false
+    depends_on: [synthesize]
+    output: "{{scratch_dir}}/coverage-audit.md"
+    schema:
+      type: object
+      required: [sidecarPath, absentClaims]
+      properties:
+        sidecarPath: { type: string }
+        absentClaims: { type: integer }

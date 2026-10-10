@@ -56,7 +56,9 @@ elsewhere the step is N/A and silent (`A-RAG-VERDICT-ON-AN-UNINDEXED-REPO-IS-NOT
 Run `node --test coordinator/tests/plugin-ecosystem/run.js` — hook-behavior failures block;
 non-hook failures report and continue.
 
-**Step 4b: Structural index.** Run `<plugin-root>/bin/structural-index-refresh.py` (non-blocking, always exit 0; `COORDINATOR_STRUCTURAL_INDEX_REFRESH_OFF=1` disables) — report its line if it prints one.
+**The register stall check:** `coordinator-invoke requirement_register.stall_report '{"today":"<today>"}'` (settings-home forwarder); render findings in the wrap report under `### Register stall check`, omitted when empty.
+
+**Step 4b: Structural index.** Run `"$_py" "$COORDINATOR_SETTINGS_HOME/bin/structural-index-refresh"` (POSIX; on PowerShell `& "$env:COORDINATOR_SETTINGS_HOME\bin\structural-index-refresh.exe"`, `snippets/resolve-coordinator-bin.md`) (non-blocking, always exit 0; `COORDINATOR_STRUCTURAL_INDEX_REFRESH_OFF=1` disables) — report its line if it prints one.
 
 ## Step 5: Resolve Judgment Points
 
@@ -160,9 +162,9 @@ Shape W above / Shape A/B POSIX — `snippets/resolve-coordinator-bin.md`. `--re
 
 ## Step 9e: Emitted Workflow Script Sweep
 
-Run the `/distill` § "Emitted workflow scripts" sweep for `state/**/fire-*.mjs` and
-`state/**/*.mjs.emitted.json`: delete finished workflows' scripts and receipts, `git rm --cached`
-any that are tracked, commit from the index. Skip anything younger than 24 h or still executing.
+Run the `/distill` § "Emitted workflow scripts" step for `state/**/fire-*.mjs` and
+`state/**/*.mjs.emitted.json`: the engine prune deletes finished units; `git rm --cached` any that
+are tracked and commit from the index.
 Advisory; the ceremony continues on failure.
 
 ## Step 9d: claudemeta Manifest Cadence

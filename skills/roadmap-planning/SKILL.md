@@ -70,8 +70,8 @@ Mandatory (wiki: why).
 source="unreal", limit=1)` returns a hit before any UE-internal-API cluster proceeds; unavailable →
 STOP those clusters, never substitute web scouts, surface to PM; other clusters proceed.
 
-1.5.0. Assess research depth (EM judgment, PM-authorized) — `residue/research-depth-assessment.md`
-   before dispatching scouts; `/research` is PM-gated, never EM-auto-invoked.
+1.5.0. Assess research depth (EM sizing call) — `residue/research-depth-assessment.md`
+   before dispatching scouts; size by value class; corpus is the roadmap case.
 1.5.1. Dispatch one scout per KEEP/MERGE-target cluster (cap 8 concurrent), brief =
    `${CLAUDE_PLUGIN_ROOT}/snippets/internet-research-scout.md` + cluster scope → `research-corpus/<topic-
    slug>.md`, ≥2KB. Exceptions (per-project material, measurement-derived corpus): wiki.

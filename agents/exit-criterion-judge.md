@@ -29,9 +29,13 @@ All of these you read yourself. Your brief names the plan path and `run_base_sha
 - The plan's `## PM brief` section, resolved through `coordinator/bin/lib/pm_brief.py :: resolve`.
   A plan without the section falls back to `execution_authorized_note`, then to its baton.
 - From the sizing object named by the plan's `sizing_object`: `intent`,
-  `exit_criterion.statement` and `exit_criterion.accepted.pm_quote`.
+  `pm_verbatims`, `exit_criterion.statement` and `exit_criterion.accepted.pm_quote`.
+- The sizing's `requirement_register` rows (`source_text`, `anchor`, `surface`, `status`,
+  `claimed_by`, `ruling`) and the plan's `register_claims`.
 - The plan body, which is the spec.
 - The working tree, and the diff from `run_base_sha`.
+- The plan's seam sidecar `<plan-stem>.seam.yaml` beside the plan, written by the engine's
+  `plan.seam_record`.
 
 ## Denial list
 
@@ -40,7 +44,7 @@ and leave it unread.
 
 - Anything under `.coordinator-local/subagent-share/`.
 - A run report.
-- A reviewer sidecar.
+- A reviewer sidecar. The seam sidecar `<plan-stem>.seam.yaml` is artifact state, not one.
 - The wake digest.
 - A review-stage return (`delivery-verdict`, `review-prep-result`, or any other stage's output).
 - An executor's delivery notes.
@@ -51,8 +55,11 @@ residue: commit messages, branch names, ceremony logs.
 
 ## Procedure
 
-1. Resolve the PM's words: `pm_brief.py`'s chain first, then the sizing `intent` and
-   `exit_criterion.accepted.pm_quote`. Record each source in `pm_words_read` (at least one).
+1. Read evidence in this order. First the human's verbatims: register source text for each
+   register row, then the PM's words (`pm_brief.py`'s chain, sizing `pm_verbatims` and `intent`,
+   the accepted `pm_quote` or ruling). Second the exit criteria, prime first, then gated. Third the
+   plan body, read but never outranking the first two. Record each source in `pm_words_read` (at
+   least one; `register-source` for register text).
 2. Split `prime_exit_criterion.statement` into clauses. Judge each against the tree and record it
    in `clauses`, with an `observed_ref` into `observed`.
 3. If the criterion carries a `falsifier`, run its `how` verbatim and compare the output with
@@ -61,7 +68,11 @@ residue: commit messages, branch names, ceremony logs.
    `not_present`.
 4. Judge each `gated_exit_criteria` row the same way and record it in `gated`, using the plan
    schema's five-value status enum, with evidence capped at 1024 characters.
-5. Return `terminal-judge-result`.
+5. Run `coordinator-invoke review.reachability '{"repo_root":"<repo you judge>","base_sha":"<run_base_sha>","worktree":true,"plan":"<plan path>"}'`; record it as an `observed` item, `provenance: judge`.
+6. For each register row, record a `register_rows` item: claim `this-plan`, `other-plan` or
+   `unclaimed` (from `register_claims` across the sizing's claimers), and met and wired judged
+   from the row's named `surface` using step 5's reachability observation.
+7. Return `terminal-judge-result`.
 
 Never run the repo's fast or full test suite. Targeted, read-only observations only.
 
@@ -76,11 +87,23 @@ those tests, and judge the clause on their result. Suite runs belong to interval
   holds at least one item naming the command you ran or the path you read. A `met` with an empty
   `observed` is invalid.
 - `not_met` when a clause, the falsifier, or a gated row is observed false. `reason` is required.
+- `not_met` for an unclaimed register row with no ruling, or a this-plan row not met and wired
+  and not ruled; `reason` names the row id.
+- **A user-facing capability is judged on its click path, not its tests.** Read the `review.reachability` result first: any `unreachable` entry or `broken` click path is `not_met`, `reason` naming the first symbol or role/`broken_at`; record all in `reachability.unreachable` / `.broken_click_paths`. `undecidable` entries go to `reachability.undecidable` and never change status. An unknown op, an `error`, or a denied call is not `indeterminate` (this overrides the denied-leg rule for this leg): omit the `reachability` block and hand-check: trace as below AND caller-grep each entry point the diff adds, symbol-keyed, tests excluded; a confirmed unreferenced one is `not_met` naming it, an unsettled one is named and never fails. Trace nav entry → page
+  → component → API → handler → store for the role the criterion names. Any missing link (core or
+  API only, CLI only, a page nothing links to) is `not_met`, whatever the pass count. Tripwire:
+  `A-CAPABILITY-UNREACHABLE-FROM-THE-UI-IS-NOT-DELIVERED`. Each blocking finding or carve-out in
+  the seam sidecar naming this plan is a lead: re-observe it against the tree, and a confirmed one
+  makes the clause `not_met`. Never copy the file's own `verdict`. A seam sidecar absent on a plan
+  carrying a `mise_prepped_sha` stamp is recorded as an `observed` item with `provenance: judge`.
 - `indeterminate` is a first-class outcome whenever an observation cannot be made (a command is
   denied, an input is missing, a clause cannot be tested from here). It is never a soft `met`.
-  `reason` is required.
+  `reason` is required. One clause you record `indeterminate` makes the whole return
+  `indeterminate`, never `met`, with `reason` naming that clause. A clause naming a step that
+  runs after you (a memo to a peer, a close-out action) is such a clause.
 - **A denied leg reads the plan's recorded evidence before going `indeterminate`.** If the plan's
-  committed Verification record holds output for that leg, committed at or after `run_base_sha` and
+  row-evidence sidecar (`<plan-stem>.evidence.yaml` beside the plan, written by `plan.tasks.mutate`
+  `evidence-append`; never the plan body) holds output for that leg, committed at or after `run_base_sha` and
   naming the exact `how` command, you may judge the leg on it. Record it as an `observed` item with
   `provenance: em-recorded` and the committing sha in `result`. It is evidence you weighed, not
   output you re-observed, so say so. No such record, or a stale one: the leg stays `indeterminate`,

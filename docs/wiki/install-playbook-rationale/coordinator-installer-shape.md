@@ -25,6 +25,7 @@ audience you are shapes which flags and flows are operative.
 **Who:** First-time user, fresh `~/.claude`, no prior coordinator install.
 
 **Operative constraints:**
+
 - Interactive by default — no `--non-interactive` flag needed.
 - Full phase sequence runs: environment checks, operator-identity capture, meta-repo
   doctrine install, project-local scaffolding direction, optional features, status report.
@@ -40,6 +41,7 @@ audience you are shapes which flags and flows are operative.
 `/coordinator:install` programmatically from a setup wrapper (e.g. `scripts/example_game_repo_setup.sh`).
 
 **Operative constraints:**
+
 - Speed, idempotency, low-prompt. Hanging on an `AskUserQuestion` in a CI-like flow is a
   hard failure.
 - Pass `--non-interactive` to suppress all prompts. Each prompt site has a documented
@@ -59,6 +61,7 @@ an authoring surface; see § 8's post-cutover statement, where "Central" names t
 doctrine repo's source clone, not `~/.claude`.)
 
 **Operative constraints:**
+
 - Operator identity is already captured (`~/.claude/coordinator-identity.yaml` exists).
   Setup skips the identity-capture prompt silently — idempotency contract applies.
 - `--check-only` is the typical mode for a "did percolation break anything?" sweep.
@@ -418,13 +421,13 @@ COORDINATOR_SETTINGS_HOME              (explicit home root override — XDG, CI,
 |---|---|
 | `machine-local/` | TOML registry (`registry.toml`, `registry.local.toml`, concern files) |
 | `bin/` | Resolver family: `machine-local`, `_machine_local.py`, `claude-home`, `_claude_home.py`, `coordinator-settings-home`, `_settings_home.py`, `resolve-coordinator-clone`, `platform-localize.py`, `.cmd` shims |
-| `.coordinator-venv/` | The coordinator Python venv — REBUILT (never copied) by `install-substrate.py` (C10a) via `coordinator_core.install.ensure_venv` (claude-klabauter-resident, native Python); `coordinator.python` registry key pinned to `<settings-home>/.coordinator-venv/bin/python`; legacy `~/.claude/.coordinator-venv` removed only after rebuild + health probe confirm healthy. |
+| `.coordinator-venv/` | The coordinator Python venv — REBUILT (never copied) by `install-substrate.py` (C10a) via `coordinator_core.install.ensure_venv` (engine-resident, native Python); `coordinator.python` registry key pinned to `<settings-home>/.coordinator-venv/bin/python`; legacy `~/.claude/.coordinator-venv` removed only after rebuild + health probe confirm healthy. |
 | `setup/` | Percolation mechanism |
 | `settings-manifest.md` | Durable reference manifest |
 
 ### The one intentional `~/.claude` residual
 
-**`.content-root`** — a single-line read-only bootstrap pointer, read by `resolve-coordinator-clone` rung-1 on cold-start. `gen-content-root-pointer.py` writes it to `<settings-home>/machine-local/.content-root`, beside its sibling `.claude-klabauter-root` — a git-tracked `~/.claude` copy would sync between machines and each machine's install would clobber the last one's absolute path. `~/.claude/.content-root` remains a read-only legacy fallback rung; nothing writes it anymore.
+**`.content-root`** — a single-line read-only bootstrap pointer, read by `resolve-coordinator-clone` rung-1 on cold-start. The `session-start-register-coordinator-content-repo-root.py` SessionStart hook writes it (and its `.coordinator-content-root` twin) at both `<settings-home>/machine-local/` and `~/.claude/`, on every session start in a confirmed coordinator-content-repo clone, rewriting it when it names a different clone.
 
 All other coordinator-owned `~/.claude` content (harness-owned `settings.json`, `.mcp.json`, `plugins/`, `projects/`, `.claude.json`) is Anthropic's — coordinator populates those files per the harness API but does not own their location.
 

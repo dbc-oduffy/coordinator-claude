@@ -38,10 +38,11 @@ plan-tasks-resolve's _MULTI_ID_ONLY_FOR_CODED_MESSAGE restriction — do
 not add it back by analogy; the two verbs' batching semantics differ for a
 reason, not by oversight.
 
---set values are parsed with yaml.safe_load so pm_approved=true becomes
-the Python boolean True, not the string "true" — resolve's legacy PM-
-approval check tests is not True identity, and a stringly-typed value
-would silently fail that check downstream. Values that do not parse as a
+pm_approved and signoff are refused too, naming plan.signoff — the one
+writer that records whether the PM or the APM signed.
+
+--set values are parsed with yaml.safe_load so true becomes the Python
+boolean True, not the string "true". Values that do not parse as a
 YAML scalar fall back to the raw string.
 
 Usage:
@@ -95,15 +96,14 @@ _OP = "plan.tasks.mutate"
 _RESERVED_DISPOSITION_FIELDS = frozenset(
     {"disposition", "disposition_ref", "disposition_detail"}
 )
+_REFUSED_APPROVAL_FIELDS = frozenset({"pm_approved", "signoff"})
 
 
 def _parse_set_value(raw: str) -> object:
     """Parse a `--set` value half as a YAML scalar.
 
-    `pm_approved=true` must become the Python boolean `True`, not the
-    string `"true"` — resolve's legacy PM-approval gate checks `is not
-    True` identity, so a stringly-typed value would silently fail that
-    check downstream of this trampoline. Falls back to the raw string on
+    `deferred=true` must become the Python boolean `True`, not the
+    string `"true"`. Falls back to the raw string on
     any parse failure or non-scalar result, rather than raising — a
     caller writing a value that happens to look like broken YAML (e.g. a
     trailing colon in free text) should still be able to set it verbatim.
@@ -174,6 +174,14 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(
             f"--set carries reserved field(s) {names} — these belong to "
             "the resolve verb, not stamp; use plan-tasks-resolve instead."
+        )
+
+    approval_present = _REFUSED_APPROVAL_FIELDS & set(fields.keys())
+    if approval_present:
+        names = ", ".join(sorted(approval_present))
+        parser.error(
+            f"--set carries sign-off field(s) {names} — use plan.signoff, "
+            "which records whether the PM or the APM signed."
         )
 
     updates = [{"id": task_id, **fields} for task_id in args.task_ids]

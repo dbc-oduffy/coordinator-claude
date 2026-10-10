@@ -116,6 +116,7 @@ claim gate was fixed while the lint gate was not: legacy batons claimed, and a
 compensated. Reported by example-cockpit-repo-em, a day after the claim-path fix landed.
 
 **Rules:**
+
 - **Classify the CALL SITE by role, then enumerate every call site of that role** — do not scope a
   tolerance to whichever function the reported failure happened to traverse. The bug report names
   one path; the role names all of them.
@@ -417,7 +418,7 @@ each decision point:
 **Neither a `description`/`$comment` delta NOR an `x-bump-*` authoring-annotation delta is
 drift.** The first is already-ratified doctrine — this same section, and
 `2026-07-31-pin-gate-shape-hash.md` under `docs/plans/` — and this section inherits it unchanged. The
-second is new here and needs its own reason stated: `x-bump-class`/`x-bump-note` are DoE-side
+second is new here and needs its own reason stated: `x-bump-class`/`x-bump-note` are source-repo
 metadata *about* a bump, not document shape — a validator behaves identically with or without
 them, and the engine repo's vendored copies of `cross-repo-commitment.schema.json` and
 `review-findings.schema.json` lack them today at equal versions with zero property/required/type
@@ -446,8 +447,8 @@ benign entries at HEAD today, measured against both repos' committed `HEAD`:
 
 | schema | versions | `_shape_hash` | canonical | what actually differs |
 |---|---|---|---|---|
-| `cross-repo-commitment.schema.json` | 1.1.0 / 1.1.0 | **DIFFER** | DIFFER | DoE-only `x-bump-class`, `x-bump-note`. Zero property/required/type deltas. |
-| `review-findings.schema.json` | 3.2.0 / 3.2.0 | **DIFFER** | DIFFER | DoE-only `x-bump-class`, `x-bump-note`. Zero property/required/type deltas. |
+| `cross-repo-commitment.schema.json` | 1.1.0 / 1.1.0 | **DIFFER** | DIFFER | Source-repo-only `x-bump-class`, `x-bump-note`. Zero property/required/type deltas. |
+| `review-findings.schema.json` | 3.2.0 / 3.2.0 | **DIFFER** | DIFFER | Source-repo-only `x-bump-class`, `x-bump-note`. Zero property/required/type deltas. |
 | `improvement-queue.schema.json` | 1.2.0 / 1.2.0 | SAME | DIFFER | `description` prose only. |
 | `plan-tasks.schema.json` | 1.11.0 / 1.11.0 | SAME | SAME | Converged. Its drift window is the worked example for the section below: both copies read `1.10.0` while only the engine repo's declared `execution_mode`. **The gate covered it and was red** — `_shape_diff`'s AHEAD branch names the property and correctly says do NOT re-vendor. Nobody read it; the engine repo's own test is what surfaced it. This table is a snapshot and catches nothing on its own. |
 
@@ -507,6 +508,7 @@ breaking field-add can still quarantine rows silently if the consumer's ingest c
 does not have its own `schema_version` assertion.
 
 Rule: every cross-repo schema cutover needs **both**:
+
 - a producer drift gate (this validator, `mode: 'write'`), AND
 - a consumer-side ingest-time `schema_version` fail-loud assertion (e.g. Cockpit's
   `checkSchemaVersion`, major-only — see `2026-07-07-cockpit-live-remote-per-repo-observation-model.md` under example-cockpit-repo's `docs/decisions/`).

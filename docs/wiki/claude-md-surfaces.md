@@ -25,7 +25,7 @@ keywords:
 > the structural traps that make it easy to mix them up. Written after both the PM and the EM
 > independently formed a wrong model of "the global file" on 2026-07-22 — no tooling caught
 > either error, only reading the files did.
-
+>
 > **`coordinator/CLAUDE.md` does not exist on disk — do not treat it as a live surface.** Its
 > doctrine content is split between `global-doctrine/CLAUDE.md` (ALL-AGENTS content) and
 > `coordinator/snippets/em-operating-doctrine.md` (EM-only channel). The table row and Trap A
@@ -51,7 +51,7 @@ keywords:
 > number here as a snapshot at time of writing, not a live value. Re-run `wc -c` on the actual
 > paths before relying on a figure for anything load-bearing (e.g. a context-budget argument) —
 > don't trust this table's cache.
-
+>
 > **This repo's own the (now-removed) `the (now-removed) meta-repo local-doctrine file` does not exist.** The generic
 > `<repo>/the (now-removed) meta-repo local-doctrine file` row above still describes a real, live surface CLASS — most sibling
 > repos still split their operating posture into a separate
@@ -153,9 +153,10 @@ re-initialized `~/.claude` and rendered stripped-down installer TEMPLATES over t
 originals — `CLAUDE.md` regressed from a 25.7KB evolved file to a 2.9KB posture seed. It survived
 only because an out-of-band `.example-doctrine-mirror-repo` backup happened to exist to recover from.
 
-**This wiki documents the trap; it does not fix the installer.** The installer-side fix (making a
-cold install non-destructive to hand-evolved global doctrine) is Piece 3 of the spinoff this wiki
-was authored under — out of scope here.
+**The installer defends against this with `render-template --guard-sentinel`.** Exit 3 preserves a
+non-empty file that lacks the seed sentinel, so a hand-evolved `CLAUDE.md` is left untouched; a file
+that still carries the sentinel is a seed and is re-rendered. The end-to-end pin is
+`coordinator/tests/test_install_claude_md_seed_clean_home.py`.
 
 ## Why the byte counts in the surfaces table matter — cost is per-byte times the fleet
 
@@ -173,17 +174,20 @@ the job. This is the operative reading of the global file's own rule that past ~
 reference and operative rules front-load — apply it while writing, not just as a retrospective
 trim.
 
-## Known gap — operator identity is not reproduced by any install path
+## Operator identity on install
 
-`~/.claude/CLAUDE.md` carries nothing posture-shaped at all — no `render-posture-overlay.py`
-managed block, no `## Posture` heading. The engagement-posture overlay renders instead into the
-CONSUMER repo's own `.claude/em-context.md`, delivered to that repo's main session only via the
-`assert-em-role.py` SessionStart hook's `REPO`-rooted manifest slot — never into `~/.claude/CLAUDE.md`,
-which every dispatched subagent also reads and has no business carrying posture prose. § Owner and
-§ Communication Style — the operator-identity content that does still live in `~/.claude/CLAUDE.md`
-— are reproduced by **nothing** on any install path. A fresh machine install reproduces the
-operating doctrine but not the operator. This is a known gap, owned by Piece 3 of the spinoff; it
-is not fixed here.
+`~/.claude/CLAUDE.md` carries nothing posture-shaped — no `render-posture-overlay.py` managed
+block, no `## Posture` heading. The engagement-posture overlay renders into the CONSUMER repo's own
+`.claude/em-context.md`, delivered to that repo's main session via the `assert-em-role.py`
+SessionStart hook's `REPO`-rooted manifest slot — never into `~/.claude/CLAUDE.md`, which every
+dispatched subagent also reads.
+
+- The template ships § Owner and § Communication Style as editable stubs for a new adopter.
+- An existing operator file is preserved in place because it has no seed sentinel.
+- On a fresh machine, § Communication Style is restored from the mirrored global doctrine.
+- § Owner has no mirror, so a fresh machine gets the template stub.
+- No install path renders operator identity from `coordinator-identity.yaml`. This is a decision,
+  not an oversight.
 
 ## Quick answer
 

@@ -106,6 +106,7 @@ engine corpora, `["example"]` for example corpora). `None` means
 universal — the band applies to all query shapes regardless of kind.
 
 **Host consumer semantics:**
+
 - `applicable_kinds=None` → universal band; always included in blend when band
   is registered, exempt from per-kind diversity guarantee regardless of weight.
 - `applicable_kinds=["engine"]` → band participates in the engine
@@ -236,6 +237,7 @@ valid.
 ### Breaking changes (version bump required)
 
 Any of the following requires an `ADDON_PROTOCOL_VERSION` bump:
+
 - Removing or renaming a field
 - Changing the semantic meaning of an existing field
 - Changing a field's type in a backward-incompatible way (e.g., `Path` →

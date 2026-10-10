@@ -304,6 +304,7 @@ A golden-snapshot test that inlines file content captures per-install identifier
 **Concrete failure:** an umbrella golden inlined a plugin's version-file content unnormalized. An install script writes `git rev-parse HEAD` into the version file at install time. The next ordinary commit moved HEAD; the test that had been GREEN at capture-time was RED at next-commit-time with a one-character diff in the recorded hash. The file's *presence and 40-char-hex shape* are the install end-state contract — the *specific SHA* is per-install ephemera.
 
 **Rule:** golden-snapshot suites must run inputs through an identifier normalizer before comparison. Standard patterns:
+
 - 40-char hex SHA → `__GIT_SHA__` (regex: `\b[0-9a-f]{40}\b`)
 - PID shapes → `__PID__`
 - ISO-8601 timestamps → `__TIMESTAMP__`
@@ -354,6 +355,7 @@ Either lens alone is a false signal for overlay/refiner correctness:
 A hookimpl that silently swallows `ImportError` at registration time masks packaging gaps. The hookimpl registers (or appears to), the test that checks "registration didn't raise" passes, and the missing dependency never surfaces until a downstream call attempts to use the plugin.
 
 **Rule:** install-validation tests must:
+
 1. Run from a **clean editable install** (`pip install -e .` in a fresh venv), not a path-hacked test runner.
 2. Assert the **exact set of registered plugin IDs** — not just "no exception raised." A missing plugin produces a smaller-than-expected id-set, which a set-equality assertion catches; "no exception" does not.
 
@@ -374,6 +376,7 @@ Shape: `mock.patch("module.HeavyCollaborator")` + call the CLI's `main()` direct
 A test marked `@pytest.mark.xfail` will show as `xfail` (expected failure, green-adjacent) for *any* exception — including test-infrastructure exceptions (import failures, fixture teardown errors, conftest bugs) that have nothing to do with the cited failure mode. The marker is consuming failures you don't own.
 
 **Rule:** before trusting the green-adjacent state of an `xfail` test, verify the cited failure mode is actually what's producing the `xfail` result:
+
 1. Run with `--runxfail` to surface the raw exception.
 2. Confirm the exception class and message match the documented failure mode.
 3. If the exception is from test infrastructure (not from the production code under test), fix the infrastructure before trusting the xfail classification.
@@ -433,6 +436,7 @@ cp "$src" "$case_dir/$(basename "$src")"
 **Empirical anchor.** A cross-repo sweep found 200+ unmarked offenders across 10 sibling repos. One repo alone shipped 86 unmarked tests where `tests/install/**` and `tests/integration/**` drive real installer / venv / doctor / pip-resolver subprocesses — realistic floor is **minutes** on a clean `pytest` invocation. Another shipped 39 files (~290 fns) including a `time.sleep(31)` synthetic-timeout self-test. Initial premise blamed a third repo's install suite (estimated ~10h from a per-test cost times the test count) but empirical measurement showed the real suite runs in 41.6s — the per-test setup-script invocation uses early-exit flags, not full installs. Lesson: docstring-promised timings are author intent, not measured truth — verify with `--durations=20` before trusting.
 
 **Threshold heuristic.** Any test > 1 s wall-clock, or any test whose body invokes:
+
 - `subprocess.run` / `os.system` / `execSync` / `spawnSync` / `child_process`
 - `importlib.import_module(<heavy-pkg>)` (heavy tree imported at collection)
 - real network: `fetch('http`, `requests.get('http`, `urllib.request`, raw `socket`
@@ -442,6 +446,7 @@ cp "$src" "$case_dir/$(basename "$src")"
 … is **presumed slow** until proven otherwise.
 
 **Greppable signatures:**
+
 - pytest: `subprocess.run(...)` or `importlib.import_module(<heavy>)` in a `test_*.py` without `pytestmark = pytest.mark.slow` or per-test `@pytest.mark.slow|integration`.
 - conftest / pyproject with no `addopts` AND no marker-based default exclusion.
 - jest config without `testPathIgnorePatterns` for `tests/integration/**`.
@@ -483,6 +488,7 @@ test('script syntax is valid', { skip: process.env.FAST === '1' ? 'FAST mode' : 
 > *"If the FUT became `def fut(...): pass`, would this test still pass?"* If yes, no signal — either add the positive assertion (return-value comparison, observable side-effect, captured-arg check) or delete the test.
 
 **Legitimate exemptions** (these genuinely retain signal under the strict standard):
+
 - **Mock-call oracles** — `mock.assert_called_once()` / `assert_not_called()` IS the positive assertion. A FUT-becomes-`pass` would fail `assert_called_once`; spurious-call regressions would fail `assert_not_called`.
 - **Domain-type contracts** — `isinstance(result, <DomainClass>)` where the class is a named domain type (not `dict`/`list`/`int` returned by a function always typed that way). FUT-becomes-`pass` returns `None`, isinstance fails.
 - **Immutability contracts** — `isinstance(x, frozenset)` / `isinstance(x, tuple)` when the test name or docstring explicitly says "must be frozenset/tuple — prevents accidental in-place extension".
@@ -493,6 +499,7 @@ test('script syntax is valid', { skip: process.env.FAST === '1' ? 'FAST mode' : 
 - **Deferred placeholders** — `pytest.skip("AC-X deferred to Chunk N")` or `assert True, "deferred"` — only legitimate if the deferral is actively tracked in a plan doc, not orphaned.
 
 **Greppable signatures** for an audit pass:
+
 - `# (should|must|does|will) not raise` followed by the FUT call and end-of-function.
 - Test docstring says "passes through" / "silent when X" / "is no-op when Y" / "is idempotent" — verify the body isn't bare-call-no-assert.
 - Final statement of the test body is a call to the FUT with no following assert (AST-detectable).
@@ -646,7 +653,7 @@ A pytest autouse fixture like `_isolate_test_home` that redirects `HOME` (or its
 
  When a test fixture substitutes a real implementation for a stub "at test time" to make the test green, the on-disk artifact under test IS the stub — not the real impl. The test is green because the fixture swaps in the thing the stub was supposed to be; production uses the stub and is broken. Fix: the on-disk artifact must BE the real implementation; the fixture must not substitute it. If substitution is genuinely needed (e.g. costly external), the test contract must degrade gracefully without asserting on the real code path. 
 **Prefer a real-data subset over a synthetic minimal fixture for at least one test case per chunker.** Synthetic fixtures pass by construction — they exercise the code path the author intended, not the shapes production data actually produces (encoding edge cases, oversized rows, schema-drifted historical data). Keep synthetics for boundary cases (empty, oversized); use real-data subsets where the file format is stable. 
-**A fixture's defaults must be self-consistent across its own fields, not faithful to an illustrative memo example.** A contract memo's example can pair fields in a combination that never occurs in real data; copying it verbatim as a fixture default embeds the inconsistency. Assert internal consistency at authoring time: `path ↔ mount_root ↔ mount_class` must agree; if the memo example is a didactic sketch, don't inherit its contrived combinations. Sibling to the cross-repo-contract-is-hypothesis rule (`cross-repo-communication.md`). 
+**A fixture's defaults must be self-consistent across its own fields, not faithful to an illustrative memo example.** A contract memo's example can pair fields in a combination that never occurs in real data; copying it verbatim as a fixture default embeds the inconsistency. Assert internal consistency at authoring time: `path ↔ mount_root ↔ mount_class` must agree; if the memo example is a didactic sketch, don't inherit its contrived combinations. Sibling to the cross-repo-contract-is-hypothesis rule (`coordinator/docs/wiki/cross-repo-communication.md`). 
 **A stub whose signature accepts a discriminator it does not branch on is not isolation, it is a global disable.** A regression test meant to prove that dependency X resolves only via a new env-var ladder stubbed a shared sibling resolver as `lambda name: None` — the stub ignores `name`, so it blanks resolution for EVERY dependency, not just X. An unrelated dependency Y then fell through to a co-located default that happened to exist on the author's machine, and the test passed for a reason with nothing to do with the ladder under test — it would have raised in CI on Y's leg instead. Scope the stub to the slug under test and delegate everything else to the real implementation, and neutralize any ambient config root (search-roots/autodiscovery files) the resolver consults, not just the env vars.
 
 ## 34. Never Mark a Guard or Contract Test `@pytest.mark.slow`
@@ -673,6 +680,7 @@ The runtime mechanics of stale-bytecode flake — plus the concurrent-shared-tre
 A test that `pytest.skip()`s — or silently early-returns — when its core fixture isn't loadable reports **green while proving nothing**. The skip converts a behavioral gate into a no-op that still reads as Success. Worse than red: red is signal, green-via-skip is anti-signal — a future reader greps the name, sees green, and trusts coverage that never ran.
 
 **Concrete failures.**
+
 - *:* an MFC cross-band exporter test "passed" by skipping when an engine `UMaterialFunction` (`CheapContrast`) wasn't loadable in the bare test project — the `cross_band_reference` assertion (AC5) never ran. Swapping to an in-memory engine-transient `UMaterialFunction` made the assertion always execute and **immediately surfaced a latent test bug** (wrong JSON key `type` vs `class`) the skip had hidden.
 - *L67 (hollow-pass probes):* assertions left unreachable by a wire-shape bug are dead infrastructure — the probe reports green because the assertion line is never hit.
 
@@ -729,10 +737,12 @@ Two independent masks compound: (a) pytest **stops at a module's collection erro
 Broad "verify everything" runs maximize the chance of including a slow or hanging test, and quiet output (`-q`, `| tail`, buffered pipes) gives zero progress signal until the end — a buffered run with no output is **not evidence of progress**, it is indistinguishable from a hang.
 
 **Concrete failures.**
+
 - *:* re-ran the full slow install suite to verify a workstream; that surface includes a known-outstanding hang (`cli-session-restart`), and with buffered `-q` + no timeout it ran blind for ~30 min.
 - *:* verifying one merge test, spawned six overlapping pytest/diagnostic shells with `| tail` (buffers until exit → looked empty = "hung"), chained blocked sleeps, scheduled redundant wakeups — degrading the terminal so the PM couldn't run anything either. This is the self-monitor-for-loops antipattern in test clothing.
 
 **Rule.**
+
 1. **Scope the run to files under change**; deselect/avoid known-hang tests explicitly.
 2. **Hard wall-clock bound on every run** — Bash `timeout`, `pytest-timeout`. No exceptions.
 3. `| tail` and pipes buffer until process exit — **empty output ≠ hung**. Don't react to silence.
@@ -745,7 +755,7 @@ A contract memo's *illustrative* example payload can pair fields in a combinatio
 
 **Concrete failure:** a seam memo example paired `class_identity=/Script/Engine.MaterialFunction` with `mount_class=engine_plugin` (a contrived illustration). Copied as the fixture default, it produced a `/Game/`-path-under-`engine_plugin` mismatch, making a "canonical round-trips to engine" assertion record a path that can't occur in real data.
 
-**Rule.** A shared-fixture default must agree **across its own fields** (e.g. `path ↔ mount_root ↔ mount_class`). The memo example is illustrative; the fixture is a contract — different correctness bars. Validate internal consistency of fixture defaults at authoring time; don't inherit a memo's didactic inconsistencies. Sibling to the cross-repo-contract-is-hypothesis rule (`cross-repo-communication.md`).
+**Rule.** A shared-fixture default must agree **across its own fields** (e.g. `path ↔ mount_root ↔ mount_class`). The memo example is illustrative; the fixture is a contract — different correctness bars. Validate internal consistency of fixture defaults at authoring time; don't inherit a memo's didactic inconsistencies. Sibling to the cross-repo-contract-is-hypothesis rule (`coordinator/docs/wiki/cross-repo-communication.md`).
 
 ## 46. Build-Config Is a Coverage Axis — "X/X Pass" Doesn't Prove the AC When the Matrix Omits Gate Variants
 
@@ -807,6 +817,7 @@ An executor defined `_check_venv_state` at L995 but called it from a new branch 
 **A grep that asserts "the restore line is still in the source" proves the source contains a string. It does NOT prove the script works. Pair every structural-grep guard on a non-trivial script with an integration harness that drives the script end-to-end against a synthetic sandbox.**
 
 **Rule.** A non-trivial script with multi-leg observable side effects (file writes, git ops, network calls, subprocess invocations) needs an integration harness that:
+
 - builds synthetic upstream/downstream state in `mktemp -d`,
 - exports a full env-sandbox (`HOME`, `USERPROFILE`, `XDG_*`, `UV_CACHE_DIR`, `LOCALAPPDATA`, `APPDATA`, `GIT_CONFIG_GLOBAL`, `GIT_CONFIG_SYSTEM` — not just `HOME`, because uv/git/etc default many caches under platform-specific dirs outside `$HOME`),
 - drives the script unchanged (no patches, no stubs) under the sandbox,
@@ -1085,6 +1096,7 @@ A test that asserts against an *inferred* shape, a *reimplemented* logic copy, o
 **Principle: a skipped test is not a passing test.** Treat skip as not-passing for coverage purposes. A "1 skipped" result where you expected "1 passed" is a coverage gap, not a green signal.
 
 **Rule.** On any repo with optional-dep-gated tests:
+
 1. **Confirm the test runner resolves the project venv**, not ambient python (`run-tests.sh` should prefer `.venv/bin/python` on Unix; verify with `which python` inside the test process).
 2. **Treat a non-zero skip count on tests you expect to run as a red flag** — check which tests skipped and why before accepting the green.
 3. **Classify skip as not-passing in any coverage gate** — a bare "N passed" is insufficient if the expected tests skipped instead of running.
@@ -1120,6 +1132,7 @@ A fix that changes an exit code, detection result, or gate decision can cause te
 **Concrete failure.** A fix made a dependency-detection probe run under the host-venv interpreter; it stopped false-negativing (`exit 90`→skip) and the install correctly reached Phase 4 gh-auth, which hard-fails in the tests' hermetic `fake_home`. Four chain tests flipped skip→fail — the consequence of the probe working, not a regression.
 
 **How to apply.**
+
 1. When a fix changes an exit code / detection / gate result, grep downstream tests for `skip` conditions keyed on the OLD value.
 2. A test that was `SKIPPED` before the fix and is now `FAILED` is the tell — it exposed a second precondition the old behavior never reached.
 3. Add the parallel skip-guard (mirror the existing one for the new condition), don't weaken the gate.
@@ -1134,6 +1147,7 @@ A regression net authored BEFORE a behavior change must route through the **same
 **Concrete failure.** An adaptive-reranking workstream wrote anti-override fixtures that seeded fresh `ToolTelemetry`/`SessionSignals` instances and asserted against `idx.search()` — but C3's overlay attaches in `handleSearchTools` reading the `getToolTelemetry()`/`getSessionSignals()` singletons. The seeded state was never on the path under test; the fixtures stayed green forever regardless of whether an unbounded overlay displaced a strong match. Reworked to drive the handler + singletons (with `clear()` reset for isolation), making them a binding constraint C3 had to satisfy.
 
 **How to apply.** When authoring a regression net BEFORE the behavior change:
+
 1. Identify the precise integration seam the change will attach to (which function, which state source).
 2. Route the fixture through THAT seam with THAT state — not an adjacent layer that looks equivalent.
 3. A net that "passes trivially now" must pass because the guarded behavior is absent on the REAL path, not a different path.
@@ -1679,3 +1693,187 @@ it. The strengthened version costs one rewrite and buys a detector for defects n
 retuned version costs nothing today and quietly stops being a control. Related to §55 (fossilized
 count assertions hide drift): a test whose number you keep updating is on its way to becoming exactly
 that — present, passing, and unable to fail for the reason it exists.
+
+## 149. A Deselected Tier Is an Untested Subsystem
+
+A default tier that deselects `-m slow` (or any host-gated marker) can hide an entire broken
+subsystem: nothing it owns ever runs, and the default run stays green. Every marker the default
+tier deselects needs a named gate that runs it explicitly — the acceptance gate for the work that
+touches it, and a scheduled lane otherwise. A marker with no lane that selects it is a deletion
+with extra steps.
+
+## 150. An Injectable Seam Leaves the Real Default Untested
+
+Injecting a reader/clock/filesystem seam makes the logic testable and leaves the *default*
+implementation — the one production runs — out of every test. A stdlib call that does not exist
+on the floor interpreter (`Path.is_dir(follow_symlinks=)` is 3.13+) ships green that way. Keep one
+smoke test that runs the default seam, on the floor interpreter.
+
+## 151. Resolver Tests Need the Override-Unset Case
+
+A resolver with an override (env var, flag, config key) and a computed default needs a test with
+the override **unset**. Fixtures that always set the override exercise only the passthrough; the
+computed default — the path every fresh machine takes — never runs.
+
+## 152. Run Each Acceptance Test in Isolation Once
+
+The full suite can pass on state another test left behind. Run each acceptance test alone (`pytest
+path::test`, `vitest -t`) at least once — that is how an oracle runs it. Give each test its own
+store (a per-test `:memory:` DB, a fresh `tmp_path`) rather than relying on run order.
+
+## 153. A Move-Not-Rewrite Regression Test Must Call the Moved Symbol
+
+When a function is moved verbatim, "tests still green" proves only that *some* test passed. Grep
+which test reaches the moved symbol through the real import/source chain; a same-named adapter or
+sibling that the test actually calls proves nothing about the move.
+
+## 154. A New Cache Layer Joins the Isolation Fixture
+
+Adding a cache in front of an existing one means the test-isolation fixture must reset **both**.
+Resetting only the original layer leaks state between tests through the new one, and the leak
+shows up as order-dependent failures far from the change.
+
+## 155. Closing a Test-Execution Orphan Surfaces Old Reds
+
+Wiring a never-run test leg (a shell-test discovery leg, an orphaned suite) into a gate runs those
+tests for the first time, and some will be red for reasons unrelated to the current work. Run the
+new leg during execution, not at close; fix-locus-discriminate each red; fix or skip-guard it in
+the same workstream rather than leaving the gate red.
+
+## 156. Retiring a Shell-Consumed Flag Needs a File-Contract Test
+
+When an env var or CLI flag consumed by shell scripts is retired, `bash -n` and Python unit tests
+cannot see a later reconcile that re-introduces it. Add a grep-based test over the shell consumers
+asserting the dead name is absent.
+
+## 157. Full-Corpus Emitters Disable the Interactive Default Limit
+
+A query helper with an interactive default cap (e.g. 50 records) silently truncates a full-corpus
+emitter once the corpus outgrows the cap — dormant until growth. Every source query in an emitter
+that claims the whole corpus passes the explicit no-limit option, and a test seeds more rows than
+the default cap.
+
+## 158. Never Round-Trip CR Through a Text-Mode Pipe
+
+`subprocess.run(..., text=True)` applies universal-newline translation, so CR-bearing output is
+rewritten before the test sees it. Assert on a CR-free proxy (byte length, a sentinel), or capture
+bytes.
+
+## 159. Validate an External-Store Parser Against a Real Instance
+
+Code that parses an external or opaque store (a mail database, OS metadata, an export format)
+needs one pass against a real instance, checked against an independent oracle. A unit, epoch, or
+encoding assumption is self-consistent with every fixture built from it.
+
+## 160. Two Renderings of One Order Call One Function
+
+When a human-readable list and a machine-consumed index render the same ordering, both call one
+ordering function, and a test asserts the two outputs agree. Two implementations drift silently.
+
+## 161. Gate on Executability, Not Presence
+
+A tool that is installed but broken (`--version` works, real commands crash) turns
+`shutil.which()`-gated tests into run-to-run flakes. Gate on a cached `<tool>_usable()` probe that
+runs a trivial real operation and returns False on any failure, kept in a shared test helper.
+
+## 162. Fix the Production Shape, Not the Test Payload
+
+When a test trips an external constraint (query grammar, API arity), fix production to emit the
+accepted shape and assert through the production function with consumer-shaped input. Rebuilding
+the expected payload by hand in the test masks the production defect.
+
+## 163. Run Config-Driven Scrubbers Over the Real Config
+
+A mapping/redaction mechanism test proves the mechanism, not the operator's mapping: case and
+enumeration gaps in the real config survive it. Any scrub that backs a data-boundary guarantee gets
+a close-out pass that runs the real config over real artifacts.
+
+## 164. A HEAD-Diff Verification Goes Vacuous When Its Own Commit Lands
+
+A "bytes preserved" test that diffs against `HEAD` becomes new-versus-new the moment the conversion
+commit lands. Pin the pre-conversion sha as a constant, and run the check before committing.
+
+## 165. Contract-Change Reds Are Reconciled, Not Fixed
+
+When a chunk deliberately changes a contract, tests encoding the old contract go red as expected.
+For each, ask whether the assertion describes the behavior that was deliberately changed: if so,
+rewrite it to the new contract (ideally as a regression net for it); if not, it is a real
+regression.
+
+## 166. A Live-Corpus Golden Cannot See Dropped Rules
+
+A golden built from today's valid corpus stays green when a validator rewrite drops a rule (it gets
+greener) and when a migration rejects edge cases the corpus happens not to contain. Gate a validator
+change on three things: golden preserved, a negative corpus still rejected, unit tests green.
+
+## 167. Red at Done-Time: Diff Against the Session-Start Baseline
+
+When the gate is red at the end of a session, re-run the same selection at the pristine
+session-start commit. A failure present at both is pre-existing — record it, with its baseline; a
+failure that passes at baseline and fails at HEAD is yours. A subagent's "pre-existing, not mine" is
+hypothesis until this check runs (swap the pre-change file in with `git show <sha>^:<file>`).
+
+## 168. A Test Found Red Incidentally Is Not Automatically the Oracle
+
+For a red test the current work does not own, neither the test nor the code is presumed right.
+Read the contract at the last green commit (`git show <sha>:<file>`) and find the commit that
+introduced the conflict (`git log -S<token> -- <file>`); the documented intent of each side decides
+which one is stale.
+
+## 169. A Net Whose Cases All Clamp Does Not Discriminate
+
+If every case in a regression net drives the system into the same floor or ceiling, a reverted
+implementation passes it. Add cases where the varied input actually determines the return value.
+
+## 170. Guard the Rename in a Swap, and Test the Failure
+
+(See also implementation-standards-by-domain.md on atomic swaps.) Every delete-then-rename swap gets
+a regression test that forces the rename to fail and asserts the build-aside copy survives and the
+failure is reported.
+
+## 171. A Graceful-Skip Gate Must Re-Arm Itself
+
+A drift or freshness gate that skips while an upstream dependency is unpublished must still probe
+the live source on the skip path, and emit a distinct loud signal when the dependency appears. A
+cached "absent" result makes the gate permanently silent.
+
+## 172. A Machine-Consumed Command's stdout Holds Only the Value
+
+A command consumed as `var=$(cmd)` writes exactly the machine value to stdout; summaries and
+progress go to stderr. Tests that read the command's output file miss stdout pollution — assert
+stdout purity on the capture path.
+
+## 173. A Regression Net That Goes Red on Your Own Diff Is a Stop Signal
+
+A net that flips red within the session that changed its subject is investigated before shipping,
+never waved as flaky. The failure it guards against is the one about to ship.
+
+## 174. A Strangler's Parity Oracle Is the Original Tool
+
+When an op reimplements an existing tool, prove parity by running both over a shared adversarial
+fixture set and diffing. An executor's "full parity" claim is not evidence. When a caller in one
+language is armed onto a transport implemented in another, keep one parity test that drives both
+implementations, or the hand-ported failure ladder drifts.
+
+## 175. Retiring a Transport Retires Its Contract Tests First
+
+Contract tests for a retired daemon or socket transport hang rather than fail once the entrypoint is
+a stub — they block on readiness polls. Delete those tests, then their orphaned fixtures, as part of
+the retirement.
+
+## Field rules
+
+- **A regression net proves itself fail-pre, not only pass-post.** Run the new test against the pre-fix file (`git show <fix>~1:<path>` into place, run, confirm red, restore); a test that is green both ways guards nothing.
+- **The authoritative green is the full suite.** Per-cluster runs are necessary, not sufficient: cross-file contract lints live in other clusters and only the full pass sees them.
+- **A platform-conditional fallback chain needs a test that forces each branch** — make the primary raise its real error (e.g. `FileNotFoundError` for an absent `ss`) — or a live run on the target platform. Mocked happy-path tests never reach the fallback.
+- **Mock a boundary's output, not a copy of the code that builds the request.** A fake that reimplements the SUT's own construction (URL templates, payload shape) reproduces its bugs and cannot catch them.
+- **Exactly one sentinel test pins the current schema version; every feature test asserts a floor** at the version its feature shipped in. Exact-equality pins scattered across files all go red on every bump.
+- **Confirm a negative-test decoy has the property under test before trusting the negative.** `bash -c 'sleep N # pattern'` execs bare `sleep`, voiding the pattern.
+- **A guard's walk scope follows the import edge it protects.** Extend the walk in the same slice that widens the blast radius, and prove the extension with a revert-verified bite test.
+- **A behaviour-preserving delegation pins a golden value from the pre-move implementation.** Property tests (determinism, invariance) pass while the digest changes.
+- **Tests of gitignore behaviour build a throwaway repo in `tmp_path` and assert both polarities.** `git check-ignore` does not report tracked files, so a checked-in fixture cannot be both.
+- **A test writes only under `tmp_path` or the sandbox helper; a test that leaves a new entry outside the repo and its scratch fails.** Contract: `coordinator/docs/wiki/test-design-discipline/test-filesystem-containment.md`.
+- **A guard, net, or gate is not accepted until it has gone red.** Plant a synthetic instance on the least-covered axis (or stub the guard), confirm the failure, restore, and record the red output.
+- **A zero-latency test double cannot express an intermediate-state guarantee.** Delay the double and assert the in-between.
+- **Guard and hook suites cover the wire path,** not only `check()` directly; at least one test goes through the dispatcher.
+- **Show an assertion can still fail before reading green as behaviour-preserving.** Print the comparison set's cardinality — zero is a defect report — and probe the primitive directly.

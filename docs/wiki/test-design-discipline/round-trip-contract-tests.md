@@ -94,6 +94,7 @@ Per-language gates compose with the round-trip contract test rule above: the rou
 A golden-snapshot test that inlines file content captures per-install identifiers (40-char hex SHAs, PIDs, install-id UUIDs, floating-point timing) verbatim. Every commit between capture and run breaks the test with a one-character diff even though the assertion the test is *trying* to make is "this file has the expected shape," not "this file contains exactly this SHA."
 
 **Rule:** round-trip contract tests that rely on golden snapshots must run inputs through an identifier normalizer before comparison:
+
 - 40-char hex SHA → `__GIT_SHA__` (regex: `\b[0-9a-f]{40}\b`)
 - PID shapes → `__PID__`
 - ISO-8601 timestamps → `__TIMESTAMP__`
@@ -123,6 +124,7 @@ A new gate or parser that consumes a shared config format (machine-local registr
 **Concrete failure (example-game-repo-L5).** `bin/check-reverse-drift.sh` passed all fixture tests but no-op'd against the real registry — three bugs: unstripped CRLF → installed plugins read as false `[missing]`; `IFS=$'\t'` whitespace-collapse → empty field shifted the next field into the wrong slot; mixed-slash Windows path → `-d` existence check failed. Coordinator's `check-plugin-drift.py` had **already solved all three** (tomllib both-key-shapes, `| tr -d '\r'`, `${path//\\//}`, pipe delimiter) — the new gate hand-rolled a regex/tab variant and re-introduced every bug.
 
 **Rule.** A new consumer of a shared format MUST:
+
 1. **Reuse the canonical sibling parser verbatim** — don't hand-roll a regex/tab/split variant. The canonical parser has absorbed the format's real-world variance (CRLF, both TOML key-shapes, backslash paths, BOM); a fresh re-implementation re-discovers each one as a production bug.
 2. **Run once against the REAL artifact** before trusting green fixtures. Fixtures are the floor; the real artifact is the verdict.
 

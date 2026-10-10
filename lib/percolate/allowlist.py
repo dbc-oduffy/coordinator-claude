@@ -724,8 +724,10 @@ def build_allowlisted_source(
     allowlist_csv: str,
     *,
     source_map: dict[str, Path] | None = None,
-    stderr: IO[str] = sys.stderr,
+    stderr: Optional[IO[str]] = None,
 ) -> Path:
+    if stderr is None:
+        stderr = sys.stderr  # call-time: an import-time default pins a stream a test capture later closes
     entries, exclusion_targets = _split_inclusion_exclusion(_parse_allowlist_csv(allowlist_csv))
     sm = source_map or {}
 
@@ -858,7 +860,7 @@ def check_working_data_paths(
     src_tree: Path,
     *,
     paths: Optional[Iterable[str]] = None,
-    stderr: IO[str] = sys.stderr,
+    stderr: Optional[IO[str]] = None,
 ) -> bool:
     """Port of `_check_working_data_paths`. Scans either every file under
     `src_tree` (default — legacy single-source behaviour, unchanged), or,
@@ -884,6 +886,8 @@ def check_working_data_paths(
     gap that lets working-data through is the exact failure mode this
     check exists to catch, so it must halt, not warn-and-continue.
     """
+    if stderr is None:
+        stderr = sys.stderr  # call-time: an import-time default pins a stream a test capture later closes
     found_violation = False
 
     if paths is not None:

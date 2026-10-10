@@ -330,6 +330,7 @@ extraction to `example-game-workbench-repo` is Wave 2b.
   `PreflightVerdict` enum extension, `ENVELOPE_VERSION` bump. See the
   one-line canonical statement at the end of §"Façade types" (and the
   §"Version-bump triggers" table below for bridge-protocol cases).
+
 - **Entry-points group:** `project_rag.addons` — addons advertise their
   package via `[project.entry-points."project_rag.addons"]` in `pyproject.toml`.
 - **Discovery:** `core/addon_discovery.py:discover_addons()` scans the entry
@@ -521,6 +522,7 @@ def project_rag_register_cpp_source_roots(
 ```
 
 `AddonCppSourceRootsResult` fields (defined in `core/addon_dataclasses.py`):
+
 - `roots: list[Path]` — explicit source root directories to walk
 - `extra_compile_commands_json: Path | None` — optional supplementary `compile_commands.json`
 
@@ -542,6 +544,7 @@ def project_rag_register_provenance_classifier_rules(
 ```
 
 `AddonClassifierRuleSpec` fields (defined in `core/addon_dataclasses.py`):
+
 - `priority: int` — insertion priority (see §"Reserved provenance priority bands")
 - `classifier: Callable[[Path, Path, Path | None], AddonProvenance | None]` — returns `None`
   to abstain; returns an `AddonProvenance` to claim the path
@@ -557,6 +560,7 @@ def project_rag_register_eval_bank() -> "list[AddonBankSpec]": ...
 ```
 
 `AddonBankSpec` fields (defined in `core/addon_dataclasses.py`):
+
 - `bank_path: Path` — absolute path to the bank YAML file
 - `bank_type: str` — `"smoke"` or `"graded_relevance"` (mirrors bank-v2-schema.md)
 
@@ -573,6 +577,7 @@ def project_rag_register_eval_probe() -> "list[AddonProbeSpec]": ...
 ```
 
 `AddonProbeSpec` fields (defined in `core/addon_dataclasses.py`):
+
 - `probe_id: str` — unique identifier for this probe
 - `probe_fn: Callable[[], list[dict]]` — called by the dogfood runner; returns a list of
   bank entry dicts in bank-v2-schema format
@@ -590,10 +595,12 @@ def project_rag_register_health_field() -> "list[AddonHealthFieldSpec]": ...
 ```
 
 `AddonHealthFieldSpec` fields (defined in `core/addon_dataclasses.py`):
+
 - `field_name: str` — key under `addon_fields` in the health envelope
 - `value_provider: Callable[[HealthContext], Any]` — called lazily at health probe time
 
 `HealthContext` is a lightweight dataclass (defined in `core/addon_dataclasses.py`):
+
 - `project_root: Path` — project root resolved at first health call
 
 The UE addon uses this to contribute `ue_plugin_enabled`, replacing the deprecated
@@ -629,6 +636,7 @@ path documented in [capability-dispatch.md](./addon-protocol/capability-dispatch
 | `project_rag_register_query_routing` | parallel-call | `list[AddonQueryRoutingSpec]` | Registers domain-specific query patterns + optional decomposer references. Replaces W6/Wave-2b P3.6 port-out. Sister hookimpl: W8f. |
 
 **Sister hookimpl status:**
+
 - `provide_capability`, `classify_content_error`, `summarize_runtime_log` — sister hookimpls
   land in W8c (see `project-rag-ue-addon` T12).
 - `resolve_external_runtime_binary`, `dispatch_external_runtime` — sister hookimpls deferred
@@ -773,6 +781,7 @@ Callable[[str], dict]
 ### Obtaining a tagged closure
 
 Use `mcp.preflight.make_example_game_repo_python_runner()`. The returned closure carries:
+
 - `bridge_protocol_version: int = 1`
 - `bridge_name: str = "example_game_repo_python_bridge_v1"`
 
@@ -992,6 +1001,7 @@ Any new allowlist additions require an explicit rationale entry in the tripwire 
   The hookspec contract is the operational reality, not a pending bump; a
   second addon to validate the migration contract is not a precondition —
   Phase 1 IS the coordinated bump.
+
 - **B-4 taxonomy** — `_VALID_DOMAINS = {"project","engine","official_docs","external"}`
   + per-domain `_VALID_SUBTYPES` is the routing taxonomy per spec §6.1
   (Amendment 1). The `source=` singular routing kwarg is the collection-axis
@@ -1078,6 +1088,7 @@ only when `collection_name is None`. The host never parses, derives, or validate
 collection name structure — the addon is the single authoritative source.
 
 **Addon contract:**
+
 - `_make_ue_band()` (or equivalent band constructor) MUST populate
   `collection_name` with the actual on-disk chroma collection name (e.g. `"ue_docs"`).
 - The name must match exactly what was created by the corpus packaging script
@@ -1086,6 +1097,7 @@ collection name structure — the addon is the single authoritative source.
   `collection_name` with its own collection name. The host will use it verbatim.
 
 **Host side:**
+
 ```python
 collection_name = band.collection_name if band.collection_name else _derive_collection_name(band)
 collection = client.get_collection(collection_name)
@@ -1215,6 +1227,7 @@ def _wrap_addon_handler_for_project_db(handler, get_db_conn):
 **Handler async/sync.** Handlers may be either sync or async — `_wrap_addon_handler_for_project_db` branches on `inspect.iscoroutinefunction()` and returns a wrapper of the same kind. Sync handlers are called directly; async handlers are awaited. Tool authors choose based on whether the handler's body genuinely benefits from async I/O.
 
 **Addon handler contract:**
+
 - Handlers with `requires_project_graph_db=True` receive `project_db_conn`
   as a fresh SQLite connection per call.
 - Handlers MUST NOT cache the connection across calls — the host contract is

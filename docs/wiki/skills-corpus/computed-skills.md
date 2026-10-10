@@ -260,7 +260,7 @@ above is one concrete instance of it.
 | `judgment_points[].reason` | enum: `insufficient-evidence \| recommendation-forbidden` | conditional — required when `recommendation` is `null`, absent otherwise | Names why no tier-2 offer was made. `recommendation-forbidden` is emitted only by the no-recommendation constructor (§ The three-tier model), never chosen by a caller. |
 | `narration` | string | yes | Top-level, non-empty. **Generated** from the executed-directive log, never author-composed, length-capped. Structurally incapable of narrating a pending recommendation — see § Arrival legibility. |
 | `next_move` | string \| null | conditional — required (non-empty) on every non-`clear` `gates.coast.verdict`; may be `null` on `clear` | Top-level, explicitly **not** length-capped. See § Arrival legibility and the rendering-priority list under degraded payloads. |
-| `decisions` | object | yes | Top-level. The round-tripped `--decisions` input, echoed verbatim on every branch — the disposition-resume/audit surface a caller's own `apply` re-reads back from the emitted decision object (Function 6). Empty object when no `--decisions` was supplied. |
+| `decisions` | object | conditional — emitted by every computed skill except `pickup-assemble brief` (`coordinator_core.pickup_brief` emits no `decisions` key) | Top-level. The round-tripped `--decisions` input, echoed verbatim on every branch of a skill that emits it — the disposition-resume/audit surface a caller's own `apply` re-reads back from the emitted decision object (Function 6). Empty object when no `--decisions` was supplied. |
 | `gates.claim_grant` | object `{verdict, reason, holder, holder_live, claim_age_minutes, drop_invocation}` (plus `override_invocation` + `recommendation` on `denied`) | yes | `verdict` ∈ `granted \| granted-with-warning \| denied`. Pickup-specific — § Template-scope partition. |
 | `gates.coast` | object `{verdict, notes[], blocked_by[]}` | yes | `verdict` ∈ `clear \| blocked`. Reports what the EM is holding; never gates the claim (that is `claim_grant`'s job). Sub-key of the existing `gates` object — no sixth top-level key (AC8). Pickup-specific. |
 | `preflight.tree_quiescence` | object `{verdict, repos: [{repo, dirty[], unparseable_scope_entries[]}]}` | yes | `verdict` ∈ `quiet \| dirty`. Real `git status --porcelain` intersection per repo in `scope:`, not a scope echo; a prose `scope:` entry surfaces in `unparseable_scope_entries`, never silently counted as dirty. Pickup-specific. |
@@ -1231,7 +1231,8 @@ cross-repo engine-repo handoff path; both resolved, returning per-owner
 `reachable`/`not_reachable` rather than failing on the cross-repo pointer:
 
 ```
-$ python3 coordinator/bin/session-reachability-cli.py artifact-owner <plan-or-handoff-path>
+# PowerShell host: & "$env:COORDINATOR_SETTINGS_HOME\bin\session-reachability-cli.exe"
+$ "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/session-reachability-cli" artifact-owner <plan-or-handoff-path>
 {"artifact_path": "...", "owners": [{"session_id": "<session-id>",
  "source_field": "agent_sessions", "outcome": "reachable",
  "address": "coordinator-content-repo-ee [5950ee]", "claim_live": null, "claim_stage": null}],
@@ -1259,7 +1260,7 @@ auto-fire claims in a fresh session before trusting a negative result.
 
 **A Skill-tool call bypasses `UserPromptExpansion`, but not the input any more.** That
 hook is keyed to the literal user-typed prompt path, so a dispatched or programmatic
-Skill-tool call still never fires it. `pickup`, `mise-en-place`/`warp-speed-execute`, and
+Skill-tool call still never fires it. `pickup`, `mise-en-place`, and
 `handoff` reach their computed inputs on that path anyway: `preuse-skill-dispatch.py`, the
 one `PreToolUse`/`Skill` fan-in, hosts each hook's `compute_context` leg and emits their
 concatenated `additionalContext` before the skill body runs — `group-em-autofire.py`
@@ -1268,3 +1269,7 @@ entrypoint remains the answer when neither path's hook fires at all
 (`AN-AUTOFIRE-HOOK-THAT-DID-NOT-FIRE-IS-SILENT`).
 
 Spec backlink: `2026-07-23-computed-skills-bz-pickup-rebuild-e9a989.md`.
+
+## Field rules
+
+- **Line count is evidence, not the conversion bar.** Judge a converted surface by its per-surface AC and the assembler call site; "still long" is not "unconverted".

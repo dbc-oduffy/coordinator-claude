@@ -7,7 +7,6 @@ spec_backlink: the cockpit-contract standing-owner record under docs/decisions/
 ---
 
 
-
 # Cockpit-Contract Entity-Addition Protocol
 
 This page governs how to add a new emission entity type, or new fields to an existing entity, in `cockpit-emission.json` without breaking cockpit's schema-version ingest gate.
@@ -156,10 +155,10 @@ standing-owner decision under `docs/decisions/`). The surface comprises:
 
 - the engine repo's Python `artifact.emit` — the records-spine → `cockpit-emission.json`
   projection step (sole production emitter as of the engine repo's producer-identity rulings).
-  `plugins/coordinator/bin/emit-cockpit-snapshot.sh` remains on disk
+  `plugins/coordinator-claude/coordinator/bin/emit-cockpit-snapshot.sh` remains on disk
   as a fail-loud facade stub (zero caller repoints, the engine repo's producer-identity ruling AC8) but is not an independent
   producer — see producer-identity note above.
-- `plugins/coordinator/cockpit-contract/` — the entity definitions,
+- `plugins/coordinator-claude/coordinator/cockpit-contract/` — the entity definitions,
   schema bundle, and TypeScript contract package.
 
 **What the owner does:** lands entity additions, runs version bumps, wires the entity
@@ -374,12 +373,13 @@ envelope.
 Regenerate all derived artifacts:
 
 ```bash
-cd plugins/coordinator/cockpit-contract
+cd plugins/coordinator-claude/coordinator/cockpit-contract
 pnpm run build          # rebuilds dist/
 pnpm run emit           # emits per-entity *.schema.json files
 ```
 
 This produces:
+
 - `cockpit-contract/schema/<entity-name>.schema.json` (per-entity JSON Schema).
 - Updated `cockpit-contract/schema/cockpit-contract.schema.json` (the bundled envelope).
 - Updated `cockpit-contract/dist/index.js` (the runtime validator).
@@ -507,7 +507,7 @@ not sequential — choose based on the upstream writer's output format.
 Before proceeding to the reader-first handshake, run:
 
 ```bash
-cd plugins/coordinator/cockpit-contract
+cd plugins/coordinator-claude/coordinator/cockpit-contract
 pnpm test
 ```
 
@@ -604,6 +604,7 @@ or PATCH (`x.y.Z`). No sentinel. No emit-hold. No wait-for-confirm gate.
 **Accepted consequence — emitted-but-quarantined window.** Between emit and consumer
 re-vendor, newly populated entity arrays go to replayable quarantine (not live consumption).
 This is the only invariant the minor-bump relaxation accepts losing — it is benign:
+
 - **Integrity:** no loss — raw payload retained; replays on re-vendor.
 - **Observability:** the quarantine is observable (`malformed_ingest` by entity-kind).
 - **Availability latency:** a window where new typed data is emitted-but-not-yet-rendered

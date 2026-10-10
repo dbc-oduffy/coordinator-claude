@@ -227,4 +227,4 @@ rather than trying to pin the property further from where it's actually enforced
 - `coordinator/docs/wiki/coordinator-tripwires/` — full tripwire registry
 - `docs/wiki/dispatching-parallel-agents.md` — executor dispatch doctrine and sizing
 - `docs/wiki/dispatching-parallel-agents/eager-agent-calibration.md` — design-as-offers ethos that shapes how this nudge is framed
-- `em-operating-model.md` § EM clock heartbeat — L3b cadence rationale and opt-out
+- `coordinator/docs/wiki/em-operating-model.md` § EM clock heartbeat — L3b cadence rationale and opt-out

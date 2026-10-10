@@ -19,9 +19,9 @@ binding rests on.
 
 ## Two inputs the op consumes and must never compute
 
-**`depth_disposition`** is the PM's, from step 1.5.0. `/research` is PM-gated and never
-EM-auto-invoked, so a `deep-research` cluster produces a **directive naming the cluster and
-nothing else**. An op that escalates a cluster to deep research on its own has taken a PM gate.
+**`depth_disposition`** is the PM's, from step 1.5.0. A `deep-research` cluster produces a
+**directive naming the cluster and nothing else**: the op emits the directive, and the EM sizes
+and fires `/research`. An op that dispatches deep research itself has taken the EM's sizing call.
 
 **`excluded_clusters`** arrives resolved. The standing producer is the UE-internal-API
 precondition: a UE cluster whose `project-rag` probe returns no hit STOPS, and no web scout is

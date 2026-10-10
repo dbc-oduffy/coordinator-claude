@@ -1,6 +1,7 @@
 """percolate-round.py — one-command sequencer for a single-target percolate
 publish round: dry-run -> parse -> scan-secrets -> inverse-drift -> Step 3
-gate -> real run -> commit -> CI smoke -> push (on a clean round; DR-301).
+gate -> real run -> commit -> push (on a clean round; DR-301). There is no
+in-round CI smoke: testing happens in the source repo or on the candidate.
 `--no-publish` stops before the push, same as this module's old behaviour.
 
 Ports the nine hand-driven steps `coordinator/skills/percolate/SKILL.md`
@@ -24,8 +25,7 @@ this CLI now DOES invoke `git push` — on a clean round, publishing is the
 default, not an operator's separate step. What replaced the old never-push
 constraint is the EVIDENCE GATE (`_round_refusal_reason`, C2/AC3): the push
 runs only when every row succeeded, `declined_paths` is empty, no
-unacknowledged Phase 4 REVIEW warnings remain, and CI smoke (run AFTER the
-commit — see below) came back green. `--no-publish` opts back into the old
+unacknowledged Phase 4 REVIEW warnings remain. `--no-publish` opts back into the old
 print-and-stop behaviour, and `_print_push_notice` survives as exactly that
 path (plus the gate-refused path, where it names the condition
 `_round_refusal_reason` reported) — it prints `percolate-push <target>`
@@ -75,13 +75,6 @@ directory element, satisfying `commit_pipeline.explicit_stage`'s
 untracked-files-beneath-a-directory-never-swept behaviour by construction,
 without needing to touch that module (see the originating
 plan's Substrate corrections § 1-2 for why touching it would be wrong).
-
-CI-smoke ordering (the other subtlety the plan calls out): CI smoke
-(`_run_ci_smoke`) runs AFTER the commit, never before. A file the real run
-de-allowlisted out of the destination stays TRACKED at the destination's
-pre-commit HEAD until that deletion is committed — `check-python-checks`
-false-reds on it until then. Running CI smoke pre-commit reproduces that
-false red; this module's step order rules it out.
 
 Usage:
     percolate-round.py <target> [--percolate-root <path>] [--yes] [--no-publish]
@@ -536,16 +529,6 @@ _ROUND_SCAN_LEG_TIMEOUT_SECS = 60.0
 #: has nothing left to justify it once that spawn count comes down.
 _PUBLISH_LEG_TIMEOUT_SECS = 3600.0
 
-#: `<dest>/.github/scripts/run-all-checks.py` — consumer-owned code this
-#: repo does not control, whose members include a pytest run
-#: (`run-tests.py`). That is DR-349's *named* test-runner carve-out, so
-#: this is the one bound in this module that is a runaway guard by
-#: doctrine rather than by unpaid debt. Named rather than inherited so it
-#: cannot be copied onto a leg that is claude-klabauter's own compute — which is
-#: exactly what the deleted shared default did.
-_EXTERNAL_CI_TIMEOUT_SECS = 600.0
-
-
 def _run(cmd: List[str], *, timeout: float, **kwargs) -> subprocess.CompletedProcess:
     """Spawn one leg of the round under an EXPLICIT bound.
 
@@ -667,38 +650,6 @@ def _run_step(script: Path, argv: List[str]) -> subprocess.CompletedProcess:
         stdout=out.getvalue(),
         stderr=err.getvalue(),
     )
-
-
-def _resolve_python() -> str:
-    """CI-smoke interpreter resolution ladder (SKILL.md Step 5's `coordinator.
-    python` contract): COORDINATOR_PYTHON env -> `machine-local get
-    coordinator.python` -> this process's own interpreter. Never raises —
-    CI smoke is a best-effort leg (skipped entirely when `run-all-checks.py`
-    doesn't exist), so a ladder that can't resolve a pin degrades to
-    `sys.executable` rather than failing the whole round over an optional
-    step.
-    """
-    import os
-
-    env_pin = os.environ.get("COORDINATOR_PYTHON", "").strip()
-    if env_pin:
-        return env_pin
-
-    machine_local = shutil.which("machine-local")
-    if machine_local is None:
-        candidate = _BIN_DIR / "machine-local"
-        if candidate.is_file():
-            machine_local = str(candidate)
-    if machine_local:
-        result = _run(
-            [machine_local, "get", "coordinator.python"],
-            timeout=_REGISTRY_CLI_TIMEOUT_SECS,
-        )
-        pin = result.stdout.strip()
-        if result.returncode == 0 and pin:
-            return pin
-
-    return sys.executable
 
 
 def _resolve_percolate_root(override: Optional[str]) -> Optional[str]:
@@ -928,7 +879,7 @@ evidence and which dissolved.
                                 `declared_payload` widened past the scan
                                 surface by `_walk_published_payload` bounds
                                 narrowness.
-  Could delete a live file   -> `_refuse_removals_present_on_disk`, a hard
+  Could delete a live file   -> `diff_commit.refuse_removals_with_live_source`, a hard
                                 refusal, coordinator-content-repo-em's condition of assent.
   Per-mirror assent needed   -> DISSOLVED, not satisfied. klabauter is ours
                                 (PM); both owners can assent, so the
@@ -956,7 +907,7 @@ Same digit, opposite meaning. Never read a 0 here as "no backlog" without
 checking the manifest's provenance first.
 
 THE STANDING RISK, said out loud rather than left to be discovered:
-`_refuse_removals_present_on_disk` is DORMANT at coordinator-claude, because 0
+`diff_commit.refuse_removals_with_live_source` is DORMANT at coordinator-claude, because 0
 of the 66 are present on disk. The safety of that set therefore rests on the
 by-hand source verification above, not on the guard. The guard protects the
 NEXT round, not this one.
@@ -1115,10 +1066,9 @@ def _pathspec_from_manifest(
     when it is absent from dest HEAD's tree (`_dest_head_tree`) OR its
     worktree bytes differ from HEAD (`_dest_head_diff_names`) -- the union of
     both legs, since `git diff` alone never reports an untracked path. A dest
-    HEAD path absent from the declared payload is named "REMOVE" -- the
-    declared-payload restriction (not a raw HEAD-vs-worktree survey) is what
-    keeps a stranded staging directory, which no row declares, out of this
-    set by construction (AC3).
+    HEAD path in `manifest.removed` is named "REMOVE" verbatim; nothing is
+    derived from HEAD absence, so a stranded staging directory, which no row
+    declares, stays out by construction (AC3).
 
     `seen`'s value shape (`(tag, resolved_rel)`) matches what
     `_filter_commit_pathspec` has always consumed; `tag` here is only ever
@@ -1128,12 +1078,6 @@ def _pathspec_from_manifest(
     "REMOVE")` for its absent-deletion check, so `"REMOVE"` alone is
     sufficient)."""
     import os
-
-    from coordinator_core.percolate.surface import (  # noqa: PLC0415 - lazy, engine-only path
-        STRUCTURAL_NEVER_PUBLISHED_PREFIXES,
-        matches_exclude_prefix,
-        stranded_swap_priors,
-    )
 
     repo_root_path = Path(repo_root)
     repo_root_norm = os.path.normpath(str(repo_root_path))
@@ -1153,119 +1097,10 @@ def _pathspec_from_manifest(
             seen.setdefault(str(repo_root_path / rel), ("NEW", rel))
         elif rel not in head_tree:
             seen.setdefault(str(repo_root_path / rel), (_DECLARED_ONLY_TAG, rel))
-    if _REMOVAL_SIDE_ENABLED:
-        # The removal side reads dest HEAD with no check for a stranded
-        # root-swap `.prior` -- a subtree an incomplete swap left absent
-        # from the worktree but still tracked at HEAD reads as exactly the
-        # shape this side names for removal (§ publish.py ::
-        # `_refuse_stranded_root_swap_prior`, the swap-side half of the same
-        # guard). Stand down BEFORE naming any removal.
-        strands = stranded_swap_priors(repo_root_path)
-        if strands:
-            shown = ", ".join(str(p) for p in strands[:10])
-            raise RemovalCandidateOnDiskError(
-                f"percolate-round: {len(strands)} stranded prior-backup "
-                f"entr(ies) from an earlier incomplete root-dest swap sit in "
-                f"{repo_root_path}: {shown}. Restore by hand (rename "
-                "`<entry>.prior` back to `<entry>`, or reconcile against "
-                "HEAD) before this round can name any removal."
-            )
-        # § AC3, docs/dispatch-briefs/2026-08-26-open-the-percolate-removal-
-        # side/C1.md -- the removal rule is `(head_tree ∩
-        # row_scope) - declared_payload`, never a bare `head_tree -
-        # declared_payload`. `row_scope` is `manifest.published_dest_dirs`
-        # expanded to every dest-HEAD path beneath one of those directories
-        # -- a `--target`-excluded sibling row or an untouched rest-of-mirror
-        # path is in `head_tree` but never in `row_scope`, so it cannot be
-        # named for removal no matter what `declared_payload` does or does
-        # not contain. An empty `published_dest_dirs` (an old manifest with
-        # no fourth set, or a round that published nothing) yields an empty
-        # `row_scope` and therefore an empty removal set, always -- no probe,
-        # no extra spawn, filtering the same `head_tree` `_dest_head_tree`
-        # already read with one `ls-tree` call.
-        # A row whose `dest_dir` IS the mirror root renders through `rel_id`
-        # as "." (`Path.relative_to` of a path against itself), and the
-        # flat-mirror rows this system publishes are exactly that shape (§
-        # `publish.py`'s manifest-write block: "A flat-mirror row's `dest_dir`
-        # IS the mirror root -- `LICENSE` and `.gitignore` sit in
-        # `declared_payload` today"). A prefix test alone reads "." as a
-        # directory NAMED `.` and matches no dest-HEAD path at all, so the
-        # removal side would silently fire on nothing for precisely the
-        # mirrors it was built for -- the failure looks like a clean round,
-        # never like a mis-scope. Root entries scope to the whole tree, which
-        # is what publishing into the root means; `""` is accepted alongside
-        # "." so a manifest written by any other root-relative renderer reads
-        # the same.
-        row_scope_dirs = manifest.published_dest_dirs
-        scopes_whole_tree = any(d in (".", "") for d in row_scope_dirs)
-        row_scope = {
-            rel
-            for rel in head_tree
-            if scopes_whole_tree
-            or any(rel == d or rel.startswith(d + "/") for d in row_scope_dirs)
-        }
-        # A path the SSOT calls STRUCTURALLY NEVER PUBLISHED is neither
-        # declarable nor removable, and both halves have to agree or the round
-        # refuses on its own bookkeeping. `_walk_published_payload` prunes this
-        # exact prefix set out of `declared_payload` deliberately (§ its own
-        # NEGATIVE SPEC: an unpruned walk declared 44,264 `.fleet-env/` paths
-        # and silently disabled the removal side). `row_scope` did not prune
-        # it, so any such path TRACKED at dest HEAD fell out of
-        # `row_scope - declared_payload` as a removal candidate, was found on
-        # disk, and refused the round before sync.
-        #
-        # Measured witness (`coordinator-claude`, 2026-08-31): percolate writes
-        # its own `.percolate/round-manifest.json` into the mirror and that file
-        # is tracked at the mirror's HEAD, so every round after a fail-closed
-        # one died at `_refuse_removals_present_on_disk` naming percolate's own
-        # bookkeeping -- an error whose remedy text ("widen `declared_payload`")
-        # is the one fix that must NOT be applied here: re-admitting `.percolate`
-        # to the declaration would over-declare it back into the same
-        # removal-side suppression the walker's prune exists to prevent. The
-        # asymmetry is the defect, not the prune.
-        row_scope -= {
-            rel
-            for rel in row_scope
-            if matches_exclude_prefix(rel, list(STRUCTURAL_NEVER_PUBLISHED_PREFIXES))
-        }
-        removal_candidates = sorted(row_scope - manifest.declared_payload)
-        # A candidate this round's OWN source positively retired
-        # (`manifest.removed`) and that still sits on disk is not the
-        # "operands are wrong" signal `_refuse_removals_present_on_disk`
-        # exists to catch -- it is Leg A's ungated report below, already
-        # printed via `removed_still_on_disk`. Subtracting it here breaks
-        # the Leg A/B deadlock: without this, the same on-disk path is both
-        # skipped by Leg A (still on disk, so no-op) and a raising Leg B
-        # candidate, so every round against that mirror aborts forever. A
-        # candidate NOT in `manifest.removed` still raises unchanged (AC9).
-        retired_on_disk = {
-            rel
-            for rel in removal_candidates
-            if rel in manifest.removed and os.path.lexists(repo_root_path / rel)
-        }
-        removal_candidates = [
-            rel for rel in removal_candidates if rel not in retired_on_disk
-        ]
-        _refuse_removals_present_on_disk(repo_root_path, removal_candidates)
-        for rel in removal_candidates:
-            seen.setdefault(str(repo_root_path / rel), ("REMOVE", rel))
-
-    # UNGATED, and deliberately so -- a second removal source that needs no
-    # `_REMOVAL_SIDE_ENABLED` because it cannot make the mistake that flag
-    # exists to prevent. `manifest.removed` is publish.py's own per-row record
-    # of what THIS round's source stopped publishing
-    # (`_report_published_diff`), so it is row-scoped by construction and is a
-    # POSITIVE assertion rather than an inference from absence. It structurally
-    # cannot name an unprocessed row's payload or a never-scanned binary --
-    # the two hazards AC1 and AC2 exist to contain on the gated leg.
-    #
-    # The two legs cover DISJOINT cases and neither retires the other (§ AC6
-    # RESOLVED in the brief). Measured 2026-08-26: of 43 paths stranded at the
-    # `coordinator-claude` mirror, ZERO appear in `manifest.removed`, and none
-    # ever will -- `_report_published_diff` derives its removed-set by
-    # comparing the staging dir against dest's WORKING TREE, so a path already
-    # absent from that worktree leaves nothing to observe. This leg therefore
-    # prevents NEW stranding; only the gated leg above can clear the backlog.
+    # Deletions are `manifest.removed` verbatim: publish.py is the manifest's
+    # only writer and records exactly what the transform retired. No
+    # `head_tree - declared_payload` derivation -- it deletes every path a
+    # diff-scaled round did not touch.
     #
     # Paths still present on disk are skipped rather than named. `explicit_stage`
     # runs `git add -- <paths>`, which stages a deletion only when the path is
@@ -1277,8 +1112,7 @@ def _pathspec_from_manifest(
     # observed and could not carry is exactly the class this module was told to
     # stop losing quietly.
     removed_still_on_disk: List[str] = []
-    # `lexists`, not `exists` -- same reason as `_refuse_removals_present_on_
-    # disk`'s own test, and load-bearing HERE FIRST because this leg is
+    # `lexists`, not `exists` -- same reason as `diff_commit.refuse_removals_with_live_source`'s own test, and load-bearing HERE FIRST because this leg is
     # UNGATED. `exists` follows symlinks, so a tracked symlink with a missing
     # target reads as absent, skips this guard, and is named for deletion: the
     # one file class where "not on disk" describes the target, not the path.
@@ -1297,70 +1131,6 @@ def _pathspec_from_manifest(
             file=sys.stderr,
         )
     return _filter_commit_pathspec(repo_root_path, repo_root_norm, seen, repo_root=repo_root)
-
-
-class RemovalCandidateOnDiskError(RuntimeError):
-    """A path the removal side named for deletion still exists at dest.
-
-    Raised BEFORE any pathspec is built, so nothing is committed on this path
-    -- same fail-closed ordering as `RoundVerifyFailure` and
-    `RoundIdentityLeakError`.
-    """
-
-
-def _refuse_removals_present_on_disk(dest_root: Path, candidates: Sequence[str]) -> None:
-    """AC6 -- the removal side may not delete a path that exists on disk.
-
-    Added as a CONDITION OF ASSENT by coordinator-content-repo-em (2026-08-26), in their
-    words "in the code, not in the procedure", before the removal side may be
-    opened against a mirror this repo does not own.
-
-    Why this exists on top of AC2. AC2 fixes the CAUSE of the known
-    false-positive class: `declared_payload` sourced from the percolation SCAN
-    surface misses a published-but-never-scanned file, which then reads as
-    "no row declares this". Two members are known --
-    `.github/scripts/check-persona-names.py` (both mirrors; deliberately
-    excluded from the transform sweep so the release-CI checker never scrubs
-    itself) and `coordinator_core/warm/door/door.exe` (a binary in a declared
-    directory). A measured `live-undeclared == 0` is a snapshot of that class
-    at one moment; the next member is a file nobody has written yet. AC2 fixes
-    the cause, this catches the recurrence.
-
-    LOUD, NEVER SILENT. A candidate that survives `(head_tree ∩ row_scope) -
-    declared_payload` and is STILL on disk means the operands are wrong again
-    -- that is a defect report, not a path to quietly drop from the set. A
-    silent-skip version would have hidden both known witnesses rather than
-    surfacing them, which is how the mis-scope stays invisible until it
-    deletes something that mattered.
-
-    The shaping consequence, which is the point rather than a side effect:
-    with this invariant in place the pre-flight dry run is a CHECK, not a
-    load-bearing gate. An irreversible rule against a public mirror should not
-    depend on a human having run the right measurement at the right moment.
-
-    `lexists`, NOT `exists`. `exists` follows symlinks, so a TRACKED symlink
-    whose target is missing reads as absent, passes this refusal untouched,
-    and is deleted by the removal side -- the one file class where "not on
-    disk" is a statement about the target rather than about the path itself.
-    Zero tracked symlinks on either mirror today; this is what keeps the first
-    one from being reaped silently on the round that introduces it.
-    """
-    import os  # noqa: PLC0415 - lazy, matching this module's other `os` users
-
-    present = [rel for rel in candidates if os.path.lexists(dest_root / rel)]
-    if not present:
-        return
-    shown = present[:20]
-    more = len(present) - len(shown)
-    raise RemovalCandidateOnDiskError(
-        f"percolate-round: removal side named {len(present)} path(s) that still "
-        f"exist at {dest_root} -- refusing to delete any of them.\n"
-        "    A removal candidate present on disk means the operands are wrong: it "
-        "is published payload the declaration failed to name, not an orphan at "
-        "HEAD. Widen `declared_payload` (AC2) rather than deleting the file.\n"
-        + "".join(f"    ! {rel}\n" for rel in shown)
-        + (f"    ... and {more} more\n" if more else "")
-    )
 
 
 def _already_committed_non_executable_scripts(
@@ -2666,11 +2436,10 @@ def _round_refusal_reason(
     real_returncode: int,
     declined_paths: list,
     has_review_warnings: bool,
-    ci_exit: Optional[int],
 ) -> Optional[str]:
     """Defence-in-depth predicate (C2, AC3) over `_cmd_round`'s own
-    in-process state: every row succeeded, `declined_paths` is empty, no
-    unacknowledged Phase 4 REVIEW warnings, and CI smoke came back green.
+    in-process state: every row succeeded, `declined_paths` is empty, and no
+    unacknowledged Phase 4 REVIEW warnings.
     Returns a reason string naming which condition refused, or `None` when
     every condition holds.
 
@@ -2691,8 +2460,6 @@ def _round_refusal_reason(
         return f"{len(declined_paths)} path(s) were declined during commit"
     if has_review_warnings:
         return "Phase 4 audit found unacknowledged REVIEW warnings"
-    if ci_exit not in (None, 0):
-        return f"CI smoke came back red (exit {ci_exit})"
     return None
 
 
@@ -2811,20 +2578,19 @@ def _advance_lastsync_marker(target: str, percolate_root: str, sha: str) -> None
 
 def _write_round_failure_marker(target: str, percolate_root: str, reason: str, sha: str) -> None:
     """PM ruling 1 (2026-08-14), polarity inverted (P2, review-integrator):
-    written IMMEDIATELY once a commit lands at dest — before CI smoke and
-    before the C2 gate — so `percolate-push.py`'s destination-state gate
+    written IMMEDIATELY once a commit lands at dest — before the C2 gate —
+    so `percolate-push.py`'s destination-state gate
     (C4) always sees a landed commit as uncertified by default. This closes
     the crash window a failure-only-write left open: a process death
     between the commit landing and a failure-path write (OOM, SIGKILL, host
-    reboot — anywhere in CI smoke's subprocess call, potentially this
-    module's longest-running step) used to leave a landed, uncertified
+    reboot) used to leave a landed, uncertified
     commit with NO marker, which `percolate-push.py`'s gate reads as
     clean-with-commits-to-push and would publish. Writing the marker at
     commit time and clearing it ONLY on the clean-verdict path (right
     before publishing) fails safe: any crash after the commit leaves the
     marker standing. `reason` starts generic (`"uncommitted-verdict"`) at
-    commit time and is overwritten with a specific one (`declined_paths`,
-    `ci_red`) if the round reaches one of those branches. Additive-refusal
+    commit time and is overwritten with a specific one (`declined_paths`)
+    if the round reaches that branch. Additive-refusal
     only — never a claim a round WAS clean (Anti-scope)."""
     from datetime import datetime, timezone
 
@@ -3094,7 +2860,6 @@ def _cmd_round_default(
                     f"  cause:     {cause}" if cause is not None
                     else "  cause:     no Error/REFUSED line in publish.py output (see stderr below)"
                 )
-                print("  ci-smoke:  skipped (Step 1 did not complete cleanly)")
                 print("  push:      skipped")
                 _print_step_failure("Step 1 (real run)", real_cmd, real.stderr)
                 return _EXIT_FAIL
@@ -3356,7 +3121,6 @@ def _cmd_round_default(
                     print("")
                     print("Summary:")
                     print("  real-run:  exit 0")
-                    print("  ci-smoke:  n/a (nothing reached the commit leg)")
                     print("  warnings:  1")
                     print(f"    - {filter_drop_warning}")
                 else:
@@ -3364,7 +3128,6 @@ def _cmd_round_default(
                     print("")
                     print("Summary:")
                     print("  real-run:  exit 0  (no-op)")
-                    print("  ci-smoke:  n/a (no changes to verify)")
                 if args.no_publish:
                     return _EXIT_OK
                 ahead = _dest_ahead_count(dest)
@@ -3466,6 +3229,9 @@ def _cmd_round_default(
                 commit_paths,
                 hash_worktree_blobs_via_spawn,
             )
+            from coordinator_core.git.git_state import (  # noqa: PLC0415
+                format_publish_trailers,
+            )
             from coordinator_core.ops.ceremony import git_native as _gn  # noqa: PLC0415
             from coordinator_core.ops.ceremony.commit_message import (  # noqa: PLC0415
                 compose_message,
@@ -3528,10 +3294,19 @@ def _cmd_round_default(
                     # ("at least one of `paths` / `deleted_paths`"), so a round
                     # whose whole payload is removals now lands instead of
                     # reporting nothing to do.
+                    commit_message = compose_message(
+                        subject=subject, prose=_not_carried_body
+                    )
+                    if manifest is not None and manifest.stamp_source_head:
+                        commit_message += format_publish_trailers(
+                            round_id=manifest.round_id,
+                            source_head=manifest.stamp_source_head or None,
+                            signature=manifest.stamp_signature or None,
+                        )
                     outcome = commit_paths(
                         repo_root,
                         present_paths,
-                        compose_message(subject=subject, prose=_not_carried_body),
+                        commit_message,
                         deleted_paths=deletion_paths,
                         blob_fallback=partial(hash_worktree_blobs_via_spawn, cwd=repo_root),
                     )
@@ -3626,30 +3401,10 @@ def _cmd_round_default(
                 sha,
             )
 
-            # --- Step 4: CI smoke (after the commit) ------------------------
-            print(f"=== percolate-round {target} — Step 4: CI smoke ===")
-            # `.github/` lives at the worktree root, never under a row's dest_subdir.
-            ci_script = Path(repo_root) / ".github" / "scripts" / "run-all-checks.py"
-            ci_exit: Optional[int] = None
-            if ci_script.is_file():
-                python = _resolve_python()
-                ci = _run(
-                    [python, str(ci_script)],
-                    cwd=repo_root,
-                    timeout=_EXTERNAL_CI_TIMEOUT_SECS,
-                )
-                print(ci.stdout)
-                if ci.stderr.strip():
-                    print(ci.stderr, file=sys.stderr)
-                ci_exit = ci.returncode
-            else:
-                print("  (no .github/scripts/run-all-checks.py at dest — skipped)")
-
             refusal_reason = _round_refusal_reason(
                 real_returncode=real.returncode,
                 declined_paths=declined_paths,
                 has_review_warnings=has_review_warnings,
-                ci_exit=ci_exit,
             )
 
             round_warnings = _round_warnings(
@@ -3658,28 +3413,14 @@ def _cmd_round_default(
                 filter_drop_warning=filter_drop_warning,
             )
 
-            verdict = "PASS"
-            if ci_exit not in (None, 0):
-                verdict = "FAIL"
-            elif round_warnings:
-                verdict = "PASS-WITH-WARNINGS"
+            verdict = "PASS-WITH-WARNINGS" if round_warnings else "PASS"
 
             print("")
             print(f"percolate-round {target} — {verdict}")
             print("  real-run:  exit 0")
-            print(f"  ci-smoke:  {'exit ' + str(ci_exit) if ci_exit is not None else 'n/a (no run-all-checks.py)'}")
             print(f"  warnings:  {len(round_warnings)}")
             for warning in round_warnings:
                 print(f"    - {warning}")
-
-            if verdict == "FAIL":
-                print("")
-                print(f"percolate-round: publish refused — {refusal_reason}")
-                print("CI smoke is red after the commit — the commit already landed locally;")
-                print("fix the failure, then push by hand once CI is green. No push command")
-                print("is printed for a red CI run.")
-                _write_round_failure_marker(target, percolate_root, "ci_red", sha)
-                return _EXIT_FAIL
 
             if refusal_reason is None:
                 _clear_round_failure_marker(target, percolate_root)

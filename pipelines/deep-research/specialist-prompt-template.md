@@ -32,8 +32,12 @@ The Opus sweep starts after the specialist stage returns. It reads all specialis
 
 You manage your own timing. Nothing will interrupt you.
 
-**Floor:** You MUST research for at least `min_minutes` minutes (from the brief) AND fetch at least
-  `min_sources` sources before you are allowed to converge.
+**Floor:** Do not begin convergence before BOTH `min_minutes` minutes (from the brief) have elapsed AND you
+  have fetched at least `min_sources` sources. Self-check before every convergence step: run `date +%s`,
+  compute elapsed minutes, and count your sources; if either is under the floor, keep researching
+  (open new angles, adversarial queries, primary sources), and say in your summary if a floor could not be met and why.
+  The first line of `{{item}}-summary.md` is `sources_read: <N>`, the count of sources you fetched;
+  the gate stage checks it against `min_sources`.
 **Ceiling:** You MUST begin convergence after `max_minutes` minutes regardless of state.
 **Diminishing returns:** Between floor and ceiling, if your last 3 consecutive sources
   added no new verified findings, begin convergence.
@@ -118,7 +122,7 @@ with peers is EXPECTED — not just sharing findings, but actively testing claim
   - Challenge: direct factual conflict needing resolution
   - Source: a useful URL for their research
   - Overlap: "I'm also covering X — should I defer to you or should you defer to me?"
-- Read your own mailbox before you converge and incorporate what peers sent you
+- Re-read your own mailbox after each source or file you deep-read, and once more just before you write your output; peers append while you work, and a mailbox read once at the end misses slower peers. Incorporate what peers sent you. A specialist that converges early re-checks its mailbox once more before returning.
 - **Resolution protocol:** Peers answer your challenges, and you answer theirs, in the
   rebuttal round, a continuation dispatched after this stage returns. An unresolved
   challenge produces a [CONTESTED] claim.
@@ -133,11 +137,11 @@ Begin convergence when ANY of these conditions are met (AND the floor is satisfi
 
 Convergence steps:
 1. Append final challenges and findings to peers' mailboxes (within the 3-per-peer cap)
-2. Read your own mailbox and answer what you can with evidence
+2. Re-read your own mailbox (even if you read it recently) and answer what you can with evidence
 3. Write your structured claims to {{scratch_dir}}/{{item}}-claims.json
 4. Write your summary to {{scratch_dir}}/{{item}}-summary.md
 5. Append `{"read": true}` to your own mailbox if you read it
-6. Return `{letter, challenged, claimsPath}` — `letter` is `{{item}}`, `challenged` lists every peer letter whose mailbox you wrote to. The sweep merges your claims, and the EM emits the merged result to the durable docs/research/<run-stem>.claims.json
+6. Return `{letter, challenged, claimsPath}` — `letter` is `{{item}}`, `challenged` lists every peer letter whose mailbox you wrote to, plus your own letter when your `sources_read` is below `min_sources` (a continuation then tops you up). The sweep merges your claims, and the EM emits the merged result to the durable docs/research/<run-stem>.claims.json
 
 **Contested rule:** a challenge still unanswered after the rebuttal round marks the claim
 [CONTESTED] with both sides' evidence in the claims JSON.
@@ -168,7 +172,7 @@ Notes on fields:
 - Within YOUR claims, you can cross-reference by ID (e.g., "see {{item}}-003").
 - **Empty optional fields: OMIT THE KEY.** Do not write `null`, `[]`, or `""`.
   `counter_evidence`, `corroborated_by`, and `contested_by` are optional strings in
-  `schemas/research-claim.schema.json`; a `null` fails its type check and the EM's
+  `research-claim.schema.json` (read it at `${CLAUDE_PLUGIN_ROOT}/schemas/research-claim.schema.json`, or `<content-root>/coordinator/schemas/` with `<content-root>` from `~/.claude/.content-root`; `topic_tags` is an array of strings); a `null` fails its type check and the EM's
   `claims-emit` step rejects the whole batch on record 0. Leave the key out entirely
   when there is no value. When there IS a value, `corroborated_by` and `contested_by`
   are free text, not arrays.

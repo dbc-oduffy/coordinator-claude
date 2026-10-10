@@ -399,10 +399,9 @@ from _claude_md_ledger import GOVERNED_AUTHORING_SURFACES  # noqa: E402
 from _machine_profile import feature_enabled  # noqa: E402
 from _message_envelope import compose, render  # noqa: E402
 
-_WIKI_ANCHOR = (
-    "coordinator/docs/wiki/guards/guard-message-concision.md"
-    "#doctrine-surface-bash-write-guard-carve-outs-and-remedies"
-)
+# Page-level on purpose: the section fragment costs ~75 of the 220-byte prose cap, and the
+# engine's warm twin cites the bare page -- the two must stay byte-identical.
+_WIKI_ANCHOR = "coordinator/docs/wiki/guards/guard-message-concision.md"
 
 _COMMAND_TOOL_NAMES = ("Bash", "PowerShell")
 
@@ -1843,9 +1842,8 @@ def _compose_deny_message(*, commit_shaped: bool = False, quoted_content_shaped:
         )
     else:
         prose = (
-            "BLOCKED: this Bash command writes a governed doctrine "
-            "surface. If the real target is one of the governed files, use "
-            "Write or Edit."
+            "BLOCKED: writes a governed doctrine surface. If the target is "
+            "a governed file, use Write/Edit."
         )
     return compose(prose, anchor=_WIKI_ANCHOR)
 

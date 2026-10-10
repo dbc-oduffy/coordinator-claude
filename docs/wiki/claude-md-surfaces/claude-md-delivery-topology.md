@@ -178,6 +178,48 @@ Do not ask an agent whether it has a file — it will confabulate. **Ask it to r
 to that file.** To test the boot-vs-lazy distinction, probe before anything has read the directory
 in question. To test fleet reach, probe from a *sibling repo* session, not from the doctrine repo.
 
+## Which copy a session runs
+
+Three runtime copies can go stale silently: the **engine mirror** (the resolved engine root), the
+**published plugin mirror**, and the **fleet-capability index** (`ttl: P1D`). A session running
+this source tree (`--plugin-dir` on a dev-install clone) runs the source plugin; marketplace-served
+and cloud sessions run the plugin mirror and print the line only after a percolate publish.
+
+Every dev-install boot prints exactly one line on the boot banner, whatever the results:
+
+```text
+── Copies: engine-mirror currency=<s> completeness=<s>; plugin-mirror currency=<s> completeness=<s>; capability-index currency=<s>
+   <copy> <axis>: <detail> — remedy: <remedy>
+```
+
+`<s>` is `current`, `drift` or `could-not-check`; one indented detail line follows each `drift` or
+`could-not-check`. No disable env var, no stderr-only degrade.
+
+- **`could-not-check` is never clean.** `current` carries evidence of what was compared; an
+  exception or unreachable source renders `could-not-check` with the reason.
+- **A missing `Copies:` line means the check did not run.** On a cloud box with a dead hook plane,
+  the non-hook surface is the `HOOK PLANE: ARMED|UNARMED` first line of
+  `<claude_home>/rules/cloud-preboot-verdict.md`.
+- **Venues.** Workstation and cloud differ only in the plugin-mirror leg: source from `.content-root`,
+  mirror = the registered mirror path (workstation) or the live plugin root (cloud). The engine
+  leg compares its stamp to the live engine HEAD; the index leg compares age to `ttl`.
+- **Engine-mirror completeness joins the publisher's `.coordinator/expected-manifest.json`**
+  (`{"schema": 1, "source_head", "paths": {posix: blob_sha1}}`, excluding itself) against the
+  mirror checkout's `.git/index`, parsed in-process: missing, mismatched or size-dirty paths are
+  `drift`; no manifest reads `could-not-check (no expected-manifest emitted)`. A same-size edit
+  is invisible to it. The plugin mirror's publisher emits no manifest, so that axis reads the
+  no-manifest constant; hooks.json registration parity is its live completeness check.
+- A `drift` remedy is a command confirmed to resolve here, or `no local remedy — <owner> publish`.
+
+Tripwire: `A-COPY-CHECK-THAT-COULD-NOT-RUN-SAYS-SO` in `docs/wiki/coordinator-tripwires/tripwire-registry/`.
+
+## Where a bare `coordinator/bin/` or `coordinator/lib/` citation resolves
+
+This repo ships no `coordinator/bin/` or `coordinator/lib/`. A bare `coordinator/(bin|lib)/<file>`
+citation in a doc here resolves against the engine root (the resolved `claude-klabauter` mirror,
+authored in `claude-klabauter`), never against this clone. Doe-clone-only tooling lives under
+`setup/doe-tools/`; a citation of it names that path.
+
 ## See also
 
 - `docs/wiki/claude-md-surfaces.md` — the five-surface disambiguation. **Carried the falsified
