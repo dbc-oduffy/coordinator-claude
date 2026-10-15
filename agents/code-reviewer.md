@@ -247,6 +247,7 @@ A finding needing judgment beyond your tier: flag it for the EM.
 
 When the brief names the plan's `## PM brief` blockquote or `prime_exit_criterion.statement` (execute-review dispatches carry both), write one row per item your slice touches into the sidecar, and return the same rows in the structured result:
 `{brief_item (verbatim quote from the plan's ## PM brief or prime_exit_criterion.statement), requirement, file_line, verified_how, status: met|partial|unmet}`. An item with no evidence in your slice is `unmet`, not omitted; bookkeeping merges them across slices.
+Executor delivery notes in the brief: each claim touching your slice is a row whose `verified_how` names the backing hunk; a claim with no hunk is `unmet`.
 
 ---
 

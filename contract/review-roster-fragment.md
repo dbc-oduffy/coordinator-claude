@@ -16,9 +16,13 @@ wave record. A v4-shaped reader (`list(tier)`) has nothing to key on here.
 A stage agent entry may carry one optional `tiers` array (values `lightweight`, `standard`,
 `full`); absent means every tier, and `compose_execute_review` filters the entry on the plan's
 size tier (the filter lives in the engine and is not exercised by this repo's tests, which pin
-only the JSON shape). `coordinator:delivery-verifier` carries `["standard", "full"]`, so an XS/S
-(lightweight) wave drops it. Kira and the per-slice code-reviewer carry none and review every
-plan.
+only the JSON shape). No entry carries one today. The per-slice code-reviewer reviews every plan.
+Delivery claims are checked by that reviewer's brief-conformance rows, not by a separate wave
+member.
+
+Kira carries `min_tshirt: "L"`: Kira runs on a plan sized L or above, and a plan whose size cannot
+be derived runs Kira. `tiers` cannot express L-and-above, because the engine maps M and L to one
+tier; do not simplify `min_tshirt` to a `tiers` array.
 
 ## Required on every code-landing emit
 
@@ -35,12 +39,12 @@ Review is guaranteed by the emitted script, never by an EM or a ceremony remembe
 `execute_review.stages` is an ORDERED list of exactly three kinds: `prep`, `review-wave`, then
 `judge`. Prep runs first (it partitions the diff and provisions every sidecar the rest read).
 The review wave is **one parallel stage**: every agent in it — the per-slice code reviewers, Kira,
-each signal-named persona, and the delivery verifier — runs concurrently. There is no second
+and each signal-named persona — runs concurrently. There is no second
 review round and no sequential ordering among reviewers; that already-parallel invariant from v4
 ("two or more agents in one stage run in parallel — that is what a stage means") carries over
 unchanged. Each slice reviewer applies and verifies its own slice's findings (`applies: own-slice`). Kira
 applies whole-diff (`applies: whole-diff`) with exact-text Edits: a stale Edit fails rather than
-clobbers, so Kira re-reads and re-applies. The signal personas and the delivery verifier
+clobbers, so Kira re-reads and re-applies. The signal personas
 (`applies: none`) report only. No `integration` stage exists, and
 `tests/test_review_roster_fragment.py` enforces that.
 
@@ -52,6 +56,13 @@ row because the composer reads none for it.
 
 `per: slice` fans the `coordinator:code-reviewer` review-wave entry out over prep's own slice
 list at run time — the fragment names one entry, the run dispatches one call per slice.
+
+## `executor_rows_per_reviewer`
+
+The `coordinator:code-reviewer` entry carries `executor_rows_per_reviewer: {"min": 3, "max": 4}`,
+both integers >= 1 with `min <= max`: one slice reviewer per 3-4 executor rows. A composer that
+reads it dispatches `ceil(rows / max)` reviewers. A composer that does not read it keeps the
+`per: slice` fan-out above, which stays on the entry.
 
 Every stage entry that carries an `agentType` also carries `model` and `effort`: the roster is
 the one place that pins per-call cost for a review dispatch, so a consumer never has to guess.
@@ -72,7 +83,7 @@ could drift.
 Same purpose as v4: it maps every `agentType` an execute-review stage may dispatch — whether
 roster-fixed or signal-selected — to the exact verdict string its own charter declares blocking,
 so a consumer never hardcodes agent names or normalises their vocabulary. `code-reviewer` blocks
-on `BLOCKED`; `delivery-verifier` blocks on `FAIL`; `overengineering-reviewer` and every
+on `BLOCKED`; `overengineering-reviewer` and every
 signal-selectable persona (`staff-eng`, `staff-data-sci`, `senior-front-end`, `staff-ux`) block on
 `REJECTED`, their shared reviewer enum's bottom value.
 
@@ -87,9 +98,8 @@ reviewers, and this fragment now names code review only. `coordinator:prior-art-
 Any persona `review-signals.json` marks `"stage": "named"` — `staff-eng` (architecture, backend,
 security), `staff-data-sci` (data-science), `senior-front-end` (front-end), `staff-ux` (ux-flow) —
 can be merged into the review-wave's `accepts_signals: "named"` entry when the plan's own
-`review_signals` selects it. A plan selecting no named signal dispatches the wave's four fixed
-agents (per-slice code-reviewer, Kira, delivery-verifier) plus nothing extra, three at XS/S where the
-delivery-verifier's `tiers` drops it; a mechanical plan is
+`review_signals` selects it. A plan selecting no named signal dispatches the wave's fixed
+agents (per-slice code-reviewer, plus Kira at L and above) and nothing extra; a mechanical plan is
 never charged a domain specialist it didn't ask for. `coordinator:vp-product` stays PM-directed,
 never signal-matched, and is not part of this fragment.
 

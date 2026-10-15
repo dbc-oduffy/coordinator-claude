@@ -7716,7 +7716,7 @@ def _write_expected_manifest(
     return True
 
 
-def _source_sha_suffix(round_pinned_shas: "dict[str, str] | None" = None) -> str:
+def _source_sha_suffix(round_pinned_shas: "dict[str, str] | None" = None, *, source_head: str = "") -> str:
     """The mirror-currency stamp appended to every percolate commit subject.
 
     WHY THIS EXISTS. A percolate commit subject named the paths it carried
@@ -7766,7 +7766,10 @@ def _source_sha_suffix(round_pinned_shas: "dict[str, str] | None" = None) -> str
     reads `HEAD`/`packed-refs` directly) — this runs once per destination
     repo on the publish hot path.
     """
-    if round_pinned_shas is not None:
+    if source_head:
+        # The committing root's own source pin: the engine key names claude-klabauter, never a DoE-sourced root.
+        sha = source_head
+    elif round_pinned_shas is not None:
         sha = round_pinned_shas.get(_engine_toplevel_key())
     else:
         _bootstrap_engine()
@@ -13336,7 +13339,7 @@ def _run_round(
                         root_ok_names,
                         sorted(u.survivors),
                         u.deletions,
-                        _source_sha_suffix(round_pinned_shas) if fully else "",
+                        _source_sha_suffix(round_pinned_shas, source_head=head_sha) if fully else "",
                     ) + format_publish_trailers(
                         round_id=round_id,
                         source_head=head_sha if stamped else None,
@@ -13406,7 +13409,7 @@ def _run_round(
                             removed=frozenset(deleted),
                             declared_payload=declared,
                             published_dest_dirs=frozenset(_rel_id(t.dest_dir, repo_root) for t, _s in staged_rows),
-                            source_sha=round_pinned_shas.get(_engine_toplevel_key(), ""),
+                            source_sha=head_sha or round_pinned_shas.get(_engine_toplevel_key(), ""),
                             stamp_source_head=head_sha if stamped else "",
                             stamp_signature=(u.plan.signature or "") if stamped else "",
                         ),

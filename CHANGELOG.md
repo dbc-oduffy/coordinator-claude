@@ -4,6 +4,14 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.4.21] — 2026-10-15
+
+- **Leaner review.** Kira (overengineering) reviews only L and XL plans; the delivery verifier is retired and
+  its claim checks ride the code-reviewer's brief conformance; the roster declares one Sonnet code-reviewer
+  per 3–4 executor rows (`executor_rows_per_reviewer`).
+- **Plan-blitz readiness** passes each review's findings ledger, so a fully verified WARN reads as clear.
+- **INSTALL** runs the installer from the engine clone.
+
 ## [4.4.20] — 2026-10-15
 
 - **Bug blitz is one Workflow.** `/bug-blitz` submits `Workflow({name: "coordinator:bug-blitz", args: {targets}})`;

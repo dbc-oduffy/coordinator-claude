@@ -1,7 +1,7 @@
 {
   "paths": {
-    ".claude-plugin/marketplace.json": "f974ffcec4202646e263df06c708d0b82817046f",
-    ".claude-plugin/plugin.json": "aa4c5dc679914666bb6edde8e335757f0314f5dd",
+    ".claude-plugin/marketplace.json": "5c1a9d212508e8118cc05f7be06fff94fbfc86a3",
+    ".claude-plugin/plugin.json": "7fc0da100baf26e05ba898e202ecb91886f76321",
     ".gitattributes": "e601e3b4831fbad8558b4cf33c1d891e51bb4732",
     ".github/.persona-names-allowlist": "b192e993696d101230ee10c2cbe29faed29ea61f",
     ".github/ISSUE_TEMPLATE/bug_report.md": "0f541423ae94a7dd28b550bee94ce2babb50be4a",
@@ -34,7 +34,7 @@
     ".gitignore": "31886db36fd93b3817544f094188345777a5e87c",
     ".python-version": "e4fba2183587225f216eeada4c78dfab6b2e65f5",
     "AGENTS.md": "a88e4d5f37a62b3a64ab05156092552926c2cf0b",
-    "CHANGELOG.md": "ee9c7a02c123391c59e37a4e5f691a4a395ff2bf",
+    "CHANGELOG.md": "be9966ec3c8689225d53f58eab8ba8a10544df12",
     "CODE_OF_CONDUCT.md": "ba00a30d3950eb141f7ba5c969661e60c2f5c97a",
     "COMMERCIAL.md": "a8701144cfb16aedda57ec490159cafe170ff1d1",
     "CONTRIBUTING.md": "b0db3c04182459734d8871e93ab8a8165e2783a1",
@@ -48,7 +48,7 @@
     "agents/atlas-clarity-reviewer.md": "48aacd42c1465919b062af075ae87558487c84ad",
     "agents/blitz-em.md": "961074e6836453dd8490880fac1b66ae2728904d",
     "agents/code-reviewer-weekly.md": "f1a4e713219f3f78007ad53d3f21fea2b454ad9a",
-    "agents/code-reviewer.md": "99346b21605c7147c3b237f6a6e4a60e1d83c9f4",
+    "agents/code-reviewer.md": "68310d6ad0981d744db75c15ba7a12856b2b1d5e",
     "agents/coverage-auditor.md": "5942e977aefd3af03b876ea9bf5644f83b4b550e",
     "agents/delivery-verifier.md": "d2e5eaee91f026358247e4ed44cf67ee3d77288c",
     "agents/dep-cve-auditor.md": "e165b7370bf364773804e8469d0a2b270d531d44",
@@ -915,7 +915,7 @@
     "bin/publish-time-transform-py.ps1": "b69ed0344990ae5375acf0c91ef170c3c15be790",
     "bin/publish-time-transform-py.py": "726b16bb507dff3b519396502205b7006e3252bc",
     "bin/publish.cmd": "ddccc4669169251ebdb46f6fe34504ae28535588",
-    "bin/publish.py": "f0c818086c0e6687b7b036b54ced8386269453ba",
+    "bin/publish.py": "59ba01dcc704e15dd4f995ff61e1e7fc4c0bb7b4",
     "bin/push-hold.cmd": "f02664333181a2ec7a3385dcbfb141b92399d88c",
     "bin/push-hold.py": "c0fff21a69360eb2e547edd5478de7689f272ac8",
     "bin/query-commit-closures.cmd": "2284445c76886198e1bc9a9bf05e85d618fc2dd6",
@@ -1374,8 +1374,8 @@
     "contract/pm-gate-signal-fragment.json": "4608dfe6a89efe246ed15540212d52375c7b0fac",
     "contract/pm-gate-signal-fragment.md": "665c2eef27f49219ecd9291ce16622c9c9cc95c5",
     "contract/retired-claims.json": "1eb5c90a7784126c78459eaa227054bbd822f8bf",
-    "contract/review-roster-fragment.json": "f9f0fd0d8cf5580420cc3c138dd68432f0aaf335",
-    "contract/review-roster-fragment.md": "a5ff2d148231379e3b93ea9cf31c8e1dd510e10b",
+    "contract/review-roster-fragment.json": "17b17a8e83b1fd684c182a34071b536bfbcfb76a",
+    "contract/review-roster-fragment.md": "051e2ab3bebccef03dbb29e7311ac108385bc590",
     "contract/review-signals.json": "e9faebf86e9b414e72c242d846e78faad01b477d",
     "contract/review-signals.md": "b9a8cdc1c56c7be54ded7d0901a2fdbaa0abd46e",
     "contract/upstream/deliverable-rollup-producer-contract.md": "33cd639037226f219a1069d687e53a9dce7d3514",
@@ -2315,5 +2315,5 @@
     "workflows/workday-start.mjs": "18f956cab96fb2eb1bdb728ef3df53a4f4caa862"
   },
   "schema": 1,
-  "source_head": "b1e0aea230bf1251bbc80d5811022d177b104751"
+  "source_head": "129f30c772069c3879f767cbde32e3266b8ee71c"
 }
