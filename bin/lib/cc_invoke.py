@@ -331,6 +331,19 @@ def _utc_now_iso_seconds() -> str:
     return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
 
 
+def _params_tempdir(claude_klabauter_root: str) -> "str | None":
+    """Managed Temp dir for the ``--params-file`` handoff; None (system Temp) if the engine
+    cannot be imported, so a resolution failure never blocks the spawn."""
+    try:
+        if claude_klabauter_root not in sys.path:
+            sys.path.insert(0, claude_klabauter_root)
+        from coordinator_core.temp_layout import managed_tempdir
+
+        return str(managed_tempdir())
+    except Exception:  # noqa: BLE001 -- fail-open, matches this module's transport posture
+        return None
+
+
 def _no_console_kw(claude_klabauter_root: str) -> dict:
     """Splat-ready Windows console-suppression kwarg for a `coordinator_core.invoke`
     child spawn. ``claude_klabauter_root`` is already resolved by every call site here (the
@@ -2080,9 +2093,7 @@ def _op_timeout_ceiling(op: str, claude_klabauter_root: str, env: dict[str, str]
         if op in _OP_TIMEOUTS_MAP:
             budget = _OP_TIMEOUTS_MAP[op]
         elif is_ceremony:
-            budget = _OP_TIMEOUTS_MAP.get(
-                "__ceremony_budget__", _OP_TIMEOUTS_MAP["__default__"]
-            )
+            budget = _OP_TIMEOUTS_MAP["__default__"]
         else:
             budget = _OP_TIMEOUTS_MAP["__default__"]
 
@@ -2778,7 +2789,9 @@ def cc_invoke(
     # docstring's Params transport note above). Written, closed, passed by path,
     # and unlinked in finally so a large payload never overflows argv. Mirrors
     # cc_invoke_bare()'s identical --params-file handling below.
-    _params_fd, _params_path = tempfile.mkstemp(prefix="cc-invoke-params-")
+    _params_fd, _params_path = tempfile.mkstemp(
+        prefix="cc-invoke-params-", dir=_params_tempdir(claude_klabauter_root)
+    )
     try:
         try:
             _pf = os.fdopen(_params_fd, "w", encoding="utf-8", newline="\n")
@@ -2933,7 +2946,9 @@ def cc_invoke_bare(
 
     # params ride a temp file (--params-file), NOT argv — ARG_MAX-immune. Written, closed,
     # passed by path, and unlinked in finally so a large payload never overflows argv.
-    _params_fd, _params_path = tempfile.mkstemp(prefix="cc-invoke-params-")
+    _params_fd, _params_path = tempfile.mkstemp(
+        prefix="cc-invoke-params-", dir=_params_tempdir(claude_klabauter_root)
+    )
     try:
         try:
             _pf = os.fdopen(_params_fd, "w", encoding="utf-8", newline="\n")

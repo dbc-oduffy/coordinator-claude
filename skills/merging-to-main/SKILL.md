@@ -30,9 +30,9 @@ Pre-authorized Tier-U ceremony — grant first: `tier-u-grant-cli grant ceremony
 "merging-to-main implicit Tier-U grant for the pre-merge unscoped project test suite" --ceremony
 merging-to-main`.
 
-`d0` (`node --test "${CLAUDE_PLUGIN_ROOT}/tests/plugin-ecosystem/run.js"` — the plugin root, never the repo root; halt-on-fail) runs first, then detect and run
-the project's own test runner (`pnpm test`/`npm test`, `pytest`/`python3 -m pytest`, `/validate`, or
-project-specific from `CLAUDE.md`/`package.json`). **This is the most expensive step in the whole
+`d0` (`node --test "${CLAUDE_PLUGIN_ROOT}/tests/plugin-ecosystem/run.js"` — the plugin root, never the repo root; halt-on-fail) runs first, then the project's
+**fast** tier: `fast_test_cmd` from `coordinator.local.md` (else `pnpm test`/`npm test`, `python3 -m pytest`,
+or project-specific from `CLAUDE.md`/`package.json`). Never `full_test_cmd`. **This is the most expensive step in the whole
 ceremony** — a machine-wide event (magnitude: `python3 coordinator/tests/_spawn_budget.py`). Fail on either →
 halt: _"Test suite failed. Fix first, or use `/merging-to-main --force` to bypass for hotfixes."_
 
@@ -40,8 +40,8 @@ halt: _"Test suite failed. Fix first, or use `/merging-to-main --force` to bypas
 `d0`. Log: _"Force-merge requested — test suite gate bypassed."_
 
 **Accepted red.** A suite that ran red on a baseline predating the branch, with the PM's merge
-order: run it (never `--force`, which skips the run), write the red set to
-`state/audits/<date>-<branch>-red-set.md`, cite that path in the PR body's verification line, and
+order: run it (never `--force`, which skips the run), copy the run's `state/test-runs/<suite>-last.txt`
+and `-last.json` (gitignored) to `state/audits/<date>-<branch>-red-set/`, cite that path in the PR body's verification line, and
 merge. A failure not in that set, or a red set the branch introduced, still halts.
 
 ---
@@ -65,8 +65,9 @@ Resolve the branch via `coordinator-current-branch`, then `coordinator-invoke pu
 tag-prefix resolution, release-tag plan). `d2` only plans the tag: nothing is created or pushed
 until Step 7. Judgment:
 
-**Ship verdict (`ship_verdict`).** EM stages one line, PM confirms or overrides; don't merge on
-`hold`/`split` without PM redirect. `/staff-session vp-product` gives a structured second opinion.
+**Ship verdict (`ship_verdict`).** EM decides and records one line; `ship`/`ship-behind-flag`/
+`spike-only` need no PM confirmation. Don't merge on `hold`/`split` without PM redirect.
+`/staff-session vp-product` gives a structured second opinion.
 
 ```markdown
 **Ship verdict:** [ship | ship-behind-flag | hold | split | spike-only] — [one-sentence rationale]
@@ -76,15 +77,20 @@ Verdict meanings: wiki § Ship verdict table.
 
 **Release-note framing.** Prefer the latest `state/week-changelog/*-pending-release.md`
 accumulator; absent, draft inline by impact (Added/Changed/Fixed/Deps/Internal; template: wiki).
-When a tag is being cut, run `merge-release-notes-derive missed-releases <tag> $ENTRY_PATHS` first:
-each entry it names shipped in an earlier release that never flipped, so leave it out of these notes.
-Prepend to a repo-root `CHANGELOG.md` if one exists, committed before Step 5. `tasks/`/`tmp/`-only
+Cutting a tag: omit each entry already named in an `archive/releases/*.yaml` index (released
+status is that index, via `query_completions` `released_names`). Write the notes to the repo-root `CHANGELOG.md`, always,
+committed before Step 5, under `## [X.Y.Z] - YYYY-MM-DD` when cutting a tag, else `## [Unreleased]`.
+Absent or missing tag sections: create it with the begins-at line and backfill per
+`coordinator/docs/wiki/release-and-distribution/changelog-and-release-surfaces.md`.
+`$RELEASE_NOTES` is that section. `tasks/`/`tmp/`-only
 merges get an "Internal" line only.
 
 **Demo path** (user-visible merges) — append a Demo Path section (template: wiki) to the PR body.
 
-**Version-bump (`version_bump_final`).** `version_bump` is a proposal only — confirm/override
-before `d2` plans the tag (mode detail: wiki).
+**Version-bump (`version_bump_final`).** `version_bump` is `d2`'s proposal; the EM decides the tag
+with no PM confirmation when the proposal is a patch bump on a `ship` verdict — set
+`version_bump_final` to it before `d2` plans the tag. A minor/major bump, or any bump on a non-`ship`
+verdict, goes to the APM (mode detail: wiki).
 
 **Portability (`portability_disposition`).** Empty sweep report continues silently; non-empty needs
 a per-finding PM disposition (options: wiki). Not a merge blocker;
@@ -112,8 +118,8 @@ Compose the PR body via `merge-gate-and-pr pr-body --ship-verdict "$SHIP_VERDICT
 or lower. Exit 2 `unrecognized arguments` (older engine): rerun without `--summary`,
 `--verification`, `--risk`, `--links`.
 
-If a version bump was suggested but not yet PM-confirmed, surface it in the PR body: _"Suggested
-bump: patch ({old} → {new}) — confirm before tagging."_
+State the decided bump in the PR body: _"Version bump: patch ({old} → {new}) — EM-decided on a ship
+verdict."_ A bump still awaiting the APM reads _"Suggested bump: {kind} ({old} → {new}) — pending APM."_
 
 ---
 
@@ -146,7 +152,8 @@ also stops it. **Never force-push or retarget a tag.** Why: wiki § Tag-contains
 
 Once the merge lands, trigger the SCIP rebuild best-effort in the background (never blocks): `"$_py"
 "${CLAUDE_PLUGIN_ROOT:-<content-root>/coordinator}/bin/scip-rebuild-at-ceremony.py" --ceremony
-merge-to-main` (§ Plugin-local `coordinator/bin/`, `resolve-coordinator-bin.md`).
+merge-to-main` (§ Plugin-local `coordinator/bin/`, `resolve-coordinator-bin.md`). Then run
+`post_ceremony_skills` (wiki).
 
 ---
 
@@ -159,7 +166,7 @@ phrase from your change at `HEAD`; missing → re-apply, push a follow-up.
 
 ## Step 9: Local Cleanup
 
-First run `"$_py" "$COORDINATOR_SETTINGS_HOME/bin/structural-index-refresh"` (POSIX; on PowerShell `& "$env:COORDINATOR_SETTINGS_HOME\bin\structural-index-refresh.exe"`, `snippets/resolve-coordinator-bin.md`) (non-blocking, always exit 0; `COORDINATOR_STRUCTURAL_INDEX_REFRESH_OFF=1` disables) — report its line if it prints one.
+First run `"$COORDINATOR_SETTINGS_HOME/bin/structural-index-refresh"` (POSIX; on PowerShell `& "$env:COORDINATOR_SETTINGS_HOME\bin\structural-index-refresh.exe"`, `snippets/resolve-coordinator-bin.md`) (non-blocking, always exit 0; `COORDINATOR_STRUCTURAL_INDEX_REFRESH_OFF=1` disables) — report its line if it prints one.
 
 Check out main (`COORDINATOR_OVERRIDE_BRANCH=1`), pull, delete the local branch (a follow-on
 `/bug-blitz` cuts a fresh day branch from main). Clear any stray worktree (`git worktree remove <path>`).
@@ -168,10 +175,10 @@ Check out main (`COORDINATOR_OVERRIDE_BRANCH=1`), pull, delete the local branch 
 
 ## Step 10: Completion-Log Status Flip
 
-Runs when a release tag was cut (`d2` landed); skip otherwise. `mkdir -p
-archive/release-notes/`, then `d7` (`merge-release-notes-derive flip-tags <tag> <sha> <date>
-$ENTRY_PATHS`) flips every matching entry to the earliest release tag whose history contains it. Best-effort `git mv` the pending-release accumulator to `archive/release-notes/`, scoped-commit
-`$ENTRY_PATHS` + accumulator + release notes file, push to main.
+Runs when a release tag was cut (`d2` landed); skip otherwise. Released status is the
+`archive/releases/<tag>.yaml` index (`release.write_index`); entries are not edited. `mkdir -p archive/release-notes/`,
+best-effort `git mv` the pending-release accumulator into it, scoped-commit the release index
++ accumulator, push to main.
 
 ---
 

@@ -50,9 +50,9 @@ its own source, A's clone diverges from origin by B's publish commit -- whose
 bytes A's source already carries. Nothing human-shaped remains to decide, yet
 the refusal stranded every A publish until someone hand-merged a mirror the
 `bump-foreign-repo-write` guard forbids touching. So when EVERY upstream-only
-commit stamps a `[source-head <sha>]` that is an ancestor of the publishing
-source's HEAD, the branch records upstream as a parent with our tree kept
-(`merge -s ours`); the round then republishes the whole surface from a source
+commit stamps a `[source-head <sha>]` that is an ancestor of the ref the round
+publishes (`source_ref`, the `--source-ref` pin; HEAD when unpinned), the
+branch records upstream as a parent with our tree kept (`merge -s ours`); the round then republishes the whole surface from a source
 that contains B's. One unstamped commit, or one stamp the source cannot place
 in its history, keeps the refusal.
 """
@@ -242,10 +242,10 @@ def _no_upstream_base(
 
 
 def _subsumed_by_source(
-    repo_root: Path, upstream: str, source_root: Optional[Path]
+    repo_root: Path, upstream: str, source_root: Optional[Path], source_ref: str
 ) -> Optional[List[str]]:
     """The upstream-only commits' source stamps when every one is already in
-    `source_root`'s HEAD history; `None` when any is not (or cannot be told)."""
+    `source_ref`'s history in `source_root`; `None` when any is not (or cannot be told)."""
     if source_root is None:
         return None
     log = _git(repo_root, ["log", "--format=%s", "HEAD.." + upstream])
@@ -261,14 +261,42 @@ def _subsumed_by_source(
     if not stamps:
         return None
     for stamp in stamps:
-        probe = _git(Path(source_root), ["merge-base", "--is-ancestor", stamp, "HEAD"])
+        probe = _git(Path(source_root), ["merge-base", "--is-ancestor", stamp, source_ref])
         if probe.returncode != 0:
             return None
     return stamps
 
 
+def _stamps_missing_from_source(
+    repo_root: Path, upstream: str, source_root: Optional[Path]
+) -> List[str]:
+    """Upstream-only `[source-head]` stamps `source_root`'s HEAD does not contain.
+
+    TRAP: a fast-forward over a peer's publish is not safe on its own. The round
+    then writes this source's whole surface over the peer's bytes, so a source
+    that lacks the peer's commits reverts them under a clean fast-forward.
+    """
+    if source_root is None:
+        return []
+    log = _git(repo_root, ["log", "--format=%s", "HEAD.." + upstream])
+    if log.returncode != 0:
+        return []
+    missing: List[str] = []
+    for match in _SOURCE_HEAD_STAMP.finditer(log.stdout):
+        stamp = match.group(1)
+        probe = _git(Path(source_root), ["merge-base", "--is-ancestor", stamp, "HEAD"])
+        if probe.returncode != 0 and stamp not in missing:
+            missing.append(stamp)
+    return missing
+
+
 def refresh_dest_from_origin(
-    repo_root: Path, *, out: TextIO, err: TextIO, source_root: Optional[Path] = None
+    repo_root: Path,
+    *,
+    out: TextIO,
+    err: TextIO,
+    source_root: Optional[Path] = None,
+    source_ref: str = "HEAD",
 ) -> RefreshResult:
     repo_root = Path(repo_root)
     branch, upstream, name_err = _branch_and_upstream(repo_root)
@@ -318,7 +346,7 @@ def refresh_dest_from_origin(
             upstream=upstream,
         )
 
-    subsumed = _subsumed_by_source(repo_root, upstream, source_root) if ahead and behind else None
+    subsumed = _subsumed_by_source(repo_root, upstream, source_root, source_ref) if ahead and behind else None
     if subsumed is not None:
         merge = _git(repo_root, ["merge", "-s", "ours", "--no-edit", upstream])
         if merge.returncode != 0:
@@ -352,6 +380,24 @@ def refresh_dest_from_origin(
                 "side.\n"
                 "  Fix: git -C {0} merge {2}   (or rebase, then re-run)".format(
                     repo_root, branch, upstream, ahead, behind
+                )
+            ),
+            branch=branch,
+            upstream=upstream,
+            ahead=ahead,
+            behind=behind,
+        )
+
+    missing = _stamps_missing_from_source(repo_root, upstream, source_root) if behind else []
+    if missing:
+        return RefreshResult(
+            repo_root,
+            ok=False,
+            reason=(
+                "{0} carries a peer publish of source {1} that {2} HEAD does not contain; "
+                "publishing now reverts it.\n"
+                "  Fix: fetch and merge the branch holding {1} into {2}, then re-run".format(
+                    upstream, ", ".join(missing), source_root
                 )
             ),
             branch=branch,

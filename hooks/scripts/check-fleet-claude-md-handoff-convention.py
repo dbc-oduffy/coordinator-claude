@@ -14,7 +14,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, Iterator, List, Tuple
+from typing import Dict, Iterator, List, Optional, Tuple
 
 CLAUDE_MD_RELPATHS = ("CLAUDE.md", ".claude/CLAUDE.md")
 REMEDY = "replace with: run /handoff; handoffs live in state/handoffs/"
@@ -45,16 +45,23 @@ def _machine_local(*args: str) -> str:
     return r.stdout.strip()
 
 
-def fleet_repos() -> Dict[str, Path]:
-    """`repos.*` registry entries that are existing directories, de-duplicated by resolved path."""
+def raw_repos() -> Dict[str, object]:
+    """Every `repos.*` registry key (prefix stripped) with its unvalidated value, from one dump read."""
+    return {k[len("repos."):]: v for k, v in json.loads(_machine_local("dump")).items()
+            if k.startswith("repos.")}
+
+
+def fleet_repos(raw: Optional[Dict[str, object]] = None) -> Dict[str, Path]:
+    """`repos.*` registry entries that are existing directories, de-duplicated by resolved path.
+
+    `raw` is a `raw_repos()` result the caller already holds; omitted, the registry is read here.
+    """
     out: Dict[str, Path] = {}
     seen: set[Path] = set()
-    for key, val in json.loads(_machine_local("dump")).items():
-        if not key.startswith("repos."):
-            continue
+    for key, val in (raw_repos() if raw is None else raw).items():
         if isinstance(val, str) and val and Path(val).is_dir() and Path(val).resolve() not in seen:
             seen.add(Path(val).resolve())
-            out[key[len("repos."):]] = Path(val)
+            out[key] = Path(val)
     return out
 
 

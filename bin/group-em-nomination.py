@@ -13,9 +13,8 @@ record: `nominate`, `stand-down`, `who`, `standing`.
 requested, and the displaced holder is reported (a still-running one is owed a message).
 
 `who` and `standing` are engine-side (`nomination.who`/`nomination.standing`,
-op `groupem.standing`); this CLI only renders them. `stand-down` still is not:
-its orchestration lives here over `read_record` and
-`atomic_record.holder_lock`/`remove_holder_record`.
+op `groupem.standing`); this CLI only renders them. `stand-down` calls
+`nomination.stand_down`, which also removes the box-wide record.
 
 Cold path — one process, one call. Direct in-process import
 (`lib` bootstrap, `require_dispatch_engine_on_path`), same trampoline shape
@@ -83,33 +82,10 @@ def _nominate(nomination, repo_root: str, session_id: str, *, note: Optional[str
     return NominationResult(True, message, 0, verdict)
 
 
-def _stand_down(nomination, atomic_record, repo_root: str,
+def _stand_down(nomination, repo_root: str,
                  session_id: Optional[str]) -> NominationResult:
-    path = nomination._record_path(repo_root)
-    with atomic_record.holder_lock(path):
-        existing = nomination.read_record(repo_root)
-        if existing is None:
-            return NominationResult(False, f"no nomination on record for {repo_root}", 3, None)
-        ok, exit_code, detail = atomic_record.remove_holder_record(path, existing, session_id)
-    if ok:
-        return NominationResult(
-            True, f"stood down {existing.get('session_id')} for {repo_root}", 0, existing
-        )
-    if exit_code == 5:
-        return NominationResult(
-            False,
-            f"refused: {session_id} does not hold the Group EM role for {repo_root} "
-            f"(held by {detail})",
-            5,
-            existing,
-        )
-    return NominationResult(
-        False,
-        f"failed to remove nomination record at {path} ({detail}); "
-        f"{existing.get('session_id')} may still hold the role",
-        4,
-        existing,
-    )
+    result = nomination.stand_down(repo_root, session_id)
+    return NominationResult(result.ok, result.message, result.exit_code, result.record)
 
 
 _LIVE_STATE = {
@@ -266,7 +242,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         return result.exit_code
 
     if args.verb == "stand-down":
-        result = _stand_down(nomination, atomic_record, repo, args.session_id)
+        result = _stand_down(nomination, repo, args.session_id)
         print(result.message, file=sys.stdout if result.ok else sys.stderr)
         return result.exit_code
 

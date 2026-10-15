@@ -12,17 +12,17 @@ exactly as the engine-emitted `brief` specifies, and writes its audit report to 
 verification against the tree are genuinely delegable and this is what the assistant
 absorbs on that half.
 
-The remit does NOT include arming anything. The watch subprocess (`coordinator_core.group_em.watch`)
-and the `Monitor` over it are armed by the Group EM's own main conversation, which re-arms on each
-expiry notice. A `Monitor` dies at the harness's 30-minute cap, and a subagent cannot re-arm
-reliably: it missed 4 of 4 expiries, because a subagent holds no timer and an expiry notice does not
-reliably re-wake it; re-arming from the holder on its own expiry notice measured zero gap. What the
+The remit does NOT include arming anything. The watch is the engine's `group-em-watch --until-event`
+run, launched as a background Bash by the Group EM's own main conversation, which relaunches it on
+each completion. A subagent cannot hold the
+watch: it missed 4 of 4 expiries, because a subagent holds no timer and a notice does not
+reliably re-wake it. What the
 assistant keeps of the sensor half is park-spool triage and reading `group-em-watch.json` under
 `state/`, on the Group EM's ask. No watch loop of its own, no re-bucketing, no lifecycle-field edit,
 no outbound memo of its own, no hand-edit of the watch holder record, no `Monitor` of any kind — the
 negative spec in its own body (`coordinator/agents/group-em-assistant.md`) names all of these.
-**Poke boundary:** the assistant triages and reports; it never nudges a peer. Nudging is Navi's
-alone, or the repo's own Group EM's.
+**Poke boundary:** the assistant triages and reports; it never nudges a peer. Nudging is the
+repo's own Group EM's alone.
 
 ## The asymmetric substrate
 
@@ -95,8 +95,8 @@ can, the watch runs under two different command lines depending on whether the t
 bare module launched it, so a pattern matched against either reports a false death for the other.
 A false death is worse than no arm at all: it teaches the holder to discount the one wire that
 wakes them. The cadence to compare against is the record's own `next_expected_by`, not a fixed
-threshold, because the cadence itself varies by an order of magnitude between a `Monitor` (~12 s)
-and a wake after an idle stretch — a fixed number is trigger-happy against one and blind against the
+threshold, because the cadence itself varies by an order of magnitude between the `--until-event` run's 30 s tick
+and the gap between a completion and its relaunch — a fixed number is trigger-happy against one and blind against the
 other depending on which instrument stamped last.
 
 ## Arming the watch — the two false premises, worked
@@ -117,3 +117,19 @@ therefore unresolved, not confirmed — read `group-em-watch.json` under `state/
 Both false premises end the same way: a holder concluding the trampoline is absent and briefing
 the bare-module fallback on a false premise, or standing down on a status line that never
 confirmed anything.
+
+## Stamping the heartbeat
+
+**Each wake STAMPS its declinations to disk**, via the **engine's** heartbeat writer,
+`<engine_root>/coordinator_core/group_em/watch_heartbeat.py :: stamp(repo_root, holder_session_id,
+declinations, interval_seconds, subscribed_peers=…, tick_source=…, writer_session_id=…)` — a
+different function from this skill's own `coordinator/skills/group-em/watch_heartbeat.py :: stamp(repo_root,
+session_id, name, source, declinations, subscribed_peers=0)`, which `_stamp_watch` in
+`group-em-enter.py` calls for the `entry` tick only; that call is correct for the local copy. The
+two signatures are not interchangeable. For the ENGINE copy, copy its order: `declinations` is the
+THIRD positional and `interval_seconds` the fourth and required; the local five-positional shape
+raises rather than stamping when passed to the engine copy. `writer_session_id` is a keyword,
+**optional in the signature and required at runtime** — it is YOUR session id, not
+`holder_session_id` when a delegate arm stamps on the standing holder's behalf. `tick_source` is `cron` with `interval_seconds` 30 (a hand stamp with `monitor` records the
+short-lived stamping process's pid, so `--status` returns 2), a KEYWORD, never positional. `declinations` is THIS wake's rows only, `[]` if none.
+`subscribed_peers` is the count your watch shell is *still* subscribed to right now.

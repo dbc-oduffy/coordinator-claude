@@ -659,7 +659,10 @@ def _build_resolution_layers(
     reg_dir: str,
     _registry_local_data: dict | None = None,
     warn_unprovisioned: bool = False,
+    shadowed: list | None = None,
 ) -> list[dict]:
+    """Build the resolution layers. Registry keys under a concern namespace are
+    dropped silently; pass `shadowed` to collect them as (key, source, namespace)."""
     reg_path = os.path.join(reg_dir, "registry.toml")
     reg_local_path = os.path.join(reg_dir, "registry.local.toml")
 
@@ -685,12 +688,8 @@ def _build_resolution_layers(
         for k, v in flat.items():
             first_seg = k.split(".")[0].lower()
             if first_seg in concern_prefixes:
-                print(
-                    f"machine-local: warning: key '{k}' in {source_label} "
-                    f"belongs to concern namespace '{first_seg}' — "
-                    "the concern file wins; this entry is ignored.",
-                    file=sys.stderr,
-                )
+                if shadowed is not None:
+                    shadowed.append((k, source_label, first_seg))
                 continue
             cleaned[k] = v
         return cleaned
@@ -1108,6 +1107,28 @@ def cmd_keys(args: argparse.Namespace) -> int:
     for k in all_keys:
         print(k)
     return 0
+
+
+def cmd_check(args: argparse.Namespace) -> int:
+    """Implement: machine-local check — report registry keys shadowed by a concern file.
+
+    Read-only. Exit 0 when clean, 1 when any shadowed key is found.
+    """
+    reg_dir = _registry_dir()
+    shadowed: list = []
+    _build_resolution_layers(reg_dir, shadowed=shadowed)
+    if not shadowed:
+        print("machine-local check: ok")
+        return 0
+    for key, source, ns in shadowed:
+        print(
+            f"shadowed: key '{key}' in {source} belongs to concern namespace "
+            f"'{ns}'; the concern file wins and this entry is ignored."
+        )
+        print(
+            f"  remedy: remove '{key}' from {source}; {ns}.local.toml owns it."
+        )
+    return 1
 
 
 def cmd_path(args: argparse.Namespace) -> int:
@@ -2655,6 +2676,11 @@ def main() -> int:
         ),
     )
 
+    subparsers.add_parser(
+        "check",
+        help="Report registry keys shadowed by a concern file (read-only; exit 1 if any)",
+    )
+
     subparsers.add_parser("path", help="Print absolute path to active registry.toml")
 
     subparsers.add_parser(
@@ -2772,6 +2798,7 @@ def main() -> int:
         "has": cmd_has,
         "keys": cmd_keys,
         "dump": cmd_dump,
+        "check": cmd_check,
         "path": cmd_path,
         "dir": cmd_dir,
         "set": cmd_set,

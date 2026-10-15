@@ -80,7 +80,7 @@ from __future__ import annotations
 
 import random
 import re
-import subprocess
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
@@ -768,14 +768,11 @@ def git_head_sha(repo_root: Path = REPO_ROOT) -> "str | None":
     tree isn't a git checkout -- fail-open rather than raising, since this is
     metadata pinning a report, not a precondition for resolution itself."""
     try:
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
-            timeout=10,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
+        if str(REPO_ROOT) not in sys.path:
+            sys.path.insert(0, str(REPO_ROOT))
+        from coordinator_core.git.run import run_git
+
+        result = run_git(["rev-parse", "HEAD"], cwd=str(repo_root))
     except Exception:
         return None
     if result.returncode != 0:

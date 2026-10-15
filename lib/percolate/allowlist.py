@@ -756,7 +756,9 @@ def build_allowlisted_source(
                     "contribute to a multi-source publish."
                 )
 
-    tmp_src = Path(tempfile.mkdtemp())
+    from coordinator_core.temp_layout import managed_tempdir  # noqa: PLC0415
+
+    tmp_src = Path(tempfile.mkdtemp(dir=managed_tempdir()))
 
     # Pre-filter relative-path list (multi-source only) — retained so
     # check_working_data_paths can scan what the allowlist ADMITTED before

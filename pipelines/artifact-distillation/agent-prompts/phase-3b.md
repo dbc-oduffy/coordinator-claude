@@ -140,6 +140,17 @@ Expected: at least one [DECISION] nugget per non-trivial distillation run.
 
 Surface this to the coordinator as an error — zero DRs is not a valid pipeline state.
 
+This applies only when the dispatch lists CREATE_DR dispositions. A run with no DECISION
+nuggets is not dispatched to this phase and is not a failure.
+
+## Files Found on Disk
+
+The dispatch names the target files of this run's CREATE_DR dispositions: read those first,
+then scan `docs/decisions/` for any record whose frontmatter `provenance` carries this run's
+`run_id`. Return `dr_files_found`: every record path you confirmed on disk for this run,
+repo-relative, `[]` if none. The coordinator compares it with the targets to report missing
+and unclaimed records.
+
 ## Rules
 
 - Copy DR content verbatim from Phase 2 scratch files. Do NOT rewrite or summarize.

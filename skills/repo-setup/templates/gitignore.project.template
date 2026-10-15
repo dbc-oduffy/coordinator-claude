@@ -19,6 +19,7 @@ state/group-em-watch-spool.jsonl
 
 # coordinator — emitted workflow scripts and receipts (generated, ~200 KB each, never committed)
 state/**/fire-*.mjs
+state/**/*.fire.mjs
 state/**/*.mjs.emitted.json
 
 # project-rag corpus output (never commit; ~230MB in history)

@@ -173,6 +173,7 @@ session-baton-mint advisories.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import os
 import re
@@ -1460,10 +1461,72 @@ def _turn_log_clause(turn_log_name: str) -> str:
     return f"; PM prompts saved beside it in {turn_log_name} land in your next sizing"
 
 
-_HARNESS_WRAPPER_PREFIXES = ("<task-notification>", "<cross-session-message")
-_SYSTEM_REMINDER_ONLY_RE = re.compile(
-    r"(?:\s*<system-reminder>.*?</system-reminder>)+\s*", re.DOTALL
+_HARNESS_WRAPPER_PREFIXES = (
+    "<task-notification>",
+    "<cross-session-message",
+    "[Cross-session idle notice]",
+    "[Cross-session delivery notice]",
+    "[SYSTEM NOTIFICATION - NOT USER INPUT]",
 )
+_SYSTEM_REMINDER_ONLY_RE = re.compile(
+    r"(?:\s*<system-reminder\b[^>]*>.*?</system-reminder>)+\s*", re.DOTALL
+)
+# Bounded tail read: this runs on every PM turn and a transcript grows to megabytes.
+_REFERENT_TAIL_BYTES = 256 * 1024
+_REFERENT_EXCERPT_CHARS = 2000
+
+
+def _referent_from_transcript(transcript_path) -> dict | None:
+    """The last assistant text entry in the transcript, as append_turn's
+    `referent` ({excerpt, transcript_uuid}); None when there is none."""
+    if not isinstance(transcript_path, str) or not transcript_path:
+        return None
+    try:
+        with open(transcript_path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            f.seek(max(0, size - _REFERENT_TAIL_BYTES))
+            tail = f.read().decode("utf-8", errors="replace")
+    except OSError:
+        return None
+    # Trap: the first line of a mid-file seek is partial; json.loads rejects it.
+    for line in reversed(tail.splitlines()):
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(entry, dict) or entry.get("type") != "assistant":
+            continue
+        content = (entry.get("message") or {}).get("content")
+        if isinstance(content, str):
+            text = content
+        elif isinstance(content, list):
+            text = "\n".join(
+                b.get("text", "") for b in content
+                if isinstance(b, dict) and b.get("type") == "text"
+            )
+        else:
+            text = ""
+        if not text.strip():
+            continue
+        referent = {"excerpt": text[-_REFERENT_EXCERPT_CHARS:]}
+        if isinstance(entry.get("uuid"), str):
+            referent["transcript_uuid"] = entry["uuid"]
+        return referent
+    return None
+
+
+def _accepts_referent(fn) -> bool:
+    # An engine older than the referent kwarg raises TypeError on it. Probe the
+    # signature, never retry on TypeError, which could double-append a turn the
+    # first call already wrote.
+    try:
+        params = inspect.signature(fn).parameters.values()
+    except (TypeError, ValueError):
+        return False
+    return any(
+        p.name == "referent" or p.kind is inspect.Parameter.VAR_KEYWORD for p in params
+    )
 
 
 def _is_harness_injected_prompt(prompt: str) -> bool:
@@ -1478,6 +1541,7 @@ def _is_harness_injected_prompt(prompt: str) -> bool:
 def _append_pm_turn(
     git_root: str, session_id: str, sessions_dir: str, hook_event: str, prompt,
     baton_msg,
+    transcript_path=None,
 ):
     """Appends a human PM prompt to the engine's per-session turn log (after
     the mint, so turn 0 is the first prompt) and returns `baton_msg`, with the
@@ -1500,7 +1564,13 @@ def _append_pm_turn(
         _arm_lazy_ops()
         from coordinator_core.ops.baton_pm_turns import append_turn
 
-        result = append_turn(prompt, session_id=session_id, cwd=git_root)
+        referent = _referent_from_transcript(transcript_path)
+        if referent and _accepts_referent(append_turn):
+            result = append_turn(
+                prompt, session_id=session_id, cwd=git_root, referent=referent
+            )
+        else:
+            result = append_turn(prompt, session_id=session_id, cwd=git_root)
         if not (isinstance(result, dict) and result.get("ok") is True):
             return baton_msg
         log_path = result.get("log_path")
@@ -2006,6 +2076,7 @@ def main() -> int:
         hook_event,
         payload.get("prompt"),
         baton_msg,
+        payload.get("transcript_path"),
         default=baton_msg,
     )
 

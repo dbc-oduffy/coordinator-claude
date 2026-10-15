@@ -33,7 +33,12 @@ Output: JSON on stdout (one object), for the ceremony to render. Always exit 0
 -- this is advisory orientation, never a gate.
 
   {"state": "skipped"}         -- claude-klabauter/op unavailable; ceremony renders nothing extra.
-  {"state": "inventory", ...}  -- below both legs; plain Step 1.45 inventory stands.
+  {"state": "inventory", "trigger": {...}, "summary": {...},
+   "dispatches": [{"stage": "triage", "id": "triage-all", "report_path", "bucket": "all",
+   "label", "count", "memos": [...], "memo_bytes", "brief": "<text>"}],
+   "skipped_candidates": <int>}  -- below both legs; plain Step 1.45 inventory
+   stands. `dispatches` (one triage-all entry, no paired verify) is present
+   only when at least one open memo exists; `skipped_candidates` only when >0.
   {"state": "escalate", "trigger": {...}, "summary": {...},
    "dispatches": [{"bucket", "label", "memos": [...], "brief": "<text>"}],
    "supersession_candidates": [...], "plan_weight_note": "<text>",
@@ -344,6 +349,81 @@ def _memo_bytes_total(repo_root: str, memo_paths: list) -> int:
     return total
 
 
+def _supersession_section(memo_ids: set, supersessions: list) -> tuple[str, int]:
+    """The brief's supersession paragraph for `memo_ids`, and the count of
+    malformed candidates dropped while building it."""
+    skipped = 0
+    relevant = []
+    for s in supersessions:
+        newer, older, basis = s.get("newer"), s.get("older"), s.get("basis")
+        if newer is None or older is None or basis is None:
+            skipped += 1
+            continue
+        if newer in memo_ids or older in memo_ids:
+            relevant.append(s)
+    if relevant:
+        rendered = "\n".join(
+            f"  - {s['newer']} may supersede {s['older']} "
+            f"[basis: {s['basis']}"
+            + (", advisory" if s.get("advisory") else "")
+            + "]"
+            + (f" shared loci: {', '.join(s['shared_loci'])}" if s.get("shared_loci") else "")
+            for s in relevant
+        )
+        return f"\n\nSupersession CANDIDATES for pass 1:\n{rendered}", skipped
+    return (
+        "\n\nNo supersession candidates were detected mechanically. "
+        "Pass 1 still runs — the detector reads declared "
+        "`supersedes:`, same-sender/same-locus overlap, and "
+        "in-body self-declaration prose, and a thread can still "
+        "supersede itself in a shape none of those three see.",
+        skipped,
+    )
+
+
+_TRIAGE_ALL_INTRO = (
+    "You are triaging EVERY open memo of a cross-repo inbox in one pass, and "
+    "verifying as you go: no separate verify pass follows this one."
+)
+_VERIFY_AS_YOU_GO = "Verify each claim while triaging it, per the verification section below."
+
+
+def _build_triage_all(buckets: list, supersessions: list, repo_root: str) -> tuple[list, int]:
+    """One `triage-all` dispatch covering every open memo across the buckets,
+    or no dispatch when none is open. Briefs reuse the clause constants above;
+    no clause text is written a second time."""
+    memos = [m for m in buckets if m.get("id") and m.get("path")]
+    skipped = len(buckets) - len(memos)
+    if not memos:
+        return [], skipped
+    report_path = _unused_report_path(datetime.date.today().isoformat(), "all")
+    section, dropped = _supersession_section({m["id"] for m in memos}, supersessions)
+    manifest = "\n".join(f"  - {m['path']} [bucket: {m.get('bucket', 'unknown')}]" for m in memos)
+    brief = "\n\n".join([
+        _TRIAGE_ALL_INTRO,
+        f"Memos, with the bucket each was assigned:\n{manifest}",
+        "Memos in bucket `fyi`:",
+        _FYI_BRIEF.format(not_verified=_VERIFY_AS_YOU_GO),
+        "Memos in buckets `dominant` and `rest` (treat `rest` memos as one pool "
+        "of mixed senders and also assign each a space label):",
+        _DOMINANT_BRIEF.format(not_verified=_VERIFY_AS_YOU_GO) + section,
+        _VERIFICATION_CLAUSE,
+        f"Write your single report to `{report_path}`.",
+    ])
+    memo_paths = [m["path"] for m in memos]
+    return [{
+        "stage": "triage",
+        "id": "triage-all",
+        "report_path": report_path,
+        "bucket": "all",
+        "label": "all open memos",
+        "count": len(memos),
+        "memos": memo_paths,
+        "memo_bytes": _memo_bytes_total(repo_root, memo_paths),
+        "brief": brief,
+    }], skipped + dropped
+
+
 def _build_dispatches(buckets: list, supersessions: list, repo_root: str) -> tuple[list, int]:
     """One paired {triage, verify} dispatch per NON-EMPTY bucket, each triage
     dispatch carrying its own finished brief and an assembler-assigned
@@ -397,33 +477,9 @@ def _build_dispatches(buckets: list, supersessions: list, repo_root: str) -> tup
         not_verified = _NOT_VERIFIED_SENTENCE.format(report_path=report_path)
         brief = brief_template.format(not_verified=not_verified)
         if bucket_name == "dominant":
-            memo_ids = {m["id"] for m in memos}
-            relevant = []
-            for s in supersessions:
-                newer, older, basis = s.get("newer"), s.get("older"), s.get("basis")
-                if newer is None or older is None or basis is None:
-                    skipped += 1
-                    continue
-                if newer in memo_ids or older in memo_ids:
-                    relevant.append(s)
-            if relevant:
-                rendered = "\n".join(
-                    f"  - {s['newer']} may supersede {s['older']} "
-                    f"[basis: {s['basis']}"
-                    + (", advisory" if s.get("advisory") else "")
-                    + "]"
-                    + (f" shared loci: {', '.join(s['shared_loci'])}" if s.get("shared_loci") else "")
-                    for s in relevant
-                )
-                brief += f"\n\nSupersession CANDIDATES for pass 1:\n{rendered}"
-            else:
-                brief += (
-                    "\n\nNo supersession candidates were detected mechanically. "
-                    "Pass 1 still runs — the detector reads declared "
-                    "`supersedes:`, same-sender/same-locus overlap, and "
-                    "in-body self-declaration prose, and a thread can still "
-                    "supersede itself in a shape none of those three see."
-                )
+            section, dropped = _supersession_section({m["id"] for m in memos}, supersessions)
+            brief += section
+            skipped += dropped
         memo_paths = [m["path"] for m in memos]
         dispatches.append({
             "stage": "triage",
@@ -504,11 +560,17 @@ def main(argv: "list[str] | None" = None) -> int:
         return 0
 
     if not trigger.get("fires"):
-        print(json.dumps({
+        payload = {
             "state": "inventory",
             "trigger": trigger,
             "summary": summary,
-        }))
+        }
+        dispatches, skipped_candidates = _build_triage_all(buckets, supersessions, repo_root)
+        if dispatches:
+            payload["dispatches"] = dispatches
+        if skipped_candidates:
+            payload["skipped_candidates"] = skipped_candidates
+        print(json.dumps(payload))
         return 0
 
     dispatches, skipped_candidates = _build_dispatches(buckets, supersessions, repo_root)

@@ -81,8 +81,8 @@ carries none. Tripwire: `NOT-PREPPED-RESIDUE-IS-AUTHORED-BY-PLAN-AUTHOR`.
 `/spinoff` is never run from here: out-of-set gaps are the engine's mint path, bounded and
 receipted, not a hand-filed baton.
 
-Not an EM step on the M/L four-turn loop — this command runs for backlog runs and hands-on
-re-plans (`em-loop-factfind.md` §1, census rows 7 and 8).
+Never a stage of an engineering ask's one submission or its relay fallback: it serves backlog runs
+and hands-on re-plans.
 
 ## 3. Receipt, then stop
 

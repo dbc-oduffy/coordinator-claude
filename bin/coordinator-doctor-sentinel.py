@@ -4,7 +4,7 @@
 # entirely — this used to be coordinator-doctor-sentinel.sh, kept on .sh
 # because callers referenced it by literal name; that call is reversed by the
 # Wave 4a PM amendment, and every caller (workday-start.md,
-# workday-start-cross-repo-memo-outbox-surface.py, and the test suites — see
+# and the test suites — see
 # recipe § Callers/parity net) has been repointed to .py in the same wave.
 # Invoke via the generated launcher (coordinator-doctor-sentinel.cmd/.ps1) or
 # `python coordinator-doctor-sentinel.py` directly.

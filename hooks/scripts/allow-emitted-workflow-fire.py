@@ -109,12 +109,17 @@ def _compose_hand_rolled_warning() -> str:
     return "Hand-rolled Workflow, no receipt. Emit it: `emit-dispatch-workflow --plan <plan>`."
 
 
-_PLUGIN_WORKFLOWS = Path(__file__).resolve().parents[2] / "workflows"
+_PLUGIN_ROOT = Path(__file__).resolve().parents[2]
+# Plugin-owned script trees: `workflows/` and the canonical `pipelines/` scripts.
+_PLUGIN_SCRIPT_TREES = (_PLUGIN_ROOT / "workflows", _PLUGIN_ROOT / "pipelines")
 
 
 def _is_shipped_workflow(script: Path) -> bool:
+    """Match on the RESOLVED path under a plugin tree, never the basename, so
+    `..` traversal and look-alike sibling dirs stay hand-rolled."""
     try:
-        return script.resolve().is_relative_to(_PLUGIN_WORKFLOWS)
+        resolved = script.resolve()
+        return any(resolved.is_relative_to(tree) for tree in _PLUGIN_SCRIPT_TREES)
     except (OSError, ValueError):
         return False
 

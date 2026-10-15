@@ -12,8 +12,8 @@ Opus reviewers, sequentially. Nothing computes this pipeline for you yet — eve
 manual EM procedure over theoretically computable facts (stub discovery, independence
 verification, status transitions); worked detail and phase archaeology: wiki.
 
-Not an EM step on the M/L four-turn loop — this skill runs for backlog runs and hands-on re-plans
-(`em-loop-factfind.md` §1, census rows 7 and 8).
+Never a stage of an engineering ask's one submission or its relay fallback: it serves backlog runs
+and hands-on re-plans.
 
 <!-- Negative-spec: this block is single-sourced at snippets/project-rag-preamble.md and kept in
      sync across every consumer (this file, the plan-writing doctrine wiki, enricher/executor

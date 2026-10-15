@@ -14,7 +14,7 @@ order: 6
 | Cross-domain plan (e.g., UE + data pipeline, front-end + arch) | Two sequential Opus-persona reviewers: `--reviewers "<domain>,the Staff Engineer"` |
 | Contested architectural choice with ≥2 valid approaches AND PM authorized | `/staff-session` review-mode |
 | "This is important, I want it done right" | One Opus-persona reviewer (auto-detects domain) |
-| "the Staff Engineer feels heavy for this; route to code-reviewer instead" | **Not a valid row.** `code-reviewer` is the Sonnet diff reviewer, not a plan reviewer. The Opus review is the named persona, or none (implement and let `code-reviewer` catch issues on the diff at `/workstream-complete`); the one Sonnet lens on a plan body is `plan-reviewer` — an accepted-XL step ahead of the persona that never replaces it, and the `spec-dispatch` lane's single pre-dispatch pass, which has no Opus review. _See the `plan`-route **Full terminal** row of `skills/plan/residue/plan-corpus.md`._ |
+| "the Staff Engineer feels heavy for this; route to code-reviewer instead" | **Not a valid row.** `code-reviewer` reviews diffs, not plans. The Opus review is the named persona, or none (implement and let `code-reviewer` catch issues on the diff at `/workstream-complete`); the one Sonnet lens on a plan body is `plan-reviewer` — an accepted-XL step ahead of the persona that never replaces it, and the `spec-dispatch` lane's single pre-dispatch pass, which has no Opus review. _See the `plan`-route **Full terminal** row of `skills/plan/residue/plan-corpus.md`._ |
 
 - _Plan is genuinely trivial?_ (one-line doc fix, typo, link repoint)
   → No review needed; commit and proceed.

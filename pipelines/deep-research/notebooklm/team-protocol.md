@@ -4,7 +4,7 @@
 
 ## Overview
 
-Chatty-Workflow NotebookLM research: the EM scopes research directly — designing notebook topology, questions, source strategy, and worker count — writes `strategy.md`, then fires ONE background `Workflow` whose script runs a scout stage, a worker stage (one `agent()` per notebook), and a sweep stage, and is **freed**. Completion is the Workflow's task notification. The agents handle everything autonomously — source discovery, notebook creation, ingestion, querying, coverage assessment, and gap-filling. Notebook cleanup is optional (`--cleanup` flag; default: keep).
+Chatty-Workflow NotebookLM research: the EM scopes research directly — designing notebook topology, questions, source strategy, and worker count — writes `strategy.md`, then fires ONE background `Workflow` whose script runs a scout stage, a source gate, a worker stage (one `agent()` per notebook), a claims gate, and a sweep stage, and is **freed**. Completion is the Workflow's task notification. The agents handle everything autonomously — source discovery, notebook creation, ingestion, querying, coverage assessment, and gap-filling. Notebook cleanup is optional (`--cleanup` flag; default: keep).
 
 ## Architecture
 
@@ -15,9 +15,18 @@ EM: Scope research → Write strategy.md → Fire Workflow → FREED
          │   Reads strategy.md, finds best YouTube / podcast / article sources
          │   Writes: {scratch-dir}/sources.md
          │
+         ├── Gate: source-gate (Haiku, runs nlm-run-gate.py sources)
+         │   Halts the run when a scout-provided notebook has no accessible source
+         │   Writes: {scratch-dir}/source-gate.json
+         │
          ├── Stage 2: Sonnet worker(s) — 1 to 3, per strategy.md, in parallel
-         │   Each creates own notebook, ingests assigned sources, queries
+         │   Each writes {letter}-dispatch.json first, creates own notebook, ingests assigned sources, queries
          │   Writes: {scratch-dir}/{letter}-claims.json + {letter}-summary.md
+         │
+         ├── Gate: claims-gate (Haiku, runs nlm-run-gate.py claims)
+         │   Halts the run when the dispatch-marker count differs from worker_count,
+         │   a worker ran outside the strategy, or the strategy's notebooks produced zero claims
+         │   Writes: {scratch-dir}/claims-gate.json
          │
          └── Stage 3: Opus sweep (the overseer)
              Reads all claims (JSON), assesses coverage, fills gaps
@@ -38,13 +47,15 @@ EM: Scope research → Write strategy.md → Fire Workflow → FREED
 
 ```
 Stage 1  scout                    → returns, sources.md written
-Stage 2  workers (parallel)       → all return, {letter}-claims.json + {letter}-summary.md written
+Gate     source-gate              → ok, or the run halts with the PM's remedy
+Stage 2  workers (parallel)       → all return, {letter}-dispatch.json + {letter}-claims.json + {letter}-summary.md written
+Gate     claims-gate              → ok, or the run halts with the PM's remedy
 Stage 3  sweep                    → returns the completion message to the EM
 ```
 
 Ordering gates the stages: a stage starts when the previous stage's `agent()` calls return (`await`, or `parallel()` for the worker fan-out). A returned agent is never woken; the next stage is a fresh dispatch. Workers never address the EM, the sweep, or each other — they operate independent notebooks with no cross-pollination during execution, so no mailbox traffic is expected. A role that must leave a note for a peer appends `{"from": "<role>", "text": "..."}` to `{scratch-dir}/mail/<role>.jsonl`, and a reader appends `{"read": true}` after reading.
 
-A scout that fails or returns without `sources.md` does not stop the run: workers fall back to self-directed discovery (§ Failure Handling).
+A scout that fails or returns without `sources.md` does not stop the scout stage (it is optional), but the source gate then fails every scout-provided notebook and halts the run; only `research_start` notebooks proceed without a sources.md (§ Failure Handling).
 
 ## Scout Protocol
 
@@ -209,9 +220,10 @@ The sole statement of how `{letter}-claims.json` worker fields map to `research-
 - **research_start failure (worker):** Retry once. If persistent, note failure in summary.md and attempt alternative sources if scout provided any.
 - **Rate limiting (worker):** Write partial claims immediately. Return with a rate limit note. Do not retry — the sweep will note the gap.
 - **Query failure (worker):** Retry once. Log and continue with remaining questions.
-- **Scout finds no sources for a notebook:** Worker falls back to self-directed discovery (targeted WebSearch for the notebook's topic area) or uses `research_start` if topic allows.
-- **Scout times out (partial sources.md):** Workers use what's available + note which notebooks have incomplete source lists.
-- **All workers fail:** The sweep finds no worker outputs and says so in its return value; the EM reports it to the PM.
+- **Scout finds no accessible source for a scout-provided notebook (or sources.md is absent):** the source gate halts the run with a remedy naming the notebook. A notebook whose strategy section lists PM-supplied URLs, and a `research_start` notebook, pass the gate without scout sources.
+- **Scout times out (partial sources.md):** the source gate passes each scout-provided notebook that has at least one accessible source; workers use what is available and note which notebooks have incomplete source lists.
+- **Fan-out differs from `worker_count`, or a worker ran outside the strategy:** the claims gate halts the run before the sweep, naming the counts; a worker with no `## Notebook {letter}` section writes `in_strategy: false` and returns `SKIPPED`.
+- **All workers fail (zero claims):** the claims gate halts the run before the sweep; the EM reports the remedy to the PM.
 
 ## Coverage-Auditor Lifecycle
 

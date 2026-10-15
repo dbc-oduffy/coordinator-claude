@@ -76,6 +76,12 @@ operates on:
       token resolving, or no resolvable owner/repo, fails closed: posts
       nothing, exits 1, and names the alternative (env var or flag).
 
+  merge-pinned --sha <sha> --branch <branch> --title <text> --body-file <path>
+      Pushes `<sha>:refs/heads/<branch>`, opens the pull request once, merges only that head
+      (`gh pr merge --match-head-commit`), and reads the merge commit back. Prints
+      `MERGE_SHA=<sha>`, `PR=<number>` and `MERGED_NOW=<true|false>`. On a refusal the first
+      output line is the reason. `active-branch-guard` is not called.
+
 Spec backlink: docs/plans/2026-07-21-doe-skill-bash-to-claude-klabauter-python-port.md [DEAD-CITATION: plan file never committed to this repo]
   (M3 chunk MTM-2 — merging-to-main review-coverage gate / PR body / active-
   branch merge guard). Source: coordinator-content-repo
@@ -98,6 +104,8 @@ Exit codes:
                              state=="success"; 1 on any unpostable case (no
                              token, no resolvable owner/repo) or a posted
                              non-success state; 2 on usage error (C5)
+  merge-pinned          — 0 on a merge or an already-merged head; 1 on MergeRefused
+                          (reason first on stdout); 2 on usage error
 """
 from __future__ import annotations
 
@@ -417,6 +425,42 @@ def cmd_active_branch_guard(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_merge_pinned(args: argparse.Namespace) -> int:
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_engine_on_path
+
+    require_engine_on_path(__file__)
+
+    from pathlib import Path
+
+    from coordinator_core.workweek_complete.release import merge
+
+    body_path = Path(args.body_file)
+    try:
+        body = body_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        print(f"merge-gate-and-pr merge-pinned: cannot read --body-file: {exc}", file=sys.stderr)
+        return 2
+    try:
+        result = merge.merge_pinned(
+            _REPO_ROOT.get() or os.getcwd(),
+            candidate=args.sha,
+            branch=args.branch,
+            title=args.title,
+            body=body,
+            run_dir=str(body_path.parent),
+        )
+    except merge.MergeRefused as exc:
+        print(exc.reason)
+        if exc.detail:
+            print(exc.detail)
+        return 1
+    print(f"MERGE_SHA={result.merge_sha}")
+    print(f"PR={result.pr_number}")
+    print(f"MERGED_NOW={'true' if result.merged_now else 'false'}")
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="merge-gate-and-pr.py")
     sub = parser.add_subparsers(dest="subcommand", required=True)
@@ -465,6 +509,13 @@ def _build_parser() -> argparse.ArgumentParser:
     p_cov.add_argument("--owner", default=None)
     p_cov.add_argument("--repo", default=None)
     p_cov.set_defaults(func=cmd_coverage_gate)
+
+    p_merge = sub.add_parser("merge-pinned", parents=[common])
+    p_merge.add_argument("--sha", required=True)
+    p_merge.add_argument("--branch", required=True)
+    p_merge.add_argument("--title", required=True)
+    p_merge.add_argument("--body-file", required=True)
+    p_merge.set_defaults(func=cmd_merge_pinned)
 
     return parser
 

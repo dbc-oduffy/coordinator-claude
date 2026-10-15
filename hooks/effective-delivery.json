@@ -1,10 +1,10 @@
 {
   "x-effective-delivery": {
     "version": 1,
-    "generated_from_sha": "b8dbfbbe8d771501bdf6bce8f31cf1b7579a0f33",
-    "generated_at": "2026-10-09T12:34:51Z",
+    "generated_from_sha": "4f5e1f34ec55f2cac278acb1355d83f2b28c5d50",
+    "generated_at": "2026-10-13T15:28:55Z",
     "generated_from_dirty_tree": true,
-    "engine_source_sha": "0ffe36fe7a7c08adfa3e74d2b6efbb015701886a",
+    "engine_source_sha": "b8fa82eb8e1cc138c57828832bf4cd8a62b5fc7c",
     "engine_source_dirty_tree": false,
     "engine_source_resolution": "resolved-engine/published-target",
     "carriers": {
@@ -125,6 +125,16 @@
           {
             "id": "guard_engine_mirror_write",
             "script": "scripts/guard-engine-mirror-write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "guard_canvas_citation_needs_harvest",
+            "script": "scripts/guard-canvas-citation-needs-harvest.py",
             "tool_names": [
               "Write",
               "Edit",
@@ -286,6 +296,16 @@
           {
             "id": "block_home_dir_memo_delivery",
             "script": "write_guards/block_home_dir_memo_delivery.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_home_root_write",
+            "script": "write_guards/block_home_root_write.py",
             "tool_names": [
               "Write",
               "Edit",
@@ -861,6 +881,14 @@
             ]
           },
           {
+            "id": "block-home-root-bash-write",
+            "script": "bash_guards/block_home_root_bash_write.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
             "id": "block-dev-repo-sentinel-removal",
             "script": "bash_guards/block_dev_repo_sentinel_removal.py",
             "tool_names": [
@@ -903,6 +931,14 @@
           {
             "id": "block-perforce-submit",
             "script": "bash_guards/block_perforce_submit.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "deploy-dirty-tree",
+            "script": "bash_guards/guard_deploy_dirty_tree.py",
             "tool_names": [
               "Bash",
               "PowerShell"
@@ -1004,6 +1040,14 @@
             ]
           },
           {
+            "id": "guard-heavy-command-admission",
+            "script": "bash_guards/guard_heavy_command_admission.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
             "id": "block-subagent-grant-acquisition",
             "script": "bash_guards/block_subagent_grant_acquisition.py",
             "tool_names": [
@@ -1014,6 +1058,14 @@
           {
             "id": "block-subagent-findings-reject",
             "script": "bash_guards/block_subagent_findings_reject.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "guard-post-executor-verification",
+            "script": "bash_guards/guard_post_executor_verification.py",
             "tool_names": [
               "Bash",
               "PowerShell"
@@ -1297,6 +1349,11 @@
             "tool_names": []
           },
           {
+            "id": "session_start_pre_push_fleet_check",
+            "script": "scripts/session-start-pre-push-fleet-check.py",
+            "tool_names": []
+          },
+          {
             "id": "project_orientation",
             "script": "scripts/project-orientation.py",
             "tool_names": []
@@ -1465,6 +1522,11 @@
             "tool_names": []
           },
           {
+            "id": "block_unharvested_canvas_dispatch",
+            "script": "scripts/block-unharvested-canvas-dispatch.py",
+            "tool_names": []
+          },
+          {
             "id": "enforce_agent_dispatch_mode",
             "script": "scripts/enforce-agent-dispatch-mode.py",
             "tool_names": []
@@ -1488,6 +1550,11 @@
           {
             "id": "block_workflow_unmodeled_agent",
             "script": "scripts/block-workflow-unmodeled-agent.py",
+            "tool_names": []
+          },
+          {
+            "id": "block_unharvested_canvas_dispatch",
+            "script": "scripts/block-unharvested-canvas-dispatch.py",
             "tool_names": []
           },
           {

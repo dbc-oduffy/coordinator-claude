@@ -9,14 +9,40 @@ You are the NotebookLM preflight stage. Check that NotebookLM can be reached bef
 
 ## Steps
 
-1. Run the preflight script off the plugin root, never cwd-relative. It prints one JSON object {ok, remedy, checks}:
+1. Run the preflight script off the plugin root, never cwd-relative. A non-empty `CLAUDE_PLUGIN_ROOT` naming a directory wins; otherwise the root comes from `COORDINATOR_ENGINE_ROOT`, then the `.content-root` pointers. It prints one JSON object {ok, remedy, checks}:
 
    ```bash
-   python3 "${CLAUDE_PLUGIN_ROOT:?coordinator plugin root unset — run this from a plugin command/skill, or substitute an absolute path}/pipelines/deep-research/notebooklm/nlm-preflight.py"
+   _sh=${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}
+   if [ -n "$CLAUDE_PLUGIN_ROOT" ] && [ -d "$CLAUDE_PLUGIN_ROOT" ]; then
+       _pr=$CLAUDE_PLUGIN_ROOT
+   else
+       if [ -n "$COORDINATOR_ENGINE_ROOT" ] && [ -d "$COORDINATOR_ENGINE_ROOT/coordinator" ]; then
+           _content_root=$COORDINATOR_ENGINE_ROOT
+       else
+           _content_root=$(cat "$_sh/machine-local/.content-root" 2>/dev/null || cat "${CLAUDE_HOME:-$HOME}/.claude/.content-root" 2>/dev/null)
+       fi
+       [ -n "$_content_root" ] && [ -d "$_content_root/coordinator" ] || { echo "unresolved plugin root" >&2; exit 1; }
+       _pr=$_content_root/coordinator
+   fi
+   _py=$(command -v python3 || command -v python) || { echo "no python interpreter on PATH" >&2; exit 1; }
+   "$_py" "$_pr/pipelines/deep-research/notebooklm/nlm-preflight.py"
    ```
    ```powershell
-   python "$env:CLAUDE_PLUGIN_ROOT\pipelines\deep-research\notebooklm\nlm-preflight.py"
+   $sh = if ($env:COORDINATOR_SETTINGS_HOME) { $env:COORDINATOR_SETTINGS_HOME } else { Join-Path ($env:CLAUDE_HOME ?? $HOME) ".coordinator-claude-settings" }
+   $pr = $env:CLAUDE_PLUGIN_ROOT
+   if (-not ($pr -and (Test-Path $pr -PathType Container))) {
+       $doe = $env:COORDINATOR_ENGINE_ROOT
+       if (-not ($doe -and (Test-Path (Join-Path $doe "coordinator") -PathType Container))) {
+           $doe = $null
+           foreach ($f in @((Join-Path $sh "machine-local\.content-root"), (Join-Path ($env:CLAUDE_HOME ?? $HOME) ".claude\.content-root"))) { if (-not $doe -and (Test-Path $f)) { $doe = (Get-Content $f -Raw).Trim() } }
+       }
+       if (-not ($doe -and (Test-Path (Join-Path $doe "coordinator") -PathType Container))) { Write-Error "unresolved plugin root"; exit 1 }
+       $pr = Join-Path $doe "coordinator"
+   }
+   python (Join-Path $pr "pipelines\deep-research\notebooklm\nlm-preflight.py")
    ```
+
+   When the ladder refuses with "unresolved plugin root", do not run the script and do not search the disk for it. Write `{"ok": false, "remedy": ["unresolved plugin root — tried CLAUDE_PLUGIN_ROOT, COORDINATOR_ENGINE_ROOT, <settings-home>/machine-local/.content-root, <home>/.claude/.content-root"], "checks": {"plugin_root": "unresolved"}}` and return it.
 
 2. Run `ToolSearch("select:mcp__notebooklm-mcp__notebook_query")`. The probe resolves when the tool's schema comes back; it misses when ToolSearch returns no match.
 

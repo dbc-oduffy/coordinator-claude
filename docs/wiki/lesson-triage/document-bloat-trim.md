@@ -87,7 +87,7 @@ CLAUDE.md has a **~39900-byte hard limit** (enforced by a PreToolUse hook). The 
 
 ## Cross-repo doctrine duplicated into project CLAUDE.md drifts from global canonical
 
-When the same cross-repo (or any cross-cutting) doctrine appears both in the global `~/.claude/CLAUDE.md` and restated in a project-level CLAUDE.md, **suspect the project copy.** Duplicated doctrine drifts: the global canonical evolves (e.g. the cross-repo-memo single-surface ruling) while the project restatement lags, and an EM reading the stale local copy actions the old shape. Prefer a pointer (`→ global CLAUDE.md § X`) over a restatement. When you find a divergent local copy, treat it as the thing to fix, not the contract to follow.
+When the same cross-repo (or any cross-cutting) doctrine appears both in the global `~/.claude/CLAUDE.md` and restated in a project-level CLAUDE.md, **suspect the project copy.** Duplicated doctrine drifts: the global canonical evolves (e.g. the cross-repo-memo single-surface ruling) while the project restatement lags, and an EM reading the stale local copy actions the old shape. Prefer a pointer (`→ global CLAUDE.md § X`) over a restatement. When you find a divergent local copy, treat it as the thing to fix, not the contract to follow. `coordinator/bin/fleet-claude-md-fleet-rule-scan.py` (update-docs row 11o) discharges this: it flags project `CLAUDE.md` lines stating a retired or homed fleet rule.
 
 ## Verify structure-preserving compression via count invariants, not full-diff reading
 

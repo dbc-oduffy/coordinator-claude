@@ -39,12 +39,12 @@ Highlights / Notable / Other.
 **Stage 4 — merge-to-main consumes and flips.**
 `/merging-to-main` Step 1.5 reads the pending-release file when one exists (or falls back to an
 inline pass for emergency releases), formats human-readable release notes, and after the merge
-commit — Step 5.5 — flips every `status: pending-release` entry to `status: released`, stamping
-`released_in`, `released_at`, and `released_sha` **per-entry**, resolved to the earliest release
-tag whose commit history actually contains that entry (not a blanket stamp with the newest tag).
-The flip is gated on a release tag having been cut this merge (`$RELEASE_TAG_CUT`), **not** on
-the pending-release accumulator file's existence — a consolidation or cross-machine merge that
-never produced that file still flips its entries. See `skills/merging-to-main/SKILL.md` Step 5.5.
+commit, a cut release tag is recorded in the index `archive/releases/<tag>.yaml`
+(`release.write_index`), which names the completion entries it shipped. An entry is released
+when some `archive/releases/*.yaml` names it (`query_completions` `released_names`) and unreleased
+otherwise; entries carry no per-entry release fields. The index is gated on a release tag having
+been cut this merge (`$RELEASE_TAG_CUT`), **not** on the pending-release accumulator file's
+existence. See `skills/merging-to-main/SKILL.md` Step 10.
 
 ---
 
@@ -67,10 +67,7 @@ Schema lives at `coordinator/schemas/completion-entry.schema.json` and is valida
 |-------|------|-------|
 | `chain` | string \| null | Plan path, handoff path, or workstream slug. Null for standalone single-session work. `/workday-complete` clusters by this value. |
 | `commits` | list-of-string | Commit SHAs landing this work; may be empty if no-commit-yet |
-| `status` | enum | `pending-release \| released`. Default `pending-release` on write; `/merging-to-main` flips to `released`. |
-| `released_in` | string | Version tag (e.g. `v2.1.0`) — set by `/merging-to-main` |
-| `released_at` | iso-date | Date of release cut |
-| `released_sha` | string | Merge commit SHA on main |
+| `status` | enum | `pending-release \| released`. Default `pending-release` on write; released status is read from the `archive/releases/<tag>.yaml` index, not from this field. |
 | `chain_terminal` | bool | Phase 1 default: `true` on all workstream-complete writes. Phase 2 will set `false` for mid-chain handoff ledger entries. |
 | `narrative` | string | Sonnet-authored cluster summary, set by `/workday-complete` Step 4.5 on the lead entry of a multi-entry chain. |
 | `nature_inferred` | bool | `true` when nature was AUTO-INFERed by Sonnet; `false` when declared via `COMPLETION_NATURE` env var. |

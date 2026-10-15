@@ -254,7 +254,7 @@ with no marker, nothing reads it.
 
 ## Durable Index Artifacts (emit before marking complete)
 
-> Output must conform to `research-synthesis.schema.json` and `research-claim.schema.json` under `${CLAUDE_PLUGIN_ROOT}/schemas/` (when that variable is unset, `<content-root>/coordinator/schemas/`, with `<content-root>` read from `~/.claude/.content-root`). Read `research-claim.schema.json` before merging: for example `topic_tags` is an array of strings, and claim `id` values must be unique across the merged array, so rename a collision before you write `merged-claims.json`.
+> Output must conform to `research-synthesis.schema.json` and `research-claim.schema.json` under `${CLAUDE_PLUGIN_ROOT}/schemas/` (when that variable is unset, `<content-root>/coordinator/schemas/`, with `<content-root>` read from `<home>/.claude/.content-root`). Read `research-claim.schema.json` before merging: for example `topic_tags` is an array of strings, and claim `id` values must be unique across the merged array, so rename a collision before you write `merged-claims.json`.
 
 **emit frontmatter deterministically; DO NOT provide a body template — the body stays agent-authored.**
 

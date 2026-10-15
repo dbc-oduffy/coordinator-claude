@@ -26,9 +26,11 @@ Exit codes:
   0 — step 0 succeeded; proceed to step 1.
   2 — stale-commit guard triggered; A/B/C Branch Reconciliation needed.
   3 — the reconcile leg failed after fetch, dispatched on this code alone
-      (never on the string). The reconcile leg relays one of three stdout
-      strings verbatim: `RECONCILE-CONFLICT` (a genuine content conflict —
-      PM resolves first via A/B/C), `RECONCILE-MERGE-COMMIT-REFUSED` (the
+      (never on the string). The reconcile leg relays one of four stdout
+      strings verbatim: `RECONCILE-CONFLICT-OPEN` (a genuine content conflict,
+      merge held open for a file-only resolver then `reconcile-merge-conclude`),
+      `RECONCILE-CONFLICT` (conflict with no parsed path, merge aborted — PM
+      resolves first via A/B/C), `RECONCILE-MERGE-COMMIT-REFUSED` (the
       merge applied but its commit was refused, commonly a commit hook —
       not an A/B/C decision), or `RECONCILE-MERGE-NOT-STARTED` (the merge
       never started at all — also not an A/B/C decision).

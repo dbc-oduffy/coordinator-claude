@@ -20,7 +20,14 @@ Subcommands:
                      (deleting transient `.weekly-reviewer-scopes-*.json`
                      shards rather than archiving them), rewrite HEADER.md
                      to the reset state, and (unless --no-git) commit and
-                     push the result.
+                     push the result. The commit goes through
+                     run_close_commit (zero git spawns) and holds exactly the
+                     files this run touched: under the default sweep, the files
+                     under the closing directories plus every moved-from path.
+                     A tracked file a third party hand-deleted under a swept
+                     directory no longer rides the commit. Requires a session
+                     id (COORDINATOR_SESSION_ID); exits 2 before moving files
+                     without one.
 
 Negative-spec — deliberately NOT ported here: the version-consistency gate
 (Step 10, a bare `check-version-consistency.py` invocation) and the
@@ -45,7 +52,7 @@ import re
 import shutil
 import subprocess
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -271,13 +278,6 @@ def _in_week_window(d: date, week_starting: date, week_ending: date | None = Non
 def _is_excluded(name: str, exclude: Sequence[str]) -> bool:
     """True when `name` matches any fnmatch pattern in `exclude`."""
     return any(fnmatch.fnmatchcase(name, pat) for pat in exclude)
-
-
-def _bin_dir() -> Path:
-    """This script's own directory — every sibling CLI it dispatches to
-    (coordinator-current-branch.py) is co-located here. Path(__file__)-relative,
-    never cwd-relative, so this CLI is self-resolving regardless of caller cwd."""
-    return Path(__file__).resolve().parent
 
 
 # ---------------------------------------------------------------------------
@@ -556,63 +556,82 @@ def perform_archive_files(
     return actions
 
 
-def _has_pathspec_content(path: Path) -> bool:
-    """False for a directory holding no files (tracked or not) or a
-    nonexistent path — `git add` on either exits 1, so including one
-    unconditionally fails the whole archive commit. A directory with at
-    least one file under it (any depth) is content; an empty directory
-    contributes nothing to a commit regardless."""
-    if path.is_file():
-        return True
-    if not path.is_dir():
-        return False
-    return any(p.is_file() for p in path.rglob("*"))
+def _expand_to_files(
+    directories: Sequence[Path], repo_root: Path, rel_id: Callable[[Path, Path], str]
+) -> list[str]:
+    """Posix repo-relative file paths under `directories` (any depth). The
+    commit takes files, never a directory pathspec."""
+    return [
+        rel_id(f, repo_root)
+        for d in directories
+        for f in sorted(d.rglob("*"))
+        if f.is_file()
+    ]
 
 
-def _resolve_branch(repo_root: Path, branch_script: str) -> str:
-    result = subprocess.run(
-        [sys.executable, branch_script],
-        cwd=repo_root,
-        capture_output=True,
-        text=True,
-        **_no_console_kw(),
-    )
-    return result.stdout.strip()
-
-
-def git_commit_and_push(
+def commit_archive(
     repo_root: Path,
-    paths: list[str],
+    stage_rels: Sequence[str],
     message: str,
-    branch_script: str,
-    push: bool = True,
+    session_id: str,
 ) -> int:
-    """Step 13's `git add -- <paths> && git commit -m <message> && git push
-    origin <branch>` tail, using coordinator-current-branch.py for the
-    canonical (case-correct) branch name rather than `git branch
-    --show-current` — see that script's own docstring for why."""
-    subprocess.run(
-        ["git", "add", "--", *paths], cwd=repo_root, check=True, **_no_console_passthrough_kw()
+    """Commit exactly `stage_rels` (posix, repo-relative; moved-from paths
+    included, absent on disk) through `run_close_commit` -- zero git spawns.
+
+    Returns 0 on a landed commit or a benign empty one, 1 on a refused commit.
+    Trap: a path absent from disk is declared in `deleted_paths`, which
+    `run_close_commit` also requires it to appear in `stage_paths`.
+    """
+    _ensure_claude_klabauter_root_on_path()
+    from coordinator_core.git.git_state import head_blobs
+    from coordinator_core.workstream_complete.directives_commit_tail import run_close_commit
+
+    ordered = list(dict.fromkeys(stage_rels))
+    absent = {p for p in ordered if not (repo_root / p).exists()}
+    tracked = head_blobs(repo_root, sorted(absent))
+    # An absent path HEAD never carried (a moved untracked file) is no deletion
+    # and no stage entry: only its destination is committed.
+    deleted = [p for p in ordered if p in absent and p in tracked]
+    stage = [p for p in ordered if p not in absent or p in tracked]
+    outcome = run_close_commit(
+        repo_root,
+        session_id=session_id,
+        subject=message,
+        stage_paths=stage,
+        deleted_paths=deleted,
     )
-    # A3 fix: pathspec-scoped commit, not a bare `git commit -m`. This runs
-    # on a shared branch (other executors/EMs may have their own staged
-    # work in the index concurrently) -- a bare commit absorbs whatever else
-    # is staged. Scope to exactly the paths this function staged above.
-    subprocess.run(
-        ["git", "commit", "-m", message, "--", *paths],
-        cwd=repo_root,
-        check=True,
-        **_no_console_passthrough_kw(),
-    )
-    if push:
-        branch = _resolve_branch(repo_root, branch_script)
-        if not branch:
-            print("archive: could not resolve current branch — skipping push", file=sys.stderr)
-            return 1
-        subprocess.run(
-            ["git", "push", "origin", branch], cwd=repo_root, check=True, **_no_console_passthrough_kw()
-        )
+    for line in outcome.diagnostics:
+        print(f"archive: {line}", file=sys.stderr)
+    if outcome.commit_failed:
+        print("archive: commit refused — see diagnostics above", file=sys.stderr)
+        return 1
     return 0
+
+
+def push_current_branch(repo_root: Path) -> int:
+    """The one remote leg: `git push origin HEAD` for the checked-out branch.
+
+    Trap: `HEAD` rather than the branch name -- `.git/HEAD` can store a
+    ref's case differently from the on-disk ref file on a case-insensitive
+    filesystem, and a name pushed from there fails to resolve; `HEAD`
+    resolves through the ref file itself. A detached HEAD refuses.
+    """
+    _ensure_claude_klabauter_root_on_path()
+    from coordinator_core.git.git_state import head_branch
+
+    branch = head_branch(repo_root)
+    if not branch or branch == "HEAD":
+        print("archive: could not resolve current branch — skipping push", file=sys.stderr)
+        return 1
+    rc = subprocess.run(
+        ["git", "push", "origin", "HEAD"], cwd=repo_root, **_no_console_passthrough_kw()
+    ).returncode
+    if rc:
+        print(
+            f"archive: git push exited {rc} — the commit landed; re-run only the push",
+            file=sys.stderr,
+        )
+    return rc
 
 
 def _cmd_archive(args: argparse.Namespace) -> int:
@@ -622,7 +641,14 @@ def _cmd_archive(args: argparse.Namespace) -> int:
     review_trail_dir = repo_root / args.review_trail_dir
     review_trail_archive_root = repo_root / args.review_trail_archive_root
 
-    week_starting = args.week_starting or derive_week_start(week_changelog_dir / "HEADER.md")
+    header_path = week_changelog_dir / "HEADER.md"
+    week_starting = args.week_starting or _bare_week_date(derive_week_start(header_path))
+    if week_starting is None:
+        print(
+            f"archive: no dated 'Week starting:' in {header_path} — pass --week-starting; nothing moved",
+            file=sys.stderr,
+        )
+        return 2
     released_date = args.released_date or date.today().isoformat()
 
     if args.move_priorities and not args.week_only:
@@ -644,6 +670,15 @@ def _cmd_archive(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
 
+    session_id = _resolve_session_id_for_relocate()
+    if not args.no_git and not session_id:
+        print(
+            "archive: no session id resolved — set COORDINATOR_SESSION_ID "
+            "(the commit carries a Session-Id trailer); nothing moved",
+            file=sys.stderr,
+        )
+        return 2
+
     touched: list[Path] = []
     actions = perform_archive_files(
         week_changelog_dir,
@@ -659,7 +694,7 @@ def _cmd_archive(args: argparse.Namespace) -> int:
         clean_shards=args.clean_shards,
         week_ending=args.week_ending,
         exclude=args.exclude,
-        session_id=_resolve_session_id_for_relocate(),
+        session_id=session_id,
         relocate_fn=_import_relocate_touched_path(),
         relocate_cwd=str(repo_root),
         touched_out=touched,
@@ -670,64 +705,45 @@ def _cmd_archive(args: argparse.Namespace) -> int:
     if args.no_git:
         return 0
 
-    branch_script = args.branch_script or str(_bin_dir() / "coordinator-current-branch.py")
     commit_message = (
         f"chore(workweek-complete): archive week {week_starting}, "
         f"reset changelog + review-trail {args.version}"
     )
     rel_id = _import_rel_id()
-    # A3 fix: posix-form (`rel_id`, not `str()`) — these strings feed
-    # `git add -- *paths` below, and on Windows `str(...)` renders
-    # `state\week-changelog`. `\` is git's pathspec ESCAPE character, so the
-    # pathspec silently collapses to `stateweek-changelog`, matches nothing,
-    # and the `check=True` `git add` call raises `CalledProcessError`, killing
-    # the weekly archive on every Windows session.
+    # Posix-form (`rel_id`, not `str()`): a Windows backslash is git's
+    # pathspec escape character and silently collapses the path.
+    touched_rels = list(dict.fromkeys(rel_id(t, repo_root) for t in touched))
     if args.week_only:
         # Negative-spec: a week-scoped run must NEVER stage the four
-        # directories wholesale. It touches a subset of them, and this repo's
-        # trees are shared by dozens of concurrent sessions — a directory
-        # pathspec commits a peer's in-flight daily block or review record
-        # under this run's message. Stage exactly what was touched; dedupe
-        # while preserving order so the commit reads in action order.
-        seen: set[str] = set()
-        paths = []
-        for t in touched:
-            rel = rel_id(t, repo_root)
-            if rel not in seen:
-                seen.add(rel)
-                paths.append(rel)
+        # directories wholesale — a directory sweep commits a peer's
+        # in-flight daily block or review record under this run's message.
+        stage = touched_rels
     else:
-        # A directory holding no files (e.g. state/review-trail/ once its
-        # only writer surface was gravestoned by DR-372/DR-374) makes `git
-        # add` exit 1 and fail the whole commit even though the moves it
-        # would have staged already landed correctly. Filtering to non-empty
-        # paths is not a scope change — an empty directory contributes
-        # nothing to a commit either way — it just expresses the same commit
-        # in a pathspec git will accept. Reported 2026-09-06 (all three
-        # v0.6.0 --week-only close weeks required a hand commit).
-        candidate_paths = [
+        # Default sweep: the closing directories' files plus every moved-from
+        # path (absent on disk, so the walk cannot see it). An empty
+        # directory contributes no file.
+        candidate_dirs = [
             week_changelog_dir,
             archive_week_root / week_starting,
             review_trail_dir,
             review_trail_archive_root / week_starting,
         ]
-        candidate_paths += sorted(
+        candidate_dirs += sorted(
             {t.parent for t in touched if t.parent.parent == archive_week_root}
-            - set(candidate_paths)
+            - set(candidate_dirs)
         )
-        paths = [
-            rel_id(p, repo_root) for p in candidate_paths if _has_pathspec_content(p)
-        ]
-    if not paths:
+        stage = list(
+            dict.fromkeys(
+                _expand_to_files(candidate_dirs, repo_root, rel_id) + touched_rels
+            )
+        )
+    if not stage:
         print("archive: nothing touched — no commit made", file=sys.stderr)
         return 0
-    return git_commit_and_push(
-        repo_root,
-        paths,
-        commit_message,
-        branch_script,
-        push=not args.no_push,
-    )
+    rc = commit_archive(repo_root, stage, commit_message, session_id)
+    if rc or args.no_push:
+        return rc
+    return push_current_branch(repo_root)
 
 
 # ---------------------------------------------------------------------------
@@ -758,7 +774,6 @@ def _build_parser() -> argparse.ArgumentParser:
     p_archive.add_argument("--version", required=True, help="Released version, e.g. v2.7.0.")
     p_archive.add_argument("--merge-sha", required=True, help="Merge commit SHA for the HEADER.md 'Prior week released:' line.")
     p_archive.add_argument("--released-date", default=None, help="Default: today (local date).")
-    p_archive.add_argument("--branch-script", default=None, help="Path to coordinator-current-branch.py (default: co-located sibling).")
     p_archive.add_argument("--no-git", action="store_true", help="Skip git add/commit/push entirely (file moves only).")
     p_archive.add_argument("--no-push", action="store_true", help="Commit but skip the push.")
     p_archive.add_argument(

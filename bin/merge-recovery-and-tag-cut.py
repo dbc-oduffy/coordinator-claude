@@ -50,7 +50,17 @@ Subcommands (argv[1] selects):
       commit). Refuses (exit 1) when origin already has TAG at another
       commit; never force-moves a tag.
       Prints `MERGE_SHA=<sha>` and either `TAG_CUT=<tag>` or
-      `TAG_SKIPPED=<tag>` to stdout.
+      `TAG_SKIPPED=<tag>` to stdout. Then writes release indexes
+      (as `stamp-releases`, below), cut or skipped; an index refusal prints
+      `RELEASE_INDEX_FAILED=<reason>: ...` and still exits 0.
+
+  stamp-releases [--report] [--repo-root PATH]
+      Writes archive/releases/<tag>.yaml for every version tag (prefix from
+      coordinator.local.md) that lacks one, listing the entries its tree first
+      held. Prints `RELEASE_INDEXED=<path>` per index written. With --report,
+      which writes nothing, prints `<entry path>: released_in=<tag>` per entry
+      a missing index would cover, then `RELEASE_WOULD_INDEX=<n tags>`.
+      A refusal is one stderr line, exit 1.
 
   publish-gh-release TAG --repo OWNER/REPO --notes-file PATH
       GH-release variant only (Mode B): un-drafts an existing release for
@@ -72,9 +82,11 @@ Subcommands (argv[1] selects):
       Prints `MERGE_SHA=<sha>`.
 
 Negative-spec:
-  - Does NOT read coordinator.local.md itself for `cut-tag`/`publish-gh-release`
-    — `resolve-tag-prefix` is a separate, explicit step; callers compose the
-    full tag string (`<prefix>vX.Y.Z`) before calling `cut-tag`.
+  - Does NOT read coordinator.local.md for the tag cut itself, nor for
+    `publish-gh-release` — `resolve-tag-prefix` is a separate, explicit step;
+    callers compose the full tag string (`<prefix>vX.Y.Z`) before calling
+    `cut-tag`. Only the post-cut stamp reads it, for the prefix of the tags it
+    considers.
   - Does NOT run `gh release` from `cut-tag` — the two are separate
     subcommands so a Mode-A (git-tag-only) caller never touches `gh`.
   - Does NOT default `--merge-ref` resolution to unpeeled `git rev-parse
@@ -102,6 +114,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -423,6 +436,29 @@ def _next_free_hint(
     return f"Next free patch tag: {free}. Rerun: {' '.join(parts)}"
 
 
+def _assert_changelog_section(repo_root: Path, merge_sha: str, tag: str) -> None:
+    """Refuse unless CHANGELOG.md at `merge_sha` has a `## [<version>]` heading.
+
+    The version is the tag with any prefix before its first digit stripped.
+    Reads the commit's tree (one git spawn), never the working tree; tolerates CRLF.
+    """
+    match = re.search(r"\d.*$", tag)
+    version = match.group(0) if match else tag
+    shown = subprocess.run(
+        ["git", "show", f"{merge_sha}:CHANGELOG.md"],
+        cwd=str(repo_root),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        **_no_console_flags(),
+    )
+    heading = re.compile(rf"^## \[{re.escape(version)}\]", re.MULTILINE)
+    if shown.returncode != 0 or not heading.search(shown.stdout):
+        _die(f"REFUSED: CHANGELOG.md at {merge_sha} has no `## [{version}]` section.")
+
+
 def cut_tag(
     repo_root: Path,
     tag: str,
@@ -456,6 +492,8 @@ def cut_tag(
 
     if must_contain is not None:
         _assert_is_ancestor(repo_root, merge_sha, must_contain)
+
+    _assert_changelog_section(repo_root, merge_sha, tag)
 
     remote = _remote_tag_sha(repo_root, tag)
     if remote is not None and remote != merge_sha:
@@ -498,6 +536,65 @@ def cmd_cut_tag(args: argparse.Namespace) -> int:
     )
     print(f"MERGE_SHA={merge_sha}")
     print(f"TAG_CUT={args.tag}" if cut else f"TAG_SKIPPED={args.tag}")
+    result = _stamp(repo_root, False)
+    if "error" in result:
+        print(
+            f"RELEASE_INDEX_FAILED={result['reason']}: "
+            "rerun merge-recovery-and-tag-cut stamp-releases"
+        )
+    else:
+        _print_stamp(result)
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# stamp-releases
+# ---------------------------------------------------------------------------
+
+def _stamp(repo_root: Path, report: bool) -> dict:
+    """Write (or, with `report`, list) release indexes for unindexed tags; never exits the process.
+
+    Returns the engine result, or `{"error", "reason"}` on a refusal.
+    """
+    try:
+        config = repo_root / "coordinator.local.md"
+        prefix = resolve_tag_prefix(config) if config.is_file() else ""
+    except SystemExit:
+        return {"error": "tag_prefix must be unquoted", "reason": "bad-params"}
+    _require_engine_on_path()
+    from coordinator_core.cli_entry import recording_declared_writes
+    from coordinator_core.ops import release_index
+
+    try:
+        with recording_declared_writes(cwd=str(repo_root)):
+            return release_index.write_release_index(repo_root, tag_prefix=prefix, report=report)
+    except release_index.ReleaseIndexError as exc:
+        return {"error": exc.detail, "reason": exc.reason}
+
+
+def _print_stamp(result: dict) -> None:
+    if result["report"]:
+        for record in result["written"]:
+            for entry in record["entries"]:
+                print(f"{entry}: released_in={record['tag']}")
+        print(f"RELEASE_WOULD_INDEX={len(result['written'])}")
+        return
+    for record in result["written"]:
+        print(f"RELEASE_INDEXED={record['path']}")
+    for record in result["skipped"]:
+        print(f"RELEASE_INDEX_SKIPPED={record['tag']}: {record['reason']}")
+
+
+def cmd_stamp_releases(args: argparse.Namespace) -> int:
+    repo_root = Path(args.repo_root) if args.repo_root else Path.cwd()
+    result = _stamp(repo_root, args.report)
+    if "error" in result:
+        print(
+            f"merge-recovery-and-tag-cut: stamp-releases: {result['reason']}: {result['error']}",
+            file=sys.stderr,
+        )
+        return 1
+    _print_stamp(result)
     return 0
 
 
@@ -660,6 +757,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_cut.add_argument("--must-contain", default=None)
     p_cut.add_argument("--pr", default=None)
     p_cut.set_defaults(func=cmd_cut_tag)
+
+    p_stamp = sub.add_parser(
+        "stamp-releases",
+        help="write archive/releases/<tag>.yaml for every version tag lacking an index",
+    )
+    p_stamp.add_argument("--report", action="store_true")
+    p_stamp.add_argument("--repo-root", default=None)
+    p_stamp.set_defaults(func=cmd_stamp_releases)
 
     p_plan = sub.add_parser(
         "plan-tag",

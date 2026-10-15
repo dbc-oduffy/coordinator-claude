@@ -114,6 +114,33 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 _PORTABLE_PATH = _REPO_ROOT / "setup" / "publish-targets.portable"
 _DECLARATIONS_PATH = _REPO_ROOT / "setup" / "publish-allowlist-declarations.yaml"
 
+#: `--check --ref <sha>`: the commit whose portable, declarations and tracked set
+#: are compared, so a publish pinned to that commit is not judged against a peer's
+#: uncommitted working-tree edit. Python sources parsed for bin-deny derivation
+#: are still read from the working tree.
+_SOURCE_REF: Optional[str] = None
+
+
+def _git_out(args: List[str], repo_root: Optional[Path] = None) -> str:
+    import subprocess
+
+    return subprocess.run(
+        ["git", *args],
+        cwd=str(repo_root or _REPO_ROOT),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=True,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    ).stdout
+
+
+def _read_source(path: Path) -> str:
+    if _SOURCE_REF is None:
+        return path.read_text(encoding="utf-8")
+    rel = path.resolve().relative_to(_REPO_ROOT.resolve()).as_posix()
+    return _git_out(["show", f"{_SOURCE_REF}:{rel}"])
+
 # Field 7 of `setup/publish-targets.portable` is regenerated from the declarations
 # yaml; the pipe-delimited table has no place for a stamp.
 GENERATES = [
@@ -173,18 +200,11 @@ def _git_ls_files(subdir: str, pending: Tuple[str, ...] = (), repo_root: Optiona
     live under it. `pending` names files the caller has just written and is about
     to track — the only way an untracked file can reach a derivation, and only by
     being named explicitly (never by enumerating the filesystem)."""
-    import subprocess
-
-    no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    result = subprocess.run(
-        ["git", "ls-files", "--", subdir],
-        cwd=str(repo_root or _REPO_ROOT),
-        capture_output=True,
-        text=True,
-        check=True,
-        creationflags=no_window,
-    )
-    tracked = [line for line in result.stdout.splitlines() if line]
+    if _SOURCE_REF is None:
+        out = _git_out(["ls-files", "--", subdir], repo_root)
+    else:
+        out = _git_out(["ls-tree", "-r", "--name-only", _SOURCE_REF, "--", subdir], repo_root)
+    tracked = [line for line in out.splitlines() if line]
     prefix = subdir.rstrip("/") + "/"
     return tracked + [p for p in pending if p.startswith(prefix) and p not in tracked]
 
@@ -207,8 +227,7 @@ def _tracked_top_level_names(
 def _load_declarations(declarations_path: Optional[Path] = None) -> Dict:
     import yaml
 
-    with open(declarations_path or _DECLARATIONS_PATH, "r", encoding="utf-8") as fh:
-        data = yaml.safe_load(fh)
+    data = yaml.safe_load(_read_source(declarations_path or _DECLARATIONS_PATH))
     if not isinstance(data, dict) or "rows" not in data:
         raise GeneratorError(
             f"{_DECLARATIONS_PATH} does not carry a top-level 'rows' mapping"
@@ -710,7 +729,16 @@ def main(argv=None) -> int:
             "(gen-launcher-shim) regenerate field 7 before the files are staged."
         ),
     )
+    parser.add_argument(
+        "--ref",
+        metavar="COMMIT",
+        help="with --check: judge the portable, declarations and tracked set as of COMMIT",
+    )
     args = parser.parse_args(argv)
+    if args.ref and not args.check:
+        parser.error("--ref requires --check")
+    global _SOURCE_REF
+    _SOURCE_REF = args.ref
     pending = tuple(p.replace("\\", "/") for p in args.pending)
 
     if args.verify_bin_deny:
@@ -741,7 +769,7 @@ def main(argv=None) -> int:
         return 0
 
     rows = _load_declarations()
-    portable_text = _PORTABLE_PATH.read_text(encoding="utf-8")
+    portable_text = _read_source(_PORTABLE_PATH)
 
     try:
         derivations = [

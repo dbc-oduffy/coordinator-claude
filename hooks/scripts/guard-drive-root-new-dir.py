@@ -13,8 +13,11 @@ Contract:
              <settings home>/state/drive-root-baseline.json. A root seen for the first
              time is seeded silently; a fire adds the new names, so each stray is
              recorded once, and a removed name is dropped so a re-creation fires again.
+  skip    -- a new directory holding .git, or a junction/symlink, is a placed checkout, not
+             scratch: absorbed into the baseline without firing.
   fire    -- block-discharge record + exit 2, naming the session and, when this
-             session's transcript tail shows one, the command that mentioned the name.
+             session's transcript tail shows one, the command that mentioned the name. The
+             remove-it instruction appears only when every listed name has such a command.
   override-- COORDINATOR_ALLOW_DRIVE_ROOT_NEW_DIR=1 (guard-override-keys convention): the
              baseline still absorbs the new names, but nothing fires. For a directory the
              PM creates on purpose; without it, such a directory blocks one Stop, once.
@@ -63,6 +66,16 @@ def _dir_names(root: str) -> set[str]:
             return {e.name for e in it if e.is_dir(follow_symlinks=False)}
     except OSError:
         return set()
+
+
+def _is_checkout_or_link(path: str) -> bool:
+    """A repo checkout (holds .git) or a junction/symlink is placed deliberately, never scratch."""
+    try:
+        if os.path.islink(path) or getattr(os.path, "isjunction", lambda _p: False)(path):
+            return True
+        return os.path.exists(os.path.join(path, ".git"))
+    except OSError:
+        return False
 
 
 def _load(path: Path) -> dict:
@@ -159,7 +172,8 @@ def main() -> int:
                 changed = True
                 continue
             known_set = set(known)
-            new.extend((root, n) for n in sorted(current - known_set))
+            new.extend((root, n) for n in sorted(current - known_set)
+                       if not _is_checkout_or_link(os.path.join(root, n)))
             if current != known_set:
                 baseline[root] = sorted(current)
                 changed = True
@@ -172,16 +186,23 @@ def main() -> int:
 
     session_id = payload.get("session_id") or "unknown-session"
     anchor_repo: str = repo_root or cwd
+    created_here = True
     lines = [f"[guard] {GUARD}: new top-level director{'y' if len(new) == 1 else 'ies'} "
              f"on a drive root since the last check (session {session_id}):"]
     for root, name in new:
         command = _creating_command(payload.get("transcript_path") or "", name)
         where = os.path.join(root, name)
+        created_here = created_here and bool(command)
         lines.append(f"  {where}" + (f"  <- command: {command[:300]}" if command
                                      else "  <- no command in this session's transcript names it "
                                           "(another session, or code such as a test resolving a bare '/path')"))
-    lines.append(f"Scratch lives in <repo>/scratch/ and tests write only under tmp_path. Find the "
-                 f"writer, fix it, then remove the directory. Tripwire: {TRIPWIRE}.")
+    scratch = "Scratch lives in <repo>/scratch/ and tests write only under tmp_path. "
+    if created_here:
+        lines.append(f"{scratch}Find the writer, fix it, then remove the directory. Tripwire: {TRIPWIRE}.")
+    else:
+        lines.append(f"{scratch}Not every directory above was created by a command in this session: "
+                     f"identify the writer and tell them; deleting is the writer's call, never yours. "
+                     f"Tripwire: {TRIPWIRE}.")
     reason = "\n".join(lines) + "\n"
     nonce = _record_fire(anchor_repo, session_id, reason)
     if nonce:

@@ -33,10 +33,19 @@ REFUSALS, all before any landing is attempted:
     commit that has not been made. The op validates each prior itself.
   - a file that is neither a wave result nor a task-output envelope carrying one.
 
+`--shipped-in` is repeatable and takes two forms: a bare 40-hex SHA (the commit carrying a frozen
+fire's `dispatched` XS work; also the SHA of the single `xsRuns` entry when there is exactly one),
+or `<batonId>=<40-hex SHA>` naming the `dispatch.terminal_commit` SHA of one `xsRuns` entry. Per
+fire, `xsRuns` is transformed on the payload sent to `roadmap.blitz_land` (the archived copy keeps
+it): a mapped entry becomes a ready dispatch row with the SHA as `priorShippedIn`; one whose baton
+already reads `shipped` at a prefix of that SHA, or an unmapped one, becomes a `routedElsewhere`
+row. A malformed value, a baton id matching no entry, and a bare SHA over several entries (or
+alongside a `dispatched` lane) are refused.
+
 Usage:
 
-    python3 land-wave.py --repo-root <abs> [--shipped-in <sha>] [--branch <name>]
-                         <fire-result.json> [<fire-result.json> ...]
+    python3 land-wave.py --repo-root <abs> [--shipped-in <sha> | <batonId>=<sha>]...
+                         [--branch <name>] <fire-result.json> [<fire-result.json> ...]
 
 Exit 0 when every fire landed and the wave advanced, 1 when the wave advanced nothing
 (the stop condition — report and stop), 2 on a refusal, 3 when any landing returned a
@@ -221,6 +230,89 @@ def _restore_prior_shipped_in(result: dict) -> list[str]:
         "  These came from this result, not from an assumption. Without them the landing refuses "
         "each baton for want of a SHA it was already carrying.",
     ]
+
+
+_SHA40 = re.compile(r"[0-9a-fA-F]{40}")
+
+
+def _parse_shipped_in(values: list[str]) -> tuple[str | None, dict[str, str], str | None]:
+    """Split repeated `--shipped-in` values into `(bare_sha, {batonId: sha}, error)`.
+
+    A value is a bare 40-hex SHA or `<batonId>=<40-hex>`. At most one bare value is allowed, and
+    a baton id may appear once.
+    """
+    bare: str | None = None
+    per_baton: dict[str, str] = {}
+    for raw in values:
+        baton, sep, sha = raw.partition("=")
+        if not sep:
+            baton, sha = "", raw
+        if not _SHA40.fullmatch(sha):
+            return None, {}, f"--shipped-in {raw!r} is not a 40-hex SHA or <batonId>=<40-hex SHA>."
+        if baton:
+            if baton in per_baton:
+                return None, {}, f"--shipped-in names baton {baton!r} twice."
+            per_baton[baton] = sha
+        elif bare is not None:
+            return None, {}, "--shipped-in carries more than one bare SHA."
+        else:
+            bare = sha
+    return bare, per_baton, None
+
+
+_MIN_SHIPPED_PREFIX = 7  # shortest `shipped_in` prefix trusted as a match; git's default abbrev floor
+_FM_FIELD = r"^{key}:\s*[\"']?([^\"'\n]*?)[\"']?\s*$"
+
+
+def _baton_ship_state(repo_root: Path, record: str) -> tuple[str, str]:
+    """`(deployment_state, shipped_in)` read off the baton's frontmatter; empty when unreadable."""
+    try:
+        text = (repo_root / record).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return "", ""
+    head = text.split("\n---", 1)[0] if text.startswith("---") else ""
+    out = []
+    for key in ("deployment_state", "shipped_in"):
+        m = re.search(_FM_FIELD.format(key=key), head, re.MULTILINE)
+        out.append(m.group(1).strip() if m else "")
+    return out[0], out[1]
+
+
+def _transform_xs_runs(result: dict, mapping: dict[str, str], repo_root: Path) -> list[str]:
+    """Replace `xsRuns` on `result` with `ready` / `routedElsewhere` rows, then drop the key.
+
+    A mapped entry becomes a ready dispatch row carrying the SHA as `priorShippedIn`, unless the
+    baton already reads `shipped` at a `shipped_in` prefix-matching that SHA (terminal_commit's
+    baton-ship leg stamps the 8-char prefix), in which case `close_dispatched` would refuse it and
+    it is routed elsewhere. An unmapped entry is routed elsewhere and returns as a candidate.
+    Returns one stderr line per entry.
+    """
+    lines = []
+    for run in result.pop("xsRuns", None) or []:
+        if not isinstance(run, dict) or not run.get("batonId"):
+            continue
+        baton = run["batonId"]
+        sha = mapping.get(baton)
+        if not sha:
+            reason = "XS run landed no terminal_commit SHA; returns as a candidate"
+            result.setdefault("routedElsewhere", []).append(
+                {"batonId": baton, "route": "dispatch", "reason": reason})
+            lines.append(f"land-wave: xsRun {baton}: not landed — {reason}")
+            continue
+        state, stamped = _baton_ship_state(repo_root, run.get("record") or "")
+        if state == "shipped" and len(stamped) >= _MIN_SHIPPED_PREFIX and sha.lower().startswith(stamped.lower()):
+            reason = f"closed by terminal_commit's baton-ship leg at {sha[:8]}"
+            result.setdefault("routedElsewhere", []).append(
+                {"batonId": baton, "route": "dispatch", "reason": reason})
+            lines.append(f"land-wave: xsRun {baton}: closed-by-baton-ship at {sha[:8]}")
+            continue
+        result.setdefault("ready", []).append({
+            "batonId": baton, "verdict": "ready", "route": "dispatch", "planPath": None,
+            "reviewVerdicts": [], "priorShippedIn": sha,
+            "reason": f"XS run closed by dispatch.terminal_commit {sha[:8]}",
+        })
+        lines.append(f"land-wave: xsRun {baton}: closed at {sha[:8]}")
+    return lines
 
 
 def _archive_result(result: dict) -> Path | None:
@@ -630,9 +722,14 @@ def main(argv=None) -> int:
     ap.add_argument("--engine-root", help="engine checkout (default: $COORDINATOR_ENGINE_ROOT)")
     ap.add_argument(
         "--shipped-in",
-        help="SHA of the commit carrying this wave's XS work. Required when any fire "
-        "dispatched — closing a dispatched baton stamps `shipped` against it, and the "
-        "landing op does not commit.",
+        action="append",
+        default=[],
+        help="Repeatable. Either a bare 40-hex SHA of the commit carrying this wave's XS work "
+        "(required when any fire dispatched; also maps to the single `xsRuns` entry when there "
+        "is exactly one), or <batonId>=<40-hex SHA> naming the dispatch.terminal_commit SHA of "
+        "one `xsRuns` entry. Each mapped entry lands as a ready dispatch row carrying the SHA "
+        "as priorShippedIn; one already shipped at that SHA is routed elsewhere; an unmapped "
+        "entry is routed elsewhere and returns as a candidate.",
     )
     ap.add_argument(
         "--live-engine-tree",
@@ -712,6 +809,33 @@ def main(argv=None) -> int:
     # A confirm-and-close whose work shipped long ago reports that commit as `priorShippedIn`,
     # and `blitz_land` stamps it in place of the landing's SHA. Only a completed entry WITHOUT
     # one needs a landing commit to cite.
+    bare_sha, per_baton, shipped_err = _parse_shipped_in(args.shipped_in)
+    if shipped_err:
+        return refuse(shipped_err)
+    xs_ids = [
+        e["batonId"]
+        for _, r in fires
+        for e in (r.get("xsRuns") or [])
+        if isinstance(e, dict) and e.get("batonId")
+    ]
+    unknown = sorted(set(per_baton) - set(xs_ids))
+    if unknown:
+        return refuse(f"--shipped-in names {unknown}, which match no `xsRuns` entry in these fires.")
+    xs_mapping = dict(per_baton)
+    if bare_sha and xs_ids:
+        if any(r.get("dispatched") for _, r in fires):
+            return refuse(
+                "a bare --shipped-in cannot be both the hand commit for a frozen fire's `dispatched` "
+                "lane and the terminal_commit SHA of an `xsRuns` entry. Pass the XS SHA as "
+                "<batonId>=<sha>."
+            )
+        if len(xs_ids) > 1:
+            return refuse(
+                f"a bare --shipped-in with {len(xs_ids)} `xsRuns` entries would stamp several "
+                "XS runs with one SHA. Pass <batonId>=<sha> per baton."
+            )
+        xs_mapping.setdefault(xs_ids[0], bare_sha)
+
     dispatching = [
         str(p)
         for p, r in fires
@@ -721,7 +845,7 @@ def main(argv=None) -> int:
             if isinstance(e, dict)
         )
     ]
-    if dispatching and not args.shipped_in:
+    if dispatching and not bare_sha:
         return refuse(
             "these fires dispatched XS work and no --shipped-in was given: "
             + ", ".join(dispatching)
@@ -740,14 +864,17 @@ def main(argv=None) -> int:
         for line in _restore_prior_shipped_in(result):
             print(line, file=sys.stderr)
         archived = _archive_result(result)
+        payload = {k: list(v) if isinstance(v, list) else v for k, v in result.items()}
+        for line in _transform_xs_runs(payload, xs_mapping, repo_root):
+            print(line, file=sys.stderr)
         if archived:
             # stderr, not stdout: `--json` promises a parseable stdout, and a real wave
             # result always carries `trailSlotDir`, so a stdout notice here would prefix
             # every `--json` run with a non-JSON line.
             print(f"land-wave: archived {path.name} -> {archived}", file=sys.stderr)
-        params = {"wave_result": result, "branch": args.branch, "limit": args.limit}
-        if args.shipped_in:
-            params["shipped_in"] = args.shipped_in
+        params = {"wave_result": payload, "branch": args.branch, "limit": args.limit}
+        if bare_sha:
+            params["shipped_in"] = bare_sha
         try:
             reply = _invoke(
                 repo_root, engine_root, "roadmap.blitz_land", params,

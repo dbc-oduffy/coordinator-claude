@@ -117,7 +117,7 @@ Concurrent peer-repo migrations create **transitional-correct-then-stale windows
 
 ## Preemptive reviewed-diff handoff for cross-repo protocol bumps
 
-**2026-05-27.** When a protocol/contract bump must cross to a sibling repo and you have the diff in hand, a **preemptive reviewed-diff handoff** (the diff, already reviewed for *handoff-readiness* — not just correctness — packaged for the sibling EM to land) beats a prose memo describing the change. The review lens here is "can the receiving EM apply this without re-deriving my context?", a superset of "is it correct." Route the diff via the `cross-repo-memo` channel (the memo carries/points at the diff) + PM-relay; the sibling EM lands it with their own context. → `coordinator/docs/wiki/cross-repo-communication.md` § Doctrine seeding vs. code/install-surface change (this is a code-altitude change — memo + PM-relay, not a direct write).
+**2026-05-27.** When a protocol/contract bump must cross to a sibling repo and you have the diff in hand, a **preemptive reviewed-diff handoff** (the diff, already reviewed for *handoff-readiness* — not just correctness — packaged for the sibling EM to land) beats a prose memo describing the change. The review lens here is "can the receiving EM apply this without re-deriving my context?", a superset of "is it correct." Route the diff via the `cross-repo-memo` channel (the memo carries/points at the diff); the sibling EM lands it with their own context. → `coordinator/docs/wiki/cross-repo-communication.md` § Doctrine seeding vs. code/install-surface change (this is a code-altitude change — memo, not a direct write).
 
 ## Carve-out — bare-SHA sentinels for content-equivalence (copy_install)
 
@@ -181,5 +181,5 @@ When a verification ask in a memo CAN be done locally in-session, do it rather t
 - [`agentic-install-integrity.md`](../install-playbook-rationale/agentic-install-integrity.md) — doctrine wiki for the lifted classifier + deferred extensions (semantic-vs-byte, plugin-spawned state, agent-readable boot sentinel).
 - [`cross-repo-contract-test-discipline.md`](./cross-repo-contract-test-discipline.md) — roadmap-stub schemas speculative-until-grounded; byte-equal fixtures + `eol=lf` pinning as the executable contract oracle.
 - [`cross-repo-citation-conventions.md`](./cross-repo-citation-conventions.md) — how to cite across repos in handoffs and plans
-- `coordinator/docs/wiki/cross-repo-communication.md` — when to use a sentinel vs. PM-relay vs. archive link
+- `coordinator/docs/wiki/cross-repo-communication.md` — when to use a sentinel vs. memo vs. archive link
 - [`scoped-safety-commits.md`](../concurrent-em-git-operations/scoped-safety-commits.md) — staging discipline when sentinel updates ride alongside other work

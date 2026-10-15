@@ -110,7 +110,7 @@ not a surface to preserve.
 `cross-repo-memo` is named the first migration candidate: its logic migrates to pure Python on
 the engine repo with a thin CLI/`.cmd` front, no bash wrapper. That rewrite is a separate
 engine-routed workstream (§ Cross-repo write discipline — code/install-surface changes route via
-`cross-repo-memo` + PM-relay, never a direct write from the doctrine repo to the engine repo),
+`cross-repo-memo`, never a direct write from the doctrine repo to the engine repo),
 not folded into the plan that ratified this doctrine.
 
 ## Forward obligation across the doctrine/engine boundary
@@ -120,7 +120,7 @@ generator-owned) is a **preserved forward obligation**, not a doctrine-repo-impl
 detail. If the engine repo later extracts the bin-generation/install surface under that boundary,
 the invariant travels with the surface — it does not lapse on extraction. Any doctrine-repo→engine-repo
 relay of this obligation is a doctrine-seeding forward-notice (not a bug report), routed via
-the engine repo's `coordinator/bin/cross-repo-memo` + PM-relay per `CLAUDE.md § Cross-repo
+the engine repo's `coordinator/bin/cross-repo-memo` per `CLAUDE.md § Cross-repo
 write discipline`.
 
 ## The reader-side half — what the docs tell an operator to TYPE {#reader-side-invocation}

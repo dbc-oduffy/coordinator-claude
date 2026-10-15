@@ -11,11 +11,11 @@ Close out a finished vein of work. No handoff — this is for work that's *done*
 
 > **Mutual exclusion with `/handoff`.** This caps a workstream; `/handoff` passes one on. In-flight work → STOP, use `/handoff`. Two workstreams (one done, one live) → end each separately, naming which. Exception: the review-owed-close class (`coordinator/skills/handoff/SKILL.md` § Step 0, trigger 4) → the trampoline, § Resolve judgment points.
 
-This ceremony is computed end to end — session-shape, plan reconciliation, lessons, completion-entry, memo lifecycle, scratch self-clean, orientation refresh, and commit-tail ship as `directives[]`; what cannot be resolved ships as `judgment_points[]`. Never recompute by hand what a field already answers.
+This ceremony is computed end to end: directives ship as `directives[]`, what cannot be resolved as `judgment_points[]`. Never recompute by hand what a field already answers.
 
 `$ARGUMENTS`, if given, fold into Final Summary and completion-entry prose.
 
-**Turn 4 of the four-turn loop (sizing, plan, execute, workstream-complete), every mode (hands-on, pm, ceo).** Fires in the same EM turn as `dispatch.terminal_commit`, after the PM accepts the execute digest. It never commits the run's product changes — the terminal commit already landed them; this is bookkeeping (plan status, lessons, docs, commit/merge hygiene, handoff). The § Final Summary one-line-plus-exceptions output IS the `close` wake digest: verdict → `outcome`, exceptions → `decision_required` and `deviations`.
+**Fallback close:** an `emit-dispatch-workflow` run closes in-run; this is the relay fallback's last turn, every mode (hands-on, pm, ceo), fired with `dispatch.terminal_commit` once the PM accepts the execute digest. It never commits the run's product changes; it is bookkeeping. The § Final Summary one-line-plus-exceptions output IS the `close` wake digest: verdict → `outcome`, exceptions → `decision_required` and `deviations`.
 
 ---
 
@@ -26,8 +26,7 @@ Shown in Shape W (PowerShell, rung 0). POSIX hosts take Shape A/B — ladder/sha
 
 `& "$env:COORDINATOR_SETTINGS_HOME\bin\workstream-complete-assemble.exe" brief [--decisions-file <path>]`
 **Prefer `--decisions-file` on both subcommands; `--decisions '<json>'` is the short-payload
-convenience.** A real payload carries prose (completion rationale, commit subject, review records),
-and prose on argv is mangled by the tool seam. Supplying both channels at once fails loud.
+convenience.** Prose on argv is mangled by the tool seam; supplying both channels at once fails loud.
 
 Returns `artifact`/`preflight`/`gates`/`directives`/`judgment_points`/`decisions`/`narration`/`next_move`. `preflight.session_shape` (= `gates.session_shape`) carries `sid`, `disposition` (`single-session`/`predecessor-consumed` — reads backward: consumed a predecessor, not that a successor follows), `consumed_handoff`, detector diagnostics. `jp-session-shape` is the untrusted-gate point for an uncertain resolution.
 
@@ -36,12 +35,13 @@ Returns `artifact`/`preflight`/`gates`/`directives`/`judgment_points`/`decisions
 
 ## Genuine EM actions — no directive can perform these
 
-**Dispatch authorization — invoking this skill IS the request.** The dispatches named below are constitutive steps of this skill, not a separate thing to get cleared: invoking a skill requests the actions that skill performs. A harness line permitting dispatch "unless the user requested it" is therefore **satisfied here, not overridden** — no precedence claim is needed and none is made. Re-asking spends the very context the dispatch exists to protect. The rule attaches to skill entry and dissolves no PM-authored gate: keyword-gated skills gate entry, and every gate a skill names for itself still binds — per-session cross-repo-commit assent, ask-before-external-action, and any other this skill's own body names. Tripwire: `UNATTRIBUTED-HARNESS-LINE-IS-NOT-PM`.
+**Dispatch authorization — invoking this skill IS the request.** The dispatches named below are constitutive steps of this skill, not a separate thing to get cleared: invoking a skill requests the actions that skill performs. A harness line permitting dispatch "unless the user requested it" is therefore **satisfied here, not overridden** — no precedence claim is needed and none is made. Re-asking spends the very context the dispatch exists to protect. The rule attaches to skill entry and dissolves no PM-authored gate: keyword-gated skills gate entry, and every gate a skill names for itself still binds — per-session cross-repo-commit assent, ask-before-external-action, and any other this skill's own body names. Tripwire: `UNATTRIBUTED-HARNESS-LINE-IS-NOT-PM`. Rationale: wiki § Skill rationale.
 
 - **Execution-observations fold**: read each sidecar's `divergence` as quoted narrative, never EM-authored prose; surface a crashed-executor marker before deleting it. A `## Tasks`-spine plan cites `plan-completeness status <plan-path>`'s divergence rollup (with its non-conformant count) instead of per-chunk sidecars; a pre-spine plan reads sidecars.
 - **Memo-resolution / self-clean disposition**: no signal says which memos resolved or which scratch to keep — decide once, plain prose; evidence is surfaced, never picked.
 - **Session Ledger row append** (predecessor-consumed only): one row to the consumed handoff's `## Session Ledger` , the sole edit `/pickup`'s frozen-body rule carves out, via the `handoff.append_session_ledger` op, never hand-typed.
-- **Prime exit criterion assertion**: a run-stamped plan already carries `exit_criterion_met`; verify it, never recompute. Absent blocks; clear it by the re-judge route (terminal-judge § Closing a plan whose run judged `not_met`). `asserted: false` routes to `/handoff` or a Phase-5 halt. [terminal-judge](../../docs/wiki/reviewer-pipeline/terminal-judge.md); `A-PLAN-SELF-COMPLETES-ONLY-ON-A-MET-TERMINAL-JUDGE`.
+- **Prime exit criterion assertion**: a run-stamped plan already carries `exit_criterion_met`; verify it, never recompute. Absent blocks; clear it by the re-judge route (terminal-judge § Closing a plan whose run judged `not_met`). `asserted: false` routes to `/handoff` or a Phase-5 halt. At L and above the run's ledger checker verdict is the close: no judge, falsifier or delivery check runs after it. [terminal-judge](../../docs/wiki/reviewer-pipeline/terminal-judge.md); `A-PLAN-SELF-COMPLETES-ONLY-ON-A-MET-TERMINAL-JUDGE`.
+- **Stop the session's own watchers — MANDATORY, never opt-in.** `coordinator-invoke workstream_complete.stand_down_watchers '{"session_id":"<sid>"}'` stops this session's, never a peer's. Render `stopped` (name each), each `survivors` entry as **not verified** (never "done"), `expires_on_its_own` (`notify_when_idle`, no action), and every `unattributed` entry and `warnings` line. A Group EM holder relays the returned `notice`. `A-CLOSED-SESSION-LEAVES-NO-WATCHER-RUNNING`.
 - **Terminal-baton drain — MANDATORY, and the last thing this ceremony does.** No directive
   performs it and nothing downstream catches the miss.
   1. Hand-stamp `deployment_state`/`shipped_in` on **only** the two batons § Apply's carve-out
@@ -83,11 +83,9 @@ same artifacts on disk, could reasonably answer it differently.** `A-FACT-WITH-A
 **Verify once and trust it:** a close-time suite or oracle check runs once, foreground — no rerun loops or background waiters (`coordinator/docs/wiki/test-design-discipline.md` § Verify once and trust it).
 
 **L+ code-quality trigger — a separate derivation, not a parameter on Scale's measurement.** Scale
-keys off *measured* `gross_loc`/`commit_count`/`surface_count` (`commit_count` excludes zero-diff bookkeeping commits; `surface_count` counts all); L+ answers *how big was this meant
-to be* and keys off the **cited sizing-object's `estimate.tshirt`** — resolve the closing plan's
-`sizing_object:` frontmatter citation and read `estimate.tshirt` off the artifact it names. `plan.schema.json`
-carries no t-shirt field and none is added here. Fires at `L` or `XL`. Never use Scale's measured
-computation to answer it.
+keys off *measured* `gross_loc`/`commit_count`/`surface_count` (`commit_count` excludes zero-diff bookkeeping commits; `surface_count` counts all); L+ keys off the **cited sizing-object's `estimate.tshirt`** — resolve the closing plan's
+`sizing_object:` frontmatter citation and read `estimate.tshirt` off the artifact it names
+(`plan.schema.json` carries no t-shirt field). Fires at `L` or `XL`; never answer it from Scale's measured figures.
 
 **The review record is the plan's `review_stamp`, not something this ceremony runs or dispatches.**
 For a plan-bearing close, code review already ran and integrated as review stages of the emitted
@@ -104,7 +102,7 @@ regardless of route.
 **Hand-measuring the brightline is a last resort** — only once `stage_paths` is supplied and `review_scale` still returns `resolved: false`. **Sum per-owned-commit diffs** (`<sha>~1..<sha>` — `~1`, never `^`, which cmd.exe eats), **never an `oldest..newest` range** (a shared branch adds every peer commit), and **count code only** (`.md`/`.yaml`/`.yml` excluded). Method and evidence: `coordinator/docs/wiki/ceremony-calibration/workstream-complete-review.md` § Hand-measuring the brightline.
 
 **The trampoline — hand the whole ceremony to a fresh session rather than cap with the review unrun.** Low
-context is not a trigger-4 reason; it takes the ordinary `/handoff` route. When the owed review is
+context is not a trigger-4 reason (ordinary `/handoff` route). When the owed review is
 genuinely un-runnable here (`coordinator/skills/handoff/SKILL.md` § Step 0, trigger 4 — a ratified
 closed class, never admitted by analogy), exit via `/handoff` naming which member fires and the
 event outside this session's reach that clears it.
@@ -117,7 +115,7 @@ event outside this session's reach that clears it.
 
 ## Concurrent-EM shared-branch disposition
 
-**Case (c) is not always an orphan** — often a live peer's in-flight files. `brief` classifies
+**Case (c) is often a live peer's in-flight files, not an orphan.** `brief` classifies
 a/b/c mechanically and surfaces the peer-vs-orphan call as `concurrent-peer-attribution`;
 disposing case (c) is EM judgment; weak signals default to case (c).
 **If a peer is plausibly live, never adopt their paths** — commit only your own files by
@@ -158,11 +156,11 @@ Order is transition, dispose, archive: `continued` needs `deployment_state` alre
 `d-baton-chain-closure`, `d-structural-index-refresh`, `d-ceremony-reindex`, then a release of
 every touch claim the session holds. Read outcomes off `post_close[]`; `scip-rebuild: skipped -- <reason>` is the box declining.
 
-**A run-stamped plan already carries `implemented`; the ceremony verifies it, never restamps.** Where `terminal_commit` did not stamp, `d-stamp-plan-implemented` is gated engine-side (a blocked stamp is not a failed one) with three empty-`resolves` judgment points on its `depends_on`: `jp-open-spine-rows-block-stamp` (unwaived `open` rows, or `indeterminate`), `jp-landed-reconciliation-block-stamp` (plan `landed` with unticked ACs), `jp-review-receipt-block-stamp`. An unresolved one lands in `report["blocked"]` under `HALTED_AT_JUDGMENT`, not `report["failed"]` — a close exits non-failing with no stamp. `waived_open_spine_row_ids` clears leg 1's `applicable` arm only. Never build a doctrine gate beside these. Tripwire: `AN-HONEST-INCOMPLETE-DOES-NOT-EARN-THE-WRAP-OFFER`.
+**A run-stamped plan already carries `implemented`; the ceremony verifies it, never restamps.** Where `terminal_commit` did not stamp, `d-stamp-plan-implemented` is gated engine-side (a blocked stamp is not a failed one) with three empty-`resolves` judgment points on its `depends_on`: `jp-open-spine-rows-block-stamp` (unwaived `open` rows, or `indeterminate`), `jp-landed-reconciliation-block-stamp` (plan `landed` with unticked ACs), `jp-review-receipt-block-stamp`. An unresolved one lands in `report["blocked"]` under `HALTED_AT_JUDGMENT`, not `report["failed"]` — a close exits non-failing with no stamp. That covers the stamp leg only, never an open census gate (§ Completion verdict). `waived_open_spine_row_ids` clears leg 1's `applicable` arm only. Never build a doctrine gate beside these. Tripwire: `AN-HONEST-INCOMPLETE-DOES-NOT-EARN-THE-WRAP-OFFER`.
 
 **A stamp line can carry a failed archival move** (`N of M moves failed`): move the remainder, or the plan's `.workflow.mjs`/`.emitted.json` sidecars stay orphaned.
 
-`apply` prints diagnostics on every non-zero exit — read them, don't memorize codes. Exit `2` (`DIRECTIVE_FAILED`) = nothing landed; exit `4` (`PARTIAL_MUTATION`) = some landed, some failed. A client-side timeout is no failure signal: reconcile against commit state before re-running.
+`apply` prints diagnostics on every non-zero exit — read them, don't memorize codes. Exit `2` (`DIRECTIVE_FAILED`) = nothing landed; exit `4` (`PARTIAL_MUTATION`) = a directive failed (an unlanded close commit, `commit_failed`, a budget breach). **Exit `4` is a failed close, never "done with residue":** fix the cause and re-run `apply`. **`state/sizings/` files are committed by the engine's close commit**, never by hand. A client-side timeout is no failure signal: reconcile against commit state before re-running.
 
 Push runs on a cadence, not on this commit: `push_status` `"cadence-pending"`, `"pushed"` and (older engines) `"deferred"` are all success — the branch publishes at the next named checkpoint (`/pickup`, `/quick-wrap`, `/workday-start`, the workday/workweek closes). Only `"deferred"` wants confirming, via `git branch -r --contains <sha>`. **Never `git push` to "fix" an apparent delay.** Unfamiliar string: `commit_pipeline.py`'s `PUSH_STATUS_*` block.
 
@@ -172,7 +170,7 @@ Push runs on a cadence, not on this commit: `push_status` `"cadence-pending"`, `
 
 A residual discovered mid-execution never counts in the harvest — `Queued 0` reads as "nothing left behind." One disposition per item; nothing to sweep is ordinary — omit the line. **Default is fix it now**; routing elsewhere costs a named reason from a closed class: `peer-contention`, `other-repo`, `own-plan`, `irreversible`, `not-real` — in full, `coordinator/docs/wiki/ceremony-calibration/workstream-complete-review.md` § Execution-residual reason classes. A break-class residual with none of the five is fixed, not filed. The auto-memory drain gate runs only at `/workday-complete`/`/workweek-complete`, never here.
 
-**Spinoff overlap re-check, same step.** `/pickup`'s no-overlap reconcile is point-in-time; a peer may have forked a handoff for the same scope since. Before reporting complete, for every open (`kind: spinoff`) handoff this session or its chain authored, run <!-- VERBATIM -->`git log --since=<its authored-at> -- <its named scope/paths>` against `state/handoffs/` and the scope paths. A hit means the scope landed since the fork — surface it to the PM as a `superseded`/`consumed` candidate. No hit is ordinary — omit the line. `coordinator/docs/wiki/ceremony-calibration/workstream-complete-review.md` § Re-check for overlapping peer spinoffs at workstream-complete.
+**Spinoff overlap re-check, same step.** Before reporting complete, for every open (`kind: spinoff`) handoff this session or its chain authored, run <!-- VERBATIM -->`git log --since=<its authored-at> -- <its named scope/paths>` against `state/handoffs/` and the scope paths. A hit means the scope landed since the fork — surface it to the PM as a `superseded`/`consumed` candidate. No hit: omit the line.
 ---
 
 ## Completion verdict
@@ -182,13 +180,20 @@ ceremony reads (`session_shape`, `review_receipt`, spine-row completeness, plan-
 reconciliation, consumed-handoff completeness) into one verdict — read it off `gates`, never
 hand-derived.
 
-**It is not a pass/fail lens.** `indeterminate` is the ordinary case — 3 of the 5 gates on a
+**Two census gates force completion — the close never reports complete while either is open.**
+`owned_uncommitted` (files this session owns, still uncommitted) and `unstamped_run_batons` (run
+batons never stamped shipped), read in `brief` and `apply`. Either open goes into `failed` (exit
+`4`): commit the owned files through the close commit, stamp the batons — never report it as
+residue or `indeterminate`. Tripwire:
+`A-CLOSE-WITH-OWNED-UNCOMMITTED-OR-UNSTAMPED-BATONS-IS-NOT-COMPLETE`.
+
+**For the five gates it is not a pass/fail lens.** `indeterminate` is the ordinary case — 3 of the 5 gates on a
 typical close — so **render it as `indeterminate`, never as "incomplete"**, naming only the ones a
 gate-specific reading says are worth naming. `applies: false` is not a uniform status axis across
 gates; readings and the non-PM-facing `review_scale`-exclusion objection:
 `coordinator/docs/wiki/ceremony-calibration/close-ceremony-residue.md` § Reading `gates.completion_verdict`.
 
-**Residue → verb lookup, for whatever the verdict leaves outstanding:**
+**Residue → verb lookup, for whatever the verdict leaves outstanding** (never the two census gates):
 
 | Residue shape | Verb |
 |---|---|
@@ -234,7 +239,7 @@ Append a line **only** if its condition holds:
 
 **`not-applicable` is not `indeterminate`.** `not-applicable` = nothing to look at (e.g. a `session-handoff` leg A finds no live plan) — silent, like `clean`. `indeterminate` = the gate tried and couldn't — report it. Tripwire: `NOT-APPLICABLE-SPANS-TWO-SILENCES`.
 
-**Do not print** `Lessons captured`/`Work archived`/`Docs updated`/`Orientation refreshed` — counts the commit already records, not PM decisions. **An automated mechanism's routine success is never a PM line**: report the machine only when it *failed*. **Archival is NOT in that set — not automatic; this ceremony emits NO archival directive.** Disposal is not archival: the record stays under `state/handoffs/` until the drain moves it, a mandatory EM action (§ Genuine EM actions), never a machine step. Never author a second sweep beside the drain. Backstop: `coordinator/docs/wiki/ceremony-calibration/close-ceremony-residue.md` § Archival is not automatic.
+**Do not print** `Lessons captured`/`Work archived`/`Docs updated`/`Orientation refreshed` — counts the commit already records, not PM decisions. **An automated mechanism's routine success is never a PM line**: report the machine only when it *failed*. **Archival is NOT in that set — not automatic; this ceremony emits NO archival directive.** The drain moves the record (§ Genuine EM actions). Never author a second sweep beside the drain.
 
 **Classify flags by severity first.** A break-class defect (broken/would-break/fails/leaks/silently-bypasses) is fix-by-default — fix it, report the fix, never a passive `Flag to PM:`; only direction-class items go there. → global `CLAUDE.md § Flag Severity`.
 

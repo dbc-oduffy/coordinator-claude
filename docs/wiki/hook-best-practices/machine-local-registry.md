@@ -1133,12 +1133,12 @@ coordinator\scripts\first-run.cmd --plan
 1. **Toolchain detection.** Probes for bash ≥ 4.3, Homebrew, Python, Node, uv, and git-lfs. Reports gaps.
 2. **Preview-then-confirm.** Prints a summary of what it will install; the operator confirms before any mutation. `--plan` exits at this point.
 3. **Homebrew + bash ≥ 4.3.** Offers to install Homebrew if absent; installs bash ≥ 4.3 via Homebrew on macOS. Re-execs itself under the newly installed bash so the rest of the script runs with bash-4 features available.
-4. **Python, Node, uv, git-lfs.** Offers each missing toolchain component; installs on confirmation.
+4. **Python, Node, uv.** Offers each missing toolchain component; installs on confirmation.
 5. **Machine-local registry seed.** Creates `machine-local/` and seeds it with `registry.toml` defaults so the `machine-local` CLI works.
 6. **Per-machine state regeneration.** Runs in order:
    - `lib/install-substrate.py` — lays down `machine-local/`, installs `bin/` resolver shims (`machine-local`, `claude-home`), and (via `coordinator_core.install.ensure_venv`, in the engine) creates the coordinator venv at `~/.claude/.coordinator-venv/` and writes the `coordinator.python` registry key (§5c).
    - `bin/platform-localize.py` — generates platform-specific state (`settings.local.json`, `known_marketplaces.json`).
-7. **`git lfs install`.** Installs git-lfs hooks into this clone.
+7. **No git-lfs step.** `first-run` does not install or enable git-lfs; LFS is opt-in per repo via a root `.gitattributes` with `filter=lfs` and a `# lfs-justification: <reason>` line.
 
 After `first-run` completes, the machine-local substrate is populated and all regeneratable state (§13) has been re-derived.
 

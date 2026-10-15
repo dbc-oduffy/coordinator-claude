@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 # Workweek Complete — Weekly Release Ceremony
 
-PM-invoked, release-grade close. Week-changelog is the canonical ledger.
+PM-invoked release close; week-changelog is the ledger.
 
 ## Step 0.95: Compute the Ceremony Spine
 
@@ -82,7 +82,7 @@ coordinator/tests/_spawn_budget.py` rather than assuming it's cheap because it's
 
 ## Step 4: Run `/update-docs`
 
-Full multi-phase docs sweep; commits and pushes to the current branch. Wait for completion.
+Docs sweep; commits and pushes the current branch. Wait for completion.
 
 ---
 
@@ -100,7 +100,6 @@ Resolve from the spine's directives in one pass; advisory rows never block:
 - **The register stall check:** `coordinator-invoke requirement_register.stall_report '{"today":"<YYYY-MM-DD>"}'`;
   render stale rows, stuck plans, unclaimed rows as a "Register stall check" section (omit when empty or op absent). Advisory.
 - **Bug backlog:** open P1/P2 ≥10 → ask `/bug-blitz` now or defer.
-- **Portability sweep:** handled by Step 7's `code-reviewer-weekly`, not standalone.
 - **Initiative-govern sweep:** `coordinator-initiative create`/`attach` per PM confirmation.
   **Negative-spec:** sole to this ceremony — never `/workday-complete`, `/workstream-start`,
   `/workweek-start`.
@@ -124,12 +123,12 @@ Resolve from the spine's directives in one pass; advisory rows never block:
 - **Advisory results:** skill description length, owner-file invariant lint, enabledPlugins
   drift, CVE recheck (manifest changed in 14d only →
   `state/review-findings/<week-starting>-cve/deps.md`), competitor-positioning nudge, atlas
-  drift/arch-audit staleness, human-facing doc health (each
-  finding gets its own `judgment_points[]` entry, disposition never auto-picked).
+  drift/arch-audit staleness, human-facing doc content health (each
+  finding gets its own `judgment_points[]` entry, never auto-picked).
+- **Doc staleness (hand-run):** `workweek-complete-doc-staleness`; each `docs[]` entry with `stale: true` is a per-doc PM point, never auto-picked. `skipped`
+  present (any value) → render it as one line.
 - **Hard-blocking results:** reverse-drift (`COORDINATOR_OVERRIDE_REVERSE_DRIFT=1`),
-  version-consistency. Neither vendored-schema drift nor UBT is a member — see § Step 0.95. A `4c` directive still arriving
-  from an unpublished mirror exits 1 on `ModuleNotFoundError`; that is the dead gate, not a
-  finding.
+  version-consistency. Neither vendored-schema drift nor UBT is a member — see § Step 0.95 (a surviving `4c` is the dead gate).
 - **pcli-04 drift gate (hand-run):** `workweek-complete-drift-guards pcli-drift-gate` — `0`
   continue, `1` halt before Step 7, `2` cannot-run (never treat as clean).
 
@@ -174,10 +173,26 @@ the un-reviewed subset.
 
 ---
 
+## Step 7b: Weekly Strategic Observer
+
+One unnamed Sonnet `general-purpose` worker (`model: "sonnet"`, never a persona) reads the week's
+`archive/daily-summaries/` files, the week's changelog, and the project strategic documents
+(`ROADMAP.md`, `VISION.md`, `state/workstreams/`). It leaves a paper trail, not a verdict. Field
+detail and prompt: `ceremony-calibration/daily-summary-procedure.md` § Weekly Strategic Observer.
+No commit-count floor.
+
+- Writes debt-backlog YAML via `coordinator-queue-append --schema debt-backlog`, tagged
+  `weekly-arch-review` for each architectural-risk flag (Step 8's input).
+- Writes `## Strategic Review` to `archive/week-changelogs/<week-start>/WEEK-SUMMARY.md`; exactly
+  one heading, never in a daily summary. Zero after the pass: re-dispatch. Two-plus: reconcile
+  by hand.
+
+---
+
 ## Step 8: the Staff Engineer Layer-2 — Architecture Pass (advisory, does NOT gate merge)
 
-Skip if `arch_tier_candidates`, `convergent_findings`, seam-file set, and the daily
-strategic-observer (DSR) trail's `for-weekly-arch-review` flags are all empty.
+Skip if `arch_tier_candidates`, `convergent_findings`, seam-file set, and Step 7b's
+`weekly-arch-review` debt-backlog rows are all empty.
 
 **EM-discretion:** on a large already-reviewed span, seam-file count alone must NOT auto-fire.
 Default OFF.
@@ -222,8 +237,10 @@ gate; PM may promote an entry to Highlights at Step 12.
 
 ## Step 12: Editorial Bucketing + Release Notes Draft — PM Review Gate
 
-`mkdir -p state/week-changelog/`. Query `pending-release` entries since HEADER's week-start. Zero
-→ empty-week note.
+`mkdir -p state/week-changelog/`. Query `pending-release` entries since HEADER's week-start: completion
+entries since the week start that are named in no `archive/releases/*.yaml` (the release index
+`release.write_index` writes; `query_completions` `released_names` lists the named set). Never read
+entry status for released-ness. Zero → empty-week note.
 
 **Main-membership is not "already announced."** An entry already on `origin/main` is the
 catch-up target, not a double-count risk — what matters is coverage in a *prior* release's notes
@@ -267,8 +284,9 @@ HEADER.md `Prior week released:`.
 
 **Stamp atomically** in the same commit as the CHANGELOG `[Unreleased] → [X.Y.Z]` stamp:
 `coordinator/.claude-plugin/plugin.json` `.version` and `.claude-plugin/marketplace.json`
-`.metadata.version` both move to `X.Y.Z`. No CHANGELOG in the repo: the anchor pair is the whole
-stamp, not a missed surface.
+`.metadata.version` both move to `X.Y.Z`. The stamp means the bundle changelog the
+`check-version-consistency` call below reads, not the tag-keyed repo-root `CHANGELOG.md` written at
+`/merging-to-main` Step 3.
 
 **`check-version-consistency --root <dir holding .claude-plugin/>` before Step 15** — `coordinator/`
 in the source repo, repo root in the mirror. **Omitting `--root` exits 0 having checked nothing**
@@ -296,7 +314,7 @@ silently on the `~/.claude` meta-repo.
 
 ## Step 15: `/merging-to-main`
 
-Invoke only after PM has confirmed release notes (Step 12) and version (Step 13). Do NOT inline
+Only after PM confirms release notes (Step 12) and version (Step 13). Do NOT inline
 merge logic.
 
 ---
@@ -361,6 +379,11 @@ first.
 Tail: opt-in `workweek_complete_post_command:` hook (advisory, non-blocking); cadence emission
 at completion (best-effort).
 
+Then run the repo's `post_ceremony_skills` (optional list in `coordinator.local.md`; absent or empty →
+nothing runs): each skill id in list order, advisory — a failed or uninstalled skill is reported in the
+ceremony summary, never blocks or undoes the archive, later skills still run. This is the single run
+for this ceremony (Step 15's merge skips its own).
+
 **Push checkpoint — `push.outstanding`.** A backstop for anything the per-commit auto-push hook
 missed. Fire the primitive and move on — do not block on it, detach it, or wrap it; branch-gate,
 protected-branch policy, retry ladder and LFS-range predicate belong to the op, never a hand-rolled
@@ -419,9 +442,9 @@ evidence the step was skipped.
 
 ### What This Does NOT Do
 
-- **Auto-fire.** PM-invoked; `/workday-complete` surfaces the staleness signal.
+- **Auto-fire.** PM-invoked; `/workday-complete` surfaces staleness.
 - **Re-author from git log.** The week-changelog is the canonical record.
-- **Push directly to main.** Step 15 delegates to `/merging-to-main`.
+- **Push to main.** Step 15 delegates to `/merging-to-main`.
 - **Delete release notes or handoffs.** Only daily changelog files are archived.
 - **Touch trail records via `/distill` or `/update-docs`/handoff-archival.** Trail JSON is
   archived in Step 18 only.

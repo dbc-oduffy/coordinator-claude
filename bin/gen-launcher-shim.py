@@ -860,7 +860,7 @@ def _ps1_localappdata_rung() -> tuple[str, str]:
         "        $_cached = $null\n"
         "        try { $_cached = Get-Content -LiteralPath $_cachefile -TotalCount 1 -ErrorAction SilentlyContinue } catch {}\n"
         "        if ($_cached -and (Test-Path -LiteralPath $_cached)) {\n"
-        "            & $_cached $_entry @args\n"
+        "            if ($_piped) { $input | & $_cached $_entry @args } else { & $_cached $_entry @args }\n"
         "            exit $LASTEXITCODE\n"
         "        }\n"
         "    }\n"
@@ -937,6 +937,7 @@ def render_ps1(
 # platform is actually running.
 $ErrorActionPreference = 'Stop'
 $_here = Split-Path -Parent $MyInvocation.MyCommand.Path
+$_piped = $MyInvocation.ExpectingInput
 $_entry = Join-Path $_here '{entry}'
 $_pybin = '{python_bin_token}'
 # No placeholder-vs-placeholder test here: install-substrate.py replaces EVERY
@@ -947,17 +948,17 @@ $_pybin = '{python_bin_token}'
 
 if ($_pybin -ne '' -and -not (Test-Path -LiteralPath $_pybin)) {{ $_pybin = '' }}
 if ($_pybin -ne '') {{
-    & $_pybin $_entry @args
+    if ($_piped) {{ $input | & $_pybin $_entry @args }} else {{ & $_pybin $_entry @args }}
     exit $LASTEXITCODE
 }}
 {localappdata_read}$_py = Get-Command python.exe -ErrorAction SilentlyContinue | Where-Object {{ $_.Source -notlike '*\\WindowsApps\\*' }} | Select-Object -First 1
 if ($_py) {{
-{localappdata_write}    & $_py.Source $_entry @args
+{localappdata_write}    if ($_piped) {{ $input | & $_py.Source $_entry @args }} else {{ & $_py.Source $_entry @args }}
     exit $LASTEXITCODE
 }}
 $_pyl = Get-Command py -ErrorAction SilentlyContinue
 if ($_pyl) {{
-    & $_pyl.Source -3 $_entry @args
+    if ($_piped) {{ $input | & $_pyl.Source -3 $_entry @args }} else {{ & $_pyl.Source -3 $_entry @args }}
     exit $LASTEXITCODE
 }}
 [Console]::Error.WriteLine('[{tag}] ERROR: no Python interpreter found (python.exe / py -3).')

@@ -31,7 +31,7 @@ All of these you read yourself. Your brief names the plan path and `run_base_sha
 - From the sizing object named by the plan's `sizing_object`: `intent`,
   `pm_verbatims`, `exit_criterion.statement` and `exit_criterion.accepted.pm_quote`.
 - The sizing's `requirement_register` rows (`source_text`, `anchor`, `surface`, `status`,
-  `claimed_by`, `ruling`) and the plan's `register_claims`.
+  `claimed_by`, `ruling`) and the register's `unrelated_turns`, and the plan's `register_claims`.
 - The plan body, which is the spec.
 - The working tree, and the diff from `run_base_sha`.
 - The plan's seam sidecar `<plan-stem>.seam.yaml` beside the plan, written by the engine's
@@ -72,14 +72,19 @@ residue: commit messages, branch names, ceremony logs.
 6. For each register row, record a `register_rows` item: claim `this-plan`, `other-plan` or
    `unclaimed` (from `register_claims` across the sizing's claimers), and met and wired judged
    from the row's named `surface` using step 5's reachability observation.
-7. Return `terminal-judge-result`.
+7. Return `terminal-judge-result`, with `completion_summary` (at most 3 sentences: what shipped,
+   why it matters, what the EM must still do) and, when the run taught something durable,
+   `lesson_candidates` (each `title`, `body`, `change_kind`, `target_wiki`). Set
+   `authored_by: terminal-judge`. Omit both when `status` is not `met`.
 
 Never run the repo's fast or full test suite. Targeted, read-only observations only.
 
 **A suite-tier clause is judged on the touched tests.** A clause naming a suite tier ("fast tier
 green", "full suite passes") is read as "the tests covering the files this run touched pass": run
 those tests, and judge the clause on their result. Suite runs belong to interval gates
-(merge-to-main, workday and workweek close, `/validate`), never to a plan's exit.
+(merge-to-main, workday and workweek close, `/validate`), never to a plan's exit. Every Vitest or
+Jest invocation carries `--maxWorkers=2`, as `test-runner.md` § Runner Resolution states; the
+box-capacity guard denies an uncapped one. Tripwire: `A-BOX-CAP-COUNTS-COMMANDS-NOT-AGENTS`.
 
 ## Verdict
 
@@ -89,6 +94,9 @@ those tests, and judge the clause on their result. Suite runs belong to interval
 - `not_met` when a clause, the falsifier, or a gated row is observed false. `reason` is required.
 - `not_met` for an unclaimed register row with no ruling, or a this-plan row not met and wired
   and not ruled; `reason` names the row id.
+- `not_met` for each PM turn the brief's register evidence lists as uncovered; `reason` names the
+  turn. Never recompute coverage: the engine's evidence is the one source. A `visual` row is wired
+  only when you opened the named artifact.
 - **A user-facing capability is judged on its click path, not its tests.** Read the `review.reachability` result first: any `unreachable` entry or `broken` click path is `not_met`, `reason` naming the first symbol or role/`broken_at`; record all in `reachability.unreachable` / `.broken_click_paths`. `undecidable` entries go to `reachability.undecidable` and never change status. An unknown op, an `error`, or a denied call is not `indeterminate` (this overrides the denied-leg rule for this leg): omit the `reachability` block and hand-check: trace as below AND caller-grep each entry point the diff adds, symbol-keyed, tests excluded; a confirmed unreferenced one is `not_met` naming it, an unsettled one is named and never fails. Trace nav entry → page
   → component → API → handler → store for the role the criterion names. Any missing link (core or
   API only, CLI only, a page nothing links to) is `not_met`, whatever the pass count. Tripwire:

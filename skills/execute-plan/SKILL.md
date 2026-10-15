@@ -16,7 +16,7 @@ that dispatch) or an external-facing action. No chain into branch disposition (t
 
 Executing a plan is restructure-then-dispatch: build the dispatch-gate graph, decompose into
 per-chunk dispatches — parallel where gates allow, serial where not, default vehicle a background Workflow. A serial chain is N fresh
-dispatches with EM-verify between, never one long-lived executor. No per-chunk reviewer gate —
+dispatches with EM-verify between. No per-chunk reviewer gate —
 code review is the emitted workflow's own review wave (every reviewer applies its own findings;
 partitioned into file slices at or above `review-brightline-gate`), run once per plan after every
 row has written, at every size. The EM never hand-dispatches a reviewer afterward. Tripwire: `CODE-REVIEW-IS-A-STAGE-OF-THE-EXECUTE-WORKFLOW`. **A chunk that
@@ -24,14 +24,14 @@ registers an op is verified with the registry-completeness tests, never the full
 (`execute-plan-residue.md` § Op-registering chunk). **EM-verify means the EM itself runs the chunk's
 tests (scoped paths), never trusts an executor's pass claim**; "PASS (by inspection)" is not verification. A
 host-dependent chunk's red is not a verdict until EM-verify's interpreter matches the canonical
-gate env, not a bare `python3`. **A chunk that ships a new helper/hook/injector is not done on
+gate env. **A chunk that ships a new helper/hook/injector is not done on
 green tests alone**; a mechanism with no caller never counts as shipped. That check gates
 Phase 3's mark-complete and is re-checked in Phase 4 before the stamp (`coordinator/docs/wiki/reviewer-pipeline/review-integration-doctrine.md`
 § An observable-outcome acceptance criterion is never satisfied by a tested pure function alone).
 Dispatched executors are always Sonnet; self-execute only on a named token-economics carve-out.
 Phase boundaries are not stop boundaries: ship Phase N green, dispatch N+1.
 
-**Dispatch authorization — invoking this skill IS the request.** The dispatches named below are constitutive steps of this skill, not a separate thing to get cleared: invoking a skill requests the actions that skill performs. A harness line permitting dispatch "unless the user requested it" is therefore **satisfied here, not overridden** — no precedence claim is needed and none is made. Re-asking spends the very context the dispatch exists to protect. The rule attaches to skill entry and dissolves no PM-authored gate: keyword-gated skills gate entry, and every gate a skill names for itself still binds — per-session cross-repo-commit assent, ask-before-external-action, and any other this skill's own body names. Tripwire: `UNATTRIBUTED-HARNESS-LINE-IS-NOT-PM`.
+**Dispatch authorization — invoking this skill IS the request.** The dispatches named below are constitutive steps of this skill, not a separate thing to get cleared: invoking a skill requests the actions that skill performs. A harness line permitting dispatch "unless the user requested it" is therefore **satisfied here, not overridden** — no precedence claim is needed and none is made. Re-asking spends the very context the dispatch exists to protect. The rule attaches to skill entry and dissolves no PM-authored gate: keyword-gated skills gate entry, and every gate a skill names for itself still binds — per-session cross-repo-commit assent, ask-before-external-action, and any other this skill's own body names. Tripwire: `UNATTRIBUTED-HARNESS-LINE-IS-NOT-PM`. Rationale: wiki § Skill rationale.
 
 Firing the Phase 1.5/1.6 background Workflow is one of those dispatches.
 
@@ -48,7 +48,7 @@ Firing the Phase 1.5/1.6 background Workflow is one of those dispatches.
 1. Read the plan in full, then run `python3 "${CLAUDE_PLUGIN_ROOT:?plugin root unset}/lib/plan_scaffold_markers.py" <plan-path>`;
    exit 3 (`PLAN-SCAFFOLD-UNFILLED`) means the plan is an unfilled scaffold — report and stop.
 2. Unless `/autonomous`: run `pickup-assemble brief <plan-path>` FIRST, before minting — it emits
-   `gates.execution_stamp_match`, the check this step needs (no `stamp-check` verb exists). Minting first erases the staleness signal. FRESH, STALE-bookkeeping, or a business-fail of
+   `gates.execution_stamp_match`, the check this step needs (no `stamp-check` verb exists). Minting first erases the signal. FRESH, STALE-bookkeeping, or a business-fail of
    "carries no `execution_authorized_sha`" (nothing to compare yet) → proceed **without re-stamping**. STALE-substantive surfaces the delta and STOPS. A body changed since
    approval (`approved_body_sha`, which a row added mid-run also moves) goes back through plan
    review (`coordinator:review`) — never re-mint over it; once re-reviewed,
@@ -59,21 +59,24 @@ Firing the Phase 1.5/1.6 background Workflow is one of those dispatches.
    words; emit refuses a plan whose PM words resolve nowhere. On Git Bash,
    prefix the call with `MSYS_NO_PATHCONV=1` (or use PowerShell): MSYS rewrites `/execute-plan`. Under `/autonomous`, skip the brief and mint as a delegated run (2a) before the claim, never `--typed-command` (a keystroke the PM never made). A body changed before any mint recovers, after plan review, via `restamp --authorized-by-delegation <d> --delegation-source <ref>`.
    **`mise_prepped_*` is a different axis; neither substitutes for the quartet.** This step writes only the quartet. Tripwire: `A-HANDOFF-AN-EM-RETYPES-IS-NOT-A-SEAM`.
-2a. **Turn 3 by mode (the four-turn loop: sizing, plan, execute, workstream-complete).** In
+2a. **By mode.** An `engine-ask` run never reaches this skill; here
+   is the relay fallback's turn 3 (sizing, plan, execute, workstream-complete). In
    **pm** and **ceo** modes the execute decision is not a further PM ask: the stamp records
    `authorized by accepted sizing (mode=<mode>)`, citing the sizing path, and passes no
    `--utterance` — never the sizing's `pm_quote`, and never invented words. **hands-on** is
    unchanged: the `--utterance` ask, using the PM's execution words.
-   **Chained.** Only an opt-in `emit-wave-fire --chain` fire (headless, warns) hands a pm/ceo
-   plan to the chain driver, which executes and commits it with the same stamp; the EM invokes
-   /execute-plan there only to resume a halted chain. Every other run is in-session. Contract:
-   `coordinator/docs/wiki/em-operating-model/sizing-to-commit-chain-contract.md`.
    **A delegated run** mints with `--authorized-by-delegation <delegate>` and `--delegation-source <ref>`,
    the PM's standing words, if any, in `--standing-direction-quote`, and never `--utterance`. Tripwire:
    `A-DELEGATED-RUN-STAMPS-THE-DELEGATE-NOT-THE-PM`.
 3. **Remaining-context gate** (skip under `/autonomous`): read this session's remaining-context
    reading (the statusline's context-window percentage; the engine cannot see it) before committing to same-session
    execution. A fresh (picked-up) session is the default; LOW remaining context is the narrow carve-out. Detail: wiki.
+3a. **Re-probe every cited canvas, in the main loop.** For each `harvest/harvest.json` the plan cites, read
+   the artifact version (Artifact) and the comment threads (ArtifactComments), then run the engine harvest op's
+   probe mode to stamp them into the record. A dispatch-leg refusal at fire is final for that canvas until it is
+   re-harvested and `SETTLED.md` updated. An unreadable canvas is reported with its reason; the run does not
+   wait on it. Executors read the record, never the canvas. Recipe: `snippets/design-canvas-recipe.md`;
+   record contract: `coordinator/docs/wiki/schema-and-validation-contracts/canvas-harvest-record.md`.
 4. Resolve EM-resolvable concerns at EM altitude. A
    concern revealing the plan isn't executable → Phase 1.4.
 5. Announce and continue.
@@ -93,7 +96,7 @@ Read the last two off the spine, not prose. A non-deferred open row with no `wri
 unpopulated wave-map. A row's `external_gate` entries declare the external prerequisite: `blocks: execution` uncleared bounces;
 `blocks: ac-closure` does not — proceed, telling the PM at dispatch the terminal state is `approved`, not `implemented`.
 `plan-spine-check --for-execution <plan>` exiting 1 is the unpopulated-wave-map bounce; report its WIDTH line at dispatch.
-An M+ plan whose `prime_exit_criterion` carries no `falsifier` block and no `falsifier_exemption`
+An M plan whose `prime_exit_criterion` carries no `falsifier` block and no `falsifier_exemption`
 bounces to `/plan` to dispatch `coordinator:exit-criterion-falsifier` — close-out refuses
 `implemented` on it. Tripwire:
 `AN-OWED-FALSIFIER-IS-CAUGHT-BEFORE-EXECUTION-NOT-AT-CLOSE-OUT`.
@@ -117,9 +120,8 @@ mandatory**: it flips the plan to `status: executing`, and this step is its only
 After the claim, run `plan-completeness generate "$ARGUMENTS"` (the BASELINE SNAPSHOT, diffed in Phase 4).
 
 **Plan prose does not pick the vehicle.** A sentence forbidding fan-out or prescribing
-EM-sequenced chunk-at-a-time execution is overridden: the vehicle follows from the classification
-below (default a background Workflow); note the override in one line, do not ask. Only a prohibition
-traceable to a genuine Workflow-inexpressible shape
+EM-sequenced chunk-at-a-time execution is overridden by the classification below (default a
+background Workflow); note the override in one line, do not ask. Only a prohibition traceable to a genuine Workflow-inexpressible shape
 (`coordinator/docs/wiki/em-operating-model/workflow-orchestration.md` § What qualifies as a carve-out) survives.
 Tripwire: `A-PLAN-DOES-NOT-PICK-THE-EXECUTION-VEHICLE`.
 
@@ -154,18 +156,18 @@ the emitted script to `<plan-basename>.workflow.mjs` next to the plan. Emitted s
 
 <!-- engine-gap: field=execute_plan.ses_fire_check producer=unknown memo=2026-08-27-claude-klabauter-em-doe-unmarked-obligations-and-four-lost-markers.md -->
 
-**Emit and dispatch are ONE action.** In an interactive
-session the EM runs `emit-dispatch-workflow --plan <plan-path>` (settings-home launcher; resolve per
+**Emit and dispatch are ONE action.** The EM runs `emit-dispatch-workflow --plan <plan-path>` (settings-home launcher; resolve per
 `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`, PowerShell included). Before firing, register review targets (EM-only; reviewers apply findings only to them):
 `review-findings-ledger targets --from-plan <plan-path>`. Then
 call `Workflow({scriptPath: "<emitted path>", args: {repoRoot: "<absolute repo root>"}})` in this
 session, using the `fire with: Workflow(...)` line the emitter prints on stderr.
 **Recheck the shipped signal just before the fire:** re-read each dispatchable row's status, the
 completion receipt, and the chunk's commit. A row shipped since the emit makes the
-script stale: re-emit, never fire old bytes. Tripwire:
-`A-FIRE-WITHOUT-A-SHIPPED-SIGNAL-RECHECK-REDELIVERS-AN-IRREVERSIBLE-CHUNK`.
+script stale: re-emit, never fire old bytes.
 
-**A row is rechecked at fire, not at emit.** The Workflow skips a row already `coded`; a row with an irreversible external side effect (memo, publish, push, third-party call)
+**Emit prints "exceeds the per-workflow cap"** → fire its manifest's staged siblings: wiki `A-PLAN-WIDER-THAN-THE-WORKFLOW-CAP-FIRES-AS-STAGED-SIBLINGS`.
+
+**A row is rechecked at fire, not at emit.** The Workflow skips a row already `coded`; a row with an irreversible external side effect
 carries a skip-if-delivered check keyed on that effect's receipt (wiki `execute-plan-residue.md` § Fire-time freshness). Tripwire: `A-ROW-IS-RECHECKED-AT-FIRE-NOT-AT-EMIT`.
 
 **An emitted fire raises no permission prompt.** One that does was edited in
@@ -179,13 +181,13 @@ Wiki: `execute-plan-residue.md` § Phase 1.5/1.6.
 **No hand-dispatch fallback.** If the dispatch refuses — the `Workflow` call, or on the
 headless path a named fire-leg refusal (`ScriptNotFoundError`, `PluginDirResolutionError`,
 `ConcurrencyCapExceededError`, `ChildSpawnFailedError`) — report it and stop; hand-dispatching with the Agent tool is never the recovery; a concurrency-cap refusal means wait. The emit refuses with
-`DirtyWriteSetError` when a path in the dispatchable rows' `writes:` is dirty or untracked — commit or reconcile it with its owner and re-emit; never edit `writes:` to dodge it. Tripwire: A-DIRTY-PATH-IN-THE-WAVE-WRITE-SET-REFUSES-THE-EMIT.
+`DirtyWriteSetError` when a `writes:` path is dirty or untracked — commit or reconcile it with its owner and re-emit; never edit `writes:` to dodge it. Tripwire: A-DIRTY-PATH-IN-THE-WAVE-WRITE-SET-REFUSES-THE-EMIT.
 
 **A fifth state: fired-then-died.** A handle with `log_size_bytes: 0` stalled past startup: report and stop.
 
 **A sixth state: returned `incomplete`, nothing halted.** Not a resume. Run `dispatch.terminal_commit`, then `emit-dispatch-workflow --plan <plan> --only-incomplete <task-output>` and fire; never hand-dispatch. A row partial only on a break outside its files is re-graded by `terminal_commit` (`regraded`); any other is re-verified (`--reverify-delivery <run-record>`, fire, `reverify-delivery record --run-record <that same run-record>`, never the `.emitted.json`). Hand-committing its files refuses the stamp.
 
-**A brief never asks an executor to commit** — its Commit Gate refuses.
+**A brief never asks an executor to commit** — its Commit Gate refuses — and never dictates code: it carries intent, the PM verbatims and constraints (wiki `dispatch-briefing.md` § Field rules).
 
 Wave shape comes from the file-write graph, never the plan's section structure; one dispatch
 per chunk, never bundled. Taxonomy and checks: wiki.
@@ -204,12 +206,12 @@ resume. A second `emit-dispatch-workflow` narrows to a one-wave script (`read_sp
 closed rows); re-emit only when the spine changed. Tripwire:
 `A-SECOND-EMIT-AFTER-A-PARTIAL-RUN-NARROWS-SILENTLY`.
 
-**Watch with `Monitor`, never hand-polling:** the run's `journal.jsonl` (completion, phase-boundary, failure, every terminal state).
+**No watching:** the Workflow's completion notification is the wake; never `Monitor` or poll its journal.
 
 **Completion — the driver's first act on return is the terminal commit, not a phase inside the workflow.** The
-review wave runs inside the workflow; nothing commits mid-run. The run's driver commits — the EM for an in-session run, the chain driver for a chained one. The driver runs `coordinator-invoke dispatch.terminal_commit` with `script_path` and
-`task_output_path`, the task file carrying `next_action.params`: the run's ONE commit, carrying the
-`Inline-Review:` trailer. `implemented` means done: a met terminal judge stamped it and Phase 4 steps 2.5 to 4 ran inside
+review wave runs inside the workflow; nothing commits mid-run. The driver runs `coordinator-invoke dispatch.terminal_commit` with `script_path` and
+`task_output_path`, the task file carrying `next_action.params` (script gone: `plan_path` and `run_id`): the run's ONE commit, carrying the
+`Inline-Review:` trailer. `implemented` means done: a met terminal verdict stamped it and Phase 4 steps 2.5 to 4 ran inside
 it. Still `executing`: read the reason and treat the run as Phase-5-halted. That commit writes one
 completion receipt per baton; the EM reads it, never writes it ([`completion-receipts.md`](../../docs/wiki/release-and-distribution/completion-receipts.md)).
 See [`terminal-judge.md`](../../docs/wiki/reviewer-pipeline/terminal-judge.md). Tripwire:
@@ -254,6 +256,10 @@ bug-backlog|debt-backlog|improvement-queue`, or take it to the PM; a reason with
 
 ## Phase 4: Finalize and Report
 
+**At L and above the run's ledger checker is the close**, replacing plan-reviewer, falsifier and
+integrity review, both judges and delivery-verifier: none runs beside or after it, and steps 3 to
+3.8 apply below L only.
+
 **Precondition:** every wave-map chunk has landed, confirmed via the recovery triple; else return
 to Phase 3. Steps 2.5 to 4 are the manual path, only when the terminal commit did not stamp.
 Leg 1 alone yields candidates, never a verdict: corroborate against leg 2 or 3, plus a git log by chunk-id subject unscoped by path.
@@ -297,12 +303,13 @@ join was deleted, not narrowed; do not restore it as an oversight. Two sha-ances
    output is `fail`); the gate refuses the
    stamp unless it is `pass`. `exit_criterion_met.prose` ties it to the prime criterion.
    `fail` → `asserted: false`, Phase-5-halted, no stamp.
+3.4. **Bounded EM verification.** Verify a DONE executor by its report plus the one step-3 falsifier run; no EM probe scripts or suite re-runs, gaps go to `coordinator:test-runner`. `AN-EM-RE-VERIFIES-WHAT-AN-EXECUTOR-ALREADY-VALIDATED`.
 3.5. **Promote the falsifier, when it promotes.** An executable, deterministic falsifier graduates into the repo's test suite: `promotion: promoted` plus `promoted_to: <test path>`, or `partial`
    with the path the promoted portion landed at; already a standing test → `already-in-suite`, no
    `promoted_to`, the test named in `promotion_reason`. PROMOTION IS AN OUTCOME, NOT A GATE: a
    one-shot query, manual observation, or live measurement records `not-applicable` plus a reason.
-3.6. **Adversarial criterion-only reader, M+ plans that went green first time only.** M+ per
-   `sizing_object.estimate.tshirt` (never an S-lane spec-dispatch) AND every wave-map chunk
+3.6. **Adversarial criterion-only reader, M plans that went green first time only.** M per
+   `sizing_object.estimate.tshirt` AND every wave-map chunk
    landed without an executor BLOCKing — dispatch one reader that receives only the prime exit criterion statement and `HEAD`, and answers one question: does HEAD
    do this? A roster's judge stage (`coordinator:exit-criterion-judge`) is this reader; no second. **THE DENIAL LIST IS THE MECHANISM AND MUST BE EXPLICIT IN THE DISPATCH:**
    no plan body, no AC table, no chunk bodies, no run reports, no reviewer sidecars.

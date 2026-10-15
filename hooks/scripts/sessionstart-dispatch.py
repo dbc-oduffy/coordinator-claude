@@ -7,7 +7,8 @@ Folds `session-start-repin-cloud-engine-root.py`,
 `guard-foreign-platform-paths.py`, `session-start-write-bump-anchor.py`,
 `sessionstart-bin-drift-refresh.py`, `day-branch-assert.py`,
 `session-start-announce-job-mode.py`,
-`session-start-governed-surface-drift.py` and
+`session-start-governed-surface-drift.py`,
+`session-start-pre-push-fleet-check.py` and
 `guard-hook-generation-self-probe.py` into ONE `python3` process,
 registered on `startup|resume|clear|compact|fork`, following the registry +
 dynamic-import pattern `stop-dispatch.py` / `preuse-agent-dispatch.py`
@@ -184,6 +185,9 @@ REGISTRY: Tuple[StartGuard, ...] = (
                frozenset({"startup", "resume", "clear", "compact", "fork"})),
     StartGuard("session_start_cloud_focus", "session-start-cloud-focus.py",
                frozenset({"startup"})),
+    # Right after the head legs so a violation banner lands inside the preview window.
+    StartGuard("session_start_pre_push_fleet_check", "session-start-pre-push-fleet-check.py",
+               frozenset({"startup", "resume", "clear", "compact", "fork"})),
     StartGuard("project_orientation", "project-orientation.py",
                frozenset({"startup", "clear", "compact"}), argv=["--lightweight"]),
     StartGuard("guard_settings_integrity", "guard-settings-integrity.py",

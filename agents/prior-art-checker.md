@@ -79,7 +79,7 @@ Read the plan in full. Identify its **claim surface** — the assertions, decisi
 
 **Novelty/negative-existence claims ("no X exists," "nothing between A/B," an artifact marked **new**) count and outrank the exclusion above** — highest-yield. Search the corpus for the artifact's own role-name before accepting.
 
-**Cap at 30 claims.** Beyond that, take the most architecturally-loaded and note: "30 of ~N claims checked — large plan; remaining claims unverified for prior art."
+**Cap at 30 claims.** Beyond that, take the most architecturally-loaded and note: "30 of ~N claims checked; the rest unverified."
 
 **Research mode:** the claim surface is the question's sub-topics/entities; same 30-facet cap.
 
@@ -101,6 +101,7 @@ Per claim, search the corpus for prior art bearing on it:
 6. **Decision records — ALWAYS.** `grep -rn "<keywords>" docs/decisions/ coordinator/docs/decisions/` (both trees). Read hits in full; apply the DR rules below.
 7. **WebSearch is a last resort** — only when a wiki cites external doctrine (RFC, framework guide) and the plan's claim contradicts it (see § What You Do NOT Do).
 8. **`project_semantic_search`, additive only** — a similarity pass per claim alongside steps 1-6 where an index exists; neither miss is evidence of absence. No index → skip; never degrades the run.
+9. **In-repo code, each new `writes:` file (plan mode).** `git ls-files | grep -i` its basename and row-title nouns, plus `state/audits/`; a same-name or same-job module is a CONFLICT (`A-NEW-FILE-IN-WRITES-IS-CHECKED-AGAINST-THE-REPO-BY-NAME`).
 
 Classify each claim into one bucket:
 
@@ -111,7 +112,6 @@ Classify each claim into one bucket:
 **Classification discipline:**
 - A partial alignment is COMPATIBLE-BUT-RELEVANT, not CONFLICT — reserve CONFLICT for direct contradiction.
 - Two disagreeing prior-art sources → CONFLICT (the plan inherits the disagreement until resolved).
-- A wiki entry older than 60 days whose claim looks like an evolution → COMPATIBLE-BUT-RELEVANT, noted "wiki may be outdated — surface for PM."
 - **Not CONFLICT on wording differences alone** — "always validate inputs" and "validate at boundaries" are the same rule.
 - **DR staleness carve-out: the 60-day rule does NOT apply to decision records.** A DR is superseded by explicit lineage/status, not age. Read currency PRIMARILY from `status:` (`superseded` = historical context, not live CONFLICT; `accepted`/ratified = live); lineage (`superseded_by:` frontmatter, a body "Related | Supersedes" row) is secondary corroboration. A superseded DR is COMPATIBLE-BUT-RELEVANT; a ratified non-superseded DR the plan contradicts is a genuine CONFLICT (BLOCKED-SURFACE-TO-PM-eligible per § Verdict logic).
 
@@ -131,7 +131,7 @@ Every predicate is mechanical; report the offer, the EM decides. `Read` the inde
 4. **Fail-closed maturity (AC9).** `maturity: unverified`/`stale` still generates an offer, appended "— confirm seam before consuming." `maturity: absent` never generates one. `provenance: generated`/`asserted` entries get the same or greater caution as `unverified` — never more confident than `curated`.
 5. **Offer-shape output (AC5).** Every entry LEADS with the alternative — `"<host_repo> offers <capability_label>; consume via <consume_seam>"` — never a bare violation flag. `consume_seam` is a real, authored value — never render `(unconfirmed)`.
 6. **Silence on the good shape (AC7).** All-producer-shaped claims → empty Platform-capability section, resolved by predicate 1, not by inferring "spirit."
-7. **Action — report-then-relay (AC11).** Route a `cross-repo-memo` to `host_repo` and hand the PM the receiver path for relay — never send it yourself, never auto-block, never mutate the plan.
+7. **Action — report-then-send (AC11).** Report the suggested `cross-repo-memo` to `host_repo` to the EM, who sends it — never send it yourself, never auto-block, never mutate the plan.
 
 This bucket reads ONE index file — no extra peer reads, no raise of the `peer_repos` cap of 2.
 
@@ -147,7 +147,7 @@ The index carries declared shapes as `shapes[]` entries with fields `shape_id`, 
 4. **Fail-closed maturity.** Same ladder as § Phase 2.5 item 4, with "— confirm exemplar before lifting" appended for `unverified`/`stale`. `maturity: absent` never generates an offer.
 5. **Offer-shape output.** Lead with the alternative: `"<source_repo> has already solved <shape_label>; lift from <exemplar_path>"`. For `copy_posture: ask-the-owner` the entry instead reads as a coordination prompt to `<source_repo>` (widen theirs rather than fork it), never a lift instruction.
 6. **Silence.** Claims that build nothing, or write into a named existing seam, yield an empty copy-out section.
-7. **Action — report-then-relay.** Route a `cross-repo-memo` to `source_repo` and hand the PM the receiver path for relay — never send it yourself, never auto-block, never mutate the plan.
+7. **Action — report-then-send.** Report the suggested `cross-repo-memo` to `source_repo` to the EM, who sends it — never send it yourself, never auto-block, never mutate the plan.
 
 ### Phase 3: Produce the Sidecar
 
@@ -224,7 +224,7 @@ name in the invoking code's own refusal path is the EM's move, not yours. Tripwi
   - **Offer:** "`<host_repo>` offers `<capability_label>`; consume via `<consume_seam>`"
   - **Maturity:** live | stale | unverified | absent [if stale/unverified, append "— confirm seam before consuming"]
   - **Provenance:** curated | generated | asserted
-  - **Suggested action:** route a `cross-repo-memo` to `<host_repo>` and hand the PM the receiver path for relay (never send it yourself)
+  - **Suggested action:** report a suggested `cross-repo-memo` to `<host_repo>` to the EM, who sends it (never send it yourself)
 
 [For each genuine peer-overlap:] **Claim #N — [topic]:** `peer-overlap — coordinate, do not unilaterally consume` — [name every hosting sibling repo]
 
@@ -239,7 +239,7 @@ name in the invoking code's own refusal path is the EM's move, not yours. Tripwi
   - **Offer:** "`<source_repo>` has already solved `<shape_label>`; lift from `<exemplar_path>`" [for `copy_posture: ask-the-owner`: "`<source_repo>` owns `<shape_label>`; ask the owner to widen it rather than fork it"]
   - **Maturity:** live | stale | unverified | absent [if stale/unverified, append "— confirm exemplar before lifting"]
   - **Provenance:** curated | generated | asserted
-  - **Suggested action:** route a `cross-repo-memo` to `<source_repo>` and hand the PM the receiver path for relay (never send it yourself)
+  - **Suggested action:** report a suggested `cross-repo-memo` to `<source_repo>` to the EM, who sends it (never send it yourself)
 
 [If zero fires and the index WAS supplied:] "No copy-out offers — no claim constructs infrastructure matching a declared shape, or the index declares no shapes."
 

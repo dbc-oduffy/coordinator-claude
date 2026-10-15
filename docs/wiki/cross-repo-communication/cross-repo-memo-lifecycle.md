@@ -9,7 +9,7 @@ Describes the single-surface, receiver-only lifecycle a cross-repo memo follows 
 
 **Sender writes once, receiver closes in-place.**
 
-1. **Sender** runs `cross-repo-memo draft <topic> --to <receiver-em-id> --title "<one-line>"`, writes the body into the printed outbox path, then runs `cross-repo-memo send <topic>`. CLI writes ONE file at `<receiver-repo>/cross-repo/inbox/YYYY-MM-DD-<from>-<topic>.md` with `status: open`, then commits that single file into the receiver's repo (see § Delivery commit — a sanctioned small exception below). Sender keeps no copy. CLI prints the receiver path — sender hands the PM that path for relay.
+1. **Sender** runs `cross-repo-memo draft <topic> --to <receiver-em-id> --title "<one-line>"`, writes the body into the printed outbox path, then runs `cross-repo-memo send <topic>`. CLI writes ONE file at `<receiver-repo>/cross-repo/inbox/YYYY-MM-DD-<from>-<topic>.md` with `status: open`, then commits that single file into the receiver's repo (see § Delivery commit — a sanctioned small exception below). Sender keeps no copy. CLI prints the `Receiver-side:` line; the memo is delivered then and the sender's job ends.
 
 2. **Receiver** sees the memo — already committed, not just dirty — at their next session (`git log` on their active branch, or `git --no-optional-locks status` if the delivery commit degraded to an uncommitted write; see below). They read it, act, flip `status: open → actioned` in-place (optionally adding `decision:` and a note), then commit that flip into their repo. That second commit is the terminal state. Manual reads of `git status` on a shared tree use `git --no-optional-locks status` — the flag must sit between `git` and the subcommand or the invocation hard-fails; `git diff --cached` and `git ls-files -m` need no such flag.
 
@@ -39,9 +39,9 @@ The commit can still fail. It takes the receiver's index lock, and a sibling tre
 Delivered (uncommitted): <path> is on disk but is not tracked in <receiver> …
 ```
 
-**That line is a defect to repair, not a gate to escalate.** An untracked memo is one `git clean` from gone and neither end knows it existed. Do not hand the PM the path as an assent ask — landing a delivered memo needs no assent, because the receiver-side commit is part of sending, not a cross-repo commit in the § sense. Re-run it:
+**That line is a defect to repair, not a gate to escalate.** An untracked memo is one `git clean` from gone and neither end knows it existed. Do not ask the PM for assent — landing a delivered memo needs no assent, because the receiver-side commit is part of sending, not a cross-repo commit in the § sense. Re-run it:
 
-**Dispatching a memo is EM-autonomous, on the same footing as a same-repo subagent dispatch — no PM assent before `send`.** The discriminator: does the action mutate the peer's working tree or their tests (**gated** — per-session commit assent applies), or does it add an addressed, revertible item to a queue the receiver chooses when to action (**autonomous**)? A memo is additive, addressed to a named receiver, revertible (`cs_release_memo_revert` exists), and actioned at the receiver's own discretion — it is not a mutation of the peer's tree or tests, and cross-repo-commit gate is untouched by this. This retires an authorization-sense gate only: **hand the PM the receiver path *after* sending, for notification** (§ below, `:567`/`:759`) still stands — that is a different sense of "PM-relay" and is not what retires here. The pre-send assent is a deliberately retired young-system volume throttle, not a correctness or safety invariant — do not restore it as an oversight.
+**Dispatching a memo is EM-autonomous, on the same footing as a same-repo subagent dispatch — no PM assent before `send`.** The discriminator: does the action mutate the peer's working tree or their tests (**gated** — per-session commit assent applies), or does it add an addressed, revertible item to a queue the receiver chooses when to action (**autonomous**)? A memo is additive, addressed to a named receiver, revertible (`cs_release_memo_revert` exists), and actioned at the receiver's own discretion — it is not a mutation of the peer's tree or tests, and cross-repo-commit gate is untouched by this. No PM step exists in delivery: the PM is handed no receiver path and no notification. The pre-send assent is a deliberately retired young-system volume throttle, not a correctness or safety invariant — do not restore it as an oversight.
 
 ```
 git -C <receiver> -c core.hooksPath="$(mktemp -d)" \
@@ -140,17 +140,15 @@ Shape W on a PowerShell host, Shape A (POSIX hosts) resolving `cross-repo-memo d
 
 On machines where the receiver repo is not registered, the CLI **hard-errors** (exit 1, no file written) and lists the known receivers — a dirty memo cannot be written to a repo that isn't on this machine. There is no central-only fallback in the single-surface model; route via the PM's next session in that repo instead. (`central-only` survives only as a grandfathered `delivery_mode` value in the schema for pre-existing memos; the CLI does not issue it.)
 
-On success the CLI prints the receiver path and the relay reminder:
+On success the CLI prints the receiver path:
 
 ```
 Receiver-side: <abs-path>
-Hand the PM this path for relay: <abs-path>
-Reminder: Hand the PM the receiver path — PM-relay is still the primary channel.
 ```
 
-That reminder string is emitted by the engine-owned CLI (`coordinator/bin/` in the engine repo, execed via the doctrine repo's forwarder), not authored here. PM-relay is the correct default; a same-machine, registry-visible peer session reachable per § "Then, the sync-vs-async gate" is a second legitimate primitive when both gates pass. The printed string names only the default — read it alongside that gate, not as the exhaustive route. Updating the printed string is an engine-side change.
+The memo is delivered when `Receiver-side:` prints, and no PM step exists. A same-machine, registry-visible peer session reachable per § "Then, the sync-vs-async gate" may additionally be told by SendMessage that the memo landed; that is optional and is not delivery.
 
-(`--self-receipt` prints only the `Receiver-side:` line — no relay reminder, since the dispatcher is the receiver.)
+(`--self-receipt` prints the same single `Receiver-side:` line; the dispatcher is the receiver.)
 
 ## Send-verb discoverability from consumer trees — breadcrumb scaffold + relocation-invariant
 
@@ -347,7 +345,7 @@ An inbound `ask` can target a plane your repo does not own — most commonly an 
 
 1. Realize the part *your* plane owns (e.g. a contract-shape change stays coordinator-side).
 2. `coordinator-invoke memo.transition` (verb `claim`, then verb `action` with `decision: partial`) — `decision_note` names the split and the reroute target; `realized_by` points at your slice's plan/commit.
-3. **Memo the plane owner** (`cross-repo-memo draft <slug> --to <owner-em> …` then `send`) for their part, and **hand the PM the receiver path** for relay — the reroute is only real once the owner has it.
+3. **Memo the plane owner** (`cross-repo-memo draft <slug> --to <owner-em> …` then `send`) for their part — the reroute is real once `send` prints `Receiver-side:`.
 4. **Inform the original sender** of the reroute and any timeline shift via a return memo — do not let their `open`-expectation silently rot behind a plane migration they can't see.
 
 This is durable routing, not a migration-window hack: post-migration the plane owner is permanent, so an emission-producer ask should *always* route to the engine repo. Worked instance: the 2026-07-04 cockpit backlog-history ask — the `backlogHistory` contract block realized coordinator-side, the recorder + emit-assembly rerouted to the engine repo's EM, cockpit informed that v2.5.0 now sequences behind the emission-stack migration.
@@ -361,16 +359,16 @@ Once you Accept (above), a second judgment follows: how much *ceremony* does the
 
 **Channel and ceremony are orthogonal axes — do not conflate them.** Two independent questions govern cross-repo coordination; they are NOT a hierarchy:
 
-- **Channel axis — *do I use the memo channel at all?* — keyed to GOVERNANCE *and* CHANGE-CLASS.** `triad-roles-doctrine.md` §208 (project-rag-ue-addon) eliminates the blocking memo channel within the same-PM/EM triad for **two narrow classes only**: (a) **break-glass / emergency** coordination, and (b) **structural / doctrine seeding authored from the plugin's source repo** (CLAUDE.md / wiki / agent-prompt edits authored from on high). For those, cross-repo coordination is *direct commits into the peer repo*; memos become after-the-fact `## Response` records, not handshakes. **Everyday cross-repo code / install-surface / contract changes route via `cross-repo-memo` + PM-relay even inside the triad** — the owning-EM-lands-with-context discipline is the default, because the cross-repo-write-without-the-owning-EM's-context hazard does not disappear under shared governance. §208 is a narrow exception, NOT a general "triad ⇒ direct-commit" default. The channel choice is settled by who owns the repos **and which class of change it is** — magnitude is the *ceremony* axis, not this one.
+- **Channel axis — *do I use the memo channel at all?* — keyed to GOVERNANCE *and* CHANGE-CLASS.** `triad-roles-doctrine.md` §208 (project-rag-ue-addon) eliminates the blocking memo channel within the same-PM/EM triad for **two narrow classes only**: (a) **break-glass / emergency** coordination, and (b) **structural / doctrine seeding authored from the plugin's source repo** (CLAUDE.md / wiki / agent-prompt edits authored from on high). For those, cross-repo coordination is *direct commits into the peer repo*; memos become after-the-fact `## Response` records, not handshakes. **Everyday cross-repo code / install-surface / contract changes route via `cross-repo-memo` even inside the triad** — the owning-EM-lands-with-context discipline is the default, because the cross-repo-write-without-the-owning-EM's-context hazard does not disappear under shared governance. §208 is a narrow exception, NOT a general "triad ⇒ direct-commit" default. The channel choice is settled by who owns the repos **and which class of change it is** — magnitude is the *ceremony* axis, not this one.
 - **Ceremony axis — *given a memo arrived, how much process?* — keyed to MAGNITUDE,** operative only *inside* the memo channel. This is the receiver-judgment rule above.
 
-§208 is **not** "the low-ceremony case of the receiver-judgment rule," and the receiver-judgment rule is **not** "§208 generalized." The channel axis is keyed to *class*, not magnitude: a triad EM doing a weighty **doctrine-seed** skips the memo channel (channel axis), but a triad EM doing weighty **code/install-surface** work still routes via memo + PM-relay; a non-triad EM receiving a mechanical ask still does it directly (ceremony axis). Name the axis that applies — never nest one rule inside the other, and never read "triad" as license to direct-commit code into a peer repo. (This is the exact confusion that produced the over-ceremony incident this rule fixes: a mechanical transfer was read as weighty because the channel-vs-ceremony axes were conflated.)
+§208 is **not** "the low-ceremony case of the receiver-judgment rule," and the receiver-judgment rule is **not** "§208 generalized." The channel axis is keyed to *class*, not magnitude: a triad EM doing a weighty **doctrine-seed** skips the memo channel (channel axis), but a triad EM doing weighty **code/install-surface** work still routes via memo; a non-triad EM receiving a mechanical ask still does it directly (ceremony axis). Name the axis that applies — never nest one rule inside the other, and never read "triad" as license to direct-commit code into a peer repo. (This is the exact confusion that produced the over-ceremony incident this rule fixes: a mechanical transfer was read as weighty because the channel-vs-ceremony axes were conflated.)
 
 **Both-sides-commit carve-out — three cases (mechanical cross-repo transfers).** When an accepted mechanical ask is a *transfer* (move a document, relocate a file, hand over ownership), the receiver may need to write into the offering repo too. Scope it:
 
-- **(i) Triad + you own both repos AND the transfer itself is one of §208's two named classes (break-glass, or doctrine-seeding from the source repo)** → §208 direct-commit governs (channel axis) natively; the both-sides-commit is not a separate carve-out, it falls out of §208's own regime. Triad membership and dual ownership are necessary but not sufficient — a mechanical transfer that is code/install-surface work does NOT qualify here even inside a triad (§ above: "a triad EM doing weighty code/install-surface work still routes via memo + PM-relay"); that transfer falls to case (ii) or (iii) below instead.
+- **(i) Triad + you own both repos AND the transfer itself is one of §208's two named classes (break-glass, or doctrine-seeding from the source repo)** → §208 direct-commit governs (channel axis) natively; the both-sides-commit is not a separate carve-out, it falls out of §208's own regime. Triad membership and dual ownership are necessary but not sufficient — a mechanical transfer that is code/install-surface work does NOT qualify here even inside a triad (§ above: "a triad EM doing weighty code/install-surface work still routes via memo"); that transfer falls to case (ii) or (iii) below instead.
 - **(ii) Non-triad but you hold authority over both repos** → the both-sides-commit carve-out applies as a ceremony-axis legibility aid: commit the offering-side change because you hold authority over it. This is a sanctioned cross-repo write for a *mechanical transfer*, scoped to has-authority-over-both — **not** a blanket license.
-- **(iii) You lack authority over the offering repo** → the offering-side change routes per the altitude rules (§ Doctrine seeding vs code/install-surface): memo + PM-relay for code/install-surface, direct doctrine-seed for doctrine. The carve-out does not apply.
+- **(iii) You lack authority over the offering repo** → the offering-side change routes per the altitude rules (§ Doctrine seeding vs code/install-surface): memo for code/install-surface, direct doctrine-seed for doctrine. The carve-out does not apply.
 
 **Case (ii) instance — publish-target-where-the-doctrine-repo-is-sole-writer.** The canonical instance of Case (ii) is a cross-repo install-surface fix that spans the meta-repo (`~/.claude`) and its OSS publish target (`coordinator-claude`). The doctrine repo holds authority over both: the meta-repo is the source-of-truth; the publish target is a percolation destination with no sibling EM session and no independent writer. In this configuration, a direct write to the publish target is not a surprise to any collaborator — it IS the routine doctrine-repo operation (`setup/publish.sh` percolation), and the fix cannot land at meta-repo-only without silently degrading OSS-user experience.
 
@@ -385,7 +383,7 @@ Once you Accept (above), a second judgment follows: how much *ceremony* does the
 
 **Discriminator — two independent axes; don't collapse them.** The **work-gate** (*when do I do the fix?*) is **do-now**: landing the fix on your pushed shared branch is just doing the work — a commit is not a release, and doing the work does not wait on `merge-to-main` (branch-landing is the work-gate; `merge-to-main` is the PM-owned ship/sync-gate — see `daily-branch-discipline.md § Align on branch`). The **release-gate** (*when do the coupled repos go live together?*) gates the synchronized go-live, never the landing of either half. Reading *"land before X"* as a reason to defer the *fix* conflates them.
 
-**Release synchronization is PM-owned, like memo relay.** Shipping dependent repos *together* is a human-relay concern the PM holds. The EM does not hold back a landable fix as a private release maneuver ("I'll wait to land mine until theirs is ready") — that re-implements a gate the PM already owns. Land your half **now**; if the go-live must be synchronized, that's a one-line surface to the PM, not undone work.
+**Release synchronization is PM-owned.** Shipping dependent repos *together* is a concern the PM holds. The EM does not hold back a landable fix as a private release maneuver ("I'll wait to land mine until theirs is ready") — that re-implements a gate the PM already owns. Land your half **now**; if the go-live must be synchronized, that's a one-line surface to the PM, not undone work.
 
 **Reply mechanics** (the existing ack-of-ack / partial-ack rules, applied here):
 
@@ -410,7 +408,7 @@ When a memo is declined because the cited locus is wrong (it lives in the sender
 
 ## Don't re-nag the PM about already-sent memos
 
-Once the receiver path has been handed to the PM at send time, the sender's job is done. Do not re-list memos (or doctrine-seeding direct writes) as "pending PM-relay" or "pending your action" in later session reports, `/handoff` bodies, or session openings. The receiving repo's `/workday-start` Step 1.45 surfacing is the canonical channel; sender-side action-state knowledge goes stale silently. Operative rule lives in `skills/workstream-complete/SKILL.md` § Step 2.66.
+Once `send` prints `Receiver-side:`, the sender's job is done. Do not re-list memos (or doctrine-seeding direct writes) as "pending" or "pending your action" in later session reports, `/handoff` bodies, or session openings. The receiving repo's `/workday-start` Step 1.45 surfacing is the canonical channel; sender-side action-state knowledge goes stale silently. Operative rule lives in `skills/workstream-complete/SKILL.md` § Step 2.66.
 
 ## Premise checks are point-in-time — re-read immediately before you act, not earlier
 
@@ -596,8 +594,6 @@ CLI prints:
 
 ```
 Receiver-side: <project-rag-root>/cross-repo/inbox/<date>-claude-central-em-gate-check-fix.md
-Hand the PM this path for relay: <project-rag-root>/cross-repo/inbox/<date>-claude-central-em-gate-check-fix.md
-Reminder: Hand the PM the receiver path — PM-relay is still the primary channel.
 ```
 
 Sender notes the send in their workstream-complete notes. No sender-side file is created.

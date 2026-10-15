@@ -10,7 +10,7 @@
   },
   "args": {
     "repoRoot": "/abs/path/to/repo",
-    "trailDir": "/abs/path/to/repo/state/scratch/goal-blitz/2026-10-02-example",
+    "trailDir": "/abs/path/to/repo/state/goal-blitz/2026-10-02-example",
     "provisionSidecarCli": "/abs/path/to/coordinator-doc-new",
     "interactionMode": "hands-on",
     "pluginAgentsAvailable": true,

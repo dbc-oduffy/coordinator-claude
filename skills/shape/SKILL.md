@@ -50,6 +50,15 @@ does not perform shape's downstream routing. This is a receive-and-use-if-presen
 runs exactly as today with no sizing-object present, and sizing never gates or refuses a bare
 `/shape` invocation.
 
+## Routed elsewhere
+
+`/shape` refuses a live plan, dispatch or spec-dispatch sizing-object and names its wave fire.
+Live: `status: routed`, nothing shipped (`A-ROUTED-SIZING-IS-NOT-A-LIVE-ASK`). The fire is the
+baton's `plan_blitz_hold_cite`, else the existing baton's `Workflow` line (never a second
+`emit-wave-fire`), else the engine-ask submission `Workflow({name: "coordinator:engine-ask",
+args: {sizing: "<path>"}})`, with `emit-wave-fire --from-sizing` only when the engine refuses it. No problem-set, no PM ask; fire that line and end the turn. `A-ROUTED-SIZING-NEVER-ENTERS-SHAPE`. A bare `/shape` and a
+`route: shape` object are unaffected.
+
 <HARD-GATE>
 Once `/shape` has started, do NOT invoke any implementation skill, write code, scaffold anything,
 or dispatch an executor until the problem-set is written and PM-ratified. The only exit is a
@@ -68,8 +77,8 @@ skip `/shape` entirely instead. Once started, see it through.
    residue, not its substitute.
 4. **If the PM has a proposed solution-shape**, reflect it back and flag pushback — do NOT
    design. Solutioning is `coordinator:plan`'s job.
-5. **On convergence**, scaffold the problem-set (below), fill its body, set `estimated_horizon`,
-   ratify with the PM, confirm the horizon, and chain into the downstream ceremony (§ Transition).
+5. **On convergence**, scaffold the problem-set (below), fill its body, ratify with the PM, and
+   chain into the downstream ceremony (§ Transition).
 
 ## Forced-articulation contract
 
@@ -99,25 +108,23 @@ design: a bulleted problem list, not a design doc.
 2. List non-goals under `## Out of scope (architectural reasons)` with hard architectural
    reasons, not "later."
 3. On PM convergence (the PM's own statement in conversation is the evidence): flip `status: draft → ratified`, fill `ratified_by`, `ratified_date`,
-   `estimated_horizon`, stamp `> Ratified by PM <name> <date>`.
+   `estimated_horizon` (scout-set), stamp `> Ratified by PM <name> <date>`.
 
 A problem-set without ratification is `status: draft` and does NOT count as an oracle. Plans link
 it via `problem_set:`.
 
 ## Transition
 
-Once ratified, route by horizon — **detect-then-confirm**: surface your horizon read at
-ratification, let the PM confirm before chaining. Never pick a rung silently.
+At ratification, dispatch `coordinator:sizing-scout` over the problem-set and read
+`estimated_horizon` from the sizing-scout's report; state it in the ratification ask and route by it.
+Never pick a rung silently. Work shape is scope, not calendar time (`A-PM-ASK-STATES-SCOPE-NOT-HUMAN-TIME-GUESSES-OR-RULED-CONCERNS`).
 
 | `estimated_horizon` | Work shape | Downstream ceremony |
 |---|---|---|
 | `session` | One or two sessions | `coordinator:plan` — problem-set becomes the plan's coverage oracle (`plan-coverage-checker`). |
-| `week` | ~week, bounded | `coordinator:roadmap-planning` — seeds a roadmap with sprint-sized stubs. |
-| `initiative` | Weeks-to-quarters | `coordinator:goal-setting` — seeds an OKR-shaped goal artifact. May fan out 1→N goal-seed stubs when the vision decomposes into multiple goal-slices. |
+| `week` | Several plans, one workstream | `coordinator:roadmap-planning` — seeds a roadmap with sprint-sized stubs. |
+| `initiative` | Multiple workstreams | `coordinator:goal-setting` — seeds an OKR-shaped goal artifact. May fan out 1→N goal-seed stubs when the vision decomposes into multiple goal-slices. |
 
 **Precedence:** a PM axiom/directive naming a specific downstream skill, or a forced-articulation
 tier flag that resolves the horizon unambiguously, overrides the router — the router is the
 default for ambiguous or undirected convergence.
-
-**Ambiguous horizon:** ask explicitly — *"Does this feel like a session, a week, or an
-initiative?"* Never pick silently.

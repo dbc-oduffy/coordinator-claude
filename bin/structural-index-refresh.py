@@ -15,6 +15,8 @@ must carry the pinned tree-sitter grammars -- ensure refuses rather than emit a 
 
 Every run's outcome (started_at, finished_at, exit_code, stderr_tail) lands in
 `<repo>/.structural-index/refresh-last.json`, written by the detached `--run-and-record` wrapper.
+A launch refused for memory (`post_close_admission.admit`) instead writes a record with
+`exit_code` null and a `deferred` reason, and spawns nothing.
 
 Usage: structural-index-refresh.py [--root DIR] [--timeout SECONDS]
 """
@@ -110,12 +112,7 @@ def run_and_record(rag: Path, root: Path) -> int:
         "exit_code": rc,
         "stderr_tail": lines[-STDERR_TAIL_LINES:],
     }
-    try:
-        path = record_path(root)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(record, indent=2), encoding="utf-8", newline="\n")
-    except OSError:
-        pass
+    _write_record(root, record)
     return rc
 
 
@@ -123,12 +120,50 @@ def run_and_record(rag: Path, root: Path) -> int:
 ALREADY_RUNNING = 3
 
 
-def spawn_ensure(rag: Path, root: Path) -> "subprocess.Popen":
+ADMISSION_LABEL = "structural-index"
+POSIX_NICE = 10
+
+
+def _write_record(root: Path, record: dict) -> None:
+    try:
+        path = record_path(root)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(record, indent=2), encoding="utf-8", newline="\n")
+    except OSError:
+        pass
+
+
+def admit_launch(root: Path) -> tuple[bool, str]:
+    """Gate a launch on `post_close_admission.admit`; on admit post the START notice.
+
+    Returns ``(admitted, reason)``. Fail-closed: an unimportable or raising admission module defers.
+    """
+    try:
+        from coordinator_core.ops.ceremony import post_close_admission as admission
+
+        avail, trusted = admission.read_available()
+        verdict = admission.admit(ADMISSION_LABEL, avail, trusted)
+        if verdict.admitted:
+            admission.notice(verdict, f"{ADMISSION_LABEL}:{int(time.time())}")
+        return verdict.admitted, verdict.reason
+    except Exception as exc:
+        return False, f"admission unavailable ({type(exc).__name__})"
+
+
+def spawn_ensure(rag: Path, root: Path) -> "Optional[subprocess.Popen]":
     """Start this CLI's `--run-and-record` wrapper in its own session/process group so it
     outlives us; the wrapper runs `ensure` and records the outcome.
 
+    Returns None, spawning nothing, when admission defers; the deferral lands in refresh-last.json.
+    The wrapper starts at below-normal priority and `ensure` inherits it.
     stdout/stderr go to DEVNULL: an inherited pipe would tie the child's life to ours.
     """
+    admitted, reason = admit_launch(root)
+    if not admitted:
+        stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        _write_record(root, {"started_at": stamp, "finished_at": stamp, "exit_code": None,
+                             "deferred": reason, "stderr_tail": []})
+        return None
     cmd = [_python(), str(Path(__file__).resolve()), "--run-and-record",
            "--root", str(root), "--rag", str(rag)]
     kwargs: dict = {
@@ -140,9 +175,11 @@ def spawn_ensure(rag: Path, root: Path) -> "subprocess.Popen":
     if os.name == "nt":
         kwargs["creationflags"] = (
             subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+            | subprocess.BELOW_NORMAL_PRIORITY_CLASS
         )
     else:
         kwargs["start_new_session"] = True
+        kwargs["preexec_fn"] = lambda: os.nice(POSIX_NICE)
     return subprocess.Popen(cmd, **kwargs)
 
 
@@ -155,10 +192,12 @@ def refresh(root: Path, timeout: float, env: Optional[dict] = None) -> Optional[
     if rag is None:
         return None
     status = read_status(root)
-    if status is None or status.get("full_rebuild_required"):
-        spawn_ensure(rag, root)
-        return "structural-index: cold build started in background (~3 min)"
+    cold = status is None or status.get("full_rebuild_required")
     proc = spawn_ensure(rag, root)
+    if proc is None:
+        return "structural-index: refresh deferred (insufficient memory); index may be stale"
+    if cold:
+        return "structural-index: cold build started in background (~3 min)"
     try:
         rc = proc.wait(timeout=timeout)
     except subprocess.TimeoutExpired:

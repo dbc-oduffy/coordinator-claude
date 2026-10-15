@@ -10,10 +10,13 @@ from __future__ import annotations
 import hashlib
 import os
 import sys
+import time
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Dict, Optional, Sequence, Tuple
 
+from coordinator_core import _engine_landing as _landing
 from coordinator_core.git import commit as _gcommit
 from coordinator_core.git.git_dir import resolve_git_common_dir
 from coordinator_core.git.git_objects import read_object
@@ -21,6 +24,8 @@ from coordinator_core.git.git_state import head_blobs
 
 _EXEC = 0o100755
 _LINK = 0o120000
+_STAMP = "coordinator_core/_engine_stamp"
+_SWAP_BOUND_S = 30.0
 
 
 @dataclass(frozen=True)
@@ -91,29 +96,57 @@ def _worktree_shas(path: Path) -> Tuple[str, ...]:
     return (_blob_sha(data),) if lf == data else (_blob_sha(data), _blob_sha(lf))
 
 
-def _atomic_write(path: Path, data: bytes, mode: int) -> None:
+def _stage(path: Path, data: bytes, mode: int) -> Path:
+    """Write `data` to a sibling temp file (or symlink) and return it; `_swap` publishes it."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    if mode == _LINK and os.name != "nt":
-        tmp = path.with_name(f".{path.name}.dc-{os.getpid()}")
-        tmp.unlink(missing_ok=True)
-        os.symlink(data.decode("utf-8"), tmp)
-        os.replace(tmp, path)
-        return
     tmp = path.with_name(f".{path.name}.dc-{os.getpid()}")
+    tmp.unlink(missing_ok=True)
     try:
-        tmp.write_bytes(data)
-        if os.name != "nt":
-            tmp.chmod(0o755 if mode == _EXEC else 0o644)
-        try:
-            os.replace(tmp, path)
-        except PermissionError:
-            if not path.exists():
-                raise
-            from coordinator_core.install.door_install import _replace_possibly_running_image
+        if mode == _LINK and os.name != "nt":
+            os.symlink(data.decode("utf-8"), tmp)
+        else:
+            tmp.write_bytes(data)
+            if os.name != "nt":
+                tmp.chmod(0o755 if mode == _EXEC else 0o644)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    return tmp
 
-            _replace_possibly_running_image(tmp, path)
+
+def _swap(tmp: Path, path: Path) -> None:
+    try:
+        os.replace(tmp, path)
+    except PermissionError:
+        if not path.exists():
+            raise
+        from coordinator_core.install.door_install import _replace_possibly_running_image
+
+        _replace_possibly_running_image(tmp, path)
+
+
+def _atomic_write(path: Path, data: bytes, mode: int) -> None:
+    tmp = _stage(path, data, mode)
+    try:
+        _swap(tmp, path)
     finally:
         tmp.unlink(missing_ok=True)
+
+
+def _is_engine_root(root: Path, rels) -> bool:
+    return _STAMP in rels or (root / _STAMP).exists()
+
+
+def _raise_marker(root: Path) -> bool:
+    """Raise the landing marker and wait out the grace; False when the root cannot carry one."""
+    if _landing.begin_swap(root, deadline_s=_landing.SWAP_GRACE_S + _SWAP_BOUND_S) is None:
+        print(
+            f"diff_commit: {root} has no .git directory; landing is unguarded against hook readers",
+            file=sys.stderr,
+        )
+        return False
+    time.sleep(_landing.SWAP_GRACE_S)
+    return True
 
 
 def _prune_empty_parents(root: Path, path: Path) -> None:
@@ -184,25 +217,52 @@ def land_diff(
                 continue
             raise DestDirtyError(f"{rel}: destination worktree differs from HEAD; nothing written")
 
+    guarded = _is_engine_root(root, todo)
+    order = [r for r in todo if r != _STAMP]
+    staged: Dict[str, Path] = {}
     touched: list = []
+    sha = None
     try:
-        for rel, w in todo.items():
-            touched.append(rel)
-            _atomic_write(root / rel, w.data, w.mode)
-        for rel in dels:
-            touched.append(rel)
-            (root / rel).unlink(missing_ok=True)
-            _prune_empty_parents(root, root / rel)
-        sha = None
+        for rel in order + ([_STAMP] if _STAMP in todo else []):
+            staged[rel] = _stage(root / rel, todo[rel].data, todo[rel].mode)
+        raised = guarded and _raise_marker(root)
+        try:
+            for rel in order:
+                touched.append(rel)
+                _swap(staged[rel], root / rel)
+            for rel in dels:
+                touched.append(rel)
+                (root / rel).unlink(missing_ok=True)
+                _prune_empty_parents(root, root / rel)
+            if _STAMP in todo:
+                touched.append(_STAMP)
+                _swap(staged[_STAMP], root / _STAMP)
+        except BaseException:
+            _restore(root, common, touched, head)
+            raise
+        finally:
+            if raised:
+                _landing.end_swap(root)
         if commit:
-            sha = _gcommit.commit_paths(
-                root,
-                list(todo),
-                message,
-                deleted_paths=dels,
-                modes={rel: w.mode for rel, w in todo.items()},
-            ).sha
-    except BaseException:
-        _restore(root, common, touched, head)
-        raise
+            try:
+                sha = _gcommit.commit_paths(
+                    root,
+                    list(todo),
+                    message,
+                    deleted_paths=dels,
+                    modes={rel: w.mode for rel, w in todo.items()},
+                    blob_fallback=partial(_gcommit.hash_worktree_blobs_via_spawn, cwd=root),
+                ).sha
+            except BaseException:
+                restoring = False
+                try:
+                    restoring = guarded and _raise_marker(root)
+                    _restore(root, common, touched, head)
+                finally:
+                    if restoring:
+                        _landing.end_swap(root)
+                raise
+    finally:
+        for tmp in staged.values():
+            tmp.unlink(missing_ok=True)
     return LandOutcome(sha, tuple(sorted(todo)), tuple(dels), tuple(sorted(unchanged)))

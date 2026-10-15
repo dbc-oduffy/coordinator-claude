@@ -1,6 +1,6 @@
 schema_version: 1
 pipeline: notebooklm
-description: "NotebookLM research: scope, prior-art, scout, one worker per notebook, sweep, coverage audit"
+description: "NotebookLM research: scope, prior-art, scout, source gate, one worker per notebook, claims gate, sweep, coverage audit"
 inputs:
   brief: required
   scratch_dir: optional
@@ -34,6 +34,28 @@ stages:
     optional: true
     depends_on: [prior-art]
     output: "{{scratch_dir}}/sources.md"
+  - id: source-gate
+    phase: Scout
+    agent_type: general-purpose
+    model: haiku
+    effort: low
+    template: source-gate-prompt-template.md
+    web_caller: false
+    halts_unless: ok
+    depends_on: [scout]
+    output: "{{scratch_dir}}/source-gate.json"
+    schema:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        remedy:
+          type: array
+          items:
+            type: string
+        checks:
+          type: object
+      required: [ok, remedy]
   - id: workers
     phase: Workers
     agent_type: "coordinator:research-worker"
@@ -43,15 +65,37 @@ stages:
       over: inputs.notebooks
     max_concurrent: 3
     web_caller: false
-    depends_on: [scout]
+    depends_on: [source-gate]
     output: "{{scratch_dir}}/{{item}}-summary.md"
+  - id: claims-gate
+    phase: Workers
+    agent_type: general-purpose
+    model: haiku
+    effort: low
+    template: claims-gate-prompt-template.md
+    web_caller: false
+    halts_unless: ok
+    depends_on: [workers]
+    output: "{{scratch_dir}}/claims-gate.json"
+    schema:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        remedy:
+          type: array
+          items:
+            type: string
+        checks:
+          type: object
+      required: [ok, remedy]
   - id: sweep
     phase: Sweep
     agent_type: "coordinator:research-sweep"
     model: opus
     template: sweep-prompt-template.md
     web_caller: true
-    depends_on: [workers]
+    depends_on: [claims-gate]
     output: "{{scratch_dir}}/merged-claims.json"
   - id: coverage
     phase: Coverage

@@ -43,6 +43,8 @@ Check for an architecture atlas, wiki guide-index, roadmap, vision doc, or the q
 
 Tokenization violations · `!important` overrides (P0) · componentization · magic numbers · bespoke CSS vs. existing utilities · responsive/breakpoint handling · design-system consistency.
 
+**A design canvas is reviewed from its committed source**, `docs/design/<slug>/`, never from the claude.ai link: tokens there must name the product's CSS custom properties, never copy their values. Recipe: `coordinator/snippets/design-canvas-recipe.md`.
+
 **Not the Front-End Reviewer's job:** architecture/backend (the Staff Engineer), UX flow (the UX Reviewer), game engine (the Game Dev Reviewer), ML/data science (the Data Science Reviewer) — § Escalation Path.
 
 Confidence rubric + AUTO-FIX/ASK: injected reviewer-calibration block.

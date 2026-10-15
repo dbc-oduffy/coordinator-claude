@@ -6,6 +6,12 @@ Part of [`PIPELINE.md`](PIPELINE.md); phases still run in its strict sequence.
 
 **Input, in-memory, not scratch files:** the Workflow's own mechanically-computed `distillation_log_rows` (one row per source artifact — path, mechanical disposition `DISTILLED`/`EPHEMERAL`/`SKIP`, fate prose — computed earlier in the same run, § "Distillation-log rows" in the script) plus the Opus escalation resolution when Phase 3a triggered one. The agent's job is resolving those three mechanical dispositions into the final `DELETE`/`SEND_BACK`/`BLOCKED`/`PRESERVE` verdict by reading real external state (active `state/handoffs/`, open commitments, research/NotebookLM PRESERVE classes) that the mechanical pass has no visibility into — it never re-reads Phase 1/1.5/2 scratch files.
 
+**Completion records are delete-eligible once harvested.** An `archive/completed/**` row resolves like any other harvested artifact: `DELETE` when every delete guard passes, otherwise `SEND_BACK`/`BLOCKED`/`PRESERVE` with the blocking guard named.
+
+**Citation repoint.** The Workflow's `citation-repoint` phase probes every harvested row resolved `DELETE` or `BLOCKED` with the delete guard. It selects a row only when `active-reference` is its sole blocking guard, every citing file is under `docs/` (not `docs/plans/`) or `tasks/`, and a wiki page absorbed the record. One agent edits each citing file to name that wiki page instead of the record, then re-runs the guard. `eligible: true` resolves the row to `DELETE`; anything else leaves its disposition as it was, with the guards named in `still_blocked`. The phase returns a `citation_repoint` object.
+
+A record whose content was not absorbed into any wiki page is not repointed; it stays `PRESERVE`/`BLOCKED`. A citation from any other surface (active handoff, plan, code, `archive/`) is not repointed and keeps blocking.
+
 **[engine-reliant] Resolve delete-eligibility for candidate rows via `bin/distill-delete-guard.py`,
 not LLM manual guard-checking.** Per the C8 contract (`docs/contracts/distill-engine-scripts.md`
 § 5): `bin/distill-delete-guard.py <candidate-path> ... [--repo-root <path>] [--basis-ref <ref> ...]`

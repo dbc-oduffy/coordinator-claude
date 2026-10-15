@@ -330,9 +330,10 @@ def _write_content_root_pointer(root_str: str) -> None:
 
     Write-when-absent-or-different: an operator-written pointer that already
     names this clone is left untouched, and a pointer naming a DIFFERENT
-    clone is overwritten, because a stale pointer is the failure this closes
-    — unlike `repos.content_root`, whose value may legitimately be an
-    operator's choice among several clones.
+    clone is overwritten. `main` never reaches this when `repos.content_root`
+    names another genuine clone (`_registry_names_other_clone`): the registry
+    is the operator's choice, and only a session from the registered clone
+    rewrites the pointers.
 
     Fail open per leg: one unwritable location never stops the other.
     """
@@ -483,6 +484,9 @@ def main() -> int:
 
     root_str = str(root)
 
+    if _registry_names_other_clone(reg_dir, root):
+        return 0  # the registry is the operator's choice; this session is the stale clone
+
     try:
         _write_content_root_pointer(root_str)
     except Exception:
@@ -514,6 +518,25 @@ def main() -> int:
         pass
 
     return 0
+
+
+def _registry_names_other_clone(reg_dir, root: Path) -> bool:
+    """True when the registered content root names a different, existing,
+    sentinel-confirmed clone. The registry then decides where the doctrine
+    tree lives, and a session running from another clone writes nothing. A
+    value that is absent, dead, or names this clone returns False, so
+    self-heal holds.
+    """
+    try:
+        value = _engine_registry_value(reg_dir, _REPOS_REGISTRY_KEY)
+        if not value:
+            return False
+        registered = Path(value)
+        if not registered.is_dir() or not _is_genuine_content_root_repo(registered):
+            return False
+        return os.path.normcase(str(registered.resolve())) != os.path.normcase(str(root.resolve()))
+    except Exception:
+        return False
 
 
 def _maybe_seed_repos_content_root(reg_dir, root_str: str) -> None:

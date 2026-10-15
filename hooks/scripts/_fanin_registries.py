@@ -163,6 +163,7 @@ def carried_guards(filename: str):
 #: emit_effective_delivery.py's `_DECLARED_DUAL_DELIVERY`.
 DECLARED_DUAL_CARRY: "dict[str, tuple[str, str]]" = {
     "block-dispatch-suite-invocation.py": ("preuse-agent-dispatch.py", "preuse-workflow-dispatch.py"),
+    "block-unharvested-canvas-dispatch.py": ("preuse-agent-dispatch.py", "preuse-workflow-dispatch.py"),
 }
 
 

@@ -74,13 +74,27 @@ def _doc_files(docs_root: Path) -> list[Path]:
     return [f for f in files if f.is_file()]
 
 
-def find_missing_doc_refs(docs_root: Path, payload_root: Path) -> list[tuple[str, str]]:
-    """Return sorted (doc-relative-path, ref) pairs whose ref is absent from payload_root."""
+#: Ref prefixes the claude-klabauter engine mirror carries, not the plugin payload: the installer
+#: moved to claude-klabauter's `coordinator/lib/install`, which row `claude-klabauter-lib` publishes as `lib/`.
+ENGINE_HOSTED_PREFIXES = ("lib/install/",)
+
+
+def _ref_present(ref: str, payload_root: Path, engine_root: Path | None) -> bool:
+    if (Path(payload_root) / ref).is_file():
+        return True
+    return engine_root is not None and ref.startswith(ENGINE_HOSTED_PREFIXES) and (Path(engine_root) / ref).is_file()
+
+
+def find_missing_doc_refs(
+    docs_root: Path, payload_root: Path, engine_root: Path | None = None
+) -> list[tuple[str, str]]:
+    """Return sorted (doc-relative-path, ref) pairs whose ref is absent from payload_root (and, for an
+    engine-hosted ref, from engine_root)."""
     missing: set[tuple[str, str]] = set()
     for doc in _doc_files(Path(docs_root)):
         text = doc.read_text(encoding="utf-8", errors="replace")
         for ref in _graded_refs(text):
-            if not (Path(payload_root) / ref).is_file():
+            if not _ref_present(ref, payload_root, engine_root):
                 missing.add((doc.relative_to(docs_root).as_posix(), ref))
     return sorted(missing)
 
@@ -300,13 +314,16 @@ def _payload_python_argv(root: Path, script: str, *args: str) -> list[str]:
     return argv or [interpreter, script, *args]
 
 
-def run_install_plan(payload_root: Path, timeout: float = 120) -> str | None:
-    """Run `lib/install/coordinator_install.py --plan` in the payload under an empty HOME.
+def run_install_plan(payload_root: Path, timeout: float = 120, engine_root: Path | None = None) -> str | None:
+    """Run `lib/install/coordinator_install.py --plan` under an empty HOME, from the payload when it
+    carries the installer, else from engine_root.
 
     Returns None when the plan is clean, else a one-line failure reason (script missing, crash,
     non-JSON output, or an "error" key such as "manifest/step drift").
     """
     root = Path(payload_root).resolve()
+    if not (root / _INSTALL_SCRIPT).is_file() and engine_root is not None:
+        root = Path(engine_root).resolve()
     if not (root / _INSTALL_SCRIPT).is_file():
         return f"{_INSTALL_SCRIPT.as_posix()} not in payload"
     with tempfile.TemporaryDirectory() as home:
@@ -331,13 +348,14 @@ def run_install_plan(payload_root: Path, timeout: float = 120) -> str | None:
 
 
 def check_payload(
-    docs_root: Path, payload_root: Path, pyproject: Path | None = None
+    docs_root: Path, payload_root: Path, pyproject: Path | None = None, engine_root: Path | None = None
 ) -> tuple[list[tuple[str, str]], list[tuple[str, str]], str | None]:
-    """Run all three gates. (missing_doc_refs, unresolved_imports, install_plan_error); any truthy FAILS."""
+    """Run all three gates. (missing_doc_refs, unresolved_imports, install_plan_error); any truthy FAILS.
+    `engine_root` is the engine mirror's layout root, consulted only for ENGINE_HOSTED_PREFIXES."""
     return (
-        find_missing_doc_refs(docs_root, payload_root),
+        find_missing_doc_refs(docs_root, payload_root, engine_root),
         find_unresolved_imports(payload_root, pyproject if pyproject is not None else default_pyproject()),
-        run_install_plan(payload_root),
+        run_install_plan(payload_root, engine_root=engine_root),
     )
 
 

@@ -14,8 +14,16 @@ an ARBITRARY command, so any repo/runner can opt in with the same one-liner
 regardless of whether it speaks pytest, pnpm, or a bespoke script.
 
 USAGE
-    with-suite-mutex [--owner-label LABEL] [--max-runtime SECS] -- <command> [args...]
+    with-suite-mutex [--owner-label LABEL] [--collection NAME] [--max-runtime SECS] [--reuse-fresh] -- <command> [args...]
     with-suite-mutex --wait [--wait-timeout SECS]
+
+REUSE MODE: ``--reuse-fresh`` (a wrapper flag, before ``--`` only) first reads
+the ``current`` suite-run record of ``--collection``. A fresh record for the
+same command is reused with no spawn: stderr gets ``suite-run: reused ...`` and
+the exit code is the record's. Otherwise the tier-U gate runs on the command as
+typed (exit 77 on refusal), a held mutex is refused (exit 75, the ``--wait``
+advice), and the command runs once under a zero-timeout acquire (a lost race
+terminates the unrun child, exit 75); a recorded run prints ``suite-run: ran ...``.
 
     with-suite-mutex -- pnpm run tier:fast
     with-suite-mutex -- python3 -m pytest -m 'not cadence'
@@ -96,8 +104,12 @@ Negative-spec — what this wrapper is NOT:
     - NOT runner-aware. It knows nothing about pytest, pnpm, node, or any
       other test tool — it execs whatever argv follows -- unmodified.
       Do not add runner-specific flag parsing here.
-    - NOT a retry loop, a log capturer, or an output filter — stdout/stderr
-      are inherited straight from the child, unmodified.
+    - NOT a retry loop or an output filter. It DOES capture: the child's
+      stdout/stderr are pipes that two threads forward, byte for byte and
+      unmodified, to this process's matching streams while appending them to
+      one log, which becomes ``current.log`` of the two-slot suite-run record
+      (coordinator_core.testing.suite_run_record) for ``--collection``.
+      Capture never alters, drops or reorders a forwarded byte.
     - NOT a substitute for the runner's own per-test timeout. --max-runtime
       is a ceiling on the WHOLE command and fires only when a run has stopped
       making progress entirely; a slow or hanging individual test is the
@@ -105,16 +117,20 @@ Negative-spec — what this wrapper is NOT:
       where the failure can still name the test.
     - NOT an authorization check — it takes the same mutex the
       bash_guards deny-side already reads; it does not replace or
-      duplicate tier/grant enforcement.
+      duplicate tier/grant enforcement. The one exception is ``--reuse-fresh``,
+      whose miss path runs enforce_tier_u_gate itself because the Bash guard
+      defers such a segment to this wrapper.
 """
 
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import signal
 import subprocess
 import sys
+import shlex
 import time
 from typing import List, Optional, Tuple
 
@@ -156,10 +172,20 @@ from cc_invoke import require_colocated_engine_on_path  # noqa: E402
 # pinned behind the checkout.
 require_colocated_engine_on_path(__file__)
 
-from coordinator_core.testing import suite_mutex  # noqa: E402
-from coordinator_core.win_portability import no_console_passthrough_kwargs  # noqa: E402
+from coordinator_core.session.tier_u_gate import enforce_tier_u_gate  # noqa: E402
+from coordinator_core.testing import (  # noqa: E402
+    suite_mutex,
+    suite_run_record,
+    suite_run_reuse,
+)
+from coordinator_core.win_portability import no_console_creationflags  # noqa: E402
 
 _DEFAULT_OWNER_PREFIX = "with-suite-mutex"
+_DEFAULT_COLLECTION = "default"
+
+#: Exit codes of the --reuse-fresh refusals: 77 = tier-U gate refused, 75 = mutex held.
+_GATE_REFUSED_EXIT_CODE = 77
+_MUTEX_HELD_EXIT_CODE = 75
 
 #: Wall-clock ceiling on a single wrapped command, in seconds. 0 disables it.
 #:
@@ -212,10 +238,22 @@ def _install_signal_handlers() -> None:
             pass
 
 
-def _parse_args(argv: List[str]) -> Tuple[Optional[str], float, List[str]]:
-    """Parse ``argv`` into ``(owner_label, max_runtime_secs, command)``.
+_ParsedArgs = Tuple[Optional[str], Optional[str], float, List[str], bool]
+_BAD_ARGS: _ParsedArgs = (None, None, 0.0, [], False)
 
-    Returns ``(None, 0.0, [])`` (with an error already printed) on a malformed
+_USAGE = (
+    "Usage: with-suite-mutex [--owner-label LABEL] [--collection NAME] [--max-runtime SECS] "
+    "[--reuse-fresh] -- <command> [args...]"
+)
+
+
+def _parse_args(argv: List[str]) -> _ParsedArgs:
+    """Parse ``argv`` into ``(owner_label, collection, max_runtime_secs, command, reuse_fresh)``.
+
+    ``collection`` is None unless ``--collection NAME`` was given (a slug).
+    ``--reuse-fresh`` is a wrapper flag only: after ``--`` it belongs to the child.
+
+    Returns ``(None, None, 0.0, [], False)`` (with an error already printed) on a malformed
     invocation — no ``--``, or a ``--`` with nothing after it. Every flag
     MUST appear before the ``--`` separator; nothing after it is
     interpreted, matching ``scoped-git-commit``'s own hard split.
@@ -228,10 +266,10 @@ def _parse_args(argv: List[str]) -> Tuple[Optional[str], float, List[str]]:
     if "--" not in argv:
         print(
             "with-suite-mutex: missing required `--` separator before the command.\n"
-            "Usage: with-suite-mutex [--owner-label LABEL] [--max-runtime SECS] -- <command> [args...]",
+            + _USAGE,
             file=sys.stderr,
         )
-        return None, 0.0, []
+        return _BAD_ARGS
 
     sep_index = argv.index("--")
     flags = argv[:sep_index]
@@ -240,13 +278,24 @@ def _parse_args(argv: List[str]) -> Tuple[Optional[str], float, List[str]]:
     if not command:
         print(
             "with-suite-mutex: `--` must be followed by at least one command token.\n"
-            "Usage: with-suite-mutex [--owner-label LABEL] [--max-runtime SECS] -- <command> [args...]",
+            + _USAGE,
             file=sys.stderr,
         )
-        return None, 0.0, []
+        return _BAD_ARGS
 
     owner_label: Optional[str] = None
+    collection: Optional[str] = None
     max_runtime: float = _DEFAULT_MAX_RUNTIME_SECS
+    reuse_fresh = False
+
+    def _parse_collection(raw: str) -> Optional[str]:
+        if not suite_run_record.COLLECTION_RE.match(raw):
+            print(
+                f"with-suite-mutex: --collection must match [a-z0-9][a-z0-9._-]*, got {raw!r}.",
+                file=sys.stderr,
+            )
+            return None
+        return raw
 
     def _parse_max_runtime(raw: str) -> Optional[float]:
         try:
@@ -265,10 +314,14 @@ def _parse_args(argv: List[str]) -> Tuple[Optional[str], float, List[str]]:
     i = 0
     while i < len(flags):
         flag = flags[i]
+        if flag == "--reuse-fresh":
+            reuse_fresh = True
+            i += 1
+            continue
         if flag == "--owner-label":
             if i + 1 >= len(flags):
                 print("with-suite-mutex: --owner-label requires a value.", file=sys.stderr)
-                return None, 0.0, []
+                return _BAD_ARGS
             owner_label = flags[i + 1]
             i += 2
             continue
@@ -276,27 +329,39 @@ def _parse_args(argv: List[str]) -> Tuple[Optional[str], float, List[str]]:
             owner_label = flag.split("=", 1)[1]
             i += 1
             continue
+        if flag == "--collection" or flag.startswith("--collection="):
+            if flag == "--collection":
+                if i + 1 >= len(flags):
+                    print("with-suite-mutex: --collection requires a value.", file=sys.stderr)
+                    return _BAD_ARGS
+                raw, i = flags[i + 1], i + 2
+            else:
+                raw, i = flag.split("=", 1)[1], i + 1
+            collection = _parse_collection(raw)
+            if collection is None:
+                return _BAD_ARGS
+            continue
         if flag == "--max-runtime":
             if i + 1 >= len(flags):
                 print("with-suite-mutex: --max-runtime requires a value.", file=sys.stderr)
-                return None, 0.0, []
+                return _BAD_ARGS
             parsed = _parse_max_runtime(flags[i + 1])
             if parsed is None:
-                return None, 0.0, []
+                return _BAD_ARGS
             max_runtime = parsed
             i += 2
             continue
         if flag.startswith("--max-runtime="):
             parsed = _parse_max_runtime(flag.split("=", 1)[1])
             if parsed is None:
-                return None, 0.0, []
+                return _BAD_ARGS
             max_runtime = parsed
             i += 1
             continue
         print(f"with-suite-mutex: unrecognized flag {flag!r}.", file=sys.stderr)
-        return None, 0.0, []
+        return _BAD_ARGS
 
-    return owner_label, max_runtime, command
+    return owner_label, collection, max_runtime, command, reuse_fresh
 
 
 def _parse_wait_args(argv: List[str]) -> Optional[float]:
@@ -337,6 +402,29 @@ def _parse_wait_args(argv: List[str]) -> Optional[float]:
             f"--wait takes no command and only --wait-timeout SECS, got {flag!r}."
         )
     return timeout
+
+
+def _slug(text: str) -> str:
+    """``text`` lowered and reduced to a ``COLLECTION_RE`` slug; empty when nothing survives."""
+    return re.sub(r"[^a-z0-9._-]+", "-", text.lower()).strip("-._")
+
+
+def _default_collection(owner_label: Optional[str], command: List[str]) -> str:
+    """Suite name when ``--collection`` is absent: the owner label, else the command's
+    leading tokens up to the first flag (at most three), as a slug.
+    Commands that differ only after a flag (``python -m pytest a`` vs ``... b``) share a name;
+    pass ``--collection`` or ``--owner-label`` to separate them.
+    Falls back to ``_DEFAULT_COLLECTION`` when no slug survives."""
+    name = _slug(owner_label or "")
+    if not name:
+        words = []
+        for token in command[:3]:
+            if token.startswith("-"):
+                break
+            base = os.path.basename(token)
+            words.append(base[:-4] if base.lower().endswith(".exe") else base)
+        name = _slug("-".join(words))[:40].strip("-._")
+    return name if name and suite_run_record.COLLECTION_RE.match(name) else _DEFAULT_COLLECTION
 
 
 def _wait_for_free(timeout: float) -> int:
@@ -458,25 +546,21 @@ def main(argv: List[str]) -> int:
             print("with-suite-mutex: --wait takes no `-- <command>`.", file=sys.stderr)
             return 2
         return _wait_for_free(wait_timeout)
-    owner_label, max_runtime, command = _parse_args(argv)
+    owner_label, collection, max_runtime, command, reuse_fresh = _parse_args(argv)
     if not command:
         return 2
+    argv_as_given = list(command)
+    if collection is None:
+        collection = _default_collection(owner_label, argv_as_given)
 
     prefix = owner_label if owner_label else _DEFAULT_OWNER_PREFIX
     owner = suite_mutex.mutex_owner(prefix)
     cmd_str = " ".join(command)
 
-    # Bare CREATE_NO_WINDOW is wrong here, hence no_console_passthrough_kwargs
-    # (flag plus the real stdout/stderr fds):
-    # this wrapper's whole point is a live, streaming pass-through of the
-    # child's stdout/stderr -- neither stream is redirected to a pipe, so
-    # the child inherits the parent's real console handles. CREATE_NO_WINDOW
-    # allocates a NEW hidden console for a console-subsystem child instead of
-    # inheriting the caller's, which silently discards everything the child
-    # writes when nothing is there to capture it via a pipe. That flag is the
-    # right call for a fire-and-forget background spawn (CLAUDE.md's Windows
-    # console-subprocess-discipline default) but wrong here, where visible,
-    # live output IS the requirement -- see the module docstring.
+    # The child's stdout/stderr are pipes this wrapper forwards live (see _Tee), so
+    # CREATE_NO_WINDOW is safe: its hidden console is harmless once both streams
+    # are explicit pipes. Passing the flag with real fds instead would collide
+    # with the pipe kwargs.
     # CreateProcess does no PATHEXT resolution, so a bare `pnpm`/`npm`/`yarn`/
     # `npx` -- all of which ship on Windows as `.cmd` shims -- raises
     # WinError 2 here while resolving fine from a shell. shutil.which honours
@@ -490,7 +574,37 @@ def main(argv: List[str]) -> int:
     if resolved is not None:
         command = [resolved, *command[1:]]
 
-    process = subprocess.Popen(command, **no_console_passthrough_kwargs())
+    repo_root = suite_run_record.repo_root_for(os.getcwd())
+    if repo_root is None:
+        print("with-suite-mutex: not inside a git repo; no suite-run record.", file=sys.stderr)
+    if reuse_fresh:
+        reuse = (
+            suite_run_reuse.find_reusable(repo_root, collection, argv_as_given)
+            if repo_root is not None else None
+        )
+        if reuse is not None:
+            print(suite_run_reuse.reused_line(reuse), file=sys.stderr)
+            return reuse.exit_code
+        gate = enforce_tier_u_gate(
+            shlex.join(argv_as_given),
+            repo_root=str(repo_root) if repo_root is not None else None,
+        )
+        if not gate.proceed:
+            print(gate.refusal_message, file=sys.stderr)
+            return _GATE_REFUSED_EXIT_CODE
+        if suite_mutex.holder() is not None:
+            print(
+                "with-suite-mutex: another suite run holds the mutex; run "
+                "`with-suite-mutex --wait`, then retry.",
+                file=sys.stderr,
+            )
+            return _MUTEX_HELD_EXIT_CODE
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        **no_console_creationflags(),
+    )
     try:
         ps_process = psutil.Process(process.pid)
     except psutil.Error:
@@ -545,8 +659,20 @@ def main(argv: List[str]) -> int:
 
     try:
         with suite_mutex.held(
-            owner, cmd_str, timeout=suite_mutex.MUTEX_WAIT_SECS, pid=process.pid
+            owner, cmd_str,
+            timeout=0.0 if reuse_fresh else suite_mutex.MUTEX_WAIT_SECS,
+            pid=process.pid,
         ) as acquired:
+            if not acquired and reuse_fresh:
+                # SIGKILL reaches a stopped child; SIGTERM would stay pending on it.
+                process.kill()
+                process.wait()
+                print(
+                    "with-suite-mutex: another suite run took the mutex first; run "
+                    "`with-suite-mutex --wait`, then retry.",
+                    file=sys.stderr,
+                )
+                return _MUTEX_HELD_EXIT_CODE
             if not acquired:
                 current = suite_mutex.holder() or {}
                 print(
@@ -554,11 +680,48 @@ def main(argv: List[str]) -> int:
                     % (current.get("owner", "<unknown>"), int(suite_mutex.MUTEX_WAIT_SECS)),
                     file=sys.stderr,
                 )
+            started_at = suite_run_reuse._now_iso()
+            started_mono = time.monotonic()
+            head_sha, dirty_paths = (None, [])
+            log_path: Optional[str] = None
+            if repo_root is not None:
+                head_sha, dirty_paths, log_path = suite_run_reuse.begin_run(
+                    repo_root, collection
+                )
             try:
                 ps_process.resume()
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 pass
-            return _wait_interruptible(process, max_runtime)
+            tee = suite_run_reuse.Tee(process, log_path)
+            exit_code, outcome = 130, "interrupted"
+            try:
+                exit_code = _wait_interruptible(process, max_runtime)
+                outcome = (
+                    "pass" if exit_code == 0
+                    else "timeout" if exit_code == _MAX_RUNTIME_EXIT_CODE
+                    else "fail"
+                )
+                return exit_code
+            except BaseException:
+                _resume_then_escalate()
+                raise
+            finally:
+                complete = tee.finish()
+                if repo_root is not None and log_path is not None:
+                    suite_run_reuse.record_run(
+                        str(repo_root), collection, command, head_sha, dirty_paths,
+                        started_at, started_mono, exit_code, outcome, bool(acquired),
+                        log_path, not complete,
+                    )
+                    if reuse_fresh:
+                        print(
+                            suite_run_reuse.ran_line(
+                                collection, head_sha, outcome,
+                                suite_run_record.record_dir(repo_root, collection)
+                                / "current.log",
+                            ),
+                            file=sys.stderr,
+                        )
     except BaseException:
         # Review: coordinator:code-reviewer -- covers KeyboardInterrupt AND
         # every other exception (lock-file I/O error, corrupt meta.json,

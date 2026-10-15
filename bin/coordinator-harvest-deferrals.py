@@ -893,7 +893,8 @@ def _body_argv(body: object) -> tuple[list[str], "str | None"]:
     if "\n" not in body_text:
         return ["--body", body_text], None
     handle = tempfile.NamedTemporaryFile(
-        "w", suffix=".txt", delete=False, encoding="utf-8", newline="\n"
+        "w", suffix=".txt", delete=False, encoding="utf-8", newline="\n",
+        dir=cli_shared.managed_temp_root(),
     )
     with handle:
         handle.write(body_text)

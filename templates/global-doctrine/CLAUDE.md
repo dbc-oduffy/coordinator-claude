@@ -71,19 +71,19 @@ surfaces, never whether a safeguard fires.
 - **Surfaces vs suppresses.** Engineering calls (approach, structure, naming, sequencing) stay
   autonomous; product-direction, scope, external-facing actions, prioritization surface up.
 - **"Up" is the APM first, never the PM.** Scope, direction, priority → Angelique
-  (`coordinator:apm`); a code question → the task's domain reviewer (the Staff Engineer by default, the Data Science Reviewer
-  for data science). Act on the ruling; the PM reads it at the receipt. The PM gets only what is
-  important AND urgent AND has no clear right answer — nobody asks the PM to confirm a right one.
-  When a box Group EM is live, ask it for a second opinion before the PM.
-- **External-facing gates on a conjunction:** disruptive to a non-operator AND unrecoverable by
-  any operator here — merge to main, mail, publish, release, a third-party call with side effects,
-  anything reaching a customer, force-push, branch deletion, history rewrite. A private-branch
-  push, an index rebuild, and a repo daemon's own hygiene do not, though each crosses a process
-  boundary.
-- **A proposal is not a delivery, and surfacing is a write.** A PR, issue, memo, or queue row is
-  recoverable — open it rather than asking first; an unwritten question dies at process exit.
-  Attended sessions get it in the reply too, never instead. Memo dispatch stays EM-autonomous
-  unless it mutates a peer's tree/tests.
+  (`coordinator:apm`); a code question → the task's domain reviewer (the Staff Engineer; the Data Science Reviewer for data
+  science). Act on the ruling; the PM reads it at the receipt. The PM gets only what is
+  important AND urgent AND has no clear right answer — never to confirm a right one.
+  A live Group EM is asked first.
+- **The PM's verbatim outranks any agent's words, old or new.**
+- **External-facing gates on publish:** a local write to any working tree, owned or not, is
+  recoverable, never a PM gate, bar a sibling-repo commit (assent-gated: ownership).
+  Irreversible: p4 submit/shelve, push/PR to a non-owned remote, mail, release, third-party
+  effects, merge to main, force-push, branch deletion, history rewrite.
+  `A-LOCAL-WRITE-IS-RECOVERABLE-ONLY-PUBLISHING-IS-IRREVERSIBLE`.
+- **A proposal is not a delivery, and surfacing is a write.** A PR (owned repo), issue, memo, or
+  queue row is recoverable — open it, don't ask; unwritten, it dies at exit.
+  Attended: also in the reply. Memos stay EM-autonomous unless they mutate a peer's tree/tests.
 <!-- coordinator:posture:end -->
 
 ## Flag Severity — Break-Class Is Fix-by-Default, Not Defer-to-PM

@@ -355,8 +355,8 @@ check, anti-vacuity gate, diff freeze, inventory archival (COMPLETE only), track
   each stamped `costRank` by the size of the integrated change. **The ledger is the address
   space**: sourcing it from the run diff or an executor report widens the adjudicator's authority
   silently, which is the thing to check in review, not its wording. Empty ledger →
-  `NO-CANDIDATES`, no dispatch, recorded — a `/mise` run runs no review of its own, so empty is
-  the ordinary reading. Non-empty → one `subtractive-adjudicator` dispatch, then land its return
+  `NO-CANDIDATES`, no dispatch, recorded — the run's review wave writes the review-layer
+  artifacts, so the ledger is empty only when the wave added nothing. Non-empty → one `subtractive-adjudicator` dispatch, then land its return
   under the seven landing rules in the wiki. Every candidate — revoked, accepted, refused,
   unadjudicated — lands in `state/mise-inventory/<run-id>-adjudication.md`. Any `unadjudicated`
   candidate makes the phase INCOMPLETE, and the verdict line may not read COMPLETE while it is.
@@ -371,9 +371,10 @@ check, anti-vacuity gate, diff freeze, inventory archival (COMPLETE only), track
   follow-up, and the tail summary names it as such.
 - **Anti-vacuity:** scoped `git status --porcelain -- <this run's footprint paths>`, never bare
   unscoped. Non-empty → repair via the wave-commit op before freezing.
-- **Review routing:** no review gate of its own (PM ruling). Freeze:
-  `freeze-review-diff --range "<start-sha>..HEAD" --slice-id "mise-<run-id>"`; name
-  `/workstream-complete` or a review-and-cap `/handoff` in the tail summary. An aggregate baton's
+- **Review routing:** the emitted inventory script runs the review wave
+  (`review-roster-fragment.md` § Required on every code-landing emit); the close does not yet read
+  its receipt. Freeze: `freeze-review-diff --range "<start-sha>..HEAD" --slice-id "mise-<run-id>"`;
+  name `/workstream-complete` or a review-and-cap `/handoff` in the tail summary. An aggregate baton's
   membership inherits this discharge unchanged — the obligation is keyed on the diff range, which
   every constituent lands inside; `/workstream-complete`'s chain diff covers a different object
   and is untouched. **The frozen diff and its `.head.sha` (`state/review-trail/`) and executor

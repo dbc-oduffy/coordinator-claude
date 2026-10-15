@@ -59,6 +59,15 @@ ones deliberately: their `main()` reads no argv, so `--fleet` would be accepted 
 ignored — doctrine reading as fixed while still healing one repo of fifteen. Scope belongs in the
 name. The `pre-commit` leg is unaffected either way: it names one repo by construction, never cwd.
 
+### Entrypoint name as shipped
+
+The shipped entrypoint is the extensionless `coordinator-ensure-hooks-fleet` (plus a `.cmd` shim on
+Windows) under the engine's `coordinator/bin/` in the published engine mirror, the tree every box
+resolves. The `coordinator-ensure-hooks-fleet.py` spelling exists only in the engine's authoring
+tree, never in the mirror. A runner that resolves the step to the `.py` spelling fails against the
+mirror with exit 2 on a missing file; the fix is in the engine's step resolution. Never add a `.py`
+alias to the mirror from here.
+
 ## Step 0 — Branch Setup (full procedure)
 
 The goal is to ensure the active workstream branch reconciles with `origin/main` daily — not to create a new branch every day. The active workstream may be either:

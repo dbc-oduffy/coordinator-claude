@@ -2,8 +2,7 @@
 
 Defines what the idle report must emit so the watcher can act on a whole tick without opening a file.
 
-> What `coordinator_core.group_em.idle_report` must emit for its consumers — the Navi role
-> (`coordinator/templates/agents/navi.md`, run as a session) and the Group EM's send pass
+> What `coordinator_core.group_em.idle_report` must emit for its consumer — the Group EM's send pass
 > (`coordinator/skills/group-em/SKILL.md` § Send pass) — to run a whole tick without opening a file.
 > `coordinator:group-em-assistant` does not run it. **The doctrine repo owns this contract; the engine repo owns the implementation.**
 > Rule: the watcher acts on the report and nothing else — a fact the report does not carry is a

@@ -74,7 +74,7 @@ PowerShell host (rung 0): `& "$env:COORDINATOR_SETTINGS_HOME\bin\install-meta-re
 
 No-ops if not a git repo. Under `--check-only`, don't run it — report gate-marker presence instead.
 
-Git-LFS: report presence only — never `git lfs install` (no flags) against a coordinator-hooked repo: it refuses to overwrite coordinator's own committed hooks and only offers `--force`, which would clobber them, so a per-repo hook install is permanently a no-op here and must not be attempted. Binary present: offer `git lfs install --skip-repo` (global filter config only, never touches repo hooks). Binary absent: advisory per-platform remediation (wiki). Always report which branch ran — never silent.
+Git-LFS: opt-in per repo. A repo uses it only when its root `.gitattributes` has a `filter=lfs` pattern plus `# lfs-justification: <reason>`; the installer never enables it.
 
 **Settings env values.** `python3 "${CLAUDE_PLUGIN_ROOT:?coordinator plugin root unset — run this from a plugin command/skill, or substitute an absolute path}/bin/check-settings-env.py" --apply` asserts `settings.json`'s `env` block against `templates/settings-manifest.md` § Environment Variables — **values, not key presence**: a key at the wrong value gates a tool out of every session on the box while reading as configured. `--apply` writes only the all-machines rows and removes retired keys; machine-specific ones are reported, never auto-written. Under `--check-only`, drop `--apply`. Env is read at process start — a repair lands on the next session, not this one.
 
@@ -128,21 +128,6 @@ Skip under `--check-only`. Then seed the global CLAUDE.md:
 PowerShell host (rung 0): `& "$env:COORDINATOR_SETTINGS_HOME\bin\render-template.exe" "$env:CLAUDE_PLUGIN_ROOT\templates\CLAUDE.md.tmpl" -o "$HOME\.claude\CLAUDE.md" --guard-sentinel "coordinator:claude-md-seed:v1" "PM_NAME=$OPERATOR_NAME"`
 
 Never-clobber is the `--guard-sentinel` flag's own contract (exit 3 = hand-authored file preserved, skip). No `--check-only` flag on the primitive — skip the call there instead.
-
-**Navi nudge role.** `render-template` never mkdirs and `~/.claude/agents/` will not exist on a fresh box — create it first, then render the role, same guard-sentinel contract as the CLAUDE.md seed above. Skip both calls under `--check-only`.
-
-```bash
-mkdir -p "${CLAUDE_HOME:-$HOME}/.claude/agents"
-```
-
-Then render the role into it:
-
-```bash
-"${COORDINATOR_SETTINGS_HOME:?COORDINATOR_SETTINGS_HOME unset — run the POSIX preamble above first}/bin/render-template" "${CLAUDE_PLUGIN_ROOT}/templates/agents/navi.md" -o "${CLAUDE_HOME:-$HOME}/.claude/agents/navi.md" --guard-sentinel "coordinator:navi-role:v1"
-```
-
-PowerShell host (rung 0): `New-Item -ItemType Directory -Force "$HOME\.claude\agents" | Out-Null`
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\render-template.exe" "$env:CLAUDE_PLUGIN_ROOT\templates\agents\navi.md" -o "$HOME\.claude\agents\navi.md" --guard-sentinel "coordinator:navi-role:v1"`
 
 **Engagement posture (mandatory gate, both modes).** Asked by the install script (`posture` decision, canonical text in the plan); `--non-interactive` uses its default. Reuse the identity read; `engagement_posture` present: use it. The choice persists machine-wide in the identity file, with an optional `posture_text` the overlay render composes in; the per-repo overlay is Phase 8.
 

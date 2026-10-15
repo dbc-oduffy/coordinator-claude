@@ -172,7 +172,7 @@ Notes on fields:
 - Within YOUR claims, you can cross-reference by ID (e.g., "see {{item}}-003").
 - **Empty optional fields: OMIT THE KEY.** Do not write `null`, `[]`, or `""`.
   `counter_evidence`, `corroborated_by`, and `contested_by` are optional strings in
-  `research-claim.schema.json` (read it at `${CLAUDE_PLUGIN_ROOT}/schemas/research-claim.schema.json`, or `<content-root>/coordinator/schemas/` with `<content-root>` from `~/.claude/.content-root`; `topic_tags` is an array of strings); a `null` fails its type check and the EM's
+  `research-claim.schema.json` (read it at `${CLAUDE_PLUGIN_ROOT}/schemas/research-claim.schema.json`, or `<content-root>/coordinator/schemas/` with `<content-root>` from `<home>/.claude/.content-root`; `topic_tags` is an array of strings); a `null` fails its type check and the EM's
   `claims-emit` step rejects the whole batch on record 0. Leave the key out entirely
   when there is no value. When there IS a value, `corroborated_by` and `contested_by`
   are free text, not arrays.

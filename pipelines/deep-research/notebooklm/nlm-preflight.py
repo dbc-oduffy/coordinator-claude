@@ -21,7 +21,15 @@ REMOVE_REMEDY = "! claude mcp remove gemini-notebook-mcp -s user"
 RESTART_REMEDY = "restart Claude Code"
 GOOD_KEY = "notebooklm-mcp"
 STALE_KEY = "gemini-notebook-mcp"
-AUTH_PATTERN = re.compile(r"auth|expired|log\s*in|login|unauthori[sz]ed|credential", re.I)
+AUTH_PATTERN = re.compile(
+    r"\b(?:(?:session|token|credentials?|cookies?)\s+(?:has\s+|have\s+)?expired"
+    r"|authentication\s+(?:required|failed|error)"
+    r"|not\s+(?:logged\s+in|authenticated)"
+    r"|please\s+log\s*in"
+    r"|unauthori[sz]ed"
+    r"|invalid\s+credentials?)\b",
+    re.I,
+)
 TIMEOUT_S = 45
 
 # runner(argv) -> (returncode, combined_output); raises TimeoutError on timeout.

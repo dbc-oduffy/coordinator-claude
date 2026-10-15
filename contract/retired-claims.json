@@ -89,6 +89,40 @@
       ],
       "witness": "goal ratification stamps the consumed sizing shipped\nthe sizing is stamped shipped by goal landing",
       "legacy_sites": []
+    },
+    {
+      "id": "memo-delivery-waits-on-pm-relay",
+      "claim": "A cross-repo memo is not delivered until the PM relays the receiver path.",
+      "retired_by": "coordinator/docs/wiki/cross-repo-communication/cross-repo-memo-lifecycle.md",
+      "signatures": [
+        "\\ba\\s+memo\\s+without\\s+PM-relay\\b",
+        "\\bnot\\s+delivered\\s+until\\s+the\\s+PM\\s+relays\\b"
+      ],
+      "witness": "to relay — a memo without PM-relay is a document dropped in a hole.\nare not delivered until the PM relays the receiver path.",
+      "legacy_sites": []
+    },
+    {
+      "id": "mise-runs-no-review",
+      "claim": "A mise-en-place run runs no code review; review is owed to a capping ceremony.",
+      "retired_by": "coordinator/docs/contracts/run-close.md",
+      "signatures": [
+        "\\bruns\\s+no\\s+review\\s+of\\s+its\\s+own\\b",
+        "\\bno\\s+review\\s+gate\\s+of\\s+its\\s+own\\b",
+        "\\bruns\\s+no\\s+code\\s+review\\s+and\\s+gates\\s+on\\s+none\\b"
+      ],
+      "witness": "a /mise run runs no review of its own\n/mise has no review gate of its own\n/mise-en-place runs no code review and gates on none",
+      "legacy_sites": []
+    },
+    {
+      "id": "sizing-hand-fires-emit-wave-fire-as-default",
+      "claim": "On an XS-L plan route the EM runs emit-wave-fire after the sizing write and fires its printed Workflow as the normal path.",
+      "retired_by": "docs/plans/2026-10-14-sizing-default-engine-ask-to-completion.md",
+      "signatures": [
+        "writes\\s+the\\s+sizing,\\s+runs\\s+`?emit-wave-fire`?,\\s+and\\s+fires\\s+the\\s+Workflow",
+        "Step\\s+4's\\s+`?--write`?\\s+runs\\s+`?emit-wave-fire`?\\s+and\\s+prints\\s+its"
+      ],
+      "witness": "writes the sizing, runs `emit-wave-fire`, and fires the Workflow in the same turn\nOn `route: plan` Step 4's `--write` runs `emit-wave-fire` and prints its `Workflow` line",
+      "legacy_sites": []
     }
   ]
 }

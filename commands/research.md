@@ -1,6 +1,6 @@
 ---
 name: research
-description: "Research by value class: scouts, corpus, or deep. EM-fired, never from a subagent."
+description: "Research by value class: scouts, corpus, deep, or spike. EM-fired, never from a subagent."
 allowed-tools: ["Agent", "Read", "Write", "Edit", "Bash", "Glob", "Grep", "Workflow"]
 argument-hint: "--sizing <path> | --ask \"<question>\""
 ---
@@ -16,6 +16,15 @@ prints one `Workflow` line. Value classes and the tier-to-manifest map:
 | `scouts` | 1-2 Sonnet agents; a scratch digest. The default for a bare ask |
 | `corpus` | the named-source manifest pipeline (web, repo, structured, NotebookLM), with coverage audit |
 | `deep` | the unblock-us diagnostic team (diagnose, decompose, challenge, plus one specialist per source), for an EM stuck delivering something |
+| `spike` | a binary verdict on one unproven mechanism: both halves, throwaway probes, a verdict record. Procedure: `coordinator/skills/spike/SKILL.md`. Spike is the research door's verdict class |
+
+## The research door
+
+Sizing is the door for build work (one `coordinator:engine-ask` submission); this command is the
+door for research. The EM enters it when the PM says "research" or "spike", when the ask is
+multifaceted and likely to break up, or when it is uncharted territory. The EM's sizing is the
+authority; neither door gates or refuses the other's arrival. Research need not end with code, and
+every class ends with a committed artifact and trail (Step 4).
 
 `deep` is the unblock team, not "more depth". A comprehension ask ("understand this repo", "survey
 this topic") is `corpus`; more thoroughness on a corpus run is `--research-depth deeper|deepest`
@@ -50,7 +59,7 @@ sizing (`sizing-assemble --research-destination local-only`), or passes `--local
 a local-only sizing cannot be emitted any other way. Scratch and every durable output then land under
 machine-local `research.local_root`, which must sit outside every checkout and must be set on the box
 first (`machine-local set research.local_root <dir>`). `research.close` copies them there and commits
-nothing.
+no output content; the run's trail record is committed (Step 4).
 
 `research.depth` picks the scout tier: `standard` runs Haiku scouts, `deeper` runs Sonnet scouts
 over chunks A–D, and `deepest` adds the relay pass. A large repo (about 1000+ files, or about 150+
@@ -94,16 +103,26 @@ one EM-authored step; scoping, prior-art and coverage are manifest stages.
 Resolve the engine CLI per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`, then run
 `emit-dispatch-workflow --from-sizing <path>`, or `emit-dispatch-workflow --research --ask "<question>"`
 for scouts. Fire the one printed `Workflow` line as a background Workflow (`run_in_background: true`).
-Never hand-fill a script. On a corpus or deep fire, arm `Monitor` on the emit reply's `em_watch`
-command in the same turn (`ToolSearch select:Monitor` first: it is a deferred tool); each line it prints is a member escalation to act on now. When `sources[]` holds `notebooklm`, the engine prepends the preflight
+Never hand-fill a script. On a corpus or deep fire, run `em_watch` (`_py=$(command -v python3 || command -v python) || exit 1; "$_py" -m coordinator_core.workflow_watch.mailbox_line <box>`) in the background the same turn; it returns on an escalation: act, then `em_rewatch`. When `sources[]` holds `notebooklm`, the engine prepends the preflight
 stage and halts before spend if the NotebookLM MCP is unregistered; its remedy strings are the
 exact commands to relay.
 
 ## Step 4: On Completion
 
-- **Scouts:** read the digest in scratch. Commit nothing.
+Every class closes on a committed artifact and trail
+(`A-RESEARCH-CLOSES-ON-A-COMMITTED-ARTIFACT-AND-TRAIL`). The trail record is
+`docs/research/trail/<run-id>.yaml`: run id, sizing path, class, destination, output count, with
+repo-relative paths only.
+
+- **Scouts:** read the digest in scratch, then commit it under `docs/research/` with its trail
+  record by the ordinary scoped commit path. `research.close` does not serve this class yet.
 - **Corpus and deep:** the Workflow returns `{results, next_action}`; run `next_action`
-  (`research.close` with its params) unedited: it archives and commits the outputs.
+  (`research.close` with its params) unedited: it archives and commits the outputs. Commit the
+  trail record beside them by the ordinary scoped commit path.
+- **Spike:** follow `coordinator/skills/spike/SKILL.md`; the committed artifact is the verdict
+  record at `docs/research/spike-verdicts/`, and the trail record names it.
+- **Local-only (any class):** the outputs stay under `research.local_root`; commit the trail
+  record alone, with no excerpt of the output content.
 - **NotebookLM:** the sweep never deletes notebooks. Once the coverage-audit sidecar exists, if the
   sizing asked for cleanup, read each `{letter}-summary.md`'s `notebook_id` and call `notebook_delete`
   for each, logging failures; otherwise report the preserved notebook names to the PM. The NotebookLM

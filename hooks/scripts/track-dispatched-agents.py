@@ -886,6 +886,7 @@ def _dispatch_subagent_start_ops(cwd: Any, params: dict, payload: dict) -> int:
     additional_context_parts: list[str] = []
     for r in results:
         if isinstance(r, HookDispatchError):
+            print(f"track-dispatched-agents: {r}", file=sys.stderr)
             continue  # errored leg contributes nothing, never suppresses its sibling
         if not r:
             continue  # no_advisory()/empty envelope -- normal outcome, not an error
@@ -945,8 +946,10 @@ def _dispatch_bookkeeping_write(cwd: Any, params: dict) -> int:
             params,
             origin_worktree=str(cwd) if cwd else None,
         )
-    except HookDispatchError:
-        return 0  # any engine failure -> fail-open (never brick a hook fire)
+    except HookDispatchError as exc:
+        # Fail-open, but loud: a refused bookkeeping write disarms every guard reading the ledger.
+        print(f"track-dispatched-agents: {exc}", file=sys.stderr)
+        return 0
 
     # No stdout relay: this op is MUTATING bookkeeping (dedup/append to
     # dispatched-agents.txt + the em-session-id.txt back-pointer), never

@@ -29,6 +29,7 @@ higher threshold. Manual serial `Agent` dispatch is the fallback only for genuin
 work — a single ad-hoc scout or a hand confirmation outside a plan run, never a substitute for
 scope size. See `coordinator/docs/wiki/em-operating-model/workflow-orchestration.md` for the general doctrine this instantiates
 and `pipelines/artifact-distillation/PIPELINE.md` for this pipeline's own Workflow phase mechanics.
+The Workflow's two input channels (`args.inputFile` with its list counts; `args.curatedFile` or inline `args.curatedTags`) are specified in `pipelines/artifact-distillation/phase-0-scoping.md` § Call contract and `pipelines/artifact-distillation/clustering-and-consolidation.md` § Curated-input channels.
 
 **PM gate applies to deletions only.** Additive knowledge writes (wiki/DR harvest, distillation-log
 rows) go direct, no PM checkpoint. Only the irreversible `git rm` at Phase 5 — governed by the
@@ -135,14 +136,22 @@ at all) — this gate is defense-in-depth regardless of whether resume ran.
 handoff eligibility list is retired with the cohort. Archived-handoff pruning is owned by
 `/update-docs` Phase 8b (`pipelines/update-docs/artifact-pruning.md`).
 
-**Completion records (`archive/completed/**`) are harvested, never delete-eligible, trimmed, or moved** — read inputs only; same bar as `pipelines/update-docs/artifact-pruning.md` § Never delete.
+**Completion records (`archive/completed/**`) and archived plans (`archive/specs/**`) are delete-eligible once harvested.** A record still cited from `docs/` or `tasks/` is first repointed to the wiki page that absorbed its content (`pipelines/artifact-distillation/phase-3d-deletion-manifest.md` § Citation repoint). Each class carries its own guard set; none of the memo-shaped guards (`shipped_in:`, `realized_by`, commitment-closure, `distill_fate` frontmatter) apply:
+
+| Class | Eligible when |
+|---|---|
+| `completion` | a `docs/wiki/` or `docs/decisions/` file carries provenance citing the artifact (guard 1, on-disk capture — a log row alone does not satisfy it), AND the active-reference check (guard 3) is clear after repoint (the Workflow's `citation-repoint` phase performs the repoint) |
+| `plan`, delivered | `status: implemented`, AND the `completion` conditions hold |
+| `plan`, never delivered | `status: superseded`, `abandoned` or `cancelled`, AND the active-reference check (guard 3) is clear. Never harvested, so no provenance condition; a citation to a superseded plan is repointed to the plan that superseded it |
+
+An artifact of any other, unrecognised class fails closed.
 
 The four guards below survive as the memo eligibility base:
 1. **Extraction-artifact present.** A DR or wiki entry cites it via provenance, OR it is
    empirically content-free. A `~/.claude` memory pointer does NOT satisfy this — durable capture
    is in-repo only (`docs/decisions/`, `docs/wiki/`, `state/cross-repo-commitments/`, a canonical
    plan/spec).
-2. **`shipped_in:` present.** Missing → surface to PM, do not delete.
+2. **`shipped_in:` present.** Missing → KEEP, reason `shipped_in-missing`; do not delete.
 3. **Active-reference check.** No live citation across `docs/`, `tasks/`, `archive/specs/`,
    plugin sources, **or any test tree** (provenance-marker tombstones excluded). Test trees are
    named explicitly because a test reads an artifact as a RUNTIME ORACLE, not as a citation: the
@@ -156,6 +165,8 @@ retargeted to `cross_repo_memo:` provenance and `status: actioned`, plus):
 5. **Commitment-closure gate.** Blocked while a linked `state/cross-repo-commitments` entry is
    `status: open` (our record only), OR the memo's disposition is `accepted`/`partial` with an
    absent/unverifiable `realized_by`. Blocked ⇒ BLOCKED — never silently skip.
+
+**The closing report carries no housekeeping decision for the PM.** A tracked-file `git rm` is recoverable; every candidate ends deleted or retained with a named guard, and the report states the outcome, never asks.
 
 These guards gate eligibility *judgment* (dispatch-eligible at Phase 3d) — the resulting deletion
 at Phase 5 is EM-only.

@@ -6,13 +6,15 @@ Records the PM's verbatim acceptance of a sizing-object's exit criterion
 rule, this file owns only the argv grammar and the `--help` text.
 
 Usage:
-    sizing-accept-exit-criterion.py --sizing PATH (--pm-quote TEXT | --apm-ruling TEXT --ruling-ref PATH)
+    sizing-accept-exit-criterion.py --sizing PATH [--pm-quote TEXT | --apm-ruling TEXT --ruling-ref PATH]
         [--statement TEXT] [--mode {hands-on,pm,ceo}] [--supersede]
+    Neither words flag is needed where the op records the statement alone (XS-L on a
+    plan/dispatch/spec-dispatch route); the op refuses elsewhere.
 
 Exit codes:
     0 -- accepted, or an identical acceptance was already on record (no-op).
     1 -- the op refused (see the epilog) or the engine/repo root was unreachable.
-    2 -- argparse usage error (a missing --sizing, neither or both of
+    2 -- argparse usage error (a missing --sizing, both of
          --pm-quote/--apm-ruling, an unknown flag).
 
 Negative-spec: does NOT compose, infer, or default `--pm-quote` or `--apm-ruling`; does NOT
@@ -57,7 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="absolute or repo-relative path to the sizing-object under state/sizings/.",
     )
-    who = p.add_mutually_exclusive_group(required=True)
+    who = p.add_mutually_exclusive_group()
     who.add_argument(
         "--pm-quote",
         help="the PM's own verbatim words accepting the criterion; never composed or "

@@ -72,10 +72,10 @@ resolve correctly there.
 ## Step 0 — Detect: which track?
 
 The installer decides the track; you never pick one by hand and never infer it from probes of
-`~/.claude`. Resolve the plugin root, then run:
+`~/.claude`. The installer ships in the engine: clone `claude-klabauter` (Step 4 keeps that clone), then run:
 
 ```bash
-python3 <plugin-root>/lib/install/coordinator_install.py --plan
+python3 <klabauter-clone>/lib/install/coordinator_install.py --plan
 ```
 
 Read `environment.track` (with `track_reason`) from the JSON.
@@ -293,10 +293,10 @@ session that runs `/coordinator:install` to finish the environment wiring.
 
 In the fresh session, the human runs:
 
-1. **`/coordinator:install`** — typed by the human (the command is `disable-model-invocation`; an agent may run only `python3 <plugin-root>/lib/install/coordinator_install.py --plan` through Bash) — environment wiring, run as a script with declared choices
-   (`lib/install/coordinator_install.py`: orientation first, then `--plan`, then `--answers`; safe
+1. **`/coordinator:install`** — typed by the human (the command is `disable-model-invocation`; an agent may run only `python3 <klabauter-clone>/lib/install/coordinator_install.py --plan` through Bash) — environment wiring, run as a script with declared choices
+   (`<klabauter-clone>/lib/install/coordinator_install.py`: orientation first, then `--plan`, then `--answers`; safe
    to re-run; skips anything already configured; reports every step RAN, SKIPPED, INHERITED or
-   FAILED). Checks prerequisites, sets the Agent Teams env var, lays down the machine-local
+   FAILED). Checks prerequisites, removes the retired Agent Teams env var if present, lays down the machine-local
    registry, builds the helper venv, scaffolds the canonical document structure, records the
    `setup_concluded` receipt, and offers a guided tour + repo bootstrap. This *is* the
    post-restart onboarding — there is no separate baton to `/pickup`. **Phase 3 of this command

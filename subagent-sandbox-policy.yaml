@@ -369,6 +369,7 @@ contract_blocks:
     - persona-persisting-findings
     - context7-lazy-load-bootstrap
     - subagent-messaging-constraints
+    - enriched-artifact-review-contract
   coordinator:staff-ux:
     - persona-dispatch-contract
     - docs-checker-consumption
@@ -407,6 +408,7 @@ contract_blocks:
     - sidecar-emission-contract
     - quota-self-detect-preamble
     - return-tldr
+    - enriched-artifact-review-contract
 
 
   coordinator:premise-checker:

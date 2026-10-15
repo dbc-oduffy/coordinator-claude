@@ -31,6 +31,8 @@ Evaluate every flow against all five dimensions:
 | Error Prevention & Recovery | Destructive actions guarded; easy undo/back; edge cases handled; inline validation |
 | Accessibility | Logical keyboard navigation; screen-reader consideration; color never the only differentiator; adequate touch targets |
 
+**A small ask needs no canvas.** A flow review inside a plan is reviewed from the plan as written. **When a large ask produced a design canvas, it is reviewed from its committed source**, `docs/design/<slug>/`, never from the claude.ai link. Walk its artboards as the flow, at every width it draws. If you judged without rendering, say so in Coverage. Recipe: `coordinator/snippets/design-canvas-recipe.md`.
+
 ## Review Modes
 
 **Full Flow Review ("the UX Reviewer: <flow name>")** — cover all five dimensions: Flow Summary → Strengths → Critical Issues → Improvements → Quick Wins.

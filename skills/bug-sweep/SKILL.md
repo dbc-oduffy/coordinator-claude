@@ -29,11 +29,11 @@ running `/bug-sweep` — systematic bug hunt [scoped to X / across the full code
    structure).
 5. Hot-zone rank: `query-completions --since "30d" --where "nature=bugfix" --format json` by
    path-prefix — hot chunks first, chunks with a bugfix in the last 7 days deprioritize (both at
-   once: surface the conflict). Record to `state/scratch/bug-sweep/{run-id}/hot-zone-ranking.md`;
+   once: surface the conflict). Record to `state/bug-sweep/{run-id}/hot-zone-ranking.md`;
    skip on empty.
 6. Identify the test runner (Track B).
 7. Read `state/lessons/` for project-specific patterns to add.
-8. Generate run ID (`YYYY-MM-DD-HHhMM`), create `state/scratch/bug-sweep/{run-id}/`.
+8. Generate run ID (`YYYY-MM-DD-HHhMM`), create `state/scratch/bug-sweep/{run-id}/` (ephemeral Phase 1 notes) and `state/bug-sweep/{run-id}/` (the durable record).
 9. Output: chunk table with pattern assignments, hot-zone ranking, test runner command.
 
 ## Pre-Dispatch: Verify Backlog Against Current Code
@@ -125,7 +125,7 @@ migration, no user-visible change) — apply it, note "fix applied; runtime conf
 Bias toward fixing. Worked examples: wiki.
 
 Output: "Fix now"/"Backlog" lists grouped by file, cross-agent duplicates merged. Also write
-`phase2-fix-now.json` (Phase 4's diff gate consumes it), minimum field `file`:
+`state/bug-sweep/{run-id}/phase2-fix-now.json` (Phase 4's diff gate consumes it), minimum field `file`:
 
 ```json
 [
@@ -170,7 +170,7 @@ modified files; report INCORRECT and suspicious-UNVERIFIED only." `INCORRECT` in
 ## Phase 4: Report and Commit (YOU do this)
 
 0. **Mechanical diff gate:** `bug-sweep-probes verify-diff --fix-now
-   state/scratch/bug-sweep/{run-id}/phase2-fix-now.json` — non-empty `missing` means an executor
+   state/bug-sweep/{run-id}/phase2-fix-now.json` — non-empty `missing` means an executor
    `no-op` claimed a fix; list as **Zero-diff fixes**, doesn't block committing real fixes.
    Rationale: wiki.
 
@@ -217,8 +217,9 @@ modified files; report INCORRECT and suspicious-UNVERIFIED only." `INCORRECT` in
    `Scope`, `Patterns applied`, and `Backlog pruned` are never printed; clean/untripped/zero items
    stay silent too. Rationale: wiki.
 
-5. **Leave scratch in place after commit** (delete at `/workstream-complete`'s self-clean step or a
-   PM cleanup signal); note the scratch path in the handoff body if the next step is `/handoff`.
+5. **Commit the record directory** `state/bug-sweep/{run-id}/` with the sweep's commit; a handoff
+   cites that path. The scratch run dir stays in place (delete at `/workstream-complete`'s
+   self-clean step or a PM cleanup signal) and is never cited.
 
 ## Pattern Library, Cost Profile, Failure Modes
 

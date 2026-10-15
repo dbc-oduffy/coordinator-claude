@@ -379,6 +379,7 @@ def _cmd_reconcile(args: argparse.Namespace) -> int:
     _sweep_orphans(scratch_root, remote_url)
 
     clone = Path(tempfile.mkdtemp(prefix=_CLONE_PREFIX, dir=str(scratch_root)))
+    dry_run_discard = False
     try:
         cloned = _run(["git", "clone", "--quiet", remote_url, str(clone)])
         if cloned.returncode != 0:
@@ -398,6 +399,9 @@ def _cmd_reconcile(args: argparse.Namespace) -> int:
                 "  to push the reconciled '{}'. Promotion stays a separate act:\n"
                 "  klabauter-promote.py {} --confirm".format(channel, args.target)
             )
+            # A dry-run merge is never pushed and --confirm redoes it in a fresh
+            # clone, so its unpushed commit is not work to protect.
+            dry_run_discard = True
             return _EXIT_OK
 
         pushed = _git(clone, "push", "origin", channel)
@@ -413,7 +417,10 @@ def _cmd_reconcile(args: argparse.Namespace) -> int:
         )
         return _EXIT_OK
     finally:
-        _remove_clone(clone, remote_url, "reconcile clone")
+        if dry_run_discard:
+            _rmtree(clone)
+        else:
+            _remove_clone(clone, remote_url, "reconcile clone")
 
 
 def _build_parser() -> argparse.ArgumentParser:

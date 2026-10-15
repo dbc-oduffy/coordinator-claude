@@ -609,25 +609,25 @@ def main(argv):
     validate_val = os.environ.get("RC_VALIDATE") or "not-run"
     plugin_suite_val = os.environ.get("RC_PLUGIN_SUITE") or "n/a"
 
-    new_block = changelog_ops._compose_block(
-        date=today,
-        machine=machine,
-        branch=branch,
-        commit_count=commit_count,
-        commit_range=commit_range,
-        scope=scope,
-        plans_touched=plans_touched,
-        handoffs_list=handoffs_list,
-        decisions=decisions,
-        blockers=blockers,
-        rc_validate=validate_val,
-        rc_plugin_suite=plugin_suite_val,
-        reviewed_lines=reviewed_lines,
-        has_non_trivial=has_non_trivial,
-        is_backfill=is_backfill,
-    )
-
     if dry_run:
+        _, new_block = changelog_ops.compose_day_block(
+            worktree=Path(coordinator_root),
+            date=today,
+            machine=machine,
+            branch=branch,
+            commit_count=commit_count,
+            commit_range=commit_range,
+            scope=scope,
+            plans_touched=plans_touched,
+            handoffs_list=handoffs_list,
+            decisions=decisions,
+            blockers=blockers,
+            rc_validate=validate_val,
+            rc_plugin_suite=plugin_suite_val,
+            reviewed_lines=reviewed_lines,
+            has_non_trivial=has_non_trivial,
+            is_backfill=is_backfill,
+        )
         print(new_block)
         print("[step9] push: skipped (--dry-run)")
         print("[step9] OK")

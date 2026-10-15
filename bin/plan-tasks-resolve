@@ -147,7 +147,7 @@ _OP = "plan.tasks.mutate"
 # let `--coded` past the CLI and into a server-side refusal, so this set is
 # deliberately WIDER than the one it used to mirror.
 _DETAIL_REQUIRED_DISPOSITIONS = frozenset(
-    {"coded", "spun_off", "backlogged", "wont_do"}
+    {"coded", "delivered_elsewhere", "spun_off", "backlogged", "wont_do"}
 )
 
 # The two exits the PM retained at the 2026-08-05 ruling — they are where work
@@ -198,6 +198,10 @@ The five exits (2026-08-05 DoE ruling):
                                (no PM word needed)
   --backlogged             -> disposition: backlogged  (PM WORD REQUIRED)
   --wont-do                -> disposition: wont_do     (PM WORD REQUIRED)
+
+A sixth exit, --delivered-elsewhere --via <direct-message|memo|other> --ref <ref>,
+records work that landed outside this repo through a channel the plan did not
+name (no PM word needed). Completion is asserted, not commit-proven: it warns.
 
 --disposition-detail is REQUIRED for every exit, --coded included: the
 rationale, not a synthesised placeholder. Any row leaving 'open' has to say
@@ -307,6 +311,29 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     exits = parser.add_mutually_exclusive_group(required=True)
+    exits.add_argument(
+        "--delivered-elsewhere",
+        dest="delivered_elsewhere",
+        action="store_true",
+        help=(
+            "disposition: delivered_elsewhere — work landed outside this repo through a "
+            "channel the plan did not name; completion is asserted, not commit-proven; "
+            "needs --via, --ref and --disposition-detail"
+        ),
+    )
+    parser.add_argument(
+        "--via",
+        dest="via",
+        choices=["direct-message", "memo", "other"],
+        default=None,
+        help="--delivered-elsewhere only: the channel the work arrived through",
+    )
+    parser.add_argument(
+        "--ref",
+        dest="ref",
+        default=None,
+        help="--delivered-elsewhere only: <repo_key>@<sha>, a URL, or a memo path (recorded as data)",
+    )
     exits.add_argument("--coded", dest="coded", metavar="SHA", help="disposition: coded")
     exits.add_argument("--spun-off", dest="spun_off", metavar="REF", help="disposition: spun_off")
     exits.add_argument(
@@ -378,8 +405,10 @@ def _selected_disposition(args: argparse.Namespace) -> tuple[str, str | None]:
     """Return (disposition, disposition_ref) for whichever exit flag was given.
 
     The mutually exclusive group (required=True) already guarantees exactly
-    one of the five was supplied.
+    one of the six exits was supplied.
     """
+    if args.delivered_elsewhere:
+        return "delivered_elsewhere", (args.ref.strip() if args.ref else args.ref)
     if args.coded is not None:
         return "coded", args.coded
     if args.spun_off is not None:
@@ -594,6 +623,11 @@ def main(argv: list[str] | None = None) -> int:
             f"({whose} — every row leaving 'open' has to say why)"
         )
 
+    if disposition != "delivered_elsewhere" and args.via is not None:
+        parser.error("--via belongs to --delivered-elsewhere only")
+    if disposition == "delivered_elsewhere" and not (args.via and disposition_ref and disposition_ref.strip()):
+        parser.error("--delivered-elsewhere requires --via and --ref")
+
     if disposition in _CASE_AGAINST_REQUIRED_DISPOSITIONS and not (
         args.case_against and args.case_against.strip()
     ):
@@ -650,6 +684,8 @@ def main(argv: list[str] | None = None) -> int:
                 params["disposition_detail"] = args.disposition_detail
             if args.case_against:
                 params["case_against"] = args.case_against
+            if disposition == "delivered_elsewhere":
+                params["delivered_via"] = args.via
             result = cc_invoke.route_mutation(_OP, params, repo_root, _no_legacy)
     except cc_invoke.RouteMutationError as exc:
         print(f"plan-tasks-resolve: {exc}", file=sys.stderr)
@@ -669,6 +705,8 @@ def main(argv: list[str] | None = None) -> int:
     message = result.get("message", "") if isinstance(result, dict) else ""
     if message:
         print(message)
+    for warning in (result.get("warnings") or []) if isinstance(result, dict) else []:
+        print(f"plan-tasks-resolve: warn: {warning}", file=sys.stderr)
     return 0
 
 

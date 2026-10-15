@@ -48,6 +48,7 @@ def main(argv=None) -> int:
         return EXIT_USAGE if exc.code else EXIT_OK
 
     _bootstrap()
+    from coordinator_core.cli_entry import recording_declared_writes
     from coordinator_core.ops import plan_chain
     from coordinator_core.ops.plan_chain.contract import ChainManifest
 
@@ -58,7 +59,8 @@ def main(argv=None) -> int:
         print(f"plan-chain-run: cannot read manifest {path}: {exc}", file=sys.stderr)
         return EXIT_USAGE
 
-    digest = plan_chain.run(manifest)
+    with recording_declared_writes(cwd=manifest.repo_root):
+        digest = plan_chain.run(manifest)
     out = _digest_path(manifest)
     print(str(out) if out else "(final digest path unavailable)")
     print(json.dumps(digest, indent=2, sort_keys=True))

@@ -317,6 +317,7 @@ ENROLLED_GUARD_MODULES: Tuple[str, ...] = (
     "guard-handoff-summary-cap-on-write.py",
     "guard-autonomous-sentinel-write.py",
     "guard-engine-mirror-write.py",
+    "guard-canvas-citation-needs-harvest.py",
 )
 
 #: `guard-doctrine-changelog-prose.py`'s `GuardScopeDescriptor` (C3b). Lives

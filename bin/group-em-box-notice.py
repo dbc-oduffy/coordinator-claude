@@ -16,7 +16,7 @@ introductions content rules in `skills/group-em/SKILL.md`. The introduction row 
 type `_cooldown_remaining` never reads: `intro_key` / `introduced_at`, no `offer_key`.
 
 NEGATIVE SPEC: never sends, never passes `--supersede`, writes only the holder's own send log and
-(for `ended`) the nomination record through its own CLI module.
+(for `ended`) the nomination records through the engine's `nomination.stand_down`.
 """
 
 from __future__ import annotations
@@ -34,8 +34,21 @@ from typing import Any, Optional
 _BIN_DIR = Path(__file__).resolve().parent
 _SKILL_DIR = _BIN_DIR.parent / "skills" / "group-em"
 
-NOTICE_ENTERED = "entered"
-NOTICE_ENDED = "ended"
+try:
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_dispatch_engine_on_path
+
+    require_dispatch_engine_on_path()
+except (ImportError, RuntimeError):
+    pass  # engine already importable (tests, installed layout); a real miss fails below
+
+from coordinator_core.group_em import nomination  # noqa: E402
+from coordinator_core.group_em.box_notice import (  # noqa: E402,F401
+    NOTICE_ENDED,
+    NOTICE_ENTERED,
+    box_recipients,
+    render_notice,
+)
 
 
 def _load_by_path(name: str, path: Path):
@@ -75,53 +88,6 @@ def holder_identity(agents: list[dict[str, Any]], session_id: str) -> dict[str, 
             name = agent.get("name")
             return {"sessionId": session_id, "name": name if isinstance(name, str) and name else None}
     return {"sessionId": session_id, "name": None}
-
-
-def box_recipients(
-    agents: list[dict[str, Any]], session_id: str, skip_session_ids: frozenset = frozenset()
-) -> list[dict[str, str]]:
-    """Every live NAMED session on the box except the holder and `skip_session_ids`.
-
-    A name is the only address `SendMessage` takes; an unnamed background session has none and is
-    not addressable, so it is not listed. Deduplicated by session id."""
-    seen: set[str] = set()
-    out: list[dict[str, str]] = []
-    for agent in agents:
-        if not isinstance(agent, dict):
-            continue
-        sid, name = agent.get("sessionId"), agent.get("name")
-        if not isinstance(sid, str) or not sid or sid == session_id or sid in skip_session_ids:
-            continue
-        if not isinstance(name, str) or not name or sid in seen:
-            continue
-        seen.add(sid)
-        out.append({"name": name, "sessionId": sid, "cwd": str(agent.get("cwd") or "")})
-    return out
-
-
-def render_notice(kind: str, holder: dict[str, Optional[str]]) -> str:
-    """The one message text. Asks nothing; says no reply is wanted."""
-    who = f"{holder['name']} (session {holder['sessionId']})" if holder.get("name") else (
-        f"session {holder['sessionId']}"
-    )
-    if kind == NOTICE_ENTERED:
-        reach = (
-            f"Reach it with SendMessage to '{holder['name']}'."
-            if holder.get("name")
-            else "It has no session name yet; address it by session id."
-        )
-        return (
-            f"Group EM notice, informational, no reply is wanted: {who} now holds the box-wide "
-            f"Group EM standing. {reach} Route parked-wave reports, blockers, cross-session "
-            "obligations, box-capacity and queueing questions, and a second opinion before asking the PM there; "
-            "settled asks stay on the memo channel. This replaces any earlier "
-            "Group EM address you were given."
-        )
-    return (
-        f"Group EM notice, informational, no reply is wanted: {who} has stood down and the box "
-        "has no Group EM now. Do not route to that address. The next /group-em entry announces "
-        "its own."
-    )
 
 
 def _introduced(send_pass, repo_root: str, holder_sid: str) -> set[str]:
@@ -223,16 +189,9 @@ def render_sends_block(notice: dict[str, Any]) -> str:
 
 
 def stand_down_holder(repo_root: str, session_id: str) -> dict[str, Any]:
-    # The engine CLI's exit codes are the stable stand-down contract (5: not the holder).
-    cli = _BIN_DIR / "group-em-nomination.py"
-    proc = subprocess.run(
-        [sys.executable, str(cli), "stand-down", "--repo", repo_root, "--session-id", session_id],
-        capture_output=True,
-        text=True,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-    )
-    message = (proc.stdout or proc.stderr or "").strip()
-    return {"ok": proc.returncode == 0, "exit_code": proc.returncode, "message": message}
+    # Exit codes are the stable stand-down contract (5: not the holder).
+    result = nomination.stand_down(repo_root, session_id)
+    return {"ok": result.ok, "exit_code": result.exit_code, "message": result.message}
 
 
 def main(argv: Optional[list[str]] = None) -> int:

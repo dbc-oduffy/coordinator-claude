@@ -18,6 +18,10 @@ is NOT one of the five guards `runtime-tripwire-em-check.py` already
 carries live, despite an earlier stale docstring clause here claiming
 otherwise.
 
+`stop-workflow-stall.py` relays the engine's stalled-workflow reader: it blocks
+the first Stop of a chain while one of this session's Workflow runs is stalled,
+naming the exact resume call -- see that shim's own docstring.
+
 `group-em-park-spool.py` is the Group-EM wake's producer, registered LAST --
 see its own module docstring for the full contract, and the REGISTRY comment
 beside it for why the order is load-bearing.
@@ -274,6 +278,12 @@ def _pre_kira_verdict_routed(ctx: Ctx) -> bool:
     )
 
 
+def _pre_workflow_stall(ctx: Ctx) -> bool:
+    # The engine reads this session's run records itself; a subagent's Stop
+    # never owns a Workflow run.
+    return bool(ctx.session_id) and not ctx.agent_id
+
+
 def _pre_receiver_state(ctx: Ctx) -> bool:
     # Deliberately does NOT read the transcript -- `os.path.isfile` only,
     # never `ctx.tail()`: paying a tail read here to decide whether to let
@@ -329,6 +339,8 @@ REGISTRY: Tuple[StopGuard, ...] = (
               "guard-kira-verdict-routed.py", _pre_kira_verdict_routed),
     StopGuard("guard_drive_root_new_dir",
               "guard-drive-root-new-dir.py", _pre_drive_root_new_dir),
+    StopGuard("stop_workflow_stall",
+              "stop-workflow-stall.py", _pre_workflow_stall),
     # A PRODUCER, not a guard -- it always exits 0 with empty stdout, so it
     # contributes nothing to this dispatcher's CONCATENATE-ALL aggregation and
     # cannot change any verdict. It rides the fan-in rather than taking a

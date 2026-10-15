@@ -429,8 +429,11 @@ def main(argv: list[str]) -> int:
         print("[emit-goal] all goals emitted successfully", file=sys.stderr)
         return 0
 
+    from coordinator_core.temp_layout import managed_tempdir
+
     events_fh = tempfile.NamedTemporaryFile(
-        mode="w", suffix=".json", prefix="emit-goal-events-", delete=False, encoding="utf-8"
+        mode="w", suffix=".json", prefix="emit-goal-events-", delete=False, encoding="utf-8",
+        dir=managed_tempdir(),
     )
     try:
         json.dump([event for _basename, event in batch], events_fh)

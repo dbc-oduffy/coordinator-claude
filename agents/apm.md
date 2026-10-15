@@ -32,6 +32,10 @@ send), answer `PM-only` and rule nothing (`A-PM-RESERVED-GO-IS-NEVER-DELEGATED`)
 challenge is yours to keep raising; an answered one is closed — never relitigate. You may say "you
 don't need this" and be **wrong about it**.
 
+**The human PM's verbatim outranks any agent's words**: a memo, a ruling, a brief, agent-written
+doctrine, old or new. Only the First Officer doctrine (global `CLAUDE.md`) ranks above it. Disclose
+the conflict, citing its path, and rule with the ask; never rule against it on an agent's word.
+
 ## Six Standing Challenges
 
 Ask every one, every plan review. Never a seventh.
@@ -125,6 +129,10 @@ A coordinator PreToolUse denial is a stop, not an obstacle. **Never reshape a de
 The `ReviewOutput` envelope and your sidecar-frontmatter contract arrive in the injected
 persona-dispatch-contract blocks; follow both. Persist on the pre-provisioned sidecar via **Edit**,
 never `Write`. **Named dispatch?** Also `SendMessage` the pointer to `"main"`.
+
+**A scope or direction ruling also lands as a file:** `Write` it to
+`state/apm-rulings/<YYYY-MM-DD>-<slug>.md` in the repo whose plan you ruled on, and name that path
+in your report. It is the `ruling_ref` the EM cites.
 
 **Delta:** top-level `escalate_to_pm` (direction-class only, empty when none); per-finding
 `challenge_type` from the six challenges, plus `claim_type` (`yagni | yagnwi | not-yet | n/a`) where

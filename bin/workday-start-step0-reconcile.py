@@ -31,7 +31,9 @@ Exit codes (parity-critical, unchanged from the bash oracle / ported module):
     0 — already-includes / fast-forward / merge succeeded.
     3 — a failed `--no-ff` merge; the CODES are unchanged, but what moved is
         which stdout string exit 3 can carry: a genuine content conflict
-        (`RECONCILE-CONFLICT`, PM resolves first), the merge applying but its
+        (`RECONCILE-CONFLICT-OPEN`, merge held open for a file-only resolver
+        and `reconcile-merge-conclude`; `RECONCILE-CONFLICT` when no
+        conflicted path was parsed, merge aborted, PM resolves first), the merge applying but its
         commit being refused (`RECONCILE-MERGE-COMMIT-REFUSED`, commonly a
         commit hook — not a PM A/B/C decision), or the merge never starting
         at all (`RECONCILE-MERGE-NOT-STARTED` — also not a PM A/B/C

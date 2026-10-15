@@ -1,12 +1,12 @@
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """
 workday-complete-close.py -- late-ceremony orchestration logic for /workday-complete
-(the tail of the ceremony: Step 4d observer-sidecar stitch, Step 9's changelog-append
+(the tail of the ceremony: Step 9's changelog-append
 dispatch gate, Step 10.5's post-ceremony command hook, and Step 10.6's emission-cadence
 rc dispatch).
 
-Purpose: these four steps each wrap an ALREADY-native sibling CLI
-(stitch-observer-sidecar.py, workday-complete-step9-append-changelog.py,
+Purpose: these steps each wrap an ALREADY-native sibling CLI
+(workday-complete-step9-append-changelog.py,
 coordinator-ceremony-hook.py, emit-cadence.py) with a small amount of genuine
 imperative logic -- path construction, `--only`-mode gating, and exit-code-to-message
 dispatch ladders -- that was still living as inline bash in coordinator-content-repo's
@@ -14,21 +14,12 @@ commands/workday-complete.md. This CLI concentrates that residual logic into one
 naked-Python, idempotent, self-resolving entrypoint so the DoE ceremony body can
 call it by subcommand name instead of carrying the bash.
 
-This file does NOT re-implement any of the four sibling CLIs' own logic -- it only
+This file does NOT re-implement any of the sibling CLIs' own logic -- it only
 constructs their arguments/paths, invokes them as subprocesses (matching how the bash
 oracle invoked them), and translates their exit codes into the same diagnostic
 messages / hard-fail-vs-non-blocking decisions the bash oracle made.
 
 Subcommands:
-  stitch-sidecar [--today YYYY-MM-DD]
-      Step 4d. Computes MACHINE (coordinator_core.machine_resolver.compute_machine)
-      and TODAY (coordinator_core.daily_day.local_day, unless --today overrides),
-      derives the daily-summary and observer-sidecar paths, and invokes
-      stitch-observer-sidecar.py against them. A non-zero exit from the sidecar
-      stitcher is a HARD FAIL here (exit 1) -- the sidecar is left in place and the
-      caller must NOT re-run blind (mirrors the bash oracle's `exit 1` on
-      `_stitch_rc != 0`, DoE workday-complete.md Step 4d).
-
   step9-dispatch [SCOPE_SUMMARY] [--only-mode] [--no-push] [--dry-run]
                  [--commit-span RANGE] [--for-date DATE]
       Step 9's dispatch gate. Under `--only-mode` (DoE `$_ONLY_MODE=1`), the
@@ -69,11 +60,11 @@ Subcommands:
 
 Spec backlink: docs/plans/2026-07-19-debash-coordinator-windows.md (Windows de-bash
     campaign, M3 chunk WDC-4)
-Spec backlink: commands/workday-complete.md (coordinator-content-repo) § Step 4d / Step 9 /
+Spec backlink: commands/workday-complete.md (coordinator-content-repo) § Step 9 /
     Step 10.5 / Step 10.6 -- the bash this file replaces; the DoE repoint (D2) is a
     later wave and is out of scope for this port.
 Prior bash form: see coordinator-content-repo git history for commands/workday-complete.md's
-    inline Step 4d / Step 9 dispatch / Step 10.5 / Step 10.6 blocks (this port lifts
+    inline Step 9 dispatch / Step 10.5 / Step 10.6 blocks (this port lifts
     that logic out; the DoE file itself is not edited here).
 """
 from __future__ import annotations
@@ -86,7 +77,6 @@ from pathlib import Path
 
 _BIN_DIR = Path(__file__).resolve().parent
 
-_STITCH_SIDECAR_CLI = _BIN_DIR / "stitch-observer-sidecar.py"
 _STEP9_CLI = _BIN_DIR / "workday-complete-step9-append-changelog.py"
 _CEREMONY_HOOK_CLI = _BIN_DIR / "coordinator-ceremony-hook.py"
 
@@ -107,39 +97,6 @@ def _load_sibling_module(cli_path: Path, module_name: str):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
-
-
-def cmd_stitch_sidecar(args: argparse.Namespace) -> int:
-    """Step 4d: stitch the Sonnet daily observer's sidecar into the canonical
-    daily summary, hard-failing (never silently proceeding) on a non-zero exit
-    from the sidecar stitcher.
-
-    P055-C1 conversion: was a `[python, _STITCH_SIDECAR_CLI, *args]` spawn via
-    the (now-removed) generic `_run` helper. stitch-observer-sidecar.py's own
-    `main(argv)` indexes `argv[0]` as its own prog name (its `__main__` guard
-    calls `main(sys.argv)`, not `sys.argv[1:]`), so the in-process call below
-    passes a placeholder prog-name element to match that contract exactly.
-    """
-    _bootstrap_engine()
-    from coordinator_core.daily_day import local_day
-    from coordinator_core.machine_resolver import compute_machine
-
-    machine = compute_machine()
-    today = args.today or local_day()
-    daily_summary = f"archive/daily-summaries/{today}-{machine}.md"
-    observer_sidecar = f"archive/daily-summaries/{today}-{machine}.observer.md"
-
-    stitch = _load_sibling_module(_STITCH_SIDECAR_CLI, "stitch_observer_sidecar")
-    rc = stitch.main(["stitch-observer-sidecar.py", daily_summary, observer_sidecar])
-    if rc != 0:
-        print(
-            f"ERROR: stitch-observer-sidecar failed (rc={rc}) — "
-            "see stderr above. The sidecar was left in place; do NOT re-run this "
-            "step blind. Investigate before continuing /workday-complete.",
-            file=sys.stderr,
-        )
-        return 1
-    return 0
 
 
 def _load_step9_module():
@@ -363,13 +320,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="workday-complete-close",
         description="Late-ceremony orchestration logic for /workday-complete "
-        "(Step 4d / Step 9 dispatch / Step 10.5 / Step 10.6).",
+        "(Step 9 dispatch / Step 10.5 / Step 10.6).",
     )
     sub = parser.add_subparsers(dest="subcommand", required=True)
-
-    p_stitch = sub.add_parser("stitch-sidecar", help="Step 4d: stitch the observer sidecar.")
-    p_stitch.add_argument("--today", default=None, help="Override TODAY (default: local calendar day).")
-    p_stitch.set_defaults(func=cmd_stitch_sidecar)
 
     p_step9 = sub.add_parser("step9-dispatch", help="Step 9: changelog-append dispatch gate.")
     p_step9.add_argument("scope_summary", nargs="?", default=None)

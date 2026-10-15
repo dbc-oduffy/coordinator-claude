@@ -1,32 +1,27 @@
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
-"""stitch-observer-sidecar.py — /workday-complete Step 4d: fold the strategic
-observer's sidecar (Step 4c output) into the day's canonical daily summary.
+"""stitch-observer-sidecar.py — /workweek-complete Step 7b: fold the weekly
+strategic observer's sidecar into the week's canonical `WEEK-SUMMARY.md`.
 
-Step 4c writes `## Strategic Review (Sonnet daily observer)` to a transient
-sidecar file (`archive/daily-summaries/YYYY-MM-DD-<machine>.observer.md`) run
-in parallel with Step 4b's main-summary analyst. Step 4d's job is to append
-that sidecar onto the main summary and delete the sidecar, so the sidecar
-never survives past one ceremony run.
+The observer writes `## Strategic Review` to a transient sidecar
+(`archive/week-changelogs/<week-start>/WEEK-SUMMARY.observer.md`). This script
+appends that sidecar onto `WEEK-SUMMARY.md` and deletes the sidecar, so the
+sidecar never survives past one ceremony run. The Strategic Review never
+lands in a daily summary.
 
-Replaces the inline `cat "$OBSERVER_SIDECAR" >> "$DAILY_SUMMARY"; rm
-"$OBSERVER_SIDECAR"` in DoE's workday-complete.md Step 4d, which had no
-existence check, no idempotency, and no failure surface: a missing daily
-summary made `cat` fail while `rm` ran anyway, silently discarding the
-sidecar's content with no error visible to the operator. Confirmed on disk
-2026-07-23: three backfilled days (2026-07-19..21) each left an orphaned
-`*.observer.md` sidecar with zero `## Strategic Review` heading in the
-corresponding main summary — the exact leak this script closes.
+Replaces a bare `cat sidecar >> summary; rm sidecar`, which had no existence
+check, no idempotency, and no failure surface: a missing summary made `cat`
+fail while `rm` ran anyway, silently discarding the sidecar's content.
 
 Behavior (in order):
-  1. Sidecar absent — normal for backfill/skip days (Step 4c is deliberately
-     not run on backfilled days per the daily-summary-procedure.md § Skip
-     Condition). No-op, exit 0.
-  2. Sidecar present but the daily summary is missing — the leak condition.
+  1. Sidecar absent — normal when the observer wrote straight into the
+     summary or did not run. No-op, exit 0.
+  2. Sidecar present but the week summary is missing — the leak condition.
      Refuses to delete the sidecar. Fails LOUD (visible stderr line), exit 1.
   3. The discriminator between "already stitched" and "not yet stitched" is
      whether a `## Strategic Review` heading survives placeholder-stripping
      (see `_strip_placeholder`): strip any placeholder first, then count
-     headings in the result.
+     headings in the result (the weekly heading is `## Strategic Review`;
+     the `_HEADING` prefix also matches a parenthesised suffix).
        - If a heading survives: a real section exists independent of the
          placeholder — already stitched (re-run, or a hand-stitch already
          happened). Idempotent: does NOT append a second copy, removes the
@@ -52,13 +47,15 @@ Behavior (in order):
      code reported success. Deletion must never be reachable from a state
      where the sidecar's content is absent from the summary.
   4. Otherwise — the normal path. Appends the sidecar's content verbatim
-     (never re-authored/summarized) onto the end of the daily summary, then
-     re-reads the daily summary to confirm exactly one `## Strategic Review`
+     (never re-authored/summarized) onto the end of WEEK-SUMMARY.md, then
+     re-reads it to confirm exactly one `## Strategic Review`
      heading is now present before deleting the sidecar. Deletion is gated on
      that verification, not merely on the write call returning without
      raising. Failed verification rolls the daily summary back to its exact
      pre-write bytes before returning 1 — the one code path that exists to
      detect corruption must not also be the path that leaves it in place.
+     Exactly one heading is the weekly contract (DoE workweek-complete
+     Step 7b): zero re-dispatches the observer, two-plus is reconciled by hand.
 
   Negative-spec (placeholder ambiguity, narrowed by 3 above): before this
   fix, a co-resident heading+placeholder fell through the idempotent branch
@@ -72,27 +69,20 @@ Behavior (in order):
   correctly, they just no longer collide with the residue case above.
 
 Usage:
-    stitch-observer-sidecar.py <daily_summary_path> <observer_sidecar_path>
-    stitch-observer-sidecar.py --scan <archive/daily-summaries-dir>
+    stitch-observer-sidecar.py <WEEK-SUMMARY.md path> <WEEK-SUMMARY.observer.md path>
+    stitch-observer-sidecar.py --scan <archive/week-changelogs/<week-start> dir>
 
-The two-arg form is the ceremony call site (one date/machine pair per Step 4d
-invocation, no backfill-vs-live distinction — a sidecar's mere presence is
-"needs stitching", regardless of why Step 4c ran).
+The two-arg form is the ceremony call site — a sidecar's mere presence is
+"needs stitching".
 
-The `--scan` form is a standalone sweep, independent of any single ceremony
-run: it globs `*.observer.md` under the given directory and reports every one
-found. A sidecar surviving to scan time is BY DEFINITION unstitched (the
-normal path deletes it on success) — so any hit is reported and the scan
-exits non-zero, whether the day was live or backfilled, and whether Step 4c
-ran through the ceremony or was produced by some other path. This is what
-makes a leak like the 2026-07-19..21 incident (three sidecars sitting
-committed for days, invisible unless someone thought to `ls` for them)
-detectable on its own, without depending on Step 4d having been invoked for
-that date at all.
+The `--scan` form is a standalone sweep: it globs `*.observer.md` under the
+given directory and reports every one found. A sidecar surviving to scan time
+is BY DEFINITION unstitched (the normal path deletes it on success), so any
+hit exits non-zero.
 
 Exit codes (two-arg / stitch form):
   0 — no-op (sidecar absent), idempotent no-op (already stitched), or stitched.
-  1 — LEAK: sidecar exists but daily summary is missing/unwritable, or the
+  1 — LEAK: sidecar exists but the week summary is missing/unwritable, or the
       post-append verification failed (heading count != 1). Sidecar is left
       in place in both cases so the leak is investigable, not compounded. On
       a failed post-append verification the daily summary is additionally
@@ -105,7 +95,7 @@ Exit codes (--scan form):
   1 — one or more orphaned sidecars found (reported to stderr, one line each).
   2 — usage error (e.g. directory does not exist).
 
-Spec backlink: coordinator/commands/workday-complete.md § Step 4d (coordinator-content-repo)
+Spec backlink: coordinator/commands/workweek-complete.md § Step 7b (coordinator-content-repo)
 """
 from __future__ import annotations
 
@@ -113,7 +103,7 @@ import glob
 import os
 import sys
 
-GENERATES = []  # writes only to `<daily_summary_path>`, an arbitrary CLI positional argument (archive/daily-summaries/... in whichever repo invokes it) — caller-supplied, not a fixed claude-klabauter artifact
+GENERATES = []  # writes only to `<week_summary_path>`, an arbitrary CLI positional argument (archive/week-changelogs/... in whichever repo invokes it) — caller-supplied, not a fixed claude-klabauter artifact
 
 _HEADING = "## Strategic Review"
 _SIDECAR_SUFFIX = ".observer.md"
@@ -189,9 +179,8 @@ def stitch(daily_summary_path: str, observer_sidecar_path: str) -> int:
             main_content = f.read()
     except FileNotFoundError:
         _err(f"[stitch-observer-sidecar] LEAK: sidecar '{observer_sidecar_path}' exists but "
-             f"daily summary '{daily_summary_path}' is missing — refusing to delete the "
-             "sidecar. Step 4b (main-summary analyst) must have failed or not run. "
-             "Investigate before re-running Step 4d.")
+             f"week summary '{daily_summary_path}' is missing — refusing to delete the "
+             "sidecar. Create WEEK-SUMMARY.md, then re-run the stitch.")
         return 1
 
     placeholder_present = _PLACEHOLDER in main_content
@@ -287,8 +276,8 @@ def main(argv: list[str]) -> int:
         return scan(argv[2])
     if len(argv) == 3:
         return stitch(argv[1], argv[2])
-    _err(f"usage: {argv[0]} <daily_summary_path> <observer_sidecar_path>\n"
-         f"       {argv[0]} --scan <archive/daily-summaries-dir>")
+    _err(f"usage: {argv[0]} <week_summary_path> <observer_sidecar_path>\n"
+         f"       {argv[0]} --scan <archive/week-changelogs/week-start-dir>")
     return 2
 
 

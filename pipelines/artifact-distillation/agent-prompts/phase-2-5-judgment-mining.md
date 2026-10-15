@@ -8,9 +8,9 @@
 
 ## Input corpus
 
-Per plan in the run's scope, the coordinator collects:
+Per plan in the run's scope, the corpus is:
 
-- **Live sidecars** — `<plan>.<reviewer>-rN.md` files on disk at Phase 2.5 start. Pre-annotated with `disposition:` fields by the reviewer applying its own findings before Phase 5 deletes them.
+- **Live sidecars** — reviewer sidecars carrying a `findings_ledger:` frontmatter key, located by that key (never by filename) under `.coordinator-local/subagent-share/<session>/`, `.coordinator-local/plan-sidecars/`, `docs/plans/` and `archive/specs/`. The key is a one-line summary (`{rows, applied, em_rejected, suspended, verified_at}`); per-finding status is the `status` key on a row of the JSON array under the body's `## Findings Ledger` heading — absent means applied, `em-rejected` (with a `reason`) and `suspended` are ineligible. A sidecar joins a plan by `target_plan:` or `plan:` compared on the plan's filename stem; one naming no plan joins no cluster. The Workflow's `judgment-corpus` scout and the mining briefs fold this procedure in.
 - **Historical sidecars via `git show`** — when an existing `docs/wiki/codebase-judgment/<topic>.md` entry lists `source_findings[*].sha`, those SHAs resolve via `git show <sha>:<sidecar-path>`. Used ONLY during initial topic-cluster creation, not during the update path (D8).
 
 **SHA-resolution + Phase 5 timing:** sidecars are deleted by Phase 5; the `source_findings[*].sha` field captures the sidecar's git SHA so `git show` resolves after deletion. The strict-sequencing gate above ensures Phase 2.5 runs before the same run's Phase 5.
@@ -21,8 +21,8 @@ Only architectural reviewer findings count for convergence. **Ineligible:**
 
 - Mechanical (newline, indent, formatting)
 - docs-checker-class (wrong import, stale signature, incorrect function name)
-- `disposition: escalated-disagree` — actively rejected by the reviewer/EM; including would let rejected verdicts accumulate
-- `disposition: verified-no-action` — the reviewer verified and found the artifact already correct; a resolved-fine finding is not convergence evidence
+- Ledger row `status: em-rejected` — actively rejected by the EM; including would let rejected verdicts accumulate
+- Ledger row `status: suspended` — not a settled verdict, so not convergence evidence
 
 **Eligible:** architectural recommendations, pattern requirements, anti-pattern prohibitions, recurring design constraints.
 

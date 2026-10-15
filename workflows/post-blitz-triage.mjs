@@ -95,9 +95,19 @@ If the baton's execution gate is not actually open, or the work is a "confirm-an
 to change, that is a legitimate complete outcome: verify, record what you verified, and say so rather
 than inventing a change to look substantial.`
 
+const MID_RUN_DIRECTION_RULE = `RE-READ BEFORE YOU WRITE. The PM delivers direction to a running workflow by editing its
+artifacts, never by stopping it, and SendMessage cannot reach you. Immediately before you write
+your output, re-read every sizing, plan and handoff this brief names or that you read or write.
+A \`## PM direction\` section in a plan or handoff, or a \`requirement_register\` row in a sizing,
+that was absent from your first read and that you did not write yourself was added after your
+dispatch: it is binding. Apply it over
+this brief and over anything you read earlier, and name it in your return.`
+
 function vpProduct(item) {
   return agent(
     `${VP_PRODUCT_PREAMBLE}
+
+${MID_RUN_DIRECTION_RULE}
 
 Baton: ${item.id} — "${item.title}"
 Record: ${item.path}
@@ -120,6 +130,8 @@ function staffEngInvestigate(item) {
   return agent(
     `${staffEngInvestigatePreamble(item.slug)}
 
+${MID_RUN_DIRECTION_RULE}
+
 Baton: ${item.id} — "${item.title}"
 Record: ${item.path}
 Previously identified defect: ${item.defect}
@@ -134,6 +146,8 @@ function applyFix(item, findingsPath) {
   return agent(
     `${APPLY_FIX_PREAMBLE}
 
+${MID_RUN_DIRECTION_RULE}
+
 Baton: ${item.id} — "${item.title}"
 Staff-eng findings: ${findingsPath}`,
     { label: `apply-fix:${item.id}`, phase: 'Apply Fix', model: 'sonnet', effort: 'low' },
@@ -143,6 +157,8 @@ Staff-eng findings: ${findingsPath}`,
 function executor(item) {
   return agent(
     `${EXECUTOR_PREAMBLE}
+
+${MID_RUN_DIRECTION_RULE}
 
 Baton: ${item.id} — "${item.title}"
 Record: ${item.path}

@@ -1,0 +1,15 @@
+{
+  "schema": "fleet-rule-homes",
+  "schema_version": 1,
+  "entries": [
+    {
+      "id": "memo-lifecycle",
+      "rule": "Cross-repo changes route through the cross-repo-memo CLI; the sending session drafts and sends the memo itself.",
+      "home": "coordinator/docs/wiki/cross-repo-communication/cross-repo-memo-lifecycle.md",
+      "signatures": [
+        "route via the coordinator'?s? `?cross-repo-memo`?"
+      ],
+      "witness": "`structural_schema.py`. **Cross-repo changes route via the coordinator's `cross-repo-memo` CLI, which the sending session"
+    }
+  ]
+}

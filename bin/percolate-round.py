@@ -171,7 +171,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, List, NamedTuple, Optional, Sequence, Tuple
+from typing import Collection, Dict, List, NamedTuple, Optional, Sequence, Tuple
 
 _BIN_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _BIN_DIR.parent.parent
@@ -259,7 +259,7 @@ def _bootstrap_engine() -> None:
         globals().setdefault(_name, _value)
 
 
-GENERATES = []  # writes only round-failure markers and pushes commits under the resolved percolate `dest` (a foreign publish-mirror repo), never a fixed claude-klabauter-tracked path
+GENERATES = []  # writes only round-failure markers, and pushes commits under the resolved percolate `dest` (a foreign publish-mirror repo), never a fixed claude-klabauter-tracked path. The round never promotes `main`; promotion is the PM's manual `klabauter-promote --confirm` (DR-314 as amended 2026-10-15)
 
 _EXIT_OK = 0
 _EXIT_FAIL = 1
@@ -1949,6 +1949,8 @@ def _build_commit_subject(
     deletion_paths: "Optional[Sequence[str]]" = None,
     source_sha: str = "",
     dest_name: str = "",
+    unchanged_paths: "Collection[str]" = (),
+    explained_paths: "Collection[str]" = (),
 ) -> str:
     """Two numbers, both labelled, never one presented as the other (see
     module-level defect this replaces): `real_changes` is publish.py's own
@@ -1989,8 +1991,15 @@ def _build_commit_subject(
     subject is the one report that outlives the round, so it states what the
     commit carries and names the remainder as not carried, rather than
     describing a comparison the commit did not act on.
+
+    `unchanged_paths` (dest paths byte-identical to HEAD) are excluded from the
+    not-carried count: a rewrite with identical bytes has nothing to carry, and
+    counting it read as 708 dropped changes in the mirror's public history.
+    `explained_paths` (gitignored at dest, already absent at dest -- including a
+    removal whose file is already gone) are benign the same way.
     """
     carried, dropped = _partition_carried_changes(real_changes, pathspec)
+    dropped = _real_drops(dropped, unchanged_paths, explained_paths)
     added_or_updated, removed = _summarize_change_lines(carried)
     # A REMOVAL REACHES THE PATHSPEC WITHOUT A CHANGE LINE, so counting only
     # `carried` under-reports it to zero. `real_changes` is this run's own
@@ -2024,7 +2033,22 @@ def _build_commit_subject(
 _NOT_CARRIED_NAME_CAP = 40
 
 
-def _not_carried_prose(dropped: "List[Tuple[str, str]]") -> str:
+def _real_drops(
+    dropped: "List[Tuple[str, str]]",
+    unchanged_paths: "Collection[str]",
+    explained_paths: "Collection[str]" = (),
+) -> "List[Tuple[str, str]]":
+    """`dropped` without the benign paths: byte-identical at HEAD, or explained
+    (gitignored / already absent at dest)."""
+    benign = set(unchanged_paths) | set(explained_paths)
+    return [(tag, path) for tag, path in dropped if path not in benign]
+
+
+def _not_carried_prose(
+    dropped: "List[Tuple[str, str]]",
+    unchanged_paths: "Collection[str]" = (),
+    explained_paths: "Collection[str]" = (),
+) -> str:
     """Name the paths a round reported and did not commit, for the commit BODY.
 
     The subject already carries "N reported change(s) not carried", and that count
@@ -2037,16 +2061,29 @@ def _not_carried_prose(dropped: "List[Tuple[str, str]]") -> str:
     round's stderr scrolls past and the commit message is the report that outlives
     it, so what belongs here is the membership. Pure set arithmetic over what the
     caller already partitioned — no spawn, no stat, nothing to budget.
+
+    Benign drops are never named under "not carried": byte-identical rewrites
+    (`unchanged_paths`) and gitignored/already-absent paths (`explained_paths`,
+    which includes a removal whose file is already gone) each get a count line.
     """
-    if not dropped:
-        return ""
-    paths = sorted({path for _tag, path in dropped})
-    named = paths[:_NOT_CARRIED_NAME_CAP]
-    lines = ["Reported but not carried by this commit:"]
-    lines += [f"  {path}" for path in named]
-    remaining = len(paths) - len(named)
-    if remaining:
-        lines.append(f"  ... and {remaining} more")
+    dropped_paths = {path for _tag, path in dropped}
+    unchanged = dropped_paths & set(unchanged_paths)
+    explained = dropped_paths & set(explained_paths) - unchanged
+    paths = sorted(dropped_paths - unchanged - explained)
+    lines = []
+    if paths:
+        named = paths[:_NOT_CARRIED_NAME_CAP]
+        lines = ["Reported but not carried by this commit:"]
+        lines += [f"  {path}" for path in named]
+        remaining = len(paths) - len(named)
+        if remaining:
+            lines.append(f"  ... and {remaining} more")
+    if unchanged:
+        lines.append(f"{len(unchanged)} reported change(s) unchanged: identical to HEAD, nothing to carry.")
+    if explained:
+        lines.append(
+            f"{len(explained)} reported change(s) explained: gitignored or already absent at dest, nothing to carry."
+        )
     return "\n".join(lines)
 
 
@@ -2202,6 +2239,7 @@ def _report_commit_residual(
     deletion_paths: "Optional[Sequence[str]]" = None,
     repo_root: "Optional[str]" = None,
     head_tracked: "Optional[set]" = None,
+    buckets: "Optional[Dict[str, List[str]]]" = None,
 ) -> Optional[str]:
     """Surfaces, on stderr, the gap this module used to discard silently:
     `real_changes` is publish.py's own dest-working-tree comparison (see
@@ -2253,8 +2291,9 @@ def _report_commit_residual(
         # line still prints below either way; only the counted warning goes.
         _print_pathspec_surplus(target, real_changes, pathspec, deletion_paths)
         return None
-    buckets: "Optional[Dict[str, List[str]]]" = None
-    if repo_root is not None:
+    if buckets is not None:
+        detail = _describe_dropped_causes(buckets)
+    elif repo_root is not None:
         buckets = _classify_dropped_paths(repo_root, dropped, head_tracked=head_tracked)
         detail = _describe_dropped_causes(buckets)
     else:
@@ -3186,6 +3225,12 @@ def _cmd_round_default(
             present_paths, deletion_paths, declined_paths = (
                 _partition_pathspec_for_commit(pathspec, repo_root, head_tracked)
             )
+            # Classified once: the stderr line, the subject and the body all read
+            # the same buckets, and the identical-to-HEAD read spawns git.
+            dropped = _partition_carried_changes(real_changes, pathspec)[1]
+            buckets = _classify_dropped_paths(repo_root, dropped, head_tracked=head_tracked)
+            unchanged_paths = buckets["identical_to_head"]
+            explained_paths = buckets["gitignored"] + buckets["absent"]
             residual_warning = _report_commit_residual(
                 target,
                 real_changes,
@@ -3193,18 +3238,17 @@ def _cmd_round_default(
                 deletion_paths=deletion_paths,
                 repo_root=repo_root,
                 head_tracked=head_tracked,
+                buckets=buckets,
             )
             subject = _build_commit_subject(
                 target, real_changes, pathspec, deletion_paths=deletion_paths,
                 source_sha=manifest.source_sha if manifest is not None else "",
                 dest_name=Path(repo_root).name,
+                unchanged_paths=unchanged_paths,
+                explained_paths=explained_paths,
             )
-            # The subject counts the remainder; the body names it. Recomputed
-            # here rather than threaded out of `_report_commit_residual` because
-            # the partition is pure set arithmetic over values already in hand.
-            _not_carried_body = _not_carried_prose(
-                _partition_carried_changes(real_changes, pathspec)[1]
-            )
+            # The subject counts the remainder; the body names it.
+            _not_carried_body = _not_carried_prose(dropped, unchanged_paths, explained_paths)
             print(f"=== percolate-round {target} — commit ({len(pathspec)} file(s)) ===")
             pathspec_file_path = tmp / "commit-pathspec.txt"
             pathspec_file_path.write_text(
@@ -3446,6 +3490,27 @@ def _cmd_round_default(
         return _EXIT_LOCK_BUSY
 
 
+def _field7_preflight(target: str) -> Optional[str]:
+    """Refusal text when the field-7 declaration validator is red for a round
+    that publishes a generator-owned row, else None. Judged at the source
+    repo's HEAD, the commit the round ships; an unknown owned set refuses.
+    Memoised by publish.py, so the generator runs once per process."""
+    publish = _sibling_cli(_PUBLISH)
+    try:
+        pinned = publish._round_pin_source_sha(_REPO_ROOT, {})
+    except Exception:  # an unresolvable HEAD falls back to the checkout; the validator still judges it
+        pinned = None
+    ok, detail, owned = publish._field7_declaration_check(pinned)
+    if ok or (owned is not None and target not in owned):
+        return None
+    return (
+        f"the field-7 declaration validator is RED, so '{target}' would publish a set "
+        f"nobody declared:\n{detail or '(the validator reported no detail)'}\n"
+        "Remedy: run coordinator/bin/publish-allowlist-generate.py (without --check), "
+        "commit the regenerated field 7, re-run the round."
+    )
+
+
 def _cmd_round(args: argparse.Namespace) -> int:
     target = args.target
 
@@ -3460,6 +3525,25 @@ def _cmd_round(args: argparse.Namespace) -> int:
     dest = _resolve_dest(target, percolate_root)
     if dest is None:
         return _EXIT_USAGE
+
+    # Before the dest lock and before anything is staged: the mirror stamps the
+    # source HEAD, so that HEAD must already be on origin or consumers are stranded.
+    _bootstrap_engine()
+    from coordinator_core.percolate.source_preflight import (  # type: ignore[import-not-found]  # noqa: PLC0415
+        check_source_published as _check_source_published,
+    )
+
+    refusal = _check_source_published(
+        Path(source_dir), Path(dest), allow_rollback=getattr(args, "allow_source_rollback", False)
+    )
+    if refusal is not None:
+        print(f"percolate-round: refused: {refusal}", file=sys.stderr)
+        return _EXIT_FAIL
+
+    field7_refusal = _field7_preflight(target)
+    if field7_refusal is not None:
+        print(f"percolate-round: refused, nothing synced: {field7_refusal}", file=sys.stderr)
+        return _EXIT_FAIL
 
     with tempfile.TemporaryDirectory(prefix="percolate-round-") as tmpdir:
         tmp = Path(tmpdir)
@@ -3476,6 +3560,15 @@ def _build_parser() -> argparse.ArgumentParser:
         "--percolate-root",
         required=False,
         help="Override PERCOLATE_ROOT (default: percolate-gate.py resolve-root).",
+    )
+    parser.add_argument(
+        "--allow-source-rollback",
+        action="store_true",
+        help=(
+            "Publish even though the source HEAD does not contain the head the mirror's "
+            "last publish stamped. A deliberate rollback only: it reverts that publish's "
+            "commits for every consumer."
+        ),
     )
     parser.add_argument(
         "--yes",

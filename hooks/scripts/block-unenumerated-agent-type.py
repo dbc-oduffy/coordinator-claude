@@ -115,10 +115,10 @@ def main() -> int:
     if not isinstance(tool_input, dict):
         return 0
 
+    # An omitted type is the harness default, not "nothing to check": the
+    # engine resolves it, and its model gate rewrites an inherited Opus tier.
     subagent_type = tool_input.get("subagent_type")
-    if not isinstance(subagent_type, str) or not subagent_type.strip():
-        return 0
-    subagent_type = subagent_type.strip()
+    subagent_type = subagent_type.strip() if isinstance(subagent_type, str) else ""
 
     if subagent_type in _HARNESS_SHAPES_NOT_IN_ENGINE_ROSTER:
         return 0

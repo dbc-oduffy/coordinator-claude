@@ -33,7 +33,9 @@ Supported types:
                        REQUIRES an explicit sizing answer: --sizing-object PATH, or
                        --no-sizing-object to declare the plan genuinely has none
   decision           — architecture decision record (docs/decisions/DR-NNN-<slug>.md,
-                       DR number allocated + collision-checked; optional --dr-prefix)
+                       DR number allocated + collision-checked; optional --dr-prefix;
+                       optional --supersedes DR-N: deletes DR-N in the same change, refused
+                       while a live surface cites DR-N; a partial change edits DR-N instead)
   audit-record       — architecture audit record (docs/architecture/audit-records/YYYY-MM-DD-<system>.md)  requires --system <name>
   completion         — workstream completion log entry (archive/completed/YYYY-MM/YYYY-MM-DD-<slug>.md)  optional --nature, --chain
   goal               — goal artifact with OKR frontmatter (state/goals/YYYY-MM-DD-<slug>.yaml)
@@ -1807,6 +1809,67 @@ def _resolve_cited_sizing_exit_criterion(
         return _exit_criterion if isinstance(_exit_criterion, dict) else None
     except Exception:  # noqa: BLE001 -- malformed/unreadable sizing degrades to the placeholder block, never blocks scaffolding
         return None
+
+
+def _resolve_cited_sizing_pm_carry(
+    sizing_object_relpath: str, repo_root: str,
+) -> tuple[list[str], dict[str, str], str | None]:
+    """A cited sizing's related `pm_verbatims` texts (stored order), `{row id: pin}` and `baton:`.
+
+    A verbatim whose `turn` is named in the register's `unrelated_turns` is dropped. The pins
+    are read whether or not the sizing has `pm_verbatims`. Empty/None on an absent field or
+    any read failure. Pure read, never raises. `baton:` feeds the `pm_brief` ref when no related
+    verbatim remains.
+    """
+    try:
+        import yaml  # noqa: PLC0415
+
+        _ensure_engine_on_path()
+        from coordinator_core.ops.requirement_register import (  # noqa: PLC0415
+            ROW_ID,
+            UNRELATED_TURNS_KEY,
+            read_register,
+            register_pins,
+        )
+
+        with open(
+            os.path.join(repo_root, sizing_object_relpath), encoding="utf-8"
+        ) as _fh:
+            _text = _fh.read()
+        _data = yaml.safe_load(_text)
+        _register = read_register(_text)
+        _unrelated_entries = (_register.raw.get(UNRELATED_TURNS_KEY) if _register else None) or []
+        _unrelated = {
+            e.get("turn")
+            for e in (_unrelated_entries if isinstance(_unrelated_entries, list) else [])
+            if isinstance(e, dict) and e.get("turn") is not None
+        }
+        _verbatims = _data.get("pm_verbatims") if isinstance(_data, dict) else None
+        _texts = [
+            v["text"]
+            for v in (_verbatims if isinstance(_verbatims, list) else [])
+            if isinstance(v, dict) and isinstance(v.get("text"), str) and v["text"].strip()
+            and v.get("turn") not in _unrelated
+        ]
+        _pins = (
+            register_pins(_register, [str(r[ROW_ID]) for r in _register.rows])
+            if _register
+            else {}
+        )
+        _baton = _data.get("baton") if isinstance(_data, dict) else None
+        return _texts, _pins, (_baton if isinstance(_baton, str) and _baton.strip() else None)
+    except Exception:  # noqa: BLE001 -- unreadable sizing degrades to no carry, never blocks scaffolding
+        return [], {}, None
+
+
+def _pm_brief_blockquote(texts: list[str]) -> list[str]:
+    """Each verbatim as a blockquote, turns separated by a bare `>` line."""
+    out: list[str] = []
+    for i, t in enumerate(texts):
+        if i:
+            out.append(">")
+        out += [f"> {ln}" if ln.strip() else ">" for ln in t.replace("\r\n", "\n").strip().split("\n")]
+    return out
 
 
 def _sizing_object_line(sizing_object: str) -> str:
@@ -4041,6 +4104,14 @@ def _scaffold_plan(
         _cited_exit_criterion = _resolve_cited_sizing_exit_criterion(
             sizing_object, sizing_repo_root
         )
+    _pm_texts: list[str] = []
+    _register_pins: dict[str, str] = {}
+    _pm_baton: str | None = None
+    _sizing_cited = bool(sizing_object and sizing_object != "null" and sizing_repo_root)
+    if _sizing_cited:
+        _pm_texts, _register_pins, _pm_baton = _resolve_cited_sizing_pm_carry(
+            sizing_object, sizing_repo_root
+        )
     lines = [
         "---",
         f"title: {_yaml_quote(title)}",
@@ -4060,6 +4131,25 @@ def _scaffold_plan(
         # every other --sizing-object-accepting arm — see
         # `_sizing_object_line`'s docstring for the unquoted-null rationale.
         lines.append(_sizing_object_line(sizing_object))
+    if _sizing_cited:
+        _ensure_bin_lib_bootstrapped()
+        import pm_brief as _pm_brief_lib  # noqa: PLC0415
+
+        if _pm_texts:
+            _pb_source, _pb_ref = _pm_brief_lib.SOURCE_PM_VERBATIM, sizing_object
+        else:
+            _pb_source = _pm_brief_lib.SOURCE_BATON_ORIGINATING_ASK
+            _pb_ref = _pm_baton or sizing_object
+        lines.append(f"pm_brief: {{source: {_pb_source}, ref: {_yaml_quote(_pb_ref)}}}")
+    if _register_pins:
+        lines += [
+            "register_claims:",
+            f"  sizing: {_yaml_quote(sizing_object)}",
+            "  rows: [" + ", ".join(_yaml_quote(i) for i in _register_pins) + "]",
+            "  pins: {"
+            + ", ".join(f"{_yaml_quote(i)}: {_yaml_quote(p)}" for i, p in _register_pins.items())
+            + "}",
+        ]
     lines += [
         "# Optional keys — uncomment and fill as needed (promoted de-facto keys, D1):",
         "# scope_mode: additive-only         # planning posture",
@@ -4292,6 +4382,10 @@ def _scaffold_plan(
         "",
         f"# {title}",
         "",
+    ]
+    if _pm_texts:
+        lines += ["## PM brief", ""] + _pm_brief_blockquote(_pm_texts) + [""]
+    lines += [
         "## Problem",
         "",
         "<!-- State the problem this plan solves. -->",
@@ -4339,7 +4433,7 @@ def _scaffold_plan(
         "  #     gate_kind: output-consumption-runtime  # or epistemic-premise — the only two writable kinds",
         "  #     note: one-line rationale for the edge",
         "  queue_scope: project  # project (default) | central",
-        "  disposition: open  # open (default) | coded | spun_off | backlogged | wont_do",
+        "  disposition: open  # open (default) | coded | spun_off | backlogged | wont_do | delivered_elsewhere",
         "  # case_against: >",
         "  #   Required when disposition is backlogged or wont_do (not spun_off — nothing",
         "  #   leaves the corpus there). The strongest HONEST case for doing this work now,",
@@ -4723,7 +4817,7 @@ def _revert_sizing_reverse_edge(
 # Baton mint from a sizing — `--type spinoff --from-sizing`
 # ---------------------------------------------------------------------------
 
-_FROM_SIZING_TSHIRTS = frozenset({"M", "L", "XL", "XXL"})
+_FROM_SIZING_TSHIRTS = frozenset({"S", "M", "L", "XL", "XXL"})
 _SUMMARY_LIMIT = 140
 
 
@@ -5028,7 +5122,7 @@ def _sizing_remit_and_steps(
 def mint_baton_from_sizing(
     sizing_rel: str, repo_root: str, *, baton: str | None = None, deliverable_id: str | None = None,
 ) -> dict:
-    """Mint the baton for an M+ sizing, or return the one its `baton:` edge already names.
+    """Mint the baton for an S+ sizing, or return the one its `baton:` edge already names.
 
     Returns ``{"id", "path", "title", "created"}`` (an existing baton adds ``prefilled``); ``path`` is repo-relative POSIX.
     Raises ``SizingMintRefused`` naming every failing field (`estimate.tshirt`,
@@ -5037,13 +5131,15 @@ def mint_baton_from_sizing(
 
     ``baton`` joins that existing baton (repo-relative) to an edge-less sizing; ``deliverable_id``
     is the id a fresh baton carries instead of a minted one. Either disagreeing with the sizing's
-    or the baton's own id refuses before any write.
+    or the baton's own id refuses before any write. A handoff already at the sizing's derived
+    baton path is joined as if passed as ``baton``; a mismatched id refuses.
     """
     _bootstrap_engine()
     _ensure_engine_on_path()
     from coordinator_core.frontmatter.primitives import read_fm_field_unquoted  # noqa: PLC0415
     from coordinator_core.ops.deliverable_cascade import _read_sizing_meta  # noqa: PLC0415
 
+    _caller_dlv = deliverable_id
     sizing_rel = _repo_relative_posix(sizing_rel, repo_root)
     _parts = sizing_rel.replace("\\", "/").split("/")
     if os.path.isabs(sizing_rel) or ".." in _parts or _parts[:2] != ["state", "sizings"]:
@@ -5062,7 +5158,7 @@ def mint_baton_from_sizing(
     tshirt = estimate.get("tshirt") if isinstance(estimate, dict) else None
     if tshirt not in _FROM_SIZING_TSHIRTS:
         fields.append("estimate.tshirt")
-        reasons.append(f"estimate.tshirt is {tshirt!r}; a baton is minted for M, L, XL or XXL only")
+        reasons.append(f"estimate.tshirt is {tshirt!r}; a baton is minted for S, M, L, XL or XXL only")
     intent = meta.get("intent")
     intent = intent.strip() if isinstance(intent, str) else ""
     if not intent:
@@ -5081,6 +5177,10 @@ def mint_baton_from_sizing(
         existing = None
     existing_abs = None
     join_edge = False
+    if not baton and not existing:
+        _derived = _baton_rel_for_sizing(sizing_rel)
+        if os.path.isfile(os.path.join(repo_root, _derived)):
+            baton = _derived
     if baton:
         baton = _repo_relative_posix(baton, repo_root)
         _bparts = baton.split("/")
@@ -5179,10 +5279,6 @@ def mint_baton_from_sizing(
     handoff_id = _mint_artifact_id_from_title("hnd", title, "session-handoff", "handoff_id")
     out_rel = _baton_rel_for_sizing(sizing_rel)
     out_abs = os.path.join(repo_root, out_rel)
-    if os.path.exists(out_abs):
-        raise SizingMintRefused(
-            ["baton"], f"--from-sizing refused for {sizing_rel}: {out_rel} already exists"
-        )
     content = _scaffold_spinoff(
         title=title,
         branch=_current_branch(),
@@ -5209,10 +5305,10 @@ def mint_baton_from_sizing(
     # Baton first, created exclusively: a racing mint fails here, before any sizing write.
     try:
         _write_baton_file(out_abs, content)
-    except FileExistsError as exc:
-        raise SizingMintRefused(
-            ["baton"], f"--from-sizing refused for {sizing_rel}: {out_rel} already exists"
-        ) from exc
+    except FileExistsError:
+        return mint_baton_from_sizing(
+            sizing_rel, repo_root, baton=out_rel, deliverable_id=_caller_dlv
+        )
     try:
         _write_sizing_baton_edge(sizing_abs, out_rel, repo_root, deliverable_id)
     except Exception:
@@ -5230,7 +5326,45 @@ def mint_baton_from_sizing(
     return {"id": handoff_id, "path": out_rel, "title": title, "created": True}
 
 
-def _scaffold_decision(title: str, dr_id: str) -> str:
+def _resolve_supersedes_target(args, doc_type: str, repo_root: str) -> "tuple[str | None, str | None]":
+    """Validate the `--supersedes` flag family; return (old_record_abs_path, error)."""
+    import glob as _glob  # noqa: PLC0415
+    import re as _re  # noqa: PLC0415
+
+    if doc_type != "decision":
+        return None, "--supersedes is accepted only for --type decision"
+    if args.dr_prefix:
+        return None, "--supersedes cannot be combined with --dr-prefix"
+    if not _re.fullmatch(r"DR-[0-9]+", args.supersedes):
+        return None, f"--supersedes takes an unprefixed id like DR-12, got {args.supersedes!r}"
+    pattern = os.path.join(_glob.escape(os.path.join(repo_root, "docs", "decisions")), f"{args.supersedes}-*.md")
+    matches = sorted(_glob.glob(pattern))
+    if len(matches) != 1:
+        return None, f"{args.supersedes} matches {len(matches)} files under docs/decisions/, need exactly 1"
+    return matches[0], None
+
+
+def _apply_supersession(old_path: str, declare_write) -> None:
+    """Delete the superseded record, then declare the write.
+
+    There is no partial mode: a decision changed in part is edited in place to
+    state what is true now, never answered with a second record.
+    On failure restores the old record's original bytes; the caller removes the new file.
+    """
+    with open(old_path, "rb") as fh:
+        original = fh.read()
+    try:
+        os.remove(old_path)
+        declare_write(old_path)
+    except Exception:
+        with open(old_path, "wb") as fh:
+            fh.write(original)
+        raise
+
+
+def _scaffold_decision(
+    title: str, dr_id: str, supersedes: "tuple[str, str] | None" = None,
+) -> str:
     """Generate validator-clean decision frontmatter + canonical section skeleton.
 
     Produces a conformant decision against schemas/decision.yaml: required
@@ -5251,6 +5385,7 @@ def _scaffold_decision(title: str, dr_id: str) -> str:
         f"created: {today}",
         "status: proposed",
         f"id: {dr_id}",
+        *([f"supersedes: {supersedes[0]}"] if supersedes else []),
         "deciders:",
         "  - PLACEHOLDER  # replace with decision-maker names",
         "---",
@@ -5259,6 +5394,14 @@ def _scaffold_decision(title: str, dr_id: str) -> str:
         "",
         "## Problem",
         "",
+        *(
+            [
+                f"Supersedes {supersedes[0]}; removed from the working tree, stays in git "
+                f"history: git log --diff-filter=D -- docs/decisions/{supersedes[1]}",
+                "",
+            ]
+            if supersedes else []
+        ),
         "<!-- What problem does this decision solve? -->",
         "",
         "## Decision",
@@ -5773,7 +5916,7 @@ def _scaffold_sizing(
             if premise_evidence
             else "  evidence: PLACEHOLDER — cite the file:line, test, or command output you actually looked at; answered in place, never spun into its own record"
         ),
-        f"deliverable_id: {_yaml_quote(deliverable_id) if deliverable_id else 'null'}  # durable spine join key — re-scaffold with --deliverable-id <id> to join an existing baton's, never hand-edit",
+        f"deliverable_id: {_yaml_quote(deliverable_id) if deliverable_id else 'null'}  # durable spine join key — a --deliverable-id join works on a new record or one whose deliverable_id is empty or equal, never a re-key; never hand-edit it",
     ]
     if exit_criterion:
         lines += [
@@ -6452,7 +6595,16 @@ def _safe_output_roots() -> list:
             except OSError:
                 pass
     try:
-        roots.append(os.path.realpath(tempfile.gettempdir()))
+        temp = os.path.realpath(tempfile.gettempdir())
+        roots.append(temp)
+        # Under a test run TEMP is `<os temp>/coordinator/<repo>/run-temp/<id>`, while pytest's
+        # tmp_path is a sibling under `<os temp>/coordinator/<repo>/pytest/`; allow the shared
+        # `coordinator/<repo>` root so both pass.
+        run_temp = os.path.dirname(temp)
+        if os.path.basename(run_temp) == "run-temp":
+            repo_temp = os.path.dirname(run_temp)
+            if os.path.basename(os.path.dirname(repo_temp)) == "coordinator":
+                roots.append(repo_temp)
     except OSError:
         pass
     tmpdir = os.environ.get("TMPDIR", "")
@@ -7036,6 +7188,15 @@ Spec backlink (workflow): pln-workflow-skeleton-stamper-maki-adab0d
     )
 
     # Decision fields.
+    parser.add_argument(
+        "--supersedes",
+        default=None,
+        metavar="DR-N",
+        help=(
+            "(decision) Unprefixed id of the record this one replaces outright; deleted in "
+            "the same change. A partial change is an edit to that record, not a new one."
+        ),
+    )
     parser.add_argument(
         "--dr-prefix",
         default=None,
@@ -8662,6 +8823,33 @@ def main(argv: "list[str] | None" = None) -> int:
     # numbering namespace, not the write target of this particular invocation.
     # Spec backlink: cross-repo/inbox/2026-07-20-example-game-repo-em-dr-number-allocator-collision.md
     _resolved_dr_id: str | None = None
+    _supersede_old_path: str | None = None
+    if args.supersedes is not None:
+        _sup_root = _current_repo_root() or "."
+        _supersede_old_path, _sup_err = _resolve_supersedes_target(args, doc_type, _sup_root)
+        if _sup_err:
+            print(f"error: {_sup_err}", file=sys.stderr)
+            return 1
+        _ensure_engine_on_path()
+        from pathlib import Path as _SupPath  # noqa: PLC0415
+        from coordinator_core.ops.fleet._decision_citations import (  # noqa: PLC0415
+            CitationTarget as _CitationTarget,
+            live_citations as _live_citations,
+        )
+
+        _sup_rel = os.path.relpath(_supersede_old_path, _sup_root).replace(os.sep, "/")
+        _sup_hits = _live_citations(
+            _SupPath(_sup_root),
+            [_CitationTarget(_sup_rel, int(args.supersedes[3:]), None)],
+        ).get(_sup_rel, [])
+        if _sup_hits:
+            print(
+                f"refused: {args.supersedes} is cited on a live surface: "
+                f"{', '.join(_sup_hits)}; repoint or remove each, or edit "
+                f"{args.supersedes} in place if only part of it changes",
+                file=sys.stderr,
+            )
+            return 1
     if doc_type == "decision" and _adopt_id:
         _resolved_dr_id = _adopt_id
     elif doc_type == "decision":
@@ -9007,7 +9195,14 @@ def main(argv: "list[str] | None" = None) -> int:
             sizing_repo_root=(_current_repo_root() or ".") if args.sizing_object else None,
         )
     elif doc_type == "decision":
-        content = _scaffold_decision(title=title, dr_id=_resolved_dr_id)
+        content = _scaffold_decision(
+            title=title,
+            dr_id=_resolved_dr_id,
+            supersedes=(
+                (args.supersedes, os.path.basename(_supersede_old_path))
+                if _supersede_old_path else None
+            ),
+        )
     elif doc_type == "audit-record":
         content = _scaffold_audit_record(title=title, system=args.system)
     elif doc_type == "problem-set":
@@ -9304,11 +9499,15 @@ def main(argv: "list[str] | None" = None) -> int:
                 # pre-mutation text was empty is still a landed write.
                 if _sizing_reverse_old_text is not None:
                     declare_write(_sizing_abs_path)
+                if _supersede_old_path:
+                    _apply_supersession(_supersede_old_path, declare_write)
         else:
             with open(out_path, "w", encoding="utf-8", newline="\n") as fh:
                 fh.write(content)
                 if not content.endswith("\n"):
                     fh.write("\n")
+            if _supersede_old_path:
+                _apply_supersession(_supersede_old_path, lambda _p: None)
     except Exception:
         # The plan-file write failed after the sizing reverse edge already
         # landed — revert it so a half-written pair (sizing flipped to
@@ -9318,6 +9517,8 @@ def main(argv: "list[str] | None" = None) -> int:
         # maintained"). Re-raises the ORIGINAL exception either way.
         if _sizing_reverse_old_text is not None:
             _revert_sizing_reverse_edge(_sizing_abs_path, _sizing_reverse_old_text, _write_repo_root)
+        if _supersede_old_path and os.path.exists(out_path):
+            os.remove(out_path)
         raise
 
     # Success-path-only liveness stamp (completion_scaffold): reached only after the

@@ -37,7 +37,7 @@ cross-referenced if either's contract changes.
 
 Output (stdout) — stable key=value lines, always all four keys, value is an integer or
 the literal `unknown`:
-    ram_available_mb=<int|unknown>   # MemAvailable (Linux) / FreePhysicalMemory (Win) / free+inactive+spec (mac)
+    ram_available_mb=<int|unknown>   # host_sampler.avail_mb: MemAvailable (Linux) / ullAvailPhys (Win) / memorystatus_level (mac)
     ram_total_mb=<int|unknown>
     vram_free_mb=<int|unknown>       # summed across NVIDIA GPUs; unknown if no nvidia-smi
     vram_total_mb=<int|unknown>
@@ -46,8 +46,8 @@ Usage:
     python3 coordinator/bin/probe-memory-headroom.py            # key=value lines (machine-parseable)
     python3 coordinator/bin/probe-memory-headroom.py --human    # one human-readable sentence
 
-Platform coverage: Linux/WSL (/proc/meminfo), Windows (PowerShell CIM), macOS
-(sysctl + vm_stat). VRAM is NVIDIA-only (nvidia-smi) on any platform; AMD/Intel GPUs
+Platform coverage: RAM through coordinator_core.telemetry.host_sampler.avail_mb (spawn-free
+on Linux, Windows and macOS). VRAM is NVIDIA-only (nvidia-smi) on any platform; AMD/Intel GPUs
 report `unknown` (no portable query) — deliberately, not a bug.
 
 Historical note (DR-059, superseded): the bash oracle's `_ram_from_windows` used
@@ -69,9 +69,6 @@ Spec backlink: docs/plans/2026-07-19-debash-coordinator-windows.md (Plan C, Wave
 """
 from __future__ import annotations
 
-import os
-import platform
-import re
 import subprocess
 import sys
 from typing import Optional
@@ -106,93 +103,6 @@ def _fmt_mb(mb: int) -> str:
     if mb >= 1024:
         return f"~{mb // 1024} GB"
     return f"~{mb} MB"
-
-
-def _ram_from_proc() -> tuple[Optional[int], Optional[int]]:
-    try:
-        with open("/proc/meminfo", "r", encoding="utf-8") as f:
-            text = f.read()
-    except OSError:
-        return None, None
-    avail_kb = None
-    free_kb = None
-    total_kb = None
-    for line in text.splitlines():
-        m = re.match(r"^MemAvailable:\s*(\d+)", line)
-        if m:
-            avail_kb = int(m.group(1))
-            continue
-        m = re.match(r"^MemFree:\s*(\d+)", line)
-        if m:
-            free_kb = int(m.group(1))
-            continue
-        m = re.match(r"^MemTotal:\s*(\d+)", line)
-        if m:
-            total_kb = int(m.group(1))
-    if avail_kb is None:
-        avail_kb = free_kb
-    if avail_kb is None:
-        return None, None
-    total_mb = total_kb // 1024 if total_kb is not None else None
-    return avail_kb // 1024, total_mb
-
-
-def _ram_from_windows() -> tuple[Optional[int], Optional[int]]:
-    try:
-        import psutil  # type: ignore[import-not-found]
-    except ImportError:  # pragma: no cover - psutil is a declared dependency
-        return None, None
-    try:
-        vm = psutil.virtual_memory()
-        avail_bytes = vm.available
-        total_bytes = vm.total
-    except Exception:  # pragma: no cover - psutil internals, defensive only
-        return None, None
-    return avail_bytes // (1024 * 1024), total_bytes // (1024 * 1024)
-
-
-def _ram_from_macos() -> tuple[Optional[int], Optional[int]]:
-    import shutil
-
-    from coordinator_core.win_portability import no_console_creationflags
-
-    if not shutil.which("sysctl") or not shutil.which("vm_stat"):
-        return None, None
-    try:
-        total_bytes_out = subprocess.run(
-            ["sysctl", "-n", "hw.memsize"], capture_output=True, text=True, timeout=5,
-            **no_console_creationflags(),
-        )
-        pagesize_out = subprocess.run(
-            ["sysctl", "-n", "hw.pagesize"], capture_output=True, text=True, timeout=5,
-            **no_console_creationflags(),
-        )
-        stats_out = subprocess.run(
-            ["vm_stat"], capture_output=True, text=True, timeout=5,
-            **no_console_creationflags(),
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return None, None
-    if total_bytes_out.returncode != 0:
-        return None, None
-    total_bytes_s = total_bytes_out.stdout.strip()
-    pagesize_s = pagesize_out.stdout.strip() if pagesize_out.returncode == 0 else ""
-    pagesize = int(pagesize_s) if pagesize_s.isdigit() else 4096
-    stats = stats_out.stdout if stats_out.returncode == 0 else ""
-
-    def _pages(label: str) -> Optional[int]:
-        m = re.search(rf"^{label}:\s*(\d+)\.", stats, re.MULTILINE)
-        return int(m.group(1)) if m else None
-
-    free = _pages("Pages free")
-    if free is None:
-        return None, None
-    inactive = _pages("Pages inactive") or 0
-    spec = _pages("Pages speculative") or 0
-    avail_pages = free + inactive + spec
-    avail_mb = (avail_pages // 1024) * (pagesize // 1024)
-    total_mb = int(total_bytes_s) // 1024 // 1024 if total_bytes_s.isdigit() else None
-    return avail_mb, total_mb
 
 
 def _vram_from_nvidia() -> tuple[Optional[int], Optional[int]]:
@@ -246,15 +156,9 @@ def main(argv: list[str]) -> int:
             print("usage: probe-memory-headroom.py [--human]", file=sys.stderr)
             return 2
 
-    system = platform.system()
-    ram_avail: Optional[int] = None
-    ram_total: Optional[int] = None
-    if system == "Linux":
-        ram_avail, ram_total = _ram_from_proc()
-    elif system == "Darwin":
-        ram_avail, ram_total = _ram_from_macos()
-    elif system == "Windows":
-        ram_avail, ram_total = _ram_from_windows()
+    from coordinator_core.telemetry import host_sampler
+
+    ram_avail, ram_total = host_sampler.avail_mb()
 
     vram_free, vram_total = _vram_from_nvidia()
 

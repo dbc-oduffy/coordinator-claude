@@ -49,7 +49,6 @@ FORWARDER_NAMES = (
     "mise-census-revalidate.py",
     "mise-prep-gate.py",
     "mise-prep-run.py",
-    "navi-singleton.py",
     "needs-restart.py",
     "plan-reversibility-eligibility.py",
     "plan-spine-check.py",

@@ -3,15 +3,22 @@
 `review-roster-fragment.json` names which reviewers a plan's emitted **execute-review** stage
 dispatches, and in what order. `dispatch.emit` (the engine) reads the `execute_review` block
 from here and composes it as stages of the same emitted workflow every executed plan gets — size
-no longer selects a roster; every plan is reviewed, at every t-shirt size.
+does not select a roster; every plan is reviewed, at every t-shirt size.
 
 ## Consumer version
 
-`schema_version: 5` replaces v4's size-selected `tiers` with a single `execute_review` block. The
-stage-aware consumer is the engine's `review_mint/execute_review.py ::
-compose_execute_review`, which turns `stages` into: one mechanical prep call, one `parallel()`
-review wave; the engine's `bookkeep_wave` then writes the wave record. A v4-shaped reader (`list(tier)`) has nothing
-to key on here — there is no `tiers` key left to misread.
+`schema_version: 5` carries a single `execute_review` block and no top-level `tiers` (v4's
+size-keyed shape stays gone). The stage-aware consumer is the engine's
+`review_mint/execute_review.py :: compose_execute_review`, which turns `stages` into: one
+mechanical prep call, one `parallel()` review wave; the engine's `bookkeep_wave` then writes the
+wave record. A v4-shaped reader (`list(tier)`) has nothing to key on here.
+
+A stage agent entry may carry one optional `tiers` array (values `lightweight`, `standard`,
+`full`); absent means every tier, and `compose_execute_review` filters the entry on the plan's
+size tier (the filter lives in the engine and is not exercised by this repo's tests, which pin
+only the JSON shape). `coordinator:delivery-verifier` carries `["standard", "full"]`, so an XS/S
+(lightweight) wave drops it. Kira and the per-slice code-reviewer carry none and review every
+plan.
 
 ## Required on every code-landing emit
 
@@ -31,7 +38,9 @@ The review wave is **one parallel stage**: every agent in it — the per-slice c
 each signal-named persona, and the delivery verifier — runs concurrently. There is no second
 review round and no sequential ordering among reviewers; that already-parallel invariant from v4
 ("two or more agents in one stage run in parallel — that is what a stage means") carries over
-unchanged. Each slice reviewer applies and verifies its own findings; the whole-diff lenses
+unchanged. Each slice reviewer applies and verifies its own slice's findings (`applies: own-slice`). Kira
+applies whole-diff (`applies: whole-diff`) with exact-text Edits: a stale Edit fails rather than
+clobbers, so Kira re-reads and re-applies. The signal personas and the delivery verifier
 (`applies: none`) report only. No `integration` stage exists, and
 `tests/test_review_roster_fragment.py` enforces that.
 
@@ -79,7 +88,8 @@ Any persona `review-signals.json` marks `"stage": "named"` — `staff-eng` (arch
 security), `staff-data-sci` (data-science), `senior-front-end` (front-end), `staff-ux` (ux-flow) —
 can be merged into the review-wave's `accepts_signals: "named"` entry when the plan's own
 `review_signals` selects it. A plan selecting no named signal dispatches the wave's four fixed
-agents (per-slice code-reviewer, Kira, delivery-verifier) plus nothing extra; a mechanical plan is
+agents (per-slice code-reviewer, Kira, delivery-verifier) plus nothing extra, three at XS/S where the
+delivery-verifier's `tiers` drops it; a mechanical plan is
 never charged a domain specialist it didn't ask for. `coordinator:vp-product` stays PM-directed,
 never signal-matched, and is not part of this fragment.
 

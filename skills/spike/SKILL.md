@@ -16,7 +16,7 @@ Prove — or disprove — that a specific mechanism is viable before a plan comm
 same shape as `/dogfood`: converges to a viable/not-viable verdict, or switches gears — no
 open-ended "keep researching" path (that's `coordinator:research`).
 
-**One-line niche:** prove a mechanism is viable before a plan commits to it.
+spike is the research door's verdict class (`coordinator/commands/research.md`).
 
 Distinct from siblings: `coordinator:research` is broad, non-binary, and runs no code on this
 machine. `coordinator:systematic-debugging` is backward-looking (why did one known thing break).
@@ -31,8 +31,9 @@ outcome: viable or not-viable."
 One invocation surface, two entry paths — the gate is a structural signal, never a runtime
 self-classification:
 
-- **Research-heavy (default).** PM-gated, never EM-initiated, never invoked from a subagent —
-  same gate as `/research`/`/staff-session`. A bare `/spike <mechanism>` with no structural
+- **Research-door entry (default).** The PM says 'spike', or the EM sizes
+  `research.value_class: spike`. The EM's sizing is the authority
+  (`A-RESEARCH-RUNS-ON-THE-EMS-SIZING-NEVER-A-PM-GATE`). A bare `/spike <mechanism>` with no structural
   signal present is ALWAYS this variant, full stop.
 - **Plan-trampoline.** EM-reachable, no PM round-trip — only when `coordinator:plan` Branch B
   substrate verification carries an explicit `trampoline: true`-style signal on an unproven
@@ -42,7 +43,7 @@ self-classification:
 ## Both Halves Required
 
 1. **External web research** — how others solve this, what official docs say, known pitfalls.
-   Same lookup shape as `coordinator:research`, scoped narrowly to this mechanism.
+   Scoped to this mechanism.
 2. **Local empirical study** — install the dependency, run the probe, measure. The half
    `coordinator:research` structurally cannot do.
 
@@ -75,6 +76,8 @@ gates, an existing baton already carrying the work, or a PM-facing surface for a
 non-empty `gated_route` paired with a null `discharged_by`; there is no such thing as a record
 that exits promising to be picked up later. Rationale and the corpus evidence behind this
 discipline: wiki.
+
+**A spike carried as plan rows owes no verdict record.** Tripwire: `A-SPIKE-CARRIED-AS-PLAN-ROWS-OWES-NO-VERDICT-RECORD`.
 
 ## Exit Routing — the Verdict Routes It
 
@@ -111,14 +114,14 @@ folded into wiki reference material, not retroactively migrated. Editing the `/r
 `/dogfood` skill bodies — this skill defines its boundary against them by citation, not by
 editing theirs. A generic pipeline-graph engine — the shape→spike→plan edges are wired
 point-to-point in the affected skills, not abstracted into a routing framework. A central
-PM-gated-skills registry file — the research-heavy gate is documented here and cross-referenced
+gating-registry file — the research-door entry is documented here and cross-referenced
 from discovery surfaces. A new `deployment_state` enum value for the trampoline path — that's a
 handoff body directive, not a new enum value. A new primary manifest docType beyond the
 verdict-record schema itself.
 
 ## Discovery-Surface Integration and Test Surface
 
-Registering `/spike` on `/workstream-start`, the PM-gated-skills registry, and pipeline-graph
+Registering `/spike` on `/workstream-start`, a gating registry, and pipeline-graph
 cross-refs is a separate concern from this authoring surface. No runtime test exists for this
 skill body — a skill body is prose-doctrine, and this repo has no invocation harness that runs a
 skill end-to-end as a unit test, same as `/dogfood`/`/shape`/`/plan`. Frontmatter validates via

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -184,70 +183,13 @@ def cmd_stale_stashes(repo_root: Path, threshold_days: int) -> dict[str, Any]:
         }
 
 
-def _run_git(args: list[str], repo_root: Path) -> subprocess.CompletedProcess:
-    from coordinator_core.win_portability import no_console_creationflags
-
-    return subprocess.run(
-        ["git", *args],
-        cwd=str(repo_root),
-        capture_output=True,
-        text=True,
-        **no_console_creationflags(),
-    )
-
-
-def cmd_local_ahead(repo_root: Path, do_fetch: bool) -> dict[str, Any]:
-    result: dict[str, Any] = {
-        "branch": None,
-        "eligible": False,
-        "ahead_count": 0,
-        "no_origin": False,
-        "push_failures_log_present": (repo_root / ".git" / "push-failures.log").is_file(),
-        "fetch_error": None,
-    }
-
-    branch_proc = _run_git(["rev-parse", "--abbrev-ref", "HEAD"], repo_root)
-    if branch_proc.returncode != 0:
-        return result
-    branch = branch_proc.stdout.strip()
-    result["branch"] = branch or None
-
-    if not branch or not (branch.startswith("work/") or branch.startswith("feature/")):
-        return result
-    result["eligible"] = True
-
-    if do_fetch:
-        fetch_proc = _run_git(["fetch", "--quiet", "origin", branch], repo_root)
-        if fetch_proc.returncode != 0:
-            result["fetch_error"] = fetch_proc.stderr.strip() or "git fetch failed"
-
-    verify_proc = _run_git(
-        ["rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{branch}"], repo_root
-    )
-    if verify_proc.returncode == 0:
-        count_proc = _run_git(["rev-list", "--count", f"origin/{branch}..HEAD"], repo_root)
-        try:
-            result["ahead_count"] = int(count_proc.stdout.strip() or "0")
-        except ValueError:
-            result["ahead_count"] = 0
-    else:
-        result["no_origin"] = True
-        count_proc = _run_git(["rev-list", "--count", "HEAD"], repo_root)
-        try:
-            result["ahead_count"] = int(count_proc.stdout.strip() or "0")
-        except ValueError:
-            result["ahead_count"] = 0
-
-    return result
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="workday-start-advisory-counters.py",
         description=(
             "Advisory counters for the coordinator doctrine repo's /workday-start ceremony: "
-            "improvement-queue depth, push-failure log stats, local-only-ahead "
-            "branch check. Each subcommand prints one line of JSON and always "
+            "improvement-queue depth, push-failure log stats, "
+            "stale stashes. Each subcommand prints one line of JSON and always "
             "exits 0."
         ),
     )
@@ -260,14 +202,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     pf = sub.add_parser("push-failures", help="`.git/push-failures.log` total / recent-24h / last-line stats.")
     pf.add_argument("--repo-root", default=".", help="Calling repo's working-tree root (default: cwd).")
-
-    la = sub.add_parser("local-ahead", help="Local-only-ahead check for the active work/feature branch.")
-    la.add_argument("--repo-root", default=".", help="Calling repo's working-tree root (default: cwd).")
-    la.add_argument(
-        "--no-fetch",
-        action="store_true",
-        help="Skip `git fetch origin <branch>` — use whatever origin/<branch> ref is already known locally.",
-    )
 
     ss = sub.add_parser("stale-stashes", help="Surface `git stash` entries older than --threshold-days.")
     ss.add_argument("--repo-root", default=".", help="Calling repo's working-tree root (default: cwd).")
@@ -292,8 +226,6 @@ def main(argv: list[str] | None = None) -> int:
             payload = cmd_improvement_queue(repo_root)
         elif args.subcommand == "push-failures":
             payload = cmd_push_failures(repo_root)
-        elif args.subcommand == "local-ahead":
-            payload = cmd_local_ahead(repo_root, do_fetch=not args.no_fetch)
         elif args.subcommand == "stale-stashes":
             payload = cmd_stale_stashes(repo_root, threshold_days=args.threshold_days)
         else:  # pragma: no cover — argparse `required=True` makes this unreachable

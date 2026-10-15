@@ -724,24 +724,19 @@ def _write_fire_receipt(script_path: Path, plan_path: str | None = None, plans: 
     repo's wrapper"). `hooks.block_workflow_foreign_emission` reads receipts
     by shape alone, never by which emitter wrote them.
 
-    This script already bootstraps the engine and imports from
-    `coordinator_core` elsewhere in this module (`_bind`, `_slot_order_fn`),
-    so calling the op's writer in-process costs nothing extra; `params={}`
-    makes it fall back to `resolve_session_id`'s own env-var ladder, same as
-    a bare-CLI caller with no bound per-request session identity gets.
-
-    Best-effort, mirroring the op's own contract: a receipt that fails to
-    write narrates on stderr and never fails the emit — the script is the
-    deliverable, the receipt is evidence about it.
+    The writer body lives in `coordinator_core.ops.workflow_fire.receipt`
+    (shared with the workday-start runner); this wrapper only bootstraps the
+    engine onto the path first. Best-effort: a receipt that fails to write
+    narrates on stderr and never fails the emit.
     """
     try:
         import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
         from cc_invoke import require_colocated_engine_on_path
 
         require_colocated_engine_on_path(__file__)
-        from coordinator_core.ops.dispatch_emit.op import _write_emission_receipt
+        from coordinator_core.ops.workflow_fire.receipt import write_fire_receipt
 
-        _write_emission_receipt(script_path, plan_path, {}, extras={"plans": plans} if plans else None)
+        write_fire_receipt(script_path, plan_path, plans)
     except Exception as exc:  # noqa: BLE001 -- best-effort; must never fail the emit
         print(f"  WARNING: could not write emission receipt for {script_path.name}: {exc}", file=sys.stderr)
 
@@ -1024,7 +1019,17 @@ def _refuse_from_sizing(msg: str) -> int:
     return EXIT_REFUSED
 
 
-_MINT_TSHIRTS = frozenset({"M", "L", "XL", "XXL"})
+def _live_run_for(repo_root: Path, sizing_rel: str) -> "str | None":
+    """The warp run already working this sizing, if one is live (`coordinator_core.warp_live`)."""
+    import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
+    from coordinator_core.session.core import resolve_session_id
+    from coordinator_core.warp_live import live_run_for_sizing
+
+    return live_run_for_sizing(repo_root, sizing_rel, session_id=resolve_session_id() or None)
+
+
+_MINT_TSHIRTS = frozenset({"S", "M", "L", "XL", "XXL"})
+_FIRE_ROUTES = frozenset({"plan", "spec-dispatch"})
 
 
 def _effective_route(sizing: dict) -> object:
@@ -1056,13 +1061,16 @@ def _collect_sizing_refusals(sizing: dict) -> list[str]:
     if not sizing.get("interaction_mode"):
         out.append("`interaction_mode` is absent")
     route = _effective_route(sizing)
-    if route != "plan":
-        out.append(f"`route` is {route!r}, not 'plan' — --from-sizing only fires the single-plan Workflow")
+    if route not in _FIRE_ROUTES:
+        out.append(
+            f"`route` is {route!r}, not 'plan' or 'spec-dispatch' — --from-sizing only fires "
+            "the single-plan Workflow"
+        )
     tshirt = (sizing.get("estimate") or {}).get("tshirt") if isinstance(sizing.get("estimate"), dict) else None
     if tshirt not in _MINT_TSHIRTS:
         out.append(
-            f"`estimate.tshirt` is {tshirt!r} — only an M+ sizing mints a baton to plan; "
-            "an XS or S routes to dispatch or spec-dispatch, never this Workflow"
+            f"`estimate.tshirt` is {tshirt!r} — only an S+ sizing mints a baton to plan; "
+            "an XS routes to dispatch, never this Workflow"
         )
     else:
         intent = sizing.get("intent")
@@ -1140,6 +1148,66 @@ def _stamp_fire_hold(baton_path: Path, repo_root: Path, fire_script: Path) -> No
         print(f"  WARNING: could not stamp the fire hold on {baton_path.name}: {exc}", file=sys.stderr)
 
 
+def _commit_pair(
+    repo_root: Path, baton_rel: str, sizing_rel: str, deliverable_id: str | None,
+    baton_id: str,
+) -> tuple[str | None, str | None]:
+    """One zero-spawn `commit_paths` over the minted baton + sizing. Returns (sha, failure reason).
+
+    A failure never fails the emit; `(None, None)` means the pair was already committed.
+    """
+    from coordinator_core.git.commit import (
+        CommitRefused, FilterUnsupported, NothingToCommit, commit_paths,
+    )
+    from coordinator_core.git.commit_trailers import apply_missing_trailers
+    from coordinator_core.git.index_write import IndexStaleAfterCommit, IndexWriteError
+
+    paths = [baton_rel, sizing_rel]
+    try:
+        msg = apply_missing_trailers(
+            f"emit-wave-fire: sizing + baton for {baton_id}", repo_root, paths,
+            deliverable_id_override=deliverable_id,
+        )
+        outcome = commit_paths(repo_root, paths, msg, prefer_deliberate_stage=True)
+    except IndexStaleAfterCommit as exc:
+        return exc.outcome.sha, None
+    except NothingToCommit:
+        return None, None
+    except (FilterUnsupported, CommitRefused, IndexWriteError, OSError, ValueError) as exc:
+        return None, f"{type(exc).__name__}: {exc}"
+    differing = [*outcome.staged_preferred, *outcome.worktree_over_staged]
+    if differing:
+        print(
+            "  WARNING: committed bytes differed from the other side for: " + ", ".join(differing),
+            file=sys.stderr,
+        )
+    return outcome.sha, None
+
+
+def _report_pair(
+    repo_root: Path, baton: dict, sizing_rel: str, deliverable_id: str | None,
+    *, as_json: bool = False,
+) -> None:
+    out = sys.stderr if as_json else sys.stdout
+    if not deliverable_id:
+        import yaml
+
+        try:
+            sized = yaml.safe_load((repo_root / sizing_rel).read_text(encoding="utf-8")) or {}
+            deliverable_id = str(sized.get("deliverable_id") or "") or None
+        except (OSError, yaml.YAMLError, AttributeError):
+            deliverable_id = None
+    sha, reason = _commit_pair(repo_root, baton["path"], sizing_rel, deliverable_id, baton["id"])
+    if sha:
+        print(f"  committed pair {sha[:9]}: {baton['path']}  {sizing_rel}", file=out)
+        return
+    if reason is None:
+        print("  pair already committed", file=out)
+        return
+    print(f"  WARNING: pair not committed: {reason}", file=sys.stderr)
+    print(f"  uncommitted pair for the EM: {baton['path']}  {sizing_rel}", file=out)
+
+
 def _emit_chain_from_sizing(
     args, repo_root: Path, trail_dir: Path, script_source: Path, wave_args: dict,
     wave_number: int, baton: dict, baton_path: Path, sizing_rel: str,
@@ -1185,6 +1253,7 @@ def _emit_chain_from_sizing(
         return _refuse_from_sizing(str(exc))
     _stamp_fire_hold(baton_path, repo_root, manifest_file)
     if args.json:
+        _report_pair(repo_root, baton, sizing_rel, args.deliverable_id, as_json=True)
         print(json.dumps({"waveIndex": wave_number, "chain": {
             "manifest": str(manifest_file), "batons": [baton["id"]],
         }}, indent=2))
@@ -1195,7 +1264,7 @@ def _emit_chain_from_sizing(
         file=sys.stderr,
     )
     print(f"emit-wave-fire: chain fire for {baton['id']} (mode=single, chain).")
-    print(f"  uncommitted pair for the EM: {baton['path']}  {sizing_rel}")
+    _report_pair(repo_root, baton, sizing_rel, args.deliverable_id)
     print(
         f'\n  Bash(run_in_background: true): {contract.CHAIN_BIN} --manifest "{manifest_file}"'
         "   # its exit is your wake"
@@ -1220,10 +1289,14 @@ def _emit_single_from_sizing(
     """
     import yaml  # local import: only this code path needs it
 
+    # The Workflow has no filesystem primitive, so the trail must exist before the fire; a
+    # single fire from a sizing scaffolds its own rather than handing the EM a mkdir.
     if not trail_dir.is_dir():
-        return _refuse_from_sizing(
-            f"trail dir {trail_dir} does not exist. Scaffold it before emitting."
-        )
+        if not trail_dir.is_relative_to(repo_root):
+            return _refuse_from_sizing(
+                f"trail dir {trail_dir} does not exist and is outside --repo-root {repo_root}."
+            )
+        trail_dir.mkdir(parents=True, exist_ok=True)
     script_source = plugin_root / "workflows" / "plan-blitz.mjs"
     if not script_source.is_file():
         return _refuse_from_sizing(
@@ -1241,6 +1314,12 @@ def _emit_single_from_sizing(
     sizing_path = repo_root / sizing_rel
     if not sizing_path.is_file():
         return _refuse_from_sizing(f"no sizing object at {sizing_path}")
+    live_run = _live_run_for(repo_root, sizing_rel)
+    if live_run:
+        return _refuse_from_sizing(
+            f"run {live_run} is already working {sizing_rel}; its completion is the one wake. "
+            "Nothing to fire."
+        )
     try:
         sizing = yaml.safe_load(sizing_path.read_text(encoding="utf-8")) or {}
     except yaml.YAMLError as exc:
@@ -1286,6 +1365,9 @@ def _emit_single_from_sizing(
         "interactionMode": interaction_mode,
         "executionOpen": False,
     }
+    deliverable_id = args.deliverable_id or str(sizing.get("deliverable_id") or "")
+    if deliverable_id:
+        baton["deliverableId"] = deliverable_id
 
     pba = _plan_blitz_args()
     plugin_agents, plugin_agents_why = pba._plugin_agents_available(
@@ -1333,12 +1415,13 @@ def _emit_single_from_sizing(
     _write_fire_receipt(out)
     _stamp_fire_hold(baton_path, repo_root, out)
     if args.json:
+        _report_pair(repo_root, baton, sizing_rel, deliverable_id or None, as_json=True)
         print(json.dumps({"waveIndex": wave_number, "fires": [
             {"fire": 1, "scriptPath": str(out), "batons": [baton["id"]]}
         ]}, indent=2))
         return EXIT_OK
     print(f"emit-wave-fire: single-plan fire for {baton['id']} (mode=single).")
-    print(f"  uncommitted pair for the EM: {baton['path']}  {sizing_rel}")
+    _report_pair(repo_root, baton, sizing_rel, deliverable_id or None)
     print(f'\n  Workflow({{ scriptPath: "{out}" }})   # no args — they are bound')
     return EXIT_OK
 

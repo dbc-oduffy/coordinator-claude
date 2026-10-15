@@ -34,6 +34,11 @@
 #                                                 key, exit 0 whether or not peers exist
 #   incident-peers [<key>] [--repo PATH]      -> incident_claims.list_peers: prints one line per
 #                                                 live holder (self included)
+#   pid-present PID [--cmd-match RE]          -> core.pid_present(...) on psutil, no ps/kill shell-out,
+#                                                 for a peer-reported NON-session PID (build, dev
+#                                                 server): 0 live (and cmdline matches RE when
+#                                                 given), 1 dead or mismatch, 2 usage error
+#                                                 (non-integer or <=0 PID, bad regex, missing arg)
 #   Peer line: "<session_id> <address|unreachable> <claimed_at> <key> -- <note>". --repo defaults
 #   to core.git_root() of the cwd. A key refusal or unresolvable session id exits 2; a
 #   peer never changes the exit code.
@@ -80,7 +85,7 @@ def _import_module():
 _SUBCOMMANDS = (
     "subcommands: is-session-live | session-live | claim-holder-live | "
     "claim-held-by-me | active-sessions | live-session-ids | incident-claim | "
-    "incident-peers"
+    "incident-peers | pid-present"
 )
 
 _HELP_FLAGS = ("--help", "-h", "help")
@@ -169,6 +174,56 @@ def _run_incident(subcmd: str, rest: list[str]) -> int:
     return 0
 
 
+def _import_core():
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_dispatch_engine_on_path
+
+    require_dispatch_engine_on_path()
+    import coordinator_core.session.core as _core
+
+    return _core
+
+
+def _run_pid_present(rest: list[str]) -> int:
+    import re
+
+    usage = "session-liveness-cli pid-present PID [--cmd-match RE]"
+    pos: list[str] = []
+    cmd_match = None
+    i = 0
+    while i < len(rest):
+        if rest[i] == "--cmd-match":
+            if i + 1 >= len(rest):
+                return _usage(usage)
+            cmd_match = rest[i + 1]
+            i += 2
+            continue
+        pos.append(rest[i])
+        i += 1
+    if len(pos) != 1:
+        return _usage(usage)
+    try:
+        pid = int(pos[0])
+    except ValueError:
+        return _usage(usage)
+    if pid <= 0:
+        return _usage(usage)
+    try:
+        core = _import_core()
+    except (RuntimeError, ImportError) as exc:
+        print(f"session-liveness-cli: pid-present: engine not importable: {exc}", file=sys.stderr)
+        return _TRANSPORT_FAIL
+
+    try:
+        return _bool_to_exit(core.pid_present(pid, cmd_match))
+    except re.error as exc:
+        print(f"session-liveness-cli: pid-present: invalid --cmd-match: {exc}", file=sys.stderr)
+        return 2
+    except core.MissingPsutilError as exc:
+        print(f"session-liveness-cli: pid-present: {exc}", file=sys.stderr)
+        return _TRANSPORT_FAIL
+
+
 def _usage(prog: str) -> int:
     print(f"usage: {prog} <subcommand> <args...>\n{_SUBCOMMANDS}", file=sys.stderr)
     return 2
@@ -186,6 +241,9 @@ def main(argv: list[str]) -> int:
     if subcmd in _HELP_FLAGS:
         print(f"usage: session-liveness-cli <subcommand> <args...>\n{_SUBCOMMANDS}")
         return 0
+
+    if subcmd == "pid-present":
+        return _run_pid_present(rest)
 
     try:
         mod = _import_module()

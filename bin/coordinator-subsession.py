@@ -196,30 +196,24 @@ def _new_or_modified_names(before: dict, after: dict) -> list:
     return sorted(name for name, mtime in after.items() if before.get(name) != mtime)
 
 
+def _shared_run_git(args: "list[str]", cwd: Path):
+    if str(_REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(_REPO_ROOT))
+    from coordinator_core.git.run import run_git
+
+    return run_git(args, cwd=str(cwd))
+
+
 def _git_snapshot(repo_root: Path) -> "dict | None":
     """`None` means "no git repo here" (or git itself is unusable) -- the
     caller reports `diff_bearing: null` for that case rather than guessing a
     dirty/clean answer."""
-    _no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     try:
-        head = subprocess.run(
-            ["git", "-C", str(repo_root), "rev-parse", "HEAD"],
-            capture_output=True, text=True, timeout=10,
-            creationflags=_no_window,
-        )
+        head = _shared_run_git(["rev-parse", "HEAD"], repo_root)
+        status = _shared_run_git(["status", "--porcelain"], repo_root)
     except Exception:
         return None
-    if head.returncode != 0:
-        return None
-    try:
-        status = subprocess.run(
-            ["git", "-C", str(repo_root), "status", "--porcelain"],
-            capture_output=True, text=True, timeout=10,
-            creationflags=_no_window,
-        )
-    except Exception:
-        return None
-    if status.returncode != 0:
+    if head.returncode != 0 or status.returncode != 0:
         return None
     return {"head": head.stdout.strip(), "porcelain": status.stdout}
 

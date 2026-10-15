@@ -414,6 +414,8 @@ A schema-validated `agent()` result can be **schema-valid but semantically empty
 
 `schema:` proves *shape*, not *content non-emptiness*. A batch or inventory phase whose job is enumerating or extracting a corpus needs an explicit **coverage check** as part of its own gate — a count/diff against an expected baseline, or a non-empty assertion per expected family — because an empty-but-valid record is precisely the failure schema validation is structurally blind to.
 
+An agent whose return becomes the Workflow's own work list (a relay load) is dispatched with `phase: 'load'`. A Workflow with a relay load calls `assertRelayedCounts` against producer-declared counts and halts on mismatch. `coordinator/tests/guards/test_workflow_relay_load_count_check.py` enforces the second on every tracked script carrying the label or reading `.inputFile`. A relay too large for one structured reply is sharded by its producer into files, each loaded by its own `phase: 'load'` agent, every shard carrying its own count that the script checks before merging.
+
 ---
 
 ## See also

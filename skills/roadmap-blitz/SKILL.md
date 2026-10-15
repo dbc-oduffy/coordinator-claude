@@ -32,12 +32,12 @@ fan out (`A-SKILL-PHASE-NAMES-ITS-ACTOR`).
 
 Resolve the launcher per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`; unresolved —
 **stop and report**, never fabricate a fire or result. Confirm the sizing exists. Trail:
-`state/scratch/roadmap-blitz/<run-id>/`.
+`state/roadmap-blitz/<run-id>/`.
 
 ### 1. Emit the fire — never hand-write the args
 
     python3 "${CLAUDE_PLUGIN_ROOT}/skills/roadmap-blitz/emit-roadmap-fire.py" \
-        --repo-root <abs> --trail-dir <abs repo>/state/scratch/roadmap-blitz \
+        --repo-root <abs> --trail-dir <abs repo>/state/roadmap-blitz \
         --provision-sidecar-cli <abs provision-sidecar> [--sizing <path>] --interaction-mode <mode>
 
 `--provision-sidecar-cli` is the `provision-sidecar` CLI (basename checked; never `coordinator-invoke`), resolved per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`. `--interaction-mode` is required unless the sizing carries `interaction_mode:`; the emitter refuses (exit 2) otherwise, so pass the mode `sizing-assemble` reported.
@@ -67,7 +67,8 @@ null `gate_report_path`. Ask once with `AskUserQuestion` over `state/roadmap/<ru
 (`verdict` is `approved` or `declined`). Never infer, backfill or paraphrase an approval; a picker
 label is EM text, so record `"<label> (option picked)"` plus any PM words. `declined` ends the
 run. The resume stamps `approver: pm` and `approval_utterance` onto OVERVIEW.md, where plan
-authors read the Approve. Then:
+authors read the Approve. Commit the trail's record files (`approval.json`, `candidates.json`) in a
+scoped commit by pathspec; `roadmap-blitz.fire.mjs` is a snapshot and stays ignored. Then:
 
     python3 "${CLAUDE_PLUGIN_ROOT}/skills/roadmap-blitz/emit-roadmap-fire.py" \
         --repo-root <abs> --resume --trail-dir <abs trail>

@@ -150,18 +150,11 @@ def _git_common_dir(repo_root: Path) -> Path | None:
 def _current_head(repo_root: Path) -> str | None:
     """`git rev-parse HEAD`, bounded and console-hidden. None on any failure --
     a repo with no commits yet, or no git at all, never raises here."""
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=str(repo_root),
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=30,
-            **no_console_creationflags(),
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
+    if str(_REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(_REPO_ROOT))
+    from coordinator_core.git.run import run_git
+
+    result = run_git(["rev-parse", "HEAD"], cwd=str(repo_root))
     if result.returncode != 0:
         return None
     head = result.stdout.strip()

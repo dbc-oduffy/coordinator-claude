@@ -160,8 +160,8 @@ is a decomposition ladder, not just a labeling convention.
 
 **`/shape` is the altitude-router.** At problem-set ratification, `/shape` reads
 the `estimated_horizon` field (problem-set frontmatter: `session | week | initiative`)
-and routes to the right rung with an explicit EM/PM confirm — detect-then-confirm,
-never a silent rung pick. A wrong-altitude route is costly rework; the confirm
+from the sizing-scout's report and states it at ratification when routing to the right rung,
+never picking a rung silently. A wrong-altitude route is costly rework; the stated horizon
 preserves the `/shape` invariant ("no solutioning inside `/shape` until the
 problem-set is ratified").
 

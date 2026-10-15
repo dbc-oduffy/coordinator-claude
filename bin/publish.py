@@ -96,6 +96,7 @@ import importlib.util
 import inspect
 import io
 import json
+import atexit
 import os
 import re
 import shutil
@@ -1208,7 +1209,9 @@ def _inject_src_shadow(src: Path, ref: str) -> Path:
     key = (f"{toplevel}#inject:{rel}", ref)
     shadow = _MATERIALIZED_REF_CACHE.get(key)
     if shadow is None:
-        shadow = Path(tempfile.mkdtemp(prefix="claude-klabauter-publish-inject-"))
+        from coordinator_core.temp_layout import managed_tempdir  # noqa: PLC0415
+
+        shadow = Path(tempfile.mkdtemp(prefix="claude-klabauter-publish-inject-", dir=managed_tempdir()))
         try:
             materialize_subtree(toplevel, ref, rel, shadow)
         except RuntimeError as exc:
@@ -3885,7 +3888,8 @@ def dispatch_end_of_run_plugin_payload_gate(
             print(f"  Error: plugin-payload gate: assembled payload dir {payload_root} is absent.", file=err)
             ok = False
             continue
-        docs, imports, plan = check_plugin_payload(payload_root, payload_root)
+        # The engine mirror's `lib/` is claude-klabauter's `coordinator/lib` (row claude-klabauter-lib).
+        docs, imports, plan = check_plugin_payload(payload_root, payload_root, engine_root=_REPO_ROOT / "coordinator")
         print(
             f"  Plugin-payload gate (assembled mirror, {len(rows)} row(s)): {len(docs)} doc ref(s), "
             f"{len(imports)} import(s), install --plan {'FAILED' if plan else 'ok'}.",
@@ -5893,7 +5897,7 @@ def _load_allowlist_generator():
     return module
 
 
-def _field7_declaration_check() -> "tuple[bool, str, Optional[frozenset]]":
+def _field7_declaration_check(pinned_sha: Optional[str] = None) -> "tuple[bool, str, Optional[frozenset]]":
     """Run `publish-allowlist-generate.py --check` in-process, once per round,
     and return `(ok, message, generator_owned_row_names)`.
 
@@ -5957,7 +5961,9 @@ def _field7_declaration_check() -> "tuple[bool, str, Optional[frozenset]]":
     captured = io.StringIO()
     try:
         with contextlib.redirect_stderr(captured), contextlib.redirect_stdout(io.StringIO()):
-            rc = module.main(["--check"])
+            # Judged at the round's pinned commit: the round ships committed bytes, so a
+            # peer's uncommitted portable edit must neither fail nor pass this row.
+            rc = module.main(["--check", "--ref", pinned_sha] if pinned_sha else ["--check"])
     except Exception as exc:
         _FIELD7_DECLARATION_CHECK = (
             False,
@@ -6216,7 +6222,12 @@ def run_pre_sync_gates(
         # nothing to clean up.
         _field7_block_start = time.perf_counter()
         try:
-            decl_ok, decl_message, decl_rows = _field7_declaration_check()
+            generator_root = Path(__file__).resolve().parent.parent.parent
+            decl_ok, decl_message, decl_rows = _field7_declaration_check(
+                _round_pin_source_sha(generator_root, round_pinned_shas, out=out, late=True)
+                if round_pinned_shas is not None
+                else None
+            )
             if not decl_ok and (decl_rows is None or target.name in decl_rows):
                 print(
                     f"  Error: {target.name}'s field-7 allowlist is not what "
@@ -8278,8 +8289,13 @@ def _extract_git_archive(toplevel: Path, sha: str) -> Path:
     if `eol=lf` is later dropped.
     """
     pathspec = _required_pathspec_for_toplevel(toplevel, sha)
-    shadow_dir = Path(tempfile.mkdtemp(prefix="claude-klabauter-publish-materialize-"))
-    fd, archive_path_str = tempfile.mkstemp(prefix="claude-klabauter-publish-archive-", suffix=".tar")
+    from coordinator_core.temp_layout import managed_tempdir  # noqa: PLC0415
+
+    managed = managed_tempdir()
+    shadow_dir = Path(tempfile.mkdtemp(prefix="claude-klabauter-publish-materialize-", dir=managed))
+    fd, archive_path_str = tempfile.mkstemp(
+        prefix="claude-klabauter-publish-archive-", suffix=".tar", dir=managed
+    )
     os.close(fd)
     archive_path = Path(archive_path_str)
     try:
@@ -8350,6 +8366,39 @@ def _extract_git_archive(toplevel: Path, sha: str) -> Path:
 #: Set by `main` from `--source-ref`; empty means the toplevel's HEAD. Read only
 #: where a round pins its source sha, so every row of one round sees one commit.
 _source_ref_override = ""
+
+
+def _committed_portable_targets_file(setup_dir: Path) -> Optional[Path]:
+    """`setup/publish-targets.portable` as committed at the round's source ref,
+    written to a temp file, when the working copy differs from it; else None.
+
+    The round ships committed bytes, so its row set and field 7 come from the
+    commit too: a peer's uncommitted row edit naming files not yet committed
+    otherwise refuses the row (`_build_allowlisted_source`: entry not found)."""
+    portable = setup_dir / "publish-targets.portable"
+    ref = _source_ref_override or "HEAD"
+    try:
+        result = subprocess.run(
+            ["git", "show", f"{ref}:./{portable.name}"],
+            cwd=str(portable.parent),
+            capture_output=True,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        working = portable.read_bytes()
+    except OSError:
+        return None
+    if result.returncode != 0 or result.stdout == working.replace(b"\r\n", b"\n"):
+        return None
+    from coordinator_core.temp_layout import managed_tempdir  # noqa: PLC0415
+
+    fd, tmp = tempfile.mkstemp(
+        prefix="publish-targets-committed-", suffix=".portable", dir=managed_tempdir()
+    )
+    with os.fdopen(fd, "wb") as fh:
+        fh.write(result.stdout)
+    atexit.register(lambda: Path(tmp).unlink(missing_ok=True))
+    print(f"  Row registry read at {ref}: the working copy of {portable} has uncommitted edits.")
+    return Path(tmp)
 
 
 def _round_pin_source_sha(
@@ -12650,6 +12699,25 @@ def _removals_this_source_shipped(
     return kept
 
 
+def _paths_the_row_allowlist_denies(target: "ResolvedTarget", removals: "Iterable[str]") -> "set[str]":
+    """The removals a row's allowlist deliberately unships: a declared allowlist that names no
+    inclusion covering the path, or an `!` exclusion that does. Such a path may be live in the
+    source and still leave the mirror; the live-source refusal is for stale deltas only."""
+    _bootstrap_engine()
+    entries, exclusions = split_inclusion_exclusion(parse_allowlist_csv(target.allowlist))
+    if not entries:
+        return set()
+
+    def covers(entry: str, rel: str) -> bool:
+        return rel == entry or rel.startswith(entry.rstrip("/") + "/")
+
+    return {
+        r
+        for r in removals
+        if any(covers(x, r) for x in exclusions) or not any(covers(e, r) for e in entries)
+    }
+
+
 def _assemble_root_union(
     repo_root: Path,
     plan: _RootPlan,
@@ -12688,7 +12756,10 @@ def _assemble_root_union(
         removals = staged.row_removed_files
         if shipped_then_deleted is not None:
             removals = _removals_this_source_shipped(target, removals, shipped_then_deleted)
-        refuse_removals_with_live_source(target.source_dir, removals, target.name)
+        unshipped = _paths_the_row_allowlist_denies(target, removals)
+        refuse_removals_with_live_source(
+            target.source_dir, [r for r in removals if r not in unshipped], target.name
+        )
         for row_rel in removals:
             deletions.add((rel_prefix / row_rel).as_posix())
     entries = {rel: path for rel, (_rank, path) in winners.items()}
@@ -13053,7 +13124,7 @@ def _run_round(
                     if staged is None:
                         # A test double that advances `totals.processed` without staging.
                         staged = StagedRowResult(
-                            staging_dir=Path(tempfile.mkdtemp(prefix=".publish-empty-stage-")),
+                            staging_dir=_create_publish_staging_dir(target.dest_dir),
                             row_visited=set(),
                             row_changed_files=set(),
                             row_removed_files=set(),
@@ -13512,7 +13583,11 @@ def main(argv: Optional[List[str]] = None) -> int:
                 args.target = ",".join(siblings)
 
     try:
-        rows = load_targets(setup_dir, target_filter=args.target)
+        rows = load_targets(
+            setup_dir,
+            target_filter=args.target,
+            portable_targets_file=_committed_portable_targets_file(setup_dir),
+        )
     except TargetsError as exc:
         print(exc.message, file=sys.stderr)
         return exc.code if exc.code else 1
@@ -14041,7 +14116,11 @@ def main(argv: Optional[List[str]] = None) -> int:
 
         for _refresh_root in lock_repo_roots:
             _refresh = _refresh_dest_from_origin(
-                _refresh_root, out=sys.stdout, err=sys.stderr, source_root=percolate_root
+                _refresh_root,
+                out=sys.stdout,
+                err=sys.stderr,
+                source_root=percolate_root,
+                source_ref=_source_ref_override or "HEAD",
             )
             if not _refresh.ok:
                 publish_lock_stack.close()
@@ -14180,7 +14259,14 @@ def main(argv: Optional[List[str]] = None) -> int:
         # PARTIAL round's push-or-not is an EM judgment call, not a default
         # this line should nudge, so the PARTIAL branch above stays silent
         # on it.
-        if not args.dry_run and succeeded_row_names and not failed_row_names:
+        # Under --no-commit the caller (percolate-round) owns commit and push,
+        # so the push nudge below would be false and noisy.
+        if (
+            not args.dry_run
+            and args.commit
+            and succeeded_row_names
+            and not failed_row_names
+        ):
             # Grouped by DEST, never per row. `mirror_expansion` is set only
             # when a single bare row name expanded to its mirror, so the
             # ordinary no-argument publish leaves it None -- and keying off

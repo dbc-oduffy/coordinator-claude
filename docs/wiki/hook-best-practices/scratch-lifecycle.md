@@ -4,6 +4,8 @@ Skills that emit working-notes scratch (`/distill` → `state/scratch/artifact-d
 
 *Post-ship dirty scratch files surface as untracked noise once the real outputs (archived specs, deleted scaffolds, wiki updates) have already shipped. Tracking scratch then deleting it one commit later is obvious post-hoc noise. PM call: scratch artifacts are not useful post-ship.*
 
+**Scope: working notes only.** A record a tracked file cites, or one a later session needs to read what a run decided, is not scratch; it is written to its tracked home from the start. See [`../scratch-and-temp-hygiene.md` § Durable versus ephemeral](../scratch-and-temp-hygiene.md).
+
 ## Two acceptable patterns
 
 ### Pattern A — emitting skill self-cleans on success

@@ -207,7 +207,10 @@ def _commit_moved(srcs: list, dst_dir, repo_root, no_console_kwargs: dict) -> bo
         s = Path(src).resolve()
         rels.append(s.relative_to(root).as_posix())
         rels.append((Path(dst_dir).resolve() / s.name).relative_to(root).as_posix())
-    fd, pathspec_file = tempfile.mkstemp(prefix="age-sweep-pathspec-", suffix=".txt")
+    from coordinator_core.temp_layout import managed_tempdir
+    fd, pathspec_file = tempfile.mkstemp(
+        prefix="age-sweep-pathspec-", suffix=".txt", dir=managed_tempdir(root)
+    )
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as fh:
             fh.write("\n".join(rels) + "\n")

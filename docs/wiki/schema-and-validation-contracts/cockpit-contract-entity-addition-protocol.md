@@ -595,7 +595,7 @@ or PATCH (`x.y.Z`). No sentinel. No emit-hold. No wait-for-confirm gate.
 
 1. Owner bumps + runs codegen (Steps d–e) + **emits immediately** — no sentinel placed.
 2. Owner fires **one reader-ready announcement memo per consumer** (via `cross-repo-memo`
-   CLI + PM-relay): new version, new shapes, and this note: *"New-entity arrays quarantine
+   CLI): new version, new shapes, and this note: *"New-entity arrays quarantine
    observably until re-vendor; replay automatically on re-vendor. No coordinator action
    required before we emit."*
 3. Consumers re-vendor on their own timeline. Quarantined arrays replay automatically.

@@ -49,7 +49,7 @@ Note backlog presence/count; confirm `git branch --show-current` is the day bran
 as `BLITZ_BRANCH`: the `coordinator.dayBranch` designation when the repo has one (a cloud session
 records its harness-assigned branch there at SessionStart), else `work/{machine}/{date-or-span}`.
 Halt on anything else, always on `main`, the default branch, or a detached HEAD — fail-closed, no
-override. After `/merging-to-main` deleted the day branch, cut a fresh `work/{machine}/{date}` from main first. Mint run ID; scratch `state/scratch/bug-blitz/{run-id}/`. Mechanics: wiki.
+override. After `/merging-to-main` deleted the day branch, cut a fresh `work/{machine}/{date}` from main first. Mint run ID; the emitted script is a working file under `state/scratch/bug-blitz/{run-id}/`, cited evidence, including the engine's per-item `.done.md` and `.verify.md` records, goes to `state/queue-grind/bug/evidence/{run-id}/`. Mechanics: wiki.
 
 ## Phase 0.6 — Tier-U Authorization
 
@@ -69,32 +69,29 @@ Step 1's) or wait for it to finish; a baseline straddling another run's commits 
 `suite: not-run (cloud)`, and prove each fix with the tests covering its surface.
 
 **Existing evidence is the baseline.** A captured suite log or red-set audit record the PM or a
-prior run named (a `state/test-runs/` record, `state/audits/*red-set*`) replaces a fresh run: hand
-it to `test-evidence-parser` as the captured output. When the machine-wide suite mutex is held, proceed
-on that record and take the confirm-green suite when the lock frees.
+prior run named (a `state/test-runs/` record, `state/audits/*red-set*`) replaces a fresh run and
+becomes `targets`. When the machine-wide suite mutex is held, proceed on that record and take the
+confirm-green suite when the lock frees.
 
-`coordinator-resolve-validation-cmd --full` resolves `TEST_CMD`: exit 0 full suite; exit 3
+Otherwise `coordinator-resolve-validation-cmd --full` resolves `TEST_CMD`: exit 0 full suite; exit 3
 fast-tier fallback, report as `fast-fallback`, never call it the full suite; exit 2 unconfigured,
-continue backlog-only, name the remediation, never fabricate a command. EM runs it directly as `with-suite-mutex -- <TEST_CMD>`
-(Tier-U — subagents never run the suite; the suite guard refuses a bare run), pre-scaffolds the
-parser's output (`Edit` cannot create a file) with `printf '<!-- FINDINGS -->\n' >
-state/scratch/bug-blitz/{run-id}/tests.md`, and dispatches `test-evidence-parser` with that path and
-the captured output to classify it. Each `real` failure mints `TF-{run-id}-{n}`;
-`flake`/`env`/`timeout`/`known-skip` aren't dispatched. Mechanics: wiki.
+continue backlog-only, name the remediation, never fabricate a command. EM runs it directly as
+`with-suite-mutex -- <TEST_CMD>` (subagents never run the suite); its `state/test-runs/<suite>-last.txt`
+is the `targets`.
 
 **Empty-backlog-and-green-suite short-circuit:** absent/empty backlog AND fully green resolved
 suite → skip to a one-line all-clear, no commit. Not reachable under decline.
 
-## Phase 1 — Emit and Fire the Grind
+## Phase 1 — Submit the Run
 
-After Phase 0.7, emit through C4's queue route and fire it interactively:
+Resolve `j-bug-blitz-commit-readiness`, then submit — one call, the whole run:
 
-Run `emit-dispatch-workflow --queue state/bug-backlog --profile bug --appetite <a> --limit <N> --budget-tokens <N> --out state/scratch/bug-blitz/{run-id}/blitz.workflow.mjs --repo-root <abs repo root>`, resolving the CLI per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`.
+`Workflow({name: "coordinator:bug-blitz", args: {targets: "<red-set dir | failing-tests file | state/bug-backlog>", appetite?, limit?, budget_tokens?}})`
 
-Resolve `j-bug-blitz-commit-readiness` before firing — firing IS the emitted grind's first
-commit. Fire with the `Workflow({scriptPath, args})` call the emitter prints on stderr; firing is
-interactive, never `--fire` (the wrapper docstring says why). Firing is the PM's standing approval
-for every safe fix, refute-confirmed close and plan-weight baton the run produces — no per-item ask.
+The engine's PreToolUse hook parses the targets, mints one `TF-*` row per failing test file, emits
+the grind and fires it. Never parse, mint or emit by hand; a stub return of `halted: true` means the
+hook didn't run — report it. Submitting is the PM's standing approval for every safe fix,
+refute-confirmed close and plan-weight baton the run produces — no per-item ask.
 
 **Cost.** Report the spend in `state/queue-grind/bug/runs/<run-id>.json` beside the hand-back
 counts; no pre-run estimate.

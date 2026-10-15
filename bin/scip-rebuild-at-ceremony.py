@@ -57,7 +57,8 @@ from pathlib import Path
 
 _THIS = Path(__file__).resolve()
 _REPO_ROOT = _THIS.parent.parent.parent
-_LIB_DIR = _REPO_ROOT / "coordinator" / "lib"
+#: Sibling lib/: coordinator/lib in this tree, lib/ in the published plugin layout.
+_LIB_DIR = _THIS.parent.parent / "lib"
 
 
 def no_console_creationflags() -> dict:
@@ -82,39 +83,18 @@ _MIN_AVAILABLE_GB_ENV = "COORDINATOR_SCIP_REBUILD_MIN_AVAILABLE_GB"
 def available_memory_gb() -> float | None:
     """Physical memory available to a new process, in GB; None when this host can't say."""
     try:
-        import psutil  # type: ignore[import-not-found]
+        bin_lib = str(Path(__file__).resolve().parent / "lib")
+        if bin_lib not in sys.path:
+            sys.path.insert(0, bin_lib)
+        from cc_invoke import require_engine_on_path
 
-        return psutil.virtual_memory().available / 1024**3
-    except Exception:  # noqa: BLE001 -- psutil is optional
-        pass
-    if sys.platform == "win32":
-        import ctypes
+        require_engine_on_path(__file__)
+        from coordinator_core.telemetry import host_sampler
 
-        class _MemoryStatusEx(ctypes.Structure):
-            _fields_ = [
-                ("dwLength", ctypes.c_ulong),
-                ("dwMemoryLoad", ctypes.c_ulong),
-                ("ullTotalPhys", ctypes.c_ulonglong),
-                ("ullAvailPhys", ctypes.c_ulonglong),
-                ("ullTotalPageFile", ctypes.c_ulonglong),
-                ("ullAvailPageFile", ctypes.c_ulonglong),
-                ("ullTotalVirtual", ctypes.c_ulonglong),
-                ("ullAvailVirtual", ctypes.c_ulonglong),
-                ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
-            ]
-
-        status = _MemoryStatusEx()
-        status.dwLength = ctypes.sizeof(_MemoryStatusEx)
-        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
-            return status.ullAvailPhys / 1024**3
+        avail, _total = host_sampler.avail_mb()
+    except Exception:  # noqa: BLE001 -- an unresolvable engine means "can't say"
         return None
-    try:
-        for line in Path("/proc/meminfo").read_text().splitlines():
-            if line.startswith("MemAvailable:"):
-                return int(line.split()[1]) / 1024**2
-    except (OSError, ValueError, IndexError):
-        pass
-    return None
+    return None if avail is None else avail / 1024
 
 
 def _min_available_gb() -> float:

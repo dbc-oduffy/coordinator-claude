@@ -49,10 +49,10 @@ import yaml
 # ---------------------------------------------------------------------------
 
 #: plan-tasks.schema.json's closed `disposition` enum.
-KNOWN_DISPOSITIONS = frozenset({"open", "coded", "spun_off", "backlogged", "wont_do"})
+KNOWN_DISPOSITIONS = frozenset({"open", "coded", "spun_off", "backlogged", "wont_do", "delivered_elsewhere"})
 
 #: Rows counted as resolved (plan's § CONTRADICTION predicate, `rows_resolved`).
-RESOLVED_DISPOSITIONS = frozenset({"coded", "spun_off", "backlogged", "wont_do"})
+RESOLVED_DISPOSITIONS = frozenset({"coded", "spun_off", "backlogged", "wont_do", "delivered_elsewhere"})
 
 #: `disposition` -> `grouping_approvals` block name for the gated-closure join.
 GATED_GROUPING_FOR_DISPOSITION = {
@@ -649,6 +649,51 @@ class LedgerResult:
     document: Optional[dict] = None
 
 
+def _register_rollup(repo_root: Path, text: str, frontmatter: dict) -> Optional[dict]:
+    """`rollup.register` (plan-completeness-ledger 1.1.0): `{sizing, turns_total, turns_uncovered,
+    rows_unclaimed}` off the plan's `register_claims.sizing`, else `sizing_object`. None when
+    that sizing carries neither `pm_verbatims` nor a register, or cannot be read."""
+    ensure_engine_on_path()
+    from coordinator_core.ops import requirement_register as rr
+
+    normal = text.replace("\r\n", "\n")
+    fm_text = normal[4:].split("\n---", 1)[0] + "\n" if normal.startswith("---\n") else ""
+    claims_rel, claim_ids = rr.plan_claims(fm_text)
+    sizing_object = frontmatter.get("sizing_object")
+    rel = claims_rel or (sizing_object if isinstance(sizing_object, str) and sizing_object else None)
+    if not rel:
+        return None
+    root = repo_root.resolve()
+    path = (root / rel).resolve()
+    try:
+        path.relative_to(root)
+        data = path.read_bytes()
+    except (ValueError, OSError):
+        return None
+    if not (rr.has_register_key(data) or b"pm_verbatims:" in data):
+        return None
+    sizing_text = data.decode("utf-8", "replace")
+    try:
+        doc = rr.load_register_yaml(sizing_text)
+    except Exception:  # noqa: BLE001 - tolerant reader
+        return None
+    if not isinstance(doc, dict):
+        return None
+    turns_total = len(rr.embedded_turns(doc))
+    register = rr.read_register(sizing_text)
+    rows_unclaimed = [
+        str(r.get(rr.ROW_ID))
+        for r in (register.rows if register is not None else [])
+        if str(r.get(rr.ROW_ID)) not in claim_ids and not rr.claimants(r)
+    ]
+    return {
+        "sizing": Path(rel).as_posix(),
+        "turns_total": turns_total,
+        "turns_uncovered": rr.coverage_gaps(doc),
+        "rows_unclaimed": rows_unclaimed,
+    }
+
+
 def build_ledger(repo_root: str, plan_path: str) -> LedgerResult:
     """The whole reader, end to end: load the spine, read the plan frontmatter, read the
     emitted-workflow chunk-id set (or discover chunks without one), resolve each chunk against
@@ -785,4 +830,7 @@ def build_ledger(repo_root: str, plan_path: str) -> LedgerResult:
             "contradiction": rollup.contradiction,
         },
     }
+    register_rollup = _register_rollup(repo_root_path, text, frontmatter)
+    if register_rollup is not None:
+        document["rollup"]["register"] = register_rollup
     return LedgerResult(status="located", document=document)

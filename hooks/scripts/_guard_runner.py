@@ -396,6 +396,7 @@ _GUARD_POSIX_INVOCATION_DOCTRINE_WRITE = "guard-posix-invocation-doctrine-write.
 _GUARD_HANDOFF_SUMMARY_CAP_ON_WRITE = "guard-handoff-summary-cap-on-write.py"
 _GUARD_AUTONOMOUS_SENTINEL_WRITE = "guard-autonomous-sentinel-write.py"
 _GUARD_ENGINE_MIRROR_WRITE = "guard-engine-mirror-write.py"
+_GUARD_CANVAS_CITATION_NEEDS_HARVEST = "guard-canvas-citation-needs-harvest.py"
 
 REAL_GUARD_REGISTRY: Tuple[RegisteredGuard, ...] = (
     RegisteredGuard(
@@ -540,6 +541,16 @@ REAL_GUARD_REGISTRY: Tuple[RegisteredGuard, ...] = (
             # registry; the mirrors' repo names over-approximate it and the in-guard
             # predicate decides.
             directory_substrings=("/claude-klabauter/", "/coordinator-claude/"),
+        ),
+    ),
+    RegisteredGuard(
+        module_key="guard_canvas_citation_needs_harvest",
+        module_path=str(Path(_HOOKS_DIR) / _GUARD_CANVAS_CITATION_NEEDS_HARVEST),
+        descriptor=GuardScopeDescriptor(
+            guard_module=_GUARD_CANVAS_CITATION_NEEDS_HARVEST,
+            # Real scope is a `.md` under a `docs/plans` directory; the in-guard predicate decides.
+            path_suffixes=frozenset({".md"}),
+            directory_substrings=("docs/plans/",),
         ),
     ),
 )

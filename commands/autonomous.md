@@ -7,7 +7,14 @@ argument-hint: "[on|off]"
 
 # Autonomous Mode Toggle
 
-Writes or removes the autonomous-run sentinel file. Context-pressure messages never recommend `/handoff`, with or without it: they say commit, checkpoint, and ride compaction.
+Declares the PM away: the session drives every stage to completion without waiting on the PM.
+Writes or removes the autonomous-run sentinel, which the plugin reads to:
+
+- nudge against any `AskUserQuestion` (`nudge-autonomous-askuserquestion.py`) — the answer is
+  the recommendation, acted on;
+- refuse `--typed-command` execution stamps (nobody typed it) and require
+  `--authorized-by-delegation`, so an executed plan records who authorised it;
+- let pickup autofire run batons handed to an autonomous run.
 
 ## Usage
 
@@ -19,7 +26,10 @@ Writes or removes the autonomous-run sentinel file. Context-pressure messages ne
 Run, relaying its own stdout confirmation verbatim (don't re-author it). Shape W
 (`coordinator/snippets/resolve-coordinator-bin.md`):
 
-`& "$env:COORDINATOR_SETTINGS_HOME\bin\autonomous-verb.exe" $ARGUMENTS`
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\autonomous-verb.exe" <on|off>`
+
+Render the literal `on` or `off` (`off` only when the args say off), never `$ARGUMENTS`:
+the verb reads one token and has no note slot; keep any other PM text in your own notes.
 
 ## Behavior While Active
 

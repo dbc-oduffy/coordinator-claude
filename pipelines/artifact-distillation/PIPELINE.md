@@ -55,7 +55,7 @@ Cross-Repo Archive Specialist Branch (Sonnet ×1 or ×N shards, parallel to Phas
 
 ## Phase 0: Scoping (Coordinator, ~5 min)
 
-Moved to [`phase-0-scoping.md`](phase-0-scoping.md) — read it in full before running this step.
+Moved to [`phase-0-scoping.md`](phase-0-scoping.md) — read it in full before running this step. Call `distill.scope` with `run_id`, and pass its `workflow_input_path` (not `input.json`) as `args.inputFile` to `distill-harvest.workflow.js`.
 
 ---
 
@@ -156,7 +156,7 @@ Unchanged sections are NOT included in the delta. This prevents guide drift wher
 
 For new guides: produce the full document in standard format (H1 title, optional TOC, architecture overview, reference tables, cross-references). Also note the new guide in the batch scratch file so Phase 5 can update `docs/wiki/DIRECTORY_GUIDE.md` and `docs/README.md`.
 
-Decision records: any `[DECISION]` nugget (not `[SUPERSEDED]`) → draft in standard format with metadata block (Decision ID, Status, Authors, Date, Related, Implementation links).
+Decision records: any `[DECISION]` nugget (not `[SUPERSEDED]`) → one decision record in standard format, numbered by the scaffolder (`coordinator-doc-new --type decision`), never by the agent. In the Workflow, each synth agent mints its own records this way and returns `op: CREATE_DR` with `target` set to the path the scaffolder printed; the record carries `provenance:` as a mapping with this run's `run_id` and `source_nuggets`. A `[DECISION]` nugget is `SKIP` only with a reason starting `DR-ALLOCATOR-UNAVAILABLE` (scaffolder cannot run) or `DR-EXISTS <path>` (an existing record already states it); any other disposition leaves it folded and sends it back through the Coverage Gate.
 
 **DISPATCH:** Open `agent-prompts/phase-2.md`. Copy the **Phase 2: Sonnet Knowledge Synthesis Prompt** verbatim. Fill in:
 - `[SYSTEM_TAG]` — system name for this guide
@@ -173,7 +173,7 @@ Instruct each agent in its prompt to use Read and Write. (The Agent tool has no 
 
 **Phase 2 scratch output schema:** Each Phase 2 scratch file opens with a `dispositions:` YAML frontmatter block listing every assigned nugget ID with its operation and target. Full schema: `agent-prompts/phase-2.md` § Disposition Manifest.
 
-**Ownership boundary:** Synthesizers own their scratch files. They write to `state/scratch/artifact-distillation/{run-id}/` only — never to `docs/wiki/` or `docs/decisions/`. Production guides are coordinator-only territory (applied in Phase 5).
+**Ownership boundary (hand-orchestrated path):** Synthesizers own their scratch files. They write to `state/scratch/artifact-distillation/{run-id}/` only — never to `docs/wiki/` or `docs/decisions/`. Production guides are coordinator-only territory (applied in Phase 5). In the Workflow, each synth agent owns exactly one wiki file plus the decision records it scaffolds itself under `docs/decisions/`, and touches no other `docs/wiki/` file and no record it did not scaffold.
 
 **Scratch verification:** Verify all expected topic files exist before proceeding to Phase 3a.
 
@@ -210,6 +210,8 @@ gap-synth failure is caught and logged (`unresolved_gap_clusters`) rather than b
 Wave 2's own `resumeFromRunId` re-run mechanics remain the recovery path for a hard synth
 failure.
 
+**Folded decisions.** `findFoldedDecisions()` also flags every `[DECISION]` nugget whose disposition is neither `CREATE_DR` with a `target` under `docs/decisions/` nor `SKIP` with one of the two pinned reasons. Folded nuggets re-synth in the same single gap pass as uncovered ones, and the gap disposition replaces the original. Any nugget still folded afterwards is reported in `dr_minting.folded_unresolved`; the run does not halt.
+
 Full mechanics: `distill-harvest.workflow.js` § "Coverage gate" (function `findCoverageGaps`,
 the gap-synth `agent()` dispatch, and the merge-back loop).
 
@@ -223,6 +225,8 @@ Mine the run's reviewer sidecars for cross-spec convergence patterns — finding
 
 **Full procedure** (corpus collection, finding eligibility, shape-matching rules, update path, convergence threshold, proposal format, promoted-entry frontmatter schema): see `agent-prompts/phase-2-5-judgment-mining.md` — the eligibility/shape-matching/threshold rules it documents are unchanged; the Workflow's dispatch brief follows them inline rather than through a hand-filled template.
 
+**Judgment clusters.** The producer is the in-run `judgment-corpus` scout (Sonnet, read-only, one agent): it finds reviewer sidecars by their `findings_ledger:` frontmatter key, joins them to this run's plans, and groups eligible findings by claim topic and verdict direction. A caller may supply `judgmentClusters` in the input file instead; input-file clusters win and no scout dispatches. `judgment_mining.status` is `ran` when clusters came from the input file or the scout returned (zero clusters included), `unavailable` only when the scout failed. `judgment_mining.cluster_source` is `input`, `in-run-scout` or `none`; `sidecars_seen` counts the sidecars the scout found, so a thin corpus is visible.
+
 **Judgment proposals stay in-memory** (`judgmentResults`, appended to `judgment-proposals.md` by each mining agent for cross-agent visibility within the fan-out) and are returned as part of the Workflow's result — Phase 3b (also folded into the Workflow, § below) consumes them directly rather than re-reading a hand-managed scratch file mid-chain.
 
 ---
@@ -232,6 +236,8 @@ Mine the run's reviewer sidecars for cross-spec convergence patterns — finding
 **Model:** Sonnet. **Dispatch:** One agent per topic cluster, all simultaneously, dispatched directly by `distill-harvest.workflow.js`'s `contradiction-detection` phase.
 
 **Sharding rule (Option B — clustered pairwise):** Reuses Phase 2.5's shape-match clustering apparatus (the caller-supplied `contradictionClusters` input, per D3 of the coordinator's own pipeline-defects wiki: cluster on coarse topic domains, never exact topic-string equality). Each 3a agent compares all topics *within its cluster* — detecting intra-cluster contradictions. The Workflow handles cross-cluster contradictions separately (see below).
+
+**Cluster channel.** `contradictionClusters` (`{clusterTag, topicKeys}`) arrive in the curated file (`args.curatedFile`) or, for a single-pass caller, in the input file; the curated file wins. With neither, the phase reports `unavailable`. A `topicKeys` entry matching no cluster of this run is dropped before dispatch and reported in `contradiction_detection.unmatched_topic_keys`.
 
 **Single-topic cluster exemption:** A cluster with fewer than two topics cannot have an intra-cluster contradiction by definition — no agent is dispatched for it; the Workflow folds in a zero-contradiction result directly rather than omitting the cluster.
 
@@ -262,9 +268,13 @@ After the cross-cluster check, the Workflow reads `unresolvable_contradictions` 
 
 **Model:** Sonnet. **Dispatch:** Single agent, dispatched directly by `distill-harvest.workflow.js`'s `phase-3b` phase. **Runs after:** Phase 3a, the cross-cluster check, and the conditional Opus escalation above.
 
-**Input, in-memory, not scratch files:** every `CREATE_DR` disposition from Wave 2's returned `dispositions[]` (the decision records synth agents already wrote directly to `docs/decisions/*.md`, the same direct-write contract wiki guides get), plus judgment-mining `new-entry` proposals (cross-reference only — `docs/wiki/codebase-judgment/` is a separate namespace from `docs/decisions/`, never merged into a DR), plus the Opus escalation resolution when Phase 3a triggered one. The dedup agent Reads the real `docs/decisions/*.md` files stamped with this run's `run_id` rather than re-reading a Phase 2 scratch file — there is no staged-apply step for DRs in this pipeline.
+**Input, in-memory, not scratch files:** every `CREATE_DR` disposition from Wave 2's returned `dispositions[]`, with its `target` (the decision records synth agents scaffolded and wrote directly to `docs/decisions/*.md`, the same direct-write contract wiki guides get), plus judgment-mining `new-entry` proposals (cross-reference only — `docs/wiki/codebase-judgment/` is a separate namespace from `docs/decisions/`, never merged into a DR), plus the Opus escalation resolution when Phase 3a triggered one. The dedup agent Reads the real `docs/decisions/*.md` files stamped with this run's `run_id` rather than re-reading a Phase 2 scratch file — there is no staged-apply step for DRs in this pipeline.
 
-**CRITICAL FAILURE MODE:** An empty canonical DR set (zero decision records found) despite non-empty `CREATE_DR` input is always a pipeline error, never a valid outcome. Unlike the retired turn-by-turn path, the Workflow does not halt the run on this — it surfaces `failure: true` plus `failure_detail` on the returned `phase_3b_dr_dedup` object for the Phase 4 PM gate to weigh, the same log-and-surface treatment every other late-pipeline single-agent failure in this Workflow gets. When there is nothing DR-shaped to dedup at all (zero `CREATE_DR` dispositions AND zero judgment new-entry proposals), the Workflow skips the dispatch entirely and records the same failure shape without spending an agent call on it.
+**CRITICAL FAILURE MODE:** An empty canonical DR set (zero decision records found) despite non-empty `CREATE_DR` input is always a pipeline error, never a valid outcome. Unlike the retired turn-by-turn path, the Workflow does not halt the run on this — it surfaces `failure: true` plus `failure_detail` on the returned `phase_3b_dr_dedup` object for the Phase 4 PM gate to weigh, the same log-and-surface treatment every other late-pipeline single-agent failure in this Workflow gets. When there is nothing DR-shaped to dedup at all (zero `CREATE_DR` dispositions AND zero judgment new-entry proposals), the Workflow skips the dispatch entirely without spending an agent call on it.
+
+**Written-record check.** The agent returns `dr_files_found`: every decision record it confirmed on disk for this run. `reconcileDrTargets()` puts each claimed `target` it did not find into `dr_minting.missing_files`; a record carrying this run's `run_id` that no `CREATE_DR` names lands in `dr_minting.unclaimed_files` (an agent died or dropped its claim after scaffolding) — the EM fills or removes each before committing.
+
+**`dr_minting` and the no-DECISION-nuggets case.** The result carries `dr_minting: {status, decision_nuggets, create_dr, skipped, allocator_unavailable, folded_unresolved, targets, missing_files, unclaimed_files}`. A run with zero `[DECISION]` nuggets and zero judgment new-entry proposals reports `dr_minting.status: no-decision-nuggets` and `phase_3b_dr_dedup.failure: false` — it held nothing decision-shaped. A run with `[DECISION]` nuggets and zero `CREATE_DR` keeps `failure: true` when any nugget is folded or allocator-skipped; when every one is a `DR-EXISTS` skip it reports `failure: false` and names the existing records.
 
 ---
 
@@ -307,7 +317,9 @@ directory_entries:
 
 ## Phase 3d: Deletion Manifest (folded into the Workflow — Sonnet, single)
 
-Moved to [`phase-3d-deletion-manifest.md`](phase-3d-deletion-manifest.md) — read it in full before running this step.
+Moved to [`phase-3d-deletion-manifest.md`](phase-3d-deletion-manifest.md) — read it in full before running this step. The Workflow's `citation-repoint` phase follows the cross-repo merge and precedes `artifact-reentry`: it repoints `docs/` (not `docs/plans/`) and `tasks/` citations of blocked or deletable records to the absorbing wiki page and re-runs the delete guard, reported as `citation_repoint` in the result (`status`, `probed`, `candidates`, `repointed`, `edited_files`, `still_blocked`).
+
+**Workflow result fields added by the stages above:** `dr_minting`, `judgment_mining.cluster_source` and `sidecars_seen`, `contradiction_detection.unmatched_topic_keys`, `citation_repoint`.
 
 ---
 

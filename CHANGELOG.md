@@ -4,6 +4,18 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.4.20] — 2026-10-15
+
+- **Bug blitz is one Workflow.** `/bug-blitz` submits `Workflow({name: "coordinator:bug-blitz", args: {targets}})`;
+  the engine parses a red-set, failing-tests file or backlog, mints the bug rows and fires the grind.
+- **Confident-XS by hand.** An EM confident a fix is XS and cheaper than a dispatch does it directly, with no
+  sizing or review.
+- **Test-run records.** Suite runs record their last result under `state/test-runs/`; merging-to-main runs
+  the fast tier and cites that record for an accepted red set.
+- **Sizing.** An exit criterion never names a test tier.
+- **Fixes.** `scip-rebuild-at-ceremony` resolves its library beside the plugin root; NotebookLM pipeline
+  halts on zero sources or claims.
+
 ## [4.4.19] — 2026-10-10
 
 - **Sizing authorizes execution.** An accepted sizing fires the in-session Workflow in every mode; a headless

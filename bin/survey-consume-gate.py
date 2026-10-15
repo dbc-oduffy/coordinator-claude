@@ -28,7 +28,9 @@ I/O contract: reads one JSON object on stdin —
     "since": "<YYYY-MM-DD>" | null,
     "system_dirs": ["<dir>", ...] | null,
     "excluded_dirs": ["<dir>", ...] | null,
-    "coverage_floor": <float> | null
+    "coverage_floor": <float> | null,
+    "predicate_only": <bool> (optional, default false; true returns only the
+                             rag predicate and invokes no op)
   }
 and writes ONE JSON object to stdout.
 
@@ -91,18 +93,6 @@ CARTOGRAPHY_OVERSIZED_THRESHOLD = 801
 DEFAULT_COVERAGE_FLOOR = 0.5
 
 
-#: Last JSON-RPC error code seen per op key, populated by `_invoke_op`.
-#: A side channel rather than a fourth return value, deliberately: `_invoke_op`
-#: has two callers and only one of them needs the code, so widening the tuple
-#: would churn a call site that has no use for it.
-_LAST_OP_ERROR_CODE: dict[str, int] = {}
-
-#: JSON-RPC code the engine returns for an op that was KILLED under the
-#: process-time bar, as distinct from one that failed or declined. Measured,
-#: not assumed — invoking the deleted `cartography.churn` returns exactly this
-#: with "Killed, not suspended -- the old implementation does not come back."
-_OP_KILLED_CODE = -32006
-
 def _invoke_op(claude_klabauter_root: str, op: str, params: dict[str, Any]) -> tuple[int, dict[str, Any] | None, str | None]:
     """Runs `python3 -m coordinator_core.invoke <op> --params-file - --bare`
     against `claude_klabauter_root`, params over stdin, argument list only (never a
@@ -135,47 +125,16 @@ def _invoke_op(claude_klabauter_root: str, op: str, params: dict[str, Any]) -> t
         return 1, None, f"subprocess invocation of {op} failed: {type(exc).__name__}: {exc}"
 
     if proc.returncode != 0:
-        raw = proc.stdout or proc.stderr or ""
-        # The envelope this docstring promises on a non-zero exit carries the
-        # JSON-RPC error CODE, and it is the ONLY place the code appears for a
-        # killed op: `cartography.churn` exits 1, so the exit-0 capture below
-        # never sees it and the killed-op discriminator downstream reads the
-        # break as a routine decline. Same bug, one layer up, as the one
-        # `_LAST_OP_ERROR_CODE` exists to close.
-        try:
-            envelope = json.loads(raw)
-        except Exception:
-            envelope = None
-        if isinstance(envelope, dict):
-            err = envelope.get("error")
-            if isinstance(err, dict) and isinstance(err.get("code"), int):
-                _LAST_OP_ERROR_CODE[op] = err["code"]
-        return proc.returncode, None, raw
+        return proc.returncode, None, proc.stdout or proc.stderr or ""
 
     try:
         result = json.loads(proc.stdout)
     except Exception as exc:
         return 0, None, f"{op} exit 0 but stdout was not valid JSON: {exc}: {proc.stdout!r}"
 
-    # A top-level `error` key in a 0-exit result still means failure — this
-    # literal check is load-bearing: `cartography.churn` genuinely returns
-    # `{"error": str}` with exit 0.
-    #
-    # The JSON-RPC error CODE is carried out structurally rather than only
-    # stringified into the message. `str(error_dict)` does technically contain
-    # the code, but only a substring search over prose could recover it, and a
-    # caller that must distinguish "declined on its merits" from "this op no
-    # longer exists" cannot be asked to grep an error message to do it —
-    # that is how the killed-op case spent weeks reading as a routine decline
-    # (`state/bug-backlog/2026-09-01-cartography-churn-op-deleted-contract-
-    # still-cites-it.yaml`).
+    # A top-level `error` key in a 0-exit result still means failure.
     if isinstance(result, dict) and "error" in result:
-        err = result.get("error")
-        if isinstance(err, dict):
-            code = err.get("code")
-            if isinstance(code, int):
-                _LAST_OP_ERROR_CODE[op] = code
-        return 0, None, str(err)
+        return 0, None, str(result.get("error"))
 
     return 0, result if isinstance(result, dict) else None, None
 
@@ -183,22 +142,20 @@ def _invoke_op(claude_klabauter_root: str, op: str, params: dict[str, Any]) -> t
 def _rag_predicate(repo_root: str) -> dict[str, Any]:
     """Single-authority RAG-present predicate — a disk check, no subprocess.
 
-    Mirrors `phaseZeroFiveRagPredicate`'s failure branch: any error
-    reports `rag_present: false`, never a silent skip of the gate.
+    Present means `.project-rag/graph.db` (or the artifact the manifest names)
+    exists and is non-empty. A missing, unreadable or malformed manifest falls
+    back to the `graph.db` default. Any error reports `rag_present: false`,
+    never a silent skip of the gate.
     """
     try:
         root = Path(repo_root)
         manifest = root / ".project-rag" / "manifest.json"
-        if not manifest.exists():
-            return {
-                "rag_present": False,
-                "checked_path": str(manifest),
-                "reason": "no .project-rag/manifest.json marker",
-            }
 
         designated = "graph.db"
+        has_manifest = False
         try:
             manifest_data = json.loads(manifest.read_text(encoding="utf-8"))
+            has_manifest = True
             if isinstance(manifest_data, dict):
                 candidate = manifest_data.get("structural_index_clang") or manifest_data.get(
                     "structural_index_lite"
@@ -206,14 +163,14 @@ def _rag_predicate(repo_root: str) -> dict[str, Any]:
                 if isinstance(candidate, str) and candidate:
                     designated = candidate
         except Exception:
-            pass  # a malformed manifest falls back to the graph.db default
+            pass  # missing, unreadable or malformed manifest: graph.db default
 
         artifact = root / ".project-rag" / designated
         if not artifact.exists():
             return {
                 "rag_present": False,
                 "checked_path": str(artifact),
-                "reason": f"marker present but no {designated} (uninitialized)",
+                "reason": f"no {designated} under .project-rag (uninitialized)",
             }
 
         try:
@@ -235,7 +192,9 @@ def _rag_predicate(repo_root: str) -> dict[str, Any]:
         return {
             "rag_present": True,
             "checked_path": str(artifact),
-            "reason": "non-empty index found",
+            "reason": "non-empty index found"
+            if has_manifest
+            else f"non-empty {designated} found with no readable manifest",
         }
     except Exception as exc:
         return {
@@ -484,60 +443,12 @@ def _measure_bucket_coverage(
 
 
 def _run_churn(config: dict[str, Any]) -> dict[str, Any] | None:
-    """Ports `phaseZeroFiveChurn`. `cartography.churn` runs ONLY in refresh
-    mode. When not in refresh mode, or when refresh mode is missing `since`/
-    `system_dirs`, reproduces the discriminated skip shape —
-    `{"skipped": true, "reason": "missing-since-or-systemDirs"}` — rather
-    than erroring or omitting the key. With those present but `excluded_dirs`
-    missing or empty, the skip reason is `missing-excludedDirs`; the op is
-    never invoked without an exclusion set.
+    """Churn result slot. No churn producer exists in claude-klabauter, so refresh mode
+    reports the skip shape and every other mode reports `None`; no op runs.
     """
-    mode = config.get("mode") or "first-run"
-    if mode != "refresh":
+    if (config.get("mode") or "first-run") != "refresh":
         return None
-
-    since = config.get("since")
-    system_dirs = config.get("system_dirs")
-    if not since or not system_dirs:
-        return {"skipped": True, "reason": "missing-since-or-systemDirs"}
-
-    excluded_dirs = config.get("excluded_dirs")
-    if not excluded_dirs:
-        return {"skipped": True, "reason": "missing-excludedDirs"}
-
-    params: dict[str, Any] = {
-        "target_root": config["repo_root"],
-        "since": since,
-        "system_dirs": system_dirs,
-        "excluded_dirs": excluded_dirs,
-    }
-
-    exit_code, result, error = _invoke_op(config["claude_klabauter_root"], "cartography.churn", params)
-    if exit_code != 0 or result is None:
-        # A KILLED op is not a decline, and must not be reported as one.
-        # `architecture-survey.md` tells the reader a decline in a fallback log
-        # is "a designed path, not a break". That sentence was written for a
-        # gate that could decline ON ITS MERITS. An op the engine has killed
-        # cannot decline on anything: every refresh takes the agentic fallback
-        # at higher cost and reports itself working, which is what hid this for
-        # weeks. Same answer for two different states, one of them this
-        # instrument's own failure to look.
-        if _LAST_OP_ERROR_CODE.get("cartography.churn") == _OP_KILLED_CODE:
-            return {
-                "ok": False,
-                "producer_missing": True,
-                "declined_reason": f"BREAK, not a decline: cartography.churn has been KILLED in "
-                f"the engine and has no producer ({error}) — the agentic census wave is running "
-                "in its place at higher cost on EVERY refresh, and will keep doing so silently "
-                "until a replacement producer is built. This is not the designed fallback path.",
-            }
-        note = " [exitCode=2, STRUCTURAL_PIN_ERROR — non-retryable, contract pin is wedged]" if exit_code == 2 else f" [exitCode={exit_code}]"
-        return {
-            "ok": False,
-            "declined_reason": f"cartography.churn failed or unavailable ({error}){note} — falling "
-            "back to the agentic census wave for this run",
-        }
-    return result
+    return {"skipped": True, "reason": "producer-not-in-claude-klabauter"}
 
 
 def run_gate(config: dict[str, Any]) -> dict[str, Any]:
@@ -545,6 +456,15 @@ def run_gate(config: dict[str, Any]) -> dict[str, Any]:
     returns the manifest object this script writes to stdout.
     """
     rag = _rag_predicate(config["repo_root"])
+
+    if config.get("predicate_only") is True:
+        return {
+            "rag_present": rag.get("rag_present"),
+            "rag_predicate": rag,
+            "chunk_table": None,
+            "churn_result": None,
+            "coverage": None,
+        }
 
     chunk_table: dict[str, Any] | None = None
     if not rag.get("rag_present"):

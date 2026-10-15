@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import sys
 
 
@@ -9,7 +8,7 @@ def _import_main():
     from cc_invoke import require_dispatch_engine_on_path
 
     claude_klabauter_root = require_dispatch_engine_on_path()
-    from coordinator_core.frontmatter.schema_validate import main as _op_main
+    from coordinator_core.frontmatter.lint_tree import main as _op_main
     return _op_main
 
 
@@ -21,7 +20,7 @@ def main(argv: "list[str] | None" = None) -> int:
         return 3
     except ImportError as exc:
         print(
-            f"lint-frontmatter.py: coordinator_core.frontmatter.schema_validate not importable: {exc}",
+            f"lint-frontmatter.py: coordinator_core.frontmatter.lint_tree not importable: {exc}",
             file=sys.stderr,
         )
         return 3

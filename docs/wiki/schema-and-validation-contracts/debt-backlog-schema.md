@@ -93,7 +93,7 @@ base required-set is only `{created, title, body, status}`).
 |---|---|---|---|---|
 | `proposed_action` | string | **required-in-domain** | See base field-set. Required here because every debt entry must state what remediation to apply. Renamed from `suggested_action`. | `"Weekly arch pass: verify fan-out dispatch spec mandates interface pin verification."` |
 | `risk` | string | **required-in-domain** | Why this matters — the consequence of leaving the debt unaddressed. Answers "so what?". The only first-class "consequence" field in the queue family. | `"Wrong interface pin causes divergent executor outputs that are expensive to reconcile."` |
-| `source` | string | **required-in-domain** | The originating review or observation that produced this entry. Mirrors the old table column: `daily-review/staff-eng/<date>`, `workday-complete/step4/sonnet-observer/<date>`. Kept as a distinct required field — NOT folded into the generic optional `evidence` — to preserve debt's provenance audit discipline. | `"daily-review/staff-eng/2026-06-15"` |
+| `source` | string | **required-in-domain** | The originating review or observation that produced this entry. Mirrors the old table column: `daily-review/staff-eng/<date>`, `workweek-complete/step7b/sonnet-observer/<date>`. Kept as a distinct required field — NOT folded into the generic optional `evidence` — to preserve debt's provenance audit discipline. | `"daily-review/staff-eng/2026-06-15"` |
 | `severity` | enum (string) | optional | Priority classification. Default `P2` when omitted. See § Severity enum. Most existing entries do not carry severity; omitting is valid. | `"P1"` |
 | `why_blocked` | string | **required-in-domain when `status: deferred`** | The named park reason — why this item is being held in the parked tier rather than dispatched, batoned, or closed. Mandatory for every parked-tier entry (Queue Terminus Doctrine outcome class 4); the PM authorization otherwise required for `deferred` is exempted here because the triaging ceremony's own PM gate already covers the park decision. See § Status enum. | `"Waiting on the engine repo's category-default op (C9) to land before this can scaffold cleanly."` |
 
@@ -185,7 +185,7 @@ is now `open` + `tags: [weekly-arch-review]`. The space-bearing enum value is re
 
 ```yaml
 created: "2026-05-27"
-source: "workday-complete/step4/sonnet-observer/2026-05-27"
+source: "workweek-complete/step7b/sonnet-observer/2026-05-27"
 status: "open"
 tags: ["weekly-arch-review", "fan-out"]
 title: "Fan-out overlap pass verifies interface presence, not interface correctness"

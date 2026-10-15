@@ -186,7 +186,7 @@ import time
 import re
 import uuid
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Set
+from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -1657,24 +1657,20 @@ def _reconcile_after_indeterminate(
     nothing, retry is safe" on ABSENT. Never retries a mutation itself
     (Anti-scope, this plan)."""
     _bootstrap_engine()
-    common_dir = subprocess.run(
-        ["git", "rev-parse", "--git-common-dir"],
-        cwd=worktree_root,
-        capture_output=True,
-        text=True,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-    )
-    if common_dir.returncode != 0:
+    from coordinator_core.git import repo_root as _repo_root_seam
+
+    common_dir = _repo_root_seam.git_common_dir(cwd=worktree_root)
+    if not common_dir:
         print(f"ERROR: ceremony.commit_v2: {exc}", file=sys.stderr)
         print(
             "Reconcile could not run: git common dir unresolved "
-            f"({(common_dir.stderr or '').strip()}). Do not assume the "
-            "commit landed; verify manually before retrying.",
+            f"({_repo_root_seam.last_failure_reason(worktree_root, _repo_root_seam.FORM_GIT_COMMON_DIR) or 'unknown'}). "
+            "Do not assume the commit landed; verify manually before retrying.",
             file=sys.stderr,
         )
         sys.exit(1)
 
-    resolved = Path(common_dir.stdout.strip())
+    resolved = Path(common_dir)
     if not resolved.is_absolute():
         resolved = Path(worktree_root) / resolved
 
@@ -1960,16 +1956,99 @@ def _git_add(paths: Iterable[str]) -> None:
     subprocess.run(["git", "add", "--", *paths], check=True, **_no_console_passthrough_kw())
 
 
+#: A blanket sweep stages ceremony output: docs, state rows, receipts. Past this it is staging
+#: a data tree, and `git add -A` over one outlives the caller's op budget while still running.
+_BLANKET_MAX_UNTRACKED_BYTES = 256 * 1024 * 1024
+_BLANKET_ADD_TIMEOUT_S = 20
+
+
+def _blanket_untracked_overage(limit: int) -> Optional[Tuple[int, List[Tuple[str, int]]]]:
+    """None when the untracked, non-ignored set fits `limit` bytes; else (bytes counted before
+    stopping, the heaviest top-level entries). Stops at the first byte past the limit."""
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "--others", "--exclude-standard", "-z"],
+            capture_output=True,
+            check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except OSError:
+        return None
+    if result.returncode != 0:
+        return None
+    total = 0
+    by_top: dict = {}
+    for raw in result.stdout.split(b"\0"):
+        if not raw:
+            continue
+        path = raw.decode("utf-8", "surrogateescape")
+        try:
+            size = os.lstat(path).st_size
+        except OSError:
+            continue
+        total += size
+        top = path.split("/", 1)[0]
+        by_top[top] = by_top.get(top, 0) + size
+        if total > limit:
+            return total, sorted(by_top.items(), key=lambda kv: -kv[1])[:5]
+    return None
+
+
+def _refuse_blanket_oversize(total: int, heaviest: Sequence[Tuple[str, int]], limit: int) -> None:
+    print(
+        f"ERROR: blanket refused: untracked files exceed {limit // (1024 * 1024)} MB "
+        f"(counted {total // (1024 * 1024)} MB before stopping). Nothing was staged.",
+        file=sys.stderr,
+    )
+    for top, size in heaviest:
+        print(f"  {size // (1024 * 1024):>6} MB  {top}", file=sys.stderr)
+    print(
+        "Add the tree to .gitignore, or commit by path: coordinator-safe-commit \"<subject>\" -- <paths>",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
+def _drop_index_lock_of_killed_add(started: float) -> None:
+    """A killed `git add` leaves its `index.lock`, which would refuse every later git write.
+    Removed only when it was created after our child started: an older lock is someone else's."""
+    lines = _git_output_lines(["rev-parse", "--git-path", "index.lock"])
+    if not lines:
+        return
+    try:
+        if os.stat(lines[0]).st_mtime >= started - 1:
+            os.unlink(lines[0])
+    except OSError:
+        pass
+
+
 def _git_add_all_blanket() -> None:
-    """Port of `( export _COORDINATOR_SAFE_COMMIT_INTERNAL_BLANKET=1 && git
-    add -A )` — the ONE sanctioned `git add -A` path (SC-DR-014). Runs `git
-    add -A` in a subprocess carrying the internal env-var marker so the
-    parent process's own environment never leaks the marker into any other
-    code path (mirrors the bash subshell's scope-safety rationale — a
-    subprocess dies with the call on any exit, same guarantee)."""
+    """The ONE sanctioned `git add -A` path (SC-DR-014). The env-var marker rides the child
+    only, so it never leaks into another code path. Bounded twice: an untracked-size ceiling
+    before the spawn, and a timeout that kills the child, so a caller told "indeterminate"
+    is never followed by a commit."""
+    overage = _blanket_untracked_overage(_BLANKET_MAX_UNTRACKED_BYTES)
+    if overage is not None:
+        _refuse_blanket_oversize(overage[0], overage[1], _BLANKET_MAX_UNTRACKED_BYTES)
     env = dict(os.environ)
     env["_COORDINATOR_SAFE_COMMIT_INTERNAL_BLANKET"] = "1"
-    subprocess.run(["git", "add", "-A"], check=True, env=env, **_no_console_passthrough_kw())
+    started = time.time()
+    try:
+        subprocess.run(
+            ["git", "add", "-A"],
+            check=True,
+            env=env,
+            timeout=_BLANKET_ADD_TIMEOUT_S,
+            **_no_console_passthrough_kw(),
+        )
+    except subprocess.TimeoutExpired:
+        _drop_index_lock_of_killed_add(started)
+        print(
+            f"ERROR: blanket refused: 'git add -A' exceeded {_BLANKET_ADD_TIMEOUT_S}s and was "
+            "killed. No commit was made; the index may hold a partial stage (inspect: git status).",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
 
 def _git_diff_cached_names() -> List[str]:
@@ -2992,7 +3071,8 @@ def do_override(session_id: str, args: "Args", cs_core, cs_liveness) -> None:
     if tree is None:
         print("FAIL: git write-tree could not snapshot the index in do_override", file=sys.stderr)
         sys.exit(2)
-    scratch = tempfile.mkdtemp(prefix="coordinator-safe-commit-")
+    from coordinator_core.temp_layout import managed_tempdir  # noqa: PLC0415
+    scratch = tempfile.mkdtemp(prefix="coordinator-safe-commit-", dir=managed_tempdir())
     snap_env = {**os.environ, "GIT_INDEX_FILE": os.path.join(scratch, "index")}
     try:
         subprocess.run(
@@ -3442,7 +3522,11 @@ def do_scoped(
 
         commit_paths = list(my_scope) + list(orphan_claimed_paths)
         message = f"{subject}\n\n{args.body}" if args.body else subject
-        msg_fd, msg_path = tempfile.mkstemp(prefix="coordinator-safe-commit.do_scoped.")
+        from coordinator_core.temp_layout import managed_tempdir  # noqa: PLC0415
+
+        msg_fd, msg_path = tempfile.mkstemp(
+            prefix="coordinator-safe-commit.do_scoped.", dir=managed_tempdir()
+        )
         pre_head = _git_rev_parse_head()
         try:
             with os.fdopen(msg_fd, "w", encoding="utf-8", newline="\n") as fh:
@@ -3677,7 +3761,11 @@ def do_scope_from(args: "Args", session_id: str, cs_core, cs_liveness, cs_scope,
         from coordinator_core.ops.ceremony import git_native  # noqa: PLC0415
 
         message = f"{args.subject}\n\n{args.body}" if args.body else args.subject
-        msg_fd, msg_path = tempfile.mkstemp(prefix="coordinator-safe-commit.do_scope_from.")
+        from coordinator_core.temp_layout import managed_tempdir  # noqa: PLC0415
+
+        msg_fd, msg_path = tempfile.mkstemp(
+            prefix="coordinator-safe-commit.do_scope_from.", dir=managed_tempdir()
+        )
         pre_head = _git_rev_parse_head()
         try:
             with os.fdopen(msg_fd, "w", encoding="utf-8", newline="\n") as fh:

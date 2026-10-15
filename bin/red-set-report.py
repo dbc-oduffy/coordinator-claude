@@ -162,10 +162,13 @@ def capped_worker_count(requested: int | None) -> int | None:
         return None
     physical_cores = os.cpu_count() or 1
     cap_by_cores = max(1, physical_cores // 2)
-    try:
-        usable_ram_mb = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / (1024 * 1024)
-    except (ValueError, AttributeError, OSError):
-        usable_ram_mb = 8192  # conservative fallback when sysconf is unavailable (Windows)
+    engine_root = str(Path(__file__).resolve().parents[2])
+    if engine_root not in sys.path:
+        sys.path.insert(0, engine_root)
+    from coordinator_core.telemetry import host_sampler
+
+    avail = host_sampler.avail_mb()[0]
+    usable_ram_mb = 4096 if avail is None else avail  # unreadable: conservative, never total RAM
     cap_by_ram = max(1, int(usable_ram_mb // 150))
     return max(1, min(requested, cap_by_cores, cap_by_ram))
 

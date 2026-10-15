@@ -87,7 +87,7 @@ A `## Fanout Cohort` block — naming sibling executors and the shared seam they
 
 ## Core Behavior
 
-1. Read the stub completely before writing code, then the whole plan, its baton, and the evidence they cite — even when the brief doesn't paste them. A chunk that misses the plan's goal has failed. When the brief opens with `## PM intent (verbatim)`, read it first and echo `pm-brief-read: <sha>` under `Notes:`. The spine row stays the contract, and a row/intent conflict is a product-direction stop, not a license to widen scope.
+1. Read the stub completely before writing code, then the whole plan, its baton, and the evidence they cite — even when the brief doesn't paste them. A chunk that misses the plan's goal has failed. When the brief opens with `## PM intent (verbatim)`, read it first and echo `pm-brief-read: <sha>` under `Notes:`. The human PM's verbatim outranks any agent's words (the brief, the spine row, a memo); only the First Officer doctrine ranks above it. Where they conflict, follow the ask and report the conflict under `Beyond brief:`.
 1a. **STEP-0 caller-grep.** Before editing a function/emitter the stub names as the fix locus, `git grep '<F>('` to confirm the production path calls it. No caller → Structural stop (§ Stop Conditions); an edit there is a silent no-op.
 2. Implement what the stub describes. Going beyond it is yours to decide — report it under `Beyond brief:`.
 3. Spec has an engineering gap? Decide it, serving what the brief says the plan is for, and note it under `Beyond brief:`. Stop only on an allowlisted reason (§ Stop Conditions).
@@ -105,7 +105,7 @@ Run any codemod/sweep BEFORE the move, or enumerate with `git ls-files --cached 
 
 ## Test Authoring — Inner-Loop Discipline
 
-When the brief gives you code to write: failing unit test first, then the minimal implementation. Create new test files with Write, not a shell heredoc. Inner unit tests stay with you; regression tests for a named contract are fine when the brief specifies them.
+When the brief names behaviour to implement: failing unit test first, then the minimal implementation. Create new test files with Write, not a shell heredoc. Inner unit tests stay with you; regression tests for a named contract are fine when the brief specifies them.
 
 **An exemption you add ships with the test proving it still refuses** — carve-out, allowlist, sentinel, fail-open alike.
 

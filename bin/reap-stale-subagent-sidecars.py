@@ -94,14 +94,9 @@ separate, later chunk (this op existing is that chunk's precondition).
 from __future__ import annotations
 
 import argparse
-import glob
 import os
 import subprocess
-from pathlib import Path as _Path
 import sys
-import tempfile
-import time
-import uuid
 from typing import Optional
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -152,21 +147,6 @@ def _bootstrap_imports() -> None:
     globals().setdefault("resolve_checked_repo_root", _resolve_checked_repo_root)
     globals().setdefault("no_console_creationflags", _win_portability_mod.no_console_creationflags)
 
-#: Default age floor in days — mirrors the retired review-trail/findings
-#: aged-reap precedent this op supersedes (state-placement-law.md § the
-#: review-trail/findings reap doctrine).
-_DEFAULT_AGE_FLOOR_DAYS = 14
-
-#: status: values that NEVER get reaped, regardless of liveness/age (the
-#: "status can only subtract, never add" carve-out — see module docstring).
-_STATUS_NEVER_REAP = {"blocked", "thrashing"}
-
-#: Directory entries under state/subagent-share/ that are not session-id
-#: leaves (defensive — mirrors the _NON_SESSION_DIR_NAMES pattern in
-#: coordinator_core.session.liveness for the analogous enumeration).
-_NON_SESSION_DIR_NAMES = {".git", "__pycache__"}
-
-
 def _resolve_session_live():
     """Import coordinator_core.session.liveness.session_live via the engine root.
 
@@ -178,158 +158,26 @@ def _resolve_session_live():
     return session_live
 
 
-def _fm_field(path: str, key: str) -> str:
-    """Single-key frontmatter scan, kept local: this op's frontmatter shape
-    (sidecar docs, not handoffs) is its own consumer of the tiny primitive."""
-    prefix = key + ":"
-    val = ""
-    try:
-        with open(path, "r", encoding="utf-8", errors="replace") as fh:
-            in_fm = False
-            for line in fh:
-                stripped_line = line.rstrip("\n").rstrip("\r")
-                if not in_fm:
-                    if stripped_line.strip() == "---":
-                        in_fm = True
-                    continue
-                if stripped_line.strip() == "---":
-                    break
-                if stripped_line.startswith(prefix):
-                    val = stripped_line[len(prefix):].strip()
-                    break
-    except OSError:
-        return ""
-    if len(val) >= 2 and val[0] == val[-1] and val[0] in ("'", '"'):
-        val = val[1:-1]
-    return val
-
-
-def _age_days(path: str, now: float) -> float:
-    try:
-        mtime = os.path.getmtime(path)
-    except OSError:
-        return 0.0
-    return max(0.0, (now - mtime) / 86400.0)
-
-
-def _write_pathspec_file(paths: list) -> str:
-    """Write ``paths`` to a uniquely-named temp file, one per line, and
-    return its path — the newline-delimited input ``git ...
-    --pathspec-from-file=<f>`` expects by default. Mirrors
-    ``coordinator_core.ops.ceremony.git_native._write_pathspec_file``'s own
-    convention (PID+uuid uniqueness, newline-delimited: no path this op
-    ever reaps — a session-id dir plus a sidecar key — contains a literal
-    newline byte).
-
-    Sidesteps the ~32KB Windows ``CreateProcess`` command-line ceiling
-    (WinError 206) that an argv-list ``git rm``/``git commit -- <paths>``
-    hits once the tracked-reap population is large (measured live: 6617
-    tracked sidecars under ``state/subagent-share/``, 621047 bytes of
-    pathspec argv — 19x the limit). ``--pathspec-from-file`` is supported
-    by both ``git rm`` and ``git commit`` since git 2.25, and — unlike
-    chunking — keeps the tracked-reap commit atomic: one commit for the
-    whole population, not one per chunk. Caller owns cleanup
-    (``finally: os.remove(path)``).
-    """
-    pathspec_path = os.path.join(
-        tempfile.gettempdir(), f"reap-stale-sidecars-pathspec-{os.getpid()}-{uuid.uuid4().hex}.txt"
-    )
-    with open(pathspec_path, "w", encoding="utf-8", newline="\n") as fh:
-        fh.write("\n".join(paths) + "\n")
-    return pathspec_path
-
-
-def _tracked_paths(repo_root: str, rel_paths: list, *, under) -> set:
-    """Batched tracked-check: one `git ls-files` spawn scoped to `under`
-    (the reap subtrees) instead of one `--error-unmatch` probe per
-    file. `git ls-files` has no `--pathspec-from-file` support (verified
-    live — `error: unknown option`, unlike `git rm`/`git commit`), so an
-    argv-list `-- <paths>` would still hit the ~32KB Windows `CreateProcess`
-    ceiling at reap-population scale (§ `_write_pathspec_file`). Naming the
-    directories instead keeps this to one fixed-size spawn regardless
-    of candidate count — every path this script ever reaps lives under one
-    of them by construction (each is a `share_dir`, relative to `repo_root`).
-
-    `under` is keyword-only, has NO default, and takes the WHOLE root set:
-    `git ls-files` accepts many pathspecs in one invocation, so N roots cost
-    one spawn, not N. It previously defaulted to `"state/subagent-share"`,
-    which became wrong the moment a second root existed and would have
-    silently classified every candidate as untracked. A caller must say
-    which roots it is asking about, and asking about them separately buys
-    nothing: the result is a union either way.
-
-    NEGATIVE-SPEC: a spawn failure returns the empty set for ALL roots, not
-    just the one that failed. `ls-files` exits zero on a pathspec matching
-    nothing, so the only way to reach that branch is a failure that would
-    have failed every root anyway; the degradation direction is unchanged
-    (an unclassifiable path is reaped by plain `rm`, never `git rm`).
-
-    `git ls-files` always echoes matches in POSIX (forward-slash) form even
-    when fed a backslash-separated pathspec on Windows — a raw string
-    comparison against a Windows `os.path.relpath` value silently matches
-    nothing. Both legs go through `.as_posix()` before comparing; the
-    returned set keeps the caller's original (possibly backslash) strings
-    so callers need no format awareness."""
-    if not rel_paths:
-        return set()
+def _load_reap_core():
+    """Bind the shared sweep module's names (the sweep itself lives in
+    coordinator_core.sidecar_reap) once the engine root is on sys.path."""
     _bootstrap_imports()
-    roots = [under] if isinstance(under, str) else list(under)
-    if not roots:
-        return set()
-    result = subprocess.run(
-        ["git", "ls-files", "--", *(_Path(root).as_posix() for root in roots)],
-        cwd=repo_root, capture_output=True, text=True, check=False, **no_console_creationflags(),
-    )
-    if result.returncode != 0:
-        return set()
-    tracked_posix = {line for line in result.stdout.splitlines() if line}
-    posix_by_orig = {rel: _Path(rel).as_posix() for rel in rel_paths}
-    return {rel for rel, posix in posix_by_orig.items() if posix in tracked_posix}
+    require_dispatch_engine_on_path()
+    from coordinator_core import sidecar_reap as _core
+
+    globals().setdefault("classify_sidecars", _core.classify_sidecars)
+    globals().setdefault("_fm_field", _core.fm_field)
+    globals().setdefault("_tracked_paths", _core.tracked_paths)
+    globals().setdefault("_write_pathspec_file", _core.write_pathspec_file)
+    globals().setdefault("_DEFAULT_AGE_FLOOR_DAYS", _core.DEFAULT_AGE_FLOOR_DAYS)
+    return _core
 
 
-def classify_sidecars(share_dirs: list, session_live, *, repo_root: str, now: float, age_floor_days: int):
-    """The reap decision: ``(to_reap, preserved_live, preserved_status, preserved_too_young)``.
-
-    Pure over the filesystem and the injected ``session_live`` predicate —
-    no git, no mutation — so the stale-versus-live rule is testable on its own.
-    """
-    to_reap: list = []
-    preserved_live_session = 0
-    preserved_too_young = 0
-    preserved_status = 0
-
-    for share_dir in share_dirs:
-        for session_id in sorted(os.listdir(share_dir)):
-            if session_id in _NON_SESSION_DIR_NAMES:
-                continue
-            session_dir = os.path.join(share_dir, session_id)
-            if not os.path.isdir(session_dir):
-                continue
-
-            if session_live(session_id, cwd=repo_root):
-                # Entire directory preserved — an in-flight session's own
-                # sidecar(s) are never reaped out from under it, regardless of
-                # any individual file's status or age.
-                preserved_live_session += len(glob.glob(os.path.join(session_dir, "*.md")))
-                continue
-
-            for f in sorted(glob.glob(os.path.join(session_dir, "*.md"))):
-                if not os.path.isfile(f):
-                    continue
-
-                status = _fm_field(f, "status").lower()
-                if status in _STATUS_NEVER_REAP:
-                    preserved_status += 1
-                    continue
-
-                age = _age_days(f, now)
-                if age < age_floor_days:
-                    preserved_too_young += 1
-                    continue
-
-                to_reap.append(f)
-
-    return to_reap, preserved_live_session, preserved_status, preserved_too_young
+def __getattr__(name: str):
+    if name in ("classify_sidecars", "_fm_field", "_tracked_paths", "_write_pathspec_file", "_DEFAULT_AGE_FLOOR_DAYS"):
+        _load_reap_core()
+        return globals()[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def main(argv: Optional[list] = None) -> int:
@@ -341,7 +189,8 @@ def main(argv: Optional[list] = None) -> int:
         description="Delete-by-convention sweep of the subagent-share sidecar homes (DR-091).",
     )
     parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--age-floor-days", type=int, default=_DEFAULT_AGE_FLOOR_DAYS)
+    parser.add_argument("--age-floor-days", type=int, default=_load_reap_core().DEFAULT_AGE_FLOOR_DAYS)
+    parser.add_argument("--repo-root", default=None)
     try:
         args = parser.parse_args(argv)
     except SystemExit:
@@ -354,7 +203,7 @@ def main(argv: Optional[list] = None) -> int:
     dry_run = args.dry_run
     age_floor_days = args.age_floor_days
 
-    repo_root, verdict = resolve_checked_repo_root(explicit_root=None)
+    repo_root, verdict = resolve_checked_repo_root(explicit_root=args.repo_root)
     if not repo_root:
         print("reap-stale-subagent-sidecars.py: not inside a git repo", file=sys.stderr)
         return 2
@@ -369,138 +218,10 @@ def main(argv: Optional[list] = None) -> int:
         print(f"reap-stale-subagent-sidecars.py: session liveness engine not importable: {exc}", file=sys.stderr)
         return 2
 
-    from coordinator_core.session.machinery_paths import share_roots
-
-    # BOTH roots, and the split is the point. `.coordinator-local/` is
-    # gitignored (`.gitignore` names the whole root), so nothing under it can
-    # ever appear in `git ls-files` -- reaping there is correctly a plain
-    # `os.remove`. `state/subagent-share/` holds the pre-relocation corpus,
-    # which IS tracked and must go through `git rm` to preserve history.
-    # Walking only the machinery root (as this script did between the
-    # relocation repoint and this fix) silently retired the `git rm` leg:
-    # every candidate resolved untracked, so a tracked sidecar would have
-    # been deleted with no history entry, and the old root had no reaper at
-    # all. Caught by code-reviewer on `196fbbc71e`.
-    share_dirs = [d for d in share_roots(repo_root) if os.path.isdir(d)]
-    if not share_dirs:
-        print("reap-stale-subagent-sidecars.py: no subagent-share root exists; nothing to do")
-        return 0
-
-    to_reap, preserved_live_session, preserved_status, preserved_too_young = classify_sidecars(
-        share_dirs, session_live, repo_root=repo_root, now=time.time(), age_floor_days=age_floor_days,
+    core = _load_reap_core()
+    return core.reap_stale_sidecars(
+        repo_root, session_live, dry_run=dry_run, age_floor_days=age_floor_days,
     )
-
-    if not to_reap:
-        print("nothing to reap")
-        if preserved_live_session:
-            print(f"{preserved_live_session} sidecar(s) retained (owning session still live)")
-        if preserved_status:
-            print(f"{preserved_status} sidecar(s) retained (status: blocked/thrashing)")
-        if preserved_too_young:
-            print(f"{preserved_too_young} sidecar(s) retained (younger than {age_floor_days}-day age floor)")
-        return 0
-
-    rel_by_file = {f: os.path.relpath(f, repo_root) for f in to_reap}
-    # ONE scoped spawn for every root rather than one unscoped walk or one
-    # spawn per root: `_tracked_paths` narrows `git ls-files` to the named
-    # directories precisely to stay at fixed spawn cost, and `ls-files` takes
-    # as many pathspecs as it is given.
-    tracked_rels: set = _tracked_paths(
-        repo_root,
-        list(rel_by_file.values()),
-        under=[os.path.relpath(share_dir, repo_root) for share_dir in share_dirs],
-    )
-    tracked_to_reap = []
-    untracked_to_reap = []
-    for f in to_reap:
-        if rel_by_file[f] in tracked_rels:
-            tracked_to_reap.append(f)
-        else:
-            untracked_to_reap.append(f)
-
-    if dry_run:
-        for f in tracked_to_reap:
-            print(f"reap-stale-subagent-sidecars.py: [dry-run] would reap {f}")
-        for f in untracked_to_reap:
-            print(f"reap-stale-subagent-sidecars.py: [dry-run] would reap {f} (untracked; plain rm)")
-        print(f"{len(to_reap)} stale subagent-share sidecar(s) would be reaped (dry-run)")
-        if preserved_live_session:
-            print(f"{preserved_live_session} sidecar(s) would be retained (owning session still live)")
-        if preserved_status:
-            print(f"{preserved_status} sidecar(s) would be retained (status: blocked/thrashing)")
-        if preserved_too_young:
-            print(f"{preserved_too_young} sidecar(s) would be retained (younger than {age_floor_days}-day age floor)")
-        return 0
-
-    for f in untracked_to_reap:
-        try:
-            os.remove(f)
-        except OSError:
-            pass
-        print(f"reaped {f} (untracked, plain rm)")
-
-    if tracked_to_reap:
-        tracked_rel = [os.path.relpath(f, repo_root) for f in tracked_to_reap]
-        # --pathspec-from-file=<f> instead of a full argv pathspec list --
-        # see _write_pathspec_file's docstring: at scale (thousands of
-        # tracked sidecars) the argv form blows Windows's ~32KB
-        # CreateProcess command-line ceiling (WinError 206). One pathspec
-        # file feeds both calls, preserving single-commit atomicity.
-        pathspec_file = _write_pathspec_file(tracked_rel)
-        try:
-            try:
-                rm_res = subprocess.run(
-                    ["git", "rm", "-q", f"--pathspec-from-file={pathspec_file}"], cwd=repo_root,
-                    capture_output=True, text=True, check=False, timeout=30,
-                    **no_console_creationflags(),
-                )
-            except subprocess.TimeoutExpired:
-                sys.stderr.write("reap-stale-subagent-sidecars.py: git rm timed out\n")
-                return 1
-            if rm_res.returncode != 0:
-                sys.stderr.write(rm_res.stderr)
-                return rm_res.returncode
-
-            commit_msg = f"reap {len(tracked_to_reap)} stale subagent-share sidecar(s)"
-            try:
-                commit_res = subprocess.run(
-                    ["git", "commit", "-q", "-m", commit_msg, f"--pathspec-from-file={pathspec_file}"],
-                    cwd=repo_root,
-                    capture_output=True, text=True, check=False, timeout=30,
-                    **no_console_creationflags(),
-                )
-            except subprocess.TimeoutExpired:
-                sys.stderr.write(
-                    f"reap-stale-subagent-sidecars.py: git commit timed out after git rm — "
-                    f"{len(tracked_to_reap)} sidecar(s) staged for deletion, not committed:\n"
-                )
-                for f in tracked_to_reap:
-                    sys.stderr.write(f"  {f}\n")
-                return 1
-            if commit_res.returncode != 0:
-                sys.stderr.write(
-                    f"reap-stale-subagent-sidecars.py: git commit failed after git rm — "
-                    f"{len(tracked_to_reap)} sidecar(s) staged for deletion, not committed:\n"
-                )
-                for f in tracked_to_reap:
-                    sys.stderr.write(f"  {f}\n")
-                return commit_res.returncode
-        finally:
-            try:
-                os.remove(pathspec_file)
-            except OSError:
-                pass
-        for f in tracked_to_reap:
-            print(f"reaped {f}")
-
-    print(f"{len(to_reap)} stale subagent-share sidecar(s) reaped")
-    if preserved_live_session:
-        print(f"{preserved_live_session} sidecar(s) retained (owning session still live)")
-    if preserved_status:
-        print(f"{preserved_status} sidecar(s) retained (status: blocked/thrashing)")
-    if preserved_too_young:
-        print(f"{preserved_too_young} sidecar(s) retained (younger than {age_floor_days}-day age floor)")
-    return 0
 
 
 if __name__ == "__main__":

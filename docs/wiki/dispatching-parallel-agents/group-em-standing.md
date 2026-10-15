@@ -129,7 +129,11 @@ or cook on a hardware RHI, a GPU embedder or its sidecars, model inference. A GP
 CPU slot. Read VRAM with `nvidia-smi --query-gpu=memory.used,memory.total --format=csv`; a run that
 exhausts VRAM alone (an editor batch growing per item) is batched smaller, never re-run whole. A
 software renderer (`--use-angle=swiftshader`) holds no GPU slot but rasterises on every core: pin
-its root's affinity (`start /affinity F`) so the children inherit it. The shared project-rag embed
+its root's affinity (`start /affinity F`) so the children inherit it. From Git Bash under
+`MSYS_NO_PATHCONV=1`, `cmd //c start //affinity …` passes `//c` literally and cmd silently ignores
+every switch: single slashes there, and read the process's affinity back before calling it pinned. A
+UE editor resets its own mask to all cores at startup whatever its parent held, so a launch pin alone
+never holds: re-pin the editor PID after spawn and keep a readback loop re-pinning until it exits. The shared project-rag embed
 sidecars hold VRAM and respawn on the next query, so a kill frees nothing: their owner parks them with
 `project_rag_scripts/park_embed_sidecars.py park --minutes N --holder <session>` (repo from
 `machine-local get repos.project_rag`), which lapses on its own. Tripwire:

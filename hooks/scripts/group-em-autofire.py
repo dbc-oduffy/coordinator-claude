@@ -357,14 +357,15 @@ def render_additional_context(
         "GATES UNRESOLVED. `gate1`/`gate2` are unset and nothing here resolves them. "
         "Declare both in prose per send, and never loop over `entries` sending."
     )
-    # No hook can arm the watch itself -- a Monitor is a model tool. A Monitor dies at the harness's
-    # 30-minute cap, so the arming ask carries the re-arm duty. Whether arming happened is reported
-    # by the watch verdict, never acted on here.
+    # No hook can arm the watch itself -- a background shell is a model tool. Whether arming
+    # happened is reported by the watch verdict, never acted on here.
     arm_line = (
-        "ARM THE WATCH, NOW, AS YOUR FIRST ACT: run the watch trampoline under a `Monitor` from "
-        "this conversation, and re-arm it on each expiry notice -- a `Monitor` dies at the "
-        "harness's 30-minute cap, so it does not run for the session. Wakes are events (watch "
-        "lines, peer SendMessages, notify_when_idle); arm no cron tick."
+        'ARM THE WATCH, NOW, AS YOUR FIRST ACT: run '
+        '`"$COORDINATOR_SETTINGS_HOME/bin/group-em-watch" --repo-root <root> '
+        '--group-em-session-id <your sid> --until-event --tick-interval-seconds 30` as a '
+        "run_in_background Bash from this conversation; its completion is the wake; relaunch "
+        "it on each completion; never wrap it in a Monitor. Wakes are events "
+        "(watch lines, peer SendMessages, notify_when_idle); arm no cron tick."
     )
     # Box blocks are owed sends and a workflow fire: obligations, so they ride the tail.
     tail = "\n\n".join([*(box_blocks or []), arm_line, gate_line])

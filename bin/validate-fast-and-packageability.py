@@ -114,6 +114,7 @@ import shlex
 import signal
 import subprocess
 import sys
+import time
 
 _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -135,7 +136,7 @@ from coordinator_core.diff_scoped_tests import (  # noqa: E402
 from coordinator_core.diff_scoped_tests import diag as diff_diag  # noqa: E402
 from coordinator_core.session import gate_budget  # noqa: E402
 from coordinator_core.session.tier_u_gate import enforce_tier_u_gate  # noqa: E402
-from coordinator_core.testing import suite_mutex  # noqa: E402
+from coordinator_core.testing import suite_mutex, suite_run_record, suite_run_reuse  # noqa: E402
 from coordinator_core.win_portability import no_console_passthrough_kwargs  # noqa: E402
 from coordinator_core.testing.suite_mutex import MUTEX_WAIT_SECS, mutex_owner  # noqa: E402
 
@@ -326,7 +327,9 @@ def _close_windows_job_object(job_handle) -> None:
         pass
 
 
-def _run_resolved_command(cmd: str) -> int:
+def _run_resolved_command(cmd: str, record: "tuple | None" = None) -> int:
+    """Run ``cmd`` directly. ``record`` is ``(root, collection, command_key)`` for a
+    full-command run, which tees output into a suite-run record; None records nothing."""
     argv = shlex.split(cmd)
     # env=child_env(): kept for its settings-home propagation (COORDINATOR_
     # SETTINGS_HOME), not for stripping anything. Until the `import-path-
@@ -342,6 +345,14 @@ def _run_resolved_command(cmd: str) -> int:
         **no_console_passthrough_kwargs(),
     )
     _add_process_group_spawn_kwargs(spawn_kwargs)
+    log_path = head_sha = dirty_paths = None
+    if record is not None:
+        root, collection, key = record
+        head_sha, dirty_paths, log_path = suite_run_reuse.begin_run(root, collection)
+        spawn_kwargs["stdout"] = subprocess.PIPE
+        spawn_kwargs["stderr"] = subprocess.PIPE
+    started_at = suite_run_reuse._now_iso()
+    started_mono = time.monotonic()
     children_before = gate_budget.snapshot_children_times()
     try:
         proc = subprocess.Popen(argv, **spawn_kwargs)
@@ -355,10 +366,24 @@ def _run_resolved_command(cmd: str) -> int:
 
     job_handle = _assign_windows_job_object(proc)
     restore_signals = _install_group_teardown(proc)
+    tee = suite_run_reuse.Tee(proc, log_path) if record is not None else None
+    exit_code, outcome = 130, "interrupted"
     try:
-        return proc.wait()
+        exit_code = proc.wait()
+        outcome = "pass" if exit_code == 0 else "fail"
+        return exit_code
     finally:
         restore_signals()
+        if tee is not None:
+            complete = tee.finish()
+            if log_path is not None:
+                suite_run_reuse.record_run(
+                    str(root), collection, key, head_sha, dirty_paths,
+                    started_at, started_mono, exit_code, outcome, True,
+                    log_path, not complete,
+                )
+                print(suite_run_reuse.ran_line(collection, head_sha, outcome, log_path),
+                      file=sys.stderr)
         suite_ms = gate_budget.suite_process_ms(
             before=children_before,
             after=gate_budget.snapshot_children_times(),
@@ -427,6 +452,16 @@ def run_fast(repo_root: str | None) -> tuple[str, int]:
     else:
         scoped_cmd = cmd
 
+    root = suite_run_record.repo_root_for(repo_root or os.getcwd())
+    full_record = None
+    if not diff_paths and root is not None:
+        key = suite_run_reuse.command_key(shlex.split(cmd))
+        reuse = suite_run_reuse.find_reusable(root, "fast", shlex.split(cmd))
+        if reuse is not None:
+            print(suite_run_reuse.reused_line(reuse), file=sys.stderr)
+            return str(reuse.exit_code), reuse.exit_code
+        full_record = (root, "fast", key)
+
     gate = enforce_tier_u_gate(scoped_cmd, repo_root=repo_root)
     if not gate.proceed:
         print(gate.refusal_message, file=sys.stderr)
@@ -441,7 +476,10 @@ def run_fast(repo_root: str | None) -> tuple[str, int]:
                 % (current.get("owner", "<unknown>"), int(MUTEX_WAIT_SECS)),
                 file=sys.stderr,
             )
-        cmd_exit = _run_resolved_command(scoped_cmd)
+        cmd_exit = (
+            _run_resolved_command(scoped_cmd, record=full_record)
+            if full_record else _run_resolved_command(scoped_cmd)
+        )
 
     if diff_paths and cmd_exit == PYTEST_NO_TESTS_COLLECTED:
         # The diff-scoped run named a changed test file the `-m` marker
@@ -456,6 +494,13 @@ def run_fast(repo_root: str | None) -> tuple[str, int]:
             f"{PYTEST_NO_TESTS_COLLECTED}) -- falling back to the full "
             "configured fast tier."
         )
+        full_record = None
+        if root is not None:
+            reuse = suite_run_reuse.find_reusable(root, "fast", shlex.split(cmd))
+            if reuse is not None:
+                print(suite_run_reuse.reused_line(reuse), file=sys.stderr)
+                return str(reuse.exit_code), reuse.exit_code
+            full_record = (root, "fast", suite_run_reuse.command_key(shlex.split(cmd)))
         gate_full = enforce_tier_u_gate(cmd, repo_root=repo_root)
         if not gate_full.proceed:
             print(gate_full.refusal_message, file=sys.stderr)
@@ -468,7 +513,10 @@ def run_fast(repo_root: str | None) -> tuple[str, int]:
                     % (current.get("owner", "<unknown>"), int(MUTEX_WAIT_SECS)),
                     file=sys.stderr,
                 )
-            cmd_exit = _run_resolved_command(cmd)
+            cmd_exit = (
+                _run_resolved_command(cmd, record=full_record)
+                if full_record else _run_resolved_command(cmd)
+            )
 
     return str(cmd_exit), cmd_exit
 

@@ -300,7 +300,10 @@ def main(argv: list[str] | None = None) -> int:
         )
     else:
         for var in applied:
-            print(f"applied: {var} brought to the manifest value (set, or removed if retired) in {path}")
+            if var in _STALE:
+                print(f"removed retired key {var} from {path} ({_STALE[var]})")
+            else:
+                print(f"applied: {var} set to the manifest value in {path}")
         if not findings:
             print(f"check-settings-env: OK — every required env value matches ({path})")
         for finding in findings:

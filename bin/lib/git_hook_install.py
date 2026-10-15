@@ -85,6 +85,7 @@ coordinator-ensure-prepare-commit-msg-hook — retired on this cutover).
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from typing import List, Mapping, Optional
@@ -1318,6 +1319,14 @@ _HEALED_OUTCOMES = frozenset(
 _CONTAINER_REGISTRY_KEYS = frozenset({"repos.fleet_root"})
 
 
+def _is_filesystem_path(value: str) -> bool:
+    """False for empty values, URLs and bare `owner/repo` slugs (a `publish_repo`
+    value), which share the `repos.` prefix but name no directory."""
+    if not value or "://" in value:
+        return False
+    return not re.fullmatch(r"[A-Za-z0-9_-][\w.-]*/[\w.-]+", value)
+
+
 def _registry_repo_roots(
     bin_dir: str, registry: Optional[Mapping[str, object]] = None
 ) -> List[tuple]:
@@ -1350,9 +1359,9 @@ def _registry_repo_roots(
             continue
         if key in _CONTAINER_REGISTRY_KEYS:
             continue
-        s = ("" if val is None else str(val)).strip()
-        if s:
-            roots.append((key, s))
+        if not isinstance(val, str) or not _is_filesystem_path(val.strip()):
+            continue
+        roots.append((key, val.strip()))
     return roots
 
 

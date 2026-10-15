@@ -138,6 +138,7 @@ REGISTRY: Tuple[AgentGuard, ...] = (
     AgentGuard("block_unenumerated_agent_type", "block-unenumerated-agent-type.py"),
     AgentGuard("guard_agent_model_pin", "guard-agent-model-pin.py"),
     AgentGuard("guard_research_pipeline_dispatch", "guard-research-pipeline-dispatch.py"),
+    AgentGuard("block_unharvested_canvas_dispatch", "block-unharvested-canvas-dispatch.py"),
     AgentGuard("enforce_agent_dispatch_mode", "enforce-agent-dispatch-mode.py"),
 )
 

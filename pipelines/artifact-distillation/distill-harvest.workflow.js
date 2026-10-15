@@ -29,7 +29,7 @@ export const meta = {
   name: 'distill-harvest',
   description: '/distill knowledge harvest: Haiku scan wave (journaled) -> JS cluster -> Sonnet one-file-per-topic synth wave (direct write)',
   phases: [
-    { title: 'load', detail: 'optional (args.inputFile only): single Haiku agent() reads the file and returns its parsed content verbatim (schema-forced) — avoids authoring a large batches table inline in args' },
+    { title: 'load', detail: 'optional (args.inputFile only): one Haiku agent() relays the manifest, then one per batch file and slug shard, each returning its parsed content verbatim (schema-forced) — avoids authoring a large batches table inline in args' },
     { title: 'scan', detail: 'parallel Haiku xN: read assigned batch, return structured nuggets (schema-forced, journaled)' },
     { title: 'candidates', detail: 'parallel Haiku xM: one agent per cluster relays C1\'s learn-lessons-reconcile-candidates CLI against the cluster\'s target wiki path, returns candidate_restatements (schema-forced) — an LLM-mediated relay run ahead of synth, not a deterministic assembler call; failure/fabrication degrades silently to an empty list, indistinguishable on disk from "genuinely no candidates" (see Wave 1.5 comment below)' },
     { title: 'synth', detail: 'parallel Sonnet xM: one agent owns one docs/wiki/<topic>.md, additive+provenance direct write, amends/coexists against pre-computed candidate_restatements' },
@@ -37,8 +37,9 @@ export const meta = {
     { title: 'judgment-mining-2-5', detail: 'parallel Sonnet xM (one per topic-cluster, folded-in Phase 2.5): mines live reviewer sidecars for cross-spec convergence, emits judgment-proposals (schema-forced) for Phase 3b review and wiki promotion into docs/wiki/codebase-judgment/ — read-only orchestrator boundary, no nested sub-agents; runs only once Phase 2 and the Coverage Gate above are fully complete' },
     { title: 'contradiction-detection-3a', detail: 'parallel Sonnet xM (one per cluster, folded-in Phase 3a): reuses Phase 2.5\'s clusterTag grouping of Phase-2 topics to compare synthesized wiki content within each cluster for contradictions (schema-forced), plus an in-process mechanical cross-cluster contradiction check (no subagent dispatch) over every cluster\'s returned contradiction_refs' },
     { title: 'contradiction-escalation', detail: 'conditional (fires only when any cluster reports unresolvable_contradictions > 0 or the cross-cluster check finds a candidate): single Opus agent resolves the flagged contradictions, followed by a single Sonnet fidelity-check agent verifying every flagged source id was cited — never an unconditional stage' },
-    { title: 'phase-3b', detail: 'single Sonnet agent (folded-in Phase 3b): decision-record dedup over this run\'s CREATE_DR dispositions and judgment-mining new-entry proposals — reads the real docs/decisions/*.md files Wave 2 already wrote (no Phase 2 scratch files to re-read); skipped entirely (no dispatch) when nothing DR-shaped exists this run, per its own CRITICAL FAILURE MODE contract' },
+    { title: 'phase-3b', detail: 'single Sonnet agent (folded-in Phase 3b): decision-record dedup over this run\'s CREATE_DR dispositions and judgment-mining new-entry proposals — reads the CREATE_DR target files first, then docs/decisions/*.md, and returns dr_files_found, which the script reconciles against the targets into the dr_minting result field; skipped (no dispatch) when nothing DR-shaped exists, and a run with zero DECISION nuggets is not a failure' },
     { title: 'phase-3d', detail: 'single Sonnet agent (folded-in Phase 3d): resolves this Workflow\'s own mechanically-computed distillation_log_rows (DISTILLED/EPHEMERAL/SKIP) into the final DELETE/SEND_BACK/BLOCKED/PRESERVE deletion manifest — suppressed (no dispatch) when join_integrity verdict is failed, same suppression the mechanical pass is already subject to' },
+    { title: 'citation-repoint', detail: 'Sonnet probe runs distill-delete-guard over DISTILLED DELETE/BLOCKED rows; rows blocked only by docs/ or tasks/ citations get an apply agent that repoints the citations at the absorbing wiki page and re-runs the guard' },
     { title: 'artifact-reentry', detail: 'findCoverageGaps\' shape lifted from nugget level to artifact level: one re-harvest Sonnet agent per SEND_BACK cluster (grouped by originating batch), re-evaluating the delete guards on return; bounded to SEND_BACK_REENTRY_CAP rounds, a re-harvest failure is caught and logged (never run-blocking), and any artifact still SEND_BACK after the cap becomes BLOCKED with the cap named as the reason — a run never ends with a non-empty SEND_BACK set' },
   ],
 }
@@ -52,13 +53,25 @@ const INPUT = typeof args === 'string' ? JSON.parse(args) : args
 // {
 //   runId: 'YYYY-MM-DD-HHhMM',
 //   repoRoot: '/absolute/path/to/repo',
-//   batches: [ { batchId: 'b1', description: '...', files: ['path1', ...], formatHints: '...' }, ... ],
+//   batches: [ { batchId: 'b1', description: '...', files: ['path1', ...], formatHints: { ... } }, ... ],
+//   batch_count: <integer>, total_file_count: <integer>,  // declared counts; asserted against the received table
 //   wikiDirs:  ['docs/wiki', 'coordinator/docs/wiki'],   // ordered; [0] is the default/primary NEW-file home.
 //   wikiSlugs: { '<slug>': '<repo-relative-path>', ... }, // flat index: slugified filename-stem -> existing file
 //                                                          // path, union across every dir in wikiDirs.
+//   judgmentClusters / contradictionClusters / crossRepoDispositions: [ ... ] (optional) with
+//   judgmentClusterCount / contradictionClusterCount / crossRepoDispositionCount: <integer>,
+//   minConvergence: <integer>  // optional; each list is checked against its count
 //   resumeFromRunId: '<prior-run-id>' | null,
 //   inputFile: '/absolute/path/to/input.json' | undefined,  // see § Three input modes below
 // }
+//
+// Sharded input (mode 1, full-size scopes): the file args.inputFile names is a small manifest
+// carrying batchFiles / slugShardFiles (paths relative to the manifest's own directory) instead
+// of inline `batches` / `wikiSlugs`. The manifest agent copies those two lists verbatim; one
+// further load agent per batch file and per slug shard relays exactly one small file, and
+// mergeShardedInput rebuilds the inline table so every later phase reads the same BATCHES /
+// WIKI_SLUGS as before. The file args.inputFile names is always a manifest; the args-passed and
+// embedded modes below still carry inline `batches`.
 //
 // Three input modes, in precedence order (highest wins):
 //   1. args.inputFile — the (potentially large) `batches` table lives in a JSON file on disk
@@ -78,30 +91,295 @@ const INPUT = typeof args === 'string' ? JSON.parse(args) : args
 const RAW_ARGS_INPUT = INPUT
 const INPUT_FILE_SCHEMA = {
   type: 'object',
-  required: ['batches'],
+  required: ['batchFiles', 'slugShardFiles'],
   properties: {
     runId: { type: 'string' },
     repoRoot: { type: 'string' },
-    batches: {
+    batchFiles: { type: 'array', items: { type: 'string' } },
+    slugShardFiles: { type: 'array', items: { type: 'string' } },
+    batch_count: { type: 'integer' },
+    total_file_count: { type: 'integer' },
+    wikiDirs: { type: 'array', items: { type: 'string' } },
+    wikiSlugCount: { type: 'integer' },
+    contextTerms: { type: 'array', items: { type: 'string' } },
+    judgmentClusters: {
       type: 'array',
       items: {
         type: 'object',
-        required: ['batchId', 'files'],
+        required: ['topicCluster', 'verdictDirection', 'liveSidecarPaths'],
         properties: {
-          batchId: { type: 'string' },
-          description: { type: 'string' },
-          files: { type: 'array', items: { type: 'string' } },
-          formatHints: { type: 'string' },
+          topicCluster: { type: 'string' },
+          verdictDirection: { type: 'string', enum: ['forbid', 'require', 'prefer', 'avoid'] },
+          liveSidecarPaths: { type: 'array', items: { type: 'string' } },
+          existingJudgmentEntry: { type: ['string', 'null'] },
         },
       },
     },
-    wikiDirs: { type: 'array', items: { type: 'string' } },
-    wikiSlugs: { type: 'object' },
-    contextTerms: { type: 'array', items: { type: 'string' } },
+    judgmentClusterCount: { type: 'integer' },
+    contradictionClusters: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['clusterTag', 'topicKeys'],
+        properties: {
+          clusterTag: { type: 'string' },
+          topicKeys: { type: 'array', items: { type: 'string' } },
+        },
+      },
+    },
+    contradictionClusterCount: { type: 'integer' },
+    crossRepoDispositions: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['artifact_path', 'disposition'],
+        properties: {
+          artifact_path: { type: 'string' },
+          disposition: { type: 'string' },
+          reason: { type: 'string' },
+          source_nugget_ids: { type: 'array', items: { type: 'string' } },
+        },
+      },
+    },
+    crossRepoDispositionCount: { type: 'integer' },
+    minConvergence: { type: 'integer' },
   },
 }
 
+// Schema of one `batch-NNNN.json` file named by the manifest's batchFiles.
+const BATCH_FILE_SCHEMA = {
+  type: 'object',
+  required: ['batchId', 'files', 'file_count'],
+  properties: {
+    batchId: { type: 'string' },
+    description: { type: 'string' },
+    files: { type: 'array', items: { type: 'string' } },
+    formatHints: { type: 'object' },
+    file_count: { type: 'integer' },
+  },
+}
+
+// Schema of one `wikislugs-NNNN.json` file named by the manifest's slugShardFiles.
+const SLUG_SHARD_SCHEMA = {
+  type: 'object',
+  required: ['shard', 'slug_count', 'entries'],
+  properties: {
+    shard: { type: ['integer', 'string'] },
+    slug_count: { type: 'integer' },
+    entries: { type: 'object', additionalProperties: { type: 'string' } },
+  },
+}
+
+// Pure: resolves `rel` (a path relative to the manifest's directory) against `manifestPath`,
+// splitting on the last `/` or `\` and joining with the manifest's own separator.
+function shardPathFor(manifestPath, rel) {
+  if (/^([\\/]|[A-Za-z]:)/.test(rel) || rel.split(/[\\/]/).includes('..')) {
+    throw new Error(`distill-harvest: shard path "${rel}" must stay inside the manifest's directory`)
+  }
+  const idx = Math.max(manifestPath.lastIndexOf('/'), manifestPath.lastIndexOf('\\'))
+  if (idx < 0) return rel
+  const sep = manifestPath[idx]
+  return manifestPath.slice(0, idx) + sep + rel.split(/[\\/]/).join(sep)
+}
+
+// Pure: rebuilds the inline input from the manifest and the positional per-file results.
+// `files` is `{batchFiles, slugShardFiles}` (the paths the results were read from, for naming).
+// Returns `{loadedInput}` or a halt object. Each file's own count is checked here; the merged
+// totals are checked by the callers' count asserts.
+function mergeShardedInput(manifest, batchResults, shardResults, files) {
+  const batches = []
+  for (let i = 0; i < batchResults.length; i++) {
+    const b = batchResults[i]
+    if (!b) throw new Error(`distill-harvest: batch file "${files.batchFiles[i]}" returned no payload`)
+    if (!Number.isInteger(b.file_count) || !Array.isArray(b.files) || b.file_count !== b.files.length) {
+      return {
+        phase_reached: 'load',
+        halted: 'input-count-mismatch',
+        detail: `distill-harvest: batch file "${files.batchFiles[i]}" declares file_count=${JSON.stringify(b.file_count)} ` +
+          `but carries ${Array.isArray(b.files) ? b.files.length : 'no'} file(s)`,
+      }
+    }
+    const { file_count, ...batch } = b
+    batches.push(batch)
+  }
+  const wikiSlugs = {}
+  for (let i = 0; i < shardResults.length; i++) {
+    const sh = shardResults[i]
+    if (!sh) throw new Error(`distill-harvest: slug shard "${files.slugShardFiles[i]}" returned no payload`)
+    const have = sh.entries && typeof sh.entries === 'object' ? Object.keys(sh.entries).length : -1
+    if (!Number.isInteger(sh.slug_count) || sh.slug_count !== have) {
+      return {
+        phase_reached: 'load',
+        halted: 'wiki-slugs-dropped',
+        detail: `distill-harvest: slug shard "${files.slugShardFiles[i]}" declares slug_count=${JSON.stringify(sh.slug_count)} ` +
+          `but carries ${have} entr${have === 1 ? 'y' : 'ies'}`,
+      }
+    }
+    Object.assign(wikiSlugs, sh.entries)
+  }
+  const { batchFiles, slugShardFiles, ...rest } = manifest
+  return { loadedInput: { ...rest, batches, wikiSlugs } }
+}
+
+// Pure: the `load_stats` block. `agentBytes` is JSON.stringify(result).length (UTF-16 units, a byte approximation) per load agent.
+function buildLoadStats(agentBytes, batches, wikiSlugs) {
+  const list = Array.isArray(batches) ? batches : []
+  return {
+    agents: agentBytes.length,
+    batch_count: list.length,
+    total_file_count: list.reduce((n, b) => n + ((b && b.files) ? b.files.length : 0), 0),
+    wikiSlugCount: wikiSlugs ? Object.keys(wikiSlugs).length : 0,
+    max_relay_bytes: agentBytes.reduce((m, n) => Math.max(m, n), 0),
+  }
+}
+
+// Pure: compares each received cluster list to every declared count channel. `lists` maps a list
+// name to the received array (or undefined); `declared` is `{args: {<name>: count}, file:
+// {<name>: count}}`. Returns a halt object or null.
+function assertRelayedListCounts(lists, declared, relayed) {
+  const halt = (detail) => ({ phase_reached: 'load', halted: 'input-count-mismatch', detail })
+  for (const name of Object.keys(lists)) {
+    const received = Array.isArray(lists[name]) ? lists[name].length : 0
+    const present = []
+    for (const channel of ['args', 'file']) {
+      const count = (declared[channel] || {})[name]
+      if (count !== undefined) present.push([channel, count])
+    }
+    for (const [channel, count] of present) {
+      if (!Number.isInteger(count)) {
+        return halt(`distill-harvest: ${channel} channel count for ${name} is not an integer (${JSON.stringify(count)})`)
+      }
+      if (count !== received) {
+        return halt(`distill-harvest: ${channel} declares ${name} count=${count} but received ${received} entr${received === 1 ? 'y' : 'ies'}`)
+      }
+    }
+    if (relayed && received > 0 && present.length === 0) {
+      return halt(`distill-harvest: relayed ${name} carries ${received} entr${received === 1 ? 'y' : 'ies'} but no count in the file or args`)
+    }
+  }
+  return null
+}
+
+// Schema of the file `args.curatedFile` names: the `distill.curate_clusters` return saved verbatim.
+// Every field the script reads off `loadedCurated` is a property here.
+const CURATED_FILE_SCHEMA = {
+  type: 'object',
+  required: ['verdicts'],
+  properties: {
+    verdicts: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['tag', 'verdict'],
+        properties: {
+          tag: { type: 'string' },
+          verdict: { type: 'string', enum: ['keep', 'normalize', 'merge', 'drop'] },
+          canonical_slug: { type: ['string', 'null'] },
+          merge_target: { type: ['string', 'null'] },
+          count: { type: 'integer' },
+          drop_cause: { type: ['string', 'null'] },
+          reason: { type: ['string', 'null'] },
+        },
+      },
+    },
+    counts: {
+      type: 'object',
+      required: ['total'],
+      properties: { total: { type: 'integer' } },
+    },
+    threshold_applied: { type: ['number', 'null'] },
+    threshold_auto: { type: ['boolean', 'null'] },
+    nugget_drop_share: { type: ['number', 'null'] },
+    degraded: { type: ['boolean', 'null'] },
+    contradictionClusters: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['clusterTag', 'topicKeys'],
+        properties: {
+          clusterTag: { type: 'string' },
+          topicKeys: { type: 'array', items: { type: 'string' } },
+        },
+      },
+    },
+    contradictionClusterCount: { type: 'integer' },
+  },
+}
+
+// Pure: turns the op's verdict list into the tag-keyed map the clustering consumes. Throws naming
+// the tag on a duplicate or a missing `tag`.
+function curatedMapFromVerdicts(verdicts) {
+  const map = {}
+  for (const entry of verdicts) {
+    if (!entry || typeof entry.tag !== 'string' || entry.tag === '') {
+      throw new Error(`curatedMapFromVerdicts: verdict entry without a tag: ${JSON.stringify(entry)}`)
+    }
+    if (Object.prototype.hasOwnProperty.call(map, entry.tag)) {
+      throw new Error(`curatedMapFromVerdicts: duplicate verdict for tag '${entry.tag}'`)
+    }
+    map[entry.tag] = entry
+  }
+  return map
+}
+
+// Pure: compares the received batch table to every declared count channel. `declared.args` is the
+// pair the launcher passed; `declared.file` is the pair the load agent returned. `relayed` is true
+// when the input came through the load agent. Returns a halt object or null.
+function assertRelayedCounts(batches, declared, relayed) {
+  const halt = (detail) => ({ phase_reached: 'load', halted: 'input-count-mismatch', detail })
+  const receivedBatches = batches.length
+  const receivedFiles = batches.reduce((n, b) => n + ((b && b.files) ? b.files.length : 0), 0)
+  const present = []
+  for (const name of ['args', 'file']) {
+    const ch = declared[name]
+    if (ch.batch_count !== undefined || ch.total_file_count !== undefined) present.push([name, ch])
+  }
+  if (present.length === 0) {
+    return relayed
+      ? halt('distill-harvest: relayed input carries no batch_count/total_file_count — the file is not a ' +
+          'distill.workflow_input payload and no counts were passed in args')
+      : null
+  }
+  for (const [name, ch] of present) {
+    for (const field of ['batch_count', 'total_file_count']) {
+      if (!Number.isInteger(ch[field])) {
+        return halt(`distill-harvest: ${name} channel field ${field} is absent or not an integer (${JSON.stringify(ch[field])})`)
+      }
+    }
+  }
+  for (const [name, ch] of present) {
+    if (ch.batch_count !== receivedBatches) {
+      return halt(`distill-harvest: ${name} declares batch_count=${ch.batch_count} but received ${receivedBatches} batch(es)`)
+    }
+    if (ch.total_file_count !== receivedFiles) {
+      return halt(`distill-harvest: ${name} declares total_file_count=${ch.total_file_count} but received ${receivedFiles} file(s)`)
+    }
+  }
+  return null
+}
+
+// Concurrency cap: min(16, cores-2) per the shared Workflow-resume primitive (distill-harvest
+// lane). This is NOT the survey-analyst-fanout cap (LOW ~4 + ramp) — the two pipelines have
+// different burst-arrival-rate risk profiles; do not conflate the two caps.
+// NOTE: workflow scripts have NO Node API access — `import('node:os')` throws
+// "import() is not available in workflow scripts" and kills the run at init (0 agents).
+// The runtime already clamps concurrency to min(16, cores-2) per the parallel() barrier, so
+// we pass a nominal ceiling (16) and let the runtime apply the real cores-derived cap.
+const CONCURRENCY_CAP = 16
+
+const loadAgentBytes = []
 let loadedInput = null
+const loadStats = () => buildLoadStats(loadAgentBytes, loadedInput && loadedInput.batches, loadedInput && loadedInput.wikiSlugs)
+
+if (RAW_ARGS_INPUT && RAW_ARGS_INPUT.curatedFile && RAW_ARGS_INPUT.curatedTags != null) {
+  return {
+    phase_reached: 'load',
+    halted: 'curated-input-ambiguous',
+    detail: 'distill-harvest: args carries both curatedFile and curatedTags — pass exactly one curated channel',
+    load_stats: loadStats(),
+  }
+}
+
 if (RAW_ARGS_INPUT && RAW_ARGS_INPUT.inputFile) {
   phase('load')
   const inputFilePath = RAW_ARGS_INPUT.inputFile
@@ -113,7 +391,12 @@ if (RAW_ARGS_INPUT && RAW_ARGS_INPUT.inputFile) {
     `output, matching the required schema exactly — field-for-field, with no summarizing, no ` +
     `truncation, and no paraphrasing of any string value (e.g. file paths, descriptions). If ` +
     `the file does not exist, cannot be read, or is not valid JSON matching the schema, do NOT ` +
-    `guess or fabricate a substitute — that is a hard failure condition for this task.`
+    `guess or fabricate a substitute — that is a hard failure condition for this task. Copy ` +
+    `batch_count and total_file_count exactly as the file states them, never compute or correct ` +
+    `them, and omit them when the file does not carry them. Copy each cluster list and each ` +
+    `list count exactly as the file states it, never compute a count, and omit any the file ` +
+    `does not carry. Copy batchFiles and slugShardFiles verbatim, ` +
+    `and never open the files they name.`
 
   const loadResults = (await parallel(
     [() => agent(loadBrief, {
@@ -125,20 +408,119 @@ if (RAW_ARGS_INPUT && RAW_ARGS_INPUT.inputFile) {
     })],
     { concurrency: 1 }
   )).filter(Boolean)
-  loadedInput = loadResults[0]
+  const manifest = loadResults[0]
 
-  if (!loadedInput) {
+  if (!manifest) {
     throw new Error(
       `distill-harvest: args.inputFile="${inputFilePath}" was set but the load agent failed to ` +
       `return a schema-valid payload (file missing, unreadable, or malformed JSON) — fix the ` +
       `file and re-run rather than falling back silently to args-passed/embedded input.`
     )
   }
+  loadAgentBytes.push(JSON.stringify(manifest).length)
+  if (!Array.isArray(manifest.batchFiles) || !Array.isArray(manifest.slugShardFiles)) {
+    throw new Error(
+      `distill-harvest: args.inputFile="${inputFilePath}" is not a manifest (batchFiles and ` +
+      `slugShardFiles are required) — pass the distill.scope workflow_input_path.`
+    )
+  }
+  const slugShardFiles = manifest.slugShardFiles
+  const shardBrief = (rel, copyNote) => {
+    const filePath = shardPathFor(inputFilePath, rel)
+    return `Repo: ${RAW_ARGS_INPUT.repoRoot || '(unspecified)'}. Do NOT git commit. No out-of-scope edits.\n\n` +
+      `You are a Haiku shard loader (Wave 0 of the /distill harvest Workflow).\n\n` +
+      `Read the file at exactly this path: ${filePath}\n\n` +
+      `Parse its contents as JSON and return the parsed content VERBATIM as your structured ` +
+      `output, matching the required schema exactly. Copy every value verbatim; ${copyNote} ` +
+      `Never compute or correct a count. If the file does not exist, cannot be read, or is not ` +
+      `valid JSON matching the schema, do NOT guess or fabricate a substitute — that is a hard ` +
+      `failure condition for this task.`
+  }
+  const batchCopyNote = 'copy file_count exactly as the file states it, and omit nothing the file carries.'
+  const slugCopyNote = 'copy slug_count exactly as the file states it, and every entries key and value.'
+  const batchResults = await parallel(
+    manifest.batchFiles.map((rel, i) => () => agent(shardBrief(rel, batchCopyNote), {
+      schema: BATCH_FILE_SCHEMA,
+      agentType: 'coordinator:executor',
+      phase: 'load',
+      label: `batch-${String(i + 1).padStart(4, '0')}`,
+      model: 'haiku',
+    })),
+    { concurrency: CONCURRENCY_CAP }
+  )
+  const shardResults = await parallel(
+    slugShardFiles.map((rel, i) => () => agent(shardBrief(rel, slugCopyNote), {
+      schema: SLUG_SHARD_SCHEMA,
+      agentType: 'coordinator:executor',
+      phase: 'load',
+      label: `wikislugs-${String(i + 1).padStart(4, '0')}`,
+      model: 'haiku',
+    })),
+    { concurrency: CONCURRENCY_CAP }
+  )
+  for (const r of [...batchResults, ...shardResults]) {
+    if (r) loadAgentBytes.push(JSON.stringify(r).length)
+  }
+  const merged = mergeShardedInput(manifest, batchResults, shardResults, { batchFiles: manifest.batchFiles, slugShardFiles })
+  if (merged.halted) return { ...merged, load_stats: loadStats() }
+  loadedInput = merged.loadedInput
 }
 
 const RUN_ID = (loadedInput && loadedInput.runId) || RAW_ARGS_INPUT.runId
 const REPO_ROOT = (loadedInput && loadedInput.repoRoot) || RAW_ARGS_INPUT.repoRoot
 const BATCHES = (loadedInput && loadedInput.batches) || RAW_ARGS_INPUT.batches
+if (!Array.isArray(BATCHES) || BATCHES.length === 0) {
+  return {
+    phase_reached: 'load',
+    halted: 'empty-input-batches',
+    detail: `distill-harvest: input has empty or missing "batches"` +
+      (RAW_ARGS_INPUT.inputFile ? ` (args.inputFile="${RAW_ARGS_INPUT.inputFile}" — pass the distill.scope workflow_input_path, not input.json)` : ' (args-passed input)'),
+    load_stats: loadStats(),
+  }
+}
+const countHalt = assertRelayedCounts(
+  BATCHES,
+  {
+    args: { batch_count: RAW_ARGS_INPUT.batch_count, total_file_count: RAW_ARGS_INPUT.total_file_count },
+    file: loadedInput
+      ? { batch_count: loadedInput.batch_count, total_file_count: loadedInput.total_file_count }
+      : {},
+  },
+  loadedInput !== null
+)
+if (countHalt) {
+  return { ...countHalt, load_stats: loadStats() }
+}
+const listCountHalt = assertRelayedListCounts(
+  {
+    judgmentClusters: (loadedInput && loadedInput.judgmentClusters) || RAW_ARGS_INPUT.judgmentClusters,
+    contradictionClusters: (loadedInput && loadedInput.contradictionClusters) || RAW_ARGS_INPUT.contradictionClusters,
+    crossRepoDispositions: (loadedInput && loadedInput.crossRepoDispositions) || RAW_ARGS_INPUT.crossRepoDispositions,
+  },
+  {
+    args: {
+      judgmentClusters: RAW_ARGS_INPUT.judgmentClusterCount,
+      // With a curated file and no list in the input file or args, the list arrives through the
+      // curated file and the count is checked there.
+      contradictionClusters: RAW_ARGS_INPUT.curatedFile &&
+        !((loadedInput && loadedInput.contradictionClusters) || RAW_ARGS_INPUT.contradictionClusters)
+        ? undefined
+        : RAW_ARGS_INPUT.contradictionClusterCount,
+      crossRepoDispositions: RAW_ARGS_INPUT.crossRepoDispositionCount,
+    },
+    file: loadedInput
+      ? {
+          judgmentClusters: loadedInput.judgmentClusterCount,
+          contradictionClusters: loadedInput.contradictionClusterCount,
+          crossRepoDispositions: loadedInput.crossRepoDispositionCount,
+        }
+      : {},
+  },
+  loadedInput !== null
+)
+if (listCountHalt) {
+  return { ...listCountHalt, load_stats: loadStats() }
+}
 // D2 (2026-07-19 fix): wikiInventory (topicKey-keyed, guessed at Phase-0 build time before
 // topicKeys exist) is superseded by wikiDirs/wikiSlugs (disk-resolved, slug-keyed). Back-compat:
 // tolerate a caller still passing the legacy wikiInventory shape — don't crash, just derive an
@@ -149,6 +531,27 @@ const BATCHES = (loadedInput && loadedInput.batches) || RAW_ARGS_INPUT.batches
 const wikiDirsCandidate = (loadedInput && loadedInput.wikiDirs) || RAW_ARGS_INPUT.wikiDirs
 const WIKI_DIRS = (wikiDirsCandidate && wikiDirsCandidate.length) ? wikiDirsCandidate : ['docs/wiki']
 const WIKI_SLUGS = (loadedInput && loadedInput.wikiSlugs) || RAW_ARGS_INPUT.wikiSlugs || {}
+// Fail-loud: a schema-forced loader that drops wikiSlugs makes consolidation mint duplicate guides.
+const wikiSlugLoadedCount = Object.keys(WIKI_SLUGS).length
+const wikiSlugDeclaredCount = loadedInput ? loadedInput.wikiSlugCount : undefined
+const wikiSlugArgsCount = Number.isInteger(RAW_ARGS_INPUT.wikiSlugCount) ? RAW_ARGS_INPUT.wikiSlugCount : undefined
+if ((loadedInput && (
+  (typeof wikiSlugDeclaredCount === 'number' && wikiSlugDeclaredCount !== wikiSlugLoadedCount) ||
+  (wikiSlugDeclaredCount === undefined && wikiSlugLoadedCount === 0 && wikiDirsCandidate && wikiDirsCandidate.length)
+)) || (wikiSlugArgsCount !== undefined && wikiSlugArgsCount !== wikiSlugLoadedCount)) {
+  return {
+    phase_reached: 'load',
+    halted: 'wiki-slugs-dropped',
+    detail: `distill-harvest: loaded wikiSlugs count=${wikiSlugLoadedCount} but ` +
+      (typeof wikiSlugDeclaredCount === 'number' && wikiSlugDeclaredCount !== wikiSlugLoadedCount
+        ? `input declares wikiSlugCount=${wikiSlugDeclaredCount}`
+        : wikiSlugArgsCount !== undefined && wikiSlugArgsCount !== wikiSlugLoadedCount
+          ? `args declares wikiSlugCount=${wikiSlugArgsCount}`
+          : `wikiDirs=${JSON.stringify(wikiDirsCandidate)} are present`) +
+      ` (args.inputFile="${RAW_ARGS_INPUT.inputFile}") — the input loader dropped the slug index; re-run rather than minting duplicate wiki guides.`,
+    load_stats: loadStats(),
+  }
+}
 // Fate-prose enforcement's context-term check (§ Distillation-log rows below) is opt-in: absent
 // input, the check does not silently pass ("looked at nothing" != "found nothing" — see that
 // section for why a silent-pass gate here would be the same defect this file exists to kill).
@@ -159,13 +562,11 @@ const CONTEXT_TERMS = (loadedInput && loadedInput.contextTerms) || RAW_ARGS_INPU
 // source_nugget_ids) and are merged into the Phase 3d manifest before the artifact re-entry loop
 // so re-entry covers them like any other row (§ "Phase 3d" below).
 const CROSS_REPO_DISPOSITIONS = (loadedInput && loadedInput.crossRepoDispositions) || RAW_ARGS_INPUT.crossRepoDispositions || []
-// Phase 2.5 (judgment mining) inputs — PIPELINE.md:604-612. `judgmentClusters` is OPTIONAL: this
-// script has no filesystem access to assemble the live-sidecar corpus itself (same restriction
-// documented at CONCURRENCY_CAP below), so a caller that has not wired Phase-0 sidecar-corpus
-// collection into this field yet gets the judgment-mining phase reporting 'unavailable' further
-// down, never a silent zero-proposals pass. Each entry:
+// Phase 2.5 (judgment mining) inputs — PIPELINE.md:604-612. The producer of judgment clusters is
+// the in-run 'judgment-corpus' scout inside judgment-mining-2-5; `judgmentClusters` supplied by
+// file or args is OPTIONAL, and when present it wins over the scout. Each entry:
 //   { topicCluster: '<claim-topic noun>', verdictDirection: 'forbid'|'require'|'prefer'|'avoid',
-//     liveSidecarPaths: ['<plan>.<reviewer>-rN.md', ...], existingJudgmentEntry: '<path>'|null }
+//     liveSidecarPaths: ['<reviewer sidecar path>', ...], existingJudgmentEntry: '<path>'|null }
 // `minConvergence` is the `/distill --min-convergence=N` flag (PIPELINE.md:604-612,
 // agent-prompts/phase-2-5-judgment-mining.md § Convergence threshold) — MUST keep working through
 // this Workflow; defaults to 3, read null-tolerant (`??`) since 0 would otherwise be masked by `||`.
@@ -183,32 +584,9 @@ const MIN_CONVERGENCE = (loadedInput && loadedInput.minConvergence) ?? RAW_ARGS_
 // (i.e. skipping the coarse grouping) reproduces D3's over-fragmentation here, one 3a agent per
 // singleton, so this script does not second-guess the grouping it's handed. Each entry:
 //   { clusterTag: '<cluster label>', topicKeys: ['<Phase-2 topic key>', ...] }
-const CONTRADICTION_CLUSTERS = (loadedInput && loadedInput.contradictionClusters) ||
-  RAW_ARGS_INPUT.contradictionClusters || []
-// resumeFromRunId intentionally not destructured — see comment above; the Workflow tool
-// itself consumes it at invocation time, not in-script.
-//
-// curatedTags — invocation A/B discriminator (docs/plans/2026-08-06-distill-curation-moves-to-
-// claude-klabauter.md, chunk C2/AC2). Read off the already-parsed INPUT (never off `args` directly, and
-// never re-parsed here): `args` arrives as a JSON *string* even when the caller passes an object
-// (state/lessons/2026-07-09-workflow-args-arrives-as-a-json-string), and the unconditional guard
-// at the top of this file (`typeof args === 'string' ? JSON.parse(args) : args`) is the only
-// place that string ever gets parsed — a second ad hoc check on `args` here would silently take
-// the invocation-A path on a string-arrived invocation-B call, which is exactly the failure mode
-// the probe (see plan "## Probe: single-script resume-replay") hit live. `curatedTags` is not
-// part of the `inputFile` payload (INPUT_FILE_SCHEMA above has no such field) — it is always a
-// caller-supplied top-level arg, same as `resumeFromRunId`.
-const CURATED_TAGS = INPUT.curatedTags
-// Passthrough-only, result-level fields off claude-klabauter's curated payload (landed commit 67b7061f6,
-// cross-repo/inbox/2026-08-06-claude-klabauter-em-curate-clusters-threshold-3-measured-and-payload-
-// pinned.md) — the threshold claude-klabauter actually APPLIED, whether it was auto-derived, and the
-// resulting nugget-drop share. Read null-tolerant (`??`, not `||` — 0/false are real values, e.g.
-// threshold_auto: false or nugget_drop_share: 0). Surfaced as received, never recomputed and
-// never used to override our own `recommended_keep_threshold` (what WE recommended, a separate
-// fact from what the op applied — a mismatch between the two is diagnostic, not an error).
-const CURATED_THRESHOLD_APPLIED = INPUT.threshold_applied ?? null
-const CURATED_THRESHOLD_AUTO = INPUT.threshold_auto ?? null
-const CURATED_NUGGET_DROP_SHARE = INPUT.nugget_drop_share ?? null
+// CONTRADICTION_CLUSTERS and CURATED_TAGS resolve after the curated-file load, below the scan wave.
+// resumeFromRunId intentionally not destructured — the Workflow tool itself consumes it at
+// invocation time, not in-script.
 
 // ---------------------------------------------------------------------------------------------
 // D3 consolidation config — tunable, named constants (no magic numbers in consolidateClusters).
@@ -240,15 +618,6 @@ const STEM_PREFIX_LEN = 6
 // anomaly, not basename-shortening noise (basename noise is fully repaired by the exact/
 // basename fallback below and never counts toward this rate).
 const JOIN_INTEGRITY_MAX_UNJOINABLE_RATE = 0.10
-
-// Concurrency cap: min(16, cores-2) per the shared Workflow-resume primitive (distill-harvest
-// lane). This is NOT the survey-analyst-fanout cap (LOW ~4 + ramp) — the two pipelines have
-// different burst-arrival-rate risk profiles; do not conflate the two caps.
-// NOTE: workflow scripts have NO Node API access — `import('node:os')` throws
-// "import() is not available in workflow scripts" and kills the run at init (0 agents).
-// The runtime already clamps concurrency to min(16, cores-2) per the parallel() barrier, so
-// we pass a nominal ceiling (16) and let the runtime apply the real cores-derived cap.
-const CONCURRENCY_CAP = 16
 
 const COMMON = `Repo: ${REPO_ROOT}. Do NOT git commit (EM commits from your returned manifest). ` +
   `No out-of-scope edits. Keep your task under ~10 minutes; if bigger, do the core and report what remains.`
@@ -349,13 +718,18 @@ const EXISTING_WIKI_SLUG_NAMES = Object.entries(WIKI_SLUGS)
   .map(([slug, p]) => `${slug} (${p})`)
   .sort()
   .join(', ') || 'none'
+function renderFormatHints(h) {
+  if (typeof h === 'string' && h !== '') return h
+  if (h && typeof h === 'object' && Object.keys(h).length > 0) return JSON.stringify(h)
+  return 'none'
+}
 const scanBriefFor = (batch) => COMMON + `
 
 You are a Haiku artifact scanner (Wave 1 of the /distill harvest Workflow).
 
 Your assigned batch: ${batch.batchId} — ${batch.description}
 Files to read: ${JSON.stringify(batch.files)}
-Format hints: ${batch.formatHints || 'none'}
+Format hints: ${renderFormatHints(batch.formatHints)}
 
 Read every file in your batch and extract structured knowledge nuggets. Classify each
 piece of extractable knowledge as one of: DECISION, SUPERSEDED, KNOWLEDGE (with a
@@ -604,6 +978,84 @@ log(`join integrity: ${joinVerdict} — ${unjoinableCount}/${distinctSourceCount
   `${JOIN_INTEGRITY_MAX_UNJOINABLE_RATE})` +
   (disposalSuppressed ? ` — DISPOSAL SUPPRESSED: ${disposalSuppressedReason}` : ''))
 
+// Curated verdicts reach the script through one of two channels, never the input file (its load
+// result replays on invocation B, so a verdict list carried there would be replayed stale):
+//   - args.curatedFile: path of the saved `distill.curate_clusters` return, read by a second load
+//     agent dispatched after the scan wave and before the A/B branch, so every agent call ahead
+//     of the branch is identical in invocations A and B. Its list is checked against
+//     `counts.total` and args.curatedVerdictCount.
+//   - args.curatedTags: the tag-keyed `{tag: verdict}` map, or the verdict list (normalised
+//     through curatedMapFromVerdicts).
+// Invocation B is "curatedTags or curatedFile present in args". `args` arrives as a JSON string
+// (state/lessons/2026-07-09-workflow-args-arrives-as-a-json-string); INPUT is its one parse.
+let loadedCurated = null
+if (RAW_ARGS_INPUT && RAW_ARGS_INPUT.curatedFile) {
+  const curatedFilePath = RAW_ARGS_INPUT.curatedFile
+  const curatedLoadBrief =
+    `Repo: ${RAW_ARGS_INPUT.repoRoot || '(unspecified)'}. Do NOT git commit. No out-of-scope edits.\n\n` +
+    `You are a Haiku curated-verdicts loader (Wave 0b of the /distill harvest Workflow).\n\n` +
+    `Read the file at exactly this path: ${curatedFilePath}\n\n` +
+    `Parse its contents as JSON and return the parsed content VERBATIM as your structured ` +
+    `output, matching the required schema exactly — field-for-field, with no summarizing, no ` +
+    `truncation, and no paraphrasing of any string value (e.g. tags, slugs, reasons). If the ` +
+    `file does not exist, cannot be read, or is not valid JSON matching the schema, do NOT ` +
+    `guess or fabricate a substitute — that is a hard failure condition for this task. Copy ` +
+    `every verdict entry and every count exactly as the file states it, never compute or ` +
+    `correct a count, and omit any field the file does not carry.`
+  const curatedLoadResults = (await parallel(
+    [() => agent(curatedLoadBrief, {
+      schema: CURATED_FILE_SCHEMA,
+      agentType: 'coordinator:executor',
+      phase: 'load',
+      label: 'curated-file',
+      model: 'haiku',
+    })],
+    { concurrency: 1 }
+  )).filter(Boolean)
+  loadedCurated = curatedLoadResults[0]
+  if (!loadedCurated) {
+    throw new Error(
+      `distill-harvest: args.curatedFile="${curatedFilePath}" was set but the load agent failed to ` +
+      `return a schema-valid payload (file missing, unreadable, or malformed JSON) — fix the ` +
+      `file and re-run rather than falling back silently to curatedTags or invocation A.`
+    )
+  }
+  const curatedCountHalt = assertRelayedListCounts(
+    {
+      verdicts: loadedCurated.verdicts,
+      contradictionClusters: loadedCurated.contradictionClusters,
+    },
+    {
+      args: {
+        verdicts: RAW_ARGS_INPUT.curatedVerdictCount,
+        contradictionClusters: ((loadedInput && loadedInput.contradictionClusters) || RAW_ARGS_INPUT.contradictionClusters)
+          ? undefined
+          : RAW_ARGS_INPUT.contradictionClusterCount,
+      },
+      file: {
+        verdicts: loadedCurated.counts ? loadedCurated.counts.total : undefined,
+        contradictionClusters: loadedCurated.contradictionClusterCount,
+      },
+    },
+    true
+  )
+  if (curatedCountHalt) {
+    return curatedCountHalt
+  }
+}
+const CURATED_TAGS = loadedCurated
+  ? curatedMapFromVerdicts(loadedCurated.verdicts)
+  : Array.isArray(INPUT.curatedTags)
+    ? curatedMapFromVerdicts(INPUT.curatedTags)
+    : INPUT.curatedTags
+// Passthrough-only, result-level fields off claude-klabauter's curated payload — the threshold claude-klabauter
+// actually APPLIED, whether it was auto-derived, and the resulting nugget-drop share. The curated
+// file wins, then INPUT; read null-tolerant (`??`, not `||` — 0/false are real values). Surfaced
+// as received, never recomputed and never used to override `recommended_keep_threshold`.
+const CURATED_THRESHOLD_APPLIED = (loadedCurated && loadedCurated.threshold_applied) ?? INPUT.threshold_applied ?? null
+const CURATED_THRESHOLD_AUTO = (loadedCurated && loadedCurated.threshold_auto) ?? INPUT.threshold_auto ?? null
+const CURATED_NUGGET_DROP_SHARE = (loadedCurated && loadedCurated.nugget_drop_share) ?? INPUT.nugget_drop_share ?? null
+
 // ---------------------------------------------------------------------------------------------
 // Curation early return (Invocation A) — docs/plans/2026-08-06-distill-curation-moves-to-claude-klabauter.md
 // chunk C2/AC2. Absent `curatedTags` (see CURATED_TAGS above — read off parsed INPUT, never off
@@ -680,10 +1132,13 @@ if (!CURATED_TAGS) {
     recommended_keep_threshold_reason: recommendedKeepThresholdReason,
     join_integrity: joinIntegrity,
     failed_batch_ids: failedBatchIds,
+    load_stats: buildLoadStats(loadAgentBytes, BATCHES, WIKI_SLUGS),
     resume_hint:
       `Run claude-klabauter distill.curate_clusters over tag_counts with keep_threshold=${recommendedKeepThreshold} ` +
       `(${recommendedKeepThresholdReason}), then re-invoke this SAME script with ` +
-      'curatedTags set, runId set to run_id above, and resumeFromRunId set to the wf_... runId ' +
+      'curatedFile set to the saved op return (verbatim) and curatedVerdictCount set to its ' +
+      'counts.total, or with curatedTags set to the inline {tag: verdict} map; ' +
+      'runId set to run_id above, and resumeFromRunId set to the wf_... runId ' +
       "from THIS invocation's Workflow tool result — NOT to run_id, which is a distillation slug " +
       'and will silently re-dispatch the whole scan wave.',
   }
@@ -992,7 +1447,20 @@ function consolidateClusters(rawClusters, wikiSlugs, config) {
     wikiPath: `${wikiDirs[0]}/${slugifyTopic(c.topicKey)}.md`,
     bucket: 'new',
   }))
-  const result = [...homed, ...newClusters]
+  // Disjoint-file invariant: clusters homed to one wikiPath collapse into a single synth unit
+  // (first cluster's topicKey is the unit key; mergedTopicKeys records every key it absorbed).
+  const byPath = new Map()
+  for (const c of [...homed, ...newClusters]) {
+    const unit = byPath.get(c.wikiPath)
+    if (!unit) {
+      byPath.set(c.wikiPath, { ...c, mergedTopicKeys: [c.topicKey] })
+      continue
+    }
+    unit.nuggets = [...unit.nuggets, ...c.nuggets]
+    unit.sourceBatches = [...new Set([...(unit.sourceBatches || []), ...(c.sourceBatches || [])])]
+    unit.mergedTopicKeys.push(c.topicKey)
+  }
+  const result = [...byPath.values()]
 
   const totalOutputNuggets = result.reduce((n, c) => n + c.nuggets.length, 0)
   if (totalOutputNuggets !== totalInputNuggets) {
@@ -1164,6 +1632,16 @@ function slugifyTopic(topicKey) {
     .replace(/^-+|-+$/g, '')
 }
 
+// Agent-echoed topic_key joins compare canonical slugs: Sonnet may echo `a_b` for `a-b`.
+// Stamps the dispatching key onto an agent result so joins never trust an agent-echoed key.
+function stampKey(result, field, key) {
+  return result ? { ...result, [field]: key } : result
+}
+
+function sameTopic(a, b) {
+  return slugifyTopic(String(a)) === slugifyTopic(String(b))
+}
+
 // ---------------------------------------------------------------------------------------------
 // Provenance schema (§ distill.md § 5b) — the AC requires machine-readable YAML frontmatter on
 // disk, not the HTML-comment spec-backlink alone. Run 2026-08-06's 25 Wave-2 files all landed
@@ -1208,6 +1686,7 @@ const SYNTH_SCHEMA = {
           nugget_id: { type: 'string' },
           op: { type: 'string', enum: ['ADD_SECTION', 'UPDATE_SECTION', 'REMOVE_SECTION', 'CREATE_DR', 'SKIP'] },
           reason: { type: 'string' },
+          target: { type: 'string' }, // CREATE_DR: the path the scaffolder printed
         },
       },
     },
@@ -1303,7 +1782,7 @@ const candidatesResults = (await parallel(
       phase: 'candidates',
       label: `cand-${slugifyTopic(cluster.topicKey)}`,
       model: 'haiku',
-    })
+    }).then((r) => stampKey(r, 'topic_key', cluster.topicKey))
   ),
   { concurrency: CONCURRENCY_CAP }
 )).filter(Boolean)
@@ -1322,7 +1801,7 @@ const candidatesResults = (await parallel(
 function buildCandidatesByTopic(candidatesResultsIn, clustersIn, wikiSlugsIn, wikiDirsIn, logFn) {
   return new Map(
     candidatesResultsIn.map((r) => {
-      const matchingCluster = clustersIn.find((c) => c.topicKey === r.topic_key)
+      const matchingCluster = clustersIn.find((c) => sameTopic(c.topicKey, r.topic_key))
       if (matchingCluster) {
         const slug = slugifyTopic(matchingCluster.topicKey)
         const expectedWikiPath = matchingCluster.wikiPath || wikiSlugsIn[slug] || `${wikiDirsIn[0]}/${slug}.md`
@@ -1333,7 +1812,7 @@ function buildCandidatesByTopic(candidatesResultsIn, clustersIn, wikiSlugsIn, wi
             `ran the CLI against the wrong target.`)
         }
       }
-      return [r.topic_key, r.candidate_restatements || []]
+      return [slugifyTopic(r.topic_key), r.candidate_restatements || []]
     })
   )
 }
@@ -1341,6 +1820,40 @@ function buildCandidatesByTopic(candidatesResultsIn, clustersIn, wikiSlugsIn, wi
 const candidatesByTopic = buildCandidatesByTopic(candidatesResults, clusters, WIKI_SLUGS, WIKI_DIRS, log)
 
 phase('synth')
+
+// The DR-minting section of the Wave-2 and coverage-gate synth briefs. Original:
+// agent-prompts/phase-2.md § Decision Records — a prompt edit there needs its copy here.
+function drMintingSectionFor(cluster) {
+  const decisions = (cluster.nuggets || []).filter((n) => n.type === 'DECISION')
+  if (decisions.length === 0) return ''
+  const ids = decisions.map((n) => n.id).join(', ')
+  return `
+DECISION RECORDS — you also mint one decision record per DECISION nugget: ${ids}.
+For EACH of those nuggets, in order:
+1. From the repo root run \`coordinator-doc-new --type decision --title "<decision title>"\`
+   (if the bareword isn't on PATH, resolve it via
+   "\${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-doc-new").
+   It allocates the number and prints the new file's path. Read that file.
+2. Straight away, before filling anything, add this run's stamp to its frontmatter as a mapping:
+     provenance:
+       run_id: ${RUN_ID}
+       source_nuggets: [<the nugget id>]
+   so a record whose fill is cut short is still found by its run_id.
+3. Fill ## Problem, ## Decision, ## Alternatives Considered and ## Implementation from the nugget,
+   keeping its reasoning. Set \`status: accepted\`, and replace the PLACEHOLDER \`deciders\` with
+   the deciders the nugget's context names, else \`Team\`.
+4. Return that nugget's dispositions[] entry as op 'CREATE_DR' with \`target\` set to the path the
+   scaffolder printed (repo-relative, under docs/decisions/).
+Prohibitions: never choose, guess, increment or edit a DR number. Never write a decision record
+the scaffolder did not create, and never edit a pre-existing one. If the scaffolder cannot be run,
+return op 'SKIP' with a reason starting "DR-ALLOCATOR-UNAVAILABLE". If an existing record
+already states the decision, return op 'SKIP' with a reason starting "DR-EXISTS " followed by that
+record's repo-relative path under docs/decisions/. No other SKIP reason is legal on a DECISION
+nugget. A SUPERSEDED nugget is never a decision record. A DECISION nugget is never folded into
+the guide as its only home; the guide may link the record.
+`
+}
+
 const synthBriefFor = (cluster) => {
   // D2: target resolved from disk reality (WIKI_SLUGS), not a topicKey-keyed Phase-0 guess.
   // D3: honor a target the consolidation pass already set (homed merges, the misc bucket) —
@@ -1349,14 +1862,15 @@ const synthBriefFor = (cluster) => {
   const existingPath = WIKI_SLUGS[slug]
   const wikiPath = cluster.wikiPath || existingPath || `${WIKI_DIRS[0]}/${slug}.md`
   const existing = Boolean(existingPath)
-  const candidates = candidatesByTopic.get(cluster.topicKey) || []
+  const candidates = candidatesByTopic.get(slugifyTopic(cluster.topicKey)) || []
 
   return COMMON + `
 
 You are a Sonnet knowledge-synthesis agent (Wave 2 of the /distill harvest Workflow).
 
-You own EXACTLY ONE output file: ${wikiPath}. This is a disjoint-file assignment — no other
-agent in this run touches this path; do not touch any other docs/wiki/*.md file.
+You own EXACTLY ONE wiki file: ${wikiPath}, plus the decision records you yourself scaffold
+(see below, if any). This is a disjoint-file assignment — no other agent in this run touches
+this path; do not touch any other docs/wiki/*.md file or any decision record you did not scaffold.
 
 Your topic: ${cluster.topicKey}
 Nuggets assigned to you (canonical Phase-1 ids, carry every id through to your disposition
@@ -1405,9 +1919,9 @@ Do NOT git commit — the EM commits from your returned manifest after this run 
 Return the schema-required fields, including a dispositions[] entry for every nugget_id you
 were assigned (op ADD_SECTION/UPDATE_SECTION/REMOVE_SECTION/CREATE_DR/SKIP, with a reason for
 any SKIP — e.g. "EPHEMERAL at source", "SUPERSEDED at source", "AMBIGUOUS — folded into
-existing section X, or still unclassifiable at synth time"). Set op: 'skipped' at the top
+existing section X, or still unclassifiable at synth time"). For a CREATE_DR entry set \`target\` to the decision record's path. Set op: 'skipped' at the top
 level only if you produced no file changes at all (rare — note why in reason).
-
+${drMintingSectionFor(cluster)}
 Also return \`provenance\`: an object with \`run_id: '${RUN_ID}'\` (always required) plus
 whichever of \`archived_spec\`/\`original_path\`/\`last_verbose_sha\`/\`distilled\` you resolved
 from real evidence for this file's frontmatter block above. For any of those four you omitted
@@ -1423,14 +1937,14 @@ const synthResults = (await parallel(
       phase: 'synth',
       label: slugifyTopic(cluster.topicKey),
       model: 'sonnet',
-    })
+    }).then((r) => stampKey(r, 'topic_key', cluster.topicKey))
   ),
   { concurrency: CONCURRENCY_CAP }
 )).filter(Boolean)
 
 const failedTopicKeys = clusters
   .map((c) => c.topicKey)
-  .filter((topicKey) => !synthResults.some((r) => r.topic_key === topicKey))
+  .filter((topicKey) => !synthResults.some((r) => sameTopic(r.topic_key, topicKey)))
 
 if (failedTopicKeys.length > 0) {
   // A partial failure here is expected to be handled by re-invoking this Workflow with
@@ -1467,10 +1981,10 @@ if (failedTopicKeys.length > 0) {
 // ---------------------------------------------------------------------------------------------
 
 function findCoverageGaps(clusters, results) {
-  const resultsByTopic = new Map(results.map((r) => [r.topic_key, r]))
+  const resultsByTopic = new Map(results.map((r) => [slugifyTopic(r.topic_key), r]))
   const gaps = []
   for (const cluster of clusters) {
-    const result = resultsByTopic.get(cluster.topicKey)
+    const result = resultsByTopic.get(slugifyTopic(cluster.topicKey))
     if (!result) continue // failed synth — already reported via failedTopicKeys above
     const coveredIds = new Set((result.dispositions || []).map((d) => d.nugget_id))
     const uncoveredNuggets = cluster.nuggets.filter((n) => !coveredIds.has(n.id))
@@ -1481,36 +1995,84 @@ function findCoverageGaps(clusters, results) {
   return gaps
 }
 
-phase('coverage-gate')
-const totalAssignedNuggets = clusters.reduce((n, c) => n + c.nuggets.length, 0)
-const coverageGaps = findCoverageGaps(clusters, synthResults)
-const totalUncoveredNuggets = coverageGaps.reduce((n, g) => n + g.uncoveredNuggets.length, 0)
-log(`coverage gate: ${totalAssignedNuggets - totalUncoveredNuggets}/${totalAssignedNuggets} ` +
-  `nuggets covered (${coverageGaps.length} gap cluster(s)` +
-  `${coverageGaps.length ? ': ' + coverageGaps.map((g) => g.topicKey).join(', ') : ''})`)
+// DECISION nuggets that have a disposition but ended somewhere other than a decision record
+// (nuggets with no disposition at all are findCoverageGaps' business).
+function findFoldedDecisions(clusters, results) {
+  const resultsByTopic = new Map(results.map((r) => [slugifyTopic(r.topic_key), r]))
+  const isRecord = (d) => d.op === 'CREATE_DR' && typeof d.target === 'string' &&
+    d.target.replace(/\\/g, '/').startsWith('docs/decisions/')
+  const isLegalSkip = (d) => d.op === 'SKIP' && typeof d.reason === 'string' &&
+    (d.reason.startsWith('DR-ALLOCATOR-UNAVAILABLE') || d.reason.startsWith('DR-EXISTS '))
+  const folded = []
+  for (const cluster of clusters) {
+    const result = resultsByTopic.get(slugifyTopic(cluster.topicKey))
+    if (!result) continue
+    const byId = new Map((result.dispositions || []).map((d) => [d.nugget_id, d]))
+    const foldedNuggets = cluster.nuggets.filter((n) => {
+      if (n.type !== 'DECISION') return false
+      const d = byId.get(n.id)
+      return d !== undefined && !isRecord(d) && !isLegalSkip(d)
+    })
+    if (foldedNuggets.length > 0) {
+      folded.push({ topicKey: cluster.topicKey, wikiPath: result.wiki_path, foldedNuggets })
+    }
+  }
+  return folded
+}
 
-let gapSynthResults = []
-if (coverageGaps.length > 0) {
-  const gapSynthBriefFor = (gap) => {
-    const gapCandidates = candidatesByTopic.get(gap.topicKey) || []
-    return COMMON + `
+// One re-synth unit per topic: uncovered nuggets and folded DECISION nuggets together.
+function combineResynthWork(coverageGaps, foldedDecisions) {
+  const byTopic = new Map()
+  for (const g of coverageGaps) {
+    byTopic.set(slugifyTopic(g.topicKey), { topicKey: g.topicKey, wikiPath: g.wikiPath, uncoveredNuggets: g.uncoveredNuggets, foldedNuggets: [] })
+  }
+  for (const f of foldedDecisions) {
+    const key = slugifyTopic(f.topicKey)
+    const entry = byTopic.get(key) || { topicKey: f.topicKey, wikiPath: f.wikiPath, uncoveredNuggets: [], foldedNuggets: [] }
+    entry.foldedNuggets = f.foldedNuggets
+    byTopic.set(key, entry)
+  }
+  return [...byTopic.values()]
+}
+
+// Gap dispositions fill ids the original lacks; for a folded nugget they REPLACE the original.
+function mergeGapDispositions(originalDispositions, gapDispositions, foldedIds) {
+  const folded = new Set(foldedIds)
+  const gapById = new Map(gapDispositions.map((d) => [d.nugget_id, d]))
+  const kept = originalDispositions.map((d) => (folded.has(d.nugget_id) && gapById.has(d.nugget_id) ? gapById.get(d.nugget_id) : d))
+  const existingIds = new Set(originalDispositions.map((d) => d.nugget_id))
+  return [...kept, ...gapDispositions.filter((d) => !existingIds.has(d.nugget_id))]
+}
+
+function gapSynthBriefFor(gap) {
+  const gapCandidates = candidatesByTopic.get(slugifyTopic(gap.topicKey)) || []
+  const foldedNuggets = gap.foldedNuggets || []
+  const gapNuggets = [...gap.uncoveredNuggets, ...foldedNuggets]
+  const foldedNote = foldedNuggets.length === 0 ? '' : `
+These nuggets are DECISION nuggets the prior pass folded into the guide instead of recording
+as decision records: ${foldedNuggets.map((n) => n.id).join(', ')}. Before minting anything, look
+under docs/decisions/ for a record whose frontmatter \`provenance\` carries run_id ${RUN_ID}
+and that nugget id; if one exists, return its path as \`target\` on op 'CREATE_DR' instead of
+minting a second one.
+`
+  return COMMON + `
 
 You are a Sonnet knowledge-synthesis agent (coverage-gate re-synth, Wave 2 follow-up of the
 /distill harvest Workflow).
 
 A prior synth pass on ${gap.wikiPath} did not carry every nugget it was assigned into its
 returned dispositions[] manifest. Re-open ${gap.wikiPath} and additively integrate ONLY the
-following previously-uncovered nuggets — do not touch or re-derive content covering any other
+following nuggets — do not touch or re-derive content covering any other
 nugget id, and do not rewrite unchanged sections:
-${JSON.stringify(gap.uncoveredNuggets, null, 2)}
-
+${JSON.stringify(gapNuggets, null, 2)}
+${foldedNote}
 The routing record already carries candidate_restatements for ${gap.wikiPath} — computed ahead
 of this brief, nothing for you to run: ${JSON.stringify(gapCandidates)}. ${gapCandidates.length > 0
-      ? `For each candidate, either amend the existing statement in place (if one of the nuggets ` +
-        `above restates it) or record in that nugget's disposition reason why both must coexist ` +
-        `as separate statements.`
-      : `No restatement candidates were found against this target — proceed with normal ` +
-        `additive integration.`}
+    ? `For each candidate, either amend the existing statement in place (if one of the nuggets ` +
+      `above restates it) or record in that nugget's disposition reason why both must coexist ` +
+      `as separate statements.`
+    : `No restatement candidates were found against this target — proceed with normal ` +
+      `additive integration.`}
 
 Stamp PROVENANCE on every section you add or update, TWO ways, both required — same as the
 main synth pass:
@@ -1527,43 +2089,60 @@ your returned manifest after this run completes.
 
 Set topic_key to exactly '${gap.topicKey}' and wiki_path to exactly '${gap.wikiPath}' in your
 return. Return a dispositions[] entry for every nugget_id listed above (op
-ADD_SECTION/UPDATE_SECTION/REMOVE_SECTION/CREATE_DR/SKIP, with a reason for any SKIP).
-
+ADD_SECTION/UPDATE_SECTION/REMOVE_SECTION/CREATE_DR/SKIP, with a reason for any SKIP; set
+\`target\` on CREATE_DR).
+${drMintingSectionFor({ nuggets: gapNuggets })}
 Also return \`provenance\`: an object with \`run_id: '${RUN_ID}'\` (always required) plus
 whichever of \`archived_spec\`/\`original_path\`/\`last_verbose_sha\`/\`distilled\` you resolved
 for this file's frontmatter block. For any omitted, include a matching \`omitted_reasons\` entry
 stating why.`
-  }
+}
 
+phase('coverage-gate')
+const totalAssignedNuggets = clusters.reduce((n, c) => n + c.nuggets.length, 0)
+const coverageGaps = findCoverageGaps(clusters, synthResults)
+const foldedDecisions = findFoldedDecisions(clusters, synthResults)
+const resynthWork = combineResynthWork(coverageGaps, foldedDecisions)
+const totalUncoveredNuggets = coverageGaps.reduce((n, g) => n + g.uncoveredNuggets.length, 0)
+log(`coverage gate: ${totalAssignedNuggets - totalUncoveredNuggets}/${totalAssignedNuggets} ` +
+  `nuggets covered (${coverageGaps.length} gap cluster(s)` +
+  `${coverageGaps.length ? ': ' + coverageGaps.map((g) => g.topicKey).join(', ') : ''}); ` +
+  `${foldedDecisions.reduce((n, f) => n + f.foldedNuggets.length, 0)} DECISION nugget(s) folded`)
+
+let gapSynthResults = []
+if (resynthWork.length > 0) {
   gapSynthResults = (await parallel(
-    coverageGaps.map((gap) => () =>
+    resynthWork.map((gap) => () =>
       agent(gapSynthBriefFor(gap), {
         schema: SYNTH_SCHEMA,
         agentType: 'coordinator:executor',
         phase: 'coverage-gate',
         label: `gap-${slugifyTopic(gap.topicKey)}`,
         model: 'sonnet',
-      })
+      }).then((r) => stampKey(r, 'topic_key', gap.topicKey))
     ),
     { concurrency: CONCURRENCY_CAP }
   )).filter(Boolean)
 
-  // Merge gap-synth dispositions back into the owning cluster's original synth result — union by
-  // nugget_id, gap-synth entries fill only ids the original result was missing.
-  const synthResultsByTopic = new Map(synthResults.map((r) => [r.topic_key, r]))
+  const synthResultsByTopic = new Map(synthResults.map((r) => [slugifyTopic(r.topic_key), r]))
   for (const gapResult of gapSynthResults) {
-    const original = synthResultsByTopic.get(gapResult.topic_key)
+    const original = synthResultsByTopic.get(slugifyTopic(gapResult.topic_key))
     if (!original) continue
-    const existingIds = new Set((original.dispositions || []).map((d) => d.nugget_id))
-    const newDispositions = (gapResult.dispositions || []).filter((d) => !existingIds.has(d.nugget_id))
-    original.dispositions = [...(original.dispositions || []), ...newDispositions]
+    const work = resynthWork.find((w) => sameTopic(w.topicKey, gapResult.topic_key))
+    original.dispositions = mergeGapDispositions(
+      original.dispositions || [], gapResult.dispositions || [], (work ? work.foldedNuggets : []).map((n) => n.id))
   }
 }
 
-const failedGapTopicKeys = coverageGaps
+const failedGapTopicKeys = resynthWork
   .map((g) => g.topicKey)
-  .filter((topicKey) => !gapSynthResults.some((r) => r.topic_key === topicKey))
+  .filter((topicKey) => !gapSynthResults.some((r) => sameTopic(r.topic_key, topicKey)))
 const remainingGaps = findCoverageGaps(clusters, synthResults)
+const foldedUnresolved = findFoldedDecisions(clusters, synthResults)
+if (foldedUnresolved.length > 0) {
+  log(`coverage gate: DECISION nugget(s) still folded after re-synth — ` +
+    foldedUnresolved.flatMap((f) => f.foldedNuggets.map((n) => n.id)).join(', '))
+}
 if (remainingGaps.length > 0) {
   log(`coverage gate: ${remainingGaps.reduce((n, g) => n + g.uncoveredNuggets.length, 0)} ` +
     `nugget(s) still uncovered after gap re-synth (gap agent failure) — ` +
@@ -1806,16 +2385,15 @@ recommendations, recurring design constraints, anti-pattern prohibitions, struct
 requirements flagged as pattern-level. Exclude unconditionally: mechanical/formatting findings,
 and docs-checker-class findings (wrong import, stale signature, incorrect function name).
 
-Then apply the reviewer's own ledger dispositions. The reviewer applies its own findings and
-stamps each one into its own \`findings_ledger\` frontmatter (verified by
-\`review-findings-ledger verify\`, claude-klabauter coordinator_core/ops/review_findings_ledger.py)
-— one row per finding, keyed by finding id, each carrying \`status: applied|em-rejected|suspended\`:
-
-Read the sidecar's \`findings_ledger\` frontmatter and index it by finding id. Then:
-  - \`applied\` -> ELIGIBLE (reviewer's finding was applied and verified)
-  - \`em-rejected\` -> INELIGIBLE, skip
-  - \`suspended\` -> INELIGIBLE, skip
-  - a finding in no row, or a sidecar with no \`findings_ledger\` at all
+Then apply the reviewer's own ledger dispositions. The sidecar's \`findings_ledger:\` frontmatter
+key is only a one-line summary ({rows, applied, em_rejected, suspended, verified_at}); the
+per-finding rows are the JSON array under the sidecar body's \`## Findings Ledger\` heading, keyed
+by finding id (verified by \`review-findings-ledger verify\`, claude-klabauter
+coordinator_core/ops/review_findings_ledger.py). Read that array and index it by id. Then:
+  - a row with no \`status\` key -> ELIGIBLE (applied and verified)
+  - \`status: em-rejected\` (carries a \`reason\`) -> INELIGIBLE, skip
+  - \`status: suspended\` -> INELIGIBLE, skip
+  - a finding in no row, or a sidecar with no \`## Findings Ledger\` array
     -> ELIGIBLE (predates the ledger, or verify has not yet run)
 
 Do NOT look for a \`## Integrator Dispositions\` block or a per-finding \`disposition:\` field.
@@ -1866,44 +2444,126 @@ Set topic_cluster in your return to exactly '${cluster.topicCluster}'. Return ev
 source_findings[] entry you cited (never drop one you counted) and proposed_wiki_content
 carrying exactly what you appended under "### Proposed wiki content" above.`
 
+const JUDGMENT_CORPUS_SCHEMA = {
+  type: 'object',
+  required: ['sidecars_seen', 'clusters'],
+  properties: {
+    sidecars_seen: { type: 'integer' },
+    clusters: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['topicCluster', 'verdictDirection', 'liveSidecarPaths'],
+        properties: {
+          topicCluster: { type: 'string' },
+          verdictDirection: { type: 'string', enum: ['forbid', 'require', 'prefer', 'avoid'] },
+          liveSidecarPaths: { type: 'array', items: { type: 'string' } },
+          existingJudgmentEntry: { type: ['string', 'null'] },
+        },
+      },
+    },
+  },
+}
+
+// Input clusters win; else the scout's. A scout that returned (zero clusters included) is 'ran';
+// no input and no scout result is 'unavailable'.
+function resolveJudgmentClusters(inputClusters, scoutResult) {
+  if (Array.isArray(inputClusters) && inputClusters.length > 0) {
+    return { clusters: inputClusters, cluster_source: 'input', sidecars_seen: 0, status: 'ran' }
+  }
+  if (scoutResult && Array.isArray(scoutResult.clusters)) {
+    return {
+      clusters: scoutResult.clusters,
+      cluster_source: 'in-run-scout',
+      sidecars_seen: Number.isInteger(scoutResult.sidecars_seen) ? scoutResult.sidecars_seen : 0,
+      status: 'ran',
+    }
+  }
+  return { clusters: [], cluster_source: 'none', sidecars_seen: 0, status: 'unavailable' }
+}
+
+const judgmentCorpusBrief = () => COMMON + `
+
+You are a Sonnet judgment-corpus scout (Phase 2.5 of the /distill harvest Workflow). Read-only:
+write nothing, dispatch no nested sub-agents.
+
+Plans in this run's batch files: ${JSON.stringify(BATCHES.flatMap((b) => (b && b.files) || []))}
+
+1. Locate reviewer sidecars by content, never by filename: files whose frontmatter carries a
+   \`findings_ledger:\` key, under .coordinator-local/subagent-share/ (one directory per session),
+   .coordinator-local/plan-sidecars/, docs/plans/ and archive/specs/, plus any the repo keeps
+   beside a plan. Count them all as sidecars_seen.
+2. Join a sidecar to a plan by its \`target_plan:\` or \`plan:\` frontmatter, compared on the plan's
+   filename stem (an archived plan's sidecar still names its docs/plans/ path). A sidecar naming
+   no plan counts in sidecars_seen and contributes to no cluster.
+3. List docs/wiki/codebase-judgment/*.md for existing entries.
+4. Per-finding status lives in the JSON array under the sidecar's \`## Findings Ledger\` heading: a
+   row with no \`status\` key is applied; \`em-rejected\` and \`suspended\` rows are ineligible.
+   Exclude mechanical/formatting and docs-checker-class findings.
+5. Group eligible architectural findings by claim-topic and verdict direction. Return one cluster
+   per group: topicCluster (claim-topic noun), verdictDirection (forbid|require|prefer|avoid),
+   liveSidecarPaths (the sidecars contributing), existingJudgmentEntry (matching entry path or
+   null). Return {sidecars_seen, clusters}.`
+
+let judgmentScout = null
+if (!(Array.isArray(JUDGMENT_CLUSTERS) && JUDGMENT_CLUSTERS.length > 0)) {
+  judgmentScout = (await parallel(
+    [() => agent(judgmentCorpusBrief(), {
+      schema: JUDGMENT_CORPUS_SCHEMA,
+      agentType: 'coordinator:executor',
+      phase: 'judgment-mining-2-5',
+      label: 'judgment-corpus',
+      model: 'sonnet',
+    })],
+    { concurrency: 1 }
+  )).filter(Boolean)[0] || null
+}
+const judgmentResolved = resolveJudgmentClusters(JUDGMENT_CLUSTERS, judgmentScout)
+const JUDGMENT_RUN_CLUSTERS = judgmentResolved.clusters
+
 let judgmentResults = []
-if (JUDGMENT_CLUSTERS.length > 0) {
+if (JUDGMENT_RUN_CLUSTERS.length > 0) {
   judgmentResults = (await parallel(
-    JUDGMENT_CLUSTERS.map((cluster) => () =>
+    JUDGMENT_RUN_CLUSTERS.map((cluster) => () =>
       agent(judgmentBriefFor(cluster), {
         schema: JUDGMENT_SCHEMA,
         agentType: 'coordinator:executor',
         phase: 'judgment-mining-2-5',
         label: `judgment-${slugifyTopic(cluster.topicCluster)}`,
         model: 'sonnet',
-      })
+      }).then((r) => stampKey(r, 'topic_cluster', cluster.topicCluster))
     ),
     { concurrency: CONCURRENCY_CAP }
   )).filter(Boolean)
 
-  const failedJudgmentClusters = JUDGMENT_CLUSTERS
+  const failedJudgmentClusters = JUDGMENT_RUN_CLUSTERS
     .map((c) => c.topicCluster)
     .filter((topicCluster) => !judgmentResults.some((r) => r.topic_cluster === topicCluster))
   if (failedJudgmentClusters.length > 0) {
-    log(`judgment-mining: ${failedJudgmentClusters.length}/${JUDGMENT_CLUSTERS.length} cluster(s) ` +
+    log(`judgment-mining: ${failedJudgmentClusters.length}/${JUDGMENT_RUN_CLUSTERS.length} cluster(s) ` +
       `failed to return a result: ${failedJudgmentClusters.join(', ')}`)
   }
-  log(`judgment-mining: ${judgmentResults.length}/${JUDGMENT_CLUSTERS.length} cluster(s) reported ` +
+  log(`judgment-mining: ${judgmentResults.length}/${JUDGMENT_RUN_CLUSTERS.length} cluster(s) reported ` +
     `(min_convergence=${MIN_CONVERGENCE}) — ` +
     `${judgmentResults.filter((r) => r.action === 'new-entry').length} new-entry, ` +
     `${judgmentResults.filter((r) => r.action === 'increment-existing').length} increment-existing, ` +
     `${judgmentResults.filter((r) => r.action === 'no-convergence' || r.action === 'no-change').length} no-op`)
+} else if (judgmentResolved.status === 'unavailable') {
+  log('judgment-mining: no judgmentClusters supplied and the judgment-corpus scout returned nothing — ' +
+    'phase reports unavailable, not zero-proposals ("looked at nothing" != "found nothing")')
 } else {
-  log('judgment-mining: no judgmentClusters provided — phase reports unavailable, not zero-proposals ' +
-    '("looked at nothing" != "found nothing")')
+  log(`judgment-mining: ${judgmentResolved.cluster_source} produced zero clusters ` +
+    `(sidecars_seen=${judgmentResolved.sidecars_seen}) — nothing to mine`)
 }
 
 const judgmentMining = {
   min_convergence: MIN_CONVERGENCE,
-  clusters_processed: JUDGMENT_CLUSTERS.length,
+  clusters_processed: JUDGMENT_RUN_CLUSTERS.length,
+  cluster_source: judgmentResolved.cluster_source,
+  sidecars_seen: judgmentResolved.sidecars_seen,
   scratch_path: JUDGMENT_SCRATCH_PATH,
   proposals: judgmentResults,
-  status: JUDGMENT_CLUSTERS.length > 0 ? 'ran' : 'unavailable',
+  status: judgmentResolved.status,
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1942,6 +2602,27 @@ const judgmentMining = {
 // ---------------------------------------------------------------------------------------------
 phase('contradiction-detection-3a')
 
+// Precedence: curated file, then input file, then args. A `topicKeys` entry matching no cluster of
+// this run is dropped and reported: it would send a 3a agent to a wiki path nothing wrote.
+const SUPPLIED_CONTRADICTION_CLUSTERS = (loadedCurated && loadedCurated.contradictionClusters) ||
+  (loadedInput && loadedInput.contradictionClusters) ||
+  RAW_ARGS_INPUT.contradictionClusters || []
+const unmatchedTopicKeys = []
+const CONTRADICTION_CLUSTERS = SUPPLIED_CONTRADICTION_CLUSTERS.map((c) => {
+  const kept = []
+  const inRun = (key) => clusters.some((cl) =>
+    sameTopic(key, cl.topicKey) || (cl.mergedTopicKeys || []).some((mk) => sameTopic(key, mk)))
+  for (const key of c.topicKeys || []) {
+    // A tag the curation merged away has no cluster of its own; it stands for its merge target.
+    const merged = Object.entries(HOMED_CURATED_TAGS || {}).find(([tag, v]) =>
+      v && v.verdict === 'merge' && v.merge_target && sameTopic(key, tag))
+    const resolved = inRun(key) ? key : (merged && inRun(merged[1].merge_target) ? merged[1].merge_target : null)
+    if (resolved === null) unmatchedTopicKeys.push(key)
+    else if (!kept.some((k) => sameTopic(k, resolved))) kept.push(resolved)
+  }
+  return { ...c, topicKeys: kept }
+})
+
 const CONTRADICTION_SCHEMA = {
   type: 'object',
   required: ['cluster_tag', 'unresolvable_contradictions'],
@@ -1969,9 +2650,9 @@ const CONTRADICTION_SCHEMA = {
 }
 
 function resolveTopicWikiPath(topicKey) {
-  const synthed = synthResults.find((r) => r.topic_key === topicKey)
+  const synthed = synthResults.find((r) => sameTopic(r.topic_key, topicKey))
   if (synthed) return synthed.wiki_path
-  const matchingCluster = clusters.find((c) => c.topicKey === topicKey)
+  const matchingCluster = clusters.find((c) => sameTopic(c.topicKey, topicKey))
   const slug = slugifyTopic(topicKey)
   return (matchingCluster && matchingCluster.wikiPath) || WIKI_SLUGS[slug] || `${WIKI_DIRS[0]}/${slug}.md`
 }
@@ -2243,6 +2924,7 @@ the first violation found.`
 
 const contradictionDetection = {
   clusters_processed: CONTRADICTION_CLUSTERS.length,
+  unmatched_topic_keys: unmatchedTopicKeys,
   results: contradictionResults,
   status: contradictionStatus,
   total_unresolvable_contradictions: totalUnresolvableContradictions,
@@ -2266,9 +2948,10 @@ const contradictionDetection = {
 // ---------------------------------------------------------------------------------------------
 phase('phase-3b')
 
+// Original prompt: agent-prompts/phase-3b.md — this brief is its in-run adaptation; keep the two aligned.
 const DR_DEDUP_SCHEMA = {
   type: 'object',
-  required: ['dr_dedup', 'failure'],
+  required: ['dr_dedup', 'dr_files_found', 'failure'],
   properties: {
     dr_dedup: {
       type: 'array',
@@ -2282,9 +2965,17 @@ const DR_DEDUP_SCHEMA = {
         },
       },
     },
+    dr_files_found: { type: 'array', items: { type: 'string' } },
     failure: { type: 'boolean' },
     failure_detail: { type: 'string' },
   },
+}
+
+// Targets absent from the paths the 3b agent confirmed on disk; separators compared as '/'.
+function reconcileDrTargets(targets, drFilesFound) {
+  const norm = (p) => String(p).replace(/\\/g, '/')
+  const found = new Set((drFilesFound || []).map(norm))
+  return (targets || []).filter((t) => !found.has(norm(t)))
 }
 
 // CREATE_DR dispositions are the load-bearing signal that Wave 2 actually drafted a decision
@@ -2297,19 +2988,49 @@ const DR_DEDUP_SCHEMA = {
 const createDrDispositions = synthResults.flatMap((r) =>
   (r.dispositions || [])
     .filter((d) => d.op === 'CREATE_DR')
-    .map((d) => ({ nugget_id: d.nugget_id, reason: d.reason || null, topic_key: r.topic_key, wiki_path: r.wiki_path }))
+    .map((d) => ({ nugget_id: d.nugget_id, reason: d.reason || null, target: typeof d.target === 'string' ? d.target : null, topic_key: r.topic_key, wiki_path: r.wiki_path }))
 )
 const judgmentDrCandidates = judgmentResults.filter((r) => r.action === 'new-entry')
 
+const decisionNuggets = clusters.flatMap((c) => c.nuggets.filter((n) => n.type === 'DECISION'))
+const allDispositions = synthResults.flatMap((r) => r.dispositions || [])
+const dispositionByNuggetId = new Map(allDispositions.map((d) => [d.nugget_id, d]))
+const isSkipWith = (d, prefix) => d !== undefined && d.op === 'SKIP' && typeof d.reason === 'string' && d.reason.startsWith(prefix)
+const allocatorUnavailableCount = allDispositions.filter((d) => isSkipWith(d, 'DR-ALLOCATOR-UNAVAILABLE')).length
+const existingRecordSkips = decisionNuggets
+  .map((n) => dispositionByNuggetId.get(n.id))
+  .filter((d) => isSkipWith(d, 'DR-EXISTS '))
+const unrecordedDecisionCount = decisionNuggets.length - existingRecordSkips.length
+
 let phase3b = { dr_dedup: [], failure: false, failure_detail: null, status: 'skipped' }
+// BEGIN phase-3b skip branch
 if (createDrDispositions.length === 0 && judgmentDrCandidates.length === 0) {
-  phase3b = {
-    dr_dedup: [],
-    failure: true,
-    failure_detail: 'Zero CREATE_DR dispositions across all synth results and zero new-entry ' +
-      'judgment proposals — Phase 2 did not produce any decision-record-shaped content this run.',
-    status: 'skipped-empty',
+  if (decisionNuggets.length === 0) {
+    phase3b = {
+      dr_dedup: [],
+      failure: false,
+      failure_detail: 'This run held no decision-shaped content: zero DECISION nuggets, zero CREATE_DR ' +
+        'dispositions and zero new-entry judgment proposals.',
+      status: 'skipped-empty',
+    }
+  } else if (unrecordedDecisionCount === 0) {
+    phase3b = {
+      dr_dedup: [],
+      failure: false,
+      failure_detail: `All ${decisionNuggets.length} DECISION nugget(s) already have a record: ` +
+        existingRecordSkips.map((d) => d.reason.slice('DR-EXISTS '.length).trim()).join(', '),
+      status: 'skipped-empty',
+    }
+  } else {
+    phase3b = {
+      dr_dedup: [],
+      failure: true,
+      failure_detail: `${unrecordedDecisionCount} of ${decisionNuggets.length} DECISION nugget(s) ended without a ` +
+        'decision record (folded, allocator-skipped, or undisposed) and no CREATE_DR disposition exists this run.',
+      status: 'skipped-empty',
+    }
   }
+// END phase-3b skip branch
   log(`phase-3b: SKIPPED (no dispatch) — ${phase3b.failure_detail}`)
 } else {
   const drDedupBrief = COMMON + `
@@ -2333,7 +3054,9 @@ ${opusEscalation.triggered
         `DR content: ${JSON.stringify(opusEscalation.resolution, null, 2)}`
       : 'Phase 3-Esc did not run this pass — no contradiction resolutions to integrate.'}
 
-Read docs/decisions/*.md and find every DR file stamped with run_id: ${RUN_ID} in its
+Read these target files first (the paths the CREATE_DR dispositions name; a missing one is a
+finding, not something to create): ${JSON.stringify(createDrDispositions.map((d) => d.target).filter(Boolean))}
+Then read docs/decisions/*.md and find every DR file stamped with run_id: ${RUN_ID} in its
 provenance (the DRs the CREATE_DR dispositions above just produced). Compare Problem + Decision
 fields across all of them, and against any pre-existing DR one might duplicate: two DRs
 describe the same decision if they address the same underlying choice, even if phrased
@@ -2344,7 +3067,9 @@ duplicate entry. Temporal ordering is the tiebreaker when reasoning quality is e
 Return dr_dedup: one entry per canonical DR (canonical_id, duplicate_ids — [] if none,
 merge_rationale — "" if none). Set failure: true ONLY if you find genuinely zero decision
 records despite the CREATE_DR dispositions listed above (a real pipeline inconsistency, not a
-normal outcome) and explain in failure_detail; otherwise failure: false. Do NOT delete or merge
+normal outcome) and explain in failure_detail; otherwise failure: false. Also return dr_files_found: every DR path under docs/decisions/ you
+confirmed on disk for this run (the targets above plus any other file stamped with run_id
+${RUN_ID}), repo-relative, [] if none. Do NOT delete or merge
 files yourself — this is a reporting pass only; do NOT git commit.`
 
   const [drDedupResult] = (await parallel(
@@ -2375,6 +3100,22 @@ files yourself — this is a reporting pass only; do NOT git commit.`
         `${drDedupResult.dr_dedup.reduce((n, d) => n + (d.duplicate_ids || []).length, 0)} duplicate(s) merged`)
     }
   }
+}
+
+const drTargets = createDrDispositions.map((d) => d.target).filter((t) => typeof t === 'string')
+const drAgentFailed = phase3b.status === 'agent-failed'
+const normDrPath = (p) => String(p).replace(/\\/g, '/')
+const drTargetsNorm = new Set(drTargets.map(normDrPath))
+const drMinting = {
+  status: decisionNuggets.length === 0 ? 'no-decision-nuggets' : 'ran',
+  decision_nuggets: decisionNuggets.length,
+  create_dr: createDrDispositions.length,
+  skipped: allDispositions.filter((d) => d.op === 'SKIP').length,
+  allocator_unavailable: allocatorUnavailableCount,
+  folded_unresolved: foldedUnresolved.flatMap((f) => f.foldedNuggets.map((n) => n.id)),
+  targets: drTargets,
+  missing_files: drAgentFailed ? drTargets : reconcileDrTargets(drTargets, phase3b.dr_files_found),
+  unclaimed_files: drAgentFailed ? [] : (phase3b.dr_files_found || []).map(normDrPath).filter((p) => !drTargetsNorm.has(p)),
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -2525,6 +3266,192 @@ if (CROSS_REPO_DISPOSITIONS.length > 0) {
       : '.'))
 } else {
   log('phase-3d: no cross-repo disposition rows supplied — no-op.')
+}
+
+// Citation repoint — a record cited only from docs/ or tasks/ is refused by distill-delete-guard
+// at apply time though 3d resolved it DELETE; the apply agent repoints those citations at the
+// wiki page that absorbed the content, then re-runs the guard.
+function isRepointableCitation(p) {
+  const n = String(p).replace(/\\/g, '/')
+  return (n.startsWith('docs/') && !n.startsWith('docs/plans/')) || n.startsWith('tasks/')
+}
+
+function selectRepointCandidates(deletions, probes, absorbingByPath) {
+  const probeByPath = new Map((probes || []).map((p) => [p.artifact_path, p]))
+  const out = []
+  for (const d of deletions || []) {
+    const probe = probeByPath.get(d.artifact_path)
+    if (!probe || probe.eligible !== false) continue
+    const blockedBy = probe.blocked_by
+    if (!Array.isArray(blockedBy) || blockedBy.length !== 1 || blockedBy[0] !== 'active-reference') continue
+    const citing = Array.isArray(probe.citing_paths) ? probe.citing_paths : []
+    if (citing.length === 0 || !citing.every(isRepointableCitation)) continue
+    const wikiPaths = absorbingByPath.get(d.artifact_path) || []
+    if (wikiPaths.length === 0) continue
+    out.push({ artifact_path: d.artifact_path, citing_paths: citing, wiki_paths: wikiPaths })
+  }
+  return out
+}
+
+function applyRepointResults(deletions, candidates, results) {
+  const candidatePaths = new Set(candidates.map((c) => c.artifact_path))
+  const resultByPath = new Map((results || []).map((r) => [r.artifact_path, r]))
+  const wikiByPath = new Map(candidates.map((c) => [c.artifact_path, c.wiki_paths]))
+  const repointed = []
+  const stillBlocked = []
+  const next = (deletions || []).map((d) => {
+    if (!candidatePaths.has(d.artifact_path)) return d
+    const r = resultByPath.get(d.artifact_path)
+    if (r && r.eligible === true) {
+      repointed.push(d.artifact_path)
+      const files = Array.isArray(r.repointed_files) ? r.repointed_files.join(', ') : ''
+      const reason = `citations repointed (${files}) to ${(wikiByPath.get(d.artifact_path) || []).join(', ')}; delete-guard now eligible`
+      return { ...d, disposition: 'DELETE', reason: d.disposition === 'DELETE' ? `${d.reason}; ${reason}` : reason }
+    }
+    stillBlocked.push({
+      artifact_path: d.artifact_path,
+      blocked_by: r && Array.isArray(r.blocked_by) ? r.blocked_by : [],
+    })
+    return d
+  })
+  return { deletions: next, repointed, still_blocked: stillBlocked }
+}
+
+const REPOINT_PROBE_SCHEMA = {
+  type: 'object',
+  required: ['probes'],
+  properties: {
+    probes: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['artifact_path'],
+        properties: {
+          artifact_path: { type: 'string' },
+          eligible: { type: 'boolean' },
+          blocked_by: { type: 'array', items: { type: 'string' } },
+          citing_paths: { type: 'array', items: { type: 'string' } },
+        },
+      },
+    },
+  },
+}
+
+const REPOINT_APPLY_SCHEMA = {
+  type: 'object',
+  required: ['results'],
+  properties: {
+    results: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['artifact_path', 'repointed_files'],
+        properties: {
+          artifact_path: { type: 'string' },
+          repointed_files: { type: 'array', items: { type: 'string' } },
+          eligible: { type: 'boolean' },
+          blocked_by: { type: 'array', items: { type: 'string' } },
+        },
+      },
+    },
+  },
+}
+
+phase('citation-repoint')
+let citationRepoint = { status: 'suppressed', probed: 0, candidates: 0, repointed: [], edited_files: [], still_blocked: [] }
+if (disposalSuppressed || phase3d.status !== 'ran') {
+  log(`citation-repoint: SUPPRESSED (no dispatch) — ${disposalSuppressed ? disposalSuppressedReason : `phase-3d status '${phase3d.status}'`}`)
+} else {
+  const distilledPaths = new Set(distillationLogRows.filter((r) => r.disposition === 'DISTILLED').map((r) => r.path))
+  const probeRows = (phase3d.deletions || []).filter((d) =>
+    (d.disposition === 'DELETE' || d.disposition === 'BLOCKED') &&
+    distilledPaths.has(d.artifact_path) && !crossRepoPaths.has(d.artifact_path))
+  if (probeRows.length === 0) {
+    citationRepoint = { ...citationRepoint, status: 'skipped-empty' }
+    log('citation-repoint: SKIPPED (no dispatch) — no DISTILLED DELETE/BLOCKED row to probe.')
+  } else {
+    const [probeResult] = (await parallel(
+      [() => agent(COMMON + `
+
+You are a Sonnet citation-probe agent (citation-repoint phase of the /distill harvest Workflow). You edit nothing.
+
+Run \`distill-delete-guard\` (bareword; else \${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/distill-delete-guard) over these artifact paths, at most 5 paths per invocation:
+${JSON.stringify(probeRows.map((d) => d.artifact_path), null, 2)}
+
+For each path return artifact_path, and copy \`eligible\` and \`blocked_by\` from the guard's JSON exactly. If the guard's response lacks \`eligible\` or \`blocked_by\` for a path, omit that field — never fill it in. For a path whose blocked_by includes 'active-reference', list as citing_paths every file under docs/, tasks/, archive/ and state/handoffs/ that contains that path's repo-relative path.`, {
+        schema: REPOINT_PROBE_SCHEMA,
+        agentType: 'coordinator:executor',
+        phase: 'citation-repoint',
+        label: 'repoint-probe',
+        model: 'sonnet',
+      })],
+      { concurrency: 1 }
+    )).filter(Boolean)
+
+    const probes = probeResult ? probeResult.probes || [] : []
+    if (!probeResult) {
+      citationRepoint = { ...citationRepoint, status: 'agent-failed', probed: probeRows.length }
+      log('citation-repoint: probe agent failed to return a result — rows untouched.')
+    } else {
+      const idsByWiki = new Map()
+      for (const r of synthResults) {
+        for (const d of r.dispositions || []) {
+          if (d.op === 'SKIP' || !d.nugget_id) continue
+          if (!idsByWiki.has(d.nugget_id)) idsByWiki.set(d.nugget_id, new Set())
+          idsByWiki.get(d.nugget_id).add(r.wiki_path)
+        }
+      }
+      const absorbingByPath = new Map()
+      for (const d of probeRows) {
+        const wikis = new Set()
+        for (const id of nuggetIdsBySource.get(d.artifact_path) || []) {
+          for (const w of idsByWiki.get(id) || []) wikis.add(w)
+        }
+        absorbingByPath.set(d.artifact_path, [...wikis])
+      }
+      const candidates = selectRepointCandidates(probeRows, probes, absorbingByPath)
+      if (candidates.length === 0) {
+        citationRepoint = { ...citationRepoint, status: 'skipped-empty', probed: probeRows.length }
+        log(`citation-repoint: ${probeRows.length} probed, 0 candidates — no apply dispatch.`)
+      } else {
+        const [applyResult] = (await parallel(
+          [() => agent(COMMON + `
+
+You are a Sonnet citation-repoint agent (citation-repoint phase of the /distill harvest Workflow). Do NOT git commit.
+
+For each candidate below, edit each citing file so the citation names the wiki page that absorbed the cited content (choose among wiki_paths by reading them). Never leave or add the record's full path in an edited file. Then re-run \`distill-delete-guard\` on the record and copy its \`eligible\` and \`blocked_by\` exactly (omit a field the guard did not return). Return repointed_files per candidate: every file you changed.
+
+Candidates:
+${JSON.stringify(candidates, null, 2)}`, {
+            schema: REPOINT_APPLY_SCHEMA,
+            agentType: 'coordinator:executor',
+            phase: 'citation-repoint',
+            label: 'repoint-apply',
+            model: 'sonnet',
+          })],
+          { concurrency: 1 }
+        )).filter(Boolean)
+
+        if (!applyResult) {
+          citationRepoint = { ...citationRepoint, status: 'agent-failed', probed: probeRows.length, candidates: candidates.length }
+          log('citation-repoint: apply agent failed — rows untouched. Inspect uncommitted changes under docs/ and tasks/: a failed agent may have edited before it died.')
+        } else {
+          const applied = applyRepointResults(phase3d.deletions, candidates, applyResult.results || [])
+          phase3d = { ...phase3d, deletions: applied.deletions }
+          const edited = [...new Set((applyResult.results || []).flatMap((r) => r.repointed_files || []))]
+          citationRepoint = {
+            status: 'ran',
+            probed: probeRows.length,
+            candidates: candidates.length,
+            repointed: applied.repointed,
+            edited_files: edited,
+            still_blocked: applied.still_blocked,
+          }
+          log(`citation-repoint: ${probeRows.length} probed, ${candidates.length} candidate(s), ${applied.repointed.length} repointed, ${applied.still_blocked.length} still blocked, ${edited.length} file(s) edited.`)
+        }
+      }
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -2710,6 +3637,7 @@ return {
   done: true,
   run_id: RUN_ID,
   concurrency_cap: CONCURRENCY_CAP,
+  load_stats: buildLoadStats(loadAgentBytes, BATCHES, WIKI_SLUGS),
   batches_scanned: scanResults.length,
   failed_batch_ids: failedBatchIds,
   empty_content_batch_ids: emptyContentBatchIds,
@@ -2757,6 +3685,8 @@ return {
   contradiction_detection: contradictionDetection,
   opus_escalation: opusEscalation,
   phase_3b_dr_dedup: phase3b,
+  dr_minting: drMinting,
   phase_3d_deletion_manifest: phase3d,
   artifact_reentry: artifactReentry,
+  citation_repoint: citationRepoint,
 }

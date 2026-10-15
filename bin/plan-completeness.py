@@ -77,6 +77,15 @@ def _status_line(rollup: dict) -> str:
     return " | ".join(segments)
 
 
+def _register_line(register: dict) -> str:
+    total = register["turns_total"]
+    covered = total - len(register["turns_uncovered"])
+    return (
+        f"register: {covered} of {total} PM turn(s) covered; "
+        f"{len(register['rows_unclaimed'])} row(s) unclaimed"
+    )
+
+
 def _contradiction_line(contradiction) -> str:
     """The stable `CONTRADICTION: ` token (plan's § CONTRADICTION predicate)."""
     return f"CONTRADICTION: {contradiction['claim']} — {contradiction['reason']}"
@@ -169,6 +178,8 @@ def cmd_status(args: argparse.Namespace) -> int:
         print(json.dumps(document, indent=2))
     else:
         print(_status_line(rollup))
+        if "register" in rollup:
+            print(_register_line(rollup["register"]))
         if rollup["contradiction"] is not None:
             print(_contradiction_line(rollup["contradiction"]))
 

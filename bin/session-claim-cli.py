@@ -473,7 +473,8 @@ _SUBCOMMANDS = (
     "release-or-relinquish <class> | clear-claim-if-dead <class> | "
     "claim-plan | take-over-claim plan | is-session-live | "
     "list-stale-claim-handoffs | list-claims-by-session | who-claims-path\n"
-    "  <class>: handoff | memo | plan (basename-keyed claim records), or "
+    "  <class>: handoff | memo | plan (basename-keyed claim records), row "
+    "(a queue row path such as state/bug-backlog/<row>.yaml), or "
     "'artifact' (path-touch plane — basename is a repo-relative PATH; this "
     "is how a path claim who-claims-path reports is released)\n"
     "  'artifact' is valid on release-artifact and clear-claim-if-dead ONLY. "
@@ -530,7 +531,7 @@ def _bool_to_exit(result: bool) -> int:
     return 0 if result else 1
 
 
-_CLASSED_CLAIM_CLASSES = ("handoff", "memo", "plan")
+_CLASSED_CLAIM_CLASSES = ("handoff", "memo", "plan", "row")
 
 
 def _claim_lookup_dir(mod, class_: str, basename: str, baton_repo_root: str):
@@ -553,6 +554,8 @@ def _claim_lookup_dir(mod, class_: str, basename: str, baton_repo_root: str):
     actual outcome.
     """
     try:
+        if class_ == "row":
+            basename = mod.row_claim_key(basename)
         return mod.claim_dir_for(class_, basename, baton_repo_root)
     except Exception:  # noqa: BLE001 - best-effort diagnostic only, see docstring
         return None

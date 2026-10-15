@@ -214,7 +214,7 @@ This tells the hook to emit informational-only context pressure messages (no han
    - Items that benefit from accumulated coordinator context (coherence decisions, cross-file awareness) stay in-coordinator and execute sequentially within the wave — rare exception, not default.
 
 2. **Process completions via Haiku verifiers.** As each background executor reports DONE:
-   - **Idle without DONE is not a completion or stall signal — it's uninformative.** Check DISK first (`tasks/mise-done/<item-id>.md`, `git log`, `git status`); if inconclusive, `SendMessage` a status ping rather than re-dispatching. **NEVER spawn a second agent onto a live agent's footprint — hard rule**, it breaks the file-disjointness invariant the wave model depends on.
+   - **Idle without DONE is not a completion or stall signal — it's uninformative.** Check DISK first (`state/queue-grind/<profile>/evidence/<run-id>/<item-id>.done.md`, `git log`, `git status`); if inconclusive, `SendMessage` a status ping rather than re-dispatching. **NEVER spawn a second agent onto a live agent's footprint — hard rule**, it breaks the file-disjointness invariant the wave model depends on.
    - Read only the DONE summary file. Do NOT pull the executor's transcript into context.
    - Dispatch a Haiku verifier with `run_in_background: true` to read the DONE summary + spec + the item's still-uncommitted working-tree diff (there is no commit to inspect — the executor never commits) and write a verdict at `tasks/mise-verify/<item-id>.md` ending with `STATUS: PASS` (or `FOOTPRINT-VIOLATION` | `AC-MISS` | `VERIFICATION-CMD-FAILED` | `NEEDS-EM`). Verifiers are wave-scoped — batch them and gate the wave on all PASS.
    - On any non-PASS verdict, the EM decides re-dispatch / revert / defer / early-stop from the verdict + diff alone.
@@ -255,15 +255,11 @@ After the exhaustion check resolves, mark all item tasks as `completed` via Task
 ```
 then freeze the run's diff and route review to the capping ceremony (see below), then execute the tail action based on mode, closing with the resolved `COMPLETE` or `CONTINUANCE` verdict line.
 
-**Review is owed to the capping ceremony, and `/mise` does not run one.**
+**The emitted inventory script reviews the run diff in its review wave.**
 
-`/mise` has no review gate of its own. `/workstream-complete` owns review: it picks the scale from diff shape and runs it over the **chain diff** — this run's work plus its ancestry, a range that strictly contains this run's own. Reviewing here as well means reviewing a subset, at a scale chosen by the narrower ceremony, and gating the run on it.
+The review wave's range must include ancestor commits nobody reviewed, not only this run's own commits: a run-scoped review over a 5,027-LOC diff returned zero findings, while a review over the same work plus its unreviewed ancestry returned eight, across three of four slices. The scope rule is `coordinator/docs/contracts/run-close.md` § review scope. Until the run close lands, the tail freezes the diff and names the close that reads the receipt; "the PM will run it later" is not a discharge.
 
-The field evidence that used to justify a Phase-6 review argues the other way once read closely (2026-08-04): a run-scoped review over a 5027-LOC diff returned **zero** findings, while the chain-scoped partitioned review over the same work plus its ancestry returned **eight**, across three of four slices. The run-scoped pass was not a weaker version of the right review — it was looking at a different, smaller thing, and it was the one that found nothing.
-
-What `/mise` owes instead is the **routing obligation**: a run does not end with its diff unreviewed by anyone. The tail routes to a ceremony that reviews — `/workstream-complete` to cap, or `/handoff` naming review-and-cap as the successor's remit — and names which in the tail summary. "The PM will run it later" is not a discharge.
-
-Per-item Haiku verifiers cover footprint + AC compliance only. They are not a review pass; they are why deferring review to the capping ceremony does not mean shipping unexamined work in the interim.
+Per-item Haiku verifiers cover footprint + AC compliance only; the review wave owns review.
 
 Freeze the run's diff before routing, so the capping ceremony inherits a materialized artifact instead of re-deriving a range across a shared branch: `<claude-klabauter-bin>/freeze-review-diff.py --range "<start_sha>..HEAD" --slice-id "mise-<run-id>"` (resolve `<claude-klabauter-bin>` via the `resolve-claude-klabauter-bin` snippet). Take `<start_sha>` from the inventory record's frontmatter (§ Phase 1). It writes TWO files per
 slice into `state/review-trail/diffs/` — `<slice-id>.diff` and `<slice-id>.head.sha` — and that

@@ -139,6 +139,9 @@ const VERDICT_SCHEMA = {
 const PLUGIN_ROOT = (typeof args.pluginRoot === 'string' && args.pluginRoot.trim()) ? args.pluginRoot.trim() : '<plugin-root>'
 const pluginPath = (rel) => PLUGIN_ROOT + '/' + rel
 
+// No brief here reads a sizing, plan or handoff (inputs are a frozen diff, chunk lists, findings
+// and test output), so the sibling scripts' MID_RUN_DIRECTION_RULE is deliberately absent. A brief
+// that starts reading one must carry it; test_workflow_mid_run_direction_rule.py pins the count.
 function chunkPrompt(chunk, diffPatchPath, findingsDir) {
   return [
     'You are a Sonnet code-reviewer-weekly instance dispatched as part of a review-wave Workflow.',

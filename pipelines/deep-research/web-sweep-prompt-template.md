@@ -41,7 +41,7 @@ document MUST begin with `research-synthesis` frontmatter (title, question, date
 pipeline: web, source_count, topic_facets[], coverage_score from the gap report).
 
 After writing the synthesis, merge all `<letter>-claims.json` files into
-`{{scratch_dir}}/merged-claims.json` (a bare JSON array). The claim schema is `research-claim.schema.json` under `${CLAUDE_PLUGIN_ROOT}/schemas/` (else `<content-root>/coordinator/schemas/`, `<content-root>` from `~/.claude/.content-root`); `topic_tags` is an array of strings, and claim `id` values must be unique across the array, so rename a collision before writing. Do NOT write
+`{{scratch_dir}}/merged-claims.json` (a bare JSON array). The claim schema is `research-claim.schema.json` under `${CLAUDE_PLUGIN_ROOT}/schemas/` (else `<content-root>/coordinator/schemas/`, `<content-root>` from `<home>/.claude/.content-root`); `topic_tags` is an array of strings, and claim `id` values must be unique across the array, so rename a collision before writing. Do NOT write
 `docs/research/<run_stem>.claims.json` or its sidecar; the EM emits that durable pair.
 
 Report `pipeline: web` and `deepeningRecommended` (from the gap report) in your return value. Do

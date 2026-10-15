@@ -24,9 +24,9 @@
         "kind": "review-wave",
         "agents": [
           { "agentType": "coordinator:code-reviewer", "model": "sonnet", "effort": "low", "per": "slice", "applies": "own-slice", "schema": "slice-review-result" },
-          { "agentType": "coordinator:overengineering-reviewer", "model": "opus", "effort": "low", "per": "whole-diff", "applies": "none", "schema": "whole-diff-review-result" },
+          { "agentType": "coordinator:overengineering-reviewer", "model": "opus", "effort": "low", "per": "whole-diff", "applies": "whole-diff", "schema": "whole-diff-review-result" },
           { "accepts_signals": "named", "per": "whole-diff", "applies": "none", "schema": "whole-diff-review-result" },
-          { "agentType": "coordinator:delivery-verifier", "model": "sonnet", "effort": "low", "per": "whole-diff", "applies": "none", "schema": "delivery-verdict" }
+          { "agentType": "coordinator:delivery-verifier", "model": "sonnet", "effort": "low", "per": "whole-diff", "applies": "none", "schema": "delivery-verdict", "tiers": ["standard", "full"] }
         ]
       },
       {

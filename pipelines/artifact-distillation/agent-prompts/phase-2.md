@@ -60,17 +60,14 @@ subtly rewords existing content.
 
 ## Decision Records
 
-For each [DECISION] nugget (not [SUPERSEDED]), produce a decision record:
+For each [DECISION] nugget (not [SUPERSEDED]), produce a decision record. Never choose a DR
+number: mint the file with `coordinator-doc-new --type decision --title "<decision title>"`, which
+allocates the number and prints the path, then fill it in. Set `status: accepted`, `deciders` from
+context (else `Team`), and stamp `provenance:` as a mapping carrying this run's `run_id` and
+`source_nuggets`. Return the nugget's disposition as `CREATE_DR` with `target` set to the printed
+path. Folded into `distill-harvest.workflow.js` as `drMintingSectionFor`; edit both together.
 
-# DR-[NNN]: [Decision Title]
-
-| Field | Value |
-|-------|-------|
-| **Decision ID** | DR-[NNN] |
-| **Status** | Accepted |
-| **Date** | [from nugget] |
-| **Authors** | [from context if available, else "Team"] |
-| **Related** | [system tag, related decisions] |
+The record body:
 
 ## Problem
 [What needed deciding]
@@ -144,7 +141,7 @@ dispositions:
     reason: null
   - nugget_id: batch-1-002
     op: CREATE_DR
-    target: docs/decisions/DR-<NNN>-<topic>.md
+    target: <the path coordinator-doc-new printed, under docs/decisions/>
     section: null
     reason: null
   - nugget_id: batch-1-003

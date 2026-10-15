@@ -31,7 +31,7 @@ entries:
 
       It writes the memo into the **recipient's** `state/cross-repo/inbox/` (their inbox),
       commits it there on their active work branch (falling back to leaving it dirty
-      only if that commit fails), and prints the path to hand the PM for relay. The
+      only if that commit fails), and prints the `Receiver-side:` path. The
       recipient sees it in *their* `git log` (or `git status`, on the fallback path).
 
       ## Why writing into another repo's inbox is allowed

@@ -102,9 +102,10 @@ engine-computable fact.
     2026-08-07 per-key scope ruling, these are per-repo keys, each reached through the Phase 3
     git-perf-config fleet sweep across every registered worktree, never through a `--global`
     line.
-15. **Global `git lfs install --skip-repo` filters** — DELIBERATELY-NOT-REVERSED. Config-only (never
-    touched repo hooks — Phase 1's git-LFS step never runs a repo-level `git lfs install`, only this
-    global-config form). No manual command offered; `git lfs uninstall` is the operator's own call.
+15. **Git-LFS** — NOT REVERSED. LFS is opt-in per repo (root `.gitattributes` `filter=lfs` pattern plus
+    `# lfs-justification: <reason>`) and the installer never enables it, so there is nothing to
+    reverse. Any LFS config an operator enabled (global filters from their own `git lfs install`) is theirs;
+    `git lfs uninstall` is their own call.
 16. **Shell-init-guard seam** — REVERSE. Locate the sentinel-guarded resource-cap rc block, strip
     it; fail loud on a hand-modified block.
 17. **Operator `~/.claude` git-hook gate regions** — REVERSE, across `pre-commit`, `post-merge`,

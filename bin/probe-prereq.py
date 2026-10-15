@@ -1,23 +1,15 @@
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
-"""probe-prereq.py -- install.md Phase 1 prerequisite probes/mutations that
-have no existing landed CLI: git-lfs-enable (idempotent `git lfs install`
-mutation gated by a functional check), and a thin `python3` passthrough to
+"""probe-prereq.py -- install.md Phase 1 prerequisite probe with no existing
+landed CLI: a thin `python3` passthrough to
 coordinator_core.install.prereq_probe.probe_python() (Windows
 App-Execution-Alias stub detection) -- so coordinator-content-repo's
-coordinator/commands/install.md Phase 1 can invoke these by name through the
+coordinator/commands/install.md Phase 1 can invoke it by name through the
 settings-home forwarder instead of carrying narrated shell fences.
 
-Read-only probes (`python3`) never mutate; `git-lfs-enable` mutates only when
-NOT run with `--check-only` and only when the `git` + `git-lfs` binaries are
-functional on PATH (advisory absence never hard-fails -- git-lfs is
-coverage-ahead-of-need, not a coordinator hard requirement, matching
-install.md's own "act-not-gate" framing for this step).
-
-Each subcommand prints a single Step-Zero-shaped NDJSON line
-(coordinator_core.install.step_zero_emit.emit_line contract: name/status/
-severity/detail/remediation) to stdout and exits 0 on a "pass" status, 1
-otherwise -- `git-lfs-enable` is the one exception, always exiting 0
-(advisory, non-blocking) per its own subcommand contract below.
+Read-only: never mutates. Each subcommand prints a single Step-Zero-shaped
+NDJSON line (coordinator_core.install.step_zero_emit.emit_line contract:
+name/status/severity/detail/remediation) to stdout and exits 0 on a "pass"
+status, 1 otherwise.
 
 Subcommands:
   python3
@@ -27,20 +19,12 @@ Subcommands:
       resolves on PATH but errors on run) as a distinct fail case from
       "not found".
 
-  git-lfs-enable [--check-only]
-      Functional check (git-lfs binary present AND `filter.lfs.clean`
-      globally configured) via
-      coordinator_core.install.prereq_probe.probe_git_lfs(). Under
-      --check-only, reports state only -- never mutates. Otherwise, if `git
-      lfs version` succeeds, runs the idempotent `git lfs install` mutation
-      (plain install, NOT --force -- coexists with existing hooks) and
-      re-probes to print the post-mutation state. Always exits 0: git-lfs is
-      advisory coverage-ahead-of-need, never a hard install blocker.
+Negative-spec: does NOT re-implement probe_python's detection logic --
+delegates to coordinator_core.install.prereq_probe, the SSOT for that probe.
 
-Negative-spec: does NOT re-implement probe_python/probe_git_lfs's detection
-logic -- delegates to coordinator_core.install.prereq_probe, the SSOT for
-those two probes (see that module's own docstring). Only the mutation half
-of git-lfs-enable is genuinely new here.
+Negative-spec (git-lfs-enable, removed 2026-10-13): the engine neither
+enables nor recommends git-lfs; the subcommand and its `git lfs install`
+mutation are gone. Do not re-add one.
 
 Negative-spec (bash-version, removed 2026-07-29): this CLI originally also
 carried a `bash-version` subcommand (`shutil.which("bash")` then
@@ -65,8 +49,8 @@ untouched by this removal. Do not re-add a `bash-version` subcommand here
 without first re-establishing a live caller -- a probe with no consumer is
 not a probe, it is dead code wearing a probe's docstring.
 
-Spec backlink: coordinator/commands/install.md (coordinator-content-repo) § 1a.3 (git-lfs
-    enablement), § 1b.1 (python3 stub detection);
+Spec backlink: coordinator/commands/install.md (coordinator-content-repo) § 1b.1 (python3
+    stub detection);
     docs/2026-07-29-debash-residual-sites-spec.md § Group F (this removal).
 """
 from __future__ import annotations
@@ -75,7 +59,6 @@ INSTALL_CLASS = True
 
 import argparse
 import json
-import subprocess
 import sys
 from pathlib import Path
 from typing import List, Optional
@@ -94,24 +77,6 @@ def _ensure_repo_root() -> Path:
         sys.exit(1)
 
 
-def _run(argv: List[str], *, timeout: float = 10.0) -> Optional[subprocess.CompletedProcess]:
-    _ensure_repo_root()
-    from coordinator_core.win_portability import no_console_creationflags
-
-    try:
-        return subprocess.run(
-            argv,
-            capture_output=True,
-            stdin=subprocess.DEVNULL,
-            timeout=timeout,
-            encoding="utf-8",
-            errors="replace",
-            **no_console_creationflags(),
-        )
-    except (OSError, subprocess.TimeoutExpired, subprocess.SubprocessError):
-        return None
-
-
 def _cmd_python3(args: argparse.Namespace) -> int:
     del args
     _ensure_repo_root()
@@ -122,36 +87,15 @@ def _cmd_python3(args: argparse.Namespace) -> int:
     return 0 if json.loads(line)["status"] == "pass" else 1
 
 
-def _cmd_git_lfs_enable(args: argparse.Namespace) -> int:
-    _ensure_repo_root()
-    from coordinator_core.install import prereq_probe
-
-    if args.check_only:
-        sys.stdout.write(prereq_probe.probe_git_lfs())
-        return 0
-
-    lfs_ver = _run(["git", "lfs", "version"])
-    if lfs_ver is not None and lfs_ver.returncode == 0:
-        _run(["git", "lfs", "install"])
-
-    sys.stdout.write(prereq_probe.probe_git_lfs())
-    return 0
-
-
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="probe-prereq",
-        description="Install-time prereq probes/mutations with no other landed CLI "
-        "(python3, git-lfs-enable).",
+        description="Install-time prereq probe with no other landed CLI (python3).",
     )
     sub = parser.add_subparsers(dest="subcommand", required=True)
 
     p_py = sub.add_parser("python3", help="Probe python3 for the Windows App-Execution-Alias stub.")
     p_py.set_defaults(func=_cmd_python3)
-
-    p_lfs = sub.add_parser("git-lfs-enable", help="Check, and idempotently enable, git-lfs.")
-    p_lfs.add_argument("--check-only", action="store_true")
-    p_lfs.set_defaults(func=_cmd_git_lfs_enable)
 
     return parser
 

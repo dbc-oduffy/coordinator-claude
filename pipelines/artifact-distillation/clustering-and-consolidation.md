@@ -122,6 +122,8 @@ share exceeds `DROP_SHARE_WARNING_THRESHOLD` (0.25, a first guess — the engine
 since landed, see the threshold derivation above, and does not by itself argue for moving this
 number) — a visibility tripwire, not a gate; it never halts a run or suppresses output.
 
+**Curated-input channels (invocation B).** Save the `distill.curate_clusters` return verbatim to a file under the run's scratch dir and pass it as `args.curatedFile`, with `args.curatedVerdictCount` read from that file by a deterministic read, never an agent. Inline `args.curatedTags` remains for a small run and takes a `{tag: verdict}` map or the op's `verdicts` list. Setting both halts `curated-input-ambiguous`. `contradictionClusters`, when the launcher has them, go in the curated file with `contradictionClusterCount`.
+
 **Verdict payload contract (confirmed, chunk C3c, commit `810ffe46d`).** One verdict entry per
 RAW input tag, always. `merge_target` is the destination slug a tag folds INTO — populated ONLY
 on `merge`, never null there, and null on keep/normalize/drop. `canonical_slug` is the tag's OWN

@@ -69,7 +69,8 @@ Read each `judgment_points[]` entry verbatim — question/evidence/dispositions 
   owner. Everything left over is adopt-commit; Step 9e will not let the ceremony end while any of
   it is still dirty.
 - `jp_step3_5_backfill_cap`: backfill all, or bounded subset (default).
-- `jp_step4b_analyst_dispatch` / `jp_step4c_observer_dispatch`: dispatch unless `skip_no_new_work`.
+- `jp_step4b_analyst_dispatch`: dispatch unless `skip_no_new_work`. `jp_step4c_observer_dispatch`:
+  never dispatch daily; the observer runs weekly (`/workweek-complete` Step 7b).
 - `jp_step4_5_clustering_dispatch`: dispatch per ≥2-entry chain; `skip_only_mode` under `$ONLY_MODE=1`.
 - `jp_step4e_health_ledger_new_rows`: add `?` rows for touched systems; never audit clocks/grades.
 - `jp_day_goal_closeout`: `decisions["day_goal_closeout"] = {goal_id: "done"|"dropped"}`, or skip.
@@ -88,22 +89,12 @@ Read `landed`/`blocked`/`failed`; `blocked` returns to Step 5 (exit codes: wiki)
 ## Step 6b-7: Daily-Summary Dispatch and Stitch
 
 Dispatch a Sonnet analyst (target day: `$FOR_DATE` under `$ONLY_MODE=1`, else today) writing
-`archive/daily-summaries/<target-day>-<machine>.md`, plus a parallel strategic observer (skip under
-`$ONLY_MODE=1`) writing debt-backlog YAML + a `<target-day>-<machine>.observer.md` sidecar (field
-detail: wiki). Skip both on `skip_no_new_work`. Each Step 6 backfill gap-row TSV entry
-(oldest-first) gets its own analyst dispatch, only after Step 6 completes (wiki).
+`archive/daily-summaries/<target-day>-<machine>.md` (analyst only; the strategic observer runs
+weekly in `/workweek-complete` Step 7b). Skip on `skip_no_new_work`. Each Step 6 backfill gap-row
+TSV entry (oldest-first) gets its own analyst dispatch, only after Step 6 completes (wiki).
 
-POSIX hosts: Shape A, resolving `workday-complete-close stitch-sidecar`.
-
-PowerShell hosts (rung 0, Shape W):
-
-    & "$env:COORDINATOR_SETTINGS_HOME\bin\workday-complete-close.exe" stitch-sidecar
-
-Pass `--today` with the target day under `$ONLY_MODE=1`. Non-zero is a HARD FAIL. Verify the
-stitch via harness `Grep`/`Select-String` (no shell pipeline) counting `^## Strategic Review` in
-`archive/daily-summaries/<target-day>-<machine>.md`.
-
-Zero: dispatch the observer and re-stitch. Two-plus: reconcile by hand, never re-dispatch.
+A daily summary carries no `## Strategic Review` heading and no `.observer.md` sidecar; no stitch
+runs and the heading count is not checked.
 
 Health ledger (`jp_step4e_health_ledger_new_rows`): add `?` rows to `state/health-ledger.md`
 for touched systems. Remove `tasks/daily-review-scratch`.

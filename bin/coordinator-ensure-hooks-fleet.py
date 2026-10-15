@@ -1,0 +1,87 @@
+#!/usr/bin/env python3
+"""
+coordinator-ensure-hooks-fleet — install/repair the coordinator prepare-commit-msg
+hook and apply the hook disposition table (retired/replaced hook bodies) in
+EVERY registered repo, not only cwd's.
+
+Native-Python, Windows-first (DR-059 de-bash). Logic lives in
+lib/git_hook_install.py (ensure_hooks_fleet); this is the thin entrypoint,
+matching the shape of its two single-repo siblings
+(coordinator-ensure-prepare-commit-msg-hook, coordinator-ensure-post-commit-hook).
+
+WHY A SEPARATE NAMED ENTRYPOINT, NOT A `--fleet` FLAG
+    A prior attempt asked to append `--fleet` to the two existing entrypoints'
+    calls at /workday-start Step -0.45. Coordinator-content-repo went to do it and stopped:
+    those two entrypoints' main() never reads sys.argv at all, so a `--fleet`
+    flag would be silently accepted and ignored -- doctrine reading as fixed
+    while still healing one repo of fifteen, worse than no flag because it
+    also closes the question. One invocation whose NAME states its scope
+    (this file) beats two whose scope depends on a flag the caller must
+    remember to pass. See the memo this closes for the full trace:
+    cross-repo/inbox/2026-08-11-coordinator-content-repo-em-fleet-flag-request-is-not-actionable-entrypoints-read-no-argv.md
+
+Runs from /workday-start Step -0.45 in place of the two single-repo calls (or
+alongside them; the two smaller entrypoints stay for callers who genuinely
+want only cwd's repo). Idempotent and near-zero cost on an all-current fleet.
+Always exits 0 — must never block a session start.
+
+Spec backlink: cross-repo/inbox/2026-08-11-coordinator-content-repo-em-fleet-flag-request-is-not-actionable-entrypoints-read-no-argv.md
+"""
+from __future__ import annotations
+
+import os
+import sys
+
+_BIN_DIR = os.path.dirname(os.path.abspath(__file__))
+_LIB_DIR = os.path.join(_BIN_DIR, "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+# git_hook_install.py imports from the coordinator_core package (win_portability,
+# py_probe_sh) at module level -- that package is resolvable only from the repo
+# root, not from _LIB_DIR, so it must be on sys.path too or the import below
+# raises ModuleNotFoundError every time this entrypoint runs as a subprocess
+# (which is how it is invoked from session-init and from the test suite).
+#
+# Root resolution is layout-INDEPENDENT, not a fixed dirname-hop count: a
+# published-mirror consumer puts bin/ at the repo root (not
+# <root>/coordinator/bin, as our tree and klabauter's do), so a fixed
+# "two dirname() hops up" walk resolves one level ABOVE the mirror root and
+# finds nothing there. Reuses cc_invoke._resolve_claude_klabauter_root -- the same
+# idiom coordinator-invoke.py already uses (env/pointer-file/registry
+# ladder, terminal self-location fallback) -- rather than a third
+# root-resolution scheme.
+# Spec backlink: cross-repo/inbox/2026-08-17-coordinator-content-repo-em-mirror-entrypoints-missing-coordinator-core.md
+try:
+    from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+
+    _REPO_ROOT = _resolve_claude_klabauter_root()
+    if _REPO_ROOT not in sys.path:
+        sys.path.insert(0, _REPO_ROOT)
+    from git_hook_install import ensure_hooks_fleet  # noqa: E402
+
+    _BOOTSTRAP_ERROR: Exception | None = None
+except Exception as exc:  # never block a session start -- see main() below
+    ensure_hooks_fleet = None  # type: ignore[assignment]
+    _BOOTSTRAP_ERROR = exc
+
+
+def main() -> int:
+    # `--strict`: opt-in, off by default so /workday-start Step -0.45's
+    # existing bare invocation keeps its "must never block a session start"
+    # contract byte-for-byte. A caller that DOES want a real non-zero signal
+    # when a repo this tool OWNS (worktree-classified) still lacks its hook
+    # after the attempt passes this flag — see `ensure_hooks_fleet`'s own
+    # `strict` docstring.
+    strict = "--strict" in sys.argv[1:]
+    if _BOOTSTRAP_ERROR is not None:
+        print(f"coordinator-ensure-hooks-fleet: {_BOOTSTRAP_ERROR}", file=sys.stderr)
+        return 1 if strict else 0
+    try:
+        return ensure_hooks_fleet(_BIN_DIR, strict=strict)
+    except Exception as exc:  # never block a session start unless --strict
+        print(f"coordinator-ensure-hooks-fleet: {exc}", file=sys.stderr)
+        return 1 if strict else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

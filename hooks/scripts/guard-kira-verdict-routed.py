@@ -441,8 +441,7 @@ def _live_workflow_runs(transcript_path) -> list[str]:
 
 
 _BLOCK_HEADER = (
-    "[guard] This close carries an unrouted Kira (overengineering-reviewer) "
-    "verdict.\n"
+    "[guard] Close has an unrouted Kira (overengineering-reviewer) verdict.\n"
 )
 
 
@@ -452,7 +451,7 @@ def _emit_block(reasons: list[str], repo_root: str, session_id: str) -> int:
     )
     if nonce is not None:
         discharge_note = (
-            f"Recorded as {nonce}. When you have acted on this, run:\n"
+            f"Recorded as {nonce}. Then run:\n"
             f'  block-discharge record --nonce {nonce} '
             f'--action "<what you did>" --repo-root "{repo_root}"\n'
         )
@@ -605,8 +604,8 @@ def main() -> int:
 
         if findings_count is not None and findings_count > 0 and not answers:
             reasons.append(
-                f"- {kira_file} stamps findings_count={findings_count} with no "
-                f"sibling sidecar's integrated_from naming it. Owed route: the "
+                f"- {kira_file} stamps findings_count={findings_count}; no "
+                f"sidecar's integrated_from names it. Owed route: the "
                 f"execute-review integration pass -- a code-reviewer sidecar "
                 f"naming {_kira_stem(kira_file)} in its own `integrated_from` "
                 f"and carrying a verified `findings_ledger` (`review-findings-"

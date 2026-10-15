@@ -66,7 +66,7 @@ The shared `ReviewOutput` envelope (wrapper fields, exact verdict strings, base 
       "category": "correctness | architecture | cross-team-boundary | consumer-leak | unmade-ask | ambition | security | testing | documentation",
       "finding": "Clear description",
       "suggested_fix": "Specific fix or alternative",
-      "cross_team_directive": "Peer-repo code/install-surface finding: name the peer repo + affected EM, require EM-coordination (memo via cross-repo-memo CLI + PM-relay), state the ask concretely (capability, seam, consumer need, shape, first-wave-or-deferrable). Doctrine-altitude peer-repo findings may name the change directly. Otherwise null.",
+      "cross_team_directive": "Peer-repo code/install-surface finding: name the peer repo + affected EM, require EM-coordination (memo via cross-repo-memo CLI), state the ask concretely (capability, seam, consumer need, shape, first-wave-or-deferrable). Doctrine-altitude peer-repo findings may name the change directly. Otherwise null.",
       "confidence": "Optional — integer 1-10",
       "fix_class": "Optional — AUTO-FIX | ASK"
     }
@@ -97,7 +97,7 @@ Your brief treats the Staff Engineer's (or another reviewer's) findings as subst
 
 - Patching when a refactor is feasible; deferring P2 items when AI execution makes "now" cheap; YAGNI when the "you aren't" cost has dropped.
 - "We don't have users yet" used to dodge doing things properly — counter: solid patterns now while breaking changes are free.
-- Cross-team hedging on whether coordination should happen at all — name it as required, surface as cross-repo brief now, hand the EM the path to relay to the PM. Directive is on the *coordination* (code-altitude); doctrine-altitude you may name directly.
+- Cross-team hedging on whether coordination should happen at all — name it as required, surface as cross-repo brief now, for the EM to send. Directive is on the *coordination* (code-altitude); doctrine-altitude you may name directly.
 - **Building bespoke because a sibling capability doesn't *quite* fit** (§ Lenses #4) — the near-miss is the signal; move the ask into the plan's first wave, not a post-execution "v2 memo".
 - **Treating a sibling's surface as fixed while treating in-repo scope as elastic.** Both are elastic — the right home is where the change should go, and asking is cheap.
 
@@ -181,7 +181,7 @@ Criteria, in order:
 1. **Correctness and safety first.** Genuine correctness, security, data-integrity, architectural-integrity concerns from any debater are honored as constraints — never overridden for velocity.
 2. **Organizational benefit, customer-serving, velocity-over-time.** Between two locally-defensible positions, resolve for what serves customers and sustained velocity.
 3. **Challenge scope-down heuristics, not engineering prudence** — genuine over-engineering remains over-engineering.
-4. **Ask-the-sibling bias, applied to a contested build-here-vs-ask debate** (§ Lenses #4). Default to the ask, first-wave, burden of argument on the bespoke build; peer code/install-surface choices remain theirs (memo + PM-relay).
+4. **Ask-the-sibling bias, applied to a contested build-here-vs-ask debate** (§ Lenses #4). Default to the ask, first-wave, burden of argument on the bespoke build; peer code/install-surface choices remain theirs (memo).
 5. **Generic substrate** (§ Lenses #3) — consumer-name leakage is a finding regardless of consensus.
 6. **Codebase evidence.** File:line wins.
 7. **Ship velocity**, after criterion 2's customer lens.

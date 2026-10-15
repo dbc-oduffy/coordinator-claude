@@ -22,7 +22,7 @@ top-level EM only — a dispatched agent cannot fan out (`A-SKILL-PHASE-NAMES-IT
 
 | Mode | Target set |
 |---|---|
-| **Sweep** (default, no args) | every `kind: goal-seed` baton at `deployment_state: awaiting_gate`, and every `route: goal-setting` sizing at `status: sized` or `routed`. Landing stamps a consumed sizing `routed` with its `goal_id`. |
+| **Sweep** (default, no args) | every goal-seed baton (`kind: goal-seed`) at `deployment_state: awaiting_gate`, and every `route: goal-setting` sizing at `status: sized` or `routed`. Landing stamps a consumed sizing `routed` with its `goal_id`. |
 | **Targeted** (`<seed-id> ...`) | the ids you pass. Everything unnamed is not a candidate. |
 
 **Check `unmatched_targets` on every targeted run** — a quietly dropped target is worse than a refusal.
@@ -45,7 +45,7 @@ The args and result shapes are pinned by `${CLAUDE_PLUGIN_ROOT}/skills/goal-blit
 
 Resolve the launcher per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`. Unresolved —
 **stop and report**; never fabricate a fire or a result. Scaffold the trail directory
-`state/scratch/goal-blitz/<run-id>/`, `<run-id>` being this run's UTC start as `YYYYMMDDTHHMMSSZ`.
+`state/goal-blitz/<run-id>/`, `<run-id>` being this run's UTC start as `YYYYMMDDTHHMMSSZ`.
 
 ### 1. Emit the fire — never hand-write the args
 
@@ -90,7 +90,8 @@ It lands only drafts carrying a recorded the VP-Product Reviewer ratification, t
 makes one scoped commit of the files it wrote (`--no-commit` lists them instead). It refuses and
 writes nothing on a ready draft with no ratification record. A CLI failure mid-landing rolls back
 every path the run wrote, so fix the cause and re-run. **Read its exit code and stderr; never route
-around a refusal.**
+around a refusal.** Then commit the trail's record files (`candidates.json`, `ratification.json`,
+the drafts and critiques) in a scoped commit, by pathspec.
 
 ### 5. Chain — by mode
 

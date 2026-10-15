@@ -358,7 +358,15 @@ repo-relative \`coordinator/...\` path does not exist in a consumer repo; never 
 const FRICTION_RULE = `
 Close the record you write with one line \`Friction: <what this brief should have told you>\` (\`none\` is a fine answer).`
 
-const COMMON = `${REPO_ROOT_RULE}\n${CLI_RESOLUTION_RULE}${PLUGIN_ROOT_RULE}${FRICTION_RULE}`
+const MID_RUN_DIRECTION_RULE = `RE-READ BEFORE YOU WRITE. The PM delivers direction to a running workflow by editing its
+artifacts, never by stopping it, and SendMessage cannot reach you. Immediately before you write
+your output, re-read every sizing, plan and handoff this brief names or that you read or write.
+A \`## PM direction\` section in a plan or handoff, or a \`requirement_register\` row in a sizing,
+that was absent from your first read and that you did not write yourself was added after your
+dispatch: it is binding. Apply it over
+this brief and over anything you read earlier, and name it in your return.`
+
+const COMMON = `${REPO_ROOT_RULE}\n${CLI_RESOLUTION_RULE}${PLUGIN_ROOT_RULE}${FRICTION_RULE}\n${MID_RUN_DIRECTION_RULE}`
 
 function emptyResult(extra) {
   return {
@@ -583,7 +591,8 @@ ${TRAIL_DIR}/. Return \`approved\` when the roadmap is coherent, its contested i
 review finding is left open that a stub author would trip on; return \`declined\` otherwise. Give
 your verdict as one utterance in your own words, which is recorded verbatim. This is a decision on
 the roadmap's shape and its reviews: you do not edit the roadmap.
-${REPO_ROOT_RULE}`,
+${REPO_ROOT_RULE}
+${MID_RUN_DIRECTION_RULE}`,
     { model: 'opus', ...withRole('coordinator:apm'), label: 'apm:approve', phase: 'Approve', schema: APPROVAL_SCHEMA },
   ))
   if (!decision) {

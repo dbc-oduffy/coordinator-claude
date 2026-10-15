@@ -7,9 +7,10 @@ Purpose: bareword-invokable entrypoint for the human-facing doc staleness
 detector (AC1) — reads the calling repo's declared human-facing docs and
 threshold overrides via `coordinator_core.ops.doc_registry.
 resolve_doc_registry_config` and prints the resulting
-`build_doc_staleness_report` as JSON to stdout. `--root PATH` overrides the
+`build_doc_staleness_report` result as JSON to stdout. `--root PATH` overrides the
 repo root (default: cwd) so the CLI is invocable from any working directory,
 matching the `--root` convention used by `check_arch_audit_staleness.py`.
+`--doc PATH` limits the report (and the history walk) to one registered doc.
 
 Not registered as an IPC op (`_registry_map.py`/`@register_op`) — this is a
 plain `main(argv) -> int` CLI, the same shape `check_arch_audit_staleness.py`
@@ -24,7 +25,7 @@ and every consumer of this op (the workweek-complete brief builder's
 (C2: "decide the shape once and apply it to both new ops consistently").
 
 Usage:
-    workweek-complete-doc-staleness [--root PATH]
+    workweek-complete-doc-staleness [--root PATH] [--doc PATH]
 
 Exits 3 if the engine root cannot be resolved (see stderr); otherwise exits 0.
 
@@ -53,6 +54,11 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Repo root to check (default: current working directory).",
     )
+    parser.add_argument(
+        "--doc",
+        default=None,
+        help="Limit the report to this registered doc path.",
+    )
     return parser
 
 
@@ -70,7 +76,14 @@ def main(argv: list[str]) -> int:
 
     args = _build_parser().parse_args(argv)
     root = args.root or Path.cwd()
-    report = build_doc_staleness_report_from_registry(root)
+    only_doc = None
+    if args.doc is not None:
+        only_doc = args.doc.replace("\\", "/")
+        if only_doc.startswith("./"):
+            only_doc = only_doc[2:]
+    report = build_doc_staleness_report_from_registry(root, only_doc=only_doc)
+    if only_doc is not None and not report["docs"] and "skipped" not in report:
+        print(f"{Path(__file__).name}: --doc {args.doc!r} is not a registered doc", file=sys.stderr)
     print(json.dumps(report, indent=2, sort_keys=True))
     return 0
 

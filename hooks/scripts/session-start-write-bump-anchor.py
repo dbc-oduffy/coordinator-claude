@@ -126,6 +126,16 @@ def main() -> int:
     except Exception:
         pass
 
+    # SessionEnd archived this session's state dir; a resume of the same sid
+    # needs it back or every guard reading the dispatched-agents ledger is quiet.
+    if payload.get("source") == "resume":
+        try:
+            from coordinator_core.session.scope import unarchive_on_resume
+
+            unarchive_on_resume(session_id, launch_cwd)
+        except Exception:
+            pass  # an engine predating the restore op, or any failure: fail-open
+
     return 0
 
 

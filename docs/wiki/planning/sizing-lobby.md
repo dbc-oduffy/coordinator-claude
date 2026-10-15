@@ -128,7 +128,7 @@ both resolved by the engine (`sizing_assemble.route()`), never left as an EM gut
   not another increment.
 
 A large-but-clear ask **skips** shape entirely and routes straight to plan/roadmap — size alone
-never triggers shape. The frame for why shape exists at all: it is the **lightweight
+never triggers shape. A live plan, dispatch or spec-dispatch sizing never enters `/shape` (`A-ROUTED-SIZING-NEVER-ENTERS-SHAPE`); only a `route: shape` object does. The frame for why shape exists at all: it is the **lightweight
 PRD-substitute for the need-for-speed agentic era** — a PM in this operating model won't author a
 full PRD ahead of a day of launch-and-iterate work, so shape buys EM↔PM problem-alignment only in
 the two cases above where size or well-trodden-ground actually earns the ceremony.
@@ -166,12 +166,18 @@ well-trodden ground, resolves `shape` regardless of what this table alone would 
 The engine sizes **symmetrically**: it collapses an over-read t-shirt down and raises an
 under-read one, in either direction, rather than only ever correcting downward. The size is then
 delivered to the PM **first**, against visible scope. At XS through L on a plan, dispatch or
-spec-dispatch route, in pm and ceo modes, no PM size approval is needed: the engine skips the size and exit-criterion asks, stamps
-`execution_authorized_by: engine-size-rule`, drops `post_size_prompt_pending`, and the route
-proceeds to execution; the size stays revisable through the `plan⇄sizing` return edge, and a resize
-into XL halts the chain and surfaces it. Hands-on keeps its per-turn asks, the PM's own choice. At
-XL and above, on a shape route at any size, and on a pm-decision route, the PM stays in the chat
-unless the PM says warp-execute; appetite is never inferred, because only the PM knows the budget.
+spec-dispatch route, in every mode, no PM size approval is needed: the engine skips the size and exit-criterion asks, stamps
+`execution_authorized_by: engine-size-rule`, drops `post_size_prompt_pending`, and the run
+continues to completion: a single `coordinator:engine-ask` submission sizes (its
+sizing stage dispatches the scout), executes and commits; how the run stamps the sizing is in
+`em-operating-model/sizing-to-commit-chain-contract.md`. The in-chat
+path submits `args: {sizing}` to the same engine; the EM relays to the PM only on an engine
+refusal. The size stays revisable through the `plan⇄sizing` return edge, and a resize
+into XL halts the chain and surfaces it. In ceo mode (the default) XL and XXL do not stop: the
+workflow's `coordinator:apm` rules `xl_exit` in-run. In pm and hands-on mode, at XL and above, the PM
+stays in the chat; a shape route keeps the room in every mode, and a
+pm-decision route goes to the APM first in ceo. Appetite is never inferred, because only the PM
+knows the budget.
 Where the PM stays, at a resized t-shirt of M and above the
 engine emits the positive `post_size_prompt_pending` detent, and the skill asks one open question
 and stops — *"looks like an XL, shall we go with that or want to split it, cut it, what's up?"* At
@@ -377,8 +383,9 @@ stops lying by omission.
 
 **What closes a sizing, by route.** Closure is never improvised by an EM at session close — it is
 applied by a defined ceremony, and which ceremony applies depends on the route. Plan-minting
-routes (`plan`, `spec-dispatch`) close **by cascade**, when the minted plan stamps `implemented`,
-joined on `deliverable_id`. `dispatch`-routed sizings mint no plan for that cascade to key on, and
+routes (`plan`, `spec-dispatch`) close in the engine-ask run's terminal commit
+(`em-operating-model/sizing-to-commit-chain-contract.md`). **The cascade** is the backstop
+when `sizing.ship` refuses: the minted plan stamps `implemented`, joined on `deliverable_id`. `dispatch`-routed sizings mint no plan for that cascade to key on, and
 close instead via `quick-wrap`'s closure step, added by the plan that made
 quick-wrap a first-class closing path for XS/S-sized work. The full route→closing-path
 picture — all four classes, with their relative weight in the corpus — belongs in its own section
@@ -455,7 +462,8 @@ standing handoff in `state/handoffs/`. Named here as unclosed rather than omitte
 from a taxonomy reads as covered.
 
 **A register-bearing sizing is the exception to all of the above.** A sizing carrying
-`requirement_register` is shipped only by the register rollup, whatever its route. The
+`requirement_register` is shipped only through `sizing.ship`'s register rollup, whatever its route;
+the run's terminal commit calls it once the run has written its register rows back. The
 plan-implemented cascade (class 1), the quick-wrap stamp (class 2) and the goal route (class 4)
 never write it, and the schema refuses `shipped` while any row is open, partial, unclaimed or
 met-but-unwired. See [[requirement-register]].
@@ -773,8 +781,11 @@ yet.
 
 ## Who sizes — a fresh scout, never the EM
 
-`coordinator:sizing-scout` forms the t-shirt read; the EM triggers it, cross-examines it, and runs
-`sizing-assemble --write`. Skill Step 0 carries the dispatch; this section carries the reasons.
+`coordinator:sizing-scout` forms the t-shirt read. In the default path, a `coordinator:engine-ask`
+run's sizing stage dispatches the scout, which runs `sizing-assemble --write` and
+`dispatch.ask_gate` as its closing acts. In the in-chat
+fallback, the EM triggers the scout, cross-examines it, and runs `sizing-assemble --write` itself.
+Skill Step 0 carries the dispatch; this section carries the reasons.
 
 - **The EM's context is the bias.** A session that has read the substrate for an hour counts every
   file it has seen as complexity. A fresh scout with a bounded brief sizes what must be understood,
@@ -783,18 +794,23 @@ yet.
   BREADTH and never raise a notch alone. Unknown mechanisms, things unproven from the tree, are
   DEPTH, and a size is made of them. Prior art lowers a size. A cross-team dependency is a gate,
   not a size, unless the shared contract is itself still being negotiated.
-- **The brief carries no size.** PM's words verbatim, the `interaction_mode`, repo-relative
+- **The brief carries no size.** PM's words verbatim, the `pm-turns window` output (the turns
+  `--write` will embed; the scout returns `verbatim_accounting` for every one), the
+  `interaction_mode`, repo-relative
   substrate pointers, and the capabilities this session holds (the scout cannot see a credential,
   a mounted store, or an operator at a keyboard; Step 1a). No t-shirt, lean, guess, or route: a
   scout handed a size anchors on it.
-- **The EM keeps `--write`.** `pm_verbatims` is read from the EM session's own PM-turn log; a
+- **In the in-chat fallback the EM keeps `--write`.** `pm_verbatims` is read from the EM session's own PM-turn log; a
   subagent's write may silently omit it. The scout returns the complete `sizing-assemble` flag set
   (never `--write`, `--premise-evidence`, `--interaction-mode`, `--express-lane`, or an unquoted
   `--appetite`), and the EM re-runs it.
 - **The confident-XS predicate is mechanical.** The scout is skipped only when every condition
-  holds: exactly one existing file to change, nameable without a probe; no new file, abstraction,
-  or agent; no path outside this repo; no held capability beyond the checkout; and the change has
-  shipped before in this repo (`--precedent shipped-before`). Any doubt fails the predicate. The
+  holds: one existing module the change lives in, nameable without a probe; no new abstraction
+  or agent, and a new file only as a sibling of a pattern that module already holds (a test file,
+  another instance of an existing adapter) — a new file is breadth, a new abstraction is depth;
+  no path outside this repo; no held capability beyond the checkout; and the change has
+  shipped before in this repo (`--precedent shipped-before`); and the PM's words carry one
+  instruction, not several. Any doubt fails the predicate. The
   EM deciding for itself who sizes is the bias restated, so the gate is a checklist, not a read.
   S does not take the express lane.
 - **Cross-examination runs both directions.** The EM spot-checks one substantive claim of the
@@ -913,7 +929,9 @@ asked for; the elaboration was where the scope grew, invisibly, until the flag e
 `pm_verbatims`: the PM's preceding prompts, embedded by `sizing-assemble --write` with no flag,
 newest-first and length-budgeted. The EM curates by cut and paste (trim, or split across sibling
 sizings) and never rewrites their text. `intent` remains the EM's routing restatement. The plan
-brief and `/workstream-complete` read them via the plan's own `sizing_object`.
+brief and `/workstream-complete` read them via the plan's own `sizing_object`. Every embedded
+turn is covered by a register row or listed in `requirement_register.unrelated_turns` with a
+reason; `sizing-assemble --register` refuses an uncovered turn.
 
 **`--precedent shipped-before|novel`.** Has this fleet run this operation before, with a runbook
 that landed? `shipped-before` is the single strongest available collapse signal and fires the
@@ -1042,7 +1060,8 @@ combined-`next_move` precedence. `xl_exit` tests: `shape` (JTBD not stated, or t
 falsifiably restate the problem in the PM's words), `roadmap` (spans >=2 named workstreams, or
 carries/needs an initiative FK; `split` is retired into this exit), `accept_multi_session` (one
 coherent job, clear JTBD, one workstream, simply large, and the PM explicitly assented; writing it IS
-that record). Turn-1 touchpoints by `interaction_mode`: hands-on accepts the size and separately
+that record). Turn-1 touchpoints, only where the engine kept the acceptance touchpoint (never XS–L on a plan,
+dispatch or spec-dispatch route): hands-on accepts the size and separately
 execution later; pm accepts size and exit criterion in one ask; ceo accepts the exit criterion only.
 In pm and ceo modes the ask says plainly that accepting authorizes execution without a further ask;
 that sentence makes the accepted sizing the execution authority the turn-3 stamp cites.
@@ -1054,9 +1073,11 @@ When the ask is research, the sizing-object carries the optional top-level `rese
 writes it, the PM is never asked. The tier map, close per tier and preflight live in
 `coordinator/docs/wiki/skills-corpus/deep-research-pipelines.md`; this section does not restate them.
 
-- **`value_class` (required): `scouts | corpus | deep`**, read from the PM's phrasing. "Searches so I
+- **`value_class` (required): `scouts | corpus | deep | spike`**, read from the PM's phrasing. "Searches so I
   don't spend my own context" is `scouts`; "knowledge for a roadmap" is `corpus`; "unblock us",
-  including over our own repos, is `deep`.
+  including over our own repos, is `deep`; "spike" is `spike`, the research door's verdict class.
+  Research is its own door beside sizing: `/coordinator:research`. Every class closes on a committed
+  artifact and trail (`A-RESEARCH-CLOSES-ON-A-COMMITTED-ARTIFACT-AND-TRAIL`).
 - **`research.appetite`: `small | medium | large`** shifts the tier one notch: small one notch down,
   medium as classed, large one notch up. It is the EM's appetite for results, not the PM's budget. The
   top-level `appetite` (Shape-Up budget, § `appetite` above) is never read for tiering; only

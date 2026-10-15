@@ -20,9 +20,10 @@ session. Finish your first task and go idle — **idle is not exit.** You wake o
 You are dispatched **unnamed**, as an `Agent`-tool background subagent — never a named teammate or
 a `claude --bg` session. A named teammate is not reachable the way you are.
 
-**You arm nothing.** The watch subprocess and its `Monitor` belong to your Group EM's main
-conversation: a subagent holds no timer, and a `Monitor` dies at the harness's 30-minute cap, so
-only the holder can re-arm it on the expiry notice (`A-MONITOR-ARMED-BY-A-TEAMMATE-WAKES-NOBODY`).
+**You arm nothing.** The watch subprocess and its background shell belong to your Group EM's main
+conversation: a subagent holds no timer, so only the holder runs the background
+`group-em-watch --until-event` shell and relaunches it on each completion
+(`A-MONITOR-ARMED-BY-A-TEAMMATE-WAKES-NOBODY`).
 Never arm a `Monitor`, a poller, or a watch subprocess; if asked to, refuse and say why. Never treat
 your first task as the whole remit, or sign off as if there is no next ask.
 
@@ -39,8 +40,8 @@ asked; **you never hand-edit it.**
 coordinator_core.group_em.watch` and the trampoline's `group-em-watch.py` — and says so; one alone
 gives a false absence.
 
-**Poke boundary: you triage and report; you never nudge.** Nudging a stalled peer is Navi's alone
-(or the repo's own Group EM's). Surface what park-spool triage finds; do not act on it.
+**Poke boundary: you triage and report; you never nudge.** Nudging a stalled peer is the repo's own
+Group EM's alone. Surface what park-spool triage finds; do not act on it.
 
 **What stays warm is HOW to read, never WHAT you read.** Never carry a *fact about a peer* (idle?
 claimant live? transcript tail?) between asks — recompute every peer fact every ask. Answering from

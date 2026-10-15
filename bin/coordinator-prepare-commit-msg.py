@@ -129,6 +129,10 @@ Behaviour:
      a change to either lives in exactly one place
      (``coordinator_core/git/commit_trailers.py``) and this hook picks it up
      automatically; do not hand-roll a second implementation of either.
+  3c. Live-run tier: between the scope-match tier and the plan-claim
+     ambiguity gate, ``commit_trailers.resolve_deliverable_id_from_live_run`` (IMPORTED)
+     answers with the deliverable of the one sizing-bound live warp run this
+     session holds whose declared writes include a staged path.
   4b. Claimed-plan fallback (2026-08-01): steps 4/4a both key off
      ``pickup.deliverable_id``, populated ONLY by ``record_pickup`` on a
      ``/pickup`` of a HANDOFF. A session that claims a PLAN directly and
@@ -615,6 +619,27 @@ def _resolve_deliverable_id_from_scope_match(cwd: str, paths: list, claims: list
         return ""
 
 
+def _resolve_deliverable_id_from_live_run(cwd: str, session_id: str, paths: list) -> str:
+    """Live-run tier: IMPORTED from
+    ``coordinator_core.git.commit_trailers.resolve_deliverable_id_from_live_run``,
+    not re-derived. Sits after scope-match and before the plan-claim ambiguity
+    gate, as in the engine ladder. Any import failure or callee exception
+    degrades to ``""`` (tier abstains, ladder continues)."""
+    if not paths or not session_id:
+        return ""
+    claude_klabauter_root = _ensure_claude_klabauter_on_syspath()
+    if not claude_klabauter_root:
+        return ""
+    try:
+        from coordinator_core.git.commit_trailers import (
+            resolve_deliverable_id_from_live_run,
+        )
+
+        return resolve_deliverable_id_from_live_run(cwd, session_id, paths) or ""
+    except Exception:
+        return ""
+
+
 def _session_holds_multiple_plan_claims(claims: list) -> bool:
     """Lazy import of C2's landed
     ``coordinator_core.git.commit_trailers.session_holds_multiple_plan_claims``
@@ -706,7 +731,8 @@ def _resolve_deliverable_id(git_dir: str, session_id: str, paths: "list | None" 
     (tier 0 — the multi-baton-session fix; see
     ``_resolve_deliverable_id_from_paths``), then a code-only commit's
     pathspec against every plan this session holds a claim on (step 3b —
-    see ``_resolve_deliverable_id_from_scope_match``), gated by
+    see ``_resolve_deliverable_id_from_scope_match``), then the live-run tier
+    (step 3c — see ``_resolve_deliverable_id_from_live_run``), gated by
     ``_session_holds_multiple_plan_claims`` (a 2+-claim session that neither
     tier above disambiguated OMITS the trailer rather than guessing among
     the session-keyed tiers below), then ``git_dir`` (the common
@@ -749,6 +775,9 @@ def _resolve_deliverable_id(git_dir: str, session_id: str, paths: "list | None" 
     cwd = os.getcwd()
     claims = _list_held_plan_claims(cwd)
     deliverable_id = _resolve_deliverable_id_from_scope_match(cwd, paths or [], claims)
+    if deliverable_id:
+        return deliverable_id
+    deliverable_id = _resolve_deliverable_id_from_live_run(cwd, session_id, paths or [])
     if deliverable_id:
         return deliverable_id
     if _session_holds_multiple_plan_claims(claims):

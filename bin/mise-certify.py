@@ -26,7 +26,6 @@ import argparse
 import functools
 import importlib.util
 import json
-import subprocess
 import sys
 from pathlib import Path
 
@@ -110,15 +109,15 @@ _ATTRIBUTION_FETCH = 500
 
 def _git_log_since(repo_root: Path, since: str, timeout: int) -> list[str]:
     """`%h %s` lines for commits after `since`, newest first; empty when git cannot answer."""
-    try:
-        proc = subprocess.run(
-            ["git", "log", f"--since={since}", f"--max-count={_ATTRIBUTION_FETCH}",
-             "--format=%h %s"],
-            cwd=repo_root, capture_output=True, text=True, timeout=timeout,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return []
+    engine_root = str(Path(__file__).resolve().parents[2])
+    if engine_root not in sys.path:
+        sys.path.insert(0, engine_root)
+    from coordinator_core.git.run import run_git
+
+    proc = run_git(
+        ["log", f"--since={since}", f"--max-count={_ATTRIBUTION_FETCH}", "--format=%h %s"],
+        cwd=str(repo_root), timeout=timeout,
+    )
     return proc.stdout.splitlines() if proc.returncode == 0 else []
 
 

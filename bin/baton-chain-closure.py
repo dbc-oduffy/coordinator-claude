@@ -58,6 +58,16 @@ component baton is resolved:
 
 Zero subprocess, PyYAML for frontmatter and plan-tasks parsing; no shell.
 
+LINEAGE PRE-SCAN. `check` and `signal` (via `chain_verdicts`) do not YAML-parse the corpus. A
+byte-level head read extracts `handoff_id`, `deliverable_id`, `predecessor`, `predecessor_id` and
+`continued_into` (and `plan_id` from plans) with one anchored line regex, unions them exactly as
+`build_chains` does, and only the requested chain's members go through `_load_baton`. A handoff
+whose lineage keys are not single-line scalars, or that has no fence, is unreadable to the
+pre-scan and blocks every verdict, so `load_all_batons`'s NEGATIVE-SPEC below still holds for
+every edge the pre-scan cannot read; a YAML-invalid handoff whose lineage keys read cleanly joins
+its component and blocks only the chain it belongs to. `chains` keeps the full `load_all_batons`
+walk. No index is persisted: every verdict is re-derived from disk per call.
+
 NEGATIVE-SPEC: this module never signals partial closure as closure -- a chain one baton short is
 open, full stop. It never infers a chain from adjacency. It never treats a single baton shipping
 as a chain closing (`signal` skips single-baton components). It carries no memory of what it has
@@ -77,7 +87,7 @@ from pathlib import Path
 from typing import NamedTuple, Optional
 
 _TERMINAL_DEPLOYMENT = {"shipped", "continued", "closed"}
-_RESOLVED_DISPOSITIONS = {"coded", "wont_do", "backlogged", "spun_off"}
+_RESOLVED_DISPOSITIONS = {"coded", "wont_do", "backlogged", "spun_off", "delivered_elsewhere"}
 _COMMENT_PREFIX = re.compile(r"\A\s*<!--.*?-->", re.DOTALL)
 _SPINE_FENCE = re.compile(r"```ya?ml\s+plan-tasks\s*\n(.*?)\n```", re.DOTALL)
 
@@ -120,22 +130,46 @@ class Baton(NamedTuple):
     roadmap_id: Optional[str] = None
 
 
+def _fence_parts(text: str):
+    """(frontmatter text, rest) after the leading-comment strip, or None when unfenced. YAML-free;
+    shared by the full parse and the lineage pre-scan so both read the same fence."""
+    text = _COMMENT_PREFIX.sub("", text, count=1).lstrip()
+    if not text.startswith("---"):
+        return None
+    parts = text.split("---", 2)
+    if len(parts) < 3:
+        return None
+    return parts[1], parts[2]
+
+
 def _split_frontmatter(text: str):
     import yaml
 
-    text = _COMMENT_PREFIX.sub("", text, count=1).lstrip()
-    if not text.startswith("---"):
-        return None, text
-    parts = text.split("---", 2)
-    if len(parts) < 3:
+    fenced = _fence_parts(text)
+    if fenced is None:
         return None, text
     try:
-        data = yaml.load(parts[1], Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader))
+        data = yaml.load(fenced[0], Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader))
     except yaml.YAMLError:
         return None, text
     if not isinstance(data, dict):
         return None, text
-    return data, parts[2]
+    return data, fenced[1]
+
+
+_claim_holder_fn = None
+
+
+def _claim_holder(fm):
+    global _claim_holder_fn
+    if _claim_holder_fn is None:
+        lib_dir = str(Path(__file__).resolve().parent / "lib")
+        if lib_dir not in sys.path:
+            sys.path.insert(0, lib_dir)
+        from handoff_lifecycle import claim_holder
+
+        _claim_holder_fn = claim_holder
+    return _claim_holder_fn(fm)
 
 
 def _load_baton(path: Path) -> Optional[Baton]:
@@ -146,9 +180,6 @@ def _load_baton(path: Path) -> Optional[Baton]:
     fm, _body = _split_frontmatter(text)
     if fm is None:
         return None
-    sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
-    from handoff_lifecycle import claim_holder
-
     predecessor = fm.get("predecessor")
     predecessor = None if predecessor in (None, "none") else str(predecessor)
     plan_ids = fm.get("plan_ids") or []
@@ -162,7 +193,7 @@ def _load_baton(path: Path) -> Optional[Baton]:
         predecessor_id=fm.get("predecessor_id"),
         deployment_state=fm.get("deployment_state"),
         status=fm.get("status"),
-        claimed_by=claim_holder(fm) or None,
+        claimed_by=_claim_holder(fm) or None,
         continued_into=fm.get("continued_into"),
         plan_ids=list(plan_ids),
         blocks=list(fm.get("blocks") or []),
@@ -552,41 +583,306 @@ def _cmd_chains(repo_root: Path, stranded_only: bool = False) -> int:
     return 1 if unreadable else 0
 
 
-def _chain_containing(repo_root: Path, handoff_path: str):
-    target = Path(handoff_path)
-    if not target.is_absolute():
-        target = repo_root / target
-    target = target.resolve()
-    unreadable = []
-    chains = list(build_chains(load_all_batons(repo_root, unreadable)).values())
-    for members in chains:
-        if any(m.path.resolve() == target for m in members):
-            return members, unreadable
-    # A terminal baton is archived by the close's own sweep, so a path named
-    # before that sweep no longer exists. Its basename identifies it only when
-    # exactly one chain carries that name.
-    if not target.exists():
-        named = [c for c in chains if any(m.path.name == target.name for m in c)]
-        if len(named) == 1:
-            return named[0], unreadable
-    return None, unreadable
+_LINE_RE = re.compile(
+    r"^(handoff_id|deliverable_id|predecessor|predecessor_id|continued_into|plan_id)"
+    r":(?:[ \t]+(.*))?$",
+    re.MULTILINE,
+)
+_NOT_A_KEY_LINE_RE = re.compile(r"^(?![ \t#\-]|[A-Za-z_][\w.-]*:(?:[ \t]|$)|$)", re.MULTILINE)
+_PLAIN_COMMENT = re.compile(r"[ \t]+#.*$")
+_YAML_NULLS = frozenset({"", "null", "Null", "NULL", "~"})
+_UNREADABLE = object()
+
+
+class _Lineage(NamedTuple):
+    paths: list
+    unreadable: list
+    keys: list
+    root_of: dict
+
+
+class ChainVerdict(NamedTuple):
+    handoff_path: str
+    chain: Optional[str]
+    members: int
+    closed: bool
+    signal: Optional[str]
+    unreadable: tuple
+
+
+def _scalar(raw: str, continued: bool):
+    """The single-line YAML scalar `raw`, or `_UNREADABLE` when this reader cannot vouch for it."""
+    raw = raw.strip()
+    if continued:
+        return _UNREADABLE
+    if not raw or raw.startswith("#"):
+        return None
+    head = raw[0]
+    if head in "|>[{&*!?%@`":
+        return _UNREADABLE
+    if head in "\"'":
+        i = 1
+        while i < len(raw):
+            if head == '"' and raw[i] == "\\":
+                i += 2
+                continue
+            if raw[i] == head:
+                if head == "'" and raw[i + 1 : i + 2] == "'":
+                    i += 2
+                    continue
+                break
+            i += 1
+        else:
+            return _UNREADABLE
+        rest = raw[i + 1 :]
+        if rest.strip() and not (rest[0] in " \t" and rest.strip().startswith("#")):
+            return _UNREADABLE
+        body = raw[1:i]
+        if head == "'":
+            return body.replace("''", "'")
+        if "\\" in body:
+            try:
+                return json.loads(raw[: i + 1])
+            except ValueError:
+                return _UNREADABLE
+        return body
+    value = _PLAIN_COMMENT.sub("", raw).strip()
+    if ": " in value or value.endswith(":"):
+        return _UNREADABLE
+    return None if value in _YAML_NULLS else value
+
+
+def _read_head_block(path: Path) -> Optional[str]:
+    """The frontmatter text of `path`, read as bytes only as far as the closing fence; None when
+    the file is unreadable, undecodable or unfenced."""
+    try:
+        with open(path, "rb") as fh:
+            size = 4096
+            data = fh.read(size)
+            while True:
+                eof = len(data) < size
+                text = None
+                for cut in (0, 1, 2, 3):
+                    if cut and eof:
+                        break
+                    try:
+                        text = (data[:-cut] if cut else data).decode("utf-8")
+                        break
+                    except UnicodeDecodeError:
+                        continue
+                if text is None:
+                    return None
+                fenced = _fence_parts(text)
+                if fenced is not None:
+                    return fenced[0].replace("\r\n", "\n")
+                if eof:
+                    return None
+                fh.seek(0)
+                size *= 4
+                data = fh.read(size)
+    except OSError:
+        return None
+
+
+def _read_lineage_fields(path: Path) -> Optional[dict]:
+    """The `_LINE_RE` keys from the head of `path` (key -> scalar), or None when any of
+    them cannot be read without YAML. Last occurrence of a key wins, as in YAML."""
+    block = _read_head_block(path)
+    if block is None or _NOT_A_KEY_LINE_RE.search(block):
+        return None
+    out: dict = {}
+    for m in _LINE_RE.finditer(block):
+        nxt = block[m.end() + 1 : m.end() + 2]
+        continued = False
+        if nxt in (" ", "\t"):
+            tail = block[m.end() + 1 :].split("\n", 1)[0].strip()
+            continued = bool(tail) and not tail.startswith("#")
+        value = _scalar(m.group(2) or "", continued)
+        if value is _UNREADABLE:
+            return None
+        out[m.group(1)] = value
+    return out
+
+
+def _lineage_scan(repo_root: Path) -> _Lineage:
+    """Chain components from the five lineage keys alone, with no YAML parse.
+
+    NEGATIVE-SPEC (reconciles `load_all_batons`'s): a handoff whose lineage keys cannot be read
+    as single-line scalars, or that has no fence, is returned in `unreadable` and blocks every
+    verdict built on this scan. A file that reads cleanly joins its components even if its full
+    YAML is invalid; only a member of the requested chain is then YAML-parsed.
+    """
+    paths = _iter_handoff_paths(repo_root)
+    records: dict = {}
+    unreadable: list = []
+    by_name: dict = {}
+    for p in paths:
+        key = str(p)
+        by_name[p.name] = None if p.name in by_name else key
+        fields = _read_lineage_fields(p)
+        if fields is None:
+            unreadable.append(p)
+        else:
+            records[key] = fields
+    by_id = {r["handoff_id"]: k for k, r in records.items() if r.get("handoff_id")}
+    uf = _UnionFind(records)
+    dlv_groups: dict = {}
+    for k, r in records.items():
+        dlv = r.get("deliverable_id")
+        if dlv:
+            dlv_groups.setdefault(dlv, []).append(k)
+    for group in dlv_groups.values():
+        for k in group[1:]:
+            uf.union(group[0], k)
+    for k, r in records.items():
+        pred_id = r.get("predecessor_id")
+        target = by_id.get(pred_id) if pred_id and pred_id in by_id else None
+        if target is None:
+            pred = r.get("predecessor")
+            pred = None if pred in (None, "none") else str(pred)
+            if pred:
+                target = by_name.get(Path(pred.replace("\\", "/")).name)
+        if target is not None:
+            uf.union(k, target)
+    keys = list(records)
+    return _Lineage(paths, unreadable, keys, {k: uf.find(k) for k in keys})
+
+
+def _plan_index_for(repo_root: Path, wanted: set) -> dict:
+    """`build_plan_index` restricted to `wanted` plan ids, found by a `plan_id:` head scan.
+
+    A candidate is confirmed by the full parse before it counts, and a later file with the same
+    id overwrites an earlier one, as in `build_plan_index`."""
+    index: dict = {}
+    plans_dir = repo_root / "docs" / "plans"
+    if not wanted or not plans_dir.is_dir():
+        return index
+    for p in sorted(plans_dir.glob("*.md")):
+        fields = _read_lineage_fields(p)
+        if fields is not None:
+            pid = fields.get("plan_id")
+            if pid is None or str(pid) not in wanted:
+                continue
+        try:
+            text = p.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        fm, _body = _split_frontmatter(text)
+        if fm and fm.get("plan_id") and str(fm["plan_id"]) in wanted:
+            index[str(fm["plan_id"])] = p
+    return index
+
+
+class _Resolved(NamedTuple):
+    handoff_path: str
+    members: list
+    size: int
+    unreadable: list
+
+
+def _resolve(repo_root: Path, handoff_paths) -> tuple:
+    root = Path(repo_root).resolve()
+    scan = _lineage_scan(root)
+    components: dict = {}
+    for k in scan.keys:
+        components.setdefault(scan.root_of[k], []).append(k)
+    by_name: dict = {}
+    for k in scan.keys:
+        by_name.setdefault(Path(k).name, set()).add(scan.root_of[k])
+    loaded: dict = {}
+
+    def _members(comp):
+        if comp not in loaded:
+            batons, failed = [], []
+            for k in components[comp]:
+                b = _load_baton(Path(k))
+                if b is None:
+                    failed.append(Path(k))
+                else:
+                    batons.append(b)
+            loaded[comp] = (batons, failed)
+        return loaded[comp]
+
+    out = []
+    for raw in handoff_paths:
+        target = Path(raw)
+        if not target.is_absolute():
+            target = root / target
+        target = target.resolve()
+        comp = scan.root_of.get(str(target))
+        if comp is None and not target.exists():
+            named = by_name.get(target.name, set())
+            if len(named) == 1:
+                comp = next(iter(named))
+        blocked = list(scan.unreadable)
+        batons: list = []
+        if comp is not None:
+            batons, failed = _members(comp)
+            blocked += failed
+        size = len(components[comp]) if comp is not None and batons else 0
+        out.append(_Resolved(raw, batons, size, sorted({_rel(p, root) for p in blocked})))
+    return root, out
+
+
+def _rel(path: Path, root: Path) -> str:
+    try:
+        return path.relative_to(root).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def chain_verdicts(repo_root: Path, handoff_paths) -> list:
+    """One corpus pass for every path in `handoff_paths`; verdicts follow input order. A path
+    with no chain yields `chain=None`. The plan index is built only for a chain that passes every
+    non-plan check."""
+    root, resolved = _resolve(repo_root, list(handoff_paths))
+    cache: dict = {}
+    verdicts = []
+    for r in resolved:
+        if not r.members:
+            verdicts.append(ChainVerdict(r.handoff_path, None, 0, False, None, tuple(r.unreadable)))
+            continue
+        ident = tuple(str(b.path) for b in r.members)
+        closed = False
+        if not r.unreadable and r.size >= 2:
+            if ident not in cache:
+                result = evaluate_closure(r.members, {})
+                if any(not x.startswith("plan ") for x in result.reasons):
+                    cache[ident] = False
+                else:
+                    wanted = {str(pid) for b in r.members for pid in b.plan_ids if pid}
+                    cache[ident] = evaluate_closure(r.members, _plan_index_for(root, wanted)).closed
+            closed = cache[ident]
+        verdicts.append(
+            ChainVerdict(
+                r.handoff_path,
+                chain_name(r.members),
+                r.size,
+                closed,
+                emit_signal(r.members) if closed else None,
+                tuple(r.unreadable),
+            )
+        )
+    return verdicts
 
 
 def _cmd_check(repo_root: Path, handoff_path: str) -> int:
-    members, unreadable = _chain_containing(repo_root, handoff_path)
-    if members is None:
+    root, (resolved,) = _resolve(repo_root, [handoff_path])
+    members = resolved.members
+    if not members:
         print(f"no chain found containing {handoff_path}", file=sys.stderr)
         return 2
-    result = evaluate_closure(members, build_plan_index(repo_root))
+    wanted = {str(pid) for b in members for pid in b.plan_ids if pid}
+    result = evaluate_closure(members, _plan_index_for(root, wanted))
     name = chain_name(members)
-    if result.closed and not unreadable:
+    if result.closed and not resolved.unreadable:
         print(f"{name}: CLOSED")
         return 0
     print(f"{name}: OPEN")
     for reason in result.reasons:
         print(f"  ! {reason}")
-    for p in unreadable:
-        print(f"  ! {p}: unreadable handoff — closure unverifiable")
+    for p in resolved.unreadable:
+        print(f"  ! {root / p}: unreadable handoff — closure unverifiable")
     return 1
 
 
@@ -600,18 +896,19 @@ def _cmd_signal(repo_root: Path, handoff_path: str) -> int:
     an error. No ledger of already-signalled chains is kept: closure is re-derived from disk on
     every call, so a successor session reaches the same verdict without a message.
     """
-    members, unreadable = _chain_containing(repo_root, handoff_path)
-    if members is None:
+    verdict = chain_verdicts(repo_root, [handoff_path])[0]
+    if verdict.chain is None:
         print(f"no chain found containing {handoff_path}", file=sys.stderr)
         return 2
-    if len(members) < 2:
+    if verdict.members < 2:
         return 0
-    if unreadable:
-        for p in unreadable:
-            print(f"{p}: unreadable handoff — closure unverifiable", file=sys.stderr)
+    if verdict.unreadable:
+        root = Path(repo_root).resolve()
+        for p in verdict.unreadable:
+            print(f"{root / p}: unreadable handoff — closure unverifiable", file=sys.stderr)
         return 0
-    if evaluate_closure(members, build_plan_index(repo_root)).closed:
-        print(emit_signal(members))
+    if verdict.signal:
+        print(verdict.signal)
     return 0
 
 

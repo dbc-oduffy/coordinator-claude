@@ -122,8 +122,6 @@ be a sibling repo in a consumer context).
 | `bin/workday-complete-step9-append-changelog.sh:150` | `CHANGELOG_FILE="${COORDINATOR_ROOT}/state/week-changelog/..."` | PER-REPO | state ref via COORDINATOR_ROOT |
 | `bin/workday-complete-step9-append-changelog.sh:151` | `HEADER_FILE="${COORDINATOR_ROOT}/state/week-changelog/HEADER.md"` | PER-REPO | state ref via COORDINATOR_ROOT |
 | `bin/workday-complete-step9-append-changelog.sh:354` | `HANDOFF_DIR="${COORDINATOR_ROOT}/state/handoffs"` | PER-REPO | state ref via COORDINATOR_ROOT |
-| `bin/workday-start-cross-repo-memo-outbox-surface.sh:48` | `git_root=$(git rev-parse --show-toplevel 2>/dev/null)` | PER-REPO | rev-parse line |
-| `bin/workday-start-cross-repo-memo-outbox-surface.sh:49` | `OUTBOX_DIR="${git_root}/state/memo-outbox"` | PER-REPO | state ref via git_root |
 | `hooks/scripts/context-pressure-precompact.sh:94` | `GIT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"` | PER-REPO | rev-parse line |
 | `hooks/scripts/context-pressure-precompact.sh:100` | `ls "${GIT_ROOT}/state/handoffs/"*.md 2>/dev/null` | PER-REPO | state ref via GIT_ROOT |
 | `hooks/scripts/project-orientation.sh:18` | `REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"` | PER-REPO | rev-parse line |

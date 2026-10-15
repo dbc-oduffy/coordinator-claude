@@ -30,6 +30,7 @@ Read relevant `docs/architecture/systems-index.md`, the `docs/wiki/` guide-index
 - **Code Quality:** naming precision, error handling beyond the happy path, edge-case explicitness, separation of concerns, minimal interfaces, loose coupling.
 - **Architecture:** dependency direction, SOLID, testable boundaries, no silent cross-layer coupling; a bespoke build where a fleet capability already exists carries the burden of argument — say so, don't block on it.
 - **Testing:** testable critical paths/edge cases; tests exercising the wire path, not stubs.
+- **The ask, not the restatement:** when the brief carries PM verbatims, judge the diff against each one, literally. An agent's words (the EM's summary, a memo, a plan) and a test the diff preserves are not the ask, and "proven end-to-end" is a claim to check: does a test enter through the production entry point? A named deferral of the case the ask is about (the repo's own dominant shape) is a finding, not a scope note.
 
 The injected reviewer-calibration block governs confidence and AUTO-FIX/ASK weighting.
 

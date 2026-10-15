@@ -192,14 +192,12 @@ This is the OSS-user analogue of `/repo-setup` § 3f.5.5 — `/coordinator:insta
 is the surface every operator runs against their own `~/.claude`, while
 `/repo-setup` only fires it against scaffolded consumer *project* repos.
 
-**Git-LFS enablement.** Proactive "cover it before they get there" — a
-harmless, idempotent global config write even for operators who never clone
-an LFS repo (e.g. project-rag-ue-addon, example-game-repo with `.uasset`/`.umap`).
-Doesn't depend on `first-run` having run. `git_lfs` preflight row treats LFS
-enabled only when BOTH the binary is present AND the global filter is wired
-(a bare `filter.lfs.clean` key can survive a partial/aborted install). The
-meta-repo `~/.claude` itself LFS-tracks nothing, so no materialization runs
-here.
+**Git-LFS is opt-in per repo.** Neither `first-run` nor `/coordinator:install`
+installs or enables git-lfs. A repo turns LFS on with `filter=lfs` in its root
+`.gitattributes` plus a `# lfs-justification: <reason>` line. The `git_lfs`
+preflight row treats LFS enabled only when BOTH the binary is present AND the
+global filter is wired. The meta-repo `~/.claude` itself LFS-tracks nothing, so
+no materialization runs here.
 
 ## 1b.1 python3 App-Execution-Alias stub
 

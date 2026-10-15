@@ -11,8 +11,40 @@ You are the NotebookLM Research Scope stage. Turn the sizing into the run's stra
 
 - **Sizing:** {{brief}} — carries the research topic, the intent, the `research` block, and `research.targets`.
 - **PM-supplied URLs:** the `research.targets` entries whose `source` is `notebooklm`. Treat each as a pre-selected source for a notebook (YouTube, podcast, article, Drive document).
-- **Best practices:** read `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/notebooklm/notebooklm-best-practices.md` first.
-- **Protocol:** read `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/notebooklm/team-protocol.md` § Data Contract, § Rate Limit Budgeting and § Timing for the strategy.md shape, worker counts per tier, and ceilings.
+- **Plugin root:** resolve `<plugin-root>` once with this shell ladder, and read both files below under it. A non-empty `CLAUDE_PLUGIN_ROOT` naming a directory wins; otherwise `COORDINATOR_ENGINE_ROOT`, then the `.content-root` pointers.
+
+  ```bash
+  _sh=${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}
+  if [ -n "$CLAUDE_PLUGIN_ROOT" ] && [ -d "$CLAUDE_PLUGIN_ROOT" ]; then
+      echo "$CLAUDE_PLUGIN_ROOT"
+  else
+      if [ -n "$COORDINATOR_ENGINE_ROOT" ] && [ -d "$COORDINATOR_ENGINE_ROOT/coordinator" ]; then
+          _content_root=$COORDINATOR_ENGINE_ROOT
+      else
+          _content_root=$(cat "$_sh/machine-local/.content-root" 2>/dev/null || cat "${CLAUDE_HOME:-$HOME}/.claude/.content-root" 2>/dev/null)
+      fi
+      [ -n "$_content_root" ] && [ -d "$_content_root/coordinator" ] || { echo "unresolved plugin root" >&2; exit 1; }
+      echo "$_content_root/coordinator"
+  fi
+  ```
+  ```powershell
+  $sh = if ($env:COORDINATOR_SETTINGS_HOME) { $env:COORDINATOR_SETTINGS_HOME } else { Join-Path ($env:CLAUDE_HOME ?? $HOME) ".coordinator-claude-settings" }
+  $pr = $env:CLAUDE_PLUGIN_ROOT
+  if (-not ($pr -and (Test-Path $pr -PathType Container))) {
+      $doe = $env:COORDINATOR_ENGINE_ROOT
+      if (-not ($doe -and (Test-Path (Join-Path $doe "coordinator") -PathType Container))) {
+          $doe = $null
+          foreach ($f in @((Join-Path $sh "machine-local\.content-root"), (Join-Path ($env:CLAUDE_HOME ?? $HOME) ".claude\.content-root"))) { if (-not $doe -and (Test-Path $f)) { $doe = (Get-Content $f -Raw).Trim() } }
+      }
+      if (-not ($doe -and (Test-Path (Join-Path $doe "coordinator") -PathType Container))) { Write-Error "unresolved plugin root"; exit 1 }
+      $pr = Join-Path $doe "coordinator"
+  }
+  $pr
+  ```
+
+  When it refuses, add one advisory line under `## Scope notes` (`plugin root unresolved; best-practices and protocol unread`) and design from the sizing alone.
+- **Best practices:** read `<plugin-root>/pipelines/deep-research/notebooklm/notebooklm-best-practices.md` first.
+- **Protocol:** read `<plugin-root>/pipelines/deep-research/notebooklm/team-protocol.md` § Data Contract, § Rate Limit Budgeting and § Timing for the strategy.md shape, worker counts per tier, and ceilings.
 
 ## Output
 

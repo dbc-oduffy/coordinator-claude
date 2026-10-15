@@ -26,6 +26,7 @@
 # platform is actually running.
 $ErrorActionPreference = 'Stop'
 $_here = Split-Path -Parent $MyInvocation.MyCommand.Path
+$_piped = $MyInvocation.ExpectingInput
 $_entry = Join-Path $_here 'reverify-delivery.py'
 $_pybin = '__PYTHON_BIN__'
 # No placeholder-vs-placeholder test here: install-substrate.py replaces EVERY
@@ -36,7 +37,7 @@ $_pybin = '__PYTHON_BIN__'
 
 if ($_pybin -ne '' -and -not (Test-Path -LiteralPath $_pybin)) { $_pybin = '' }
 if ($_pybin -ne '') {
-    & $_pybin $_entry @args
+    if ($_piped) { $input | & $_pybin $_entry @args } else { & $_pybin $_entry @args }
     exit $LASTEXITCODE
 }
 # Host-local resolution cache (DR-303 / windows-interpreter-bake-is-empty):
@@ -52,7 +53,7 @@ if ($env:LOCALAPPDATA) {
         $_cached = $null
         try { $_cached = Get-Content -LiteralPath $_cachefile -TotalCount 1 -ErrorAction SilentlyContinue } catch {}
         if ($_cached -and (Test-Path -LiteralPath $_cached)) {
-            & $_cached $_entry @args
+            if ($_piped) { $input | & $_cached $_entry @args } else { & $_cached $_entry @args }
             exit $LASTEXITCODE
         }
     }
@@ -77,12 +78,12 @@ if ($_py) {
             Move-Item -LiteralPath $_tmpfile -Destination $_cachefile -Force -ErrorAction SilentlyContinue
         } catch {}
     }
-    & $_py.Source $_entry @args
+    if ($_piped) { $input | & $_py.Source $_entry @args } else { & $_py.Source $_entry @args }
     exit $LASTEXITCODE
 }
 $_pyl = Get-Command py -ErrorAction SilentlyContinue
 if ($_pyl) {
-    & $_pyl.Source -3 $_entry @args
+    if ($_piped) { $input | & $_pyl.Source -3 $_entry @args } else { & $_pyl.Source -3 $_entry @args }
     exit $LASTEXITCODE
 }
 [Console]::Error.WriteLine('[reverify-delivery] ERROR: no Python interpreter found (python.exe / py -3).')

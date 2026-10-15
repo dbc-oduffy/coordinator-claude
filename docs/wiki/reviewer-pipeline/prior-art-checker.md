@@ -369,14 +369,13 @@ as `live`. A capability whose seam has never been self-verified reachable is
 `unverified` by default (never `live`), and manifest entries with
 `provenance: generated | asserted` fail closed harder than `curated` ones.
 
-### Report-then-relay action
+### Report-then-send action
 
 The bucket's action is REPORT-only, never a cross-repo write of its own: the
-sidecar directs the EM to route a `cross-repo-memo` and hand the PM the
-receiver path for relay — the same draft-then-surface-to-PM discipline every
-cross-repo ask in this system follows (`coordinator/docs/wiki/cross-repo-communication.md`: "hand
-the PM the receiver path for relay" is part of "fix everything," alongside
-acting the inbound and sending the outbound memo). Any engine op reading a
+sidecar directs the EM to send a `cross-repo-memo` — the same
+discipline every cross-repo ask in this system follows
+(`coordinator/docs/wiki/cross-repo-communication.md`: sending the outbound
+memo is part of "fix everything," alongside acting the inbound). Any engine op reading a
 sibling's authored manifest is read-only against that sibling's tree — the
 same invariant `coordinator/docs/wiki/cross-repo-communication.md` § When lifting a cross-repo
 primitive states as "ship what makes sense for OUR install surface; teach

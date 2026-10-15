@@ -7,6 +7,9 @@ Contract: coordinator/docs/wiki/doctrine-authoring/decisions-corpus.md.
 
 Never imports coordinator_core: a stdlib-only fleet check with no engine-root bootstrap,
 so its git reads stay on its own bounded `subprocess.run`.
+
+An id whose decision file was deleted in this repo's git history resolves (one lazy `git log`,
+spawned only when a cited id is missing locally); a shallow clone lacking the deleting commit stays red.
 """
 
 from __future__ import annotations
@@ -33,6 +36,7 @@ _GREP_PATTERN = r"(^|[^A-Za-z0-9-])(SC-)?DR-[0-9]{3}([^0-9]|$)"
 _TOKEN = re.compile(r"(?<![A-Za-z0-9-])((?:SC-)?DR-\d{3})(?!\d)")
 _FENCE = re.compile(r"^\s*(`{3,}|~{3,})")
 _FILENAME_ID = re.compile(r"^(DR-\d{3})")
+_DELETED_ID = re.compile(r"^(DR-\d{3})(?:-|\.md$)")
 _FM_ID = re.compile(r"""^id:\s*["']?(DR-\d{3})""")
 _KEYS_LINE = "Resolved sibling registry keys:"
 
@@ -181,6 +185,30 @@ def live_tokens(root: Path) -> dict[str, set[str]]:
     return found
 
 
+def deleted_decision_ids(root: Path) -> set[str]:
+    """DR ids whose decision file a commit in this repo's history deleted."""
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(root), "log", "--diff-filter=D", "--name-only", "--format=", "--", *DECISION_DIRS],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            creationflags=_no_console(),
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise CheckError(f"git log failed to run: {exc}") from exc
+    if proc.returncode == 128 and "does not have any commits yet" in proc.stderr:
+        return set()
+    if proc.returncode != 0:
+        raise CheckError(f"git log exited {proc.returncode}: {proc.stderr.strip()}")
+    ids: set[str] = set()
+    for line in proc.stdout.splitlines():
+        m = _DELETED_ID.match(line.strip().rsplit("/", 1)[-1])
+        if m:
+            ids.add(m.group(1))
+    return ids
+
+
 def _sc_wiki_ids(root: Path) -> set[str]:
     wiki = root / SC_WIKI_REL
     if not wiki.is_file():
@@ -196,11 +224,16 @@ def classify(
     sc = _sc_wiki_ids(root)
     dangling: list[str] = []
     bare: dict[str, list[str]] = {}
+    deleted: set[str] | None = None
     for ident in sorted(cited):
         if ident.startswith("SC-"):
             if ident not in sc:
                 dangling.append(ident)
         elif ident not in local:
+            if deleted is None:
+                deleted = deleted_decision_ids(root)
+            if ident in deleted:
+                continue
             keys = sorted(k for k, ids in siblings.items() if ident in ids)
             if keys:
                 bare[ident] = keys

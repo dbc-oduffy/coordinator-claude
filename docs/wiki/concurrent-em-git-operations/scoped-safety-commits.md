@@ -935,7 +935,7 @@ The remedy across all three is the one already stated above — pathspec on both
 
 1. Before committing a shared hot file, `git --no-optional-locks diff -- <file> | grep` for foreign workstream markers (commit-message keywords, variable names, function names specific to the sibling's workstream) to confirm the union.
 2. Commit the file explicit-path with a commit-body `NOTE:` crediting the sibling workstream: what was absorbed, that it will be reviewed at their workstream-complete, that you authored none of the absorbed hunks.
-3. Hand the PM a one-line relay so the sibling EM knows their work landed under your SHA and does not re-commit it.
+3. Tell the sibling EM yourself (SendMessage if its session is live, a memo if not) that their work landed under your SHA, so it does not re-commit it.
 4. Scope your own code review to EXCLUDE the absorbed foreign hunks — name them out-of-scope in your reviewer brief.
 
 **De-risking context:** on a `UBT-PENDING` stack where chunks commit pre-review and review runs at each workstream's own workstream-complete, checkpointing a sibling's code under your SHA does NOT bypass their quality gate — the only real cost is attribution. The `NOTE:` in the commit body is the attribution recovery mechanism.

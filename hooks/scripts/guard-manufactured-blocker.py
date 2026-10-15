@@ -40,6 +40,10 @@ final message -- the trigger text is right there in the output, nothing is
 inferred. No timing, idle-duration, or session-age predicate exists anywhere
 in this module (grep-asserted by the test suite, same discipline as A5).
 
+The one clock read is the go-ask advisory's Group EM heartbeat freshness
+(`state/group-em-watch.json`): it witnesses a peer's liveness, never this
+session's abandonment, and the advisory it gates cannot block.
+
 SCOPE OF THE READ. Stop hooks receive a transcript path. This module reads
 ONLY the final assistant message -- never the whole conversation -- which is
 what keeps it a cheap `command` hook.
@@ -467,14 +471,37 @@ def _inside_quote(prefix: str) -> bool:
     return sum(1 for ch in line if ch in _QUOTE_CHARS) % 2 == 1
 
 
+_PROGRESSIVE_WAIT_RE = re.compile(r"\bwaiting\s+on\s+you\b", re.IGNORECASE)
+_HANDOFF_REQUEST_RE = re.compile(
+    r"\?|\b(?:decide|decision|approve|approval|authori[sz]\w*|confirm|go-ahead|sign-off|your\s+(?:call|input|go)"
+    r"|please|need\s+you|can\s+you|could\s+you|let\s+me\s+know|tell\s+me|should\s+I|want\s+me)\b",
+    re.IGNORECASE,
+)
+_SENTENCE_BREAK_RE = re.compile(r"[.!?\n]")
+
+
+def _status_line_wait(text: str, start: int, end: int) -> bool:
+    """True when the progressive 'waiting on you' sits in a sentence that neither asks a
+    question nor requests a decision: a status line describing a gate, not a handoff."""
+    left = max((text.rfind(ch, 0, start) for ch in ".!?\n"), default=-1) + 1
+    tail = _SENTENCE_BREAK_RE.search(text, end)
+    right = tail.end() if tail else len(text)
+    if text[end:end + 1] == ":":
+        return False
+    return not _HANDOFF_REQUEST_RE.search(text[left:right])
+
+
 def _fires(pattern: "re.Pattern[str]", text: str) -> bool:
     """A trigger match counts unless a negation sits within the three words before it in the
     same clause ("Nothing is waiting on you" states no handoff exists), it sits inside a quoted
-    span on its line, or it is reported speech. Undecidable cases stay silent: a missed handoff
+    span on its line, it is reported speech, or it is a progressive "waiting on you" status line
+    with no question or decision request. Undecidable cases stay silent: a missed handoff
     is cheaper than a false stop."""
     for m in pattern.finditer(text):
         prefix = text[:m.start()]
         if _NEGATION_BEFORE.search(prefix[-60:]):
+            continue
+        if _PROGRESSIVE_WAIT_RE.fullmatch(m.group(0)) and _status_line_wait(text, m.start(), m.end()):
             continue
         if _inside_quote(prefix) or _reported_speech(prefix) or _third_party_clause(prefix):
             continue
@@ -813,6 +840,78 @@ def _emit_decidability_verdict(candidate: str, text: str) -> int:
     return 0
 
 
+# ---------------------------------------------------------------------------
+# The go-ask tail while a Group EM is live. The EM ends its report asking
+# for a go ("waiting on your go", "should I fix it?") although a live Group
+# EM holds the standing to decide. ADVISORY-ONLY by construction: a refusal
+# would force a rewrite where an edit-down is all the message needs. Matched
+# only against the message tail (last two sentences); gated on the Group EM
+# heartbeat at `state/group-em-watch.json`, so with no live holder it is
+# silent -- an unattended-PM session may legitimately end on a question.
+# ---------------------------------------------------------------------------
+
+_GO_ASK_PATTERNS = [
+    re.compile(
+        r"\b(?:waiting|awaiting|wait)\s+(?:on|for)\s+your\s+"
+        r"(?:go|go-ahead|say-so|word|nod|ok|okay|green\s*light)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\bon\s+your\s+(?:go|go-ahead)\b", re.IGNORECASE),
+    re.compile(r"\bsay\s+(?:go|the\s+word)\b", re.IGNORECASE),
+    re.compile(r"\bgive\s+(?:me\s+)?the\s+(?:go|go-ahead|green\s*light)\b", re.IGNORECASE),
+    re.compile(r"\bready\s+when\s+you\s+are\b", re.IGNORECASE),
+    re.compile(
+        r"\bshould\s+I\s+(?:go\s+ahead|proceed|fix|ship|file|push|start|continue|do)\b[^.?!\n]*\?",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\b(?:want|would\s+you\s+like)\s+me\s+to\b[^.?!\n]*\?", re.IGNORECASE),
+]
+
+_GO_ASK_TAIL_SENTENCES = 2
+_GROUP_EM_WATCH_REL = ("state", "group-em-watch.json")
+_GROUP_EM_LIVE_SECONDS = 15 * 60
+
+_GO_ASK_ADVISORY_TEXT = (
+    "[guard] This turn ends asking for a go while a Group EM is live. Do not "
+    "wait on the PM: edit the tail down and act on your recommendation, or "
+    "route the question up to the live Group EM (and the APM for direction "
+    "calls). State what you did or will do, not what you are waiting for.\n"
+)
+
+
+def _go_ask_tail(text: str) -> bool:
+    tail = _split_sentences(text)[-_GO_ASK_TAIL_SENTENCES:]
+    return any(_fires(p, s) for s in tail for p in _GO_ASK_PATTERNS)
+
+
+def _group_em_live(payload: dict) -> bool:
+    """True iff the watch heartbeat names a holder and was ticked within
+    `_GROUP_EM_LIVE_SECONDS`. Any read/parse failure is "not live"."""
+    from datetime import datetime, timezone
+
+    try:
+        repo_root = _repo_root(payload)
+        if repo_root is None:
+            return False
+        with open(os.path.join(repo_root, *_GROUP_EM_WATCH_REL), encoding="utf-8") as fh:
+            watch = json.load(fh)
+        if not isinstance(watch, dict) or not str(watch.get("holder_session_id") or "").strip():
+            return False
+        ticked = datetime.fromisoformat(str(watch["last_tick_at"]).replace("Z", "+00:00"))
+        if ticked.tzinfo is None:
+            ticked = ticked.replace(tzinfo=timezone.utc)
+        age = (datetime.now(timezone.utc) - ticked).total_seconds()
+        return age <= _GROUP_EM_LIVE_SECONDS
+    except Exception:
+        return False
+
+
+def _emit_go_ask_advisory(payload: dict, text: str) -> None:
+    """Never affects the exit status; writes the advisory to stdout only."""
+    if _go_ask_tail(text) and _group_em_live(payload):
+        sys.stdout.write(_GO_ASK_ADVISORY_TEXT)
+
+
 def main() -> int:
     try:
         raw = sys.stdin.read()
@@ -838,6 +937,8 @@ def main() -> int:
     text = _strip_declared_operator_actions(_final_assistant_text(transcript_path))
     if not text.strip():
         return 0
+
+    _emit_go_ask_advisory(payload, text)
 
     if not _matches_manufactured_blocker(text):
         # No off-altitude handoff triggered here. The message may still be

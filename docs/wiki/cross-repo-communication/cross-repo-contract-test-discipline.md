@@ -144,7 +144,7 @@ For any seam where an addon extends a host-owned schema:
 2. **The parity test imports the host's constant — it does not assert a local literal.** A test asserting `== 1` against an in-repo copy is the same green-by-skip / fabricated-counterpart failure named at the top of this page: it passes when nothing crossed the boundary. The host **owns** the constant; it must expose a stable importable name; the addon's test imports and compares it.
 3. **Both halves fail loud on drift.** Host-side reciprocal test (host manifest version == host constant) + addon-side parity test (addon assertion imports host constant). A shape change then forces simultaneous attention on both sides — the coupling is the point, as with the byte-equal fixture above.
 4. **Confirm the ownership boundary, not just the field list** (→ the roadmap-stub rule above): an addon extends the host schema with addon-only *fields/types via the documented extension surface* (hookspec, optional columns the host tolerates), never by editing the host's frozen shape. The host owns the version; the addon owns its extension.
-5. **The cross-repo half routes via `cross-repo-memo` + PM relay**, never a direct edit to the host's schema/TOML/constant. The addon adds its own version field and rewrites its own test unilaterally; the host-owned constant and reciprocal test are the host EM's landing.
+5. **The cross-repo half routes via `cross-repo-memo`**, never a direct edit to the host's schema/TOML/constant. The addon adds its own version field and rewrites its own test unilaterally; the host-owned constant and reciprocal test are the host EM's landing.
 
 ### Anti-patterns
 

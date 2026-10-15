@@ -362,7 +362,66 @@ class PrimaryScanResult(NamedTuple):
     mirror_conflicts: list[str]
 
 
-def primary_consumed_handoff_scan(repo_root: Path, sid: str) -> PrimaryScanResult:
+_FLOOR_UNSET: Any = object()
+
+
+def _session_floor(repo_root: Path, sid: str) -> float | None:
+    """The session-start floor, or `None` (the unfloored walk) when it cannot be resolved or the
+    engine predates `scan_floor`."""
+    try:
+        from coordinator_core.session import scan_floor
+    except ImportError:
+        return None
+    try:
+        return scan_floor.session_start_floor(repo_root, sid)
+    except Exception:
+        return None
+
+
+def _iter_floored(directory: Path, floor: float | None, always: frozenset[str], *, recursive: bool):
+    """`scan_floor.iter_files_at_or_above`, degrading to the unfloored walk on an engine without it.
+    Order is the unfloored walk's: `os.walk` top-down for recursive, `glob` order for flat."""
+    try:
+        from coordinator_core.session.scan_floor import iter_files_at_or_above
+    except ImportError:
+        if recursive:
+            for dirpath, _dirs, names in os.walk(directory):
+                for name in names:
+                    yield Path(dirpath, name)
+        else:
+            yield from directory.glob("*.md")
+        return
+    yield from iter_files_at_or_above(directory, floor, always, recursive=recursive)
+
+
+def _claim_states_naming(directory: Path, repo_root: Path, sid: str, floor: Any = _FLOOR_UNSET):
+    """Yield `(file, ClaimState)` for each file under `directory` that the ledger or the 4 KiB
+    frontmatter head could attribute to `sid`; every other file's resolved holder cannot be `sid`
+    and is never read through `resolve_claim_state`. Files below the session-start `floor` are
+    skipped unless the ledger names them."""
+    from coordinator_core.claim_state import MIRROR_READ_CAP, handoff_claim_dir
+    from coordinator_core.lifecycle import git_common_dir
+
+    if floor is _FLOOR_UNSET:
+        floor = _session_floor(repo_root, sid)
+    try:
+        ledger_names = set(os.listdir(handoff_claim_dir(git_common_dir(repo_root), Path("x")).parent))
+    except Exception:
+        ledger_names = set()
+    for f in _iter_floored(directory, floor, frozenset(ledger_names), recursive=True):
+        if f.name not in ledger_names:
+            try:
+                with open(f, "r", encoding="utf-8", errors="replace") as fh:
+                    if sid not in fh.read(MIRROR_READ_CAP):
+                        continue
+            except OSError:
+                continue
+        yield f, resolve_claim_state(f, repo_root=repo_root)
+
+
+def primary_consumed_handoff_scan(
+    repo_root: Path, sid: str, floor: Any = _FLOOR_UNSET
+) -> PrimaryScanResult:
     """This bin script's OWN detector set: every file under state/handoffs/
     whose claim state — resolved ledger-first via
     `coordinator_core.claim_state.resolve_claim_state`, frontmatter mirror
@@ -413,10 +472,7 @@ def primary_consumed_handoff_scan(repo_root: Path, sid: str) -> PrimaryScanResul
         return PrimaryScanResult([], [])
     matches: list[Path] = []
     conflicts: list[Path] = []
-    for f in handoffs_dir.rglob("*"):
-        if not f.is_file():
-            continue
-        state = resolve_claim_state(f, repo_root=repo_root)
+    for f, state in _claim_states_naming(handoffs_dir, repo_root, sid, floor):
         if state.holder != sid:
             continue
         if state.mirror_holder and state.mirror_holder != sid:
@@ -456,7 +512,7 @@ def primary_consumed_handoff(repo_root: Path, sid: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def detector_a(repo_root: Path, sid: str) -> str | None:
+def detector_a(repo_root: Path, sid: str, floor: Any = _FLOOR_UNSET) -> str | None:
     """An ARCHIVED handoff whose claim state — resolved ledger-first via
     `coordinator_core.claim_state.resolve_claim_state`, frontmatter mirror as
     fallback (C1) — names this session as holder AND carries a
@@ -470,10 +526,7 @@ def detector_a(repo_root: Path, sid: str) -> str | None:
         return None
     predecessor_re = re.compile(r"^predecessor:", re.MULTILINE)
     candidates = []
-    for f in archive_dir.rglob("*"):
-        if not f.is_file():
-            continue
-        state = resolve_claim_state(f, repo_root=repo_root)
+    for f, state in _claim_states_naming(archive_dir, repo_root, sid, floor):
         if state.holder == sid:
             candidates.append(f)
     for f in sorted(candidates):
@@ -579,8 +632,39 @@ def _is_sweep_attributed_subject(subject: str) -> bool:
     return any(subject.startswith(prefix) for prefix in _SWEEP_ATTRIBUTED_SUBJECT_PREFIXES)
 
 
+def _detector_b_from_history(history: Any, diagnostics: list[str]) -> str | None:
+    """Detector B over the injected window: newest own commit first, `A`/`R`/`C` rows only."""
+    if not history.resolved:
+        return None
+    for commit in reversed(history.own):  # `own` is oldest-first
+        for change in commit.files:
+            if change.status not in ("A", "R", "C") or not _HANDOFF_PATH_RE.match(change.path):
+                continue
+            if _is_sweep_attributed_subject(commit.subject):
+                diagnostics.append(_sweep_rejection_note(change.path, commit.subject))
+                continue
+            return change.path
+    return None
+
+
+def _sweep_rejection_note(path: str, subject: str) -> str:
+    return (
+        f"NOTE: Detector B candidate {path} rejected — archiving commit "
+        f"subject ({subject!r}) matches a known automated bulk/housekeeping "
+        "archival prefix, not evidence this session performed the archival itself "
+        "(2026-08-05 chain-terminal misattribution incident: a nested fleet-archive/"
+        "boot_sweep run carries this session's Session-Id trailer regardless of whose "
+        "handoff it swept)"
+    )
+
+
 def detector_b_shipped_by_me(
-    repo_root: Path, sid: str, ship_base: str, diagnostics: list[str]
+    repo_root: Path,
+    sid: str,
+    ship_base: str | None,
+    diagnostics: list[str],
+    *,
+    history: Any = None,
 ) -> str | None:
     """First `archive/handoffs/*.md` path this session's commits added,
     renamed, or copied in `ship_base..HEAD` (--diff-filter=ARC
@@ -597,7 +681,13 @@ def detector_b_shipped_by_me(
     `%(trailers:...,valueonly)` formatter appends its OWN trailing newline
     after the value (present even for a single trailer) — placing it
     anywhere but last in the format string silently truncates every field
-    after it (verified live during this fix)."""
+    after it (verified live during this fix).
+
+    With `history` (a `SessionHistory`) the answer comes from `history.own`
+    and nothing is spawned; `ship_base` is ignored. An unresolved history
+    returns None, never a walk."""
+    if history is not None:
+        return _detector_b_from_history(history, diagnostics)
     cmd = [
         "git",
         "-C",
@@ -634,14 +724,7 @@ def detector_b_shipped_by_me(
         if not _HANDOFF_PATH_RE.match(last_field):
             continue
         if _is_sweep_attributed_subject(commit_subject):
-            diagnostics.append(
-                f"NOTE: Detector B candidate {last_field} rejected — archiving commit "
-                f"subject ({commit_subject!r}) matches a known automated bulk/housekeeping "
-                "archival prefix, not evidence this session performed the archival itself "
-                "(2026-08-05 chain-terminal misattribution incident: a nested fleet-archive/"
-                "boot_sweep run carries this session's Session-Id trailer regardless of whose "
-                "handoff it swept)"
-            )
+            diagnostics.append(_sweep_rejection_note(last_field, commit_subject))
             continue
         return last_field
     return None
@@ -839,10 +922,13 @@ def _session_claim_cli_argv(cli_path: Path) -> list[str]:
     return [sys.executable, str(cli_path)]
 
 
-def list_stale_claim_handoffs(cli_path: Path, repo_root: Path) -> tuple[list[tuple[str, str]] | None, int]:
+def list_stale_claim_handoffs(
+    cli_path: Path | None, repo_root: Path
+) -> tuple[list[tuple[str, str]] | None, int]:
     """Stale-claim enumeration, in-process; `cli_path` is spawned only when the
     engine module cannot be imported here. Failure maps to the CLI's exit code
-    (an enumeration crash is rc 1, never an empty list)."""
+    (an enumeration crash is rc 1, never an empty list). A None `cli_path`
+    never spawns: an unimportable engine module is rc 1."""
     try:
         from coordinator_core.session.stale_claims import (  # noqa: PLC0415
             list_stale_claim_handoffs as _engine_list_stale,
@@ -854,6 +940,8 @@ def list_stale_claim_handoffs(cli_path: Path, repo_root: Path) -> tuple[list[tup
             return [(e.path, e.claimer_sid) for e in _engine_list_stale(str(repo_root))], 0
         except Exception:
             return None, 1
+    if cli_path is None:
+        return None, 1
     proc = subprocess.run(
         [*_session_claim_cli_argv(cli_path), "list-stale-claim-handoffs", str(repo_root)],
         capture_output=True,
@@ -898,7 +986,14 @@ def parse_scope_paths(handoff_path: str) -> list[str]:
     return result
 
 
-def all_committed_paths(repo_root: Path, sid: str, ship_base: str) -> list[str]:
+def all_committed_paths(
+    repo_root: Path, sid: str, ship_base: str | None, *, history: Any = None
+) -> list[str]:
+    """Paths this session committed; with `history`, read from `history.own` with no spawn."""
+    if history is not None:
+        if not history.resolved:
+            return []
+        return [change.path for commit in history.own for change in commit.files]
     lines = _git_log_trailer_lines(repo_root, f"{ship_base}..HEAD", ["--name-only"])
     if lines is None:
         return []
@@ -1110,6 +1205,8 @@ def _resolve_deliverable_id_join(
     sid: str,
     stale_entries: list[tuple[str, str]],
     diagnostics: list[str],
+    *,
+    history: Any = None,
 ) -> "CrashRecoveryOutcome | None":
     """Session-shape attribution's PREFERRED leg (C5, 2026-08-20
     `wsc-identity-gates-key-on-the-deliverable.md`, item 1 AC2): join this
@@ -1141,7 +1238,7 @@ def _resolve_deliverable_id_join(
     not run. The claimer is never compared against `sid`: the stale
     enumerator only yields batons whose claimers are not live, so a
     comparison could not discriminate."""
-    result = session_deliverable_ids(repo_root, sid)
+    result = session_deliverable_ids(repo_root, sid, history=history)
     if not result.ok or not result.deliverable_ids:
         return None
     if len(result.deliverable_ids) != 1:
@@ -1195,12 +1292,44 @@ def detector_c(
     ship_base: str | None,
     cli_path: Path | None,
     diagnostics: list[str],
+    *,
+    history: Any = None,
 ) -> "CrashRecoveryOutcome":
     """Returns a `CrashRecoveryOutcome` (repo_relative_handoff_path_or_None,
     status) where status is one of None, "indeterminate", "ambiguous", or
     "crash-recovery" — plus `.match_facts` (see `CrashRecoveryOutcome`),
     `None` on every early-return path here, propagated unchanged from
-    `_resolve_crash_recovery` on the crash-recovery path."""
+    `_resolve_crash_recovery` on the crash-recovery path.
+
+    With `history` (a `SessionHistory`) liveness is enumerated in-process
+    only (`cli_path` and `ship_base` are ignored), the Deliverable-Id join
+    and committed paths come from the window, and an unresolved history is
+    "indeterminate" — never a spawn."""
+    if history is not None:
+        stale, rc = list_stale_claim_handoffs(None, repo_root)
+        if stale is None:
+            diagnostics.append(
+                f"WARN: Detector C (crash-recovery chain-terminal detection) — "
+                f"stale-claim enumeration failed (rc {rc}) — liveness INDETERMINATE, not "
+                f"\"no stale batons\". If this session recovered a crashed session's baton, export "
+                f"WSC_DISPOSITION=predecessor-consumed (chain-terminal legacy alias also accepted) "
+                f"and WSC_CONSUMED_HANDOFF=<path> before continuing."
+            )
+            return CrashRecoveryOutcome(None, "indeterminate", None)
+        if not history.resolved:
+            diagnostics.append(
+                f"WARN: Detector C — session history unresolved ({history.reason}); "
+                "indeterminate, not \"no stale batons\"."
+            )
+            return CrashRecoveryOutcome(None, "indeterminate", None)
+        if not stale:
+            return CrashRecoveryOutcome(None, None, None)
+        join_outcome = _resolve_deliverable_id_join(repo_root, sid, stale, diagnostics, history=history)
+        if join_outcome is not None:
+            return join_outcome
+        committed = all_committed_paths(repo_root, sid, None, history=history)
+        return _resolve_crash_recovery(stale, committed, repo_root, diagnostics, sid=sid)
+
     if cli_path is None:
         diagnostics.append(
             "WARN: Detector C (crash-recovery chain-terminal detection) could not resolve "
@@ -1347,7 +1476,9 @@ def _resolve_memo_session_start_time(repo_root: Path, sid: str) -> "datetime | N
     return None
 
 
-def find_memo_predecessor(repo_root: Path, sid: str, diagnostics: list[str]) -> str | None:
+def find_memo_predecessor(
+    repo_root: Path, sid: str, diagnostics: list[str], floor: Any = _FLOOR_UNSET
+) -> str | None:
     """Scans `cross-repo/inbox/*.md` and `cross-repo/archive/*.md` (flat,
     non-nested trees as of this writing — no `rglob` needed) for a memo
     whose frontmatter `picked_up_by` equals `sid` AND whose `picked_up_at`
@@ -1376,6 +1507,8 @@ def find_memo_predecessor(repo_root: Path, sid: str, diagnostics: list[str]) -> 
 
     Returns the matched memo's repo-relative path, or `None` if the leg did
     not fire or nothing matched."""
+    if floor is _FLOOR_UNSET:
+        floor = _session_floor(repo_root, sid)
     candidates: list[tuple[Path, str, "datetime"]] = []
     corpus_root = repo_root / "state" / "cross-repo"
     if not corpus_root.is_dir():
@@ -1384,8 +1517,13 @@ def find_memo_predecessor(repo_root: Path, sid: str, diagnostics: list[str]) -> 
         memo_dir = corpus_root / dirname
         if not memo_dir.is_dir():
             continue
-        for f in memo_dir.glob("*.md"):
-            if not f.is_file():
+        for f in _iter_floored(memo_dir, floor, frozenset(), recursive=False):
+            if f.suffix != ".md":
+                continue
+            try:
+                if sid.encode("utf-8") not in f.read_bytes():
+                    continue
+            except OSError:
                 continue
             picked_up_by = _read_fm_field_local(f, "picked_up_by")
             if not picked_up_by or picked_up_by != sid:
@@ -1721,7 +1859,7 @@ def is_coincidence_prone_detection(match_facts: dict[str, Any]) -> bool:
 # decision and therefore earns its cost.
 
 
-def resolve_disposition(repo_root: Path, sid: str) -> "DispositionResolution":
+def resolve_disposition(repo_root: Path, sid: str, *, history: Any = None) -> "DispositionResolution":
     """Returns (disposition, consumed_handoff, diagnostics, consumed_handoff_paths)
     where disposition is one of "predecessor-consumed", "memo-predecessor",
     or "single-session" (three-valued, not two — see `find_memo_predecessor`
@@ -1845,7 +1983,8 @@ def resolve_disposition(repo_root: Path, sid: str) -> "DispositionResolution":
             "cannot flip disposition."
         )
 
-    consumed_paths, mirror_conflicts = primary_consumed_handoff_scan(repo_root, sid)
+    floor = _session_floor(repo_root, sid)
+    consumed_paths, mirror_conflicts = primary_consumed_handoff_scan(repo_root, sid, floor)
     if mirror_conflicts:
         diagnostics.append(
             f"WARN: {len(mirror_conflicts)} handoff(s) name this session as ledger claim holder "
@@ -1887,10 +2026,20 @@ def resolve_disposition(repo_root: Path, sid: str) -> "DispositionResolution":
             _det("live-consume"),
         )
 
-    arch = detector_a(repo_root, sid)
+    arch = detector_a(repo_root, sid, floor)
 
-    ship_base = git_merge_base(repo_root)
-    if ship_base is None:
+    ship_base = None if history is not None else git_merge_base(repo_root)
+    if history is not None and not history.resolved:
+        diagnostics.append(
+            f"WARN: session history unresolved ({history.reason}) — Detector B (git-provenance "
+            "chain-terminal detection) skipped; if this session shipped/archived a handoff, "
+            "chain-terminal may be missed — verify manually or export "
+            "WSC_DISPOSITION=predecessor-consumed (chain-terminal legacy alias also accepted)"
+        )
+        shipped_by_me = None
+    elif history is not None:
+        shipped_by_me = detector_b_shipped_by_me(repo_root, sid, None, diagnostics, history=history)
+    elif ship_base is None:
         diagnostics.append(
             "WARN: could not resolve origin/main merge-base — Detector B (git-provenance "
             "chain-terminal detection) skipped; if this session shipped/archived a handoff, "
@@ -1928,8 +2077,15 @@ def resolve_disposition(repo_root: Path, sid: str) -> "DispositionResolution":
     c_status: str | None = None
     c_match_facts: dict[str, Any] | None = None
     if not arch:
-        memo_path = find_memo_predecessor(repo_root, sid, diagnostics)
-        c_outcome = detector_c(repo_root, sid, ship_base, find_session_claim_cli(), diagnostics)
+        memo_path = find_memo_predecessor(repo_root, sid, diagnostics, floor)
+        c_outcome = detector_c(
+            repo_root,
+            sid,
+            ship_base,
+            None if history is not None else find_session_claim_cli(),
+            diagnostics,
+            history=history,
+        )
         c_result, c_status = c_outcome
         c_match_facts = c_outcome.match_facts
         if c_status not in ("indeterminate", "ambiguous") and c_result:

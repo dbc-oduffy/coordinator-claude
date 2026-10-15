@@ -54,7 +54,8 @@ Reviewer selection (routing-table match, tier precedence, effort) is a signal-lo
 **Code review (a diff) is one parallel wave, and every reviewer applies its own findings.**
 Slice owners, Kira and the named personas all apply in place with exact-text `Edit`s, including
 findings outside their own slice (no write against stale text: an exact-text `Edit` fails rather
-than clobbers). Only a rebuild verdict goes back to the EM; there is no second review round. This
+than clobbers). Kira (`overengineering-reviewer`) is the execute review wave's
+whole-diff editor of shipped code, never of plans. Only a rebuild verdict goes back to the EM; there is no second review round. This
 runs inside the execute workflow's review stage (`coordinator/skills/execute-plan/SKILL.md`); a
 diff reviewed ad hoc (`/review-code`) applies and verifies its own ledger before a second
 reviewer touches it.
@@ -65,7 +66,7 @@ This is unchanged: only code review over a diff runs as a parallel wave.
 
 **Pre-flight sidecars are consumed alongside the plan**, never inserted into that chain; on a non-XL plan the Sonnet pre-flights (`docs-checker`, `prior-art-checker`, `plan-coverage-checker`) gate before the Opus reviewer; on the accepted-XL lane a `plan-reviewer` pass runs ahead of them, so four Sonnet-tier passes precede the Opus persona. `plan-coverage-checker` has no EM opt-out.
 
-**Angelique (apm) trigger — size-gated, plan-review-only.** Wired into the `full` tier's final stage (`contract/review-roster-fragment.json`), after `code-reviewer`/the Staff Engineer and the Director of Engineering; SIZE-gated on the plan's `sizing_object` (`estimate.tshirt`). Rostered in both `standard` and `full`, so roster membership IS the M-and-above threshold — add no second threshold surface. They never gate: `blocking_verdicts` is `null`, like `coordinator:docs-checker`.
+**Angelique (apm) trigger — size-gated, plan-review-only.** plan-blitz's size ladder on `sizing_object` (`estimate.tshirt`): XS/S Sonnet `plan-reviewer`, M the Staff Engineer, L + Angelique, XL+ + the Director of Engineering. L is the APM floor; add no second threshold surface. Kira is on no rung and never gates: `blocking_verdicts` is `null`, like `coordinator:docs-checker`.
 
 ---
 

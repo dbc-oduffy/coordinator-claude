@@ -14,7 +14,7 @@ REM     ever sees argv, silently dropping it and everything meant to follow it.
 REM     Measured against pwsh 7.6.4 -- see coordinator_core/test_bin_launcher_
 REM     parity.py::test_argv_fidelity_matrix.
 REM
-REM Resolves a Python interpreter and runs the co-located entrypoint "coordinator-ensure-hooks-fleet"
+REM Resolves a Python interpreter and runs the co-located entrypoint "coordinator-ensure-hooks-fleet.py"
 REM directly. install-substrate.py substitutes __PYTHON_BIN__ with the
 REM absolute interpreter path resolved at install time (fast path: skips the
 REM `py -3` double-indirection + the Microsoft Store App Execution Alias
@@ -114,9 +114,9 @@ move /y "%_tmpfile%" "%_cachefile%" >nul 2>nul
 goto :run_baked
 
 :run_baked
-"%_py%" "%~dp0coordinator-ensure-hooks-fleet" %*
+"%_py%" "%~dp0coordinator-ensure-hooks-fleet.py" %*
 exit /b %ERRORLEVEL%
 
 :run_py3
-py -3 "%~dp0coordinator-ensure-hooks-fleet" %*
+py -3 "%~dp0coordinator-ensure-hooks-fleet.py" %*
 exit /b %ERRORLEVEL%

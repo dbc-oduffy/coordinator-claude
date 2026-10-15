@@ -631,7 +631,11 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     head_movement_notes: List[str] = []
 
-    scratch_dest_root = Path(tempfile.mkdtemp(prefix="klabauter-full-payload-proof-"))
+    from coordinator_core.temp_layout import managed_tempdir
+
+    scratch_dest_root = Path(
+        tempfile.mkdtemp(prefix="klabauter-full-payload-proof-", dir=managed_tempdir())
+    )
     print(f"percolate-full-payload-proof: scratch destination: {scratch_dest_root}")
     _git_init_scratch_dest(scratch_dest_root)
 

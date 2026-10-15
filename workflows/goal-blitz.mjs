@@ -42,7 +42,7 @@
  * Invocation (scriptPath resolves through the plugin root, never a repo-relative prefix):
  *   Workflow({
  *     scriptPath: `${CLAUDE_PLUGIN_ROOT}/workflows/goal-blitz.mjs`,
- *     args: { repoRoot: "/abs/repo", trailDir: "/abs/repo/state/scratch/goal-blitz/<stamp>",
+ *     args: { repoRoot: "/abs/repo", trailDir: "/abs/repo/state/goal-blitz/<stamp>",
  *             provisionSidecarCli: "/abs/settings-home/bin/coordinator-doc-new",
  *             interactionMode: "hands-on", pluginAgentsAvailable: true,
  *             seeds: [ { id: "...", path: "state/handoffs/...md", kind: "goal-seed", intent: "..." } ] }
@@ -55,12 +55,12 @@
 // phase declared after it.
 export const meta = {
   name: 'goal-blitz',
-  description: 'One batched goal-setting run: the VP-Product Reviewer authors each OKR, a second the VP-Product Reviewer pass critiques every draft unconditionally, the VP-Product Reviewer integrates, a blitz-em gates readiness, and one terminal Ratify phase hands ready drafts to the VP-Product Reviewer for ratification.',
+  description: 'One batched goal-setting run: the VP-Product Reviewer authors each OKR, a second the VP-Product Reviewer pass critiques every draft unconditionally, the VP-Product Reviewer integrates, a sonnet agent gates readiness, and one terminal Ratify phase hands ready drafts to the VP-Product Reviewer for ratification.',
   phases: [
     { title: 'Draft', detail: 'One the VP-Product Reviewer author per seed. Sets the Objective and Key Results from the seed context and writes the draft into the trail, never into the goal store.' },
     { title: 'Critique', detail: 'One further the VP-Product Reviewer pass per draft, fired unconditionally. Per-element PASS, FLAG or REJECT and a set verdict of GO, REVISE or REFRAME.' },
     { title: 'Integrate', detail: 'the VP-Product Reviewer applies the REJECT and FLAG rewrites to the draft, or accepts a FLAG with a written rationale.' },
-    { title: 'Readiness gate', detail: 'One Opus blitz-em over the trail. Per draft: ready, pulled with a reason, or rework.' },
+    { title: 'Readiness gate', detail: 'One sonnet agent over the trail. Per draft: ready, pulled with a reason, or rework.' },
     { title: 'Ratify', detail: 'Terminal gate. Returns ready drafts in awaitingRatification and ratifies nothing; the VP-Product Reviewer ratifies once over the whole set.' },
   ],
 }
@@ -272,6 +272,15 @@ Write your record to EXACTLY this path and return it verbatim:
 Do not choose your own filename. The readiness gate reads the trail from disk, and a finding that
 exists only in your returned summary is one it never sees.`
 
+const MID_RUN_DIRECTION_RULE = `
+RE-READ BEFORE YOU WRITE. The PM delivers direction to a running workflow by editing its
+artifacts, never by stopping it, and SendMessage cannot reach you. Immediately before you write
+your output, re-read every sizing, plan and handoff this brief names or that you read or write.
+A \`## PM direction\` section in a plan or handoff, or a \`requirement_register\` row in a sizing,
+that was absent from your first read and that you did not write yourself was added after your
+dispatch: it is binding. Apply it over
+this brief and over anything you read earlier, and name it in your return.`
+
 const PROVISION_CLI_RULE = `Get your findings sidecar path by running this EXACT resolved invocation, and do not
 construct one by hand:
 
@@ -381,6 +390,7 @@ Read the seed record in full; the Intent line may state an objective, which you 
 
 Leave \`ratification\` null; only the recorded ratification fills it, after this run.
 ${NO_GOAL_WRITE_RULE}
+${MID_RUN_DIRECTION_RULE}
 ${REPO_ROOT_RULE}
 ${TRAIL_RULE(draftPath)}`,
     { model: 'opus', effort: 'high', ...withRole('coordinator:vp-product'),
@@ -429,6 +439,7 @@ rationale. Weekly-perceptibility notes are rewritten, or deferred to an entry un
 Record each disposition, with your rationale for every accepted FLAG, in the record below.
 Return \`unresolvedRejects\`: the count of REJECT items you could not resolve.
 ${NO_GOAL_WRITE_RULE}
+${MID_RUN_DIRECTION_RULE}
 ${REPO_ROOT_RULE}
 ${TRAIL_RULE(integratePathFor(seedId))}`,
     { model: 'opus', effort: 'high', ...withRole('coordinator:vp-product'),
@@ -457,7 +468,7 @@ const failedChains = settled.filter((c) => c.verdict === 'rework')
 const gated = settled.filter((c) => c.verdict !== 'rework')
 
 // ---------------------------------------------------------------------------
-// Readiness gate: one blitz-em over the whole trail.
+// Readiness gate: one Sonnet group-em-assistant over the whole trail.
 // ---------------------------------------------------------------------------
 
 let verdicts = []
@@ -483,7 +494,10 @@ a draft. A draft is never ready while a REJECT is unresolved or its set verdict 
 also enforced after you answer, and your disagreement is recorded rather than acted on.
 ${REPO_ROOT_RULE}
 ${TRAIL_RULE(readinessPathFor())}`,
-    { model: 'opus', ...withRole('coordinator:blitz-em'),
+    // Sonnet: blitz-em is Opus-only, so the gate wears the blitz-em ROLE_CONTRACT in its brief.
+    // Verdicts are evidence-bound and REJECT/REFRAME readies are overridden after the answer;
+    // no authored prose remains that needs Opus.
+    { model: 'sonnet', ...withRole('coordinator:group-em-assistant'),
       label: 'readiness:goal-blitz',
       phase: 'Readiness gate',
       schema: READINESS_SCHEMA,

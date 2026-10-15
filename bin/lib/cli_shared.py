@@ -72,6 +72,26 @@ COLLISION_RETRY_CAP = 1000
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
+def managed_temp_root(repo_root=None) -> str:
+    """Created managed Temp dir: ``<tmp>/coordinator/<repo name>`` or ``<tmp>/coordinator/_fleet``.
+
+    Stdlib mirror of ``coordinator_core.temp_layout.managed_tempdir``; pinned equal by
+    ``tests/test_cli_shared_managed_temp_root.py``.
+    """
+    root = os.path.join(tempfile.gettempdir(), "coordinator")
+    if repo_root is None:
+        leaf = "_fleet"
+    else:
+        leaf = os.path.basename(os.fspath(repo_root).rstrip("\\/"))
+        if not leaf:
+            raise ValueError(f"repo_root has no directory name: {repo_root!r}")
+        if leaf == "_fleet":
+            raise ValueError("repo directory name '_fleet' is reserved for host-scoped Temp")
+    path = os.path.join(root, leaf)
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
 def _is_swept_tmp_root(path: str) -> bool:
     try:
         real = os.path.realpath(path)

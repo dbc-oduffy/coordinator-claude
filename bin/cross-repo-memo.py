@@ -53,7 +53,7 @@ fleet-wide constant.
 Single-delivery-copy model (PM ruling 2026-05-23):
 - Sender writes ONE memo into receiver's (per-receiver-resolved) cross-repo
   directory — NO sender copy, NO archive write at send time.
-- The CLI prints the receiver path and a "hand the PM this path for relay" line.
+- The CLI prints the receiver path; that line is delivery, and no PM step follows it.
 - The receiver reads the dirty file, acts on it, flips status: open → actioned
   in place via a normal Edit + commit. Terminal state — no move, no closure
   subcommand, no second side.
@@ -1743,9 +1743,9 @@ def _print_premise_check_advisory(
     receiver's clone to have resolved to a local path.
 
     Never blocks, never changes exit code, at any stage — advisory only.
-    At `send`, this prints alongside (not instead of) the existing "Hand the
-    PM this path for relay" stdout contract line, which callers must keep
-    intact for programmatic capture. At `draft`/`compose`, EVERYTHING this
+    At `send`, this prints alongside (not instead of) the `Receiver-side:`
+    stdout contract line, which callers must keep intact for programmatic
+    capture. At `draft`/`compose`, EVERYTHING this
     function prints goes to stderr — both stages' stdout contracts are a
     single captured line (the draft/outbox absolute path) and must not
     gain a second line.
@@ -1758,9 +1758,8 @@ def _print_premise_check_advisory(
     effective_kind = kind if kind is not None else "ask"
     if not receiver_path:
         return
-    # Absolutize to match the adjacent "Hand the
-    # PM this path for relay" line's os.path.abspath normalization, so both
-    # paths in the same stdout block are consistently absolute.
+    # Absolutize to match the `Receiver-side:` line's os.path.abspath
+    # normalization, so both paths in the same stdout block are absolute.
     abs_receiver_path = os.path.abspath(receiver_path)
 
     # draft/compose hold the outbox buffer open for edits when they call
@@ -2930,10 +2929,9 @@ def _parse_outbox_file(path: str) -> tuple[dict[str, str], str]:
 # memo-outbox-is-the-sent-state-n-c3db55355656.yaml pins "an empty outbox is
 # the SENT state" as an existing, relied-upon convention (a workstream-
 # complete B-wave reviewer treats an absent outbox file as evidence of send),
-# and coordinator_core/ops/workday_start_cross_repo_memo_outbox_surface.py's
-# stale-draft nudge scans every *.md directly under the outbox dir with no
-# status filter — a stamped file left in place would be mis-flagged as a
-# stale draft forever. `<outbox_dir>/sent/` mirrors the sibling
+# and any scan of every *.md directly under the outbox dir has no status
+# filter — a stamped file left in place would read as a stale draft forever.
+# `<outbox_dir>/sent/` mirrors the sibling
 # lessons-outbox convention (`<outbox>/drained/`, see cross-repo/archive/
 # 2026-07-23-claude-central-em-lessons-outbox-relocation-and-subject-
 # confirmation.md § 2/§ "no drained/ has ever existed") of parking
@@ -3249,6 +3247,18 @@ def _cmd_discard(args: argparse.Namespace) -> int:
     return 0
 
 
+def _print_citation_warning(acted_item: dict) -> None:
+    """Warn for bare paths found in neither repo; `citations_ambiguous`
+    (both repos) is a recorded field, never printed."""
+    unresolved = acted_item.get("citations_unresolved")
+    if unresolved:
+        print(
+            "cross-repo-memo send: bare paths left unqualified (in neither "
+            "repo): " + ", ".join(unresolved) + " — qualify as "
+            "<repo>:<path> and re-send."
+        )
+
+
 def _cmd_send(args: argparse.Namespace) -> int:
     """Handle: cross-repo-memo send <topic>
 
@@ -3343,25 +3353,10 @@ def _cmd_send(args: argparse.Namespace) -> int:
             "That commit is the channel, not a cross-repo write grant — it "
             "touches cross-repo/ only."
         )
-        # Memo friction item 7 (cross-repo/inbox/2026-09-28-project-rag-em-
-        # memo-send-friction.md): "a memo without PM relay is dropped in a
-        # hole" — the CLI's own docstring/comments elsewhere already claimed
-        # this line existed; it never actually printed. No live-session ping
-        # primitive exists to notify the PM directly (checked
-        # coordinator_core.session.liveness — it can only ask "is session X
-        # live", not deliver to one), so this stays the one line for the
-        # sender to hand the PM, not new infrastructure.
-        print(f"Hand the PM this path for relay: {abs_receiver_path}")
     sent_receipt = acted_item.get("sent_receipt")
     if sent_receipt:
         print(f"Sender-side receipt: {sent_receipt}")
-    unresolved = acted_item.get("citations_unresolved")
-    if unresolved:
-        print(
-            "cross-repo-memo send: bare paths left unqualified (ambiguous or "
-            "in neither repo): " + ", ".join(unresolved) + " — qualify as "
-            "<repo>:<path> and re-send."
-        )
+    _print_citation_warning(acted_item)
     if acted_item.get("sender_unattributed"):
         # Not a failure: the memo IS delivered. But it carries no sender, so
         # the receiver cannot reply to it by message and the only route back

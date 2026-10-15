@@ -22,6 +22,7 @@ import argparse
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -341,7 +342,7 @@ def build_decisions(permission_mode: str | None = None) -> list[Decision]:
         Decision(
             "settings_env",
             "Apply the required settings.json env values?",
-            "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS and CLAUDE_CODE_ENABLE_TODO_TOOLS gate Agent Teams, research pipelines and Task tools. Lands next session.",
+            "Sets CLAUDE_CODE_ENABLE_TODO_TOOLS (Task tools) and removes the retired CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS if present. Lands next session.",
             ("apply", "skip"), "apply", "recommended",
         ),
         Decision(
@@ -948,38 +949,104 @@ def _engine_check() -> tuple[bool, str]:
     if script is None:
         return False, why
     rc, out = run(_py(str(script), "--check"), timeout=_ENGINE_CHECK_TIMEOUT)
-    return rc == 0, (f"engine check exited {rc}: {out[-200:]}" if rc else "engine check passed")
+    if rc == 0:
+        return True, "engine check passed"
+    failed = failing_checks(out)
+    if failed:
+        return False, f"engine check failed: {'; '.join(failed)}"
+    return False, f"engine check exited {rc}: {out[-200:]}"
+
+
+def failing_checks(out: str) -> list[str]:
+    """`FAIL [name] detail` lines of `setup.py --check`, each as `name: detail` (detail capped)."""
+    found = []
+    for line in out.splitlines():
+        m = re.match(r"\s*FAIL \[([^\]]+)\]\s*(.*)", line)
+        if m:
+            detail = m.group(2).strip()
+            found.append(f"{m.group(1)}: {detail[:100]}" if detail else m.group(1))
+    return found
+
+
+def _plugin_drift(market: str | None) -> tuple[list[str], list[str]]:
+    """(version drift, stale cache dirs) for the coordinator plugin applicable to this cwd.
+
+    Version drift: the clone an install entry points at (`installPath`) carries a plugin.json
+    version that differs from the version the install record claims. Stale cache dirs: version
+    directories under plugins/cache/<market>/coordinator that no applicable record names.
+    """
+    installed = _read_json(claude_dir() / "plugins" / "installed_plugins.json")
+    plugins = installed.get("plugins")
+    plugins = plugins if isinstance(plugins, dict) else installed
+    cwd = Path.cwd()
+    drift, recorded = [], set()
+    for key, entries in plugins.items():
+        if not (isinstance(key, str) and key.startswith(_PLUGIN_KEY)):
+            continue
+        for e in entries if isinstance(entries, list) else []:
+            if not (isinstance(e, dict) and _entry_applies(e, cwd)):
+                continue
+            rec = str(e.get("version") or "")
+            recorded.add(rec)
+            ip = e.get("installPath")
+            if not isinstance(ip, str):
+                continue
+            on_disk = _read_json(Path(ip) / ".claude-plugin" / "plugin.json")
+            disk_v = on_disk.get("version")
+            if on_disk.get("name") == "coordinator" and disk_v and str(disk_v) != rec:
+                drift.append(f"install record says {rec or 'no version'} but {ip} is {disk_v}")
+    stale: list[str] = []
+    cache = claude_dir() / "plugins" / "cache" / (market or "coordinator-claude") / "coordinator"
+    if cache.is_dir():
+        stale = sorted(d.name for d in cache.iterdir() if d.is_dir() and d.name not in recorded)
+    return drift, stale
 
 
 def detect_track() -> dict:
     """Which path the install takes: fresh | update | repair.
 
     fresh  : no coordinator plugin installed.
-    update : installed and the published (marketplace plugin.json) version is newer; versions
+    update : installed and the published (marketplace plugin.json) version is newer, or the
+             install record lags the clone it points at (plugin version drift); versions
              that cannot be read never count as newer.
     repair : installed, not known-newer, but the engine check fails (or the engine cannot be located).
+             Version drift still adds plugin_update: repair never masks it.
     update (reason "already current"): installed, current and engine healthy; there is no fourth
              track value. Steps drop plugin_update but keep engine_setup + engine_check: every
              update carries the engine re-run, so the contract has one shape per track.
+    `plugin_drift` / `stale_plugin_cache` are reported on every track; stale cache dirs are
+    reported, never a step (a plugin update does not prune them).
     """
     configure = [s.id for s in STEPS]
     present, have, market = _installed_coordinator()
+    drift: list[str] = []
+    stale: list[str] = []
     if not present:
         track, reason, steps = "fresh", "no coordinator plugin installed", ["plugin_install", *configure]
     else:
         want = _published_version(market)
+        drift, stale = _plugin_drift(market)
+        update_steps = ["plugin_update", "engine_setup", "engine_check", *configure]
         if have and want and _ver_tuple(want) > _ver_tuple(have):
             track, reason = "update", f"published {want} is newer than installed {have}"
-            steps = ["plugin_update", "engine_setup", "engine_check", *configure]
+            steps = update_steps
         else:
             ok, detail = _engine_check()
             if not ok:
                 track, reason = "repair", detail
-                steps = ["engine_setup", "engine_check", *configure]
+                steps = update_steps if drift else ["engine_setup", "engine_check", *configure]
+            elif drift:
+                track, reason, steps = "update", "plugin version drift", update_steps
             else:
                 track, reason = "update", "already current"
                 steps = ["engine_setup", "engine_check", *configure]
-    return {"track": track, "track_reason": reason, "track_steps": steps}
+        if drift:
+            note = "plugin version drift: " + "; ".join(drift)
+            reason = note if reason == "plugin version drift" else f"{reason}; {note}"
+        if stale:
+            reason += f"; stale plugin cache dirs: {', '.join(stale)}"
+    return {"track": track, "track_reason": reason, "track_steps": steps,
+            "plugin_drift": drift, "stale_plugin_cache": stale}
 
 
 def step_plugin_install(ctx: Ctx) -> StepResult:

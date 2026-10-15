@@ -23,7 +23,7 @@ validate-fast-and-packageability fast
 
 Resolves the command (env var → `coordinator.local.md` `fast_test_cmd:` → skip-with-notice, no
 conventional fallback), executes it, prints exactly one `Validation: <value>` line. Run via Bash
-from the repo root; read the full output, not just the last line. Rationale for the three-step
+from the repo root; read the full output, not just the last line; `state/test-runs/<suite>-last.{txt,json}` holds the last run's. Rationale for the three-step
 ladder and the no-conventional-fallback rule: wiki.
 
 <!-- negative-spec: do not restore a fourth "conventional fallback" resolution step -->

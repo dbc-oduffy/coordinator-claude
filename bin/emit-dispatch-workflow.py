@@ -9,10 +9,11 @@ the emitter it runs now lives entirely in the engine.
 `main(argv)` shim, `coordinator/bin/plan-task-brief.py :: main` /
 `coordinator/bin/mise-prep-gate.py :: main` shape: engine imports happen
 inside `main()`, the module body stays pure, so `serve_classifier`
-classifies this file warm-servable. Argument parsing, the emit/restamp/fire
-dispatch and the exit-code mapping all live in
-`coordinator_core.ops.dispatch_emit.cli`; this file owns nothing but the
-door.
+classifies this file warm-servable. A plain `--plan` argv (only `--plan`,
+`--out`, `--force`, `--repo-root`) goes to `dispatch_emit.plan_route` without
+importing `cli`; every other argv goes to `dispatch_emit.cli`, where argument
+parsing, the restamp/fire dispatch and the exit-code mapping live. This file
+owns nothing but the door.
 
 Usage:
   python emit-dispatch-workflow.py --plan PLAN --out OUT [--force] [--fire] [--repo-root PATH]
@@ -39,6 +40,30 @@ from __future__ import annotations
 import sys
 
 
+PLAN_ROUTE_MODULE = "coordinator_core.ops.dispatch_emit.plan_route"
+CLI_MODULE = "coordinator_core.ops.dispatch_emit.cli"
+# Mirrors plan_route.ACCEPTED_FLAGS; the door cannot import plan_route to read it.
+_PLAN_ROUTE_FLAGS = frozenset({"--plan", "--out", "--force", "--repo-root"})
+
+
+def route_module(args: "list[str]") -> str:
+    """`PLAN_ROUTE_MODULE` for a plain `--plan` argv (only plan_route's flags, each well-formed); else `CLI_MODULE`."""
+    seen_plan = False
+    items = iter(args)
+    for item in items:
+        flag, eq, _ = item.partition("=")
+        if flag not in _PLAN_ROUTE_FLAGS:
+            return CLI_MODULE
+        if flag == "--force":
+            if eq:
+                return CLI_MODULE
+            continue
+        if not eq and next(items, None) is None:
+            return CLI_MODULE
+        seen_plan = seen_plan or flag == "--plan"
+    return PLAN_ROUTE_MODULE if seen_plan else CLI_MODULE
+
+
 def main(argv: "list[str] | None" = None) -> int:
     args = argv if argv is not None else sys.argv[1:]
 
@@ -55,7 +80,7 @@ def main(argv: "list[str] | None" = None) -> int:
         )
         return 2
 
-    return run_op_main("coordinator_core.ops.dispatch_emit.cli", args)
+    return run_op_main(route_module(args), args)
 
 
 if __name__ == "__main__":

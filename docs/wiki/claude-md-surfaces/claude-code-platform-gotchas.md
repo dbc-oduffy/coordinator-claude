@@ -437,6 +437,8 @@ The system-reminder at session start explicitly enumerates deferred tools includ
 
 **How to apply:** before any deferred-tool call, use `ToolSearch(query: "select:<ToolName>")`. Do not attempt workarounds via Agent dispatch. The `ToolSearch` doc is at the prompt root: "Use ToolSearch with query 'select:<name>[,<name>...]' to load tool schemas before calling them." Treat the deferred-tools list as a schema-fetch queue, not a "not available" list.
 
+The harness's own Bash tool (not a coordinator guard; nothing to find in hooks) blocks a foreground `sleep N` and points at Monitor, which is itself deferred. Run `ToolSearch(query: "select:Monitor")` first, then wait with Monitor on an until-loop rather than retrying `sleep`.
+
 ### Agent Teams — billing/auth gate recovery differs by scope
 
 Recovery from a billing/auth gate differs by scope — a SINGLE agent's gate (1M-context billing on one Sonnet teammate) is resumed via `SendMessage` to that agent after the gate clears; a GLOBAL gate (account-wide auth expiry) requires fresh redispatch because all transcripts may be stale. Probe scope with `claude api ping` before deciding. (Refines the doctrine in ~/.claude/CLAUDE.md § Agent Teams.)

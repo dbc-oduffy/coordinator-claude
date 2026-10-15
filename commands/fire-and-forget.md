@@ -1,89 +1,75 @@
 ---
 name: fire-and-forget
 description: "\"fire and forget\" / \"fire and forget\": a raw ask or sizing to a reviewed commit in one fire."
-allowed-tools: ["Read", "Edit", "Write", "Bash", "Grep", "Glob", "Agent", "Skill"]
+allowed-tools: ["Read", "Edit", "Write", "Bash", "Grep", "Glob", "Agent", "Skill", "Workflow"]
 argument-hint: "<raw ask | state/sizings/<id>.yaml>"
 ---
 
 # Warp-Speed-Execute
 
-Fire-and-forget: one invocation takes an accepted sizing to a reviewed terminal commit. It is its
-own ceremony; it forwards to no other command and no autofire hook matches it. The engine emits the
-chained Workflow (`emit-dispatch-workflow --sizing`); this body runs that op once and fires the
-result.
+The EM's one act on an engineering ask: submit it to the engine. The engine fires the workflow —
+the sizing agent, then the branch its result picks, through review, docs, commit and close. This
+command forwards to no other command and no autofire hook matches it.
 
-**Contract: one Workflow, start to finish. The EM is idle until the run reports completion or
-rescue-needed.** The terminal judge is the only legitimate end of a run. A run never stops to obtain the PM's own words: every exit-criterion, scope or mode ruling goes to `coordinator:apm` (below). Any other halt (gate
-refusal, blitz refusal, a DR awaiting acceptance, or a hand-dispatched row) breaks this command, not a touchpoint to work through. When it happens, stop,
-report the halt as a defect, and never finish the work by hand-dispatching rows.
+**Contract: one workflow, start to finish. While it is live the EM does not dispatch, poll,
+monitor, verify or relay; it sits idle until the run exits.** The run's checker is the only
+legitimate end of a run, and it judges against every PM verbatim and revision; on its pass the EM
+reports the run as all of what the PM asked for. A run never stops to obtain the PM's own words:
+every exit-criterion, scope, mode or `xl_exit` ruling goes to `coordinator:apm` in-run. Any other
+halt (gate refusal, blitz refusal, a DR awaiting acceptance, or a hand-dispatched row) breaks this
+command: report it as a defect, and never finish the work by hand-dispatching rows.
 
-**On return the run's driver commits, in the turn the return arrives.** The driver is the EM for an
-in-session Workflow and the chain driver for an M+ chain
-(`coordinator/docs/wiki/em-operating-model/sizing-to-commit-chain-contract.md`). A Workflow returns
-`next_action` and never commits: the driver runs
-`coordinator-invoke dispatch.terminal_commit` with its `params`, unedited and exactly once, then reads
-the receipt; `kind: none` means nothing to run, and a run whose `next_action` is never run ends
-uncommitted. A run that
-hits a usage limit reports `halted_by: usage_limit` with `resets_at`: after that, `TaskStop` it, then `Workflow({ scriptPath, resumeFromRunId })`; a dead run is committed by that op with its `script_path`.
+**PM revisions mid-run** go in verbatim through `coordinator-invoke workflow.revise '{"run_id":"<id>","verbatim":"<PM verbatim>"}'`. They
+are never a new dispatch and never a second submission.
 
-**Cross-repo deliverables.** Each row writes in the repo its path names, and
-`dispatch.terminal_commit` lands one scoped commit per repo (`sibling_commits`). Cloud
-(`CLAUDE_CODE_REMOTE=true`) proceeds without asking. On a local box the emit halts at
-`approve_cross_repo_write` naming the sibling repos: ask the PM; on approval re-emit with
-`--cross-repo-approved` (this session's cross-repo commit assent). Never refuse a cross-repo ask
+**The run commits itself.** The in-run commit is the user's commit request: its last stage is one
+`coordinator:git-commit-agent` call to `dispatch.terminal_commit` under the run token. The commit
+ships the sizing and carries the run's delivery note, `docs/delivery/<run_id>.md`
+(`A-RUNS-DELIVERY-NOTE-IS-COMMITTED-UNDER-DOCS-DELIVERY`). The EM runs no `dispatch.terminal_commit` after a run that committed. Only a run that exits
+uncommitted (a halt before the commit stage, or a non-`none` `next_action`) gets `coordinator-invoke
+dispatch.terminal_commit` with its `params`, unedited; the run token admits one landed commit, and a failed, refused, empty or raising commit releases it for a retry. A run that hits a usage
+limit reports `halted_by: usage_limit` with `resets_at`: `TaskStop` it, then `Workflow({ scriptPath,
+resumeFromRunId })`; a dead run is committed by that op with its `script_path`.
+
+**Cross-repo deliverables.** Each row writes in the repo its path names, and the commit stage lands
+one scoped commit per repo (`sibling_commits`). Cloud
+(`CLAUDE_CODE_REMOTE=true`) proceeds without asking. On a local box the submission is denied at
+`approve_cross_repo_write` naming the sibling repos: ask the PM; on approval resubmit with
+`cross_repo_approved: true` in `args` (this session's cross-repo commit assent). Never refuse a cross-repo ask
 outright. A write outside every git checkout is refused at emit. A row with an `external_gate` is
-withheld and listed as incomplete at `dispatch.terminal_commit`.
+withheld and listed as incomplete at commit.
 
-## Argument
+## Submit
 
-- **A sizing path** (`state/sizings/<id>.yaml`, accepted: `exit_criterion.accepted` present) — go to
-  *Fire*.
-- **A raw ask** — run `emit-dispatch-workflow --ask "<raw ask>"` (CLI resolved per
-  `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`) and fire the one printed
-  `Workflow({ scriptPath })` line in this session. That one Workflow sizes, gates and stages the
-  work. A route the sizing gate refuses (`shape`, `roadmap`, `pm-decision`) is relayed with the room it
-  names; a `pm-decision` goes to `coordinator:apm` first.
+One call is the whole submission:
 
-## Fire
+- **A raw ask** — `Workflow({name: "coordinator:engine-ask", args: {ask: "<raw ask>"}})`, the
+  PM's words verbatim.
+- **An accepted sizing** (`state/sizings/<id>.yaml`, `exit_criterion.accepted` present) —
+  `Workflow({name: "coordinator:engine-ask", args: {sizing: "<sizing path>"}})`; the run starts
+  at `plan`.
 
-Run `emit-dispatch-workflow --sizing <sizing path>` (resolve per
-`${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`), then fire each printed `Workflow({ scriptPath })` line in this session. Never pass `--fire`: it
-spawns a headless `claude -p` child, which the foreign-emission guard refuses and which runs
-without this session's roster. `--fire` is for headless and cron callers only; the chain's own fire, as the contract names it, is the one exception.
+Outside a repo cwd add `repo: "<abs repo path>"`; after the PM approves a local cross-repo write
+add `cross_repo_approved: true`. The PreToolUse(Workflow) hook emits the run from `args` and
+rewrites the call to fire it, so that call IS the background run: end the turn. A refusal is the
+call's deny: relay it with the room it names (`shape`, `roadmap`, `pm-decision`; a `pm-decision`
+goes to `coordinator:apm` first). The `engine-ask` stub runs only when the hook did not, and its
+halt is a defect report. Never run `emit-dispatch-workflow` or dispatch `coordinator:sizing-scout`
+by hand, and never pass `--fire` (a headless child the foreign-emission guard refuses).
+Tripwire: `ENGINE-ASK-SUBMISSION-IS-THE-RUN`.
 
-- **XS** — also pass `--writes <path>` once per file the work writes (a sizing carries no footprint)
-  and `--out scratch/warp/<sizing-stem>.workflow.mjs`. The op mints a one-row spine and
-  re-enters the plan route.
-- **S** — pass `--out` as for XS. One Workflow composes plan-agent, execute, review wave and
-  `dispatch.terminal_commit`.
-- **M and up** — once the engine publishes `emit-dispatch-workflow --sizing` yielding the chain, an
-  accepted pm/ceo plan-route sizing is the chain: one fire carries plan wave, ready gate, execute wave,
-  review and `dispatch.terminal_commit`, the chain's sanctioned fire is the one the contract names, and a
-  halt wakes the EM with the final digest (never finished by hand). Until that is published, and for
-  any sizing the chain's trigger excludes, the op delegates to `emit-wave-fire --from-sizing`
-  as the relay fallback. The reply carries `batons` and
-  `uncommitted` (a `[baton, sizing]` pair). The minted baton is a skeleton holding only the sizing's
-  intent: fill its Specification, Reference materials and Acceptance criteria, then commit exactly
-  those paths, explicit pathspec, before the run proceeds.
-
-Warp consumes the baton without a prior lobby emission: it mints or reuses the baton and emits and fires its own script.
+**Relay fallback — only when the engine refuses the submission:** `emit-wave-fire --from-sizing`,
+and the closing report names the refusal. Tripwire: `NOVEL-WORK-IS-ONE-FIRE-NEVER-A-RELAY`.
 
 Fan-out past ~50 agents needs a costed 2-13 agent slice first: `coordinator/docs/wiki/dispatching-parallel-agents/costed-slice-before-fan-out.md`.
 
-Every route ends in `dispatch.terminal_commit`. `--sizing` is exclusive of `--plan`, `--inventory`
-and `--queue`.
-
-Fire in the same turn, as an in-session Workflow, and end the turn. Where the engine places a touchpoint, by interaction mode, is
-`coordinator/contract/warp-touchpoints-fragment.json`; read it, never restate it. An accepted sizing
-has passed every `after:sizing` touchpoint, so the run starts at `plan`.
-
 ## Touchpoints
 
-A warp run is `ceo` mode, never hands-on. At any touchpoint that asks for the PM's words (an exit
-criterion, a scope clarification, a mode), dispatch `coordinator:apm` with the question, record its
-ruling where the PM quote would go, labelled `APM ruling`, never as PM words, and resume this
-command on the now-accepted sizing in the same turn. Gates that stay with the PM: merge to main,
-publish, cross-repo commit.
+Where the engine places a touchpoint, by interaction mode, is
+`coordinator/contract/warp-touchpoints-fragment.json`; read it, never restate it. A warp run is
+`ceo` mode, never hands-on: at any touchpoint that asks for the PM's words, the run's
+`coordinator:apm` rules, recorded where the PM quote would go, labelled `APM ruling`, never as PM
+words. Gates that stay with the PM: merge to main, publish, cross-repo commit.
 
 A refusal names every missing field once. Relay it verbatim; never work around it by hand-running
 the stages. The closing report reads the run's completion receipt.

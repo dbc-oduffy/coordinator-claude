@@ -53,6 +53,22 @@ test('D1: workflow.js has no live await-import / import() call', () => {
   assert.doesNotMatch(LIVE_CODE, /[^.\w]import\s*\(/, 'live "import(" call found outside comments');
 });
 
+test('empty-input-batches: guard halts before any scan dispatch and names the input file', () => {
+  const m = SOURCE.match(/if \(!Array\.isArray\(BATCHES\) \|\| BATCHES\.length === 0\) \{[\s\S]*?\n\}\n/);
+  assert.ok(m, 'empty-batches guard not found');
+  assert.ok(m[0].includes("halted: 'empty-input-batches'"));
+  assert.ok(SOURCE.indexOf(m[0]) < SOURCE.indexOf('const scanResults = (await parallel('),
+    'guard must precede the scan dispatch');
+  const run = (RAW_ARGS_INPUT, BATCHES) =>
+    new Function('RAW_ARGS_INPUT', 'BATCHES', 'loadStats', m[0])(RAW_ARGS_INPUT, BATCHES, () => ({}));
+  for (const b of [undefined, null, []]) {
+    const r = run({ inputFile: '/x/input.json' }, b);
+    assert.equal(r.halted, 'empty-input-batches');
+    assert.match(r.detail, /\/x\/input\.json/);
+  }
+  assert.equal(run({}, [{ batchId: 'b1' }]), undefined);
+});
+
 test('D1: workflow.js has no live require()/node: runtime call', () => {
   assert.doesNotMatch(LIVE_CODE, /[^.\w]require\s*\(/, 'live "require(" call found outside comments');
   assert.doesNotMatch(LIVE_CODE, /require\(\s*['"]node:/, 'live "require(\'node:...\')" found outside comments');
@@ -497,9 +513,11 @@ test('BUG-1 detection rule: semicolon-joined and leading/trailing-whitespace tag
 // check), not a re-implementation.
 // ---------------------------------------------------------------------------
 
+const sameTopicSrc = extractFunctionSource(SOURCE, 'sameTopic');
 const buildCandidatesByTopicSrc = extractFunctionSource(SOURCE, 'buildCandidatesByTopic');
 const candidatesExtracted = new Function(`
   ${slugifyTopicSrc}
+  ${sameTopicSrc}
   ${buildCandidatesByTopicSrc}
   return { buildCandidatesByTopic };
 `)();
@@ -1493,7 +1511,7 @@ test('sequencing: the coverage-gate gap-synth merge-back precedes phase(\'judgme
   // Anchor on the code identifier the
   // merge-back loop actually declares, not the prose comment above it; a copy-edit to that
   // comment must not be able to break this test.
-  const mergeBackAnchor = 'const synthResultsByTopic = new Map(synthResults.map((r) => [r.topic_key, r]))';
+  const mergeBackAnchor = 'const synthResultsByTopic = new Map(synthResults.map((r) => [slugifyTopic(r.topic_key), r]))';
   const mergeBackIdx = SOURCE.indexOf(mergeBackAnchor);
   const judgmentMiningPhaseIdx = SOURCE.indexOf("phase('judgment-mining-2-5')");
 
@@ -1876,4 +1894,812 @@ test('C1 Fixture B delta: exactly 6 artifacts flip DISTILLED -> EPHEMERAL when t
   }
 
   assert.equal(flips, 6, 'the naive arm is not decoration — without it a repaired-but-unneeded pass would look identical to a real one');
+});
+
+// ---------------------------------------------------------------------------
+// wiki-slugs-dropped guard, INPUT_FILE_SCHEMA typing
+// ---------------------------------------------------------------------------
+
+test('SLUG_SHARD_SCHEMA types entries as a string-valued map; INPUT_FILE_SCHEMA declares wikiSlugCount', () => {
+  const m = SOURCE.match(/const INPUT_FILE_SCHEMA = (\{[\s\S]*?\n\})\n/);
+  assert.ok(m, 'INPUT_FILE_SCHEMA not found');
+  const schema = new Function(`return ${m[1]}`)();
+  const sm = SOURCE.match(/const SLUG_SHARD_SCHEMA = (\{[\s\S]*?\n\})\n/);
+  assert.ok(sm, 'SLUG_SHARD_SCHEMA not found');
+  const shardSchema = new Function(`return ${sm[1]}`)();
+  assert.deepEqual(shardSchema.properties.entries, { type: 'object', additionalProperties: { type: 'string' } });
+  assert.equal(schema.properties.wikiSlugCount.type, 'integer');
+  for (const [k, v] of Object.entries(schema.properties)) {
+    assert.ok(v.type !== 'object' || v.additionalProperties || v.properties, `${k} is an untyped object`);
+    assert.ok(v.type !== 'array' || v.items, `${k} is an untyped array`);
+  }
+});
+
+function runWikiSlugGuard(loadedInput, RAW_ARGS_INPUT) {
+  const start = SOURCE.indexOf('const WIKI_SLUGS = ');
+  const end = SOURCE.indexOf('// Fate-prose enforcement', start);
+  const body = SOURCE.slice(start, end);
+  const wikiDirsCandidate = (loadedInput && loadedInput.wikiDirs) || RAW_ARGS_INPUT.wikiDirs;
+  return new Function('loadedInput', 'RAW_ARGS_INPUT', 'wikiDirsCandidate', 'loadStats', `${body}\nreturn undefined`)(loadedInput, RAW_ARGS_INPUT, wikiDirsCandidate, () => ({}));
+}
+
+test('wiki-slugs-dropped: empty slugs with wikiDirs present halts; count mismatch halts; matching count passes', () => {
+  const raw = { inputFile: '/x/in.json' };
+  assert.equal(runWikiSlugGuard({ wikiDirs: ['docs/wiki'], wikiSlugs: {} }, raw).halted, 'wiki-slugs-dropped');
+  assert.equal(runWikiSlugGuard({ wikiDirs: ['docs/wiki'], wikiSlugCount: 2, wikiSlugs: { a: 'x' } }, raw).halted, 'wiki-slugs-dropped');
+  assert.equal(runWikiSlugGuard({ wikiDirs: ['docs/wiki'], wikiSlugCount: 1, wikiSlugs: { a: 'x' } }, raw), undefined);
+  assert.equal(runWikiSlugGuard({ wikiSlugs: { a: 'x' } }, raw), undefined);
+  assert.equal(runWikiSlugGuard(null, {}), undefined, 'non-inputFile modes are not guarded');
+});
+
+test('topic_key joins: underscore-echoed key matches hyphenated cluster key (synth-partial-failure regression)', () => {
+  const { sameTopic, buildCandidatesByTopic: b } = new Function(`
+    ${slugifyTopicSrc}
+    ${sameTopicSrc}
+    ${buildCandidatesByTopicSrc}
+    return { sameTopic, buildCandidatesByTopic };
+  `)();
+  assert.ok(sameTopic('retrieval-tuning', 'retrieval_tuning'));
+  assert.ok(sameTopic('Retrieval Tuning', 'retrieval-tuning'));
+  assert.ok(!sameTopic('retrieval-tuning', 'retrieval-index'));
+  const map = b([{ topic_key: 'retrieval_tuning', wiki_path: 'docs/wiki/retrieval-tuning.md', candidate_restatements: [1] }],
+    [{ topicKey: 'retrieval-tuning' }], {}, ['docs/wiki'], () => {});
+  assert.deepEqual(map.get('retrieval-tuning'), [1]);
+  assert.ok(/!synthResults\.some\(\(r\) => sameTopic\(r\.topic_key, topicKey\)\)/.test(SOURCE), 'failedTopicKeys must use sameTopic');
+});
+
+// ---------------------------------------------------------------------------
+// input-count-mismatch: relayed batch/file counts vs declared counts
+// ---------------------------------------------------------------------------
+
+const assertRelayedCounts = new Function(`${extractFunctionSource(SOURCE, 'assertRelayedCounts')}\nreturn assertRelayedCounts;`)();
+const TABLE = [{ batchId: 'b1', files: ['a', 'b'] }, { batchId: 'b2', files: ['c'] }];
+const ch = (batch_count, total_file_count) => ({ batch_count, total_file_count });
+const NONE = {};
+
+test('assertRelayedCounts: matching counts -> null', () => {
+  assert.equal(assertRelayedCounts(TABLE, { args: ch(2, 3), file: ch(2, 3) }, true), null);
+});
+
+test('assertRelayedCounts: batch shortfall halts', () => {
+  const r = assertRelayedCounts(TABLE, { args: NONE, file: ch(3, 3) }, true);
+  assert.equal(r.halted, 'input-count-mismatch');
+  assert.equal(r.phase_reached, 'load');
+  assert.match(r.detail, /batch_count=3/);
+});
+
+test('assertRelayedCounts: file shortfall with equal batches halts', () => {
+  const r = assertRelayedCounts(TABLE, { args: NONE, file: ch(2, 5) }, true);
+  assert.equal(r.halted, 'input-count-mismatch');
+  assert.match(r.detail, /total_file_count=5/);
+});
+
+test('assertRelayedCounts: not relayed with counts absent -> null', () => {
+  assert.equal(assertRelayedCounts(TABLE, { args: NONE, file: NONE }, false), null);
+});
+
+test('assertRelayedCounts: relayed with no channel present halts', () => {
+  const r = assertRelayedCounts(TABLE, { args: NONE, file: NONE }, true);
+  assert.equal(r.halted, 'input-count-mismatch');
+  assert.match(r.detail, /distill\.workflow_input/);
+});
+
+test('assertRelayedCounts: relayed with one count absent from a present channel halts', () => {
+  const r = assertRelayedCounts(TABLE, { args: NONE, file: { batch_count: 2 } }, true);
+  assert.equal(r.halted, 'input-count-mismatch');
+  assert.match(r.detail, /file channel field total_file_count/);
+  const r2 = assertRelayedCounts(TABLE, { args: ch(2, '3'), file: NONE }, true);
+  assert.match(r2.detail, /args channel field total_file_count/);
+});
+
+test('assertRelayedCounts: file agrees with truncated table while args declares more -> halt naming args', () => {
+  const truncated = [TABLE[0]];
+  const r = assertRelayedCounts(truncated, { args: ch(2, 3), file: ch(1, 2) }, true);
+  assert.equal(r.halted, 'input-count-mismatch');
+  assert.match(r.detail, /^distill-harvest: args /);
+});
+
+test('assertRelayedCounts: relayed with only a matching args channel -> null', () => {
+  assert.equal(assertRelayedCounts(TABLE, { args: ch(2, 3), file: NONE }, true), null);
+});
+
+test('input-count-mismatch: INPUT_FILE_SCHEMA lists both counts under properties, only the shard lists required', () => {
+  const m = LIVE_CODE.match(/const INPUT_FILE_SCHEMA = \{[\s\S]*?\n\}\n/);
+  assert.ok(m, 'INPUT_FILE_SCHEMA not found');
+  const schema = new Function(`return ${m[0].replace('const INPUT_FILE_SCHEMA = ', '')}`)();
+  assert.deepEqual(schema.properties.batch_count, { type: 'integer' });
+  assert.deepEqual(schema.properties.total_file_count, { type: 'integer' });
+  assert.deepEqual(schema.required, ['batchFiles', 'slugShardFiles']);
+  const bm = LIVE_CODE.match(/const BATCH_FILE_SCHEMA = \{[\s\S]*?\n\}\n/);
+  const batchSchema = new Function(`return ${bm[0].replace('const BATCH_FILE_SCHEMA = ', '')}`)();
+  assert.deepEqual(batchSchema.properties.formatHints, { type: 'object' });
+});
+
+test('input-count-mismatch: call site precedes scan dispatch and its non-null result is returned', () => {
+  const m = LIVE_CODE.match(/const countHalt = assertRelayedCounts\([\s\S]*?\nif \(countHalt\) \{[\s\S]*?\n\}\n/);
+  assert.ok(m, 'assertRelayedCounts call-site guard not found');
+  assert.ok(LIVE_CODE.indexOf(m[0]) < LIVE_CODE.indexOf('const scanResults = (await parallel('));
+  assert.ok(/return \{ \.\.\.countHalt, load_stats: loadStats\(\) \}/.test(m[0]));
+  const run = (RAW_ARGS_INPUT, loadedInput, BATCHES) =>
+    new Function('assertRelayedCounts', 'RAW_ARGS_INPUT', 'loadedInput', 'BATCHES', 'loadStats', `${m[0]}\nreturn undefined`)(
+      assertRelayedCounts, RAW_ARGS_INPUT, loadedInput, BATCHES, () => ({}));
+  assert.equal(run({ batch_count: 5, total_file_count: 9 }, { batches: TABLE }, TABLE).halted, 'input-count-mismatch');
+  assert.equal(run({}, null, TABLE), undefined);
+  assert.equal(run({ batch_count: 2, total_file_count: 3 }, { batches: TABLE }, TABLE), undefined);
+});
+
+test('renderFormatHints: string, non-empty object, empty object', () => {
+  const render = new Function(`${extractFunctionSource(SOURCE, 'renderFormatHints')}\nreturn renderFormatHints;`)();
+  assert.equal(render('plain'), 'plain');
+  assert.equal(render({ k: 'v' }), '{"k":"v"}');
+  assert.equal(render({}), 'none');
+  assert.equal(render(undefined), 'none');
+});
+
+// ---------------------------------------------------------------------------
+// Agent-echoed key trust: every synth-type call site stamps the key from the dispatching cluster;
+// consolidation never leaves two clusters on one wikiPath.
+// ---------------------------------------------------------------------------
+
+const { stampKey } = new Function(`${extractFunctionSource(SOURCE, 'stampKey')}; return { stampKey };`)();
+
+test('stampKey: overwrites an agent-echoed key and passes a null result through', () => {
+  assert.deepEqual(
+    stampKey({ topic_key: 'subagent-run-report', op: 'x' }, 'topic_key', 'subagent-tooling'),
+    { topic_key: 'subagent-tooling', op: 'x' },
+  );
+  assert.equal(stampKey(null, 'topic_key', 'k'), null);
+});
+
+test('workflow source: synth, gap-synth, candidates and judgment call sites stamp the cluster key', () => {
+  const code = stripComments(SOURCE);
+  assert.equal((code.match(/stampKey\(r, 'topic_key', cluster\.topicKey\)/g) || []).length, 2, 'candidates + synth');
+  assert.equal((code.match(/stampKey\(r, 'topic_key', gap\.topicKey\)/g) || []).length, 1, 'gap-synth');
+  assert.equal((code.match(/stampKey\(r, 'topic_cluster', cluster\.topicCluster\)/g) || []).length, 1, 'judgment');
+});
+
+test('consolidateClusters: clusters homed to one wikiPath merge into one unit, all keys recorded', () => {
+  const raw = [
+    { topicKey: 'subagent-tooling', nuggets: [{ id: 'n1' }], sourceBatches: ['b1'] },
+    { topicKey: 'other', nuggets: [{ id: 'n2' }], sourceBatches: ['b1'] },
+    { topicKey: 'subagent-run-report', nuggets: [{ id: 'n3' }, { id: 'n4' }], sourceBatches: ['b2'] },
+  ];
+  const wikiSlugs = {
+    'subagent-tooling': 'docs/wiki/subagent-run-report.md',
+    'subagent-run-report': 'docs/wiki/subagent-run-report.md',
+    other: 'docs/wiki/other.md',
+  };
+  const result = consolidateClusters(raw, wikiSlugs, { runId: 'r', wikiDirs: ['docs/wiki'] });
+  const paths = result.map((c) => c.wikiPath);
+  assert.equal(new Set(paths).size, paths.length, 'no two units share a path');
+  const unit = result.find((c) => c.wikiPath === 'docs/wiki/subagent-run-report.md');
+  assert.equal(unit.topicKey, 'subagent-tooling');
+  assert.deepEqual(unit.mergedTopicKeys, ['subagent-tooling', 'subagent-run-report']);
+  assert.deepEqual(unit.nuggets.map((n) => n.id), ['n1', 'n3', 'n4']);
+  assert.deepEqual(unit.sourceBatches, ['b1', 'b2']);
+});
+
+// ---------------------------------------------------------------------------
+// Cluster-list relayed counts and reader-versus-schema parity
+// ---------------------------------------------------------------------------
+
+const assertRelayedListCounts = new Function(`${extractFunctionSource(SOURCE, 'assertRelayedListCounts')}\nreturn assertRelayedListCounts;`)();
+const THREE = [{ clusterTag: 'a' }, { clusterTag: 'b' }, { clusterTag: 'c' }];
+
+test('assertRelayedListCounts: matching counts -> null', () => {
+  assert.equal(assertRelayedListCounts(
+    { judgmentClusters: THREE }, { args: {}, file: { judgmentClusters: 3 } }, true), null);
+});
+
+test('assertRelayedListCounts: truncated list against the args count halts naming args', () => {
+  const r = assertRelayedListCounts(
+    { contradictionClusters: THREE.slice(0, 2) },
+    { args: { contradictionClusters: 3 }, file: { contradictionClusters: 2 } }, true);
+  assert.equal(r.halted, 'input-count-mismatch');
+  assert.equal(r.phase_reached, 'load');
+  assert.match(r.detail, /args declares contradictionClusters count=3 but received 2/);
+});
+
+test('assertRelayedListCounts: list dropped entirely while args declares 3 halts', () => {
+  const r = assertRelayedListCounts(
+    { crossRepoDispositions: undefined }, { args: { crossRepoDispositions: 3 }, file: {} }, true);
+  assert.equal(r.halted, 'input-count-mismatch');
+  assert.match(r.detail, /received 0/);
+});
+
+test('assertRelayedListCounts: non-integer declared count halts', () => {
+  const r = assertRelayedListCounts(
+    { judgmentClusters: THREE }, { args: {}, file: { judgmentClusters: '3' } }, true);
+  assert.equal(r.halted, 'input-count-mismatch');
+  assert.match(r.detail, /not an integer/);
+});
+
+test('assertRelayedListCounts: relayed non-empty list with no count anywhere halts', () => {
+  const r = assertRelayedListCounts({ judgmentClusters: THREE }, { args: {}, file: {} }, true);
+  assert.equal(r.halted, 'input-count-mismatch');
+  assert.match(r.detail, /no count/);
+});
+
+test('assertRelayedListCounts: absent list with no count, and unrelayed with no counts -> null', () => {
+  assert.equal(assertRelayedListCounts({ judgmentClusters: undefined }, { args: {}, file: {} }, true), null);
+  assert.equal(assertRelayedListCounts({ judgmentClusters: THREE }, { args: {}, file: {} }, false), null);
+});
+
+test('assertRelayedListCounts: call site follows the batch-count guard and precedes scan dispatch', () => {
+  const call = LIVE_CODE.indexOf('const listCountHalt = assertRelayedListCounts(');
+  assert.ok(call > LIVE_CODE.indexOf('const countHalt = assertRelayedCounts('));
+  assert.ok(call < LIVE_CODE.indexOf('const scanResults = (await parallel('));
+  assert.ok(/return \{ \.\.\.listCountHalt, load_stats: loadStats\(\) \}/.test(LIVE_CODE));
+});
+
+// Built by mergeShardedInput from the batch files and slug shards, not read from the manifest.
+const MERGED_INPUT_KEYS = new Set(['batches', 'wikiSlugs']);
+
+function loadedInputReadsOutsideSchema(code, schemaKeys) {
+  const names = new Set([...code.matchAll(/\bloadedInput\.([A-Za-z_]\w*)/g)].map((m) => m[1]));
+  return [...names].filter((n) => !schemaKeys.has(n) && !MERGED_INPUT_KEYS.has(n));
+}
+
+function inputSchemaKeys() {
+  const m = LIVE_CODE.match(/const INPUT_FILE_SCHEMA = \{[\s\S]*?\n\}\n/);
+  assert.ok(m, 'INPUT_FILE_SCHEMA not found');
+  const schema = new Function(`return ${m[0].replace('const INPUT_FILE_SCHEMA = ', '')}`)();
+  return new Set(Object.keys(schema.properties));
+}
+
+test('parity: every loadedInput.<name> the script reads is an INPUT_FILE_SCHEMA property', () => {
+  assert.deepEqual(loadedInputReadsOutsideSchema(LIVE_CODE, inputSchemaKeys()), []);
+});
+
+test('parity: a read of a field outside the schema is detected', () => {
+  const synthetic = 'const X = loadedInput.runId; const Y = loadedInput.notInSchema';
+  assert.deepEqual(loadedInputReadsOutsideSchema(synthetic, inputSchemaKeys()), ['notInSchema']);
+});
+
+test('INPUT_FILE_SCHEMA admits the seven cluster keys with pinned types and requires the shard lists', () => {
+  const m = LIVE_CODE.match(/const INPUT_FILE_SCHEMA = \{[\s\S]*?\n\}\n/);
+  const schema = new Function(`return ${m[0].replace('const INPUT_FILE_SCHEMA = ', '')}`)();
+  for (const k of ['judgmentClusters', 'contradictionClusters', 'crossRepoDispositions']) {
+    assert.equal(schema.properties[k].type, 'array', k);
+  }
+  for (const k of ['judgmentClusterCount', 'contradictionClusterCount', 'crossRepoDispositionCount', 'minConvergence']) {
+    assert.deepEqual(schema.properties[k], { type: 'integer' }, k);
+  }
+  assert.deepEqual(schema.required, ['batchFiles', 'slugShardFiles']);
+});
+
+// ---------------------------------------------------------------------------
+// Curated file channel (args.curatedFile) and the op's native verdict list
+// ---------------------------------------------------------------------------
+
+const liveCuratedMapFromVerdicts = new Function(`${extractFunctionSource(SOURCE, 'curatedMapFromVerdicts')}\nreturn curatedMapFromVerdicts;`)();
+const OP_RESULT = VERDICT_PAYLOAD.by_threshold['1'].curate_clusters_result;
+
+test('curatedMapFromVerdicts: one key per fixture verdict, and clusterNuggets accepts the map', () => {
+  const map = liveCuratedMapFromVerdicts(OP_RESULT.verdicts);
+  assert.equal(Object.keys(map).length, OP_RESULT.verdicts.length);
+  assert.equal(Object.keys(map).length, OP_RESULT.counts.total);
+  const results = [makeResult('b1', OP_RESULT.verdicts.map((v, i) => makeNugget(`n${i}`, v.tag)))];
+  const drops = [];
+  assert.doesNotThrow(() => clusterNuggets(results, map, drops));
+  assert.equal(drops.length, OP_RESULT.counts.drop);
+});
+
+test('curatedMapFromVerdicts: duplicate tag throws naming the tag; missing tag throws', () => {
+  assert.throws(
+    () => liveCuratedMapFromVerdicts([{ tag: 'dup', verdict: 'keep' }, { tag: 'dup', verdict: 'drop' }]),
+    /duplicate verdict for tag 'dup'/);
+  assert.throws(() => liveCuratedMapFromVerdicts([{ verdict: 'keep' }]), /without a tag/);
+});
+
+function curatedAmbiguityGuard(raw) {
+  const m = LIVE_CODE.match(/if \(RAW_ARGS_INPUT && RAW_ARGS_INPUT\.curatedFile && [\s\S]*?\n\}\n/);
+  assert.ok(m, 'curated-input-ambiguous guard not found');
+  return new Function('RAW_ARGS_INPUT', 'loadStats', `${m[0]}\nreturn undefined`)(raw, () => ({}));
+}
+
+test('curated-input-ambiguous: both curatedFile and curatedTags halt; either alone passes', () => {
+  const r = curatedAmbiguityGuard({ curatedFile: '/x.json', curatedTags: {} });
+  assert.equal(r.halted, 'curated-input-ambiguous');
+  assert.equal(r.phase_reached, 'load');
+  assert.equal(curatedAmbiguityGuard({ curatedFile: '/x.json' }), undefined);
+  assert.equal(curatedAmbiguityGuard({ curatedTags: [] }), undefined);
+  assert.ok(LIVE_CODE.indexOf("curatedFile && RAW_ARGS_INPUT.curatedTags") < LIVE_CODE.indexOf('agent(loadBrief'));
+});
+
+test('curated verdict count: a truncated verdict list against counts.total halts', () => {
+  const full = OP_RESULT.verdicts;
+  const check = (verdicts, args) => assertRelayedListCounts(
+    { verdicts }, { args: { verdicts: args }, file: { verdicts: OP_RESULT.counts.total } }, true);
+  assert.equal(check(full, OP_RESULT.counts.total), null);
+  const r = check(full.slice(0, full.length - 1), undefined);
+  assert.equal(r.halted, 'input-count-mismatch');
+  assert.match(r.detail, /file declares verdicts count=249 but received 248/);
+  assert.equal(check(full, full.length - 1).halted, 'input-count-mismatch');
+});
+
+function loadedCuratedReadsOutsideSchema(code, schemaKeys) {
+  const names = new Set([...code.matchAll(/\bloadedCurated\.([A-Za-z_]\w*)/g)].map((m) => m[1]));
+  return [...names].filter((n) => !schemaKeys.has(n));
+}
+
+function curatedSchema() {
+  const m = LIVE_CODE.match(/const CURATED_FILE_SCHEMA = \{[\s\S]*?\n\}\n/);
+  assert.ok(m, 'CURATED_FILE_SCHEMA not found');
+  return new Function(`return ${m[0].replace('const CURATED_FILE_SCHEMA = ', '')}`)();
+}
+
+test('parity: every loadedCurated.<name> the script reads is a CURATED_FILE_SCHEMA property', () => {
+  const schema = curatedSchema();
+  assert.deepEqual(schema.required, ['verdicts']);
+  assert.deepEqual(schema.properties.verdicts.items.required, ['tag', 'verdict']);
+  assert.deepEqual(loadedCuratedReadsOutsideSchema(LIVE_CODE, new Set(Object.keys(schema.properties))), []);
+  assert.deepEqual(
+    loadedCuratedReadsOutsideSchema('const X = loadedCurated.verdicts; const Y = loadedCurated.notInSchema',
+      new Set(Object.keys(schema.properties))),
+    ['notInSchema']);
+});
+
+test('curated load: agent call sits after the scan wave and before the A/B branch, phase load, own path', () => {
+  const call = LIVE_CODE.indexOf('schema: CURATED_FILE_SCHEMA');
+  assert.ok(call > LIVE_CODE.indexOf('const scanResults = (await parallel('));
+  assert.ok(call < LIVE_CODE.indexOf('if (!CURATED_TAGS)'));
+  const opts = LIVE_CODE.slice(call, LIVE_CODE.indexOf('})', call));
+  assert.match(opts, /phase: 'load'/);
+  assert.match(opts, /label: 'curated-file'/);
+  assert.match(LIVE_CODE, /Read the file at exactly this path: \$\{curatedFilePath\}/);
+  assert.ok(!/curatedLoadBrief[\s\S]{0,1500}inputFilePath/.test(LIVE_CODE.slice(LIVE_CODE.indexOf('const curatedLoadBrief'), LIVE_CODE.indexOf('schema: CURATED_FILE_SCHEMA'))));
+});
+
+test('contradiction topicKeys: an entry matching no cluster is reported and never reaches an agent', () => {
+  const m = LIVE_CODE.match(/const SUPPLIED_CONTRADICTION_CLUSTERS = [\s\S]*?\n\}\)\n/);
+  assert.ok(m, 'contradiction-cluster resolution block not found');
+  const run = (loadedCurated, loadedInput, RAW_ARGS_INPUT, clusters, HOMED_CURATED_TAGS) => new Function(
+    'loadedCurated', 'loadedInput', 'RAW_ARGS_INPUT', 'clusters', 'HOMED_CURATED_TAGS',
+    `${slugifyTopicSrc}\n${sameTopicSrc}\n${m[0]}\nreturn { CONTRADICTION_CLUSTERS, unmatchedTopicKeys }`)(
+    loadedCurated, loadedInput, RAW_ARGS_INPUT, clusters, HOMED_CURATED_TAGS);
+  const clusters = [{ topicKey: 'alpha-topic', mergedTopicKeys: ['alpha-topic', 'beta-topic'] }];
+  const out = run({ contradictionClusters: [{ clusterTag: 't', topicKeys: ['Alpha Topic', 'beta-topic', 'ghost'] }] },
+    { contradictionClusters: [{ clusterTag: 'ignored', topicKeys: ['x'] }] }, {}, clusters);
+  assert.deepEqual(out.CONTRADICTION_CLUSTERS, [{ clusterTag: 't', topicKeys: ['Alpha Topic', 'beta-topic'] }]);
+  assert.deepEqual(out.unmatchedTopicKeys, ['ghost']);
+  const fromInput = run(null, { contradictionClusters: [{ clusterTag: 'i', topicKeys: ['alpha-topic'] }] }, {}, clusters);
+  assert.equal(fromInput.CONTRADICTION_CLUSTERS[0].clusterTag, 'i');
+  assert.ok(LIVE_CODE.indexOf('const SUPPLIED_CONTRADICTION_CLUSTERS') > LIVE_CODE.indexOf('if (!CURATED_TAGS)'));
+  assert.match(LIVE_CODE, /unmatched_topic_keys: unmatchedTopicKeys/);
+  const curated = {
+    client_retry: { verdict: 'merge', merge_target: 'ingest-queue' },
+    lost_tag: { verdict: 'merge', merge_target: 'no-such-cluster' },
+  };
+  const mergedAway = run({ contradictionClusters: [{ clusterTag: 'm', topicKeys: ['ingest-queue', 'client-retry', 'lost-tag'] }] },
+    null, {}, [{ topicKey: 'ingest-queue' }], curated);
+  assert.deepEqual(mergedAway.CONTRADICTION_CLUSTERS, [{ clusterTag: 'm', topicKeys: ['ingest-queue'] }]);
+  assert.deepEqual(mergedAway.unmatchedTopicKeys, ['lost-tag']);
+});
+
+// ---------------------------------------------------------------------------
+// DR minting: drMintingSectionFor, findFoldedDecisions, merge-back, gap brief
+// ---------------------------------------------------------------------------
+
+const drMintSrc = [
+  extractFunctionSource(SOURCE, 'drMintingSectionFor'),
+  extractFunctionSource(SOURCE, 'findFoldedDecisions'),
+  extractFunctionSource(SOURCE, 'combineResynthWork'),
+  extractFunctionSource(SOURCE, 'mergeGapDispositions'),
+  extractFunctionSource(SOURCE, 'gapSynthBriefFor'),
+].join('\n');
+const drMint = new Function('candidatesByTopic', `
+  const RUN_ID = 'run-xyz';
+  const COMMON = '';
+  ${slugifyTopicSrc}
+  ${drMintSrc}
+  return { drMintingSectionFor, findFoldedDecisions, combineResynthWork, mergeGapDispositions, gapSynthBriefFor };
+`)(new Map());
+
+const dec = (id) => ({ id, type: 'DECISION', content: `decision ${id}` });
+const know = (id) => ({ id, type: 'KNOWLEDGE', content: `knowledge ${id}` });
+
+test('drMintingSectionFor: empty for a KNOWLEDGE-only cluster', () => {
+  assert.equal(drMint.drMintingSectionFor({ nuggets: [know('k1')] }), '');
+});
+
+test('drMintingSectionFor: names both DECISION ids, the scaffolder, the allocator-unavailable reason, the run stamp', () => {
+  const out = drMint.drMintingSectionFor({ nuggets: [dec('d1'), know('k1'), dec('d2')] });
+  assert.match(out, /d1, d2/);
+  assert.doesNotMatch(out, /k1/);
+  assert.match(out, /coordinator-doc-new --type decision/);
+  assert.match(out, /DR-ALLOCATOR-UNAVAILABLE/);
+  assert.match(out, /DR-EXISTS /);
+  assert.match(out, /run_id: run-xyz/);
+});
+
+test('drMintingSectionFor: carries every ## heading of phase-2.md Decision Records template', () => {
+  const prompt = fs.readFileSync(path.join(__dirname, '..', 'agent-prompts', 'phase-2.md'), 'utf8');
+  const start = prompt.indexOf('## Decision Records');
+  const end = prompt.indexOf('## Handling Ambiguous Items');
+  assert.ok(start >= 0 && end > start);
+  const headings = prompt.slice(start + '## Decision Records'.length, end).split('\n').map((l) => l.trimEnd()).filter((l) => l.startsWith('## '));
+  assert.ok(headings.length >= 4, `expected the 4 template headings, got ${headings.length}`);
+  const out = drMint.drMintingSectionFor({ nuggets: [dec('d1')] });
+  for (const h of headings) assert.ok(out.includes(h), `section lacks "${h}"`);
+});
+
+test('synthBriefFor and gapSynthBriefFor interpolate drMintingSectionFor; SYNTH_SCHEMA carries target', () => {
+  assert.match(LIVE_CODE, /\$\{drMintingSectionFor\(cluster\)\}/);
+  assert.match(LIVE_CODE, /\$\{drMintingSectionFor\(\{ nuggets: gapNuggets \}\)\}/);
+  assert.match(LIVE_CODE, /target: \{ type: 'string' \}/);
+  assert.match(SOURCE, /agent-prompts\/phase-2\.md § Decision Records/);
+});
+
+test('findFoldedDecisions: flags folded DECISION nuggets, passes records and the two pinned skips', () => {
+  const clusters = [{ topicKey: 'topic-a', nuggets: [dec('a'), dec('b'), dec('c'), dec('d'), dec('e'), dec('f'), dec('g')] }];
+  const results = [{ topic_key: 'topic-a', wiki_path: 'docs/wiki/topic-a.md', dispositions: [
+    { nugget_id: 'a', op: 'ADD_SECTION' },
+    { nugget_id: 'b', op: 'CREATE_DR' },
+    { nugget_id: 'c', op: 'CREATE_DR', target: 'docs/wiki/elsewhere.md' },
+    { nugget_id: 'd', op: 'CREATE_DR', target: 'docs/decisions/DR-001-x.md' },
+    { nugget_id: 'e', op: 'SKIP', reason: 'DR-ALLOCATOR-UNAVAILABLE: no launcher' },
+    { nugget_id: 'f', op: 'SKIP', reason: 'DR-EXISTS docs/decisions/DR-002-y.md' },
+    { nugget_id: 'g', op: 'SKIP', reason: 'EPHEMERAL at source' },
+  ] }];
+  const out = drMint.findFoldedDecisions(clusters, results);
+  assert.equal(out.length, 1);
+  assert.deepEqual(out[0].foldedNuggets.map((n) => n.id), ['a', 'b', 'c', 'g']);
+  assert.equal(out[0].wikiPath, 'docs/wiki/topic-a.md');
+});
+
+test('findFoldedDecisions: ignores non-DECISION nuggets and nuggets with no disposition', () => {
+  const clusters = [{ topicKey: 'topic-a', nuggets: [know('k'), dec('x')] }];
+  const results = [{ topic_key: 'topic-a', wiki_path: 'w.md', dispositions: [{ nugget_id: 'k', op: 'ADD_SECTION' }] }];
+  assert.deepEqual(drMint.findFoldedDecisions(clusters, results), []);
+});
+
+test('gap brief: a folded nugget carries the look-first instruction, an uncovered-only gap does not', () => {
+  const folded = drMint.gapSynthBriefFor({ topicKey: 't', wikiPath: 'w.md', uncoveredNuggets: [], foldedNuggets: [dec('d1')] });
+  assert.match(folded, /look\s+under docs\/decisions\/ for a record whose frontmatter `provenance` carries run_id run-xyz/);
+  assert.match(folded, /coordinator-doc-new --type decision/);
+  const plain = drMint.gapSynthBriefFor({ topicKey: 't', wikiPath: 'w.md', uncoveredNuggets: [know('k1')] });
+  assert.doesNotMatch(plain, /look\s+under docs\/decisions/);
+  assert.doesNotMatch(plain, /coordinator-doc-new/);
+});
+
+test('merge-back: a gap disposition replaces a folded one and only fills uncovered ids otherwise', () => {
+  const original = [{ nugget_id: 'a', op: 'ADD_SECTION' }, { nugget_id: 'b', op: 'ADD_SECTION' }];
+  const gap = [
+    { nugget_id: 'a', op: 'CREATE_DR', target: 'docs/decisions/DR-001-x.md' },
+    { nugget_id: 'b', op: 'SKIP', reason: 'should not replace' },
+    { nugget_id: 'c', op: 'ADD_SECTION' },
+  ];
+  const out = drMint.mergeGapDispositions(original, gap, ['a']);
+  assert.deepEqual(out.map((d) => [d.nugget_id, d.op]), [['a', 'CREATE_DR'], ['b', 'ADD_SECTION'], ['c', 'ADD_SECTION']]);
+});
+
+test('coverage gate: re-synth runs when folded work exists even with no coverage gaps', () => {
+  assert.match(LIVE_CODE, /if \(resynthWork\.length > 0\) \{/);
+  const work = drMint.combineResynthWork([], [{ topicKey: 't', wikiPath: 'w.md', foldedNuggets: [dec('d')] }]);
+  assert.equal(work.length, 1);
+  assert.deepEqual(work[0].uncoveredNuggets, []);
+});
+
+// C4 — dr_minting reconciliation and the phase-3b skip branch.
+const reconcileDrTargets = new Function(`${extractFunctionSource(SOURCE, 'reconcileDrTargets')}; return reconcileDrTargets;`)();
+
+test('reconcileDrTargets: all found, one missing, backslash form', () => {
+  assert.deepEqual(reconcileDrTargets(['docs/decisions/DR-1-a.md'], ['docs/decisions/DR-1-a.md']), []);
+  assert.deepEqual(reconcileDrTargets(['docs/decisions/DR-1-a.md', 'docs/decisions/DR-2-b.md'], ['docs/decisions/DR-1-a.md']), ['docs/decisions/DR-2-b.md']);
+  assert.deepEqual(reconcileDrTargets(['docs/decisions/DR-1-a.md'], ['docs\\decisions\\DR-1-a.md']), []);
+  assert.deepEqual(reconcileDrTargets(['docs/decisions/DR-1-a.md'], undefined), ['docs/decisions/DR-1-a.md']);
+});
+
+const skipBranchSrc = extractBlockSource(
+  SOURCE,
+  'const decisionNuggets = clusters.flatMap',
+  '// END phase-3b skip branch'
+);
+
+function runSkipBranch(clusters, dispositions, createDr = [], judgment = []) {
+  const fn = new Function('clusters', 'synthResults', 'createDrDispositions', 'judgmentDrCandidates', `
+    ${skipBranchSrc}
+    }
+    return phase3b;
+  `);
+  return fn(clusters, [{ topic_key: 't', dispositions }], createDr, judgment);
+}
+
+test('phase-3b skip branch: no DECISION nuggets is not a failure', () => {
+  const out = runSkipBranch([{ nuggets: [know('k1')] }], [{ nugget_id: 'k1', op: 'ADD_SECTION' }]);
+  assert.equal(out.failure, false);
+  assert.equal(out.status, 'skipped-empty');
+  assert.match(out.failure_detail, /no decision-shaped content/);
+});
+
+test('phase-3b skip branch: a folded DECISION nugget keeps failure and names the count', () => {
+  const out = runSkipBranch([{ nuggets: [dec('d1'), dec('d2')] }], [
+    { nugget_id: 'd1', op: 'ADD_SECTION' },
+    { nugget_id: 'd2', op: 'SKIP', reason: 'DR-EXISTS docs/decisions/DR-9-x.md' },
+  ]);
+  assert.equal(out.failure, true);
+  assert.match(out.failure_detail, /1 of 2 DECISION/);
+});
+
+test('phase-3b skip branch: an allocator-skipped DECISION nugget keeps failure', () => {
+  const out = runSkipBranch([{ nuggets: [dec('d1')] }], [
+    { nugget_id: 'd1', op: 'SKIP', reason: 'DR-ALLOCATOR-UNAVAILABLE: no CLI' },
+  ]);
+  assert.equal(out.failure, true);
+  assert.match(out.failure_detail, /1 of 1 DECISION/);
+});
+
+test('phase-3b skip branch: all DR-EXISTS skips is not a failure and names the records', () => {
+  const out = runSkipBranch([{ nuggets: [dec('d1')] }], [
+    { nugget_id: 'd1', op: 'SKIP', reason: 'DR-EXISTS docs/decisions/DR-9-x.md' },
+  ]);
+  assert.equal(out.failure, false);
+  assert.match(out.failure_detail, /docs\/decisions\/DR-9-x\.md/);
+});
+
+test('dr_minting: returned, and a found record no disposition names lands in unclaimed_files', () => {
+  assert.match(LIVE_CODE, /dr_minting: drMinting,/);
+  assert.match(LIVE_CODE, /unclaimed_files: drAgentFailed \? \[\]/);
+  const drMintingSrc = extractBlockSource(SOURCE, 'const drTargets = createDrDispositions', 'unclaimed_files: drAgentFailed ? [] : (phase3b.dr_files_found || []).map(normDrPath).filter((p) => !drTargetsNorm.has(p)),\n}');
+  const run = (phase3b) => new Function('createDrDispositions', 'phase3b', 'decisionNuggets', 'allDispositions', 'allocatorUnavailableCount', 'foldedUnresolved', 'reconcileDrTargets', `${drMintingSrc}; return drMinting;`)(
+    [{ target: 'docs/decisions/DR-1-a.md' }], phase3b, [{ id: 'd1' }], [], 0, [], reconcileDrTargets);
+  const ok = run({ status: 'ran', dr_files_found: ['docs/decisions/DR-1-a.md', 'docs\\decisions\\DR-2-b.md'] });
+  assert.deepEqual(ok.unclaimed_files, ['docs/decisions/DR-2-b.md']);
+  assert.deepEqual(ok.missing_files, []);
+  const failed = run({ status: 'agent-failed' });
+  assert.deepEqual(failed.missing_files, ['docs/decisions/DR-1-a.md']);
+  assert.deepEqual(failed.unclaimed_files, []);
+  assert.match(SOURCE, /required: \['dr_dedup', 'dr_files_found', 'failure'\]/);
+});
+
+// ---------------------------------------------------------------------------
+// 2.5: judgment-corpus scout — cluster resolution and gating.
+// ---------------------------------------------------------------------------
+
+const resolveJudgmentClusters = new Function(
+  `${extractFunctionSource(SOURCE, 'resolveJudgmentClusters')}; return resolveJudgmentClusters;`
+)();
+const INPUT_CLUSTER = { topicCluster: 'a', verdictDirection: 'forbid', liveSidecarPaths: ['x.md'] };
+
+test('2.5 scout: input clusters win over the scout result', () => {
+  const r = resolveJudgmentClusters([INPUT_CLUSTER], { sidecars_seen: 9, clusters: [{ topicCluster: 'b' }] });
+  assert.equal(r.cluster_source, 'input');
+  assert.deepEqual(r.clusters, [INPUT_CLUSTER]);
+  assert.equal(r.status, 'ran');
+});
+
+test('2.5 scout: scout clusters are used when input is empty', () => {
+  const r = resolveJudgmentClusters([], { sidecars_seen: 4, clusters: [INPUT_CLUSTER] });
+  assert.equal(r.cluster_source, 'in-run-scout');
+  assert.equal(r.sidecars_seen, 4);
+  assert.equal(r.clusters.length, 1);
+  assert.equal(r.status, 'ran');
+});
+
+test('2.5 scout: zero scout clusters is status ran with sidecars_seen recorded', () => {
+  const r = resolveJudgmentClusters([], { sidecars_seen: 12, clusters: [] });
+  assert.equal(r.status, 'ran');
+  assert.equal(r.cluster_source, 'in-run-scout');
+  assert.equal(r.sidecars_seen, 12);
+  assert.deepEqual(r.clusters, []);
+});
+
+test('2.5 scout: a failed scout with no input is unavailable', () => {
+  for (const scout of [null, undefined, {}]) {
+    const r = resolveJudgmentClusters([], scout);
+    assert.equal(r.status, 'unavailable');
+    assert.equal(r.cluster_source, 'none');
+  }
+});
+
+test("2.5 scout: the 'judgment-corpus' agent call sits behind a branch on empty input clusters", () => {
+  const src = stripComments(SOURCE);
+  const matches = [...src.matchAll(/label:\s*'judgment-corpus'/g)];
+  assert.equal(matches.length, 1);
+  const before = src.slice(0, matches[0].index);
+  const branch = before.lastIndexOf('if (!(Array.isArray(JUDGMENT_CLUSTERS)');
+  assert.notEqual(branch, -1);
+  assert.ok(before.slice(branch).split('agent(').length === 2, 'the scout is the first agent( after the branch');
+});
+
+// ---------------------------------------------------------------------------
+// citation-repoint
+// ---------------------------------------------------------------------------
+
+const { isRepointableCitation, selectRepointCandidates, applyRepointResults } = new Function(
+  ['isRepointableCitation', 'selectRepointCandidates', 'applyRepointResults']
+    .map((n) => extractFunctionSource(SOURCE, n)).join('\n') +
+  '; return { isRepointableCitation, selectRepointCandidates, applyRepointResults };'
+)();
+
+const RP_PATH = 'archive/specs/a.md';
+const RP_WIKI = new Map([[RP_PATH, ['docs/wiki/x.md']]]);
+const rpProbe = (over = {}) => [{
+  artifact_path: RP_PATH, eligible: false, blocked_by: ['active-reference'], citing_paths: ['docs/guide.md'], ...over,
+}];
+const rpRow = (disposition) => [{ artifact_path: RP_PATH, disposition, reason: 'r' }];
+
+test('citation-repoint: guard-blocked-by-docs-citation case is selected and resolves to DELETE when the guard clears', () => {
+  for (const disp of ['BLOCKED', 'DELETE']) {
+    const rows = rpRow(disp);
+    const cands = selectRepointCandidates(rows, rpProbe(), RP_WIKI);
+    assert.deepEqual(cands, [{ artifact_path: RP_PATH, citing_paths: ['docs/guide.md'], wiki_paths: ['docs/wiki/x.md'] }]);
+    const out = applyRepointResults(rows, cands, [
+      { artifact_path: RP_PATH, repointed_files: ['docs/guide.md'], eligible: true, blocked_by: [] },
+    ]);
+    assert.equal(out.deletions[0].disposition, 'DELETE');
+    assert.match(out.deletions[0].reason, /docs\/guide\.md/);
+    assert.match(out.deletions[0].reason, /docs\/wiki\/x\.md/);
+    assert.deepEqual(out.repointed, [RP_PATH]);
+  }
+});
+
+test('citation-repoint: rows are not selected when a citing path is unrepointable, another guard blocks, or no wiki absorbed', () => {
+  for (const bad of ['state/handoffs/h.md', 'archive/specs/a.md', 'docs/plans/p.md']) {
+    assert.deepEqual(selectRepointCandidates(rpRow('BLOCKED'), rpProbe({ citing_paths: ['docs/guide.md', bad] }), RP_WIKI), []);
+  }
+  assert.deepEqual(selectRepointCandidates(rpRow('BLOCKED'), rpProbe({ blocked_by: ['active-reference', 'open-commitment'] }), RP_WIKI), []);
+  assert.deepEqual(selectRepointCandidates(rpRow('BLOCKED'), rpProbe({ blocked_by: ['open-commitment'] }), RP_WIKI), []);
+  assert.deepEqual(selectRepointCandidates(rpRow('BLOCKED'), rpProbe({ citing_paths: [] }), RP_WIKI), []);
+  assert.deepEqual(selectRepointCandidates(rpRow('BLOCKED'), rpProbe({ eligible: undefined }), RP_WIKI), []);
+  assert.deepEqual(selectRepointCandidates(rpRow('BLOCKED'), rpProbe(), new Map()), []);
+});
+
+test('citation-repoint: a still-blocked or malformed post-repoint result keeps the disposition and names the guards', () => {
+  const cands = selectRepointCandidates(rpRow('BLOCKED'), rpProbe(), RP_WIKI);
+  const still = applyRepointResults(rpRow('BLOCKED'), cands, [
+    { artifact_path: RP_PATH, repointed_files: ['docs/guide.md'], eligible: false, blocked_by: ['active-reference'] },
+  ]);
+  assert.equal(still.deletions[0].disposition, 'BLOCKED');
+  assert.deepEqual(still.still_blocked, [{ artifact_path: RP_PATH, blocked_by: ['active-reference'] }]);
+  const missing = applyRepointResults(rpRow('DELETE'), cands, [{ artifact_path: RP_PATH, repointed_files: ['docs/guide.md'] }]);
+  assert.equal(missing.deletions[0].disposition, 'DELETE');
+  assert.equal(missing.deletions[0].reason, 'r');
+  assert.equal(missing.still_blocked.length, 1);
+  assert.equal(applyRepointResults(rpRow('BLOCKED'), cands, []).deletions[0].disposition, 'BLOCKED');
+});
+
+test('citation-repoint: isRepointableCitation', () => {
+  for (const p of ['docs/wiki/x.md', 'docs\\guide.md', 'tasks/t/spec.md']) assert.equal(isRepointableCitation(p), true, p);
+  for (const p of ['docs/plans/p.md', 'state/handoffs/h.md', 'archive/specs/a.md', 'src/x.js']) assert.equal(isRepointableCitation(p), false, p);
+});
+
+test("citation-repoint: phase sits after the cross-repo merge and before artifact-reentry", () => {
+  const merge = SOURCE.indexOf("no cross-repo disposition rows supplied");
+  const cr = SOURCE.indexOf("phase('citation-repoint')");
+  const re = SOURCE.indexOf("phase('artifact-reentry')");
+  assert.ok(merge !== -1 && merge < cr && cr < re);
+});
+
+// ---------------------------------------------------------------------------
+// Sharded load: shardPathFor, mergeShardedInput, load_stats, load-block shape
+// ---------------------------------------------------------------------------
+
+const shardedLoad = new Function(
+  `${['shardPathFor', 'mergeShardedInput', 'buildLoadStats']
+    .map((n) => extractFunctionSource(SOURCE, n)).join('\n')}\n` +
+  'return { shardPathFor, mergeShardedInput, buildLoadStats };')();
+
+const SHARDED_DIR = path.join(__dirname, 'fixtures', 'sharded-input');
+const readShard = (name) => JSON.parse(fs.readFileSync(path.join(SHARDED_DIR, name), 'utf8'));
+const shardedFixture = () => {
+  const manifest = readShard('workflow-input.json');
+  return {
+    manifest,
+    batchResults: manifest.batchFiles.map(readShard),
+    shardResults: manifest.slugShardFiles.map(readShard),
+    files: { batchFiles: manifest.batchFiles, slugShardFiles: manifest.slugShardFiles },
+  };
+};
+
+test('shardPathFor: Windows drive path, POSIX path, and a bare filename', () => {
+  const { shardPathFor: f } = shardedLoad;
+  const win = (...p) => ['C:', ...p].join('\\');
+  const mixed = (...p) => ['C:', ...p].join('/');
+  const posix = (...p) => ['', 'var', ...p].join('/');
+  assert.equal(f(win('scratch', 'run-1', 'workflow-input.json'), 'batch-0001.json'), win('scratch', 'run-1', 'batch-0001.json'));
+  assert.equal(f(mixed('scratch', 'run-1', 'workflow-input.json'), 'batch-0001.json'), mixed('scratch', 'run-1', 'batch-0001.json'));
+  assert.equal(f(posix('scratch', 'run-1', 'workflow-input.json'), 'sub/wikislugs-0002.json'), posix('scratch', 'run-1', 'sub', 'wikislugs-0002.json'));
+  assert.equal(f(win('scratch', 'workflow-input.json'), 'sub/x.json'), win('scratch', 'sub', 'x.json'));
+  assert.equal(f('workflow-input.json', 'batch-0001.json'), 'batch-0001.json');
+});
+
+test('sharded fixture: no drive letter, merges to the declared counts', () => {
+  for (const name of fs.readdirSync(SHARDED_DIR)) {
+    assert.doesNotMatch(fs.readFileSync(path.join(SHARDED_DIR, name), 'utf8'), /[A-Za-z]:[\\/]/, name);
+  }
+  const { manifest, batchResults, shardResults, files } = shardedFixture();
+  const r = shardedLoad.mergeShardedInput(manifest, batchResults, shardResults, files);
+  assert.ok(r.loadedInput, JSON.stringify(r));
+  const li = r.loadedInput;
+  assert.equal(li.batches.length, manifest.batch_count);
+  assert.equal(li.batches.reduce((n, b) => n + b.files.length, 0), manifest.total_file_count);
+  assert.equal(Object.keys(li.wikiSlugs).length, manifest.wikiSlugCount);
+  assert.equal(li.batchFiles, undefined);
+  assert.equal(li.slugShardFiles, undefined);
+  assert.equal(li.batches[0].file_count, undefined);
+  assert.equal(li.runId, manifest.runId);
+  assert.equal(assertRelayedCounts(li.batches, { args: {}, file: li }, true), null);
+  assert.equal(runWikiSlugGuard(li, {}), undefined);
+});
+
+test('mergeShardedInput: a batch file whose file_count != files.length halts naming it', () => {
+  const { manifest, batchResults, shardResults, files } = shardedFixture();
+  batchResults[1] = { ...batchResults[1], file_count: 5 };
+  const r = shardedLoad.mergeShardedInput(manifest, batchResults, shardResults, files);
+  assert.equal(r.halted, 'input-count-mismatch');
+  assert.equal(r.phase_reached, 'load');
+  assert.match(r.detail, /batch-0002\.json/);
+});
+
+test('mergeShardedInput: a slug shard whose slug_count is off halts wiki-slugs-dropped naming it', () => {
+  const { manifest, batchResults, shardResults, files } = shardedFixture();
+  shardResults[0] = { ...shardResults[0], slug_count: 3 };
+  const r = shardedLoad.mergeShardedInput(manifest, batchResults, shardResults, files);
+  assert.equal(r.halted, 'wiki-slugs-dropped');
+  assert.match(r.detail, /wikislugs-0001\.json/);
+});
+
+test('mergeShardedInput: a duplicate slug across shards passes the merge and trips the wikiSlugCount guard', () => {
+  const { manifest, batchResults, shardResults, files } = shardedFixture();
+  shardResults[1] = { shard: 2, slug_count: 1, entries: { 'alpha-guide': 'docs/wiki/alpha-guide.md' } };
+  const r = shardedLoad.mergeShardedInput(manifest, batchResults, shardResults, files);
+  assert.ok(r.loadedInput);
+  assert.equal(Object.keys(r.loadedInput.wikiSlugs).length, 2);
+  assert.equal(runWikiSlugGuard(r.loadedInput, {}).halted, 'wiki-slugs-dropped');
+});
+
+test('mergeShardedInput: a null position throws naming the file', () => {
+  const { manifest, batchResults, shardResults, files } = shardedFixture();
+  assert.throws(() => shardedLoad.mergeShardedInput(manifest, [batchResults[0], null], shardResults, files), /batch-0002\.json/);
+  assert.throws(() => shardedLoad.mergeShardedInput(manifest, batchResults, [null, shardResults[1]], files), /wikislugs-0001\.json/);
+});
+
+test('single-file relay retired: manifest schema requires the shard lists and carries no inline table', () => {
+  const m = LIVE_CODE.match(/const INPUT_FILE_SCHEMA = \{[\s\S]*?\n\}\n/);
+  assert.ok(m, 'INPUT_FILE_SCHEMA not found');
+  assert.match(m[0], /required: \['batchFiles', 'slugShardFiles'\]/);
+  assert.doesNotMatch(m[0], /^    batches:/m);
+  assert.doesNotMatch(m[0], /^    wikiSlugs:/m);
+  assert.doesNotMatch(LIVE_CODE, /input-shape-ambiguous/);
+  assert.doesNotMatch(LIVE_CODE, /inputShapeAmbiguousHalt/);
+  assert.match(LIVE_CODE, /is not a manifest \(batchFiles and /);
+});
+
+test('shardPathFor: absolute, drive-anchored and ".." shard paths throw', () => {
+  for (const rel of ['/etc/x.json', '\\x.json', ['C:', 'x.json'].join('\\'), '../x.json', 'a/../../x.json']) {
+    assert.throws(() => shardedLoad.shardPathFor('/var/run/workflow-input.json', rel), /inside the manifest/, rel);
+  }
+});
+
+test('wiki-slugs-dropped: args.wikiSlugCount is compared when an integer', () => {
+  const li = { wikiSlugCount: 1, wikiSlugs: { a: 'x' } };
+  assert.equal(runWikiSlugGuard(li, { inputFile: '/x', wikiSlugCount: 1 }), undefined);
+  assert.equal(runWikiSlugGuard(li, { inputFile: '/x', wikiSlugCount: 2 }).halted, 'wiki-slugs-dropped');
+  assert.equal(runWikiSlugGuard(li, { inputFile: '/x', wikiSlugCount: 'n/a' }), undefined);
+});
+
+test('buildLoadStats: agent count, merged counts and the largest relay', () => {
+  const s = shardedLoad.buildLoadStats([10, 900, 40], [{ files: ['a', 'b'] }, { files: ['c'] }], { x: 'p', y: 'q' });
+  assert.deepEqual(s, { agents: 3, batch_count: 2, total_file_count: 3, wikiSlugCount: 2, max_relay_bytes: 900 });
+  assert.deepEqual(shardedLoad.buildLoadStats([], null, null),
+    { agents: 0, batch_count: 0, total_file_count: 0, wikiSlugCount: 0, max_relay_bytes: 0 });
+});
+
+test('sharded load block: every load agent carries phase and model, shard dispatch precedes scan, no .filter(Boolean) on shard results', () => {
+  const start = LIVE_CODE.indexOf('if (RAW_ARGS_INPUT && RAW_ARGS_INPUT.inputFile) {');
+  const end = LIVE_CODE.indexOf('const RUN_ID = ');
+  const block = LIVE_CODE.slice(start, end);
+  const calls = [...block.matchAll(/agent\(/g)].length;
+  assert.equal(calls, 3);
+  assert.equal([...block.matchAll(/phase: 'load'/g)].length, calls);
+  assert.equal([...block.matchAll(/model: 'haiku'/g)].length, calls);
+  assert.ok(end < LIVE_CODE.indexOf('const scanResults = (await parallel('));
+  assert.match(block, /label: `batch-\$\{/);
+  assert.match(block, /label: `wikislugs-\$\{/);
+  assert.match(block, /concurrency: CONCURRENCY_CAP/);
+  assert.doesNotMatch(block.slice(block.indexOf('const batchResults')), /\.filter\(Boolean\)/);
+  assert.ok(LIVE_CODE.indexOf('const CONCURRENCY_CAP') < start, 'CONCURRENCY_CAP must be initialised before the load block');
+  assert.match(LIVE_CODE, /load_stats: buildLoadStats\(loadAgentBytes, BATCHES, WIKI_SLUGS\)/);
 });

@@ -14,21 +14,18 @@ Reference wiki for `/workday-complete` Step 4, holding the heavy-weight artifact
 
 ---
 
-## Daily Reviewer — Sonnet Observer, No Persona Routing
+## Weekly Reviewer — Sonnet Observer, No Persona Routing
 
-The daily strategic review is dispatched as an **unnamed Sonnet worker** (`general-purpose`,
-`model: "sonnet"`). There is **no domain→persona routing** at daily cadence — that was the old
-shape and it was wrong. Personas (the Game Dev Reviewer / the Front-End Reviewer / the Data Science Reviewer / the Staff Engineer) are Opus-only; routing a *daily*
-ceremony to one puts Opus persona-judgment on the cheapest, most frequent gate we have. The fix
-mirrors Sonnet-tier code review moving off personas onto `code-reviewer`.
+The strategic review runs once a week in `/workweek-complete` Step 7b, as an **unnamed Sonnet
+worker** (`general-purpose`, `model: "sonnet"`). There is no domain→persona routing: personas
+(the Game Dev Reviewer / the Front-End Reviewer / the Data Science Reviewer / the Staff Engineer) are Opus-only, and the daily ceremony dispatches the analyst only.
 
-**Role: observer, not judge.** The daily worker leaves a **paper trail for future-the Staff Engineer** —
-alignment notes, debt candidates, architectural-risk *flags*. It renders no final architectural
-verdict. The **weekly** Opus the Staff Engineer arch pass (`/workweek-complete` Step 7.5) consumes the week's
-accumulated daily trail (the `## Strategic Review (Sonnet daily observer)` sections + DSR rows
-tagged `for-weekly-arch-review`) and adjudicates. Domain still matters only for *vocabulary* — a
-UE-heavy day's observer should speak UE — but the dispatch is one Sonnet worker regardless, never
-a named persona.
+**Role: observer, not judge.** The worker leaves a **paper trail for the Staff Engineer** — alignment notes,
+debt candidates, architectural-risk *flags*. It renders no final architectural verdict. The Opus
+The Staff Engineer arch pass (`/workweek-complete` Step 8) consumes the debt-backlog rows tagged
+`weekly-arch-review` and the `## Strategic Review` section of `WEEK-SUMMARY.md`, and adjudicates.
+Domain matters only for *vocabulary* — a UE-heavy week's observer should speak UE. No commit-count
+floor: the observer runs every week, however few commits.
 
 ---
 
@@ -149,8 +146,6 @@ print(compute_machine())
      - **Rationale:** [why this was done, from commit messages/plan docs]
      - **Risk:** [what this locks in or limits]
    - ...
-
-   _Strategic Review section will be appended by the reviewer agent._
    ```
 
    **Coverage anchor (required):** `covered_tip_sha` is the completeness anchor a downstream
@@ -254,53 +249,37 @@ summary — the flat file is canonical; the machine axis collapses post-consolid
 
 ---
 
-## Daily Strategic Observer Prompt Template
+## Weekly Strategic Observer Prompt Template
 
-Dispatch in **parallel with the analyst** (both background, `run_in_background: true`), as an
-**unnamed Sonnet worker** (`general-purpose`, `model: "sonnet"`) — **never a named persona** (see
-§ Daily Reviewer above for why). The worker is an **observer leaving a paper trail for
-future-the Staff Engineer**, not a judge. It flags candidates; the weekly Opus the Staff Engineer arch pass adjudicates.
-
-> **Parallel-pattern constraint:** the observer reads the same inputs as the analyst
-> (`tasks/daily-review-scratch/inventory.md`, `completions-today.json`, `git diff`) — it does NOT
-> read the analyst's output prose. The analyst summary is being written concurrently and is not
-> available. If a future revision of this step needs the analyst's "Architectural Decisions" section
-> (or any other analyst-authored prose) as input, the sidecar/parallel pattern breaks and must
-> revert to serial dispatch. This constraint is also documented at the dispatch site in
-> `commands/workday-complete.md` § Step 4c.
+Dispatched once per `/workweek-complete` Step 7b, before Step 8, as an **unnamed Sonnet worker**
+(`general-purpose`, `model: "sonnet"`) — **never a named persona**. The worker is an **observer
+leaving a paper trail for the Staff Engineer**, not a judge. It flags candidates; the Opus the Staff Engineer arch pass
+adjudicates.
 
 ---
 
-**Daily observer instructions:**
+**Weekly observer instructions:**
 
-You are an unnamed Sonnet strategic observer for the daily wrap. Read the work summary and project
+You are an unnamed Sonnet strategic observer for the weekly wrap. Read the week's work and project
 strategic documents and leave a **paper trail** — alignment notes, debt candidates, and
-architectural-risk *flags* for the weekly Opus arch pass to adjudicate. **Render no final
+architectural-risk *flags* for the Opus arch pass to adjudicate. **Render no final
 architectural verdict** and do **not** claim a persona identity. **This is NOT a code review** — no
 inline code fixes.
 
-1. **Read** `tasks/daily-review-scratch/inventory.md` (the Step 4a output) and
-   `tasks/daily-review-scratch/completions-today.json` to understand today's work. Also read the
-   git diff for architectural context:
-
-   ```bash
-   BASELINE=$(grep '^> Baseline:' tasks/daily-review-scratch/inventory.md \
-     | sed 's/^> Baseline: //' | awk '{print $1}')
-   git diff "$BASELINE"..HEAD
-   ```
-
-   (The analyst summary is being written concurrently and is not yet available.)
+1. **Read** the week's `archive/daily-summaries/*.md` (each day's Architectural Decisions section
+   first) and `git diff <week-start-baseline>..HEAD --stat` for architectural context; read the
+   diff itself only for a flagged seam.
 
 2. **Read project strategic documents** (check each, skip silently if missing):
    - `ROADMAP.md`, `docs/roadmap.md`, or `docs/ROADMAP.md`
    - `VISION.md` or `docs/vision.md`
    - `state/workstreams/` (query directly — the rendered `docs/project-tracker.md` view is retired)
 
-3. **Assess** today's work against the strategic direction. Focus on:
-   - **Alignment:** Does today's work advance the roadmap? Does anything conflict?
+3. **Assess** the week's work against the strategic direction. Focus on:
+   - **Alignment:** Does the week's work advance the roadmap? Does anything conflict?
    - **Lock-in:** Do any decisions create accidental constraints that the roadmap/vision would
      want to avoid?
-   - **Bridging opportunities:** Are there low-cost opportunities to make today's code more ready
+   - **Bridging opportunities:** Are there low-cost opportunities to make the week's code more ready
      for planned future capabilities?
    - **Debt patterns:** Is technical debt accumulating in a direction that should be documented?
 
@@ -310,24 +289,24 @@ inline code fixes.
    the finding without the negative. Nothing denies read access to a sibling checkout; an
    unchecked cross-repo negative sends a peer team chasing a bug they already closed.
 
-4. **Write** findings to the sidecar file `archive/daily-summaries/YYYY-MM-DD-<machine>.observer.md` as a
-   new section (`/workday-complete` Step 4d will concatenate this into the main daily summary once
-   both agents complete — do not write to or append the main summary file directly):
+4. **Write** findings as one section appended to
+   `archive/week-changelogs/<week-start>/WEEK-SUMMARY.md` (exactly one `## Strategic Review`
+   heading; no daily summary receives one):
 
    ```markdown
-   ## Strategic Review (Sonnet daily observer)
+   ## Strategic Review (Sonnet weekly observer)
 
    > Observer read: [list which strategic docs were found and read]
 
    ### Alignment Assessment
-   - [Where today's work advances the roadmap]
-   - [Where today's work diverges or creates friction]
+   - [Where the week's work advances the roadmap]
+   - [Where the week's work diverges or creates friction]
 
    ### Technical Debt Identified
    - [Debt item — what, why it matters, suggested future action]
    - ...
 
-   ### Architectural-Risk Flags (for future-the Staff Engineer / weekly arch pass)
+   ### Architectural-Risk Flags (for the Staff Engineer arch pass)
    - [Candidate concern — flagged, NOT adjudicated. State what to look at and why it might matter.]
    - ...
 
@@ -344,13 +323,13 @@ inline code fixes.
    Required fields:
    - **`title`** — one-line noun-phrase summary of the finding
    - **`body`** — multi-line prose: what was observed, the structural gap, context (`body: |` block scalar)
-   - **`source`** — `workday-complete/step4/sonnet-observer/{date}`
+   - **`source`** — `workweek-complete/step7b/sonnet-observer/{date}`
    - **`risk`** — consequence of leaving the debt unaddressed
    - **`proposed_action`** — what the EM or a future executor should do about it
    - **`status`** — `open`
    - **`created`** — today's date (YYYY-MM-DD)
-   - **`tags: [weekly-arch-review]`** — for any architectural-risk flag, so the weekly the Staff Engineer arch pass
-     (`/workweek-complete` Step 7.5) picks it up as accumulated daily signal.
+   - **`tags: [weekly-arch-review]`** — for any architectural-risk flag, so the Staff Engineer arch pass
+     (`/workweek-complete` Step 8) picks it up.
 
    This produces `state/debt-backlog/<date>-<slug>.yaml`. See `docs/wiki/schema-and-validation-contracts/debt-backlog-schema.md`
    for the full field reference and an example entry.
@@ -359,7 +338,7 @@ inline code fixes.
 
 ## Health Ledger Entry Schema
 
-After the reviewer agent completes, update `state/health-ledger.md`:
+After the analyst completes, update `state/health-ledger.md`:
 
 1. If it doesn't exist, create it with this shape (two audit clocks above a per-system table —
    the schema established by the weekly-gate/arch-survey restructure; do **not**
@@ -380,15 +359,15 @@ After the reviewer agent completes, update `state/health-ledger.md`:
 
 3. Do **NOT** update grades or the two audit clocks from the daily wrap. `Last full audit` is written
    only by a PM-invoked `/architecture-survey`; `Last targeted audit` only by `/architecture-audit`.
-   The daily Sonnet observer renders no grades — it flags candidates as debt-backlog YAML entries
-   (`state/debt-backlog/<date>-<slug>.yaml`) with `tags: [weekly-arch-review]` for the weekly
+   The weekly Sonnet observer renders no grades — it flags candidates as debt-backlog YAML entries
+   (`state/debt-backlog/<date>-<slug>.yaml`) with `tags: [weekly-arch-review]` for the
    the Staff Engineer arch pass to adjudicate. Grade changes are an audit output, never a daily-wrap side effect.
 
 ---
 
-## Debt Backlog Entry Format (Daily Observer)
+## Debt Backlog Entry Format (Weekly Observer)
 
-Entries added by the daily strategic reviewer are per-entry YAML files produced by
+Entries added by the weekly strategic observer are per-entry YAML files produced by
 `coordinator-queue-append --schema debt-backlog`. The filename is the canonical identity handle:
 
 ```
@@ -432,20 +411,20 @@ only the mechanical assertion caught either.
 
 | Situation | Action |
 |---|---|
-| No commits since baseline | Write a minimal daily summary noting "no work today"; skip analyst and reviewer dispatch |
+| No commits since baseline | Write a minimal daily summary noting "no work today"; skip analyst dispatch |
 | `standup.py` exits non-zero | Fall back: EM runs git commands directly, writes inventory manually; proceed to analyst dispatch |
-| Analyst dispatch fails | Fall back: EM writes a minimal work summary from the inventory; proceed to reviewer dispatch |
-| Reviewer dispatch fails | Skip reviewer, note "strategic review skipped" in the daily summary |
-| No strategic docs exist | Reviewer focuses on pure architectural principles instead of roadmap alignment |
-| No debt entries to write | Skip Step 5; `coordinator-queue-append` creates the entry file; `state/debt-backlog/` directory must exist |
+| Analyst dispatch fails | Fall back: EM writes a minimal work summary from the inventory |
+| Weekly observer dispatch fails | Skip it, note "strategic review skipped" in `WEEK-SUMMARY.md` |
+| No strategic docs exist | Observer focuses on pure architectural principles instead of roadmap alignment |
+| No debt entries to write | Skip the write; `coordinator-queue-append` creates the entry file; `state/debt-backlog/` directory must exist |
 
 ---
 
 ## Skip Condition
 
 The only valid skip: **zero new commits today AND no agent-driven changes outside commits.**
-Anything else — one commit, one file — run the review. The strongest predictor of a review
-that surfaces regressions is a small commit count, not a large one.
+Anything else — one commit, one file — write the daily summary. The weekly observer has no
+skip condition on commit count.
 
 ---
 
