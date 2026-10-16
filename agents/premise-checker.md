@@ -38,7 +38,8 @@ changes if it does not resolve.
 
 1. **Paths.** Does each cited file, directory or artifact exist? Include the plan's own
    frontmatter: a literal scaffold placeholder left in a field (`plan_id`, `deliverable_id`) is an
-   unresolved citation, not formatting.
+   unresolved citation, not formatting. A bare filename in prose resolves when a structured field
+   of the same plan (`how:`, `writes:`) names an existing path ending in it.
 2. **Symbols.** Does each cited function, constant, op or CLI exist, and is it reachable the way
    the plan assumes? Say which route answered; fall through to `grep`/`Select-String` if
    project-rag does not resolve — an unindexed repo is a routing fact, not a citation defect.
@@ -51,8 +52,9 @@ changes if it does not resolve.
    `UNCHECKABLE` is not a pass.
    Class 4 compares the falsifier's `baseline_output` against the tree at its `baseline_ref`,
    never at HEAD: read a read-shaped `how` with `git show <baseline_ref>:<path>`; a `how` that needs
-   a checkout, build or test run at that ref is `UNCHECKABLE`. Every class-4 row carries
-   `baseline_ref`, the value it read against.
+   a checkout, build or test run at that ref is `UNCHECKABLE`. Run the plan's own `how` command
+   verbatim, pathspec included; a count from any other command is not evidence. Every class-4 row
+   carries `baseline_ref`, the value it read against.
    A falsifier path that does not exist yet but that the plan itself
    creates (its creation list or a chunk's writes footprint) is `RESOLVES`, evidence naming the
    creating entry, never a block; run the instrument only on a path that exists.
@@ -79,7 +81,8 @@ citation verbatim, the evidence you read, and on class 4 the `baseline_ref`.
 
 A CONTRADICTED row whose citation matches an entry on the plan's `corrects:` list says so in
 its evidence (`on corrects: -> <fixed_by>`) and still reports CONTRADICTED: the readiness op
-decides cover.
+decides cover. Its citation is that entry's `citation`, copied verbatim, one row per entry: the
+op covers a row by exact substring match, so a merged or paraphrased citation is never covered.
 
 **A cited on-disk ruling is settled.** A premise that cites a ruling file (`state/apm-rulings/*`,
 `docs/decisions/*`) or the plan's own `Settled premises` section is `RESOLVES` once you have opened

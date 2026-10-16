@@ -4,6 +4,11 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.4.26] — 2026-10-17
+
+- **Design route:** sizing-object schema 1.44.0 carries `design_route` (route, authority, board_url, approval); an unapproved canvas halts for PM board review after plan, before stage.
+- **premise-checker:** a correcting row cites the entry verbatim; bare prose filenames resolve via the plan's how/writes.
+
 ## [4.4.25] — 2026-10-16
 
 - **Group EM home** is renamed to `group-em`; `group-em-home migrate` moves a legacy `general-work` home.

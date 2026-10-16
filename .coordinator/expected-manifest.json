@@ -1,7 +1,7 @@
 {
   "paths": {
-    ".claude-plugin/marketplace.json": "1a3230edc1012b45e4d1e0d9338cab8aa9cfbbd7",
-    ".claude-plugin/plugin.json": "dba85c868e39867a14cc7907bf8ec1e9081a34c5",
+    ".claude-plugin/marketplace.json": "38c31ff57e55ba459a0f41046ee07173ea2b9479",
+    ".claude-plugin/plugin.json": "06fb96db03475b3109718903bb5e8401e7517528",
     ".gitattributes": "e601e3b4831fbad8558b4cf33c1d891e51bb4732",
     ".github/.persona-names-allowlist": "b192e993696d101230ee10c2cbe29faed29ea61f",
     ".github/ISSUE_TEMPLATE/bug_report.md": "0f541423ae94a7dd28b550bee94ce2babb50be4a",
@@ -34,7 +34,7 @@
     ".gitignore": "31886db36fd93b3817544f094188345777a5e87c",
     ".python-version": "e4fba2183587225f216eeada4c78dfab6b2e65f5",
     "AGENTS.md": "a88e4d5f37a62b3a64ab05156092552926c2cf0b",
-    "CHANGELOG.md": "c760dc06eeb6c92e8548b53a7e2d1efe2ad70570",
+    "CHANGELOG.md": "2de71da85bcecb12932af8570116ce745f5bd58a",
     "CODE_OF_CONDUCT.md": "ba00a30d3950eb141f7ba5c969661e60c2f5c97a",
     "COMMERCIAL.md": "a8701144cfb16aedda57ec490159cafe170ff1d1",
     "CONTRIBUTING.md": "b0db3c04182459734d8871e93ab8a8165e2783a1",
@@ -70,7 +70,7 @@
     "agents/plan-author.md": "090000194e579aa84e3df215625ed43e355974e1",
     "agents/plan-coverage-checker.md": "97c7756c145780e9ed9d38f2139681523bc21dab",
     "agents/plan-reviewer.md": "14e6db3043ea46b3a06ffa0efc05adf4de93010e",
-    "agents/premise-checker.md": "4caebda51d0b851fdf013218b6d0bc0fd3507521",
+    "agents/premise-checker.md": "31dcdb4c8ce8866d5ed1679cc1319e290a4d3f64",
     "agents/prior-art-checker.md": "8c2d3b0886d03f8f4f1f48da3aa436e31b9d42b5",
     "agents/queue-grind-op-runner.md": "d8d705ce2ecbeec07d7b0577ad5e4a108ce492e9",
     "agents/repo-scout.md": "a83633685bf74b43500fc4416aa866abdccda278",
@@ -2339,5 +2339,5 @@
     "workflows/workday-start.mjs": "18f956cab96fb2eb1bdb728ef3df53a4f4caa862"
   },
   "schema": 1,
-  "source_head": "becfb09fbdb4efd180646cbb5a391b65aa23b99d"
+  "source_head": "f8c2fc8685c72206dab4e6e4844bd950431f6216"
 }
