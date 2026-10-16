@@ -224,42 +224,22 @@ This is what produces empty branches and orphan stashes by construction. The hoo
 
 ## Override
 
-**Zombie variable — has setters, has no reader, and the two forms it was documented in had
-opposite fates.** `COORDINATOR_OVERRIDE_BRANCH=1` was meant to bypass a branch-discipline
-PreToolUse hook, but per the status block above that hook is not installed anywhere in the fleet
-today, and nothing today reads this variable as a boolean hook-bypass gate. The variable was
-documented in two distinct forms, and they were not equally reachable:
+**`COORDINATOR_OVERRIDE_BRANCH` has one live reader and one dead channel.**
 
-- **The env-channel form** — `COORDINATOR_OVERRIDE_BRANCH` set as *subprocess env* on a setter's
-  own git call — **is structurally unreachable, by construction, and always was.** A PreToolUse
-  hook runs as a fresh subprocess per tool-use event; it receives the *candidate command string*
-  as inert text to inspect, never shell-execs it, and never inherits the calling process's env the
-  way a child-of-child subprocess would. Env set on the git subprocess you're about to run is
-  invisible to the hook process that gates whether that Bash call is allowed to happen at all.
-  This unreachability is pinned by a test:
-  `coordinator_core/bash_guards/tests/test_override_unreachability_boundary.py`.
-- **The inline-prefix form** — `COORDINATOR_OVERRIDE_BRANCH=1 git ...` typed as the literal
-  leading text of the candidate command — **was NOT unreachable by construction, and it worked.**
-  It was string-detected off the candidate command text and audit-logged to
-  `.git/coordinator-sessions/_branch-overrides/overrides.log` (one long-lived consumer repo still
-  carries 64 surviving entries tagged `OVERRIDE(inline)`) until the create-time hook's retirement. The mechanism remains observable to a guard today:
-  `coordinator_core/bash_guards/_command_tokenizer.py` `resolve_command_positions` still peels
-  leading env assignments. What forecloses the inline form now is **deliberate fleet policy** —
-  override *keys* are human-operator and pre-launch per `docs/reference/guard-override-keys.md`
-  (engine-resident) — NOT an impossibility of construction. Pre-launch is not the only
-  operator channel: the engine also carries an additive fourth route — an in-session,
-  one-shot, per-guard unlock sentinel created at the moment of denial, the env keys
-  unchanged and still valid. Its taker is a human operator, except for one enumerated pair of
-  guard names an EM may self-grant; the sentinel writes a durable record of the stated reason
-  before it mints. Cite that reference for the current shape rather than asserting
-  pre-launch-only or human-only. A future guard MAY be designed around
-  the inline form if the engine chooses to re-open it; that is an engine-side call, not a
-  doctrinal ban.
-
-A future reinstatement of a create-time hook must not assume the env-channel form's existing
-plumbing gives it a working escape hatch — it does not, by construction, and never did. The
-inline-prefix form is a different question entirely: it is currently closed by policy, not by
-impossibility.
+- **The inline-prefix form** — `COORDINATOR_OVERRIDE_BRANCH=1 git commit ...`, typed as the literal
+  leading text of the command — is read by the claude-klabauter Bash guard (`block_topic_branch`) from the
+  *command text*, not from subprocess env. It lifts the refusal of `git commit` on a remote-backed
+  `main`. The value must be exactly `1`; an occurrence inside a quoted argument does not count.
+  The engine commit routes (`commit_v2`, `safe_commit_offer`) take `on_main_reason` instead.
+- **The env-channel form** — the variable set as *subprocess env* on a setter's own git call — is
+  invisible to any PreToolUse hook, by construction: a hook runs as a fresh subprocess per tool-use
+  event, inspects the candidate command as inert text, and never inherits the calling process's
+  env. Pinned by
+  `coordinator_core/bash_guards/tests/test_override_unreachability_boundary.py`. Only readers that
+  inspect command text (above) can see the override.
+- No create-time branch hook is installed, so branch creation has nothing to bypass. Override *keys*
+  for the other guards are operator-set per `docs/reference/guard-override-keys.md`
+  (engine-resident), alongside the in-session per-guard unlock sentinel described there.
 
 **Name collision worth knowing.** `coordinator_core/consolidate_assemble/apply.py` reads the same
 variable name, but as a **branch name to compare against**, not a boolean: it selects a forced

@@ -38,7 +38,9 @@ then return.
    `{topic-slug}`) — lets sweep/auditor query across the whole run in one call.
 3. Custom instructions from strategy.md → `chat_configure`.
 4. **scout-provided:** add each URL via `source_add(wait: true)`, sequentially — never
-   parallelize `source_add`. A source marked `SEO-suspect: YES` is corroboration-only: if it's
+   parallelize `source_add`. After each add, `source_get_content` it: an HTTP error/block page
+   (403, 404, Forbidden, Access Denied, "Just a moment", captcha) or body under 500 chars is a
+   failed ingestion — `source_delete` it, log the failure, don't count it toward the quota. A source marked `SEO-suspect: YES` is corroboration-only: if it's
    your only source for a claim, set confidence LOW and note the flag in evidence_excerpt.
 5. **Drive sources are opt-in only** (`source_sync_drive`/`source_list_drive`) — use only when
    strategy.md/sources explicitly calls for them; otherwise plain `source_add`.

@@ -50,7 +50,8 @@ memory rather than a fresh read is the tell.
 ## Two kinds of work
 
 **1 — The inbox blitz.** Execute the `brief` + `memos[]` from `workday-start-inbox-blitz-assemble`
-exactly as written — never paraphrase, reorder, or substitute your own rubric.
+exactly as written — never paraphrase, reorder, or substitute your own rubric. Any file you write
+under `state/` you commit before you report: `git commit -- <explicit file paths>`, never a directory.
 
 **2 — Standing asks.** Prose read-and-report asks (a peer's transcript tail, claimant liveness,
 what landed since a SHA, memo committed or only written): do it, report, stop.

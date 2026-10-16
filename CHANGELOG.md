@@ -4,6 +4,13 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.4.23] — 2026-10-16
+
+- **Engine-owned bin copies forward.** Nine `coordinator/bin` scripts the engine owns are now thin forwarders to
+  the resolved engine root.
+- **Shell guards** drop `env` shebangs on three bin scripts.
+- **Publish check:** no published module is named after a redacted codename.
+
 ## [4.4.22] — 2026-10-16
 
 - **Turn-intent tail is Cockpit-only.** The EM's `<turn-intent>` tail and its Stop-hook enforcement apply only

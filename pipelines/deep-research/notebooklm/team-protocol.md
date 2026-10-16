@@ -75,7 +75,7 @@ The worker stage starts after the scout has returned, so `strategy.md` and `sour
 - Reads `## Notebook {letter}` section from strategy.md for its assignment
 - Reads `## Sources for Notebook {letter}` from sources.md for its source list
 - Bootstraps MCP tools via graduated ToolSearch (exact names → keyword fallback → fail gracefully)
-- If source strategy is "scout-provided": ingest scout-provided URLs via `source_add`
+- If source strategy is "scout-provided": ingest scout-provided URLs via `source_add`, reading each back; an HTTP error/block page or near-empty body (<500 chars) is an ingestion failure: `source_delete`d, reported as a failure, not counted toward the source quota
 - If source strategy is "research_start": use `research_start` MCP tool for NLM discovery
 - Creates own notebook named `{topic-slug}-{letter}`
 - Runs all assigned research questions, extracting structured claims per response

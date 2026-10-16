@@ -181,30 +181,19 @@ as the act (`! firebase login --reauth`), never as "needs you". Tripwire:
 - Prefer the trampoline; confirm the subprocess started rather than trusting its silence.
 - **Arm within the entry lease:** an entry that never arms is a crown with no watch.
 - **Verification is a background task id you can name plus `--status`** fresh with
-  `tick_source: cron` and `subscribed_peers` above zero. The record reads stale between a
+  `tick_source: cron` and `subscribed_peers` above zero (ALIVE alone is not). The record reads stale between a
   completion and the relaunch.
-- **`--status` saying ALIVE is not verification** — check `subscribed_peers`.
-- **The engine must be importable**, which it is not from the repo you are Group EM for — use
-  `$COORDINATOR_SETTINGS_HOME/bin/group-em-watch` (`.exe` on Windows; on PowerShell, `&` + forward slashes).
+- Use `$COORDINATOR_SETTINGS_HOME/bin/group-em-watch`, never an engine import, (`.exe` on Windows; on PowerShell, `&` + forward slashes).
 
 Mechanics: `coordinator/docs/wiki/dispatching-parallel-agents/group-em-standing/group-em-assistant-remit.md`
 § Arming the watch.
 
 ### The wires — who arms what, and how fast you would know
 
-**THE WATCH RUN IS YOURS: THE HOLDER RELAUNCHES THE BACKGROUND RUN ON EACH COMPLETION; NEVER WRAP THE WATCH IN A `MONITOR`.** Tripwire:
-`A-MONITOR-ARMED-BY-A-TEAMMATE-WAKES-NOBODY`.
-
-**The `notify_when_idle` one-shot cannot be delegated either** — main conversation only; it
-fires once per peer, so re-arm per peer.
-
-**You act on the watch's events yourself;** `group-em-assistant` is the reader you ask: park-spool
-triage, transcript tails, claimants. **The park spool is its surface, not yours:**
-ask it for the spool before the file. **It triages and reports; it never nudges
-a peer** — nudging is the Group EM's own.
-
-**Verify the wire's holder:** a nameable shell task id and `--status` ALIVE with `subscribed_peers` > 0.
-Worked case: `coordinator/docs/wiki/dispatching-parallel-agents/group-em-standing/group-em-entry-teammates.md`.
+**THE WATCH RUN IS YOURS; NEVER WRAP IT IN A `MONITOR`** (`A-MONITOR-ARMED-BY-A-TEAMMATE-WAKES-NOBODY`).
+The `notify_when_idle` one-shot is main-conversation only, once per peer. The park spool is
+`group-em-assistant`'s surface: ask it first; it never nudges. Worked case:
+`coordinator/docs/wiki/dispatching-parallel-agents/group-em-standing/group-em-entry-teammates.md`.
 
 ### Liveness instruments — two sanctioned, one banned, and you read the banned one constantly
 
@@ -267,23 +256,10 @@ is persisted; every fact is re-derived live.
 `.coordinator-local/subagent-share/<this-session-id>/group-em-send-log.jsonl` — session-scoped, so a new Group EM
 starts with an empty cooldown.
 
-**Second carve-out: the engine's box holder record** (`state/group-em/box/holder.json` under the
-settings home). It is the G-EM's own standing, not a peer roster; the engine writes it and removes
-it at stand-down. Fields and read surface: the contract page above, § 2.
-
-## Relaying the PM's word
-
-Commit the PM's words verbatim under the home's `state/pm-relays/` first, then send the stamp
-exactly as the contract page § 4 gives it (`[PM via G-EM <name> <sid8> <ISO>]`, the quoted words,
-`record: <path>@<short sha>`). Your own messages open with `[G-EM <name> <sid8>]` and never carry
-the PM stamp. Tripwire: `A-PM-VIA-G-EM-RELAY-QUOTES-AND-POINTS`.
-
-## Clearing a needs-PM flag
-
-After the escalation screen, record the verdict on the EM's turn-intent:
-`gem-triage-turn-intent --session-id <target> --repo-root <target root> --turn-ended-at <read value>
---outcome cleared|escalated`. Pass the `turn_ended_at` you read; a mismatch refuses. Escalate only
-what the PM alone can decide.
+**Second carve-out: the engine's box holder record** — the G-EM's own standing, not a peer
+roster. Relaying the PM's word (stamp `[PM via G-EM <name> <sid8> <ISO>]`, record first) and
+clearing a needs-PM flag (`gem-triage-turn-intent`): the contract page above, §§ 2–4. Tripwire:
+`A-PM-VIA-G-EM-RELAY-QUOTES-AND-POINTS`.
 
 ## DACI is a frame, not a registry
 
