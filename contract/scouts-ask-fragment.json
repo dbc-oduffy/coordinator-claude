@@ -1,37 +1,55 @@
 {
   "schema": "scouts-ask-fragment",
-  "schema_version": 1,
+  "schema_version": 2,
   "max_questions": 8,
   "modes": {
     "values": ["split", "combine"],
     "default": "split",
-    "combined_slug": "combined"
+    "combined_slug": "question"
   },
   "targets": {
     "sources": ["web", "repo", "local"],
+    "per_question": "an ordered, non-empty list; no duplicate target",
+    "default_target": "web",
     "ref_rules": {
       "web": "none",
-      "repo": "path; '.' is the firing repo root, an absolute path is another checkout",
-      "local": "a probe id from probe_allowlist"
-    },
-    "default_targets": [
-      {"source": "web"},
-      {"source": "repo", "ref": "."}
-    ]
+      "repo": "path; relative to the firing repo root, or absolute for another checkout",
+      "local": "<probe-id>[:<arg>]; the id is a probe_allowlist id, an arg only for an entry whose ref is not 'none', arg charset [A-Za-z0-9._-]+"
+    }
   },
   "ask_md_grammar": {
     "section_heading": "## <slug>",
-    "section_body": "the question text, then a 'Targets:' line, then one bullet per target",
-    "target_bullet_forms": ["- <source>", "- <source>: <ref>"],
-    "combine_section": "## combined"
+    "target_line": "Target: <source>[ `<ref>`]",
+    "section_body": "one target line per target in list order, a blank line, then the question text",
+    "web_only_question": "no target line",
+    "mixed_question": "a 'Target: web' line is written like any other target",
+    "questions_list": "with two or more questions, the ask text is followed by 'Research questions:' and a numbered list",
+    "combine_section": "## question: a numbered list of every question; each item puts its first target line on the number line and indents the rest, then the text"
   },
   "manifest": {
     "lists": {
-      "questions": "one slug per question; the single slug 'combined' in combine mode",
-      "probes": "slugs of questions with a local target; in combine mode the single slug 'combined' when any question has a local target"
+      "questions": "one slug per question; the single item 'question' in combine mode",
+      "probes": "slugs of questions with a local target; in combine mode the single item 'question' when any question has a local target"
     },
     "flags": {
-      "local_probe": "true when probes is non-empty"
+      "local_probe": "bound true only when a local target exists; the manifest declares it [true, false], so an unbound flag reads false and the probe stage is skipped"
+    },
+    "bound_only_when_local_target": ["probes", "local_probe"]
+  },
+  "engine_mirror": {
+    "source": "coordinator_core/ops/_research_contract.py",
+    "constants": {
+      "MAX_SCOUT_QUESTIONS": 8,
+      "SCOUT_TARGETS": ["web", "repo", "local"],
+      "DEFAULT_SCOUT_TARGET": "web",
+      "SCOUT_MODES": ["split", "combine"],
+      "DEFAULT_SCOUT_MODE": "split",
+      "COMBINED_SCOUT_ITEM": "question",
+      "TARGET_LINE_PREFIX": "Target: ",
+      "PROBES_LIST": "probes",
+      "LOCAL_PROBE_FLAG": "local_probe",
+      "PROBE_ARG_PATTERN": "[A-Za-z0-9._-]+",
+      "PROBE_NO_REF": "none"
     }
   },
   "outputs": {
@@ -82,19 +100,24 @@
     "tier": "scouts",
     "param": "require_grounding",
     "param_value": true,
-    "refuses_when": "grounding.md is absent or empty",
+    "refuses_when": "grounding.md is absent or empty, or grades a claim ungrounded or contradicted, rules a contradiction invented, or grades no claim of a digest",
+    "grounding_grammar": {
+      "digest_section": "one '## digest-<slug>.md' section per digest",
+      "claim_line": "- **<grounded|ungrounded|contradicted>** <claim> — <evidence>, at line start",
+      "contradictions_section": "one '## Contradictions' section of '- **<real|invented>** <ruling>' lines"
+    },
     "digest_build": "sorted digest-*.md bodies, then '## Grounding' and the grounding.md body",
     "never_archived": "probe-*.md"
   },
   "cli": {
-    "ask": "repeatable, one question each; a single --ask behaves as a one-question split",
+    "ask": "repeatable; every --ask is one question; a single --ask behaves as a one-question split",
+    "target": "--target web|repo=PATH|local=PROBE, repeatable, each binding to the preceding --ask; an identical repeat is refused",
     "mode_flags": ["--split", "--combine"],
-    "mode_flags_mutually_exclusive": true,
-    "question_target": "--question-target <n>=<source>[:<ref>], repeatable, n 1-based"
+    "mode_flags_mutually_exclusive": true
   },
   "sizing": {
     "question_mode": "research.question_mode (split|combine)",
-    "question_targets": "research.question_targets[] of {question, source, ref?}, question 1-based",
-    "assemble_flags": ["--research-question-mode", "--research-question-target"]
+    "question_targets": "research.question_targets[] of {question, source, ref?}, question 1-based, an index repeating for a list",
+    "assemble_flags": ["--research-question-mode", "--research-question-target n=source[:ref]"]
   }
 }

@@ -87,7 +87,7 @@ Unparseable, or missing a required field → **MALFORMED**, one finding per row:
 
 *LEGACY.* Every well-formed `deferred: true` row: `pm_approved: true` → no finding. Else → **"deferral pending PM ratification — scope is a PM decision, EM preference is not a scope decision."** Quote `id`/`title`/`deferred`/`pm_approved`.
 
-*GOVERNED (replaces bare-bool).* Grouping derives from `disposition`: `do`=`open`/`coded`, `defer`=`spun_off`/`backlogged`, `ruled_out`=`wont_do`. Every CLOSED row: check its grouping's block, all four independently, one finding per fail:
+*GOVERNED.* Grouping from `disposition`: `defer`=`spun_off`/`backlogged`, `ruled_out`=`wont_do`; `do` (`open`/`coded`) is not a scope cut and is never checked. Every CLOSED `defer`/`ruled_out` row: check its grouping's block, four checks, one finding per fail:
 
 1. `status` isn't `approved` → **"row closed into an unapproved grouping — closing a row is a scope decision and needs the PM's recorded assent."** Quote `id`/`title`/`disposition`+`status`. (Block/grouping absent → Step 2a's MALFORMED case.)
 2. `digest` well-formed but membership changed after `approved_at` → **"grouping digest may be stale — membership appears changed since approval; the write-time guard is the actual verifier."**
@@ -110,11 +110,11 @@ Never harvest `## Anti-scope` items as rows.
 
 ### Phase 3.7: Lens 2d — Spine Emittability Gate (AC9)
 
-Asks: **would `dispatch.emit` refuse on this spine?** Engine module, reference-only. Two shapes: **`NoWritesDeclaredError`** (zero non-deferred rows declare `writes:`) and **`NoTestTargetError`** (every path maps to no runnable test target).
+Asks: **can `dispatch.emit` serve this spine?** **`NoWritesDeclaredError`** (no non-deferred row declares `writes:`) refuses. **`NoTestTargetError`** (no path maps to a test) degrades: `prime_exit_criterion.falsifier` (rung 2), then degraded emit (rung 3).
 
-**Step 1.** Read the repo's `coordinator.local.md` `test_locator_suffixes` (e.g. `[*.test.ts]`; absent = none). Map each write as the emitter's `_map_written_path_to_test_target` does. A `test_*.py`, or a path matching a configured pattern (`foo.test.ts`), is its own target, existing or not. A source path (`foo.py`, or `foo.ts` for `*.test.ts`) maps when its candidate test (`<dir>/tests/test_<stem>.py`, `<dir>/test_<stem>.py`, or the configured sibling) exists on disk or is declared by any spine row. Anything else maps to nothing.
+**Step 1.** Read `coordinator.local.md` `test_locator_suffixes` (absent = none). Map each write as `_map_written_path_to_test_target` does. A `test_*.py`, or a path matching a configured pattern (`foo.test.ts`), is its own target, existing or not. A source path (`foo.py`, or `foo.ts` for `*.test.ts`) maps when its candidate test (`<dir>/tests/test_<stem>.py`, `<dir>/test_<stem>.py`, or the configured sibling) exists on disk or is declared by any spine row. Anything else maps to nothing.
 
-**Step 2.** The emitter refuses only when **no** path maps. ≥1 path maps → silent; an unmapped doc or template write beside a mapped test is never a finding. Zero paths map → **Spine-emittability** finding — "no row declares a test or a source with a test in this spine — the emitter would refuse (`NoTestTargetError`)." Gates INCOMPLETE.
+**Step 2.** Fires only when **no** path maps. ≥1 maps → silent (a doc write beside a mapped test is no finding). Zero map and `prime_exit_criterion.falsifier` has non-empty `how` and `expected_when_true` → silent. Zero map, no such falsifier → **Spine-emittability** finding — "no row declares a test, and no falsifier answers rung 2 — the emitter emits degraded (rung 3)." Gates INCOMPLETE.
 
 Any non-deferred row missing `writes:` entirely → one Spine-emittability finding (`NoWritesDeclaredError`).
 

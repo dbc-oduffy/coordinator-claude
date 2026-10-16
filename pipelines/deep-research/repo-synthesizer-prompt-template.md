@@ -14,6 +14,9 @@ Your brief is the scope file at {{brief}}. Read it first. Below, `<repository na
 `<output path>`, `<advisory path>`, `<gap analysis path>` and `<claims path>` are its fields of those names.
 
 **Repository:** <repository name>
+**Secondary:** the brief's `Secondary` field names any folded repo (`none` when absent). Assess each
+secondary inside the primary's assessment under its own `## <secondary name>` heading; a cross-repo
+finding names both repos.
 **Comparison mode:** true when the brief's `Comparison` field names a project, else false. In
 comparison mode the comparison project's name is in that field.
 

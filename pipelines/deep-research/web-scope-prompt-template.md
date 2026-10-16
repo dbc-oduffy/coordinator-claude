@@ -24,9 +24,9 @@ later stage, so it must be complete on its own.
    original reporting); flag secondary sources; note confidence for claims with fewer than 3
    corroborating sources.
 6. Task boundaries: for each topic, what its specialist should and should not cover versus peers.
-7. The fields the prompts read: `min_sources`, `min_minutes`, `max_minutes` (from the sizing's
-   timing when given; otherwise 5, 5, 15 for a typical topic, 3, 3, 8 for a trivial one, 5, 5, 20
-   for a complex one), `scout_ceiling_minutes` (5, and never above `min_minutes`, so the corpus lands before the specialists' floor), `corpus_path` (`{{scratch_dir}}/source-corpus.md`), `output_path`
+7. The fields the prompts read: `min_sources`, `max_minutes` (from the sizing's timing when
+   given; otherwise 5, 15 for a typical topic, 3, 8 for a trivial one, 5, 20 for a complex one),
+   `scout_ceiling_minutes` (5, so the corpus lands early in the specialists' window), `corpus_path` (`{{scratch_dir}}/source-corpus.md`), `output_path`
    (the requested output path when the request, including the sizing's exit criterion or a context file it names, states one; otherwise `{{scratch_dir}}/synthesis.md`, since the run archives its workdir and a default path under `docs/research/` would leave a duplicate), `advisory_path` (the output path with `.md`
    replaced by `-advisory.md`; `{{scratch_dir}}/advisory.md` when the output path is the workdir default), and `run_stem` (always `YYYY-MM-DD-<topic-slug>-web`, whatever the output path).
 

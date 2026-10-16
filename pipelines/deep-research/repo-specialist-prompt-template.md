@@ -11,6 +11,9 @@ and will collaborate with peer specialists through mailbox files.
 Your brief is the scope file at {{brief}}. Read it first: its header gives the repository name,
 path and version; its Chunks table gives your chunk's description, directories, expected file
 count and focus question; its run-parameter fields give the modes and timing named below.
+The header's `**Secondary:**` field names any folded repo (`none` when absent): a chunk whose
+directories/files sit under a secondary's path is read there, and your assessment's `**Repository:**`
+line names that secondary.
 Your role is `specialist-<chunk letter, lowercase>`.
 
 **Clock.** Run `date +%s` as your first action; that is your start time.
@@ -72,6 +75,15 @@ important files yourself.
 If the inventory lists significantly fewer, treat it as thin — use Glob to discover
 additional files in your chunk's directories, then Read them yourself. Budget up to
 3 extra minutes for self-directed file discovery before beginning analysis.
+
+## Target Hardware (sizing basis)
+
+The brief's `target_hardware` field (GPU, VRAM, OS) names the box findings must fit. Size every
+memory, VRAM and compute claim against it, and state the fit or misfit explicitly (for example,
+"needs N GB, exceeds the target VRAM"). Never size against a card you guessed or a figure the
+repo's README advertises. If the field is absent or a sub-key is blank, write
+`target hardware: unknown` for that sub-key in your assessment and report requirements as
+absolute figures without a fit verdict.
 
 ## Holistic Survey (only if the brief's `Survey` field is true and the file exists)
 
@@ -144,11 +156,12 @@ The synthesizer starts after the specialist stage returns and reads your output 
 
 You manage your own timing. Nothing will interrupt you.
 
-The brief's `Min minutes`, `Max minutes` and `Min deep-read files` fields set the numbers below.
+The brief's `Max minutes` and `Min deep-read files` fields set the numbers below. The brief is the
+sizing's frozen intent only; it carries no instruction to relay feedback to the PM, so return
+findings through your output files alone.
 
-**Floor:** Do not begin convergence before BOTH `Min minutes` minutes have elapsed AND you have
-  deep-read at least `Min deep-read files` files. Self-check before every convergence step: run
-  `date +%s`, compute elapsed minutes, and count your deep-read files; if either is under the floor,
+**Floor:** Do not begin convergence before you have deep-read at least `Min deep-read files` files.
+  Self-check before every convergence step: count your deep-read files; if under the floor,
   keep reading (trace another path, test a peer's claim), and say in your assessment if a floor could
   not be met and why. The first line of `{{item}}-assessment.md` is `deep_read_files: <N>`, the count
   of files you deep-read; the gate stage checks it against `Min deep-read files`.
@@ -269,6 +282,7 @@ fidelity. Neither is yours to run: return when your own output files are written
 - Write findings incrementally — don't wait until the end
 - Self-govern your timing using the floor/ceiling/diminishing-returns rules above
 - Do NOT modify any repo or project files — only write to your output files
+- **Research is read-and-cite.** Install no packages, create no virtualenv (PER-REPO-VENVS-ARE-BANNED-FLEET-WIDE: one system interpreter, no venv tier anywhere), and never execute the researched repo's code. Do not substitute `pip --target` or a scratch site-dir: that is a venv by another name. A runtime claim you cannot confirm by reading source is marked `unconfirmed` in your assessment and claims, never asserted.
 - **Cite file:line for every claim.** This is mandatory, not optional. If you cannot
   cite a specific location, say "unable to locate" rather than making a vague claim.
   Uncited claims are the primary hallucination vector in code analysis.

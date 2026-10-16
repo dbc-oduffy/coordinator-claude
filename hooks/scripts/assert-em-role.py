@@ -362,7 +362,7 @@ def _group_em_clause(repo_root, timeout: float = 0.3) -> str:
     cached "who is the Group EM" answer that survives a stand-down is a wrong address that
     looks authoritative, strictly worse than no answer.
 
-    BOX HOLDER, NOT THIS REPO'S RECORD. The G-EM lives in the general-work home, so the
+    BOX HOLDER, NOT THIS REPO'S RECORD. The G-EM lives in the group-em home, so the
     holder is read from the engine's box-wide record, and `repo_root` only gates that this
     session has a repo at all. A holder that is not verified and live renders no line.
 

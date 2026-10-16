@@ -4,6 +4,11 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.4.25] — 2026-10-16
+
+- **Group EM home** is renamed to `group-em`; `group-em-home migrate` moves a legacy `general-work` home.
+- **Sizing** gains a design route; **plan-blitz** runs the ready op after a prep-gate repair.
+
 ## [4.4.24] — 2026-10-16
 
 - **`claude-author --control-socket`** (opt-in): a PTY/ConPTY relay supervisor with a per-session control socket (compact, model and effort verbs, plus a user-idle gate). Verified live on macOS.

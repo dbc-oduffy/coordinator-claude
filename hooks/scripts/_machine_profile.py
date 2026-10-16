@@ -8,7 +8,8 @@ An unreadable registry resolves to ``consumer``.
 
 ``guard_level(guard_id)`` mirrors the engine (per-guard key beats global key; default ``warn``).
 ``feature_enabled(name)`` reads ``coordinator.feature.<name>`` (``on``/``off``);
-``doctrine_edit_gate`` is off unless set ``on``, and an unreadable key is off.
+``doctrine_edit_gate`` is off unless set ``on``; ``gem_cross_repo_commit`` is on unless
+set ``off``. An unreadable key takes the feature's unset default.
 """
 
 from __future__ import annotations
@@ -75,11 +76,12 @@ def is_author() -> bool:
 
 FEATURE_KEY = "coordinator.feature."
 #: Unset default per feature, mirroring the engine's ``_FEATURE_DEFAULT``:
-#: ``"profile"`` follows the machine profile, ``"off"`` is off everywhere.
+#: ``"profile"`` follows the machine profile, ``"on"``/``"off"`` are fixed everywhere.
 _FEATURE_DEFAULT = {
     "cross_repo_memos": "profile",
     "publishing": "profile",
     "doctrine_edit_gate": "off",
+    "gem_cross_repo_commit": "on",
 }
 
 
@@ -97,7 +99,7 @@ def feature_enabled(name: str) -> bool:
         if default == "profile":
             return machine_profile() == "author"
     except Exception:  # noqa: BLE001 -- hooks fail open
-        return False
+        return default == "on"
     return default == "on"
 
 

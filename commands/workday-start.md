@@ -65,9 +65,9 @@ After the workflow returns, if it did not itself run `finish`, run
 
 ## Judgment points left to a person
 
-**Report the general-work G-EM.** From the run's `groupem-nomination-who` and `groupem-watch` rows,
+**Report the Group EM.** From the run's `groupem-nomination-who` and `groupem-watch` rows,
 say who holds the role and whether the watch is armed, or that the box has none. Report only: this
-ceremony never offers, nominates or calls `groupem.enter`; the G-EM is entered from the general-work home.
+ceremony never offers, nominates or calls `groupem.enter`; the G-EM is entered from the group-em home.
 
 **Day focus.** If `$ARGUMENTS` is provided: _"Requested focus: {arguments}"_ — carry it into
 "What should today's focus be?" in the briefing.

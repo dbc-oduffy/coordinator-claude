@@ -40,8 +40,8 @@ schema = 1
 "repos.example_repo"             = ""
 "repos.example_stats_repo"             = ""
 "repos.experiments"            = ""
-# G-EM general-work home; empty means <settings-home>/general-work. Must lie outside every repo.
-"coordinator.general_work_home" = ""
+# G-EM group-em home; empty means <settings-home>/group-em. Must lie outside every repo.
+"coordinator.group_em_home" = ""
 # tasks/2026-07-14-install-dogfood-friction.md § F8 — on-disk sibling repos
 # registered during the 2026-07-14 cold-install dogfood that had no tracked
 # baseline declaration (each trips check-machine-local-regeneratability.py
@@ -212,6 +212,8 @@ concerns = ["project_rag", "unreal"]
 "coordinator.machine_slug"     = "idempotent-regeneratable"
 "coordinator.contributor_slug" = "idempotent-regeneratable"
 "coordinator.python"           = "idempotent-regeneratable"
+"coordinator.group_em_home"    = "session-accumulated-must-survive-crash"
+# read-only legacy key (fallback for the group_em_home rename)
 "coordinator.general_work_home" = "session-accumulated-must-survive-crash"
 "plugin.mirrors"               = "idempotent-regeneratable"
 "publish.targets"              = "idempotent-regeneratable"

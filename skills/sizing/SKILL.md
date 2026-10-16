@@ -33,17 +33,17 @@ that module already holds (a test file, another adapter instance); (3) no path o
 (4) no held capability beyond the checkout (Step 1a); (5) the change has shipped before in this
 repo (`--precedent shipped-before`); (6) the PM's words carry one instruction. All true:
 `sizing-assemble --express-lane --tshirt XS` (Step 3) writes no object; submit `args: {ask}`. Any
-doubt fails the predicate. Otherwise `coordinator:sizing-scout` sizes inside the submitted run, or in the in-chat fallback (engine refusal, research); the lobby starts from its report. Its brief carries no t-shirt,
-lean, guess or route, only the PM's words verbatim, the `pm-turns window` output, the EM session id and the session's `interaction_mode`. The EM's act is the one `args: {ask}` call.
+doubt fails the predicate. Otherwise `coordinator:sizing-scout` sizes, in the submitted run or the in-chat fallback (refusal, research). Its brief carries no t-shirt,
+lean, guess or route; only the PM's verbatim words, `pm-turns window` output, EM session id and `interaction_mode`. The EM's act is the one `args: {ask}` call.
 Tripwire: `THE-EM-TRIGGERS-SIZING-AN-AGENT-SIZES-IT`.
 
-**Cross-examine the report:** spot-check one claim against the tree; a size revision names its
-mechanism (never touchpoint count); add the Step 1a capabilities the scout could not see.
-Then Steps 3-4 from `assemble_flags`. `{refused: true}`: fix the brief, never size it yourself.
+**Cross-examine the report:** spot-check one claim against the tree; a revision names its
+mechanism; add capabilities the scout missed; check `design_route` (`canvas` halts for PM board review pre-code).
+Then Steps 3-4 from `assemble_flags`. `{refused: true}`: fix the brief.
 
-**1, 1a, 1b. The scout's work; contract: `coordinator/agents/sizing-scout.md`.** Size on unknown mechanisms (depth), never touchpoints or appetite, and what the performer must HOLD (credential, session, mounted
+**1, 1a, 1b. The scout's work; contract: `coordinator/agents/sizing-scout.md`.** Size on unknown mechanisms (depth), not touchpoints or appetite, and what the performer must HOLD (credential, session, mounted
 store, guarded path, operator at a keyboard): name the capability, never the route tried
-(`A-SCOPE-FIELD-NAMES-A-SUBJECT-NOT-A-BLAST-RADIUS`). Every non-express-lane sizing states premise
+(`A-SCOPE-FIELD-NAMES-A-SUBJECT-NOT-A-BLAST-RADIUS`). Each non-express-lane sizing states premise
 provenance (`--premise-provenance executed|read|not-applicable`); justify in `premise.evidence` (Step 4).
 
 **2. Substrate probe — L/XL/shaky reads, mandatory on XXL.** For a judgment the scout leaves under `unknown_mechanisms`, fire a general-purpose Sonnet research scout briefed with

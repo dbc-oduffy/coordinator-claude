@@ -70,6 +70,11 @@ _REASONS = {
         "Republish from the committed files under the current login, or drop the URL "
         "and cite the committed source.",
     ),
+    "drift-unchecked": (
+        "cites a canvas owned by another login; the committed record is admitted with "
+        "version and comment drift unchecked",
+        "Swap back to that login and re-probe to check drift.",
+    ),
     "frames-or-threads-missing": (
         "names a record with a missing or altered frame or thread file",
         _REHARVEST,
@@ -98,13 +103,26 @@ _REASONS = {
 }
 
 
-def _refusal(url: str, code: str, detail: str = "") -> Refusal:
+class Advisory(NamedTuple):
+    url: str
+    code: str
+    message: str
+
+
+def _message(code: str, detail: str) -> str:
     what, remedy = _REASONS[code]
     prose = f"Canvas {code}: {what}{detail}. {remedy}"
     if len(prose) > _message_envelope.CEILING:
         prose = prose[: _message_envelope.CEILING - 3].rstrip() + "..."
-    message = _message_envelope.compose(prose, anchor=WIKI_ANCHOR)
-    return Refusal(url, code, _message_envelope.render(message))
+    return _message_envelope.render(_message_envelope.compose(prose, anchor=WIKI_ANCHOR))
+
+
+def _refusal(url: str, code: str, detail: str = "") -> Refusal:
+    return Refusal(url, code, _message(code, detail))
+
+
+def _is_account(value) -> bool:
+    return isinstance(value, str) and bool(value)
 
 
 def _parse_time(value) -> datetime:
@@ -140,8 +158,14 @@ def _validate(record) -> bool:
         for frame in frames:
             if not isinstance(frame["path"], str) or not isinstance(frame["sha256"], str):
                 return False
+        if harvest.get("account") is not None and not isinstance(harvest["account"], str):
+            return False
         probe = record.get("probe")
         if probe is not None:
+            if probe.get("account") is not None and not isinstance(probe["account"], str):
+                return False
+            if not isinstance(probe.get("record_committed", False), bool):
+                return False
             _parse_time(probe["probed_at"])
             if not isinstance(probe["session_id"], str) or not isinstance(probe["readable"], bool):
                 return False
@@ -270,7 +294,8 @@ def _same_time(a, b) -> bool:
     return _parse_time(a) == _parse_time(b)
 
 
-def _judge(url: str, text: str, repo_root: Path, session_id: Optional[str]) -> Optional[Refusal]:
+def _judge(url: str, text: str, repo_root: Path, session_id: Optional[str]):
+    """A `Refusal`, an `Advisory` (admitted, drift unchecked), or None (admitted)."""
     artifact_id = url.rsplit("/", 1)[1]
     path, selected = _select_record(text, repo_root, artifact_id)
     if path is None:
@@ -281,9 +306,24 @@ def _judge(url: str, text: str, repo_root: Path, session_id: Optional[str]) -> O
     harvest, probe = record["harvest"], record.get("probe")
     dispatch = session_id is not None
 
+    owner = harvest.get("account")
+    unchecked = False
     if probe is not None and probe["readable"] is False:
         reason = probe.get("unreadable_reason") or "unknown"
-        return _refusal(url, "canvas-unreadable", f" ({reason})")
+        other = (
+            reason == "other-account"
+            and _is_account(owner)
+            and _is_account(probe.get("account"))
+            and owner != probe["account"]
+        )
+        if not (other and probe.get("record_committed") is True):
+            detail = f" ({reason})"
+            if _is_account(owner):
+                detail += f"; harvested under {owner}, swap back to that login and re-probe"
+                if other:
+                    detail += " and commit the record"
+            return _refusal(url, "canvas-unreadable", detail)
+        unchecked = True
     if not _frames_or_threads_ok(path.parent, harvest):
         return _refusal(url, "frames-or-threads-missing")
     settled = _settled_code(path.parent, harvest["thread_ids"])
@@ -295,6 +335,8 @@ def _judge(url: str, text: str, repo_root: Path, session_id: Optional[str]) -> O
     harvest_version = harvest.get("version")
     if not isinstance(harvest_version, str) or not harvest_version:
         return _refusal(url, "version-missing")
+    if unchecked:
+        return Advisory(url, "drift-unchecked", _message("drift-unchecked", f" (owner {owner})"))
     if dispatch:
         probe_version = probe.get("version")
         if not isinstance(probe_version, str) or not probe_version:
@@ -308,15 +350,24 @@ def _judge(url: str, text: str, repo_root: Path, session_id: Optional[str]) -> O
     return None
 
 
-def check(text: str, repo_root, *, session_id: Optional[str] = None) -> list:
-    """One `Refusal` per cited artifact URL that fails, first reason in table order.
+def judge(text: str, repo_root, *, session_id: Optional[str] = None) -> tuple:
+    """(refusals, advisories) over each cited artifact URL, first reason in table order.
 
+    An advisory is an admit: the canvas is owned by another login and drift is unchecked.
     `session_id=None` is the write leg: dispatch-only codes and the probe side of
     `version-missing` are skipped."""
     root = Path(repo_root)
     refusals: list = []
+    advisories: list = []
     for url in dict.fromkeys(artifact_urls(text)):
-        refusal = _judge(url, text, root, session_id)
-        if refusal is not None:
-            refusals.append(refusal)
-    return refusals
+        verdict = _judge(url, text, root, session_id)
+        if isinstance(verdict, Refusal):
+            refusals.append(verdict)
+        elif verdict is not None:
+            advisories.append(verdict)
+    return refusals, advisories
+
+
+def check(text: str, repo_root, *, session_id: Optional[str] = None) -> list:
+    """The refusals of `judge`; the write leg's entry point."""
+    return judge(text, repo_root, session_id=session_id)[0]

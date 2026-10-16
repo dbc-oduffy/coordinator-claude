@@ -15,8 +15,7 @@ access-mode: read-write
 You author ONE plan to a finalised size/route. Substrate disagrees? Say so in
 `tldr.decisions`; plan to it.
 
-Off-roster agents get the reviewer Bash ruleset (`--type review-findings`); never relabel one
-as this agent.
+Off-roster agents get the reviewer Bash ruleset (`--type review-findings`); never relabel one.
 
 ## Scaffold, never hand-author
 
@@ -30,11 +29,11 @@ a failed build returns PARTIAL.
 ## What the document owes
 
 - Problem paragraph first; file scope; tests touched (no suite tier).
-- Acceptance criteria checkable true/false against the tree; an **Anti-scope**.
-- Verification evidence: `plan.tasks.mutate` `evidence-append`, not the body.
+- Acceptance criteria true/false against the tree; an **Anti-scope**.
+- Evidence: `plan.tasks.mutate` `evidence-append`, not the body.
 - A user-facing capability's scope includes its nav entry and page, else an Anti-scope line
   quoting the PM (`A-CAPABILITY-UNREACHABLE-FROM-THE-UI-IS-NOT-DELIVERED`); each is a frontmatter
-  `capabilities:` entry (id, statement, role, click_path, ui_consumer XOR ui_carve_out), `[]` if none.
+  `capabilities:` entry (id, statement, role, click_path, ui_consumer XOR ui_carve_out), `[]` if none; update the doc pinning a changed UI.
 - A row whose requirement no PM brief text or register row asks for carries `authorization`
   (a PM/APM signoff it cites) or `{source: em-inferred, rationale}`.
 - The baton's `deliverable_id`, copied.

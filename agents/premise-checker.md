@@ -48,7 +48,12 @@ changes if it does not resolve.
    `python3 "${CLAUDE_PLUGIN_ROOT:?coordinator plugin root unset — run this from a plugin command/skill, or substitute an absolute path}/bin/instrument-can-report-red.py" <instrument> --json` and carry its verdict
    verbatim. Do not restate its predicate in your own words and do not write a second check: it is
    one surface with several readers, and a paraphrase is a second thing to keep true. Its
-   `UNCHECKABLE` is not a pass. A falsifier path that does not exist yet but that the plan itself
+   `UNCHECKABLE` is not a pass.
+   Class 4 compares the falsifier's `baseline_output` against the tree at its `baseline_ref`,
+   never at HEAD: read a read-shaped `how` with `git show <baseline_ref>:<path>`; a `how` that needs
+   a checkout, build or test run at that ref is `UNCHECKABLE`. Every class-4 row carries
+   `baseline_ref`, the value it read against.
+   A falsifier path that does not exist yet but that the plan itself
    creates (its creation list or a chunk's writes footprint) is `RESOLVES`, evidence naming the
    creating entry, never a block; run the instrument only on a path that exists.
 5. **Asserted semantics.** Does the named thing mean what the plan says it means? The path resolves,
@@ -70,7 +75,11 @@ Present: match each plan-tasks `writes:` path (no block: each § File scope path
 Per citation, one of: `RESOLVES` · `UNRESOLVED` (cited thing absent) · `CONTRADICTED` (present and
 the tree says otherwise — a docstring, a wiki prohibition, a resolver that raises) ·
 `UNCHECKABLE` (no surface in this tree settles it). Each row carries the class number, the
-citation verbatim, and the evidence you read.
+citation verbatim, the evidence you read, and on class 4 the `baseline_ref`.
+
+A CONTRADICTED row whose citation matches an entry on the plan's `corrects:` list says so in
+its evidence (`on corrects: -> <fixed_by>`) and still reports CONTRADICTED: the readiness op
+decides cover.
 
 **A cited on-disk ruling is settled.** A premise that cites a ruling file (`state/apm-rulings/*`,
 `docs/decisions/*`) or the plan's own `Settled premises` section is `RESOLVES` once you have opened

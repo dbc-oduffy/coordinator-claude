@@ -63,8 +63,10 @@ record is the source for execution; the link is never read. Token:
 4. **Cite:** a plan or brief names the record's `harvest/harvest.json` path. Execution reads the record,
    never the link. At execute entry, re-read the canvas and run `canvas-harvest probe`; drift means
    re-harvest and update `SETTLED.md`.
-5. **Out of reach:** a canvas that cannot be read is refused with that reason. Republish from the committed
-   files under the current login, or cite the committed source without the URL.
+5. **Out of reach:** a canvas owned by the other login (`other-account`) whose committed record is complete
+   is admitted with drift unchecked; the dispatch warning names the login to swap back to for a re-probe.
+   Any other unreadable canvas is refused with its reason. Republish from the committed files under the
+   current login, or cite the committed source without the URL.
 6. **Register:** add or update the board's entry in the repo's design registry (`docs/design/registry.yaml`,
    or the repo's `design_registry_path`), with `sources` covering the page and the component dirs it renders.
    A plan touching those files then cites the record or a ratified deviation. Contract:

@@ -321,7 +321,8 @@ def run_install_plan(payload_root: Path, timeout: float = 120, engine_root: Path
     Returns None when the plan is clean, else a one-line failure reason (script missing, crash,
     non-JSON output, or an "error" key such as "manifest/step drift").
     """
-    root = Path(payload_root).resolve()
+    payload = Path(payload_root).resolve()
+    root = payload
     if not (root / _INSTALL_SCRIPT).is_file() and engine_root is not None:
         root = Path(engine_root).resolve()
     if not (root / _INSTALL_SCRIPT).is_file():
@@ -329,6 +330,10 @@ def run_install_plan(payload_root: Path, timeout: float = 120, engine_root: Path
     with tempfile.TemporaryDirectory() as home:
         env = {k: v for k, v in os.environ.items() if not k.startswith(("CLAUDE", "COORDINATOR"))}
         env.update(HOME=home, USERPROFILE=home, CLAUDE_HOME=home)
+        # Trap: on the engine_root fallback the installer runs from the engine mirror, and without
+        # this plugin_root() resolves there and plans against the engine's manifest, not the payload's.
+        if root != payload:
+            env["CLAUDE_PLUGIN_ROOT"] = str(payload)
         try:
             proc = subprocess.run(
                 _payload_python_argv(root, str(_INSTALL_SCRIPT), "--plan"),

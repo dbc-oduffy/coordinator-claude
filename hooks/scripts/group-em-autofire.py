@@ -25,7 +25,7 @@ THE ENTRY OP MUTATES, AND THAT IS THE POINT. Unlike a brief-computing hook,
 this one claims the Group EM nomination as a side effect. That is exactly what
 `/group-em` invocation means — the skill is PM-gated at the point a human types
 it, so firing on the typed verb inherits that gate rather than inventing one.
-It enters only from the machine-local general-work home (`_gem_home.is_home`); from any other
+It enters only from the machine-local group-em home (`_gem_home.is_home`); from any other
 directory, or when the home is refused, it renders NOT ENTERED and runs nothing, so the engine's
 box holder record always names the home. It writes no record itself. It fires on nothing else:
 no `Stop` trigger, no timer, no other command. Wiring it to anything but the typed verb would re-derive the stood-down watcher that
@@ -153,11 +153,29 @@ def render_fleet_workflow(plugin_root: Path, repos: list[str], holder: dict) -> 
     """The exact `Workflow` invocation that grinds every fleet inbox to zero."""
     script = (plugin_root / "workflows" / "fleet-inbox-blitz.mjs").as_posix()
     args = {"repos": repos, "gem": {"sessionId": holder.get("sessionId"), "name": holder.get("name")}}
+    try:
+        import _machine_profile
+
+        may_commit = _machine_profile.feature_enabled("gem_cross_repo_commit")
+    except Exception:  # noqa: BLE001 -- fail open: the mirror's default is on
+        may_commit = True
+    if may_commit:
+        authority = (
+            "This box lets the Group EM commit in the listed repos "
+            "(coordinator.feature.gem_cross_repo_commit on)."
+        )
+    else:
+        authority = (
+            "This box blocks Group EM commits in other repos "
+            "(coordinator.feature.gem_cross_repo_commit off): memo each manifest to its repo's EM; "
+            "for timely work start a session there and ask it "
+            "(GEM-CROSS-REPO-COMMIT-IS-A-BOX-SETTING)."
+        )
     return (
         "FLEET INBOX GRIND, FIRE NOW: cross-repo memos are enabled on this box, and entering the "
         "Group EM role is the request. Fire this saved workflow as your first act, unattended; "
         "do not hand-author a variant (`A-GROUP-EM-HAND-AUTHORING-THE-INBOX-WORKFLOW`). "
-        "Commit authority in every listed repo is inherent to the role.\n"
+        f"{authority}\n"
         f"  Workflow({{scriptPath: {json.dumps(script)}, args: {json.dumps(args)}}})"
     )
 
@@ -384,23 +402,23 @@ def render_additional_context(
 
 
 def _outside_home_context(repo_root: str) -> str | None:
-    """NOT ENTERED context when `repo_root` is not the general-work home (or the home is refused);
+    """NOT ENTERED context when `repo_root` is not the group-em home (or the home is refused);
     None when entry may proceed."""
     try:
         home = _gem_home.resolve_home()
     except _gem_home.HomeRefused as refused:  # other failures propagate to compute_context's caller
         return (
-            "## Group EM entry: NOT ENTERED (general-work home refused)\n\n"
+            "## Group EM entry: NOT ENTERED (group-em home refused)\n\n"
             f"{refused}\n\n"
-            "The Group EM was NOT claimed. Fix `coordinator.general_work_home` so it lies outside "
+            "The Group EM was NOT claimed. Fix `coordinator.group_em_home` so it lies outside "
             "every checkout, then run `/group-em` from the home."
         )
     if _gem_home.is_home(repo_root):
         return None
-    ensure = (Path(__file__).resolve().parents[2] / "bin" / "general-work-home.py").as_posix()
+    ensure = (Path(__file__).resolve().parents[2] / "bin" / "group-em-home.py").as_posix()
     return (
-        "## Group EM entry: NOT ENTERED (outside the general-work home)\n\n"
-        f"The Group EM enters only from the general-work home: {home}\n"
+        "## Group EM entry: NOT ENTERED (outside the group-em home)\n\n"
+        f"The Group EM enters only from the group-em home: {home}\n"
         f"Create it with `python {ensure} ensure`, start a session there, and run `/group-em`.\n\n"
         "The Group EM was NOT claimed and no roster or digest exists."
     )

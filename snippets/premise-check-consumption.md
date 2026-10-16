@@ -22,6 +22,9 @@ done on one class, not as a verdict on the plan.
   path resolving does not soften this — it is the class an existence check misses.
 - **UNCHECKABLE** — no surface in this tree settles it. **Not a pass.** The assumption is yours to
   judge, and the report names which one.
+- A class-4 row's `baseline_ref` names the tree it was judged against. A row whose ref differs from
+  the plan's current falsifier ref is stale, which the op notes and does not block on.
+- A CONTRADICTED row annotated `on corrects:` is still CONTRADICTED until the op rules it covered.
 
 **Where no report ran**, the class is unchecked, not clean.
 

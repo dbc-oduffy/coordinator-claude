@@ -1,22 +1,28 @@
-"""Machine-local general-work home: the G-EM's spawn home, outside every repo checkout.
+"""Machine-local group-em home: the G-EM's spawn home, outside every repo checkout.
 
-Resolves `coordinator.general_work_home` (default `<settings-home>/general-work`), refuses a
-home that lands inside a git checkout or a `repos.*` root, seeds the home idempotently, and
-reads the engine's live box-holder record. Zero-spawn on the resolve path (registry TOML read
-directly); only `ensure_home` spawns `git init`. Contract: gem-cockpit-contract.md.
+Resolves `coordinator.group_em_home` (default `<settings-home>/group-em`), refuses a
+home that lands inside a git checkout or a `repos.*` root, seeds the home idempotently, moves a
+default-path legacy home into place under a liveness guard, and reads the engine's live
+box-holder record. Zero-spawn on the resolve path (registry TOML read directly); only
+`ensure_home` spawns `git init`. Contract: gem-cockpit-contract.md.
 """
 
 from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import _engine_root
 
-KEY = "coordinator.general_work_home"
-DEFAULT_DIRNAME = "general-work"
-_TEMPLATE = Path(__file__).resolve().parent.parent.parent / "templates" / "general-work-home" / "home-CLAUDE.md"
+KEY = "coordinator.group_em_home"
+# LEGACY_*: read-only fallback. LEGACY_KEY is read, never written; the LEGACY_DIRNAME dir is
+# never created. Retirement: state/debt-backlog/2026-10-16-retire-general-work-home-fallback.yaml.
+LEGACY_KEY = "coordinator.general_work_home"
+DEFAULT_DIRNAME = "group-em"
+LEGACY_DIRNAME = "general-work"
+_TEMPLATE = Path(__file__).resolve().parent.parent.parent / "templates" / "group-em-home" / "home-CLAUDE.md"
 
 
 class HomeRefused(Exception):
@@ -25,7 +31,7 @@ class HomeRefused(Exception):
     def __init__(self, home: str, checkout: str):
         self.home = home
         self.checkout = checkout
-        super().__init__(f"general-work home {home} is inside checkout {checkout}")
+        super().__init__(f"group-em home {home} is inside checkout {checkout}")
 
 
 def _norm(p) -> str:
@@ -74,9 +80,20 @@ def inside_checkout(path) -> str | None:
     return None
 
 
+def _configured() -> str | None:
+    reg = _engine_root._settings_home_registry_dir()
+    return _engine_root._registry_value(reg, KEY) or _engine_root._registry_value(reg, LEGACY_KEY) or None
+
+
 def resolve_home() -> Path:
-    configured = _engine_root._registry_value(_engine_root._settings_home_registry_dir(), KEY)
-    home = Path(configured) if configured else _engine_root._settings_home() / DEFAULT_DIRNAME
+    configured = _configured()
+    if configured:
+        home = Path(configured)
+    else:
+        base = _engine_root._settings_home()
+        home = base / DEFAULT_DIRNAME
+        if not home.exists() and (base / LEGACY_DIRNAME).exists():
+            home = base / LEGACY_DIRNAME
     hit = inside_checkout(home)
     if hit:
         raise HomeRefused(str(home), hit)
@@ -93,8 +110,61 @@ def is_home(cwd) -> bool:
     return c == home or c.startswith(home.rstrip(os.sep) + os.sep)
 
 
-def ensure_home(template: Path | None = None) -> Path:
-    """Create the home, `git init` it, add `state/`, seed CLAUDE.md only when absent."""
+def _under(path, root) -> bool:
+    p, r = _norm(path), _norm(root)
+    return p == r or p.startswith(r.rstrip(os.sep) + os.sep)
+
+
+def _legacy_home_live(legacy: Path) -> bool:
+    """True when anything runs in `legacy`. Fails closed: any error reads as live."""
+    try:
+        if _under(os.getcwd(), legacy):
+            return True
+        lib = str(Path(__file__).resolve().parents[2] / "bin" / "lib")
+        if lib not in sys.path:
+            sys.path.insert(0, lib)
+        import session_registry
+
+        for row in session_registry.read_rows():
+            if row.cwd and session_registry.pid_alive(row.pid) and _under(row.cwd, legacy):
+                return True
+        root = gem_root()
+        return bool(root and _under(root, legacy))
+    except Exception:
+        return True
+
+
+def migrate_legacy_home() -> str:
+    """Rename the default-path `<settings-home>/general-work` to `group-em` when safe.
+
+    Returns one of moved, no-legacy, configured, both-present, live, busy, refused. Only the
+    default-path legacy dir moves; a configured home is never touched, neither key is written,
+    and an existing target is never merged or overwritten. Never raises."""
+    try:
+        if _configured():
+            return "configured"
+        base = _engine_root._settings_home()
+        legacy, target = base / LEGACY_DIRNAME, base / DEFAULT_DIRNAME
+        if not legacy.exists():
+            return "no-legacy"
+        if target.exists():
+            return "both-present"
+        if inside_checkout(target):
+            return "refused"
+        if _legacy_home_live(legacy):
+            return "live"
+        os.rename(legacy, target)
+        return "moved"
+    except OSError:
+        return "busy"
+    except Exception:
+        return "live"
+
+
+def ensure_home(template: Path | None = None, refresh: bool = False) -> Path:
+    """Migrate a legacy home when safe, then create the home, `git init` it, add `state/`, seed
+    CLAUDE.md when absent (or on refresh)."""
+    migrate_legacy_home()
     home = resolve_home()
     home.mkdir(parents=True, exist_ok=True)
     if not (home / ".git").exists():
@@ -107,9 +177,10 @@ def ensure_home(template: Path | None = None) -> Path:
     (home / "state").mkdir(exist_ok=True)
     seed = home / "CLAUDE.md"
     src = template or _TEMPLATE
-    # A missing template skips seeding silently; templates/general-work-home/home-CLAUDE.md must ship.
+    # A missing template skips seeding silently; templates/group-em-home/home-CLAUDE.md must ship.
     # Its non-CLAUDE.md name keeps the template outside the CLAUDE.md write guard.
-    if src.is_file() and not seed.exists():
+    # refresh redeploys the shipped template over a local edit; the template is the source of truth.
+    if src.is_file() and (refresh or not seed.exists()):
         seed.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
     return home
 

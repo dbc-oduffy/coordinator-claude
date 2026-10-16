@@ -7,7 +7,7 @@
  *
  * WHAT ONE RUN COVERS: one XL sizing with `xl_exit: roadmap`, from its corpus to a frozen gate
  * report. Phases: Synthesize (roadmap-planning Phase 1), Substantiate (research + OVERVIEW +
- * peer-team asks), Review (unconditional), Approve (the single gate), Fill stubs (the planner's
+ * peer-team asks), Review (unconditional), Approve (the single gate), Stage (the planner's
  * first step runs roadmap.blitz_stage, its second fills the staged stubs).
  *
  * Negative-spec — what this is NOT:
@@ -54,7 +54,7 @@ export const meta = {
     { title: 'Substantiate', detail: 'One haiku scout per batch of up to 4 KEEP or MERGE-target clusters, at most 8 scouts at once, then the planner authors OVERVIEW and peer-team asks.' },
     { title: 'Review', detail: 'Fires unconditionally. Staff or director reviewer, then a domain reviewer when a flavor maps to one. Each applies its own findings.' },
     { title: 'Approve', detail: 'The single gate. The APM clears it for pm and ceo modes; hands-on returns awaitingApproval for the skill driver to ask the PM.' },
-    { title: 'Fill stubs', detail: 'The planner runs roadmap.blitz_stage, which records the approval, scaffolds, numbers, audits and freezes the gate report, then writes each staged stub summary and body from its OVERVIEW section, plus STUB-INDEX.' },
+    { title: 'Stage', detail: 'The planner runs roadmap.blitz_stage, which records the approval, scaffolds, numbers, audits and freezes the gate report, then writes each staged stub summary and body from its OVERVIEW section, plus STUB-INDEX.' },
   ],
 }
 
@@ -348,7 +348,7 @@ failure verbatim and stop.`
 const WRITE_SCOPE_RULE = `
 Write only inside the roadmap directory and the trail named in this brief, and the one record this
 brief assigns you. Never scaffold a stub, number one, run any stub-emitting CLI, or write a plan,
-baton, sizing or goal artifact: staging belongs to the one engine call the Fill stubs planner runs.`
+baton, sizing or goal artifact: staging belongs to the one engine call the Stage planner runs.`
 
 const ROLE_CONTRACTS = {
   planner: `You are the roadmap-planner inside one roadmap-blitz run: you author the roadmap-planning
@@ -633,7 +633,7 @@ if (approval.verdict !== 'approved') {
 }
 
 // ---------------------------------------------------------------------------
-// Fill stubs: the planner's step 1 is the one engine call; step 2 fills the stubs it names. The
+// Stage: the planner's step 1 is the one engine call; step 2 fills the stubs it names. The
 // engine writes <trail_dir>/approval.json and stamps OVERVIEW itself; no agent here does.
 // ---------------------------------------------------------------------------
 
@@ -677,7 +677,7 @@ ${COMMON}
 Return \`stageReply\` (step 1), \`paths\` (every repo-relative path you wrote in step 2) and \`filled\`
 (the count of stubs filled). You never commit or stage.`,
   { model: 'opus', effort: 'medium', ...withRole('coordinator:roadmap-planner'),
-    label: 'roadmap-planner:fill-stubs', phase: 'Fill stubs', schema: FILL_SCHEMA },
+    label: 'roadmap-planner:fill-stubs', phase: 'Stage', schema: FILL_SCHEMA },
 ))
 
 // The op may reply bare or wrapped as { result: {...} }; the staged fields live in the payload.

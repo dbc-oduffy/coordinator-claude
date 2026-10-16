@@ -20,7 +20,16 @@ halt (gate refusal, blitz refusal, a DR awaiting acceptance, or a hand-dispatche
 command: report it as a defect, and never finish the work by hand-dispatching rows.
 
 **PM revisions mid-run** go in verbatim through `coordinator-invoke workflow.revise '{"run_id":"<id>","verbatim":"<PM verbatim>"}'`. They
-are never a new dispatch and never a second submission.
+are never a new dispatch and never a second submission. Once a plan has pinned its register rows
+(`register_claims.pins`), a revision whose new row changes a pinned row trips `register-pin-drift`:
+plan-blitz pulls the plan and the run halts. Re-planning against the new row is not an EM step; the
+engine owns it.
+
+Any session, a peer included, steers a running Workflow only through `workflow.revise`; a peer adds
+`"from":"<its session id>"`, stamped on the ledger row and read as authoritative. Check the op's
+params for `from` before sending it. Editing or committing the plan or sizing is not a
+revision: it races the run's scoped commits and records no ledger row. Open engine-plane gap:
+revise against a held, not-yet-emitted run refuses ("no ledger-bearing run ... emit it first").
 
 **The run commits itself.** The in-run commit is the user's commit request: its last stage is one
 `coordinator:git-commit-agent` call to `dispatch.terminal_commit` under the run token. The commit

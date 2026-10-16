@@ -1,21 +1,45 @@
-# Scouts value class: one or two Sonnet agents each write a short sourced digest to scratch.
+# Scouts value class: one Sonnet scout per question (up to 8, in parallel), then one grounding agent that checks the digests against their cited sources.
 schema_version: 1
 pipeline: scouts
-description: One or two Sonnet scouts research a question each and write a short sourced digest to scratch; no claims JSON, no synthesis.
+description: An optional Haiku probe stage runs allowlisted local probes when a question has a local target; then one Sonnet scout per question, up to 8, each writes a short sourced digest to scratch; one grounding agent then re-opens the cited sources and writes grounding.md; no claims JSON, no synthesis.
 inputs:
   brief: required
   scratch_dir: optional
+  flags:
+    local_probe: [true, false]
   lists:
     questions:
       kind: strings
+    probes:
+      kind: strings
 stages:
+  - id: probe
+    phase: Probe
+    agent_type: general-purpose
+    model: haiku
+    template: scouts-probe-prompt-template.md
+    fan_out:
+      over: inputs.probes
+    when:
+      flag: local_probe
+    optional: true
+    output: "{{scratch_dir}}/probe-{{item}}.md"
   - id: scout
     phase: Scout
     agent_type: general-purpose
     model: sonnet
     template: scouts-prompt-template.md
+    depends_on: [probe]
     fan_out:
       over: inputs.questions
-    max_concurrent: 2
+    max_concurrent: 8
     web_caller: true
     output: "{{scratch_dir}}/digest-{{item}}.md"
+  - id: grounding
+    phase: Grounding
+    agent_type: general-purpose
+    model: sonnet
+    template: scouts-grounding-prompt-template.md
+    depends_on: [scout]
+    web_caller: true
+    output: "{{scratch_dir}}/grounding.md"

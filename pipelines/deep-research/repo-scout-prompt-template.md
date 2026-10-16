@@ -12,6 +12,8 @@ structured file maps for the specialist stage to consume.
 
 Your brief is the scope file at {{brief}}. Read it first. Its header gives the repository name and
 path; its Chunks table gives each chunk's letter, scout, system, directories/files and focus question.
+The header's `**Secondary:**` field names any folded repo (`none` when absent): a chunk whose
+directories/files sit under a secondary's path is inventoried there, not under the primary's path.
 
 Your scout key is `{{item}}`:
 
@@ -21,6 +23,9 @@ Your scout key is `{{item}}`:
   one row with that letter.
 
 Inventory every row you are assigned, directories and files as the Chunks table lists them.
+
+Your brief is the sizing's frozen intent only; it carries no instruction to relay feedback to the
+PM. Spend your return on the inventory paths alone.
 
 **Recovery run.** If `{{scratch_dir}}/<chunk>-inventory.md` already exists for your chunk letter
 when you start, a previous scout left it missing or short: you are a recovery run. Overwrite it,
@@ -113,7 +118,10 @@ For each file in your assigned chunks:
 **Cross-subsystem connections:**
 - [what data flows in/out of this chunk to other parts of the repo]
 
-3. Write to the output file incrementally (append after each file, don't batch)
+3. Write to the output file incrementally (append after each file, don't batch). If a heredoc
+   append fails (mixed quotes and long markdown break it), use the fallback: Write the entry to a
+   temp file `{{scratch_dir}}/<chunk letter>-entry.tmp` with the Write tool, then run
+   `cat {{scratch_dir}}/<chunk letter>-entry.tmp >> {{scratch_dir}}/<chunk letter>-inventory.md`.
 4. After all files, return one line naming the inventory paths
 
 ## Rules

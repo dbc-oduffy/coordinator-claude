@@ -1074,7 +1074,8 @@ writes it, the PM is never asked. The tier map, close per tier and preflight liv
 
 - **`value_class` (required): `scouts | corpus | deep | spike`**, read from the PM's phrasing. "Searches so I
   don't spend my own context" is `scouts`; "knowledge for a roadmap" is `corpus`; "unblock us",
-  including over our own repos, is `deep`; "spike" is `spike`, the research door's verdict class.
+  including over our own repos, is `deep`; a survey or comprehension ask is `corpus` however many
+  targets and however shallow, shallowness being `depth: standard` (`A-SURVEY-IS-CORPUS-NEVER-DEEP`); "spike" is `spike`, the research door's verdict class.
   Research is its own door beside sizing: `/coordinator:research`. Every class closes on a committed
   artifact and trail (`A-RESEARCH-CLOSES-ON-A-COMMITTED-ARTIFACT-AND-TRAIL`).
 - **`research.appetite`: `small | medium | large`** shifts the tier one notch: small one notch down,

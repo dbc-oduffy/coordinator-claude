@@ -100,6 +100,12 @@
  *                             //  differ with nothing about the batons changing and no result
  *                             //  saying which code ran. Absent on a fire emitted before the
  *                             //  field existed — which is itself the version signal.
+ *     readyOp: {              // OPTIONAL. {op, params}: one more engine op the LAST reviewer runs
+ *       op, params,           //  once for a plan the readiness op proved ready, its reply returned
+ *     },                      //  verbatim as `readyOpReply` on that ready entry. `params` omits
+ *                             //  plan_path. Contract: claude-klabauter
+ *                             //  coordinator_core/contract/plan-blitz-ready-op-contract.md.
+ *                             //  Absent means plan-blitz behaves unchanged.
  *     batons: [ {
  *       id: string,           // stub_id or handoff_id — the id `blocked_by` edges name it by
  *       path: string,         // repo-relative path to the baton record
@@ -167,11 +173,10 @@ export const meta = {
   name: 'plan-blitz',
   description: 'One planning wave: sonnet scouts size the batons, an Opus EM finalises, Opus planners write, a sonnet pass resolves each plan\'s citations against the tree, resolved reviewers run in sequence over each plan applying and verifying their own findings, and the readiness op\'s verdict, mapped in the script, decides each plan.',
   phases: [
-    { title: 'Size', detail: 'One sonnet sizing-scout per unsized baton — substrate read, touchpoint inventory, prior art, and a proposed t-shirt with its evidence. Skipped for a baton that already cites a sizing-object.' },
-    { title: 'Size review', detail: 'One Opus blitz-em over the whole wave. Interrogates every proposed size (revising down by default), finalises the route via sizing-assemble, and emits the per-baton dispatch spec the Plan phase reads.' },
+    { title: 'Size', detail: 'One sonnet sizing-scout per unsized baton — substrate read, touchpoint inventory, prior art, and a proposed t-shirt with its evidence. Skipped for a baton that already cites a sizing-object. Then one Opus blitz-em over the whole wave interrogates every proposed size (revising down by default), finalises the route via sizing-assemble, and emits the per-baton dispatch spec the Plan phase reads; it is skipped in single-plan mode and when every baton already carries an accepted sizing.' },
     { title: 'Plan', detail: 'One Opus planner per baton, on every route and at every size — authoring is not a lane the wave economises on. Writes the plan doc through coordinator:plan / scaffold-plan; never hand-authors frontmatter. In single-plan mode the prior-art pre-flight starts beside the planner and is awaited before the premise check.' },
     { title: 'Premise check', detail: 'One sonnet pass per drafted L-or-above plan (below L it does not fire), dispatched once its plan path is trusted and before any reviewer fires. Resolves the load-bearing citations in that plan against the tree — paths, symbols, refs, whether its falsifier can report red, and whether a named thing means what the plan says. It reports per-class ROWS and never a plan-level verdict; the seam after it translates those rows onto REVIEW_SCHEMA so they reach the reviewers that already apply every finding themselves. A premise miss routes BLOCKED; the class-5 rows with no writable fix are NAMED for the reviewers, who own the separating test.' },
-    { title: 'Review', detail: 'Reviewers resolved per baton from the EM dispatch spec, never prescribed in the plan file, then fixed by the finalised size ladder: XS/S one sonnet plan-reviewer, M staff-eng alone on opus, L staff-eng + apm, XL and above adds eng-director; a domain signal replaces staff-eng. No persona runs on sonnet; the overengineering lens reviews shipped code, never a plan. Fires unconditionally — the EM is not consulted about whether a plan deserves review. Same plan means sequential: each reviewer applies its own findings in place and runs `review-findings-ledger verify` on its own sidecar before the next reviewer starts. A PIVOT/REJECTED verdict applies nothing and suspends every finding under it, with co-reviewer findings still logged. The last reviewer runs plan.readiness_verdict; a prep-gate enricher runs concurrently with other plans reviewers, only when that reply names mechanical_repairs or none came back, repairs what the engine marks mechanical plus the Mechanical rows of the plan-coverage pre-flight, and re-asks the op once. The script maps the standing op verdict to ready, pulled or replan, and a PIVOT routes to a replan baton rather than halting the wave. Host availability on the executing box is never a pull reason.' },
+    { title: 'Review', detail: 'Reviewers resolved per baton from the EM dispatch spec, never prescribed in the plan file, then fixed by the finalised size ladder: XS/S one sonnet plan-reviewer, M staff-eng alone on opus, L staff-eng + apm, XL and above adds eng-director; a domain signal replaces staff-eng. No persona runs on sonnet; the overengineering lens reviews shipped code, never a plan. Fires unconditionally — the EM is not consulted about whether a plan deserves review. Same plan means sequential: each reviewer applies its own findings in place and runs `review-findings-ledger verify` on its own sidecar before the next reviewer starts. A PIVOT/REJECTED verdict applies nothing and suspends every finding under it, with co-reviewer findings still logged. The last reviewer runs plan.readiness_verdict; a prep-gate enricher runs concurrently with other plans reviewers, only when that reply names mechanical_repairs or none came back, repairs what the engine marks mechanical plus the Mechanical rows of the plan-coverage pre-flight, and re-asks the op once. A judgment verdict with no BLOCKED reviewer buys one opus plan-author resolver and one op re-ask; the plan is ready only if the re-ask is, and a BLOCKED reviewer or a failed resolve pulls with a reason leading "<n> blocking, <m> advisory". The script maps the standing op verdict to ready, pulled or replan, and a PIVOT routes to a replan baton rather than halting the wave. Host availability on the executing box is never a pull reason.' },
     { title: 'Adjudicate', detail: 'One agent per entry that would reach the PM (`surfacedToPm`, `routedElsewhere` with route pm-decision). coordinator:apm rules scope, direction and priority; coordinator:staff-eng (or the domain reviewer the baton calls for) rules code. The adjudicator writes a `pm_ruling:` line on the baton and returns a verdict. Only an entry it marks `pm_only` — important AND urgent AND no clear right answer, or an external or irreversible action — stays in `surfacedToPm`; the rest move to `adjudicated`.' },
   ],
 }
@@ -195,6 +200,23 @@ if (!parsedArgs || typeof parsedArgs !== 'object') {
     'trailDir, gateReportPath and batons — see the args contract at the top of this file.'
   )
 }
+
+const READY_OP_CONTRACT = 'claude-klabauter coordinator_core/contract/plan-blitz-ready-op-contract.md'
+const readyOpArg = parsedArgs.readyOp
+if (readyOpArg !== undefined && readyOpArg !== null) {
+  const plain = (v) => v !== null && typeof v === 'object' && !Array.isArray(v)
+  if (!plain(readyOpArg)
+    || typeof readyOpArg.op !== 'string'
+    || !/^[a-z_][a-z0-9_]*(\.[a-z_][a-z0-9_]*)+$/.test(readyOpArg.op)
+    || !plain(readyOpArg.params)
+    || Object.prototype.hasOwnProperty.call(readyOpArg.params, 'plan_path')) {
+    throw new Error(
+      'plan-blitz received a malformed readyOp arg: it must be {op: dotted.lower_case.identifier, ' +
+      'params: plain object without plan_path} — see ' + READY_OP_CONTRACT + '.'
+    )
+  }
+}
+const READY_OP = (readyOpArg === undefined || readyOpArg === null) ? null : readyOpArg
 
 
 // `return-tldr` — pinned by § Pinned interfaces (C1 authors the standalone JSON schema this
@@ -315,6 +337,8 @@ const PREMISE_SCHEMA = {
             enum: ['RESOLVES', 'UNRESOLVED', 'CONTRADICTED', 'UNCHECKABLE'],
           },
           evidence: { type: 'string' },
+          // Class 4 only: the falsifier `baseline_ref` the row was read against.
+          baseline_ref: { type: 'string' },
         },
       },
     },
@@ -363,6 +387,8 @@ const REVIEW_SCHEMA = {
         mechanical_repairs: { type: 'array', items: { type: 'object' } },
         prep_gate: { type: 'object' },
         reason: { type: 'string' },
+        // The premise-row keys the op counted as blocking; compared across pulls by the Ask composer.
+        blocking: { type: 'array', items: { type: 'string' } },
       },
     },
     readinessReviews: {
@@ -373,6 +399,11 @@ const REVIEW_SCHEMA = {
       },
     },
     readinessError: { type: 'string' },
+    // How many times the host ran the op (2 when the retry also failed).
+    readinessAttempts: { type: 'integer' },
+    // The ready-op reply verbatim (an object or a bare string, so untyped) and its one-line failure.
+    readyOpReply: {},
+    readyOpError: { type: 'string' },
     tldr: RETURN_TLDR_SCHEMA,
   },
 }
@@ -396,7 +427,52 @@ const PREP_GATE_REVISE_SCHEMA = {
     afterVerdict: { type: 'string', enum: ['ready', 'pulled', 'judgment'] },
     afterPullClass: { type: 'string', enum: ['none', 'mechanical', 'substantive'] },
     afterReason: { type: 'string' },
+    afterBlocking: { type: 'array', items: { type: 'string' } },
+    // The post-repair op's own output, verbatim, when it failed twice. Absent when it answered.
+    afterError: { type: 'string' },
     gateReport: { type: 'string' },
+    // The ready op, run by this loop when its re-run is ready: the reviewer's ready op skipped a
+    // repaired plan, so without these a repaired-ready plan reaches the caller with no reply.
+    readyOpReply: {},
+    readyOpError: { type: 'string' },
+    tldr: RETURN_TLDR_SCHEMA,
+  },
+}
+
+const JUDGMENT_RESOLVE_SCHEMA = {
+  type: 'object',
+  required: ['batonId', 'resolved', 'unresolved', 'touched', 'tldr'],
+  properties: {
+    batonId: { type: 'string' },
+    resolved: { type: 'array', items: { type: 'string' } },
+    unresolved: { type: 'array', items: { type: 'string' } },
+    // Each spine row id and frontmatter key the resolver edited; [] = nothing that carries a citation.
+    touched: { type: 'array', items: { type: 'string' } },
+    // Filled from the one re-ask of plan.readiness_verdict. Absent with `afterError` set means the
+    // re-ask failed twice; the script stands the plan as `errored`, never as a failed resolve.
+    afterVerdict: { type: 'string', enum: ['ready', 'pulled', 'judgment'] },
+    afterPullClass: { type: 'string', enum: ['none', 'mechanical', 'substantive'] },
+    afterReason: { type: 'string' },
+    afterBlocking: { type: 'array', items: { type: 'string' } },
+    afterError: { type: 'string' },
+    tldr: RETURN_TLDR_SCHEMA,
+  },
+}
+
+// The re-check leg's return: the fresh rows for the citations the resolver's edit touched, the prior
+// citations the plan no longer carries, and the one op re-ask over the merged rows.
+const PREMISE_RECHECK_SCHEMA = {
+  type: 'object',
+  required: ['batonId', 'rows', 'retired', 'tldr'],
+  properties: {
+    batonId: { type: 'string' },
+    rows: PREMISE_SCHEMA.properties.rows,
+    retired: { type: 'array', items: { type: 'string' } },
+    afterVerdict: { type: 'string', enum: ['ready', 'pulled', 'judgment'] },
+    afterPullClass: { type: 'string', enum: ['none', 'mechanical', 'substantive'] },
+    afterReason: { type: 'string' },
+    afterBlocking: { type: 'array', items: { type: 'string' } },
+    afterError: { type: 'string' },
     tldr: RETURN_TLDR_SCHEMA,
   },
 }
@@ -1509,6 +1585,10 @@ Five question classes. Answer each for every load-bearing citation:
      into \`falsifierVerdict\` VERBATIM. Do not restate its predicate in your own words and do not
      write your own version: it is one surface with several readers. Its \`UNCHECKABLE\` means the
      file could not be read, which is not a pass. If the plan names no falsifier, say so.
+     Class 4 compares the falsifier's \`baseline_output\` against the tree at its \`baseline_ref\`,
+     never at HEAD: read a read-shaped \`how\` with \`git show <baseline_ref>:<path>\`; a \`how\` that
+     needs a checkout, build or test run at that ref is \`UNCHECKABLE\`. Every class-4 row carries
+     \`baseline_ref\`, the value it read against.
   5. ASSERTED SEMANTICS — does the named thing MEAN what the plan says it means? This is the class
      an existence check misses: the path resolves, the symbol resolves, and the plan still assigns
      the wrong ROLE to something that is really there. It is decidable exactly where this repo
@@ -1522,6 +1602,10 @@ Five question classes. Answer each for every load-bearing citation:
 Row verdicts: RESOLVES · UNRESOLVED (absent) · CONTRADICTED (present, and the tree says otherwise
 — a docstring describing a different job, a wiki page forbidding it, a resolver that raises) ·
 UNCHECKABLE (nothing in this tree settles it).
+
+A CONTRADICTED row whose citation matches an entry on the plan's \`corrects:\` list says so in
+its evidence (\`on corrects: -> <fixed_by>\`) and still reports CONTRADICTED: the readiness op
+decides cover.
 
 \`UNCHECKABLE\` costs you nothing and is the honest answer often. \`RESOLVES\` on a citation you did
 not open is the failure this pass exists to stop, moved one stage earlier.
@@ -1648,10 +1732,46 @@ function premiseLines(premise) {
 const PREMISE_REVIEWER = 'premise-check'
 const PREMISE_FINDING_VERDICTS = ['UNRESOLVED', 'CONTRADICTED']
 
-function premiseAsReview(baton, premise) {
+// The key the op files a premise row under: contract § 3 spells it `premise-check: <VERDICT>
+// <citation[:200]>`, sliced by code point (Python), so the slice here is by code point too.
+function premiseKey(row) {
+  return `premise-check: ${row.verdict} ${Array.from(String(row.citation || '')).slice(0, 200).join('')}`
+}
+
+// The UNRESOLVED/CONTRADICTED rows that block. With an honoured reply carrying `blocking`, only the
+// rows the op counted; the op alone decides cover and staleness, so no other row is exempted here.
+function premiseBlockingRows(rows, reply) {
+  const flagged = rows.filter((r) => PREMISE_FINDING_VERDICTS.includes(r.verdict))
+  if (!reply || !Array.isArray(reply.blocking)) return flagged
+  const counted = new Set(reply.blocking)
+  return flagged.filter((r) => counted.has(premiseKey(r)))
+}
+
+// The premise rows that stand after a revision: a fresh row replaces the prior row with the same
+// citation, a retired citation is dropped, other fresh rows are appended, untouched rows are kept.
+function mergePremiseRows(priorRows, freshRows, retired) {
+  const fresh = new Map((freshRows || []).map((r) => [r.citation, r]))
+  const gone = new Set(retired || [])
+  const merged = []
+  const seen = new Set()
+  for (const row of priorRows || []) {
+    if (gone.has(row.citation)) continue
+    seen.add(row.citation)
+    merged.push(fresh.has(row.citation) ? fresh.get(row.citation) : row)
+  }
+  for (const row of freshRows || []) {
+    if (!seen.has(row.citation) && !gone.has(row.citation)) {
+      seen.add(row.citation)
+      merged.push(row)
+    }
+  }
+  return merged
+}
+
+function premiseAsReview(baton, premise, reply) {
   if (!premise) return null
   const rows = premise.rows || []
-  const findings = rows.filter((r) => PREMISE_FINDING_VERDICTS.includes(r.verdict))
+  const findings = premiseBlockingRows(rows, reply)
   // Class 5, not resolved: the rows where no fix is writable from the finding alone, which is
   // the second half of the PIVOT conjunction. Named, never routed — this seam has no verdict to
   // gate and has written no fix, so `a-blocked-review-is-not-a-pivot.md`'s "when you are between
@@ -1766,14 +1886,31 @@ ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'plan-coverage-check'))}`,
 // every other reviewer's edits and its own verified ledger, so the op reads the plan as reviewed.
 // `host` is null for every other reviewer. The op's reply is the op's: this brief carries it back
 // verbatim and the script never recomputes a verdict from it.
-function readinessStep(host, planPath, reviewer) {
-  if (!host) return ''
-  const params = JSON.stringify({
+// The op's params without the host's own entry. One builder for the rendered command and the
+// `readinessParams` an errored entry carries, so the two cannot drift. Keys are only those the op
+// admits (plan, coverage, premise, reviews).
+function readinessParams(planPath, host) {
+  return {
     plan: planPath,
     ...(host.coverage ? { coverage: host.coverage } : {}),
     ...(host.premise ? { premise: host.premise } : {}),
     reviews: host.reviews,
-  })
+  }
+}
+
+function readinessStep(host, planPath, reviewer, readyOp) {
+  if (!host) return ''
+  const readyOpStep = readyOp ? `
+READY OP (only after the readiness op above, and only on ITS reply): if the reply's \`verdict\` is
+"ready", its \`mechanical_repairs\` is empty and its \`prep_gate.verdict\` is "PREPPED", run, exactly
+once, with this JSON as the single argument (quote it for your shell):
+
+    coordinator-invoke ${readyOp.op} '${JSON.stringify({ ...readyOp.params, plan_path: planPath }).split("'").join("'\\''")}'
+
+and return its reply verbatim as \`readyOpReply\`. If it fails, omit \`readyOpReply\` and put the
+one-line failure in \`readyOpError\`. In any other case run nothing and return neither field.
+` : ''
+  const params = JSON.stringify(readinessParams(planPath, host))
   return `
 READINESS VERDICT (the last thing you do, after your ledger verifies): you are the last reviewer on
 this plan, so the readiness op rides on your run. If your verdict is PIVOT (or a REJECTED you
@@ -1785,9 +1922,12 @@ resolve to PIVOT), skip this step entirely. Otherwise run, with this JSON as the
 
 Return the op's reply object verbatim as \`readinessVerdict\`, and the \`reviews\` array you actually
 passed (yours included) as \`readinessReviews\`. Do not edit the plan to change what the op says, do
-not adjust a verdict or a count, and do not retry. If the op fails or is unknown, omit
-\`readinessVerdict\` and put the one-line failure in \`readinessError\` — that is a correct result.
-`
+not adjust a verdict or a count. If the op fails (non-zero exit, no JSON reply, or an \`error\`
+envelope), run the identical command exactly once more. If that fails too, omit \`readinessVerdict\`,
+put that run's own output VERBATIM (stderr, else stdout, prefixed \`exit <n>: \`, never summarised) in
+\`readinessError\`, and set \`readinessAttempts\` to the number of runs (2) — that is a correct result.
+A reply that comes back is never retried.
+${readyOpStep}`
 }
 
 const OP_VERDICTS = ['ready', 'pulled', 'judgment']
@@ -1811,7 +1951,10 @@ function honouredReadiness(resolved, priorForOp) {
   const same = expected.every((e, i) => passed[i]
     && passed[i].reviewer === e.reviewer
     && String(passed[i].verdict || '').toUpperCase() === String(e.verdict || '').toUpperCase())
-  return same ? reply : null
+  if (!same) return null
+  // A malformed `blocking` reads as absent, never as a refusal of an otherwise coherent reply.
+  const { blocking, ...rest } = reply
+  return Array.isArray(blocking) && blocking.every((k) => typeof k === 'string') ? reply : rest
 }
 
 // `ledger` is the reviewer's findings-ledger sidecar: the op reads a WARN/BLOCKED as clear only when
@@ -1829,6 +1972,7 @@ const premiseForOp = (p) => (p
     citation: r.citation,
     ...(r.questionClass !== undefined ? { questionClass: r.questionClass } : {}),
     ...(r.evidence ? { evidence: r.evidence } : {}),
+    ...(typeof r.baseline_ref === 'string' && r.baseline_ref ? { baseline_ref: r.baseline_ref } : {}),
   })) }
   : null)
 const coverageForOp = (c) => (c
@@ -1944,7 +2088,7 @@ NOT hand-author around a refusal: report it verbatim in your summary if it persi
 Only the EM runs \`review-findings-ledger reject\` or \`targets\` — both are refused when invoked
 from inside your own dispatch. If you believe a finding should NOT have been applied after all, say
 so in your summary; you do not revert your own edit outside the ledger's own record.
-${readinessStep(hostReadiness, planResult.planPath, reviewer)}${REPO_ROOT_RULE}
+${readinessStep(hostReadiness, planResult.planPath, reviewer, READY_OP)}${REPO_ROOT_RULE}
 ${MID_RUN_DIRECTION_RULE}
 ${REVIEW_SIDECAR_RULE(sidecarFor(trailDir, baton.id, `review-${reviewer}-pointer`), reviewer)}`,
     { model: reviewerModel(reviewer), ...withRole(reviewer),
@@ -2012,7 +2156,9 @@ function capString(value, max) {
 
 function planDigest(input) {
   const reviews = Array.isArray(input.reviews) ? input.reviews : []
-  const outcome = ['ready', 'pulled', 'replan', 'surfaced'].includes(input.verdict)
+  const errored = input.verdict === 'errored'
+  // The vendored digest enum has no `errored`; the error rides on decision_required.
+  const outcome = !errored && ['ready', 'pulled', 'replan', 'surfaced'].includes(input.verdict)
     ? input.verdict
     : 'surfaced'
 
@@ -2097,7 +2243,8 @@ function planDigest(input) {
     // most load-bearing escalation is what surfaces here: the `surfaced` case's own question when
     // there is one, else the highest-priority collected decision, else nothing to decide.
     decision_required: capString(
-      input.surfacedQuestion || (decisions.length ? decisions[0].item : null) || null,
+      (errored ? `plan.readiness_verdict errored: ${input.opError || '(no error text)'}` : null)
+      || input.surfacedQuestion || (decisions.length ? decisions[0].item : null) || null,
       300,
     ),
     em_may_think_differently,
@@ -2389,7 +2536,7 @@ ${MID_RUN_DIRECTION_RULE}
 ${TRAIL_RULE(sidecarFor(trailDir, waveSlot, 'em-size-review'))}`,
   { model: 'opus', ...withRole('coordinator:blitz-em'),
     label: `size-review:${waveSlot}`,
-    phase: 'Size review',
+    phase: 'Size',
     schema: WAVE_DISPATCH_SCHEMA,
   },
 ))
@@ -2732,8 +2879,8 @@ const chains = await pipeline(
     // The seam. Rows in, one REVIEW_SCHEMA entry out, so the report reaches every reviewer
     // through the channel they already read. The checker took no route; this did.
     if (premise) checkSidecarPath(baton.id, PREMISE_REVIEWER, premise.sidecarPath)
-    const premiseCheckResult = premiseAsReview(baton, premise)
-    const premiseCheckVerdict = premiseCheckResult ? resolveVerdict(premiseCheckResult) : null
+    let premiseCheckResult = premiseAsReview(baton, premise)
+    let premiseCheckVerdict = premiseCheckResult ? resolveVerdict(premiseCheckResult) : null
     // No checkSidecarPath for coverage: it is report-only and briefed onto the trail (TRAIL_RULE),
     // so it has no findings ledger to verify and a trail path is correct, not unreachable.
     const coverageResult = planCoverageAsReview(baton, coverage)
@@ -2746,9 +2893,14 @@ const chains = await pipeline(
       substitutions.push(`${dropped} -> (not dispatched: a ${decision.tshirt} plan's reviewer set is fixed by the size ladder)`)
     }
     // Only the LAST reviewer hosts the readiness op; its inputs are the reviews resolved so far.
-    const hostFor = (reviewer) => (reviewer === reviewers[reviewers.length - 1]
-      ? { reviews: opReviewList(reviews), premise: premiseForOp(premise), coverage: coverageForOp(coverage) }
-      : null)
+    // `hostParams` keeps the op params the host was handed, for an errored entry to carry.
+    let hostParams = null
+    const hostFor = (reviewer) => {
+      if (reviewer !== reviewers[reviewers.length - 1]) return null
+      const input = { reviews: opReviewList(reviews), premise: premiseForOp(premise), coverage: coverageForOp(coverage) }
+      hostParams = readinessParams(plan.planPath, input)
+      return input
+    }
     // SEQUENTIAL, never parallel — § Design decisions 2. Two reviewers editing one artifact would
     // race, so this baton's reviewers apply and verify one at a time, each reading the ones before
     // it. `pipeline()` with one stage IS a sequential loop; used here (not `parallel()`) because
@@ -2786,6 +2938,22 @@ const chains = await pipeline(
     const readinessReply = host && host.reviewer === reviewers[reviewers.length - 1]
       ? honouredReadiness(host, opReviewList(reviews.slice(0, -1)))
       : null
+    // The reviewers above saw every premise row; the count that rides the review set is the op's.
+    if (readinessReply) {
+      premiseCheckResult = premiseAsReview(baton, premise, readinessReply)
+      premiseCheckVerdict = premiseCheckResult ? resolveVerdict(premiseCheckResult) : null
+    }
+    // An op error counts only from the last, non-pivoted reviewer that was handed the op. The params
+    // carry the host's own entry as its brief told it to append it, so a re-run needs nothing else;
+    // they are kept whether or not the host's op failed, because a failed post-repair run also
+    // surfaces as errored and must preserve the same review set.
+    const hostIsLast = host && host.reviewer === reviewers[reviewers.length - 1] && !host.pivot
+    const readinessError = hostIsLast && typeof host.readinessError === 'string' && host.readinessError.trim()
+      ? host.readinessError
+      : null
+    const readinessParamsOut = hostIsLast && hostParams
+      ? { ...hostParams, reviews: [...hostParams.reviews, { reviewer: host.reviewer, verdict: host.raw, ledger: host.sidecarPath }] }
+      : null
     // The plan-coverage pre-flight is appended to `reviews` here, not spliced into the `kept`
     // array below — that array's literal shape is pinned (test_plan_blitz_contract.py) to
     // `[premiseCheckResult, ...reviews]` so a reader can see the premise-check seam without
@@ -2809,6 +2977,12 @@ const chains = await pipeline(
       premise,
       coverage,
       readinessReply,
+      readinessError,
+      readinessAttempts: readinessError ? (host.readinessAttempts || 2) : null,
+      readinessParams: readinessParamsOut,
+      readyOpReply: readinessReply ? host.readyOpReply : undefined,
+      readyOpError: host ? host.readyOpError : undefined,
+      readyOpDishonoured: Boolean(host && host.readyOpReply !== undefined && !readinessReply),
       opReviews,
     }
   },
@@ -2867,11 +3041,28 @@ ${covNote}
 1. Record \`before\` as ${reply.prep_gate.verdict}. Apply each repair to the plan in place, following
    its \`instruction\` at its \`target\` and nothing else; touch no other part of the plan. List what
    you changed in \`repaired\`. Do not run \`plan.prep_gate\` yourself.
-2. Run \`coordinator-invoke plan.readiness_verdict '{"plan":"${plan.planPath}"}'\` exactly ONCE, the
-   plan alone. Record its \`prep_gate.verdict\` as \`after\`, its \`verdict\` as \`afterVerdict\`, its
-   \`pull_class\` as \`afterPullClass\` and its \`reason\` as \`afterReason\`. Never repair a second
-   time, whatever it says.
+2. Run \`coordinator-invoke plan.readiness_verdict '{"plan":"${plan.planPath}"}'\`, the plan alone.
+   Record its \`prep_gate.verdict\` as \`after\`, its \`verdict\` as \`afterVerdict\`, its
+   \`pull_class\` as \`afterPullClass\` and its \`reason\` as \`afterReason\`, and its \`blocking\` array
+   verbatim as \`afterBlocking\` when the reply carries one. If it fails (non-zero
+   exit, no JSON reply, or an \`error\` envelope), run the identical command exactly once more. If
+   that fails too, leave \`afterVerdict\` empty and put that run's own output VERBATIM (stderr, else
+   stdout, prefixed \`exit <n>: \`, never summarised) in \`afterError\`. Never repair a second time,
+   whatever it says.
 3. If \`after\` is not PREPPED, put \`prep_gate.message\` and the remaining findings in \`gateReport\`.
+${readyOpRepairStep(plan.planPath)}`
+}
+
+// The repair loop's ready-op step, built here rather than nested in its caller's template.
+function readyOpRepairStep(planPath) {
+  if (!READY_OP) return ''
+  return `4. If \`afterVerdict\` is "ready" and \`after\` is PREPPED, run exactly once, with this JSON as the
+   single argument (quote it for your shell):
+
+       coordinator-invoke ${READY_OP.op} '${JSON.stringify({ ...READY_OP.params, plan_path: planPath }).split("'").join("'\\''")}'
+
+   and return its reply verbatim as \`readyOpReply\`. If it fails, omit \`readyOpReply\` and put the
+   one-line failure in \`readyOpError\`. Otherwise run nothing and return neither field.
 `
 }
 
@@ -2898,7 +3089,7 @@ Plan: ${plan.planPath}
 
 ${CLI_RESOLUTION_RULE}
 ${steps}
-REFUSED or a CLI failure is reported as such in \`before\`/\`after\`; do not retry or work around it.
+REFUSED or a CLI failure of \`plan.prep_gate\` is reported as such in \`before\`/\`after\`; do not retry or work around it.
 ${REPO_ROOT_RULE}
 ${MID_RUN_DIRECTION_RULE}
 ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'prep-gate-revise'))}`,
@@ -2930,14 +3121,27 @@ await Promise.all(
 
 // The op verdict that stands for a plan once the enricher (if owed) has run: the reply itself when
 // nothing was repaired, the post-repair re-run when something was. null = no usable answer, which
-// pulls the plan as unusable. The op's verdict is consumed, never recomputed or normalised here.
-function standingReadiness(chain) {
+// pulls the plan as unusable, except an op that was called and failed, which stands as `errored`.
+// The op's verdict is consumed, never recomputed or normalised here.
+function opStanding(chain) {
   const reply = chain.readinessReply
-  if (!reply) return null
+  if (!reply) {
+    // The op was called and failed: its own error, not a review verdict. The enricher's post-repair
+    // run carries no reviews, so it never promotes this plan; the landing re-runs the op.
+    return chain.readinessError
+      ? { verdict: 'errored', error: chain.readinessError, stage: 'review-host', attempts: chain.readinessAttempts || 2, params: chain.readinessParams }
+      : null
+  }
   if (reply.mechanical_repairs.length === 0) {
-    return { verdict: reply.verdict, pullClass: reply.pull_class, reason: reply.reason, message: reply.prep_gate.message }
+    return {
+      verdict: reply.verdict, pullClass: reply.pull_class, reason: reply.reason, message: reply.prep_gate.message,
+      ...(Array.isArray(reply.blocking) ? { blocking: reply.blocking } : {}),
+    }
   }
   const repaired = prepGateById.get(chain.baton.id)
+  if (repaired && !repaired.afterVerdict && repaired.afterError) {
+    return { verdict: 'errored', error: repaired.afterError, stage: 'post-repair', attempts: 2, params: chain.readinessParams || { plan: chain.plan.planPath } }
+  }
   if (!repaired || !repaired.afterVerdict) return null
   if (repaired.afterVerdict === 'ready' && repaired.after !== 'PREPPED') return null
   return {
@@ -2945,7 +3149,292 @@ function standingReadiness(chain) {
     pullClass: repaired.afterPullClass || 'none',
     reason: repaired.afterReason || reply.reason,
     message: repaired.gateReport || reply.prep_gate.message,
+    ...(Array.isArray(repaired.afterBlocking) ? { blocking: repaired.afterBlocking } : {}),
   }
+}
+
+// Phase 5d — judgment resolve. A `judgment` standing verdict with no blocking input buys ONE
+// plan-author pass that edits the plan in place and re-asks the op ONCE; the plan is `ready` only if
+// that re-ask is. Counts come from the op's reply; a reply without them is counted from the review
+// set the wave holds (it cannot see ledger clearance, so it over-counts a cleared review, and
+// counts already-applied WARN findings as advisory).
+function findingCounts(chain, reply) {
+  if (reply && Number.isInteger(reply.blocking_findings) && Number.isInteger(reply.advisory_findings)
+    && reply.blocking_findings >= 0 && reply.advisory_findings >= 0) {
+    return { blocking: reply.blocking_findings, advisory: reply.advisory_findings, source: 'op' }
+  }
+  let blocking = 0
+  let advisory = 0
+  for (const r of chain.reviews || []) {
+    if (r.reviewer === PREMISE_REVIEWER || r.reviewer === PLAN_COVERAGE_REVIEWER) continue
+    const n = r.findingCount || 1
+    if (r.verdict === 'WARN') advisory += n
+    else if (r.verdict !== 'OK') blocking += n
+  }
+  const pRows = (chain.premise && chain.premise.rows) || []
+  blocking += premiseBlockingRows(pRows, reply).length
+  const cov = chain.coverage
+  if (cov) {
+    const judged = cov.judgmentFindings || 0
+    if (cov.verdict === 'BLOCKED-SURFACE-TO-PM') blocking += judged || 1
+    else advisory += judged
+  }
+  return { blocking, advisory, source: 'wave' }
+}
+
+// May the wave buy a resolver for this plan. `{ ok: false, reason }` names the refusal.
+function judgmentResolvable(chain, standing, counts) {
+  if (!standing || standing.verdict !== 'judgment') return { ok: false, reason: 'the standing op verdict is not judgment' }
+  if (!chain.plan || chain.plan.status === 'blocked' || !chain.plan.planPath) return { ok: false, reason: 'no authored plan to resolve' }
+  if ((chain.reviews || []).some((r) => r.pivot)) return { ok: false, reason: 'a reviewer returned PIVOT' }
+  if (counts.blocking > 0) return { ok: false, reason: `${counts.blocking} blocking finding(s) are not the resolver's to resolve` }
+  return { ok: true, reason: null }
+}
+
+function judgmentReaskParams(chain) {
+  return {
+    plan: chain.plan.planPath,
+    coverage: chain.coverage ? coverageForOp(chain.coverage) : null,
+    ...(chain.premise ? { premise: premiseForOp(chain.premise) } : {}),
+    reviews: chain.opReviews || [],
+  }
+}
+
+function judgmentResolve(baton, plan, trailDir, coverage, reviews, standing, reaskParams) {
+  const warns = (reviews || []).filter((r) => r.verdict === 'WARN' && r.reviewer !== PLAN_COVERAGE_REVIEWER && r.sidecarPath)
+  const covBlock = coverage && coverage.sidecarPath
+    ? `\nPlan-coverage sidecar: ${coverage.sidecarPath} (${coverage.judgmentFindings || 0} Judgment finding(s)). Resolve its Judgment findings in the plan; leave its Mechanical rows alone.\n`
+    : ''
+  const reviewBlock = warns.length
+    ? `\nWARN reviewers' findings-ledger sidecars (resolve each row that is not applied and verified):\n${warns.map((r) => `  - ${r.reviewer}: ${r.sidecarPath}`).join('\n')}\n`
+    : ''
+  const coverageRule = coverage
+    ? `\`coverage\` with \`mechanicalFindings\` set to 0 and \`judgmentFindings\` set to the number of coverage items you list in \`unresolved\` (its \`verdict\` stays as shown)`
+    : '`coverage` as `null`, exactly as shown'
+  return trackAgent('judgment-resolve', agent(
+    `Resolve the judgment findings still open on one reviewed plan, then re-ask the readiness op once.
+
+Baton: ${baton.id} — "${baton.title}"
+Plan: ${plan.planPath}
+
+The readiness op answered \`judgment\` with this reason, verbatim:
+
+    ${standing.reason}
+${covBlock}${reviewBlock}
+${CLI_RESOLUTION_RULE}
+1. Edit the plan in place to resolve each finding above. Never scaffold, move or rename the plan,
+   and touch nothing no finding names. List each finding you settled in \`resolved\` and each you
+   could not settle, with why, in \`unresolved\`. List each spine row id and each frontmatter key you
+   edited in \`touched\` (\`[]\` when you edited nothing that carries a citation).
+2. Run \`coordinator-invoke plan.readiness_verdict\` ONCE with this JSON as the single argument
+   (quote it for your shell), never the bare plan path: the op judges only the coverage, reviews and
+   premise it is handed, so a bare re-ask returns ready on the prep gate alone:
+
+       ${JSON.stringify(reaskParams)}
+
+   Change it only so (the op trusts these inputs; dropping a review you did not settle makes the ready false): send ${coverageRule}; drop from \`reviews\` only a WARN review every one of whose
+   uncleared ledger rows you list in \`resolved\`; leave \`premise\` and every other \`reviews\` entry
+   as shown.
+3. Record the reply's \`verdict\` as \`afterVerdict\`, its \`pull_class\` as \`afterPullClass\` and its
+   \`reason\` as \`afterReason\`, and its \`blocking\` array verbatim as \`afterBlocking\` when the reply
+   carries one. If it fails (non-zero exit, no JSON reply, or an \`error\` envelope),
+   run the identical command exactly once more. If that fails too, leave \`afterVerdict\` empty and
+   put that run's own output VERBATIM (stderr, else stdout, prefixed \`exit <n>: \`, never summarised)
+   in \`afterError\`. Never resolve or re-ask a second time, whatever it says.
+${REPO_ROOT_RULE}
+${MID_RUN_DIRECTION_RULE}
+${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'judgment-resolve'))}`,
+    // Plan-author, not enricher: the enricher role is barred from authoring judgment.
+    { model: 'opus', ...withRole('coordinator:plan-author'),
+      label: `judgment-resolve:${baton.id}`,
+      phase: 'Review',
+      schema: JUDGMENT_RESOLVE_SCHEMA,
+    },
+  ))
+}
+
+function judgmentResolveOwed(chain) {
+  const standing = opStanding(chain)
+  return judgmentResolvable(chain, standing, findingCounts(chain, chain.readinessReply)).ok
+}
+
+const judgmentResolveById = new Map()
+await Promise.all(
+  chains
+    .filter(Boolean)
+    .filter(judgmentResolveOwed)
+    .map(async (chain) => {
+      const result = await judgmentResolve(
+        chain.baton, chain.plan, trailDir, chain.coverage, chain.reviews, opStanding(chain), judgmentReaskParams(chain),
+      )
+      if (result) judgmentResolveById.set(chain.baton.id, result)
+    }),
+)
+
+// Phase 5d, after the resolver: the plan was revised, so the premise rows it touched are re-judged
+// before the plan is decided. This leg is a premise check that hosts the one op re-ask its fresh rows
+// need; the op is never asked on the pre-revision rows. Owed only when the premise check ran (L and
+// above), the resolver answered, and it edited something that carries a citation.
+function premiseRecheckOwed(chain, res) {
+  return Boolean(chain.premise && res && res.afterVerdict
+    && Array.isArray(res.touched) && res.touched.length > 0)
+}
+
+function premiseRecheck(baton, plan, trailDir, priorPremise, touched, reaskParams, res) {
+  const prior = ((priorPremise && priorPremise.rows) || []).map((r) => ({
+    class: r.questionClass, verdict: r.verdict, citation: r.citation,
+  }))
+  const coverageRule = reaskParams.coverage
+    ? `\`coverage\` with \`mechanicalFindings\` set to 0 and \`judgmentFindings\` set to ${(res.unresolved || []).length} (the resolver's unresolved count; its \`verdict\` stays as shown)`
+    : '`coverage` as `null`, exactly as shown'
+  return trackAgent('premise-recheck', agent(
+    `phase: premise-check
+
+A plan-author pass just revised one plan. Re-judge the premise rows its edit touched, then re-ask the
+readiness op ONCE over the rows that now stand.
+
+Baton: ${baton.id} — "${baton.title}"
+Plan: ${plan.planPath}
+
+The resolver edited these spine rows and frontmatter keys: ${touched.join(', ')}.
+It settled: ${(res.resolved || []).join('; ') || '(none)'}. It left unresolved: ${(res.unresolved || []).join('; ') || '(none)'}.
+
+Prior premise rows, as the op was last shown them (class, verdict, citation):
+
+${JSON.stringify(prior)}
+
+${CLI_RESOLUTION_RULE}
+1. Check every load-bearing citation INSIDE the touched rows and keys above, and every prior row whose
+   citation text occurs in them. Citations elsewhere in the plan are not yours: leave their rows alone.
+   Return the fresh verdicts in \`rows\`, each with its \`questionClass\`, the citation verbatim, a
+   verdict and its evidence. Return in \`retired\` each prior citation the plan no longer carries.
+   You never refuse and never edit; you do not review the plan and never report it correct or ready.
+   Five question classes: 1 paths exist · 2 symbols exist and are reachable the way the plan assumes ·
+   3 branches, tags and commits exist · 4 falsifier arming (\`${ARMING_CHECK_CLI} <instrument> --json\`,
+   its verdict carried into \`falsifierVerdict\` verbatim) · 5 asserted semantics (the named thing means
+   what the plan says it means; \`UNCHECKABLE\` where no surface in this tree settles it). Row verdicts:
+   RESOLVES · UNRESOLVED (absent) · CONTRADICTED (present, and the tree says otherwise) · UNCHECKABLE.
+   Class 4 compares the falsifier's \`baseline_output\` against the tree at its \`baseline_ref\`,
+   never at HEAD: read a read-shaped \`how\` with \`git show <baseline_ref>:<path>\`; a \`how\` that
+   needs a checkout, build or test run at that ref is \`UNCHECKABLE\`. Every class-4 row carries
+   \`baseline_ref\`, the value it read against.
+   A CONTRADICTED row whose citation matches an entry on the plan's \`corrects:\` list says so in
+   its evidence (\`on corrects: -> <fixed_by>\`) and still reports CONTRADICTED: the readiness op
+   decides cover.
+
+${PREMISE_CHECK_CONTRACT}
+
+${INSTRUMENT_CAN_REPORT_RED_CONTRACT}
+
+2. Run \`coordinator-invoke plan.readiness_verdict\` ONCE with this JSON as the single argument (quote
+   it for your shell), never the bare plan path. Its \`premise.rows\` are the prior rows; replace them
+   by the merged set: a row of yours replaces the prior row with the same citation, a citation in
+   \`retired\` is dropped, any other row of yours is appended, and every prior row outside what you
+   checked stays exactly as shown (send each row as \`verdict\`, \`citation\`, \`questionClass\`,
+   \`evidence\` and, on class 4, \`baseline_ref\`). Change \`reviews\` and \`coverage\` only so: send
+   ${coverageRule}; drop from \`reviews\` only a WARN review every one of whose uncleared ledger rows
+   the resolver listed as settled above; leave every other \`reviews\` entry as shown:
+
+       ${JSON.stringify(reaskParams)}
+
+3. Record the reply's \`verdict\` as \`afterVerdict\`, its \`pull_class\` as \`afterPullClass\`, its
+   \`reason\` as \`afterReason\`, and its \`blocking\` array verbatim as \`afterBlocking\` when the reply
+   carries one. If it fails (non-zero exit, no JSON reply, or an \`error\` envelope), run the identical
+   command exactly once more. If that fails too, leave \`afterVerdict\` empty and put that run's own
+   output VERBATIM (stderr, else stdout, prefixed \`exit <n>: \`, never summarised) in \`afterError\`.
+   Never re-check or re-ask a second time, whatever it says.
+${REPO_ROOT_RULE}
+${MID_RUN_DIRECTION_RULE}
+${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'premise-recheck'))}`,
+    { model: 'sonnet', ...withRole('coordinator:premise-checker'),
+      label: `premise-recheck:${baton.id}`,
+      phase: 'Review',
+      effort: 'low',
+      schema: PREMISE_RECHECK_SCHEMA,
+    },
+  ))
+}
+
+const premiseRecheckById = new Map()
+await Promise.all(
+  chains
+    .filter(Boolean)
+    .filter((chain) => premiseRecheckOwed(chain, judgmentResolveById.get(chain.baton.id)))
+    .map(async (chain) => {
+      const res = judgmentResolveById.get(chain.baton.id)
+      const result = await premiseRecheck(
+        chain.baton, chain.plan, trailDir, chain.premise, res.touched, judgmentReaskParams(chain), res,
+      )
+      if (result) premiseRecheckById.set(chain.baton.id, result)
+    }),
+)
+
+// The premise a verdict entry carries: the rows as merged after a re-check, else the checker's own.
+function standingPremise(chain) {
+  const rc = premiseRecheckById.get(chain.baton.id)
+  if (!chain.premise || !rc) return chain.premise || null
+  return { ...chain.premise, rows: mergePremiseRows(chain.premise.rows, rc.rows, rc.retired) }
+}
+
+function standingReadiness(chain) {
+  const base = opStanding(chain)
+  if (!base || base.verdict !== 'judgment') return base
+  const counts = findingCounts(chain, chain.readinessReply)
+  const carried = {
+    ...base,
+    blockingFindings: counts.blocking,
+    advisoryFindings: counts.advisory,
+    findingCountSource: counts.source,
+  }
+  const gate = judgmentResolvable(chain, base, counts)
+  if (!gate.ok) return { ...carried, judgmentResolve: { state: 'not-attempted', reason: gate.reason } }
+  const res = judgmentResolveById.get(chain.baton.id)
+  if (!res) return { ...carried, judgmentResolve: { state: 'failed', cause: 'the resolver returned nothing' } }
+  if (!res.afterVerdict && res.afterError) {
+    return {
+      verdict: 'errored', error: res.afterError, stage: 'judgment-resolve', attempts: 2,
+      params: judgmentReaskParams(chain),
+    }
+  }
+  // A re-check's re-ask ran over the revised rows, so its answer supersedes the resolver's.
+  const rc = premiseRecheckById.get(chain.baton.id)
+  if (rc && !rc.afterVerdict && rc.afterError) {
+    return {
+      verdict: 'errored', error: rc.afterError, stage: 'premise-recheck', attempts: 2,
+      params: { ...judgmentReaskParams(chain), premise: premiseForOp(standingPremise(chain)) },
+    }
+  }
+  const ans = rc || res
+  const unresolved = res.unresolved || []
+  if (unresolved.length === 0 && ans.afterVerdict === 'ready') {
+    const { blocking: _staleSet, ...carriedNoSet } = carried
+    return {
+      ...carriedNoSet,
+      ...(Array.isArray(ans.afterBlocking) ? { blocking: ans.afterBlocking } : {}),
+      verdict: 'ready',
+      pullClass: ans.afterPullClass || 'none',
+      reason: `${base.reason} [resolved: one plan-author pass settled ${(res.resolved || []).length} finding(s); the op re-ask answered ready${rc ? ' over the re-checked premise rows' : ''}]`,
+      judgmentResolve: { state: 'resolved', resolved: res.resolved || [] },
+    }
+  }
+  const cause = unresolved.length
+    ? `the resolver left ${unresolved.length} finding(s) unresolved`
+    : `the op re-ask answered ${ans.afterVerdict || 'nothing'}${ans.afterReason ? `: ${ans.afterReason}` : ''}`
+  // A resolver re-ask that answered is the standing reply, so its set replaces the first reply's.
+  const { blocking: _firstSet, ...unset } = carried
+  const standingSet = ans.afterVerdict
+    ? (Array.isArray(ans.afterBlocking) ? { blocking: ans.afterBlocking } : {})
+    : (Array.isArray(_firstSet) ? { blocking: _firstSet } : {})
+  return { ...unset, ...standingSet, judgmentResolve: { state: 'failed', cause, unresolved } }
+}
+
+// A ready entry's ready-op outcome, from whichever leg made the ready call: the last reviewer for an
+// unrepaired plan, the repair loop for a repaired one. An entry with neither field is a fault the
+// caller cannot tell from a skipped op, so a missing reply under a configured op becomes an error.
+function readyOpFields(src) {
+  if (!READY_OP) return {}
+  if (src && src.readyOpReply !== undefined) return { readyOpReply: src.readyOpReply }
+  return { readyOpError: (src && src.readyOpError) || 'ready op did not run on the leg that made the ready call' }
 }
 
 const fireChains = chains.filter(Boolean)
@@ -2954,7 +3443,10 @@ const standingById = new Map(fireChains.map((c) => [c.baton.id, standingReadines
 function readinessOpLine(chain) {
   const standing = standingById.get(chain.baton.id)
   const reply = chain.readinessReply
-  const op = reply
+  const firstLine = (text) => String(text || '').split('\n')[0]
+  const op = standing && standing.verdict === 'errored'
+    ? `errored after ${standing.attempts} attempt(s) (${standing.stage}): ${firstLine(standing.error)}`
+    : reply
     ? `${reply.verdict}/${reply.pull_class}${standing && reply.mechanical_repairs.length ? ` -> ${standing.verdict}/${standing.pullClass} after repair` : ''}`
     : 'no usable reply'
   const enricher = !chain.plan || chain.plan.status === 'blocked' || !chain.plan.planPath
@@ -2962,7 +3454,15 @@ function readinessOpLine(chain) {
     : enricherOwed(reply)
       ? `spawned (${reply ? `${reply.mechanical_repairs.length} mechanical repair(s)` : 'no usable reply'})`
       : `skipped (${reply.verdict}, no mechanical repairs)`
-  return `${op}; prep-gate enricher ${enricher}`
+  const jr = standing && standing.judgmentResolve
+  const resolver = !jr
+    ? ''
+    : jr.state === 'resolved'
+      ? '; judgment resolver spawned: ready'
+      : jr.state === 'failed'
+        ? `; judgment resolver spawned: failed: ${firstLine(jr.cause)}`
+        : `; judgment resolver not attempted: ${firstLine(jr.reason)}`
+  return `${op}; prep-gate enricher ${enricher}${resolver}`
 }
 
 function prepGateLine(batonId) {
@@ -2977,7 +3477,7 @@ function prepGateLine(batonId) {
 // Phase 6 — the per-baton trail, attached to each verdict entry as `trail`: the reviewers' own
 // verdicts and sidecars, the premise rows, the op line and the ledgers.
 const trailById = new Map(fireChains.map((chain) => {
-    const { decision, baton, plan, reviews, premiseCheckVerdict, checkersSkipped, substitutions, premise } = chain
+    const { decision, baton, plan, reviews, premiseCheckVerdict, checkersSkipped, substitutions } = chain
     // Every reviewer is named with their OWN resolved verdict. A collapsed
     // "the review said X" is how a wave loses the review that disagreed.
     const verdicts = reviews.map((r) => `${r.reviewer}=${r.verdict}`).join(', ') || 'none ran'
@@ -3007,8 +3507,8 @@ const trailById = new Map(fireChains.map((chain) => {
       premise-check: ${premiseCheckLine}
       reviews: ${verdicts}${pivots.length ? `  <-- PIVOT (${pivots.map((r) => r.reviewer).join(', ')})` : ''}${blockers.length && !pivots.length ? '  <-- BLOCKED, fixable' : ''}${mixed}${aliases.length ? `\n      alias resolved: ${aliases.map((r) => `${r.reviewer}: ${r.aliased}`).join('; ')}` : ''}
       ${reviews.map((r) => `sidecar: ${r.sidecarPath}${r.premiseFailure ? ` premise-failure: ${r.premiseFailure}` : ''}${r.alternativesConsidered ? ` alternatives: ${r.alternativesConsidered}` : ''}`).join('\n      ')}
-      premise rows: ${premiseLines(premise).split('\n').join('\n      ')}
-      readiness op: ${readinessOpLine(chain)}
+      premise rows: ${premiseLines(standingPremise(chain)).split('\n').join('\n      ')}
+      readiness op: ${readinessOpLine(chain)}${chain.readyOpError ? `\n      readyOp error: ${chain.readyOpError}` : ''}${chain.readyOpDishonoured ? '\n      readyOp ran on a dishonoured reply' : ''}
       findings ledgers: ${ledgerLine(plan, reviews)}${prepGateLine(baton.id) ? `\n      prep gate (after reviewers, one revise-in-place loop): ${prepGateLine(baton.id)}` : ''}`]
 }))
 
@@ -3019,14 +3519,24 @@ const trailById = new Map(fireChains.map((chain) => {
 // (THE-BOX-THE-WAVE-RAN-ON-IS-NOT-THE-BOX-THE-PLAN-RUNS-ON).
 
 // One verdict per chain, from data the wave already holds; the first matching rule decides. The
-// op's standing verdict is mapped, never recomputed, and `judgment` is a pull: nothing here
-// promotes. The spine, review-ran and prep-gate reconciliations below only make an entry stricter.
+// op's standing verdict is mapped, never recomputed; a `judgment` standing that reaches here was
+// already offered its one resolve and is a pull. The spine, review-ran and prep-gate
+// reconciliations below only make an entry stricter.
 function pivotReplanBrief(reviews) {
   return `Reconciled from the review set.\n`
     + reviews
       .map((r) => `${r.reviewer} [${r.verdict}]: ${r.premiseFailure
         || `${r.findingCount || 0} finding(s), see ${r.sidecarPath}`}${r.alternativesConsidered ? ` | alternatives: ${r.alternativesConsidered}` : ''}`)
       .join('\n')
+}
+
+const OP_ERROR_CAP = 4000
+// Verbatim up to the cap; a longer error says so rather than ending mid-sentence unmarked.
+function capOpError(error) {
+  const text = String(error || '')
+  return text.length > OP_ERROR_CAP
+    ? `${text.slice(0, OP_ERROR_CAP)}\n[truncated: ${text.length - OP_ERROR_CAP} more chars]`
+    : text
 }
 
 function opVerdictFor(chain) {
@@ -3045,17 +3555,49 @@ function opVerdictFor(chain) {
     return { ...base, verdict: 'replan', reason: `${who} returned PIVOT`, replanBrief: pivotReplanBrief(reviews) }
   }
   const standing = standingById.get(baton.id)
+  if (standing && standing.verdict === 'errored') {
+    return {
+      ...base,
+      verdict: 'errored',
+      reason: 'plan.readiness_verdict failed after one in-wave retry; the review set is preserved',
+      opError: capOpError(standing.error),
+      opErrorStage: standing.stage,
+      readinessAttempts: standing.attempts,
+      readinessParams: standing.params,
+    }
+  }
   if (!standing) {
     return { ...base, verdict: 'pulled', pullClass: 'unusable', reason: 'no usable plan.readiness_verdict reply stood for this plan' }
   }
   if (standing.verdict === 'ready') {
-    return { ...base, verdict: 'ready', reason: standing.reason, pullClass: standing.pullClass }
+    const unrepaired = chain.readinessReply && chain.readinessReply.mechanical_repairs.length === 0
+    return {
+      ...base, verdict: 'ready', reason: standing.reason, pullClass: standing.pullClass,
+      ...(standing.judgmentResolve ? { judgmentResolve: standing.judgmentResolve } : {}),
+      ...readyOpFields(unrepaired ? chain : prepGateById.get(baton.id)),
+    }
+  }
+  if (standing.verdict === 'judgment') {
+    const blocking = standing.blockingFindings || 0
+    const advisory = standing.advisoryFindings || 0
+    return {
+      ...base,
+      verdict: 'pulled',
+      reason: `${blocking} blocking, ${advisory} advisory: ${standing.reason}`,
+      pullClass: standing.pullClass,
+      blockingFindings: blocking,
+      advisoryFindings: advisory,
+      findingCountSource: standing.findingCountSource || 'wave',
+      ...(Array.isArray(standing.blocking) ? { blocking: standing.blocking } : {}),
+      judgmentResolve: standing.judgmentResolve || { state: 'not-attempted', reason: 'no resolver state reached the verdict' },
+    }
   }
   return {
     ...base,
     verdict: 'pulled',
     reason: standing.reason,
     pullClass: standing.pullClass,
+    ...(Array.isArray(standing.blocking) ? { blocking: standing.blocking } : {}),
     ...(standing.verdict === 'pulled' ? { prepGateReport: standing.message || null } : {}),
   }
 }
@@ -3072,7 +3614,7 @@ function opVerdictFor(chain) {
 const routeById = new Map(decisions.map((d) => [d.batonId, d.route]))
 const reviewsById = new Map(chains.filter(Boolean).map(({ baton, reviews }) => [baton.id, reviews]))
 const premiseById = new Map(
-  chains.filter(Boolean).map(({ baton, premise }) => [baton.id, premise || null]),
+  chains.filter(Boolean).map((chain) => [chain.baton.id, standingPremise(chain)]),
 )
 // Whether a reviewer ran for this baton, and — where none did — whether a plan existed for one to
 // run over. The two are stored apart because they are two different silences: no plan is the
@@ -3104,6 +3646,9 @@ const planPathById = new Map(
 // before the standing op verdict is read, so no `ready` can reach the landing on a pivoted plan.
 const coverageById = new Map(fireChains.map((c) => [c.baton.id, coverageForOp(c.coverage)]))
 const opReviewsById = new Map(fireChains.map((c) => [c.baton.id, c.opReviews || []]))
+
+// A reconciled-to-pulled entry carries no readyOpReply: the reply belongs to a ready entry only.
+const notReady = ({ readyOpReply, ...rest }) => rest
 
 const verdicts = fireChains
   .map(opVerdictFor)
@@ -3140,7 +3685,7 @@ const verdicts = fireChains
   const premiseRow = premiseById.get(v.batonId)
   if (premiseRow && premiseRow.spinePresent === false && entry.verdict === 'ready') {
     return {
-      ...entry,
+      ...notReady(entry),
       verdict: 'pulled',
       // Names its SOURCE, not just its claim. The old wording was a flat assertion about the
       // document ("the plan carries no plan-tasks spine"), which reads as a finding rather than
@@ -3168,7 +3713,7 @@ const verdicts = fireChains
   const reviewRow = reviewedById.get(v.batonId)
   if (reviewRow && reviewRow.planWritten && entry.verdict === 'ready' && !reviewRow.ran) {
     return {
-      ...entry,
+      ...notReady(entry),
       verdict: 'pulled',
       reviewOverride:
         'The op verdict was ready; the plan was written and no reviewer ran over it, so no finding is '
@@ -3182,7 +3727,7 @@ const verdicts = fireChains
   const prepRow = prepGateById.get(v.batonId)
   if (prepRow && prepRow.after !== 'PREPPED' && entry.verdict === 'ready') {
     return {
-      ...entry,
+      ...notReady(entry),
       verdict: 'pulled',
       prepGateOverride:
         `The op verdict was ready; plan.prep_gate was ${prepRow.before} before and ${prepRow.after} after `
@@ -3326,6 +3871,10 @@ return {
   ready: verdicts.filter((v) => v.verdict === 'ready'),
   pulled: verdicts.filter((v) => v.verdict === 'pulled'),
   replan: verdicts.filter((v) => v.verdict === 'replan'),
+  // The readiness op was called and failed after one retry. Each entry carries the op's error and
+  // its exact params; the landing re-runs only the op over them (land-wave --errored-only), and
+  // nothing here promotes one to ready.
+  errored: verdicts.filter((v) => v.verdict === 'errored'),
   // PM residue only: entries an adjudicator marked `pm_only` (or that named an irreversible gate,
   // or whose adjudicator returned nothing). Every entry carries its `adjudication`.
   surfacedToPm: residueSurfacedToPm,
@@ -3378,7 +3927,10 @@ return {
         verdict: (verdicts[0] && verdicts[0].verdict) || 'surfaced',
         reviews: reviewsById.get(batons[0].id) || [],
         premiseCheckVerdict: resolveVerdict(
-          premiseAsReview(batons[0], premiseById.get(batons[0].id)) || {},
+          premiseAsReview(
+            batons[0], premiseById.get(batons[0].id),
+            (fireChains.find((c) => c.baton.id === batons[0].id) || {}).readinessReply,
+          ) || {},
         ),
         surfacedQuestion:
           (surfacedToPm.find((d) => d.batonId === batons[0].id) || {}).surfacedQuestion || null,
@@ -3387,6 +3939,7 @@ return {
         exitCriterionStatement: batons[0].exitCriterion || null,
         sizingObject: batons[0].sizingObject || null,
         batonId: batons[0].id,
+        opError: (verdicts[0] && verdicts[0].opError) || null,
       }),
     }
     : {}),

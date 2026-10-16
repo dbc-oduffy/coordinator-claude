@@ -99,14 +99,11 @@ serviced before any dep-walking and do not trigger the override check.
 `--accept-missing-deps-risk`. Validate via
 `& "$env:COORDINATOR_SETTINGS_HOME\bin\setup-verify.exe" check-override-flags -- $args`
 (Shape W)
-— exits 93 when exactly one is present, 0 otherwise (printing which path applies). Passing only
-one degrades most mutating coordinator operations (no bash fallback under the big-bang cutover);
+— exits 93 when exactly one is present, else 0. One alone degrades most mutating operations;
 both together bypass the consent gate.
 
-Then seed the general-work home (the Group EM's spawn home and its `CLAUDE.md`):
-`python3 "${CLAUDE_PLUGIN_ROOT}/bin/general-work-home.py" ensure`. Idempotent; it never
-overwrites an existing `CLAUDE.md`. Exit 3 means the configured home sits inside a checkout:
-report the printed checkout as a `[WARN]` row and do not move it.
+Then seed the Group EM's home: `python3 "${CLAUDE_PLUGIN_ROOT}/bin/group-em-home.py" ensure`
+(idempotent; also moves an existing legacy general-work home into place when no session is live in it). Exit 3 (home inside a checkout): a `[WARN]` row; never move it.
 
 ---
 

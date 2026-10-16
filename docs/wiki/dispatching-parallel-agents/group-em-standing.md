@@ -52,7 +52,7 @@ claimant is unverified and gets treated as an ordinary peer. Tripwire:
 ## Every peer is told at boot, in one line
 
 `assert-em-role.py` emits `G-EM active: <name> (<session prefix>)` at SessionStart, iff the engine's
-box holder — the G-EM sitting in the general-work home — is verified and live, whichever repo the
+box holder — the G-EM sitting in the group-em home — is verified and live, whichever repo the
 session is in; never from a cache. It is identity so an inbound claim can be weighed against
 something already known; it confers nothing.
 

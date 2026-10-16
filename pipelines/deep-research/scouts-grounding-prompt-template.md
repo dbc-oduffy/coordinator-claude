@@ -25,10 +25,18 @@ Your brief is the file `{{brief}}`. Read it first; it carries the topic and each
    digest against its own cited source. For each, re-read the sources and rule it **real** (the
    sources themselves disagree) or **invented** (the digest misread or misstated them; say how).
    Do not rule from the digests alone.
-5. Write `{{scratch_dir}}/grounding.md`: a one-paragraph summary with counts per verdict, then a
-   section per digest with a line per claim (verdict, the claim, the evidence you re-read and
-   where), then a `Contradictions` section with each ruling and its evidence. A claim a digest
-   marks unconfirmed stays unconfirmed; do not upgrade it.
+5. Write `{{scratch_dir}}/grounding.md` in exactly this shape; the close parses it line by line:
+   - A one-paragraph summary with counts per verdict.
+   - One section per digest, headed `## digest-<slug>.md` (the digest's file name). Under it, one
+     claim line per claim, starting at the line start:
+     `- **grounded** <claim> — <evidence you re-read and where>`, or the same with
+     `- **ungrounded**` or `- **contradicted**`. Every digest gets a section with at least one
+     claim line.
+   - A final `## Contradictions` section with one ruling line per contradiction:
+     `- **real** <ruling and evidence>` or `- **invented** <ruling and evidence>`. With none, write
+     the line `No contradictions found.` and no ruling line.
+   - Use the bold verdict words only to open those lines; write them nowhere else at a line start.
+   A claim a digest marks unconfirmed stays unconfirmed; do not upgrade it.
 
 ## Constraints
 

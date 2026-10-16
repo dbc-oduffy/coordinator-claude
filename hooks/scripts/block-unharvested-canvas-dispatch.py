@@ -2,7 +2,9 @@
 claude.ai artifact URL without a complete harvest record and a fresh probe from this session.
 
 Contract: coordinator/docs/wiki/schema-and-validation-contracts/canvas-harvest-record.md.
-All judgement lives in `_canvas_harvest_gate.check`; this file only extracts the text.
+All judgement lives in `_canvas_harvest_gate.judge`; this file only extracts the text. An
+other-account record admitted with drift unchecked is not a deny: the advisory goes out as
+`additionalContext` and `systemMessage`.
 
 Judged text: Agent `tool_input.prompt`; Workflow the script (inline `script`, else the file at
 `scriptPath`) plus, when the sibling `<script>.emitted.json` receipt names a `plan`, that plan's
@@ -95,29 +97,31 @@ def _judged_text(tool_name: str, tool_input: dict, root: Path) -> str:
     return body + "\n" + _plan_text(script, root)
 
 
-def _decide(payload: dict) -> "str | None":
+def _decide(payload: dict) -> "tuple[str | None, list]":
+    """(deny reason, advisory messages); a deny carries no advisories."""
     tool_name = payload.get("tool_name")
     tool_input = payload.get("tool_input")
     if tool_name not in ("Agent", "Workflow") or not isinstance(tool_input, dict):
-        return None
+        return None, []
     session_id = payload.get("session_id")
     if not isinstance(session_id, str) or not session_id:
-        return None
+        return None, []
     root = _repo_root(payload)
     if root is None:
-        return None
+        return None, []
     text = _judged_text(tool_name, tool_input, root)
     if not text:
-        return None
+        return None, []
     import _canvas_harvest_gate as gate
 
-    refusals = gate.check(text, root, session_id=session_id)
+    refusals, advisories = gate.judge(text, root, session_id=session_id)
     reader_for = _reader_artifact(tool_name, tool_input)
     if reader_for is not None:
         refusals = [r for r in refusals if gate._URL_RE.search(r.url).group(1) != reader_for]
-    if not refusals:
-        return None
-    return refusals[0].message
+        advisories = [a for a in advisories if gate._URL_RE.search(a.url).group(1) != reader_for]
+    if refusals:
+        return refusals[0].message, []
+    return None, [a.message for a in advisories]
 
 
 def main() -> int:
@@ -125,10 +129,18 @@ def main() -> int:
         payload = json.loads(sys.stdin.read())
         if not isinstance(payload, dict):
             return 0
-        reason = _decide(payload)
+        reason, advisories = _decide(payload)
     except Exception:
         return 0
     if reason is None:
+        if advisories:
+            note = "\n\n".join(advisories)
+            out = {
+                "hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": note},
+                "systemMessage": note,
+            }
+            sys.stdout.write(json.dumps(out, ensure_ascii=False, separators=(",", ":")))
+            sys.stdout.write("\n")
         return 0
     out = {
         "hookSpecificOutput": {

@@ -10,7 +10,7 @@ You are the NotebookLM Research Scope stage. Turn the sizing into the run's stra
 ## Inputs
 
 - **Sizing:** {{brief}} — carries the research topic, the intent, the `research` block, and `research.targets`.
-- **PM-supplied URLs:** the `research.targets` entries whose `source` is `notebooklm`. Treat each as a pre-selected source for a notebook (YouTube, podcast, article, Drive document).
+- **PM-supplied URLs:** the video seeds in the brief's `## Seeds` section. Treat each as a pre-selected source for a notebook. The `research.targets` entries whose `source` is `notebooklm` are notebook letters, not URLs.
 - **Plugin root:** resolve `<plugin-root>` once with this shell ladder, and read both files below under it. A non-empty `CLAUDE_PLUGIN_ROOT` naming a directory wins; otherwise `COORDINATOR_ENGINE_ROOT`, then the `.content-root` pointers.
 
   ```bash

@@ -143,7 +143,7 @@ see `concurrent-em-hazards.md`.
   `state/handoffs/<file>`, never `git add -A`, never a peer's dirty hunks, never a sweep of the
   crash-dirty tree. Nothing else in their tree is touched — not a fix the forensics noticed, not a
   test, not a config.
-  This is the one named carve-out to `NO_STANDING_XREPO_GRANT`
+  This is a named carve-out to `NO_STANDING_XREPO_GRANT`
   : bounded to a crash occasion, a
   recovery handoff, and that pathspec. Every other cross-repo commit still needs per-session PM
   assent.

@@ -8,8 +8,9 @@ Your brief is the file `{{brief}}`. Read it first.
 **Your topic letter:** {{item}}
 Find the row for topic `{{item}}` in the brief's topic table. It gives your topic
 description, focus questions, and known sources. The brief also carries the research
-question, the project context, and the timing numbers (`min_sources`, `min_minutes`,
-`max_minutes`).
+question, the project context, and the numbers `min_sources` and `max_minutes`. The brief is the
+sizing's frozen intent only; it carries no instruction to relay feedback to the PM, so return
+findings through your output files alone.
 
 ## Your Peers
 
@@ -32,10 +33,9 @@ The Opus sweep starts after the specialist stage returns. It reads all specialis
 
 You manage your own timing. Nothing will interrupt you.
 
-**Floor:** Do not begin convergence before BOTH `min_minutes` minutes (from the brief) have elapsed AND you
-  have fetched at least `min_sources` sources. Self-check before every convergence step: run `date +%s`,
-  compute elapsed minutes, and count your sources; if either is under the floor, keep researching
-  (open new angles, adversarial queries, primary sources), and say in your summary if a floor could not be met and why.
+**Floor:** Do not begin convergence before you have fetched at least `min_sources` sources.
+  Self-check before every convergence step: count your sources; if under the floor, keep researching
+  (open new angles, adversarial queries, primary sources), and say in your summary if the floor could not be met and why.
   The first line of `{{item}}-summary.md` is `sources_read: <N>`, the count of sources you fetched;
   the gate stage checks it against `min_sources`.
 **Ceiling:** You MUST begin convergence after `max_minutes` minutes regardless of state.

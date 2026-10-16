@@ -2,16 +2,16 @@
 name: group-em
 description: "PM-GATED. Box-wide: monitor peer sessions; never plan or author for them."
 allowed-tools: ["Read", "Bash", "Glob", "Grep", "Agent", "SendMessage", "Monitor", "TaskStop"]
-argument-hint: "[no arguments — invoke from the general-work home to take box-wide G-EM standing]"
+argument-hint: "[no arguments — invoke from the group-em home to take box-wide G-EM standing]"
 ---
 
 # Group EM — Peer-Session Monitoring and Wave Coordination
 
-`/group-em` switches this session, run from the machine-local general-work home, into box-wide
+`/group-em` switches this session, run from the machine-local group-em home, into box-wide
 G-EM standing: monitoring other sessions and moving them along; a **mode, not an operation**. Cockpit contract:
 `coordinator/docs/wiki/cross-repo-communication/gem-cockpit-contract.md`.
 
-**Outside the home, `/group-em` renders NOT ENTERED** (`general-work-home ensure`).
+**Outside the home, `/group-em` renders NOT ENTERED** (`group-em-home ensure`).
 
 **THIS BODY IS A SNAPSHOT, FROZEN WHEN YOU ENTERED, CARRYING NO VERSION.** Before citing it as
 authority for anything MECHANICAL — a signature, a module path, a flag, a refusal vocabulary —
@@ -411,24 +411,25 @@ locked threshold (8 of 8, no dimension scoring 0).
 
 ## Fleet inbox grind
 
-**On entry, when `coordinator.feature.cross_repo_memos` is on for the box, firing the saved
-workflow is part of the request — not a decision.** The autofire hook prints the exact
-invocation as `FLEET INBOX GRIND, FIRE NOW`:
+**On entry, with `coordinator.feature.cross_repo_memos` on, fire the saved workflow — not a
+decision.** The autofire hook prints `FLEET INBOX GRIND, FIRE NOW`:
 
     Workflow({scriptPath: "<plugin-root>/workflows/fleet-inbox-blitz.mjs", args: {repos: [...], gem: {...}}})
 
-Fire it as your first act after arming the watch, unattended. `repos` is the fleet map
-(`machine-local get repos.*`, de-duplicated, git repos carrying `state/cross-repo/inbox`) — every
-repo, whether or not an EM is live in it. Disposition rules: `workday-start.md` §1.45a. **Do not hand-author a variant.** If the
-entry context carries no invocation, check the flag, and fire with `repos` read from the fleet map. Tripwire: `A-GROUP-EM-HAND-AUTHORING-THE-INBOX-WORKFLOW`.
+Fire it first after arming the watch, unattended. `repos` is the fleet map (`machine-local get
+repos.*`, de-duplicated, repos with `state/cross-repo/inbox`), live EM or not. Rules:
+`workday-start.md` §1.45a. **Do not hand-author a variant.** No printed invocation: check the flag, fire from the fleet map.
+Its workers return one apply manifest per repo; **memo each to that repo's EM**, who applies
+it and commits its `commit.pathspec`. Tripwire: `A-GROUP-EM-HAND-AUTHORING-THE-INBOX-WORKFLOW`.
 
 ## Cross-repo commit authority
 
-**Committing in any fleet repo is presumed and inherent to this role** while this session holds
-the standing (`group-em-nomination.py who --self`); it needs no per-session PM assent. Guardrails,
-unchanged from the retired-grant rule: scoped pathspec commits only (never `git add -A`/`.`/`commit
--a`), no destructive git ops, never leave a sibling's tests red. Engine-subject work stays
-the engine repo's: memo it, do not author it. The grant ends when the standing does.
+**Committing in another fleet repo needs no PM assent while you hold the standing and
+`coordinator.feature.gem_cross_repo_commit` is on** (unset reads on). Off: start a session in that
+repo (Cockpit, or headless `claude -p`, same `--plugin-dir`) and ask its EM; non-urgent work is
+a memo. Tripwires: `GEM-CROSS-REPO-COMMIT-IS-A-BOX-SETTING`,
+`A-BARE-CLAUDE-BG-SPAWN-LOADS-THE-WRONG-PLUGIN-TREE`. On: scoped commits only, no destructive git
+ops, never leave a sibling red; memo engine-subject work.
 
 ## Anti-scope
 

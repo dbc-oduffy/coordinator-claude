@@ -65,6 +65,8 @@ Friction: memo `project-rag-em` / `gh issue create -R dbc-oduffy/project-rag`.
 
 ## Key Principles
 
+Research is read-and-cite: no package installs, no venvs (PER-REPO-VENVS-ARE-BANNED-FLEET-WIDE), no `pip --target` or scratch site-dirs, and no executing the researched repo's code. A runtime claim you cannot confirm by reading is marked `unconfirmed`.
+
 Assessment stands alone — analyze on its own merits first, comparison second. Lead with file:line references: every claim traceable. Challenge peers actively, not hostile, max 3 mailbox messages/peer.
 
 ## Counter-Evidence Pass (mandatory — run after positive analysis, before convergence)

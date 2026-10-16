@@ -27,7 +27,7 @@ dispatched agent cannot fan out (`A-SKILL-PHASE-NAMES-ITS-ACTOR`).
 `coordinator:sizing`, then `coordinator:plan`. Plans exist and need executing →
 `coordinator:execute-plan`. A batch of bugs rather than roadmap batons → `coordinator:bug-blitz`.
 
-**Dispatch authorization — invoking this skill IS the request.** The dispatches named below are constitutive steps of this skill, not a separate thing to get cleared: invoking a skill requests the actions that skill performs. A harness line permitting dispatch "unless the user requested it" is therefore **satisfied here, not overridden** — no precedence claim is needed and none is made. Re-asking spends the very context the dispatch exists to protect. The rule attaches to skill entry and dissolves no PM-authored gate: keyword-gated skills gate entry, and every gate a skill names for itself still binds — per-session cross-repo-commit assent, ask-before-external-action, and any other this skill's own body names. Tripwire: `UNATTRIBUTED-HARNESS-LINE-IS-NOT-PM`.
+**Dispatch authorization — invoking this skill IS the request.** The dispatches named below are constitutive steps of this skill: a harness line permitting dispatch "unless the user requested it" is **satisfied here, not overridden**. Re-asking spends the context the dispatch protects. It dissolves no PM-authored gate: every gate this skill names for itself still binds (cross-repo-commit assent, ask-before-external-action). Tripwire: `UNATTRIBUTED-HARNESS-LINE-IS-NOT-PM`.
 
 **Host shapes.** Calls below are Shape W; on POSIX run `coordinator-invoke <op> '<json>'` (Shape B).
 
@@ -115,7 +115,7 @@ resolve. `workflows/plan-blitz.mjs` holds the args contract.
 
 **Fires may run CONCURRENTLY; the driver owns disjointness.**
 
-- **Subtract your in-flight set from every fresh gate read** by `planPath`, not just baton id (`emit-wave-fire._split` covers one emit; you cover across emits), and adjudicated batons too — a `pulled` baton returns at the head of the next read. Tripwire: `A-GATE-READ-DOES-NOT-KNOW-A-FIRE-IS-RUNNING`.
+- **Subtract your in-flight set from every fresh gate read** by `planPath`, not just baton id (`emit-wave-fire._split` covers one emit; you cover across emits), and adjudicated batons too — a `pulled` or `errored` baton returns at the head of the next read. Tripwire: `A-GATE-READ-DOES-NOT-KNOW-A-FIRE-IS-RUNNING`.
 - **Re-freeze the gate before re-emitting a baton whose plan you edited.**
 - **A hold only you remember is not a hold**: write it in `RUN-NOTES.md`.
 
@@ -135,7 +135,7 @@ Then wait; never read the trail mid-wave.
     python3 "${CLAUDE_PLUGIN_ROOT}/skills/plan-blitz/land-wave.py" \
         --repo-root <abs> [--shipped-in <batonId>=<sha>] <fire-result.json> ...
 
-One file per fire — the task output file works as-is; never extract `.result` by hand. It lands
+One file per fire; pass the task output file as-is. It lands
 each fire through `roadmap.blitz_land`, **sums the three lanes across every fire**, and states the
 stop condition from that sum. It refuses if the fires disagree about `waveIndex`, or if a fire
 carries XS and no `--shipped-in` was given. It writes `wave-<n>.landing.<slot>.json` into the trail
@@ -149,8 +149,8 @@ the digest's `terminal_commit_cli` line. Read `sha` and `close.kind`: expect `xs
 reported, not landed around. Pass `--shipped-in <batonId>=<sha>` per run. Never hand-commit XS work:
 `A-HAND-COMMITTED-XS-RUN-LANDS-WITHOUT-A-CLOSE-BLOCK`. `close_dispatched` stamps `shipped` with that `shipped_in`.
 
-`roadmap.blitz_land` links each `ready` plan, stamps `approved`, mints a baton per `replan`, and
-returns `next_wave`.
+`--errored-only <fire result>` re-lands `errored` entries, re-running only the op; never re-fire them.
+`roadmap.blitz_land` mints a baton per `replan` and returns `next_wave`.
 
 **Three lanes land differently; the op picks by route.**
 
@@ -162,14 +162,13 @@ returns `next_wave`.
 
 An S plan stays `draft` by design (`needs_plan` keys off the execution stamp). **Never hand-stamp `status: approved`** — the op links before stamping.
 
-**Read `refused[]` on every landing** — never route around an entry.
+**Read `refused[]` on every landing**; never route around one.
 
 ### 5. Loop
 
 **`--waves` defaults to 1.** The run stops after wave 0 lands. A non-empty `next_wave.batons` at that
 stop is reported to the EM as the remaining work, to be fired as separate runs — never auto-chained.
-The override is `--waves <n>` with `n > 1`, with a one-line written EM justification in the run's
-trail; a linear `blocked_by` chain is the standing case. Then fire `next_wave` and land it, repeat, under the stop conditions below. Tripwire: `A-MULTI-WAVE-BLITZ-IS-NOT-THE-DEFAULT`.
+Override: `--waves <n>` with a one-line written EM justification in the trail; a linear `blocked_by` chain is the standing case. Then fire `next_wave` and land it, repeat, under the stop conditions below. Tripwire: `A-MULTI-WAVE-BLITZ-IS-NOT-THE-DEFAULT`.
 
 **Stop conditions, all mechanical:**
 
@@ -181,8 +180,7 @@ trail; a linear `blocked_by` chain is the standing case. Then fire `next_wave` a
   (§ Three lanes). Tripwire: `AN-ALL-S-WAVE-APPROVES-NOTHING-AND-STILL-ADVANCES`.
   **A WAVE-level test, not a fire-level one.** Sum the three lanes across every fire at this
   `waveIndex` (one fire's `approved: 0` hid 27→24).
-  **Only a FINISHED wave counts** — check completion BEFORE reading the lanes (wiki,
-  § Trimmed rationale). **Never land an unfinished fire**; resume it, or re-emit and re-fire,
+  **Only a FINISHED wave counts** — check completion BEFORE reading the lanes. **Never land an unfinished fire**; resume it, or re-emit and re-fire,
   closing a finished XS with `archive-stamp-cli ship-handoff <path> --sha <sha>`. Tripwire:
   `AN-UNFINISHED-WAVE-IS-NOT-A-WAVE-THAT-OPENED-NOTHING`.
 - The usage-limit advisory has fired — fire no further wave; land the current wave through step 4,
@@ -190,6 +188,7 @@ trail; a linear `blocked_by` chain is the standing case. Then fire `next_wave` a
   `coordinator/docs/wiki/skills-corpus/usage-limit-pause.md`; tripwire:
   `A-DRIVER-PAST-ITS-USAGE-THRESHOLD-FIRES-NOTHING-NEW`.
 - `refused[]` is non-empty — report and stop.
+- `land-wave` exits 4 (still `errored`) — report each `opError` verbatim, stop.
 - `surfacedToPm` is non-empty — each is `pm_only`; **never re-queue one.** Report `adjudicated` by count.
 
 **What the driver escalates rather than decides:** an unresolved blocker, a cycle, a `refused` entry,
@@ -212,9 +211,8 @@ options are arbitrated by the resolve pass. Tripwire: `A-SINGLE-REVIEWER-OPTION-
 `senior-front-end`, data-science → `staff-data-sci`, ux-flow → `staff-ux`, cross-repo-seam →
 `eng-director` — added to the sized reviewers.
 
-**The last reviewer's op verdict decides:** `judgment` and no reply pull the plan, a PIVOT replans. The
-prep-gate enricher spawns only when the reply names mechanical repairs. Cross-plan seams (an export one plan needs that its
-author never promised, sibling `writes:` collisions) are checked at /mise-prep Step 2e. **Planners read the PM's Approve** from the roadmap OVERVIEW's `approver`/`approval_utterance`;
+**The last reviewer's op verdict decides:** `judgment` with nothing blocking buys one resolver and one re-ask; a BLOCKED reviewer or failed resolve pulls, its reason counting blocking vs advisory (`A-JUDGMENT-VERDICT-WITH-NO-BLOCKED-REVIEWER-IS-RESOLVED-NOT-PULLED`), a PIVOT replans, an op failure (retried once) is `errored`. The
+prep-gate enricher spawns only when the reply names mechanical repairs. Cross-plan seams are checked at /mise-prep Step 2e. **Planners read the PM's Approve** from the roadmap OVERVIEW's `approver`/`approval_utterance`;
 none means baton defaults, stated.
 
 **`BLOCKED` and `PIVOT` are not a severity ladder.** `BLOCKED`: the reviewer applied its

@@ -42,14 +42,21 @@ already reads `shipped` at a prefix of that SHA, or an unmapped one, becomes a `
 row. A malformed value, a baton id matching no entry, and a bare SHA over several entries (or
 alongside a `dispatched` lane) are refused.
 
+The `errored` lane carries entries whose `plan.readiness_verdict` op failed in the wave (an op
+error, not a review verdict). Before `roadmap.blitz_land`, this calls ONLY that op once per entry
+over its preserved `readinessParams`: a coherent `ready` reply with no repairs and a PREPPED
+prep_gate moves the entry to `ready`, any other reply to `pulled`, a failure leaves it `errored`
+with `rerunError`. `--errored-only` re-lands just that lane of an archived fire result.
+
 Usage:
 
     python3 land-wave.py --repo-root <abs> [--shipped-in <sha> | <batonId>=<sha>]...
-                         [--branch <name>] <fire-result.json> [<fire-result.json> ...]
+                         [--errored-only] [--branch <name>]
+                         <fire-result.json> [<fire-result.json> ...]
 
 Exit 0 when every fire landed and the wave advanced, 1 when the wave advanced nothing
 (the stop condition — report and stop), 2 on a refusal, 3 when any landing returned a
-non-empty `refused[]`.
+non-empty `refused[]`, 4 when entries are still errored after the re-run.
 """
 
 from __future__ import annotations
@@ -67,6 +74,7 @@ EXIT_OK = 0
 EXIT_WAVE_OPENED_NOTHING = 1
 EXIT_REFUSED = 2
 EXIT_LANDING_REFUSALS = 3
+EXIT_ERRORED = 4
 
 #: The three lanes whose SUM decides whether the wave advanced. `approved` alone is not
 #: the test: an all-S wave approves nothing by construction and still advances, because
@@ -312,6 +320,85 @@ def _transform_xs_runs(result: dict, mapping: dict[str, str], repo_root: Path) -
             "reason": f"XS run closed by dispatch.terminal_commit {sha[:8]}",
         })
         lines.append(f"land-wave: xsRun {baton}: closed at {sha[:8]}")
+    return lines
+
+
+_ERRORED_ONLY_EMPTIED = (
+    "ready", "pulled", "replan", "surfacedToPm", "dispatched", "xsRuns",
+    "routedElsewhere", "adjudicated",
+)
+_REPLY_VERDICTS = ("ready", "pulled", "judgment")
+_REPLY_PULL_CLASSES = ("none", "mechanical", "substantive")
+
+
+def _reply_is_coherent(reply) -> bool:
+    """The `honouredReadiness` coherence bar: a known verdict and pull_class, list repairs, a
+    dict prep_gate, and repairs present exactly when pull_class is `mechanical`."""
+    if not isinstance(reply, dict):
+        return False
+    repairs = reply.get("mechanical_repairs")
+    return (
+        reply.get("verdict") in _REPLY_VERDICTS
+        and reply.get("pull_class") in _REPLY_PULL_CLASSES
+        and isinstance(repairs, list)
+        and isinstance(reply.get("prep_gate"), dict)
+        and bool(repairs) == (reply.get("pull_class") == "mechanical")
+    )
+
+
+def _rerun_errored(payload: dict, repo_root: Path, engine_root: Path | None,
+                   live_engine_tree: bool) -> list[str]:
+    """Re-run ONLY `plan.readiness_verdict` once per `errored` entry, over its `readinessParams`.
+
+    An entry reaches `ready` only on a coherent `ready` reply with no repairs and a PREPPED
+    prep_gate; any other coherent reply moves it to `pulled` with the op's own pull_class, an
+    incoherent one to `pulled`/`unusable`, and a failure leaves it `errored` with the new error
+    verbatim as `rerunError`. Mutates `payload`'s lanes; returns one stderr line per entry.
+    """
+    lines: list[str] = []
+    still: list = []
+    for entry in payload.get("errored") or []:
+        if not isinstance(entry, dict):
+            still.append(entry)
+            continue
+        baton = entry.get("batonId") or "(unnamed)"
+        params = entry.get("readinessParams")
+        if not isinstance(params, dict) or not params:
+            lines.append(f"land-wave: errored {baton}: no readinessParams to re-run; stays errored")
+            still.append(entry)
+            continue
+        try:
+            reply = _invoke(repo_root, engine_root, "plan.readiness_verdict", params,
+                            live_engine_tree)
+        except ValueError as exc:
+            lines.append(f"land-wave: errored {baton}: re-run failed — {exc}")
+            still.append({**entry, "rerunError": str(exc)})
+            continue
+        moved = {k: v for k, v in entry.items() if k != "rerunError"}
+        moved["rerunOf"] = "errored"
+        if not _reply_is_coherent(reply):
+            moved.update(verdict="pulled", pullClass="unusable",
+                         reason="the re-run returned no coherent plan.readiness_verdict reply")
+            payload.setdefault("pulled", []).append(moved)
+            lines.append(f"land-wave: errored {baton}: re-run reply incoherent; pulled (unusable)")
+            continue
+        gate = reply["prep_gate"]
+        if (reply["verdict"] == "ready" and not reply["mechanical_repairs"]
+                and gate.get("verdict") == "PREPPED"):
+            moved["verdict"] = "ready"
+            payload.setdefault("ready", []).append(moved)
+            lines.append(f"land-wave: errored {baton}: re-run ready")
+            continue
+        moved.update(
+            verdict="pulled", pullClass=reply["pull_class"],
+            reason=reply.get("reason") or f"the re-run verdict was {reply['verdict']}",
+            prepGateReport=gate.get("message"),
+        )
+        payload.setdefault("pulled", []).append(moved)
+        lines.append(f"land-wave: errored {baton}: re-run {reply['verdict']}; pulled "
+                     f"({reply['pull_class']})")
+    if "errored" in payload:
+        payload["errored"] = still
     return lines
 
 
@@ -571,7 +658,7 @@ def _landing_candidates(fires: list, replies: list, repo_root: Path) -> set[str]
             candidates.update(
                 f"{trail}/{child.name}" for child in (repo_root / trail).iterdir() if child.is_file()
             )
-        for lane in ("ready", "pulled", "replan"):
+        for lane in ("ready", "pulled", "replan", "errored"):
             for entry in result.get(lane) or []:
                 if isinstance(entry, dict):
                     rel = _repo_relative(entry.get("planPath") or "", repo_root)
@@ -742,6 +829,13 @@ def main(argv=None) -> int:
             "same rung `emit-wave-fire --live-engine-tree` takes for the bind call."
         ),
     )
+    ap.add_argument(
+        "--errored-only",
+        action="store_true",
+        help="re-land only the `errored` lane of an archived fire result: every other lane is "
+        "emptied, so rows that already landed are not landed again. Use it after fixing the "
+        "op failure that left entries errored; never re-fire the wave (it re-reviews).",
+    )
     ap.add_argument("--branch", default="main", help="branch recorded on any minted replan baton")
     ap.add_argument("--limit", type=int, default=8, help="max batons in the emitted next wave")
     ap.add_argument("--json", action="store_true")
@@ -790,6 +884,12 @@ def main(argv=None) -> int:
             fires.append((p, _wave_result(p)))
         except ValueError as exc:
             return refuse(str(exc))
+
+    if args.errored_only:
+        for _, r in fires:
+            for lane in _ERRORED_ONLY_EMPTIED:
+                if lane in r:
+                    r[lane] = []
 
     indices = {r.get("waveIndex") for _, r in fires}
     if len(indices) != 1:
@@ -858,15 +958,25 @@ def main(argv=None) -> int:
     landings, all_refused, all_surfaced, all_fell_back = [], [], [], []
     adjudicated = 0
     next_wave = None
+    still_errored: list[dict] = []
 
     for path, result in fires:
         adjudicated += len(result.get("adjudicated") or [])
         for line in _restore_prior_shipped_in(result):
             print(line, file=sys.stderr)
-        archived = _archive_result(result)
+        # An `--errored-only` result has its lanes emptied above; archiving it would overwrite
+        # the full fire result it was read from.
+        archived = None if args.errored_only else _archive_result(result)
         payload = {k: list(v) if isinstance(v, list) else v for k, v in result.items()}
         for line in _transform_xs_runs(payload, xs_mapping, repo_root):
             print(line, file=sys.stderr)
+        for line in _rerun_errored(payload, repo_root, engine_root, args.live_engine_tree):
+            print(line, file=sys.stderr)
+        still_errored.extend(
+            {"batonId": e.get("batonId"), "planPath": e.get("planPath"),
+             "opError": e.get("opError"), "rerunError": e.get("rerunError")}
+            for e in payload.get("errored") or [] if isinstance(e, dict)
+        )
         if archived:
             # stderr, not stdout: `--json` promises a parseable stdout, and a real wave
             # result always carries `trailSlotDir`, so a stdout notice here would prefix
@@ -948,6 +1058,7 @@ def main(argv=None) -> int:
         "surfacedToPm": all_surfaced,
         "adjudicated": adjudicated,
         "fellBack": all_fell_back,
+        "errored": still_errored,
         "nextWave": next_wave,
         "landings": [{"fire": l["fire"], "counted": l["counted"]} for l in landings],
         "uncommitted": uncommitted,
@@ -982,6 +1093,7 @@ def main(argv=None) -> int:
                     "surfacedToPm": all_surfaced,
                     "adjudicated": adjudicated,
                     "fellBack": all_fell_back,
+                    "errored": still_errored,
                     "nextWave": next_wave,
                     "landings": [
                         {"fire": l["fire"], "counted": l["counted"]} for l in landings
@@ -1011,6 +1123,8 @@ def main(argv=None) -> int:
             print(f"  adjudicated {adjudicated} PM-bound entr(ies) ruled by an agent; the PM reads them at the receipt")
         for entry in all_fell_back:
             print(f"  fellback {entry}")
+        for entry in still_errored:
+            print(f"  errored  {entry['batonId']}: {entry.get('rerunError') or entry.get('opError')}")
         if next_wave:
             print(f"  next     wave {next_wave.get('waveIndex')}: "
                   f"{len(next_wave.get('batons') or [])} baton(s)")
@@ -1033,6 +1147,16 @@ def main(argv=None) -> int:
             file=sys.stderr,
         )
         return EXIT_LANDING_REFUSALS
+
+    if still_errored:
+        print(
+            f"\nland-wave: STOP — {len(still_errored)} entr(ies) are still errored: "
+            "plan.readiness_verdict failed and the review set is preserved. Fix the op failure, "
+            "then re-run `land-wave --errored-only <the archived fire result>`. Never re-fire "
+            "the wave: it re-reviews plans the reviewers already passed.",
+            file=sys.stderr,
+        )
+        return EXIT_ERRORED
 
     if advanced == 0:
         print(

@@ -243,9 +243,15 @@ _REFUSAL_WORDS_CAP = 280 - len(_REFUSAL_LEAD) - len(" Tell the PM; ") - max(
 def _refused(env: dict, deny_tail: str) -> dict:
     """The deny for an answer with no rewrite, carrying the engine's own words."""
     hso = _hso(env)
+    # The engine's own deny reason leads: advisories in the other fields can fill the
+    # whole cap, and truncating from the end must cut them, never the refusal.
     words = [
         w.strip()
-        for w in (hso.get("additionalContext"), env.get("systemMessage"))
+        for w in (
+            hso.get("permissionDecisionReason"),
+            hso.get("additionalContext"),
+            env.get("systemMessage"),
+        )
         if isinstance(w, str) and w.strip()
     ]
     said = " ".join(" ".join(words).split()) or "it said nothing."

@@ -2,7 +2,7 @@
 name: research
 description: "Research by value class: scouts, corpus, deep, or spike. EM-fired, never from a subagent."
 allowed-tools: ["Agent", "Read", "Write", "Edit", "Bash", "Glob", "Grep", "Workflow"]
-argument-hint: "--sizing <path> | --ask \"<question>\""
+argument-hint: "--sizing <path> | --ask \"<question>\" [--target web|repo=PATH|local=PROBE] ... [--split|--combine]"
 ---
 
 # Research — Single Entry Point
@@ -13,7 +13,7 @@ prints one `Workflow` line. Value classes and the tier-to-manifest map:
 
 | Value class | Run |
 |---|---|
-| `scouts` | 1-2 Sonnet agents; a scratch digest. The default for a bare ask |
+| `scouts` | one Sonnet scout per question (up to 8), optional Haiku probes for local targets, one grounding agent; a scratch digest. The default for a bare ask |
 | `corpus` | the named-source manifest pipeline (web, repo, structured, NotebookLM), with coverage audit |
 | `deep` | the unblock-us diagnostic team (diagnose, decompose, challenge, plus one specialist per source), for an EM stuck delivering something |
 | `spike` | a binary verdict on one unproven mechanism: both halves, throwaway probes, a verdict record. Procedure: `coordinator/skills/spike/SKILL.md`. Spike is the research door's verdict class |
@@ -27,7 +27,8 @@ authority; neither door gates or refuses the other's arrival. Research need not 
 every class ends with a committed artifact and trail (Step 4).
 
 `deep` is the unblock team, not "more depth". A comprehension ask ("understand this repo", "survey
-this topic") is `corpus`; more thoroughness on a corpus run is `--research-depth deeper|deepest`
+this topic") is `corpus` however many targets (`A-SURVEY-IS-CORPUS-NEVER-DEEP`); shallowness is
+`--research-depth standard`, never a class change; more thoroughness on a corpus run is `--research-depth deeper|deepest`
 or `--research-appetite large`. `research.appetite` moves the class one notch (`small` down,
 `large` up), so `deep` at `small` runs corpus and `corpus` at `large` runs deep. Read the emitted
 script's meta before firing: a "The EM is stuck delivering something" meta on a comprehension ask
@@ -37,7 +38,11 @@ means the class is wrong.
 
 `$ARGUMENTS`:
 - `--sizing <path>` — a sizing carrying a `research` block (`value_class`, `appetite`, `sources[]`, `depth`, `targets[]`); resolves to scouts, corpus or deep per the class and appetite
-- `--ask "<question>"` — a bare ask; runs `scouts` with no sizing object
+- `--ask "<question>"` — a bare ask; runs `scouts` with no sizing object. Repeatable: every `--ask` is one question
+- `--target web|repo=PATH|local=PROBE` — repeatable; binds to the `--ask` before it, and several on one question mix them. `web` is the default; `repo` takes a path (absolute for another checkout); `local` takes an allowlisted probe id
+- `--split | --combine` — one scout per question (default), or one scout over all questions
+
+Contract (cap, grammar, probe allowlist, close params): `coordinator/contract/scouts-ask-fragment.md`.
 
 ## Sizing the research
 
@@ -50,8 +55,21 @@ repeatable) and the sizing is written with `--write state/sizings/<date>-<slug>.
 its `next_move` names the research fire and `research.close`. Questions go in with
 `--research-question "<q>"` (repeatable), written to `research.questions`. `--research-target`
 takes an absolute path for a repo outside this checkout (`repo=<absolute path>`); the
-concrete-path guard's warning on it is expected. To change only the research block, run
+concrete-path guard's warning on it is expected. A scouts run over a local clone keeps
+`--research-source` at web and names the clone with `--research-target repo=<absolute path>` (or a
+bare `--research --ask` naming the path). To change only the research block, run
 `sizing-assemble --amend-research <sizing> --research-<flag> <value>`.
+
+**Seed URLs.** A URL the run must ingest goes in with `--research-seed <kind>=<url>` (repeatable),
+written to `research.seeds`, never in a `--context` file. Each kind routes to one pipeline and adds
+that source to the run:
+
+| kind | pipeline |
+|------|----------|
+| `video` | notebooklm |
+| `repo` | repo |
+| `doc` | web |
+| `paper` | web |
 
 **Local-only research.** Research over code or material that must never enter a git repo
 (vendor-proprietary source, licensed corpora) sets `research.destination: local-only` on the
@@ -73,8 +91,10 @@ templates fix (repo `chunks=A,B,C,D` and `haiku_scouts=1,2`, web `topics=a,b,c,d
 goes to the pipeline that declares it (e.g. `compare=true`). The emit reply lists each segment's
 flags and lists, and reports every refusal in one error.
 
-A repo run studies one repo: the scope stage reads the first `repo` target, so a multi-repo ask is
-one sizing and one emit per repo. A requested output path goes in the sizing's exit criterion or a
+A repo run takes every `repo` target from one sizing: the first is the primary, each further one a
+secondary folded into one chunk (`**Secondary:**` in the scope header). A secondary too large to
+fold (the scope stage notes `secondary too large to fold`), or a peer of equal weight, is its own
+sizing and emit. A requested output path goes in the sizing's exit criterion or a
 `--context` file; the scope stage honours it. `research.close` refuses secret-shaped outputs
 (reported as file:line and pattern, never the value) and returns stray `docs/research/` files
 written outside the destination as `strays`.
@@ -102,8 +122,11 @@ one EM-authored step; scoping, prior-art and coverage are manifest stages.
 
 Resolve the engine CLI per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`, then run
 `emit-dispatch-workflow --from-sizing <path>`, or `emit-dispatch-workflow --research --ask "<question>"`
-for scouts. Fire the one printed `Workflow` line as a background Workflow (`run_in_background: true`).
-Never hand-fill a script. On a corpus or deep fire, run `em_watch` (`_py=$(command -v python3 || command -v python) || exit 1; "$_py" -m coordinator_core.workflow_watch.mailbox_line <box>`) in the background the same turn; it returns on an escalation: act, then `em_rewatch`. When `sources[]` holds `notebooklm`, the engine prepends the preflight
+for scouts; a multi-question, mixed-target ask is
+`emit-dispatch-workflow --research --ask "<q1>" --target web --target repo=coordinator/hooks --ask "<q2>" --target local=<probe-id> --split`.
+Fire the one printed `Workflow` line as a background Workflow (`run_in_background: true`).
+Never hand-fill a script. Worker briefs (scout, specialist, synth) are composed from the sizing's
+frozen intent only; never put baton or `pm_turns` mid-turn instructions into one. On a corpus or deep fire, run `em_watch` (`_py=$(command -v python3 || command -v python) || exit 1; "$_py" -m coordinator_core.workflow_watch.mailbox_line <box>`) in the background the same turn; it returns on an escalation: act, then `em_rewatch`. When `sources[]` holds `notebooklm`, the engine prepends the preflight
 stage and halts before spend if the NotebookLM MCP is unregistered; its remedy strings are the
 exact commands to relay.
 
@@ -114,8 +137,10 @@ Every class closes on a committed artifact and trail
 `docs/research/trail/<run-id>.yaml`: run id, sizing path, class, destination, output count, with
 repo-relative paths only.
 
-- **Scouts:** read the digest in scratch, then commit it under `docs/research/` with its trail
-  record by the ordinary scoped commit path. `research.close` does not serve this class yet.
+- **Scouts:** the Workflow returns `{results, next_action}`; run `next_action` (`research.close`,
+  `require_grounding`) unedited, as corpus and deep do. The close refuses a run whose grounding
+  report grades a claim ungrounded or contradicted or rules a contradiction invented; the refusal
+  names the claims to fix or drop before re-closing.
 - **Corpus and deep:** the Workflow returns `{results, next_action}`; run `next_action`
   (`research.close` with its params) unedited: it archives and commits the outputs. Commit the
   trail record beside them by the ordinary scoped commit path.
