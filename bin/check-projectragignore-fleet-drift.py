@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """check-projectragignore-fleet-drift — flag fleet repos whose `.project-rag-ignore` is behind the template.
 
 WHY THIS EXISTS. `scaffold_structure` (via `repo-setup` Phase 3e) copies

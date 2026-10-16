@@ -297,7 +297,8 @@ class GuardScopeDescriptor:
             return False
         if self.directory_substrings:
             normalized_path = PureWindowsPath(target_path).as_posix()
-            return any(sub in normalized_path for sub in self.directory_substrings)
+            folded_path = normalized_path.casefold()
+            return any(sub.casefold() in folded_path for sub in self.directory_substrings)
         return True
 
 

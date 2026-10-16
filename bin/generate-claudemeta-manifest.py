@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Generate the `--file-list` manifest for project-rag's `claudemeta` band.
 
 Implements both axes of `state/reference/state-subtree-retrieval-priority-index.md` —

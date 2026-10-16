@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """writes-ignored-check — refuse a spine whose declared writes a commit cannot take.
 
 Ported from coordinator-content-repo `coordinator/bin/writes-ignored-check.py` (W3-C1,

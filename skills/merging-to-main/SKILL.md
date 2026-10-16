@@ -175,10 +175,10 @@ Check out main (`COORDINATOR_OVERRIDE_BRANCH=1`), pull, delete the local branch 
 
 ## Step 10: Completion-Log Status Flip
 
-Runs when a release tag was cut (`d2` landed). Released status is the
+Runs when a release tag was cut. Released status is the
 `archive/releases/<tag>.yaml` index (`release.write_index`); `mkdir -p archive/release-notes/`,
 `git mv` the accumulator into it (best-effort), scoped-commit the release index
-+ accumulator (`COORDINATOR_OVERRIDE_BRANCH=1 git commit …`), push to main.
++ accumulator, push to main.
 
 ---
 

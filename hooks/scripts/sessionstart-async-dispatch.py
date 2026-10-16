@@ -149,6 +149,11 @@ REGISTRY: Tuple[StartGuard, ...] = (
     StartGuard("session_start_ensure_precommit_hook",
                "session-start-ensure-precommit-hook.py",
                frozenset({"startup", "resume", "clear", "compact", "fork"})),
+    # GENERAL-WORK HOME SELF-HEAL -- see `session-start-ensure-general-work-home.py`.
+    # All five sources: the home is a property of the box, so whichever session starts next heals it.
+    StartGuard("session_start_ensure_general_work_home",
+               "session-start-ensure-general-work-home.py",
+               frozenset({"startup", "resume", "clear", "compact", "fork"})),
     # LAST, so the cheap self-heals above never wait behind it. No per-leg timer: the 45 s registration timeout bounds it.
     StartGuard("sweep_boot", "sweep-boot.py", frozenset({"startup", "compact"})),
 )

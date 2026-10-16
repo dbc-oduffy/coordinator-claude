@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """coordinator/bin/pre_commit_corpus_artifact_guard.py — refuse a commit that stages a
 project-rag corpus artifact, or any oversized real blob.
 

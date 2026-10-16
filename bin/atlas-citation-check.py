@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """coordinator/bin/atlas-citation-check.py — mechanical citation/coverage check
 over the architecture atlas (`docs/architecture/`).
 

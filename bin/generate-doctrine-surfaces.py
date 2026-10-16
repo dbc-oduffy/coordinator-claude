@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """coordinator/bin/generate-doctrine-surfaces.py — emits
 <coordinator-content-repo>/coordinator/doctrine-surfaces.json, the DoE-supplied
 doctrine-surface manifest consumed by claude-klabauter's

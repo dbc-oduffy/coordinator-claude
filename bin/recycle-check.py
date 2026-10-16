@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """recycle-check — does this wave contain a baton whose work already finished? Writes nothing.
 
 WHY THIS EXISTS. `roadmap.blitz_land` stamps a dispatched XS baton `shipped` with a `shipped_in`

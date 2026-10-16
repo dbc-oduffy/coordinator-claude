@@ -103,6 +103,11 @@ serviced before any dep-walking and do not trigger the override check.
 one degrades most mutating coordinator operations (no bash fallback under the big-bang cutover);
 both together bypass the consent gate.
 
+Then seed the general-work home (the Group EM's spawn home and its `CLAUDE.md`):
+`python3 "${CLAUDE_PLUGIN_ROOT}/bin/general-work-home.py" ensure`. Idempotent; it never
+overwrites an existing `CLAUDE.md`. Exit 3 means the configured home sits inside a checkout:
+report the printed checkout as a `[WARN]` row and do not move it.
+
 ---
 
 ## Step 5 — Terminal report

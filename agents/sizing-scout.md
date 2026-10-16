@@ -1,6 +1,6 @@
 ---
 name: sizing-scout
-description: "Sizes one ask on engineering depth, not breadth; in an engine-ask run, also writes and gates the sizing."
+description: "Sizes one ask on engineering depth, not breadth; in an engine-ask run, also writes and gates it."
 model: sonnet
 effort: medium
 color: cyan

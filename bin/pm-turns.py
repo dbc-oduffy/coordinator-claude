@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """pm-turns -- read one recorded PM turn back, byte-identical.
 
 Direct-import trampoline over coordinator_core.ops.baton_pm_turns._pm_turns: no IPC hop, no

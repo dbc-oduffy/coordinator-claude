@@ -1109,6 +1109,111 @@ def cmd_keys(args: argparse.Namespace) -> int:
     return 0
 
 
+_EXTERNAL_NS = "external_workspaces"
+_EXTERNAL_FIELDS = ("path", "kind", "vcs", "p4_client")
+
+
+def _canon_path(p: str) -> str:
+    return os.path.normcase(os.path.realpath(os.path.abspath(p)))
+
+
+def _path_inside(p: str, root: str) -> bool:
+    """True when canonical `p` equals canonical `root` or lies under it."""
+    return p == root or p.startswith(root.rstrip(os.sep) + os.sep)
+
+
+def _external_workspaces(layers: list[dict]) -> dict[str, dict]:
+    """Registered `external_workspaces.<key>.*` entries, resolved in layer order
+    (first layer to define a leaf wins). An entry needs a non-empty `path`; an
+    absent or unknown `kind` reads as `external-readonly` (fail closed)."""
+    raw: dict[str, dict] = {}
+    prefix = _EXTERNAL_NS + "."
+    for layer in layers:
+        for flat_key, val in layer.items():
+            if not flat_key.startswith(prefix) or isinstance(val, (list, dict)):
+                continue
+            name, _, leaf = flat_key[len(prefix):].rpartition(".")
+            if not name or leaf not in _EXTERNAL_FIELDS:
+                continue
+            raw.setdefault(name, {}).setdefault(leaf, str(val))
+    entries: dict[str, dict] = {}
+    for name, fields in raw.items():
+        if not fields.get("path", "").strip():
+            continue
+        entries[name] = {
+            "path": fields["path"],
+            "kind": "external-readonly",
+            "vcs": fields.get("vcs") or "none",
+        }
+    return entries
+
+
+def _external_workspace_containing(path: str, entries: dict[str, dict]) -> str | None:
+    """Key of the registered workspace whose root equals or contains `path`."""
+    target = _canon_path(path)
+    for name, entry in entries.items():
+        if _path_inside(target, _canon_path(entry["path"])):
+            return name
+    return None
+
+
+def cmd_external_workspace(args: argparse.Namespace) -> int:
+    """Implement: machine-local external-workspace <name-or-path> | --list.
+
+    Prints `key<TAB>path<TAB>kind<TAB>vcs`; exit 0 when the argument is a
+    registered key or a path equal to or under a registered root, 1 when not
+    registered, 2 on operational failure (malformed registry).
+    """
+    entries = _external_workspaces(_build_resolution_layers(_registry_dir()))
+
+    def _line(name: str) -> str:
+        e = entries[name]
+        return f"{name}\t{e['path']}\t{e['kind']}\t{e['vcs']}"
+
+    if args.list:
+        for name in entries:
+            print(_line(name))
+        return EXIT_OK
+    if not args.target:
+        print("machine-local: external-workspace needs <name-or-path> or --list", file=sys.stderr)
+        return EXIT_OPERATIONAL
+    name = args.target if args.target in entries else _external_workspace_containing(args.target, entries)
+    if name is None:
+        return EXIT_NOT_FOUND
+    print(_line(name))
+    return EXIT_OK
+
+
+def _external_collision_refusal(reg_dir: str, key: str, value: str) -> str | None:
+    """Reason `set` must refuse (None when it may proceed): a `repos.*` path
+    inside an external workspace, or an external-workspace root that is already
+    a `repos.*` path."""
+    is_repo = key.startswith("repos.")
+    is_ext_path = key.startswith(_EXTERNAL_NS + ".") and key.endswith(".path")
+    if not (is_repo or is_ext_path) or not value.strip():
+        return None
+    layers = _build_resolution_layers(reg_dir)
+    target = _canon_path(value)
+    if is_repo:
+        name = _external_workspace_containing(value, _external_workspaces(layers))
+        if name is None:
+            return None
+        return (
+            f"refusing `set {key}`: '{value}' is inside registered external "
+            f"workspace '{_EXTERNAL_NS}.{name}' (someone else's code is never a peer repo)"
+        )
+    for layer in layers:
+        for other, val in layer.items():
+            if other.startswith("repos.") and isinstance(val, str) and val.strip():
+                if _path_inside(target, _canon_path(val)):
+                    return (
+                        f"refusing `set {key}`: '{value}' is the peer repo "
+                        f"'{other}' or inside it (a repo is never an external workspace, "
+                        "and a workspace never lives under a repo's tree)"
+                    )
+    return None
+
+
 def cmd_check(args: argparse.Namespace) -> int:
     """Implement: machine-local check — report registry keys shadowed by a concern file.
 
@@ -1971,6 +2076,11 @@ def cmd_set(args: argparse.Namespace) -> int:
     if rc != 0:
         return rc
 
+    refusal = _external_collision_refusal(reg_dir, key, value)
+    if refusal:
+        print(f"machine-local: {refusal}", file=sys.stderr)
+        return EXIT_OPERATIONAL
+
     if os.path.exists(target_path):
         with open(target_path, "r", encoding="utf-8") as f:
             content = f.read()
@@ -2635,6 +2745,16 @@ def main() -> int:
     has_p = subparsers.add_parser("has", help="Exit 0 if key is set, 1 if not set, 2 on operational failure (see machine-local-registry.md §4.1)")
     has_p.add_argument("key", help="Dotted key name")
 
+    ew_p = subparsers.add_parser(
+        "external-workspace",
+        help=(
+            "Is <name-or-path> a registered external workspace (external_workspaces.*)? "
+            "Prints key<TAB>path<TAB>kind<TAB>vcs; exit 0 registered, 1 not, 2 operational failure"
+        ),
+    )
+    ew_p.add_argument("target", nargs="?", default=None, help="Registered key, or a path equal to or under a registered root")
+    ew_p.add_argument("--list", action="store_true", help="Print every registered entry")
+
     keys_p = subparsers.add_parser("keys", help="List all known keys, one per line")
     keys_p.add_argument(
         "--prefix", metavar="PREFIX", default=None,
@@ -2797,6 +2917,7 @@ def main() -> int:
         "get": cmd_get,
         "has": cmd_has,
         "keys": cmd_keys,
+        "external-workspace": cmd_external_workspace,
         "dump": cmd_dump,
         "check": cmd_check,
         "path": cmd_path,

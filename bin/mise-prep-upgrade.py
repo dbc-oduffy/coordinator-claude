@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """mise-prep-upgrade — bring a plan authored before the mise-prep bar up to it.
 
 WHY THIS EXISTS. The bar (`coordinator_core/roadmap/prep_gate.py`) wants four

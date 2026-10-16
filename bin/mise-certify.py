@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """mise-certify -- Phase 0 fire-time certification, both legs, one command. Writes nothing.
 
 Per plan, in the order `coordinator-content-repo coordinator/docs/wiki/lesson-triage/mise-prepped-attest.md`

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """coordinator/bin/check-citation-integrity.py -- ratchet gate over
 `coordinator_core.citation_graph`'s resolution output.
 

@@ -24,11 +24,19 @@
       "minLength": 1
     },
     "status": {
-      "type": "string",
-      "enum": [
-        "open",
-        "in_progress",
-        "actioned"
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "open",
+            "in_progress",
+            "actioned"
+          ]
+        },
+        {
+          "type": "string",
+          "minLength": 1
+        }
       ]
     },
     "created": {
@@ -37,12 +45,24 @@
       "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
     },
     "kind": {
-      "type": "string",
-      "enum": [
-        "ask",
-        "consult",
-        "fyi",
-        "friction"
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "ask",
+            "consult",
+            "fyi",
+            "friction",
+            "bug",
+            "proposal",
+            "notice",
+            "reply"
+          ]
+        },
+        {
+          "type": "string",
+          "minLength": 1
+        }
       ]
     },
     "related": {
@@ -339,5 +359,5 @@
     "provenance"
   ],
   "additionalProperties": false,
-  "version": "4.11.0"
+  "version": "4.13.0"
 }

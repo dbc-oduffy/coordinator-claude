@@ -9,7 +9,6 @@
 
 ## Inline Return Cap
 
-Line 1 of your reply is the verdict or status your own agent file's report shape defines. The
+Line 1 of your reply is the verdict or status your agent file's report shape defines. The
 whole reply is at most 40 lines. Past that: give the first lines, then
-`… <N> more lines omitted — reproduce with: <command>`. Do not restate your brief or narrate the
-steps you took.
+`… <N> more lines omitted — reproduce with: <command>`. Don't restate your brief or narrate.

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """host-gpu-probe — standalone GPU probe, the sole surviving successor of coordinator_whoami.
 
 coordinator_whoami (coordinator-content-repo `coordinator/whoami/`) was retired

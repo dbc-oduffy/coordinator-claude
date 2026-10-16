@@ -92,7 +92,7 @@ Nits are first-class findings, not footnotes. Counts as a finding:
 
 ## Partitioned-dispatch hand-off note
 
-If this review is one slice of a partitioned dispatch, apply every finding inside your slice's files yourself: exact-text `Edit`; if it misses because another reviewer moved the text, re-read and re-apply. A finding outside your slice is logged under `## Out-of-Slice Findings` in your sidecar and counted in `out_of_slice`; it is not applied and not a ledger row. Only a rebuild verdict on in-slice findings goes back to the EM.
+In a partitioned dispatch, apply every in-slice finding yourself by exact-text `Edit`; if another reviewer moved it, re-read and re-apply. Log an out-of-slice finding under `## Out-of-Slice Findings`, counted in `out_of_slice`, never applied, never a ledger row. Only in-slice rebuild verdicts go up.
 
 ## Spec completion lens (when the EM provides a spec)
 

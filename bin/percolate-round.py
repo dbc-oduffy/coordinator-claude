@@ -2566,11 +2566,79 @@ def _partition_gitignored_declines(declined: list) -> "tuple[list, list]":
     return material, gitignored
 
 
+#: Always imported when the destination ships it: the module whose lazy imports of sibling
+#: engine modules made a half-published round look green.
+_ENGINE_IMPORT_ALWAYS: Tuple[str, ...] = ("coordinator_core.ops.dispatch_emit.terminal_commit",)
+
+#: One interpreter, every module: failures come back as JSON on stdout. Only ImportError (incl.
+#: ModuleNotFoundError) and SyntaxError count -- any other exception is a module's own side
+#: effect, not a missing or broken definition.
+_ENGINE_IMPORT_PROBE = (
+    "import importlib, json, sys\n"
+    "sys.path.insert(0, sys.argv[1])\n"
+    "bad = {}\n"
+    "for name in sys.argv[2:]:\n"
+    "    try:\n"
+    "        importlib.import_module(name)\n"
+    "    except (ImportError, SyntaxError) as exc:\n"
+    "        bad[name] = f'{type(exc).__name__}: {exc}'\n"
+    "    except Exception:\n"
+    "        pass\n"
+    "print(json.dumps(bad))\n"
+)
+
+
+def _engine_modules_to_import(repo_root: str, pathspec: Sequence[str]) -> List[str]:
+    """Dotted names of the `coordinator_core` modules this round touched (tests excluded) plus
+    `_ENGINE_IMPORT_ALWAYS`, keeping only those present in the destination tree."""
+    root = Path(repo_root)
+    names: List[str] = []
+    for raw in pathspec:
+        rel = raw.replace("\\", "/")
+        parts = rel.split("/")
+        if parts[0] != "coordinator_core" or not rel.endswith(".py") or "tests" in parts[:-1]:
+            continue
+        if not (root / rel).is_file():
+            continue
+        stem = parts[:-1] if parts[-1] == "__init__.py" else parts[:-1] + [parts[-1][:-3]]
+        names.append(".".join(stem))
+    for name in _ENGINE_IMPORT_ALWAYS:
+        if (root / (name.replace(".", "/") + ".py")).is_file():
+            names.append(name)
+    return sorted(set(names))
+
+
+def _engine_import_failures(repo_root: str, pathspec: Sequence[str]) -> Optional[str]:
+    """Import every engine module this round published, in ONE interpreter rooted at the
+    destination, and name each that fails. None when all import (or none apply). Catches a
+    published importer whose imported definition never shipped."""
+    modules = _engine_modules_to_import(repo_root, pathspec)
+    if not modules:
+        return None
+    probe = _run(
+        [sys.executable, "-I", "-B", "-c", _ENGINE_IMPORT_PROBE, repo_root, *modules],
+        timeout=_REGISTRY_CLI_TIMEOUT_SECS,
+        cwd=repo_root,
+    )
+    try:
+        bad = json.loads(probe.stdout.strip().splitlines()[-1]) if probe.returncode == 0 else None
+    except (ValueError, IndexError):
+        bad = None
+    if bad is None:
+        return f"the engine import probe did not run ({probe.stderr.strip()[-300:] or probe.returncode})"
+    if not bad:
+        return None
+    return "published engine module(s) fail to import at the destination: " + "; ".join(
+        f"{name} -> {err}" for name, err in sorted(bad.items())
+    )
+
+
 def _round_refusal_reason(
     *,
     real_returncode: int,
     declined_paths: list,
     has_review_warnings: bool,
+    engine_import_failure: Optional[str] = None,
 ) -> Optional[str]:
     """Defence-in-depth predicate (C2, AC3) over `_cmd_round`'s own
     in-process state: every row succeeded, `declined_paths` is empty, and no
@@ -2595,6 +2663,8 @@ def _round_refusal_reason(
         return f"{len(declined_paths)} path(s) were declined during commit"
     if has_review_warnings:
         return "Phase 4 audit found unacknowledged REVIEW warnings"
+    if engine_import_failure:
+        return engine_import_failure
     return None
 
 
@@ -3551,10 +3621,14 @@ def _cmd_round_default(
                 sha,
             )
 
+            engine_import_failure = (
+                None if args.no_publish else _engine_import_failures(repo_root, pathspec)
+            )
             refusal_reason = _round_refusal_reason(
                 real_returncode=real.returncode,
                 declined_paths=declined_paths,
                 has_review_warnings=has_review_warnings,
+                engine_import_failure=engine_import_failure,
             )
 
             round_warnings = _round_warnings(
@@ -3574,6 +3648,11 @@ def _cmd_round_default(
 
             if refusal_reason is None:
                 _clear_round_failure_marker(target, percolate_root)
+            elif engine_import_failure:
+                _write_round_failure_marker(target, percolate_root, "engine-import-failed", sha)
+                print(f"percolate-round: {engine_import_failure}", file=sys.stderr)
+                _print_push_notice(target, refusal_reason=refusal_reason)
+                return _EXIT_FAIL
 
             if args.no_publish or refusal_reason is not None:
                 _print_push_notice(

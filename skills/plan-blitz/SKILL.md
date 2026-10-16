@@ -9,8 +9,7 @@ argument-hint: "[<baton-id> ...] [--roadmap-id <id>] [--waves <n>] [--dry-run]"
 
 # Plan-blitz — a roadmap's worth of plans, in waves
 
-Consumes a roadmap that already exists and produces plans for it, N batons per wave. Rationale: the
-plan-blitz wiki. The waves fire from the top-level EM only — a
+Plans an existing roadmap, N batons per wave (rationale: plan-blitz wiki). The waves fire from the top-level EM only — a
 dispatched agent cannot fan out (`A-SKILL-PHASE-NAMES-ITS-ACTOR`).
 
 ---
@@ -22,7 +21,7 @@ dispatched agent cannot fan out (`A-SKILL-PHASE-NAMES-ITS-ACTOR`).
 | **Sweep** (default, no args) | every baton the engine returns as `needs_plan` — no linked plan, or one not yet review-cleared. `--roadmap-id` narrows to one roadmap. |
 | **Targeted** (`<baton-id> ...`) | the ids you pass as `targets`; everything unnamed stays a fully-resolved BLOCKER, not a candidate. |
 
-**Check `unmatched_targets` on every targeted run**.
+**Check `unmatched_targets` on every targeted run.**
 
 **When NOT to use:** no roadmap yet → `coordinator:roadmap-planning`. One baton →
 `coordinator:sizing`, then `coordinator:plan`. Plans exist and need executing →
@@ -47,14 +46,13 @@ Invoke `coordinator-invoke` per the ladder in `${CLAUDE_PLUGIN_ROOT}/snippets/re
 
     `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" roadmap.plan_gate '{"roadmap_id":"<id>"}'`
 
-It returns both gates per candidate baton. **It reports, never refuses;** refusal is yours.
+It returns both gates per baton. **It reports, never refuses;** refusal is yours.
 
 ---
 
 ## The flow — a loop with no judgment in it
 
-**This runs at Sonnet.** Opus judgment happens INSIDE a wave; the driver is mechanism. A judgment
-call needed to drive it is a loop defect.
+**This runs at Sonnet.** Opus judgment happens INSIDE a wave; needing judgment to drive it is a loop defect.
 
 ### 0. Preflight — confirm the engine is reachable
 

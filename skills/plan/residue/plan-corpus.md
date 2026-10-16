@@ -54,8 +54,7 @@ commit subjects or messages, branch names, PR titles, ceremony logs.**
 
 - _Drafting tasks, Branch C — authoring for width?_
   → Put contracts/types/stubs/schema in an interface-first chunk in wave 0; many small disjoint
-  chunks with file-level `writes` (except a same-rule deterministic transform over N files: one
-  row or one script, `A-SAME-RULE-TRANSFORM-OVER-N-FILES-IS-ONE-ROW`); `reads_at_head` by default, `consumes` only for real output
+  chunks with file-level `writes` (except a same-rule transform over N files: one row, `A-SAME-RULE-TRANSFORM-OVER-N-FILES-IS-ONE-ROW`); `reads_at_head` by default, `consumes` only for real output
   consumption; critical path <= ~1/3 of dispatchable rows; width < 3 needs a `## Width rationale`
   section. Tokens `A-REFERENCE-READ-DECLARED-AS-AN-ORDERING-EDGE-SERIALISES-THE-PLAN` and
   `A-SPINE-THAT-CHAINS-EVERY-CHUNK-CANNOT-BE-SCHEDULED-WIDE`. writing-plans.md § Authoring for

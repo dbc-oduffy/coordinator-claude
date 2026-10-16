@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """baton-chain-closure -- detect that an entire baton-chain (workstream), not a single baton, has
 closed, and emit a PM-facing closure signal conforming to `group-em-output-contract.md`.
 

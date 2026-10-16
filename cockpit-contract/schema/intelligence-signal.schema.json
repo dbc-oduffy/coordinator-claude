@@ -346,7 +346,7 @@
           "type": "null"
         }
       ],
-      "description": "sha256 hex of the backing ledger claim's canonical body — the projection-render join anchor (project-rag fleet identity). Nullable on the shared contract; example-market-data-repo enforces non-null producer-side per cgs-03. Bare scalar join key (join on equality) — deliberately NOT the structured ContentHash provenance shape."
+      "description": "sha256 hex of the backing ledger claim's canonical body — the projection-render join anchor (example-retrieval-repo fleet identity). Nullable on the shared contract; example-market-data-repo enforces non-null producer-side per cgs-03. Bare scalar join key (join on equality) — deliberately NOT the structured ContentHash provenance shape."
     },
     "claim_id": {
       "anyOf": [
@@ -357,7 +357,7 @@
           "type": "null"
         }
       ],
-      "description": "Informational: project-rag producer-local surrogate id. NOT a fleet-stable join key — join on content_key, never on this."
+      "description": "Informational: example-retrieval-repo producer-local surrogate id. NOT a fleet-stable join key — join on content_key, never on this."
     },
     "coverage_scope": {
       "anyOf": [
@@ -460,5 +460,5 @@
     "measurement_basis"
   ],
   "additionalProperties": false,
-  "version": "4.11.0"
+  "version": "4.13.0"
 }

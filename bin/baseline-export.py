@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """baseline-export -- export a commit, run a runner in it, remove the export in a finally.
 
 Direct-import trampoline over coordinator_core.testing.baseline_export.main:

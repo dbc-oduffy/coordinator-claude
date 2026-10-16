@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 coordinator-ensure-hooks-fleet — install/repair the coordinator prepare-commit-msg
 hook and apply the hook disposition table (retired/replaced hook bodies) in

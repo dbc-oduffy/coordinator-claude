@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """goal-kr-evidence — read-only per-KR evidence correlator for never-assessed goals.
 
 Ported from coordinator-content-repo `coordinator/bin/goal-kr-evidence.py` (W2-C6,

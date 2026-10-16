@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Re-export coordinator/schemas/subagent-catering-resolution.json from live sources.
 
 Arrival record: state/audits/doe-script-arrivals/W3-C3.yaml

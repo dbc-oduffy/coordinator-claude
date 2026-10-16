@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 coordinator.bin.resolve-peer-address -- resolve a session id to the peer name cross-session
 messaging can actually address, at point of use.

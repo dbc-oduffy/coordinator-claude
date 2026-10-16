@@ -3402,11 +3402,7 @@ def _scaffold_spinoff(
                 "",
             ]
         ),
-        *(
-            _require_session_ledger_block()[:0]
-            if omit_unfilled
-            else _require_session_ledger_block()
-        ),
+        *([] if omit_unfilled else _require_session_ledger_block()),
         *(
             []
             if _is_session

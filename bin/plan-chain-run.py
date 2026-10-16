@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """plan-chain-run — drive one accepted pm/ceo sizing from plan wave to terminal commit.
 
 Usage:

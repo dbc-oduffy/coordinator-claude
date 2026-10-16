@@ -112,9 +112,9 @@ Never harvest `## Anti-scope` items as rows.
 
 Asks: **would `dispatch.emit` refuse on this spine?** Engine module, reference-only. Two shapes: **`NoWritesDeclaredError`** (zero non-deferred rows declare `writes:`) and **`NoTestTargetError`** (every path maps to no runnable test target).
 
-**Step 1.** Per non-deferred row's `writes:` path: non-`.py` → nothing, **plan-gap risk**. `.py` already `test_*.py` → can never map → **engine-defect risk**. Other `.py`: check `<dir>/tests/test_<stem>.py` and `<dir>/test_<stem>.py` — exists → real target; absent but declared by any spine row → **engine-defect risk**; absent+undeclared → **plan-gap risk**.
+**Step 1.** Read the repo's `coordinator.local.md` `test_locator_suffixes` (e.g. `[*.test.ts]`; absent = none). Map each write as the emitter's `_map_written_path_to_test_target` does. A `test_*.py`, or a path matching a configured pattern (`foo.test.ts`), is its own target, existing or not. A source path (`foo.py`, or `foo.ts` for `*.test.ts`) maps when its candidate test (`<dir>/tests/test_<stem>.py`, `<dir>/test_<stem>.py`, or the configured sibling) exists on disk or is declared by any spine row. Anything else maps to nothing.
 
-**Step 2.** ≥1 row maps real → silent. All-nothing, all engine-defect → **Advisory** only, no gate — "spine trips the known creates-its-own-tests emittability defect; not a plan-authoring gap — see memo topic `dispatch-emit-refuses-a-spine-that-creates-its-own-tests`" (never hard-fail a plan for shipping new tests). Any plan-gap → **Spine-emittability** finding — "row(s) <ids> declare only non-Python/doc writes, or Python writes with no test in this spine — the emitter would refuse (`NoTestTargetError`)." Gates INCOMPLETE.
+**Step 2.** The emitter refuses only when **no** path maps. ≥1 path maps → silent; an unmapped doc or template write beside a mapped test is never a finding. Zero paths map → **Spine-emittability** finding — "no row declares a test or a source with a test in this spine — the emitter would refuse (`NoTestTargetError`)." Gates INCOMPLETE.
 
 Any non-deferred row missing `writes:` entirely → one Spine-emittability finding (`NoWritesDeclaredError`).
 

@@ -1,6 +1,6 @@
 ---
 name: blitz-em
-description: "Personas are Opus-only. EM judgment in a plan-blitz wave: interrogates scout sizings."
+description: "Personas are Opus-only. EM judgment in a plan-blitz wave: interrogates sizings."
 model: opus
 effort: low
 color: cyan

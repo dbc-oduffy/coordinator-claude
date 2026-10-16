@@ -451,6 +451,7 @@ The `publish.mirrors.*` namespace holds outward-only OSS distribution destinatio
 | Working repos (sibling-discovery sense — §5c.1) | `repos.*` | Sibling-repo roots used by scripts, agents, and tooling | `machine-local get repos.<name>` |
 | Publish-target mirrors | `publish.mirrors.*` | OSS mirror DEST roots — outward push only, never working trees | `machine-local get publish.mirrors.<key>.path` |
 | Engine working-repo discriminant (§5c.3) | `engine.working_repos.*` | The (much narrower) set of repos that work ON the coordinator engine and must resolve the live engine checkout, not the published engine | `machine-local get engine.working_repos.<slug>` |
+| External workspaces (§5c.6) | `external_workspaces.*` | Directories of someone else's code, registered read-only — never peers, memo receivers or `$REPO_*` exports | `machine-local external-workspace <name-or-path>` |
 
 **Why distinct namespaces, not a class attribute on `repos.*`?** Distinct namespaces make the publish→working-repo clobber guard structural: the engine repo's `coordinator/bin/publish.py` reads only the mirror namespace, so it can never accidentally resolve a working repo as a publish destination. The clobber risk is documented at `plugin-extraction-and-distribution.md:87` and `live-install-drift-audit.md:21`.
 
@@ -579,6 +580,42 @@ follows the HEAD of the source branch being percolated, never a fixed `main`). R
 metadata must not move to a `publish.toml` concern file — F6 in §5c.2 explains what that drops.
 Render the word as **branch** in banners; "channel" is already a comms term here.
 
+## 5c.6. `external_workspaces.*` — Someone Else's Code, Registered Read-Only
+
+An external workspace is a directory of code the operator reads but does not own (first instance: a
+read-only Perforce client of coworkers' source). It is findable by name and by path, and it is
+never a peer: not a memo receiver, not a `$REPO_*` export, not enumerated as part of the fleet.
+Tripwire: `AN-EXTERNAL-WORKSPACE-IS-NEVER-A-PEER-REPO`.
+
+```toml
+# registry.local.toml (GITIGNORED — per-machine; never registry.toml, never a concern file)
+[external_workspaces.p4_example_stats_repo_slice]
+path = "<absolute root>"       # required; per-machine
+kind = "external-readonly"     # required; the only value
+vcs = "p4"                     # optional: p4 | git | none
+p4_client = "oduffy-mac-slice" # optional; feeds the p4 no-submit identifiers
+```
+
+- **Fail closed.** An absent or unknown `kind` is read as `external-readonly`. An entry counts only
+  when `path` is a non-empty existing directory.
+- **Containment.** A path is inside a workspace when it equals the root or sits under `root + os.sep`
+  after `os.path.normcase(os.path.realpath(os.path.abspath(p)))` on both sides.
+- **Read verb.** `machine-local external-workspace <name-or-path>` prints
+  `key<TAB>path<TAB>kind<TAB>vcs` and exits 0 for a registered key or a path equal to or under a
+  registered root; 1 when not registered; 2 on operational failure (§4.1).
+  `machine-local external-workspace --list` prints every entry.
+- **Excluded by construction.** Every `repos.*` reader (memo resolution, `$REPO_*` exports via
+  `dump --prefix repos`, peer enumeration) reads a different namespace and so never sees the
+  workspace. Do not add a `kind` field to `repos.*` entries: each reader would have to learn a filter,
+  and one miss makes the workspace a peer again.
+- **Root namespace, not a concern.** The engine's merged registry read consults no concern layer, and
+  a concern needs an install-time migration on every box; like `publish.mirrors.*`, this namespace
+  stays in `registry.local.toml` (F6, §5c.2).
+- **Registration is an operator act per box**, via `machine-local set external_workspaces.<key>.path <root>`.
+  `machine-local set repos.<k>` refuses a path inside a registered workspace.
+- **Never written by an agent.** Tool writes into a workspace are hard-denied for every caller with
+  no cwd pass-through; git history writes and `p4 submit`/`shelve` are hard-denied. None has an override.
+
 ## 5c. Coordinator-owned Keys — Reference
 
 Keys authored by coordinator infrastructure (not user-set). These are registered in tracked `registry.toml` as empty-value declarations; per-machine values are written to `registry.local.toml` by the named script.
@@ -643,7 +680,7 @@ machine-local set --concern unreal unreal.samples_root /c/ExampleSampleProjectSt
 
 The writer resolves `<name>.local.toml`, validates the key is under the `<name>.` namespace (rejects cross-concern pollution; rejects mixed-case keys fail-loud), performs an atomic read-merge-write that preserves every co-writer key/table **with its scalar type intact** (the DR-CONTRACT-001 witness integer `unreal.emit_shape_version` round-trips as an int, not a string — see §12), and stamps `[provenance.<bare_key>]` with `written_by = machine-local`, `source = cli:--concern`. This is purely additive: bare `set` still refuses concern keys (the negative-spec is preserved; `--concern` is the explicit carve-out). A concern owner's own seeder (e.g. project-rag-ue-addon's `_seed_unreal_keys.py --set`) remains valid as a seeder-local shortcut. Spec: cross-repo memo `2026-06-23-machine-local-concern-set-writer.md`.
 
-**Extension path (per the Director of Engineering review, F7).** If a future need for per-repo metadata (kind, role, version, consumer-set) emerges, the extension path is a new concern file (e.g., `repos_meta.toml`), not restructuring the flat `repos.*` namespace. The flat namespace is correct for the current consumer set (sibling-repo roots are strings, not structured objects). YAGNI: add the concern file if and when the need is concrete; this note just records that the extension path exists so a future contributor does not feel forced to restructure the baseline.
+**Extension path (per the Director of Engineering review, F7).** Per-repo metadata (role, version, consumer-set) belongs in a new concern file (e.g., `repos_meta.toml`), not in a restructured flat `repos.*` namespace; the flat namespace is correct for the current consumer set (sibling-repo roots are strings, not structured objects). A directory that is not a peer repo at all belongs in `external_workspaces.*` (§5c.6), never as a `repos.*` entry carrying a kind. Add a concern file only when a metadata need is concrete.
 
 **When the "wait for instance #3" rule applies vs. when it doesn't.** Per `docs/wiki/ceremony-calibration.md`, conventions wait for the third instance before being extracted into a shared abstraction — single instances of a pattern are routinely premature to generalize. The machine-local registry itself appears to break that rule (four EM reinventions surfaced in the triggering plan's §1.2). It does not, because the rule's exception is precisely the case it surfaced: the rule prevents premature abstraction when you have *one* instance and might invent a *second* speculatively; it does NOT prevent abstraction when you already have *N≥2* instances and one of them is in active wrong-shape arrangement because the abstraction never existed. The four-reinvention pattern + the wrong-shape `wiring.env`-style accumulation was the empirical signal; the rule held perfectly. Document this distinction when proposing similar substrate-gap-driven extractions.
 

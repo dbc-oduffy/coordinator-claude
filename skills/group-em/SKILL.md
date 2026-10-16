@@ -1,6 +1,6 @@
 ---
 name: group-em
-description: "PM-GATED. Entered from the general-work home; box-wide G-EM standing. Monitor peer sessions; never plan or author for them."
+description: "PM-GATED. Box-wide: monitor peer sessions; never plan or author for them."
 allowed-tools: ["Read", "Bash", "Glob", "Grep", "Agent", "SendMessage", "Monitor", "TaskStop"]
 argument-hint: "[no arguments — invoke from the general-work home to take box-wide G-EM standing]"
 ---
@@ -8,12 +8,10 @@ argument-hint: "[no arguments — invoke from the general-work home to take box-
 # Group EM — Peer-Session Monitoring and Wave Coordination
 
 `/group-em` switches this session, run from the machine-local general-work home, into box-wide
-G-EM standing: monitoring the other sessions and moving them along. A **mode a session enters,
-not an operation on a target**. Contract with Cockpit:
+G-EM standing: monitoring other sessions and moving them along; a **mode, not an operation**. Cockpit contract:
 `coordinator/docs/wiki/cross-repo-communication/gem-cockpit-contract.md`.
 
-**Outside the home, `/group-em` renders NOT ENTERED.** Get to the home with
-`general-work-home ensure` and start the session there.
+**Outside the home, `/group-em` renders NOT ENTERED** (`general-work-home ensure`).
 
 **THIS BODY IS A SNAPSHOT, FROZEN WHEN YOU ENTERED, CARRYING NO VERSION.** Before citing it as
 authority for anything MECHANICAL — a signature, a module path, a flag, a refusal vocabulary —
@@ -181,9 +179,8 @@ as the act (`! firebase login --reauth`), never as "needs you". Tripwire:
 - Prefer the trampoline; confirm the subprocess started rather than trusting its silence.
 - **Arm within the entry lease:** an entry that never arms is a crown with no watch.
 - **Verification is a background task id you can name plus `--status`** fresh with
-  `tick_source: cron` and `subscribed_peers` above zero (ALIVE alone is not). The record reads stale between a
-  completion and the relaunch.
-- Use `$COORDINATOR_SETTINGS_HOME/bin/group-em-watch`, never an engine import, (`.exe` on Windows; on PowerShell, `&` + forward slashes).
+  `tick_source: cron` and `subscribed_peers` above zero (ALIVE alone is not); it reads stale between a completion and the relaunch.
+- Use `$COORDINATOR_SETTINGS_HOME/bin/group-em-watch` (`.exe` on Windows), never an engine import.
 
 Mechanics: `coordinator/docs/wiki/dispatching-parallel-agents/group-em-standing/group-em-assistant-remit.md`
 § Arming the watch.
@@ -191,9 +188,8 @@ Mechanics: `coordinator/docs/wiki/dispatching-parallel-agents/group-em-standing/
 ### The wires — who arms what, and how fast you would know
 
 **THE WATCH RUN IS YOURS; NEVER WRAP IT IN A `MONITOR`** (`A-MONITOR-ARMED-BY-A-TEAMMATE-WAKES-NOBODY`).
-The `notify_when_idle` one-shot is main-conversation only, once per peer. The park spool is
-`group-em-assistant`'s surface: ask it first; it never nudges. Worked case:
-`coordinator/docs/wiki/dispatching-parallel-agents/group-em-standing/group-em-entry-teammates.md`.
+`notify_when_idle` is main-conversation only, once per peer. The park spool is
+`group-em-assistant`'s surface: ask it first; it never nudges. Worked case: wiki `group-em-entry-teammates.md`.
 
 ### Liveness instruments — two sanctioned, one banned, and you read the banned one constantly
 
@@ -205,7 +201,7 @@ liveness, reachability, or claim verdict.** `idle` means unknown, never quiet. T
 fixed threshold. Do not shape this as a process-table check. **Resource-usage proxies (CPU,
 memory, I/O) are banned too.** Rationale: `coordinator/docs/wiki/dispatching-parallel-agents/group-em-standing/group-em-assistant-remit.md` § Liveness.
 
-**A PM-reported dead watcher is never confirmed from the session list.** Answer from `last_tick_at` age.
+**A PM-reported dead watcher is confirmed by `last_tick_at` age, never the session list.**
 
 ### Every wake declines in writing, and stamps it to disk
 
@@ -249,17 +245,15 @@ this section deliberately. Worked cases: the standing wiki page. Tripwire: `A-SE
 
 ## No registration ceremony, no persistence
 
-Nothing is written on invoke or cleaned up on exit. No peer roster, address, or reachability fact
-is persisted; every fact is re-derived live.
+Nothing is written on invoke or cleaned up on exit; no peer roster or reachability fact is persisted.
 
 **One carve-out: the send log.** `build_send_digest` appends to
 `.coordinator-local/subagent-share/<this-session-id>/group-em-send-log.jsonl` — session-scoped, so a new Group EM
 starts with an empty cooldown.
 
-**Second carve-out: the engine's box holder record** — the G-EM's own standing, not a peer
-roster. Relaying the PM's word (stamp `[PM via G-EM <name> <sid8> <ISO>]`, record first) and
-clearing a needs-PM flag (`gem-triage-turn-intent`): the contract page above, §§ 2–4. Tripwire:
-`A-PM-VIA-G-EM-RELAY-QUOTES-AND-POINTS`.
+**Second carve-out: the engine's box holder record** (the G-EM's own standing): relaying the PM's
+word (`[PM via G-EM <name> <sid8> <ISO>]`, record first) and clearing a needs-PM flag
+(`gem-triage-turn-intent`); contract page §§ 2–4. Tripwire: `A-PM-VIA-G-EM-RELAY-QUOTES-AND-POINTS`.
 
 ## DACI is a frame, not a registry
 
@@ -357,7 +351,7 @@ own measured prior. Treat "this needs the PM" as a claim to test, never routing 
 yourself, or dispatch `coordinator:staff-eng` for a viability read. Route scope and direction to the
 APM. Pass the PM only what survives this screen, in plain words: what happens, to which server, why it cannot be undone.
 
-**This is a model disposition, not a peer failing.** Say so, and push anyway.
+**A model disposition, not a peer failing.** Say so, and push anyway.
 
 ### Push, do not nudge
 

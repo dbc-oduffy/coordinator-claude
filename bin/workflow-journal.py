@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """workflow-journal — read a run's journal.jsonl without a guard-blocked ad-hoc script.
 
 WHY THIS EXISTS. `journal.jsonl` (the emitted `.workflow.mjs` script's own event

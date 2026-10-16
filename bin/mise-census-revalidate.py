@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """mise-census-revalidate — the census leg of fire-time revalidation. Writes nothing.
 
 WHY THIS EXISTS. `coordinator-content-repo coordinator/docs/wiki/lesson-triage/mise-prepped-attest.md` § "Fire-time revalidation is ONE step, not

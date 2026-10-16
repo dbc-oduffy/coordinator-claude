@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """corpus-currency-probe — is this repo's landed corpus behind its published artifact?
 
 Ported from the coordinator content repo `coordinator/bin/corpus-currency-probe.py` (W2-C6,

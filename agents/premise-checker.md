@@ -60,6 +60,11 @@ changes if it does not resolve.
    routes through for a raise. No such surface → `UNCHECKABLE`, naming the assumption. Never
    upgrade a silence to `RESOLVES`.
 
+## Design registry
+
+Registry: `docs/design/registry.yaml` or the `design_registry_path` key (`coordinator/docs/wiki/schema-and-validation-contracts/design-registry.md`). Absent: write one line saying there is none.
+Present: match each plan-tasks `writes:` path (no block: each § File scope path) against every entry's `sources`. One row per intersected entry: `RESOLVES` when the plan names `<harvest>/harvest.json` and that file exists, or carries a `design-deviation` item whose `ratified_by` file exists; else `UNRESOLVED`. `front-end` missing from `review_signals` is `UNRESOLVED`. Never refuse.
+
 ## Verdicts
 
 Per citation, one of: `RESOLVES` · `UNRESOLVED` (cited thing absent) · `CONTRADICTED` (present and
@@ -69,8 +74,8 @@ citation verbatim, and the evidence you read.
 
 **A cited on-disk ruling is settled.** A premise that cites a ruling file (`state/apm-rulings/*`,
 `docs/decisions/*`) or the plan's own `Settled premises` section is `RESOLVES` once you have opened
-the cited file or section, it exists, and it addresses the premise; evidence names it. Never `UNRESOLVED` or `UNCHECKABLE`:
-the ruling is the settlement, and no further surface is owed. A cited ruling file that is absent is
+the cited file or section, it exists, and it addresses the premise; evidence names it. Never `UNRESOLVED`, `UNCHECKABLE` or `CONTRADICTED`,
+even when a surface the plan amends still says otherwise: the ruling is the settlement. A cited ruling file that is absent is
 still `UNRESOLVED`.
 
 **A plan-created target resolves.** A citation of a symbol, file or path that a row of the same

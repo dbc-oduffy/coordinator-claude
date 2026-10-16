@@ -10,6 +10,10 @@ text under `docs/plans/`. The probe is bound to the payload `session_id`; a suba
 Workflow stage's payload carries the lead session's id (the SubagentStart/PreToolUse payloads
 in test_track_dispatched_agents_identity.py), so nested dispatches are judged too.
 
+Exemption: an Agent whose `description` is exactly `canvas-reader <artifact_id>` is the
+harvest's own reader, the dispatch that PRODUCES the record, so it can never cite one. Only
+that one artifact's refusals are dropped; any other canvas the prompt cites is still judged.
+
 Fails open on an unparseable payload, an unreadable script, a missing session id, or any
 infrastructure error. Deny is JSON on stdout with exit 0 (exit 1 does not block).
 """
@@ -18,12 +22,25 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
+
+
+_READER_RE = re.compile(r"canvas-reader ([A-Za-z0-9_-]+)")
+
+
+def _reader_artifact(tool_name: str, tool_input: dict) -> "str | None":
+    """The artifact id an engine-emitted reader dispatch is for, else None."""
+    if tool_name != "Agent":
+        return None
+    description = tool_input.get("description")
+    match = _READER_RE.fullmatch(description) if isinstance(description, str) else None
+    return match.group(1) if match else None
 
 
 def _repo_root(payload: dict) -> "Path | None":
@@ -95,6 +112,9 @@ def _decide(payload: dict) -> "str | None":
     import _canvas_harvest_gate as gate
 
     refusals = gate.check(text, root, session_id=session_id)
+    reader_for = _reader_artifact(tool_name, tool_input)
+    if reader_for is not None:
+        refusals = [r for r in refusals if gate._URL_RE.search(r.url).group(1) != reader_for]
     if not refusals:
         return None
     return refusals[0].message

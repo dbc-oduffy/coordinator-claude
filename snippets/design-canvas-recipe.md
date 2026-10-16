@@ -51,11 +51,12 @@ record is the source for execution; the link is never read. Token:
 `coordinator/docs/wiki/schema-and-validation-contracts/canvas-harvest-record.md`.
 
 1. **When:** a canvas is approved, or a plan, brief or dispatch is about to cite it.
-2. **How, in the main loop** (the Artifact tools are main-loop only): Artifact `list`, Artifact `read`,
-   then a whole ArtifactComments `read` (a paged or thread-filtered read is refused). Then, at once, in
-   the same sitting (saved frame files do not last), run the engine op `canvas-harvest harvest --url
-   <artifact url> --out docs/design/<slug>/harvest --transcript <path>`, resolved per
-   `snippets/resolve-coordinator-bin.md`. The EM retypes no frame or thread; the op lifts them to disk.
+2. **How:** only the canvas's own `project/**` files are required and copied; the type's runtime files
+   carry no design. The EM hand-reads nothing. Fire the one reader agent `canvas-harvest reader-dispatch
+   --url <artifact url>` emits (it lists, reads `project/**` once, pages every comment), then at once, in
+   the same sitting (saved frame files do not last), run `canvas-harvest harvest --url <artifact url>
+   --out docs/design/<slug>/harvest --reader --transcript <reader agent transcript>`, resolved per
+   `snippets/resolve-coordinator-bin.md`. The op lifts frames and threads to disk; the EM retypes none.
 3. **Settle:** fill `harvest/SETTLED.md`, one `[thread:<id>]` item per decision (`[no-threads]` for a
    canvas with none), and commit the record in the same step. Thread files carry commenters' names and
    words verbatim, so a repo whose `docs/design/` is published keeps the record out of the published set.
@@ -64,6 +65,10 @@ record is the source for execution; the link is never read. Token:
    re-harvest and update `SETTLED.md`.
 5. **Out of reach:** a canvas that cannot be read is refused with that reason. Republish from the committed
    files under the current login, or cite the committed source without the URL.
+6. **Register:** add or update the board's entry in the repo's design registry (`docs/design/registry.yaml`,
+   or the repo's `design_registry_path`), with `sources` covering the page and the component dirs it renders.
+   A plan touching those files then cites the record or a ratified deviation. Contract:
+   `coordinator/docs/wiki/schema-and-validation-contracts/design-registry.md`; token `A-REGISTERED-DESIGN-IS-CITED-NEVER-RE-DERIVED`.
 
 ## Boundaries
 

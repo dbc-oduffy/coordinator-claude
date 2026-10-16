@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """statusline — render `<peer-name> · <model> · <effort> · <gauge>` and publish the context reading.
 
 THE LABEL IS AN ADDRESS, NOT A DECORATION. The leading segment is the name this

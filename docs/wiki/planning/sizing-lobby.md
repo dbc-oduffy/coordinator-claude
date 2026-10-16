@@ -153,7 +153,7 @@ would sneak back in at one remove, just for the shape decision instead of the to
 
 `roadmap` stays in the enum even though it is not a *base* route for any single t-shirt: it
 remains one of the three currently-offered exits the PM can select at `pm-decision` (`split` being
-the fourth, retained-as-legacy, enum value), and a sizing-object records it there via `xl_exit`,
+the fourth enum value), and a sizing-object records it there via `xl_exit`,
 not via `route`.
 
 The § Shape-is-a-conditional-room D5 gate above is unaffected by this table and still wins over
@@ -246,7 +246,7 @@ working unmodified.
 **The S lane NEVER skips** scoped-commit discipline or ask-before-external-action. A lighter lane
 means less ceremony, never fewer safeguards.
 
-## `pm-decision` — the XL exits, and why there are three offered plus one legacy
+## `pm-decision` — the XL exits, and why there are four
 
 XL does not resolve into a room the way every other t-shirt does. The engine resolves
 `route: pm-decision` and sets the `pm_decision_pending` detent; it never picks an exit. Every XL
@@ -255,16 +255,15 @@ itself — that needed a human: the PM's choice is recorded in a sizing-object f
 the exact same design as `fork`: the engine always emits `null`, and the field is filled only once
 the PM has actually chosen.
 
-`xl_exit` enum: `split` | `shape` | `roadmap` | `accept_multi_session`, or `null`. `split` is
-retained as legacy vocabulary for existing records and is not an offered exit; an ask that
-decomposes into independently shippable pieces is a `roadmap`.
+`xl_exit` enum: `split` | `shape` | `roadmap` | `accept_multi_session`, or `null`. `split` means independent initiatives (submitted as separate asks, each its own sibling run);
+`roadmap` means one initiative spanning several workstreams.
 
 Each offered exit carries a stated precondition, so the choice is made by test rather than by
 vibe:
 
 | exit | precondition |
 |---|---|
-| `split` (legacy — not offered; superseded by `roadmap`) | the ask decomposes into ≥2 pieces that ship independently — each has its own acceptance criteria, and no piece depends on an unshipped sibling's contract. Existing records carrying `xl_exit: split` are not rewritten. |
+| `split` | the ask is ≥2 independent initiatives — each has its own acceptance criteria, and no piece depends on an unshipped sibling's contract. Each becomes its own sizing and sibling run. |
 | `shape` | the job-to-be-done is not stated, or the EM cannot falsifiably restate the problem in the PM's vocabulary. Same condition as the D5 shape-entry gate above — reused, not re-cut. |
 | `roadmap` | the work spans ≥2 named workstreams, or it carries (or needs) an initiative/goal FK. It is a programme of plans, not one plan. |
 | `accept_multi_session` | none of the three above hold — one coherent job, clear JTBD, one workstream, simply large — **and** the PM has explicitly assented. Writing `xl_exit: accept_multi_session` IS that record. |
@@ -1058,7 +1057,7 @@ already open.
 `pm-decision` bundles the M+ prompt and the XL exit question into one ask, mirroring the engine's
 combined-`next_move` precedence. `xl_exit` tests: `shape` (JTBD not stated, or the EM cannot
 falsifiably restate the problem in the PM's words), `roadmap` (spans >=2 named workstreams, or
-carries/needs an initiative FK; `split` is retired into this exit), `accept_multi_session` (one
+carries/needs an initiative FK; `split` is the separate case: independent initiatives, not one initiative), `accept_multi_session` (one
 coherent job, clear JTBD, one workstream, simply large, and the PM explicitly assented; writing it IS
 that record). Turn-1 touchpoints, only where the engine kept the acceptance touchpoint (never XS–L on a plan,
 dispatch or spec-dispatch route): hands-on accepts the size and separately

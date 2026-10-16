@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """approvability-calibration — join judgment records against their plans' close-out truth.
 
 WHY THIS EXISTS. C1/C2 of this workstream give the Group EM a rubric and a judgment-record

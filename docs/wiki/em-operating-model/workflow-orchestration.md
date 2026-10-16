@@ -329,7 +329,7 @@ and never deferred to `/workstream-complete`. The order, fixed by the roster fra
    only on the reverify path.
 3. **Bookkeeping — the engine's `bookkeep_wave`, not an agent.** There is no integration commit
    and no integrate remit: each slice reviewer applies and verifies its own findings, Kira
-   applies hers, and the signal personas report only. There is no second review round; a finding no reviewer can
+   applies their own, and the signal personas report only. There is no second review round; a finding no reviewer can
    resolve goes to the PM (`review-integration-doctrine.md` § No integration pass). A partitioned
    close needs no N+1 integration pass from this stage, because execute-review has no integration
    commit to budget for.

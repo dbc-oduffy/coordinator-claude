@@ -97,7 +97,7 @@ one (roadmap-planning Step 2.9) is the PM's call, never made here.
 **clusters.md carries a `Stub slug prefix:` line**, a short word never date-led, or two roadmaps collide on stub ids.
 
 **Cross-plan seams are checked at /mise-prep Step 2e:** an export one plan needs from an
-earlier plan, or a declared-write collision between sibling plans, is checked there.
+earlier plan, or a sibling write collision, is checked there.
 
 **Never write `state/roadmap/` by hand** — the workflow and `roadmap.blitz_stage` are the only writers.
 

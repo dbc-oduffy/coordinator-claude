@@ -2,11 +2,19 @@
 # REAL_GUARD_REGISTRY (coordinator/hooks/scripts/_guard_runner.py); this basename is
 # deliberately never referenced literally in hooks.json text.
 """PreToolUse guard (Write|Edit|MultiEdit): denies a write to a `docs/plans/**/*.md` file
-that introduces a claude.ai artifact URL without a passing harvest record cited in the text.
+that fails either of two judgments.
 
-Judges only `new_citations(before, after)`; the verdict is `_canvas_harvest_gate.check`.
-Fails open on an unparseable payload, an out-of-scope path or an unreconstructable edit.
-Contract: coordinator/docs/wiki/schema-and-validation-contracts/canvas-harvest-record.md.
+1. Intersect check (`_design_registry_gate.check`): the plan's touched files fall under a
+   registered design entry without citing its harvest record or a ratified design-deviation.
+   It judges the whole plan text on every write, not only what the write introduced.
+2. Canvas citation: the write introduces a claude.ai artifact URL without a passing harvest
+   record cited in the text. Judges only `new_citations(before, after)`; the verdict is
+   `_canvas_harvest_gate.check`.
+
+Fails open on an unparseable payload, an out-of-scope path, an unreconstructable edit, or an
+unimportable or raising registry module (the canvas judgment still runs).
+Contracts: coordinator/docs/wiki/schema-and-validation-contracts/canvas-harvest-record.md and
+design-registry.md.
 """
 
 from __future__ import annotations
@@ -76,6 +84,16 @@ def main() -> int:
 
     after = reconstruct_after(tool_name, tool_input, before)
     if after is None:
+        return 0
+    try:
+        import _design_registry_gate as registry  # noqa: E402
+
+        refusals = registry.check(after, repo_root)
+    except Exception as exc:
+        sys.stderr.write(f"design-registry leg skipped: {type(exc).__name__}: {exc}\n")
+        refusals = []
+    if refusals:
+        _deny("\n\n".join(r.message for r in refusals))
         return 0
     introduced = gate.new_citations(before, after)
     if not introduced:

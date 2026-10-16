@@ -40,6 +40,20 @@ schema = 1
 # "publish.mirrors.coordinator_claude.path" = "X:/coordinator-claude" <!-- foreign-path-ok: illustrative sample value for this per-machine example file, not a real machine path -->
 
 # ---------------------------------------------------------------------------
+# Per-machine external workspaces. An external workspace is someone else's
+# code (e.g. a read-only Perforce client of coworkers' source). It is never a
+# repos.* key: it is not a memo receiver, a $REPO_* export or a peer, and an
+# agent never writes, commits, shelves or submits in it. Declared per machine
+# only; kind is the sole value (absent or unknown is read as external-readonly).
+# Prefer `machine-local set external_workspaces.<key>.path <root>`.
+# ---------------------------------------------------------------------------
+# [external_workspaces.p4_sample]
+# path      = "X:/p4-sample" <!-- foreign-path-ok: illustrative sample value for this per-machine example file, not a real machine path -->
+# kind      = "external-readonly"
+# vcs       = "p4"          # optional: p4 | git | none
+# p4_client = "sample-client" # optional; feeds the p4 no-submit identifiers
+
+# ---------------------------------------------------------------------------
 # Per-machine vendor / engine roots (if not using concern files). The path
 # below is an illustrative sample -- substitute your own machine's actual
 # location.

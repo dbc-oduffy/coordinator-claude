@@ -1686,12 +1686,15 @@ def dispatch_percolate_pre_ci(
             )
 
         if identity_result["ran"] and identity_result["exit_code"] != 0:
+            from coordinator_core.percolate.identity_headline import first_identity_finding
+
             guard_results.append(
                 {
                     "ok": False,
                     "kind": "identity_check",
                     "message": (
-                        f"check-persona-names.py exited {identity_result['exit_code']} — "
+                        f"{first_identity_finding(identity_result['findings'])} "
+                        f"(check-persona-names.py exited {identity_result['exit_code']}) — "
                         f"checker currency: {currency_note}. "
                         f"{identity_result['findings'].strip()}"
                     ),
@@ -1901,9 +1904,12 @@ def dispatch_end_of_run_identity_check(
                 findings_text = _attribute_identity_findings(
                     findings_text, rows_for_root, skipped_row_names or []
                 )
+            from coordinator_core.percolate.identity_headline import first_identity_finding
+
             print(
                 f"  Error: end-of-run identity check FAILED for {repo_root}: "
-                f"check-persona-names.py exited {identity_result['exit_code']} — "
+                f"{(first_identity_finding(identity_result['findings']) + ' ').lstrip()}"
+                f"(check-persona-names.py exited {identity_result['exit_code']}) — "
                 f"{findings_text}",
                 file=sys.stderr,
             )

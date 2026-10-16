@@ -12,6 +12,8 @@ not hold for subagents; this guard has no marker and no sentinel.
 Contract:
   - Applies to every caller, EM and subagent alike. The one pass-through is a session
     whose own cwd is inside the mirror: someone opened it there deliberately.
+  - A target inside a registered external workspace (`external_workspaces.<key>`) is
+    denied for every caller, cwd inside the workspace included: no pass-through.
   - Recovery stays reachable: `git -C <mirror> checkout -- <file>` is a Bash call.
   - Any failure fails open (exit 0, no stdout).
 """
@@ -49,10 +51,33 @@ def mirror_roots() -> list:
     return [_canon(r) for r in roots if r]
 
 
+def _external_workspace_denial(target: str) -> "dict | None":
+    import _engine_root as er
+
+    entry = er.external_workspace_containing(target)
+    if entry is None:
+        return None
+    root, key = entry[0], entry[1]
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": (
+                f"{root} is the registered external read-only workspace `{key}`: someone "
+                "else's code, never edited by an agent. Changes to it are made by a human "
+                "through its own VCS."
+            ),
+        }
+    }
+
+
 def denial_for(tool_input: dict, cwd: str = "", roots: "list | None" = None) -> "dict | None":
     target = extract_target_path(tool_input)
     if not target:
         return None
+    workspace_denial = _external_workspace_denial(target)
+    if workspace_denial:
+        return workspace_denial
     resolved = _canon(target)
     hit = next((r for r in (mirror_roots() if roots is None else roots) if _inside(resolved, r)), None)
     if hit is None:

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """goal-assessment-staleness — the missing reader for the never-assessed rule.
 
 Ported from coordinator-content-repo `coordinator/bin/goal-assessment-staleness.py` (W2-C6,

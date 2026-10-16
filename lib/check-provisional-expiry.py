@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """check-provisional-expiry.py — outstanding provisional-decision detector.
 
 Purpose: scans docs/plans/*.md frontmatter for a `provisional_until:` /

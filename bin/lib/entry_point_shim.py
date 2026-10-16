@@ -708,7 +708,7 @@ _load_module._counter = 0  # type: ignore[attr-defined]
 
 # --- GATE family (check-*/verify-*/assert-*), chunk C10 ---
 #
-# 58 entry points, one dispatcher (coordinator-gate.py). Same shim mechanism
+# 57 entry points, one dispatcher (coordinator-gate.py). Same shim mechanism
 # as ASSEMBLE_TARGETS above (in-process, no subprocess), but this family is
 # far less uniform than the 14 `-assemble` entries: at least four distinct
 # CLI-trampoline shapes coexist (a `cli_entry.run_op_main` wrapper with
@@ -760,7 +760,6 @@ GATE_TARGETS = (
     "check-pcli-drift-gate",
     "check-persona-slug-leak",
     "check-plugin-drift",
-    "check-posix-exec-assumptions",
     "check-rag-state",
     "check-registry-codename-leak",
     "check-schema-version-bump",
@@ -791,7 +790,7 @@ GATE_TARGETS = (
     "verify-ue-overrides",
 )
 
-assert len(GATE_TARGETS) == 58, f"expected 58 gate targets, counted {len(GATE_TARGETS)}"
+assert len(GATE_TARGETS) == 57, f"expected 57 gate targets, counted {len(GATE_TARGETS)}"
 
 # The corrected denominator for a shim-usage census (chunk C10 of
 # docs/plans/2026-08-21-the-cli-bootstrap-tax-dies-at-the-interpreter-floor.md).
@@ -845,16 +844,6 @@ def _run_op_main_entry(name: str, dotted: str, fail_exit: int = 1) -> Callable[[
             return fail_exit
 
     return _entry
-
-
-def _check_posix_exec_assumptions_entry(argv: List[str]) -> int:
-    """Verbatim port of check-posix-exec-assumptions.py's own module body:
-    no wrapper error-handling (the original imports `run_op_main` at module
-    scope, unguarded, and calls `sys.exit(run_op_main(...))` directly) — the
-    only GATE_TARGETS member shaped this way among the ones converted here."""
-    from coordinator_core.cli_entry import run_op_main
-
-    return run_op_main("coordinator_core.ops.check_posix_exec_assumptions", list(argv))
 
 
 def _check_pcli_drift_gate_entry(argv: List[str]) -> int:
@@ -916,7 +905,6 @@ GATE_ENGINE_ENTRIES: dict[str, Callable[[List[str]], int]] = {
         "coordinator_core.ops.check_em_environment",
         fail_exit=0,
     ),
-    "check-posix-exec-assumptions": _check_posix_exec_assumptions_entry,
     "check-pcli-drift-gate": _check_pcli_drift_gate_entry,
 }
 
@@ -936,7 +924,7 @@ def _gate_target_path(name: str) -> Path:
 
 
 def run_gate_target(name: str, argv: List[str]) -> int:
-    """Run one of the 58 GATE_TARGETS entry points in-process and return its
+    """Run one of the 57 GATE_TARGETS entry points in-process and return its
     exit code. `argv` excludes the subcommand name itself.
 
     Unlike `run_target` above (whose 14 ASSEMBLE_TARGETS members' `main`

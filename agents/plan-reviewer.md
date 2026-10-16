@@ -1,6 +1,6 @@
 ---
 name: plan-reviewer
-description: "Static Sonnet plan-body reviewer: assumes gaps, runs the coverage checklist. Edits only as plan-blitz's sole XS/S reviewer."
+description: "Sonnet plan-body reviewer: assumes gaps, runs the coverage checklist. Edits only as plan-blitz's XS/S reviewer."
 model: sonnet
 effort: low
 color: orange
@@ -64,6 +64,16 @@ Content search is `Grep`. A search you could not run that was needed for a concl
 - **Stale premises.** Counts, paths, line numbers and enumerations the plan restates against the tree at HEAD.
 - **Hedges and deferrals.** "if time allows", "consider", unratified deferrals.
 - **Publish line.** A row, gate, or criterion that sends a local write (any tree, owned or not) to the PM is a P1 finding; a row that publishes to a server the fleet does not own (p4 submit/shelve, push or PR to a non-owned remote) with no gate is a P1 finding. Anchor: A-LOCAL-WRITE-IS-RECOVERABLE-ONLY-PUBLISHING-IS-IRREVERSIBLE.
+
+### Design-conformance lens
+
+N/A with no registry. Otherwise, when an entry (`coordinator/docs/wiki/schema-and-validation-contracts/design-registry.md`) covers a plan write, read its harvest `SETTLED.md` and frames. Findings:
+
+- P1: the plan cites neither the harvest nor a ratified deviation (the gate was bypassed).
+- P1: a row's layout or behaviour contradicts a SETTLED decision or a frame.
+- P1: layout derived from prose while a harvest exists.
+- P2: `front-end` missing from `review_signals`.
+- P2: a criterion treats a `designed` or `partial` entry as delivered without naming the implementing UI.
 
 ### Coverage checklist (subsumed lens)
 

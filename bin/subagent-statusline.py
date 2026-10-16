@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """subagent-statusline — render `who · what · model · effort · elapsed · tokens · status` per row.
 
 WHAT THIS IS FOR. `coordinator/em-operating-model.md § Autonomous Run Bandwidth` today asks the

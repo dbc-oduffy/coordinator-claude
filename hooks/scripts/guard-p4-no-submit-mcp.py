@@ -1,9 +1,11 @@
 """PreToolUse hook (matcher: `mcp__.*example-game-repo.*`): on a box that declares the machine-local
-key `policy.p4_no_submit`, denies every example-game-repo-control route that puts a changelist on the
+key `policy.p4_no_submit` or registers an `external_workspaces.<key>` entry with
+`vcs = "p4"`, denies every example-game-repo-control route that puts a changelist on the
 Perforce server -- `source_control_submit` / shelve tools, called directly or named through
 `execute_domain_tool`, plus a narrow string match over `execute_python_code` source.
 
-Policy scope: the key is the box declaration. Any non-empty value (list of identifiers, string,
+Policy scope: the key, or a registered p4 external workspace (whether or not its path
+exists), is the box declaration. Any non-empty value (list of identifiers, string,
 `true`) arms the guard; an MCP call carries no depot identifier, so an armed box denies the
 submit/shelve tools wholesale. Checkout, file_state and stream_state stay allowed.
 
@@ -64,10 +66,17 @@ def _policy_armed() -> bool:
             if not reg.is_file():
                 continue
             with reg.open("rb") as fh:
-                value = _flatten_registry(tomllib.load(fh)).get(POLICY_KEY)
+                flat = _flatten_registry(tomllib.load(fh))
         except Exception:
             continue
-        if value not in (None, "", False, [], 0):
+        if flat.get(POLICY_KEY) not in (None, "", False, [], 0):
+            return True
+        # Read straight from the registry, not the roster: an unmounted workspace
+        # path must not disarm the submit block.
+        if any(
+            k.startswith("external_workspaces.") and k.endswith(".vcs") and v == "p4"
+            for k, v in flat.items()
+        ):
             return True
     return False
 

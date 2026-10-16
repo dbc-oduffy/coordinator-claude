@@ -79,7 +79,7 @@ from _machine_profile import guard_level  # noqa: E402
 #: and ignore `coordinator.guard_level`: their deny always stands. Add a guard
 #: only when its harm cannot be undone after the action proceeds. Everything
 #: else is downgraded to an advisory at `warn` and silenced at `off`.
-NON_DOWNGRADABLE_GUARDS = frozenset({"guard-oss-payload-locality"})
+NON_DOWNGRADABLE_GUARDS = frozenset({"guard-oss-payload-locality", "guard-engine-mirror-write"})
 
 #: A verdict is the shape both layers speak: {"channel": ..., "text": ...}.
 GuardVerdict = Dict[str, str]
@@ -398,6 +398,26 @@ _GUARD_AUTONOMOUS_SENTINEL_WRITE = "guard-autonomous-sentinel-write.py"
 _GUARD_ENGINE_MIRROR_WRITE = "guard-engine-mirror-write.py"
 _GUARD_CANVAS_CITATION_NEEDS_HARVEST = "guard-canvas-citation-needs-harvest.py"
 
+def _external_workspace_dir_substrings() -> Tuple[str, ...]:
+    """`/<basename>/` of every rostered external workspace root (raw and realpath
+    spelling), so the mirror-write guard is imported for a write into one. One
+    zero-spawn registry read; `()` on any failure."""
+    try:
+        import os
+
+        import _engine_root
+
+        subs = []
+        for entry in _engine_root.resolve_external_workspace_roster():
+            for root in (entry[0], os.path.realpath(entry[0])):
+                name = Path(root.replace("\\", "/")).name
+                if name and f"/{name}/" not in subs:
+                    subs.append(f"/{name}/")
+        return tuple(subs)
+    except Exception:
+        return ()
+
+
 REAL_GUARD_REGISTRY: Tuple[RegisteredGuard, ...] = (
     RegisteredGuard(
         module_key="guard_python_syntax_on_write",
@@ -540,7 +560,8 @@ REAL_GUARD_REGISTRY: Tuple[RegisteredGuard, ...] = (
             # Real scope is "under a registry-resolved mirror root", unknowable without the
             # registry; the mirrors' repo names over-approximate it and the in-guard
             # predicate decides.
-            directory_substrings=("/claude-klabauter/", "/coordinator-claude/"),
+            directory_substrings=("/claude-klabauter/", "/coordinator-claude/")
+            + _external_workspace_dir_substrings(),
         ),
     ),
     RegisteredGuard(

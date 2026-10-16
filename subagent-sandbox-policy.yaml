@@ -173,6 +173,7 @@ report_type_map:
   
   
   coordinator:queue-grind-op-runner: run-report
+  coordinator:op-relay: run-report
 
 
 # A surface is REVIEW-EXECUTION tier (sidecar provisioned) only if it satisfies BOTH:
@@ -268,6 +269,7 @@ dispatch_tier:
   
   
   coordinator:queue-grind-op-runner: exploration
+  coordinator:op-relay: exploration
   coordinator:delivery-verifier: exploration
   
   
@@ -603,6 +605,8 @@ contract_blocks:
   coordinator:sizing-scout:
     - inline-return-cap
   coordinator:queue-grind-op-runner:
+    - inline-return-cap
+  coordinator:op-relay:
     - inline-return-cap
   coordinator:delivery-verifier:
     - inline-return-cap

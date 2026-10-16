@@ -4,6 +4,12 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.4.24] — 2026-10-16
+
+- **`claude-author --control-socket`** (opt-in): a PTY/ConPTY relay supervisor with a per-session control socket (compact, model and effort verbs, plus a user-idle gate). Verified live on macOS.
+- **Design registry:** a contract, a gate, and premise-checker and plan-coverage lenses.
+- **`op-relay` agent.**
+
 ## [4.4.23] — 2026-10-16
 
 - **Engine-owned bin copies forward.** Nine `coordinator/bin` scripts the engine owns are now thin forwarders to

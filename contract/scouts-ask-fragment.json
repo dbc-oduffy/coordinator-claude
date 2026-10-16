@@ -1,0 +1,100 @@
+{
+  "schema": "scouts-ask-fragment",
+  "schema_version": 1,
+  "max_questions": 8,
+  "modes": {
+    "values": ["split", "combine"],
+    "default": "split",
+    "combined_slug": "combined"
+  },
+  "targets": {
+    "sources": ["web", "repo", "local"],
+    "ref_rules": {
+      "web": "none",
+      "repo": "path; '.' is the firing repo root, an absolute path is another checkout",
+      "local": "a probe id from probe_allowlist"
+    },
+    "default_targets": [
+      {"source": "web"},
+      {"source": "repo", "ref": "."}
+    ]
+  },
+  "ask_md_grammar": {
+    "section_heading": "## <slug>",
+    "section_body": "the question text, then a 'Targets:' line, then one bullet per target",
+    "target_bullet_forms": ["- <source>", "- <source>: <ref>"],
+    "combine_section": "## combined"
+  },
+  "manifest": {
+    "lists": {
+      "questions": "one slug per question; the single slug 'combined' in combine mode",
+      "probes": "slugs of questions with a local target; in combine mode the single slug 'combined' when any question has a local target"
+    },
+    "flags": {
+      "local_probe": "true when probes is non-empty"
+    }
+  },
+  "outputs": {
+    "digest": "digest-<slug>.md",
+    "probe": "probe-<slug>.md",
+    "grounding": "grounding.md"
+  },
+  "probe_allowlist": [
+    {
+      "id": "claude-json-keys",
+      "reports": "top-level keys of ~/.claude.json, never values",
+      "ref": "none",
+      "commands": {
+        "macOS": "jq -r 'keys[]' ~/.claude.json",
+        "Windows": "(Get-Content $HOME\\.claude.json -Raw | ConvertFrom-Json).PSObject.Properties.Name",
+        "Linux": "jq -r 'keys[]' ~/.claude.json"
+      }
+    },
+    {
+      "id": "claude-settings-tree",
+      "reports": "file names and sizes under ~/.claude/, depth 2",
+      "ref": "none",
+      "commands": {
+        "macOS": "find ~/.claude -maxdepth 2 -type f -exec stat -f '%z %N' {} +",
+        "Windows": "Get-ChildItem $HOME\\.claude -Depth 1 -File | ForEach-Object { \"$($_.Length) $($_.FullName)\" }",
+        "Linux": "find ~/.claude -maxdepth 2 -type f -printf '%s %p\\n'"
+      }
+    },
+    {
+      "id": "credential-entries",
+      "reports": "service and account names of entries whose service matches the ref suffix, never a secret",
+      "ref": "service-name suffix, substituted for {ref}",
+      "commands": {
+        "macOS": "security dump-keychain | grep -E '\"(svce|acct)\"<blob>=' | grep -F '{ref}'",
+        "Windows": "cmdkey /list | findstr /i \"{ref}\"",
+        "Linux": "secret-tool search --all service {ref} 2>/dev/null | grep -E '^(label|attribute\\.)'"
+      }
+    }
+  ],
+  "probe_rules": {
+    "commands_run_verbatim": true,
+    "output_filter_in_same_pipeline": true,
+    "unknown_probe_id": "refused at emit",
+    "never_report": ["value", "password", "token", "file body"]
+  },
+  "close": {
+    "op": "research.close",
+    "tier": "scouts",
+    "param": "require_grounding",
+    "param_value": true,
+    "refuses_when": "grounding.md is absent or empty",
+    "digest_build": "sorted digest-*.md bodies, then '## Grounding' and the grounding.md body",
+    "never_archived": "probe-*.md"
+  },
+  "cli": {
+    "ask": "repeatable, one question each; a single --ask behaves as a one-question split",
+    "mode_flags": ["--split", "--combine"],
+    "mode_flags_mutually_exclusive": true,
+    "question_target": "--question-target <n>=<source>[:<ref>], repeatable, n 1-based"
+  },
+  "sizing": {
+    "question_mode": "research.question_mode (split|combine)",
+    "question_targets": "research.question_targets[] of {question, source, ref?}, question 1-based",
+    "assemble_flags": ["--research-question-mode", "--research-question-target"]
+  }
+}

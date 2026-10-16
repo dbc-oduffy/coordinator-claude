@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """check-doctrine-status -- exit non-zero the moment a wiki page's `status:`
 value falls outside the closed vocabulary.
 

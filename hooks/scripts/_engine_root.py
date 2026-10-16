@@ -515,6 +515,101 @@ def resolve_publish_mirror_roster() -> list[tuple[str, str, str]]:
     return roster
 
 
+_EXTERNAL_WORKSPACE_KIND = "external-readonly"
+
+
+def resolve_external_workspace_roster() -> list[tuple[str, str, str, str]]:
+    """Every registered `external_workspaces.<key>` entry, as `(path, key, kind, vcs)`.
+
+    An external workspace is someone else's code on this box: findable by name
+    and path, never a `repos.*` peer, memo receiver or `$REPO_*` export.
+    `registry.local.toml` is merged over `registry.toml` per field (local wins),
+    via `_flatten_registry`. An entry is listed only when `path` is a non-empty
+    string naming an existing directory. `kind` is always returned as
+    `external-readonly` (absent or unknown reads closed); `vcs` is the registry
+    value or `""`. De-duplicated on key, first-seen order.
+
+    Zero-spawn, never raises -- `[]` on any failure.
+    """
+    try:
+        import tomllib
+    except ImportError:
+        return []
+    try:
+        reg_dir = _settings_home_registry_dir()
+    except Exception:
+        return []
+
+    prefix = "external_workspaces."
+    fields: dict[str, dict[str, str]] = {}
+    for name in ("registry.local.toml", "registry.toml"):
+        reg = reg_dir / name
+        try:
+            if not reg.is_file():
+                continue
+            with reg.open("rb") as fh:
+                flat = _flatten_registry(tomllib.load(fh))
+        except Exception:
+            continue
+        for k, v in flat.items():
+            if not k.startswith(prefix) or not isinstance(v, str):
+                continue
+            key, _, field = k[len(prefix):].rpartition(".")
+            if not key or field not in ("path", "vcs"):
+                continue
+            if v:
+                fields.setdefault(key, {}).setdefault(field, v)
+
+    roster: list[tuple[str, str, str, str]] = []
+    for key, f in fields.items():
+        path = f.get("path")
+        if not path:
+            continue
+        try:
+            if not Path(path).is_dir():
+                continue
+        except Exception:
+            continue
+        roster.append((path, key, _EXTERNAL_WORKSPACE_KIND, f.get("vcs", "")))
+    return roster
+
+
+def _canon_path(p: str) -> str:
+    return os.path.normcase(os.path.realpath(os.path.abspath(p)))
+
+
+def external_workspace_containing(path: str | os.PathLike) -> tuple[str, str, str, str] | None:
+    """The roster entry whose root equals or contains `path`, else None.
+
+    Containment is by canonical equality or `root + os.sep` prefix
+    (realpath + normcase). Never raises.
+    """
+    try:
+        target = _canon_path(os.fspath(path))
+        for entry in resolve_external_workspace_roster():
+            root = _canon_path(entry[0])
+            if target == root or target.startswith(root.rstrip(os.sep) + os.sep):
+                return entry
+            # Case-insensitive filesystems (macOS default) keep the spelling
+            # realpath was handed; compare nearest existing ancestors by inode.
+            cur = target
+            while cur and not os.path.exists(cur):
+                parent = os.path.dirname(cur)
+                if parent == cur:
+                    break
+                cur = parent
+            while cur and os.path.exists(cur):
+                if os.path.samefile(cur, entry[0]):
+                    return entry
+                parent = os.path.dirname(cur)
+                if parent == cur:
+                    break
+                cur = parent
+    except Exception:
+        return None
+    return None
+
+
 def resolve_own_publish_target_keys(repo_root: str | Path | None = None) -> set[str]:
     """Every `publish-mirror:<key>` sigil declared in THIS repo's own
     `setup/publish-targets.portable` -- the declared publish topology this

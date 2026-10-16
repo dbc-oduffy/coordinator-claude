@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Rank plans by whether dispatching them would do any WORK, not by whether a
 row still says `disposition: open`.
 

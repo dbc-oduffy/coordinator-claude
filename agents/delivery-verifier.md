@@ -1,6 +1,6 @@
 ---
 name: delivery-verifier
-description: "Reverify-only: checks executor delivery claims against the frozen diff. Read-only."
+description: "Checks executor delivery claims against the frozen diff. Read-only."
 model: sonnet
 effort: low
 color: yellow

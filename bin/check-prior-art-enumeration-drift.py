@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """check-prior-art-enumeration-drift — flag a describer that re-enumerates the corpus.
 
 WHY THIS EXISTS. The prior-art-checker's recall corpus used to be hand-copied as an itemized

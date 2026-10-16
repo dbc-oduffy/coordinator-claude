@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """validate-code-comparison-record.py — schema-conformance + objectivity-spine
 check for code-comparison-record YAML fixtures.
 

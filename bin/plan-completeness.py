@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """plan-completeness — the plan-level completeness ledger CLI: `generate` and `status`.
 
 WHAT IT ANSWERS. "What is complete out of this plan?" straight off disk, no dispatched agent:

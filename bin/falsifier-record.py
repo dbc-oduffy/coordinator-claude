@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """falsifier-record -- a plan's `prime_exit_criterion` block, alone, as the falsifier-integrity
 reviewer's whole input. Reads one plan; writes only `--out`.
 
