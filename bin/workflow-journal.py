@@ -30,6 +30,7 @@ import re
 import sys
 import time
 from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 
 EXIT_OK = 0
@@ -233,6 +234,88 @@ def _print_tokens(phases: "dict[str, dict]") -> None:
           f"{sum(e['cache_read'] for e in phases.values()):>12}")
 
 
+def _transcript_span(path: Path) -> "tuple[float, float] | None":
+    """(first, last) record timestamp in epoch seconds, or None when no record
+    carries a parseable ISO `timestamp`."""
+    first = last = None
+    with open(path, "r", encoding="utf-8") as handle:
+        for raw_line in handle:
+            if '"timestamp"' not in raw_line:
+                continue
+            try:
+                record = json.loads(raw_line)
+                stamp = record["timestamp"]
+                moment = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+            except (ValueError, KeyError, TypeError, AttributeError):
+                continue
+            if moment.tzinfo is None:
+                moment = moment.replace(tzinfo=timezone.utc)
+            seconds = moment.timestamp()
+            first = seconds if first is None else min(first, seconds)
+            last = seconds if last is None else max(last, seconds)
+    return None if first is None else (first, last)
+
+
+def critical_path(journal_path: str) -> dict:
+    """Leg count, critical-path depth and wall-clock span from the
+    `agent-<id>.meta.json` / `.jsonl` pairs beside `journal_path`. Returns
+    ``{"legs": int, "depth": int, "chain": [(label, phase)], "span": float,
+    "unplaced": [label]}``. The chain is the longest run of agents each
+    starting at or after the previous one's end; an agent with no readable
+    timestamp is counted in `legs` and named in `unplaced`."""
+    directory = Path(journal_path).resolve().parent
+    try:
+        labels = {aid: e["label"] for aid, e in summarize(journal_path).items()}
+    except OSError:
+        labels = {}
+    placed: "list[tuple[float, float, str, str]]" = []
+    unplaced: "list[str]" = []
+    legs = 0
+    for meta_path in sorted(directory.glob("agent-*.meta.json")):
+        agent_id = meta_path.name[len("agent-"): -len(".meta.json")]
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            meta = None
+        legs += 1
+        if not isinstance(meta, dict):
+            meta = {}
+        phase = meta.get("workflowPhase")
+        phase = phase if isinstance(phase, str) and phase else "(no phase)"
+        label = labels.get(agent_id, agent_id)
+        try:
+            span = _transcript_span(meta_path.with_name(f"agent-{agent_id}.jsonl"))
+        except OSError:
+            span = None
+        if span is None:
+            unplaced.append(label)
+        else:
+            placed.append((span[0], span[1], label, phase))
+    placed.sort(key=lambda a: (a[0], a[1]))
+    best: "list[list[int]]" = []
+    for i, (start, _end, _l, _p) in enumerate(placed):
+        chain = [i]
+        for j in range(i):
+            if placed[j][1] <= start and len(best[j]) + 1 > len(chain):
+                chain = best[j] + [i]
+        best.append(chain)
+    longest = max(best, key=len, default=[])
+    wall = (max(a[1] for a in placed) - min(a[0] for a in placed)) if placed else 0.0
+    return {"legs": legs, "depth": len(longest),
+            "chain": [(placed[i][2], placed[i][3]) for i in longest],
+            "span": wall, "unplaced": unplaced}
+
+
+def _print_critical_path(result: dict) -> None:
+    print(f"agent legs: {result['legs']}")
+    print(f"critical-path depth: {result['depth']}")
+    for label, phase in result["chain"]:
+        print(f"  {phase}: {label}")
+    print(f"wall-clock span: {result['span']:.1f}s")
+    if result["unplaced"]:
+        print(f"unplaced (no readable timestamp): {', '.join(result['unplaced'])}")
+
+
 def main(argv: list) -> int:
     parser = argparse.ArgumentParser(
         prog="workflow-journal",
@@ -247,6 +330,11 @@ def main(argv: list) -> int:
     parser.add_argument(
         "--tokens", action="store_true",
         help="print a per-phase token table from the agent transcripts beside the journal",
+    )
+    parser.add_argument(
+        "--critical-path", action="store_true",
+        help="print agent-leg count, critical-path depth and wall-clock span from the "
+        "agent transcripts beside the journal",
     )
     parser.add_argument(
         "--census", action="store_true",
@@ -269,6 +357,14 @@ def main(argv: list) -> int:
         return EXIT_OK
     if args.journal is None:
         parser.error("journal is required without --census")
+
+    if args.critical_path:
+        result = critical_path(args.journal)
+        if not result["legs"]:
+            print("workflow-journal: no agent transcripts beside this journal", file=sys.stderr)
+            return EXIT_OK
+        _print_critical_path(result)
+        return EXIT_OK
 
     if args.tokens:
         phases = phase_tokens(args.journal)

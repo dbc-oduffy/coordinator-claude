@@ -44,8 +44,8 @@
  *                             //  an agent resolving a repo-relative trail path against its own
  *                             //  spawn directory writes the sidecar somewhere else and reports
  *                             //  it written.
- *                             //  Every agent writes its sidecar HERE, and the EM's readiness
- *                             //  gate reads them from disk. Caller scaffolds it before firing;
+ *                             //  Every agent writes its sidecar HERE, and the wave's later
+ *                             //  readers open them from disk. Caller scaffolds it before firing;
  *                             //  this script has no fs primitive of its own.
  *     provisionSidecarCli: string, // REQUIRED, and the wave refuses when it is absent. Same
  *                             //  rung as every other coordinator CLI this file names: a reviewer
@@ -75,7 +75,7 @@
  *     armingCheckCli: string, // OPTIONAL, same rung. `instrument-can-report-red`, cited worse — a
  *                             //  BARE RELATIVE path, resolving against the planner's cwd. The
  *                             //  falsifier-arming line then read `N/A`, indistinguishable from a
- *                             //  plan that declared no falsifier, so readiness gates reasoned about
+ *                             //  plan that declared no falsifier, so later readers reasoned about
  *                             //  a property of the PLAN that was really a property of the path.
  *     gateReportPath: string, // the frozen `roadmap.plan_gate` JSON this wave was resolved from.
  *                             //  Passed to the blitz-em so its judgment reads the same gate
@@ -165,16 +165,13 @@
 
 export const meta = {
   name: 'plan-blitz',
-  description: 'One planning wave: sonnet scouts size the batons, an Opus EM finalises, Opus planners write, a sonnet pass resolves each plan\'s citations against the tree, resolved reviewers run in sequence over each plan applying and verifying their own findings, and a sonnet agent gates readiness at the end when the readiness op says one is owed.',
+  description: 'One planning wave: sonnet scouts size the batons, an Opus EM finalises, Opus planners write, a sonnet pass resolves each plan\'s citations against the tree, resolved reviewers run in sequence over each plan applying and verifying their own findings, and the readiness op\'s verdict, mapped in the script, decides each plan.',
   phases: [
     { title: 'Size', detail: 'One sonnet sizing-scout per unsized baton — substrate read, touchpoint inventory, prior art, and a proposed t-shirt with its evidence. Skipped for a baton that already cites a sizing-object.' },
     { title: 'Size review', detail: 'One Opus blitz-em over the whole wave. Interrogates every proposed size (revising down by default), finalises the route via sizing-assemble, and emits the per-baton dispatch spec the Plan phase reads.' },
-    { title: 'Plan', detail: 'One Opus planner per baton, on every route and at every size — authoring is not a lane the wave economises on. Writes the plan doc through coordinator:plan / scaffold-plan; never hand-authors frontmatter.' },
-    { title: 'Premise check', detail: 'One sonnet pass per drafted plan, dispatched once its plan path is trusted and before any reviewer fires. Resolves the load-bearing citations in that plan against the tree — paths, symbols, refs, whether its falsifier can report red, and whether a named thing means what the plan says. It reports per-class ROWS and never a plan-level verdict; the seam after it translates those rows onto REVIEW_SCHEMA so they reach the reviewers that already apply every finding themselves. A premise miss routes BLOCKED; the class-5 rows with no writable fix are NAMED for the reviewers, who own the separating test.' },
-    { title: 'Review', detail: 'Reviewers resolved per baton from the EM dispatch spec, never prescribed in the plan file, then fixed by the finalised size ladder: XS/S one sonnet plan-reviewer, M staff-eng alone on opus, L staff-eng + apm, XL and above adds eng-director; a domain signal replaces staff-eng. No persona runs on sonnet; the overengineering lens reviews shipped code, never a plan. Fires unconditionally — the EM is not consulted about whether a plan deserves review. Same plan means sequential: each reviewer applies its own findings in place and runs `review-findings-ledger verify` on its own sidecar before the next reviewer starts. A PIVOT/REJECTED verdict applies nothing and suspends every finding under it, with co-reviewer findings still logged.' },
-    { title: 'Dispatch', detail: 'Hands each XS/dispatch baton whose EXECUTION gate is open and that carries a sizing object to the driver as an `xsRuns` entry; the wave executes none. The driver runs one ask run per entry, which ends in dispatch.terminal_commit, and land-wave closes the baton on that commit.' },
-    { title: 'Prep gate', detail: 'One sonnet agent per authored plan, after the reviewers and before the readiness gate, spawned only when owed: the last reviewer runs plan.readiness_verdict, and the agent runs when that reply names mechanical_repairs or no usable reply came back. Repairs only the findings the engine marks mechanical plus the Mechanical rows of the plan-coverage pre-flight (coverageRepaired), re-gates exactly once; the re-gate verdict decides, and a plan still NOT-PREPPED is pulled with the gate report attached.' },
-    { title: 'Readiness gate', detail: 'One sonnet agent per fire over the durable trail, spawned only when owed: a plan without a usable readiness-op verdict, a judgment verdict, or two or more authored plans in the fire. Otherwise the verdicts are synthesised from the op replies. Per plan: ready, pulled, or replan. A PIVOT routes to a replan baton for a later wave rather than halting this one, and is reconciled mechanically rather than left to the gate. Host availability on the executing box is never a pull reason and is stated in the brief, never reconciled: every mechanical reconciliation here makes a verdict stricter, and promoting one would run with the incentive the gate already has rather than against it.' },
+    { title: 'Plan', detail: 'One Opus planner per baton, on every route and at every size — authoring is not a lane the wave economises on. Writes the plan doc through coordinator:plan / scaffold-plan; never hand-authors frontmatter. In single-plan mode the prior-art pre-flight starts beside the planner and is awaited before the premise check.' },
+    { title: 'Premise check', detail: 'One sonnet pass per drafted L-or-above plan (below L it does not fire), dispatched once its plan path is trusted and before any reviewer fires. Resolves the load-bearing citations in that plan against the tree — paths, symbols, refs, whether its falsifier can report red, and whether a named thing means what the plan says. It reports per-class ROWS and never a plan-level verdict; the seam after it translates those rows onto REVIEW_SCHEMA so they reach the reviewers that already apply every finding themselves. A premise miss routes BLOCKED; the class-5 rows with no writable fix are NAMED for the reviewers, who own the separating test.' },
+    { title: 'Review', detail: 'Reviewers resolved per baton from the EM dispatch spec, never prescribed in the plan file, then fixed by the finalised size ladder: XS/S one sonnet plan-reviewer, M staff-eng alone on opus, L staff-eng + apm, XL and above adds eng-director; a domain signal replaces staff-eng. No persona runs on sonnet; the overengineering lens reviews shipped code, never a plan. Fires unconditionally — the EM is not consulted about whether a plan deserves review. Same plan means sequential: each reviewer applies its own findings in place and runs `review-findings-ledger verify` on its own sidecar before the next reviewer starts. A PIVOT/REJECTED verdict applies nothing and suspends every finding under it, with co-reviewer findings still logged. The last reviewer runs plan.readiness_verdict; a prep-gate enricher runs concurrently with other plans reviewers, only when that reply names mechanical_repairs or none came back, repairs what the engine marks mechanical plus the Mechanical rows of the plan-coverage pre-flight, and re-asks the op once. The script maps the standing op verdict to ready, pulled or replan, and a PIVOT routes to a replan baton rather than halting the wave. Host availability on the executing box is never a pull reason.' },
     { title: 'Adjudicate', detail: 'One agent per entry that would reach the PM (`surfacedToPm`, `routedElsewhere` with route pm-decision). coordinator:apm rules scope, direction and priority; coordinator:staff-eng (or the domain reviewer the baton calls for) rules code. The adjudicator writes a `pm_ruling:` line on the baton and returns a verdict. Only an entry it marks `pm_only` — important AND urgent AND no clear right answer, or an external or irreversible action — stays in `surfacedToPm`; the rest move to `adjudicated`.' },
   ],
 }
@@ -376,30 +373,6 @@ const REVIEW_SCHEMA = {
       },
     },
     readinessError: { type: 'string' },
-    tldr: RETURN_TLDR_SCHEMA,
-  },
-}
-
-const READINESS_SCHEMA = {
-  type: 'object',
-  required: ['verdicts', 'tldr'],
-  properties: {
-    verdicts: {
-      type: 'array',
-      items: {
-        type: 'object',
-        required: ['batonId', 'verdict', 'reason'],
-        properties: {
-          batonId: { type: 'string' },
-          verdict: { type: 'string', enum: ['ready', 'pulled', 'replan'] },
-          reason: { type: 'string' },
-          planPath: { type: 'string' },
-
-
-          replanBrief: { type: 'string' },
-        },
-      },
-    },
     tldr: RETURN_TLDR_SCHEMA,
   },
 }
@@ -620,6 +593,14 @@ function ladderRow(tshirt) {
     : PLAN_REVIEW_LADDER.XL
 }
 
+// The premise check and the plan-coverage pre-flight fire only for L and XL+ plans, where the
+// citation count is largest. An unknown size counts as XL, as in `ladderRow`.
+const PRE_REVIEW_CHECKER_SIZES = new Set(['L', 'XL', 'XXL'])
+
+function preReviewCheckersOwed(tshirt) {
+  return PRE_REVIEW_CHECKER_SIZES.has(tshirt) || !Object.prototype.hasOwnProperty.call(PLAN_REVIEW_LADDER, tshirt)
+}
+
 // XS/S ignore signals. At M and above a domain signal replaces the staff-eng slot; a
 // cross-repo-seam signal or an EM-named eng-director replaces it when the row has no
 // eng-director of its own. The count never exceeds the row's length.
@@ -789,7 +770,7 @@ computed-but-unwired verdict — not two different defects.`
 
 const ROLE_CONTRACTS = {
   'blitz-em': `You are the blitz-em: the engineering-manager judgment inside one plan-blitz wave.
-You size and route and gate; you never execute, never author roadmap batons, and never resolve a
+You size and route; you never execute, never author roadmap batons, and never resolve a
 decision that belongs to the PM. Your characteristic move when reviewing a size is revising DOWN —
 a scout reading unfamiliar substrate reads large, counting touchpoints as depth. Revising UP is the
 signal that matters most and requires you to NAME the mechanism the scout missed.`,
@@ -853,7 +834,7 @@ const unreachableSidecars = []
 // A RETURNED PATH IS A CLAIM, NOT A LOCATION, and the next agent is told to open it verbatim.
 // Measured by claude-klabauter-80 on their run: a premise-checker returned its own sidecar under
 // session `...-8ded-430d-8ecd-df045a9efa22` where the live session is `...-8ebd-...` — one
-// transposed character, in the agent's own structured result. The readiness gate opened a
+// transposed character, in the agent's own structured result. A later reader opened a
 // directory that does not exist, found three other plans' premise-checks beside it, and
 // correctly refused to invent a verdict. Nothing anywhere said the path was wrong: the review
 // ran, the file existed, and only the record was lost — the same quiet failure the segment check
@@ -929,7 +910,7 @@ it is the obvious one is the same name they pick for the same reason — the lat
 destroys the earlier, and a lost sidecar is indistinguishable from a review that never ran.
 
 The sidecar is the durable record this wave is read from: a finding that exists only in your
-returned summary is a finding the EM's readiness gate will never see.`
+returned summary is a finding the wave's reader will never see.`
 
 // A REVIEWER's sidecar cannot live in the trail, and this is not a naming preference.
 
@@ -1014,11 +995,11 @@ path, containing a SHORT STRUCTURED RECORD as one JSON object and nothing else �
 {"sidecarPath": "<the absolute sidecar path above>", "verdict": "<your verdict, exactly as you return it below>", "premiseFailure": "<your premiseFailure verbatim, or null if you did not state one>"}
 \`\`\`
 
-The pointer is how the readiness gate finds you. A findings sidecar with no pointer is a review the
-gate cannot see, and a pointer with no sidecar is worse — it reads as a review that ran.
+The pointer is how the wave finds you. A findings sidecar with no pointer is a review the
+wave cannot see, and a pointer with no sidecar is worse — it reads as a review that ran.
 
 The sidecar is the durable record this wave is read from: a finding that exists only in your
-returned summary is a finding the EM's readiness gate will never see.`
+returned summary is a finding the wave's reader will never see.`
 
 // EVERY BRIEF IS ANCHORED, because nothing else anchors it. A dispatched agent inherits the
 
@@ -1393,8 +1374,8 @@ later sweep, and its approval never opens the planning gate of anything blocked 
 baton record, copy its \`deliverable_id:\` value exactly, and do not invent one — a fabricated id
 links to nothing and is worse than an absent one, because it looks connected.
 
-\`status: draft\` is not a placeholder to improve on — it is the correct value. Only the EM's
-readiness gate advances a plan past draft, and a planner that writes \`approved\` has forged the
+\`status: draft\` is not a placeholder to improve on — it is the correct value. Only the landing,
+on a ready verdict, advances a plan past draft, and a planner that writes \`approved\` has forged the
 gate this whole pipeline exists to hold.
 
 Body: the problem in one paragraph; file scope; acceptance criteria that can each be checked as
@@ -1402,9 +1383,10 @@ true or false against the tree; the test surface; and an explicit Anti-scope nam
 plan does NOT do.`
 
   const priorArtNote = singleContext && singleContext.priorArtSidecarPath ? `
-A prior-art pre-flight already ran over this baton's sizing intent, before you started. Read its
-sidecar before you write: ${singleContext.priorArtSidecarPath}
-A CONFLICT bucket there is prior art the plan must reconcile with, not information to skim past.` : ''
+A prior-art pre-flight runs alongside you over this baton's sizing intent and writes its sidecar at
+${singleContext.priorArtSidecarPath}. If the file exists when you are about to write, read it; if
+not, write without it. Its CONFLICT bucket is prior art the plan must reconcile with, and every
+reviewer is handed its verdict, so a conflict you did not see is still reconciled before any verdict.` : ''
 
   const singleContextBlock = singleContext ? `
 SINGLE-PLAN MODE (§ Pinned interfaces / C4 body item 3). \`prime_exit_criterion.statement\` is the
@@ -1587,7 +1569,7 @@ dispatch, while a false \`false\` parks a cleared plan and re-fires the same bat
 coin-flip every wave after. Quote the token you saw in your summary so the boolean is auditable.
 
 The check this exists for is real: measured 2026-09-10, an 869-line plan with zero fenced blocks
-cleared this phase, two reviewers, integration and the readiness gate, landed approved, and was
+cleared this phase, two reviewers, integration and the readiness verdict, landed approved, and was
 refused a ceremony later with SPINE/spine-absent. A \`false\` is not a finding against the plan's
 content — it says there is nothing to schedule.
 ${NO_EXECUTION_RULE}
@@ -1699,7 +1681,7 @@ function premiseAsReview(baton, premise) {
 const PLAN_COVERAGE_REVIEWER = 'plan-coverage-check'
 
 // The seam for the second single-plan pre-flight — same shape as `premiseAsReview` above, so the
-// wave's readiness brief and its `reviews` reconciliation read it through the one channel every
+// wave's trail and its `reviews` reconciliation read it through the one channel every
 // other reviewer already goes through. plan-coverage-checker is report-only (§ ROLE_CONTRACTS),
 // so this never applies a fix; it only routes the verdict.
 function planCoverageAsReview(baton, coverage) {
@@ -1789,6 +1771,7 @@ function readinessStep(host, planPath, reviewer) {
   const params = JSON.stringify({
     plan: planPath,
     ...(host.coverage ? { coverage: host.coverage } : {}),
+    ...(host.premise ? { premise: host.premise } : {}),
     reviews: host.reviews,
   })
   return `
@@ -1838,11 +1821,24 @@ const opReviewList = (entries) => entries.filter(Boolean).map((r) => ({
   verdict: r.verdict,
   ...(typeof r.sidecarPath === 'string' && r.sidecarPath ? { ledger: r.sidecarPath } : {}),
 }))
+// The premise checker's rows ride as the op's own `premise.rows`, never as a `premise-check`
+// reviews entry (the op refuses that pairing). Null when no premise check ran.
+const premiseForOp = (p) => (p
+  ? { rows: (p.rows || []).map((r) => ({
+    verdict: r.verdict,
+    citation: r.citation,
+    ...(r.questionClass !== undefined ? { questionClass: r.questionClass } : {}),
+    ...(r.evidence ? { evidence: r.evidence } : {}),
+  })) }
+  : null)
 const coverageForOp = (c) => (c
   ? { verdict: c.verdict, mechanicalFindings: c.mechanicalFindings || 0, judgmentFindings: c.judgmentFindings || 0 }
   : null)
 
-function reviewerAgent(baton, decision, planResult, reviewer, trailDir, premise, priorReviewers, hostReadiness) {
+function reviewerAgent(baton, decision, planResult, reviewer, trailDir, premise, priorReviewers, hostReadiness, priorArt) {
+  const priorArtBlock = priorArt
+    ? `\nPrior-art pre-flight over this baton's sizing intent: ${priorArt.verdict}, ${priorArt.conflicts || 0} conflict(s), sidecar ${priorArt.sidecarPath}. The planner may not have seen it: open it, and treat a CONFLICT bucket as a finding against the plan.\n`
+    : ''
   const sequencing = priorReviewers && priorReviewers.length
     ? `\nSame plan, so this baton's reviewers run SEQUENTIALLY, never in parallel — you are not the
 first. ${priorReviewers.map((r) => `${r.reviewer} ran before you, returned ${r.verdict}, and its
@@ -1859,7 +1855,7 @@ Review the plan at ${planResult.planPath} for baton ${baton.id} ("${baton.title}
 
 Finalised size: ${decision.tshirt}, route: ${decision.route}.
 Stated prime exit criterion: ${planResult.exitCriterion || '(none stated — that is itself a finding)'}
-${sequencing}
+${sequencing}${priorArtBlock}
 Premise check, run against the tree before you:
 ${premiseLines(premise)}
 
@@ -1909,7 +1905,7 @@ Do not soften a PIVOT into a BLOCKED to be helpful: a premise failure filed as a
 you would then apply as though it had an in-plan fix, and it does not. Do not inflate a BLOCKED
 into a PIVOT to be emphatic either: that discards a repairable plan and costs the baton a whole
 wave. If you are between them, return BLOCKED and say in your sidecar why you considered a pivot —
-the readiness gate reads that, and a plan wrongly kept is recoverable in a way a plan wrongly discarded is not.
+the op verdict's reader sees that, and a plan wrongly kept is recoverable in a way a plan wrongly discarded is not.
 
 If you find yourself reaching for REJECTED out of the fleet-wide reviewer enum, that word is
 accepted here but is not this pipeline's vocabulary: it resolves to PIVOT only when you have
@@ -1969,19 +1965,6 @@ ${REVIEW_SIDECAR_RULE(sidecarFor(trailDir, baton.id, `review-${reviewer}-pointer
 // ---------------------------------------------------------------------------
 // Phase 5b — Dispatch (XS only)
 // ---------------------------------------------------------------------------
-
-// A HUMAN-ONLY OR OTHER-HOST PULL IS A CLAIM ABOUT THIS HOST, AND A CLAIM IS PROVED BY A COMMAND.
-// Tripwire A-HUMAN-ONLY-PULL-CARRIES-ITS-PROBE. Shared by the executor brief and the readiness gate
-// so both ends hold the same bar. Measured on example-stats-repo (run 20261007T231156Z): two XS batons were
-// pulled "needs human / needs the Windows box" while running on the Windows box.
-const HUMAN_ONLY_PULL_RULE = `**A human-only, second-person, or other-host reason is valid only with its probe.** Before a
-\`blockedReason\` (or a pull) says a step needs a human, a second person, or a different host, name
-(a) the specific capability missing on THIS host and (b) the command whose output proved it is
-missing. Prose such as "human eyeball" or "a second person" is not a gate: an independent agent
-driving the browser (chrome-devtools or equivalent) is the second person unless your probe shows
-that capability absent. An open question the EM owns is decided by the EM, never pulled; state
-your recommendation instead. A reason with no probe is invalid and is treated as a missing
-capability claim that was never checked.`
 
 // ---------------------------------------------------------------------------
 // Trail slot — the leaf directory every trail record of THIS invocation is written into
@@ -2279,23 +2262,26 @@ const sizingLines = batons
   })
   .join('\n')
 
-// SINGLE-PLAN MODE gates only THIS phase (§ Pinned interfaces / body item 2): the sizing scout is
-// already skipped above by the `unsized` filter, since a single-mode fire's one baton is always
-// `sized: true`. There is exactly one decision to make and the baton already states it — a
-// blitz-em interrogating a sizing this fire's own `emit-wave-fire --from-sizing` (C5) already
-// resolved would be re-litigating an accepted decision, not gating a fresh one.
-const dispatch = SINGLE_MODE
+// SINGLE-PLAN MODE or a wave whose every baton already carries an accepted sizing (ALL_ACCEPTED)
+// gates off THIS phase (§ Pinned interfaces / body item 2): the sizing scout is already skipped
+// above by the `unsized` filter. Each baton already states its decision — a blitz-em
+// interrogating a sizing already resolved (single mode: `emit-wave-fire --from-sizing`; roadmap
+// route: blitz_stage's sized stubs) would re-litigate an accepted decision, not gate a fresh one.
+// A wave holding any baton without an accepted sizing still fires the blitz-em.
+const ALL_ACCEPTED = batons.length > 0
+  && batons.every((b) => b && b.sized === true && b.sizingObject && b.tshirt && b.route)
+const dispatch = SINGLE_MODE || ALL_ACCEPTED
   ? {
-      decisions: [{
-        batonId: batons[0].id,
-        tshirt: batons[0].tshirt,
-        route: batons[0].route,
+      decisions: batons.map((b) => ({
+        batonId: b.id,
+        tshirt: b.tshirt,
+        route: b.route,
         rationale:
-          'single-plan mode: tshirt and route are the accepted sizing object\'s own values, not '
-          + 're-interrogated by a size-review blitz-em (§ Phase gating — that phase is gated off).',
-        sizingObject: batons[0].sizingObject,
-        reviewers: ladderRow(batons[0].tshirt),
-      }],
+          'accepted sizing: tshirt and route are the accepted sizing object\'s own values, not '
+          + 're-interrogated by a size-review blitz-em (that phase is gated off).',
+        sizingObject: b.sizingObject,
+        reviewers: ladderRow(b.tshirt),
+      })),
     }
   : await trackAgent('dispatch', agent(
   `phase: size-review
@@ -2646,12 +2632,14 @@ if (plannable.length && scaffoldDenials.length === plannable.length && identityD
   }
 }
 
-// SINGLE-PLAN MODE's first pre-flight (§ Pinned interfaces / body item 2): dispatched before
-// `planner()`, over the sizing intent and exit criterion, once — single mode carries exactly one
-// plannable baton, so there is nothing to fan out over.
-const priorArtPreflightResult = SINGLE_MODE && plannable.length
-  ? await priorArtPreflight(batons[0], waveIndex, trailDir)
+// SINGLE-PLAN MODE's first pre-flight: started beside `planner()` and never awaited before it, so
+// the planner does not wait on it. Awaited in the second pipeline stage, before the premise check.
+// The no-op catch stops a rejection going unobserved while the planner runs; the real handling is
+// the await.
+const priorArtPromise = SINGLE_MODE && plannable.length
+  ? priorArtPreflight(batons[0], waveIndex, trailDir)
   : null
+if (priorArtPromise) priorArtPromise.catch(() => {})
 
 // Phases 3-5 — plan, review, integrate, per baton, PIPELINED. No barrier between the stages: a
 // baton whose plan lands first starts its review while its siblings are still planning. The
@@ -2664,14 +2652,14 @@ const chains = await pipeline(
       ? {
           exitCriterionStatement: baton.exitCriterion,
           sizingPath: SINGLE_SIZING_PATH,
-          priorArtSidecarPath: priorArtPreflightResult ? priorArtPreflightResult.sidecarPath : null,
+          priorArtSidecarPath: priorArtPromise ? sidecarFor(trailDir, baton.id, 'prior-art-check') : null,
         }
       : null
     return planner(baton, decision, waveIndex, trailDir, singleContext).then((plan) => ({ decision, baton, plan }))
   },
   async ({ decision, baton, plan }) => {
     if (!plan || plan.status === 'blocked') {
-      // A planner that could not write a plan is carried to the readiness gate as a blocked
+      // A planner that could not write a plan is carried to the verdict mapping as a blocked
       // entry rather than dropped. A baton that vanishes between waves is one nobody notices.
       return { decision, baton, plan, reviews: [] }
     }
@@ -2725,13 +2713,21 @@ const chains = await pipeline(
     // Dispatched CONCURRENTLY, never sequenced: the coverage preflight is fired first, without
     // awaiting it, so it runs alongside the premise check the way § Pinned interfaces asks for —
     // "the same `parallel()`" — rather than after it.
-    const coveragePreflightPromise = SINGLE_MODE ? planCoveragePreflight(baton, plan, trailDir) : null
+    //
+    // Both are gated to L and above (`preReviewCheckersOwed`): below L neither dispatches and
+    // both results are null, which every consumer tolerates; `checkersSkipped` lets the trail's
+    // premise-check line render the skip distinctly from "did not run" (the coverage result has no
+    // trail line of its own).
+    const priorArt = priorArtPromise ? await priorArtPromise : null
+    const checkersOwed = preReviewCheckersOwed(decision.tshirt)
+    const checkersSkipped = !checkersOwed
+    const coveragePreflightPromise = SINGLE_MODE && checkersOwed ? planCoveragePreflight(baton, plan, trailDir) : null
     // Attach a handler at creation, not at the `await` below: a rejection surfacing while the
     // premise check is still in flight would otherwise be unhandled for that whole span, and
     // Node's default policy can kill the process on it. The real handling (the throw) still
     // happens at the `await` — this no-op catch only stops it from being unobserved meanwhile.
     if (coveragePreflightPromise) coveragePreflightPromise.catch(() => {})
-    const premise = await premiseChecker(baton, plan, trailDir)
+    const premise = checkersOwed ? await premiseChecker(baton, plan, trailDir) : null
     const coverage = coveragePreflightPromise ? await coveragePreflightPromise : null
     // The seam. Rows in, one REVIEW_SCHEMA entry out, so the report reaches every reviewer
     // through the channel they already read. The checker took no route; this did.
@@ -2751,7 +2747,7 @@ const chains = await pipeline(
     }
     // Only the LAST reviewer hosts the readiness op; its inputs are the reviews resolved so far.
     const hostFor = (reviewer) => (reviewer === reviewers[reviewers.length - 1]
-      ? { reviews: opReviewList([premiseCheckResult, ...reviews]), coverage: coverageForOp(coverage) }
+      ? { reviews: opReviewList(reviews), premise: premiseForOp(premise), coverage: coverageForOp(coverage) }
       : null)
     // SEQUENTIAL, never parallel — § Design decisions 2. Two reviewers editing one artifact would
     // race, so this baton's reviewers apply and verify one at a time, each reading the ones before
@@ -2768,7 +2764,7 @@ const chains = await pipeline(
         // are already on disk and verified.
         break
       }
-      const result = await reviewerAgent(baton, decision, plan, reviewer, trailDir, premise, reviews, hostFor(reviewer))
+      const result = await reviewerAgent(baton, decision, plan, reviewer, trailDir, premise, reviews, hostFor(reviewer), priorArt)
       // The returned path propagates — the sidecar is the agent's own provisioned one and
       // nothing here can resolve it — but it is CHECKED on the way through: a path with no
       // `subagent-share` segment is one `review-findings-ledger` will refuse.
@@ -2785,10 +2781,10 @@ const chains = await pipeline(
     // The op's reply, honoured only from the last reviewer and only when it was computed over the
     // reviews this script resolved itself. `opReviews` is the list the op saw (and is carried on
     // every verdict entry); the coverage pre-flight rides separately as the op's `coverage`.
-    const opReviews = opReviewList([premiseCheckResult, ...reviews])
+    const opReviews = opReviewList(reviews)
     const host = reviews[reviews.length - 1]
     const readinessReply = host && host.reviewer === reviewers[reviewers.length - 1]
-      ? honouredReadiness(host, opReviewList([premiseCheckResult, ...reviews.slice(0, -1)]))
+      ? honouredReadiness(host, opReviewList(reviews.slice(0, -1)))
       : null
     // The plan-coverage pre-flight is appended to `reviews` here, not spliced into the `kept`
     // array below — that array's literal shape is pinned (test_plan_blitz_contract.py) to
@@ -2807,6 +2803,7 @@ const chains = await pipeline(
       plan,
       reviews: kept,
       premiseCheckVerdict,
+      checkersSkipped,
       coverageVerdict,
       substitutions,
       premise,
@@ -2822,7 +2819,7 @@ const chains = await pipeline(
 // `dispatch.terminal_commit`.
 
 // Each reviewer applies and verifies its own findings now, so there is no separate integration
-// pass to render — a reviewer's own line already carries its verdict and sidecar, and the gate
+// pass to render — a reviewer's own line already carries its verdict and sidecar, and the trail
 // reads "did the ledger verify" off the reviewer, not off a downstream applier.
 function ledgerLine(plan, reviews) {
   if (!plan || plan.status === 'blocked') {
@@ -2838,12 +2835,12 @@ function ledgerLine(plan, reviews) {
     .join('; ')
 }
 
-// Phase 5c — prep-gate revise-in-place. The readiness gate cannot run the mise-prep bar (no
-// fs/CLI primitive here), so one sonnet agent per authored plan measures it, applies ONLY the
+// Phase 5c — prep-gate revise-in-place. This script cannot run the mise-prep bar (no fs/CLI
+// primitive here), so one sonnet agent per authored plan measures it, applies ONLY the
 // findings the engine marks `mechanical` by following their `repair`, and re-gates ONCE. One loop,
 // never two: a plan still NOT-PREPPED after it is pulled with the gate report attached.
 // The plan-coverage pre-flight's Mechanical rows ride the same loop: they are applied here, before
-// the re-gate, so the readiness gate does not pull a plan for a frontmatter fix.
+// the re-gate, so a plan is not pulled for a frontmatter fix.
 function coverageRepairStep(coverage) {
   if (!coverage || !coverage.sidecarPath || !(coverage.mechanicalFindings > 0)) return ''
   return `
@@ -2909,7 +2906,7 @@ ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'prep-gate-revise'))}`,
     // edit, which would leave this loop able to name a mechanical repair but never apply it.
     { model: 'sonnet', ...withRole('coordinator:enricher'),
       label: `prep-gate:${baton.id}`,
-      phase: 'Prep gate',
+      phase: 'Review',
       schema: PREP_GATE_REVISE_SCHEMA,
     },
   ))
@@ -2933,7 +2930,7 @@ await Promise.all(
 
 // The op verdict that stands for a plan once the enricher (if owed) has run: the reply itself when
 // nothing was repaired, the post-repair re-run when something was. null = no usable answer, which
-// owes the readiness agent. The op's verdict is consumed, never recomputed or normalised here.
+// pulls the plan as unusable. The op's verdict is consumed, never recomputed or normalised here.
 function standingReadiness(chain) {
   const reply = chain.readinessReply
   if (!reply) return null
@@ -2951,23 +2948,8 @@ function standingReadiness(chain) {
   }
 }
 
-// The readiness agent is owed when ANY of: a chain has no standing op verdict (blocked planner, no
-// reviewer, error, mismatch, pivot); a standing verdict is `judgment`; or the fire carries two or
-// more authored plans (cross-plan seams and sibling `writes:` collisions are the gate's own and the
-// op is per plan; this second reason is wider than "only when judgment" and is reported as such).
-// Otherwise the verdicts are synthesised from the op replies.
 const fireChains = chains.filter(Boolean)
 const standingById = new Map(fireChains.map((c) => [c.baton.id, standingReadiness(c)]))
-const gateOwedBecause = !fireChains.length
-  ? 'no authored plan in this fire'
-  : fireChains.some((c) => !standingById.get(c.baton.id))
-    ? 'a plan has no usable readiness-op verdict'
-    : fireChains.some((c) => standingById.get(c.baton.id).verdict === 'judgment')
-      ? 'the readiness-op verdict is judgment'
-      : fireChains.length >= 2
-        ? 'two or more authored plans carry cross-plan seams'
-        : null
-const gateOwed = gateOwedBecause !== null
 
 function readinessOpLine(chain) {
   const standing = standingById.get(chain.baton.id)
@@ -2980,7 +2962,7 @@ function readinessOpLine(chain) {
     : enricherOwed(reply)
       ? `spawned (${reply ? `${reply.mechanical_repairs.length} mechanical repair(s)` : 'no usable reply'})`
       : `skipped (${reply.verdict}, no mechanical repairs)`
-  return `${op}; prep-gate enricher ${enricher}; readiness gate ${gateOwed ? `spawned (${gateOwedBecause})` : 'skipped (op verdicts stand)'}`
+  return `${op}; prep-gate enricher ${enricher}`
 }
 
 function prepGateLine(batonId) {
@@ -2992,11 +2974,10 @@ function prepGateLine(batonId) {
   return `${r.before} -> ${r.after}${repaired}${covRepaired}${report}`
 }
 
-// Phase 6 — the EM's terminal gate, over the trail rather than over the agents' summaries.
-const trailLines = chains
-  .filter(Boolean)
-  .map((chain) => {
-    const { decision, baton, plan, reviews, premiseCheckVerdict, substitutions, premise } = chain
+// Phase 6 — the per-baton trail, attached to each verdict entry as `trail`: the reviewers' own
+// verdicts and sidecars, the premise rows, the op line and the ledgers.
+const trailById = new Map(fireChains.map((chain) => {
+    const { decision, baton, plan, reviews, premiseCheckVerdict, checkersSkipped, substitutions, premise } = chain
     // Every reviewer is named with their OWN resolved verdict. A collapsed
     // "the review said X" is how a wave loses the review that disagreed.
     const verdicts = reviews.map((r) => `${r.reviewer}=${r.verdict}`).join(', ') || 'none ran'
@@ -3006,10 +2987,12 @@ const trailLines = chains
     // everything; `citationsChecked` carries that count.
     const premiseCheckLine = premiseCheckVerdict
       ? `${premiseCheckVerdict.verdict}${premiseCheckVerdict.citationsChecked === 0 ? ' (0 citations examined — UNATTEMPTED, not a clean pass)' : ''}${premiseCheckVerdict.premiseFailure ? ` premise-failure: ${premiseCheckVerdict.premiseFailure}` : ''}`
-      : 'DID NOT RUN — no premise-check verdict reached the trail for this baton'
+      : checkersSkipped
+        ? `skipped: ${decision.tshirt} below L — the premise check fires at L and above only; citations UNCHECKED, not clean`
+        : 'DID NOT RUN — no premise-check verdict reached the trail for this baton'
     const pivots = reviews.filter((r) => r.pivot)
     const blockers = reviews.filter((r) => r.verdict === 'BLOCKED')
-    // A mixed set is called out by name rather than left for the gate to notice. It is
+    // A mixed set is called out by name rather than left for a reader to notice. It is
     // the case a fast read most reliably flattens: seeing one PIVOT, a reader stops
     // reading, and the co-reviewer's fixable findings — the replan's actual inputs —
     // never reach the brief.
@@ -3019,222 +3002,64 @@ const trailLines = chains
         + `Both survive — the pivot decides the ROUTE, the rest are the replan's inputs.`
       : ''
     const aliases = reviews.filter((r) => r.aliased)
-    return `  - ${baton.id} "${baton.title}" [${decision.tshirt}, ${decision.route}]
+    return [baton.id, `  - ${baton.id} "${baton.title}" [${decision.tshirt}, ${decision.route}]
       plan: ${plan ? plan.planPath : '(not written)'}${plan && plan.status === 'blocked' ? ` — BLOCKED: ${plan.blockedReason}` : ''}${plan && plan.planPathCorrected ? `\n      planPath CORRECTED: planner returned ${plan.planPathCorrected} (a trail sidecar); the baton's own plan path was used instead` : ''}${substitutions && substitutions.length ? `\n      reviewer substitution: ${substitutions.join('; ')}  <-- the plan was NOT reviewed by whom the em named` : ''}
       premise-check: ${premiseCheckLine}
       reviews: ${verdicts}${pivots.length ? `  <-- PIVOT (${pivots.map((r) => r.reviewer).join(', ')})` : ''}${blockers.length && !pivots.length ? '  <-- BLOCKED, fixable' : ''}${mixed}${aliases.length ? `\n      alias resolved: ${aliases.map((r) => `${r.reviewer}: ${r.aliased}`).join('; ')}` : ''}
       ${reviews.map((r) => `sidecar: ${r.sidecarPath}${r.premiseFailure ? ` premise-failure: ${r.premiseFailure}` : ''}${r.alternativesConsidered ? ` alternatives: ${r.alternativesConsidered}` : ''}`).join('\n      ')}
       premise rows: ${premiseLines(premise).split('\n').join('\n      ')}
       readiness op: ${readinessOpLine(chain)}
-      findings ledgers: ${ledgerLine(plan, reviews)}${prepGateLine(baton.id) ? `\n      prep gate (after reviewers, one revise-in-place loop): ${prepGateLine(baton.id)}` : ''}`
-  })
-  .join('\n')
+      findings ledgers: ${ledgerLine(plan, reviews)}${prepGateLine(baton.id) ? `\n      prep gate (after reviewers, one revise-in-place loop): ${prepGateLine(baton.id)}` : ''}`]
+}))
 
-const xsRunsSection = xsRuns.length ? `XS batons HANDED TO THE DRIVER in this wave (no plan; the driver runs each as its own ask run and lands it):
-${xsRuns.map((r) => `  - ${r.batonId}: ${r.record}`).join('\n')}
+// HOST AVAILABILITY is never a pull reason and is deliberately NOT reconciled here: this script
+// has no filesystem primitive to read a plan's declared `external_gate`, and every reconciliation
+// below makes a verdict STRICTER, so promoting a host-grounded pull back to `ready` would run
+// against that direction. The op decides it from the plan
+// (THE-BOX-THE-WAVE-RAN-ON-IS-NOT-THE-BOX-THE-PLAN-RUNS-ON).
 
-These are not yours to judge. Return no verdict for any of them: the wave executed none, so there is
-no work here to call closable, and a verdict you return is dropped.` : ''
-
-// HOST AVAILABILITY is deliberately NOT reconciled below, and the absence is a decision rather
-// than an oversight. Two reasons, both structural:
-//
-//   1. NO FILESYSTEM. Whether a plan's withheld rows sit behind a DECLARED `external_gate` naming
-//      a host is a fact in the plan file, and this script has no fs primitive
-//      (WORKFLOW-AGENT-AS-FILE-HANDLE). The premise pass could be asked to report it, the way it
-//      reports `spinePresent` — but that only supplies the predicate, not the verdict.
-//   2. THE DIRECTION IS WRONG. Every reconciliation in this file makes a verdict STRICTER: ready
-//      to pulled, ready to replan. That is what makes them safe to run over the one reader with a
-//      standing incentive to call a plan ready. Reconciling a host-grounded pull back UP to
-//      `ready` would run WITH that incentive, and it would have to decide it from the EM's own
-//      free-text `reason` — keyword-matching prose to promote a verdict. A plan wrongly pulled
-//      comes back next wave; a plan wrongly promoted is stamped `approved` and dispatched.
-//
-// So the brief below carries it in as many words instead. Measured 2026-09-10 on project-rag wave
-// 1: `dlv-windows-hosted-corpus-reindex-and-cross-h-4a1c73` was pulled because the executing box
-// was Linux while its own declared `external_gate` withheld 8 of 13 rows for the Windows corpus
-// host, and `cq-17` was pulled for serialising behind it. Both plans were ready to execute on the
-// host they name. Tripwire: THE-BOX-THE-WAVE-RAN-ON-IS-NOT-THE-BOX-THE-PLAN-RUNS-ON.
-//
-// The inverse claim is bounded the same way: a pull that says human-only, second person, or other host must carry the missing capability on THIS
-// host and the command that proved it (HUMAN_ONLY_PULL_RULE). The brief states that an unprobed
-// reason is invalid; like the rest of this block it is a brief rule, not a keyword reconciliation
-// over free text.
-
-// What the skipped gate would have said, from the op replies alone: `ready` stays ready, `pulled`
-// is pulled with the op's own reason and prep-gate message. Nothing is promoted; the spine,
-// review-ran, prep-gate and pivot reconciliations below still run over these entries.
-const synthesisedReadiness = {
-  verdicts: gateOwed ? [] : fireChains.map((c) => {
-    const standing = standingById.get(c.baton.id)
-    return {
-      batonId: c.baton.id,
-      verdict: standing.verdict === 'ready' ? 'ready' : 'pulled',
-      reason: standing.reason,
-      planPath: c.plan.planPath,
-      pullClass: standing.pullClass,
-      ...(standing.verdict === 'ready' ? {} : { prepGateReport: standing.message || null }),
-    }
-  }),
-  tldr: null,
-  synthesised: true,
+// One verdict per chain, from data the wave already holds; the first matching rule decides. The
+// op's standing verdict is mapped, never recomputed, and `judgment` is a pull: nothing here
+// promotes. The spine, review-ran and prep-gate reconciliations below only make an entry stricter.
+function pivotReplanBrief(reviews) {
+  return `Reconciled from the review set.\n`
+    + reviews
+      .map((r) => `${r.reviewer} [${r.verdict}]: ${r.premiseFailure
+        || `${r.findingCount || 0} finding(s), see ${r.sidecarPath}`}${r.alternativesConsidered ? ` | alternatives: ${r.alternativesConsidered}` : ''}`)
+      .join('\n')
 }
 
-const readiness = gateOwed ? await trackAgent('readiness-gate', agent(
-  `phase: readiness-gate
+function opVerdictFor(chain) {
+  const { baton, plan, reviews } = chain
+  const base = { batonId: baton.id }
+  if (!plan || plan.status === 'blocked') {
+    return {
+      ...base,
+      verdict: 'pulled',
+      reason: plan ? (plan.blockedReason || 'the planner returned blocked') : 'the planner returned no plan',
+    }
+  }
+  const pivots = reviews.filter((r) => r.pivot)
+  if (pivots.length) {
+    const who = pivots.map((r) => r.reviewer).join(', ')
+    return { ...base, verdict: 'replan', reason: `${who} returned PIVOT`, replanBrief: pivotReplanBrief(reviews) }
+  }
+  const standing = standingById.get(baton.id)
+  if (!standing) {
+    return { ...base, verdict: 'pulled', pullClass: 'unusable', reason: 'no usable plan.readiness_verdict reply stood for this plan' }
+  }
+  if (standing.verdict === 'ready') {
+    return { ...base, verdict: 'ready', reason: standing.reason, pullClass: standing.pullClass }
+  }
+  return {
+    ...base,
+    verdict: 'pulled',
+    reason: standing.reason,
+    pullClass: standing.pullClass,
+    ...(standing.verdict === 'pulled' ? { prepGateReport: standing.message || null } : {}),
+  }
+}
 
-${ROLE_CONTRACTS['blitz-em']}
-
-You are the blitz-em for plan-blitz wave ${waveIndex}, at its terminal gate. Every plan below was
-written, reviewed and integrated without consulting you — that is by design. Your job is to pull
-items OUT, over the trail.
-
-Trail directory: ${trailDir}
-This fire's own records: ${trailDir}/${waveSlot}
-Gate report this wave was resolved from: ${GATE_REPORT_LABEL}
-
-THE TRAIL DIRECTORY IS SHARED, AND YOUR MANDATE IS THE LIST BELOW — NOT THE DIRECTORY. A wave
-larger than one fire is drained by SEVERAL fires at this same waveIndex, all writing into that one
-trail, and they may be running CONCURRENTLY. So the trail holds sidecars for batons that are not
-yours: some belong to a fire that already landed, some to a fire that is still authoring its plans
-right now. Each fire's records sit in ITS OWN subdirectory of the trail, named above for yours, so
-a baton this fire re-plans does not overwrite what an earlier wave recorded about it — search the
-trail RECURSIVELY, and a second directory holding the same baton is an earlier wave's verdict, not
-a duplicate to reconcile. Judge EXACTLY the batons enumerated below and no others. Read another baton's sidecar
-if it informs one of yours — that costs nothing — but never return a verdict for it. A verdict on
-a baton outside this fire either overrides a landing that already happened or stamps a plan whose
-author has not finished writing it, and both read as ordinary output.
-
-${trailLines}
-
-${xsRunsSection}
-
-One question per plan: is it ready to execute? Answer ready, pulled, or replan — and give a reason
-that names the evidence. "Looks off" is not a disposition. (An XS baton handed to the driver is not a plan and
-is not yours to judge — see the block above.)
-
-**Ready to execute means ready for whoever runs it, NOT runnable here, now, by you.** This is a
-PLANNING gate; the execution gate is a different question asked later, by a different surface —
-tripwire A-PLANNING-GATE-IS-NOT-AN-EXECUTION-GATE. **Host and platform availability on this box is
-therefore never a pull reason.** A plan whose rows are withheld behind a declared \`external_gate\`
-for a host this box is not IS READY, and you say so: those withheld rows are a schedule fact, the
-same way a non-empty \`mise_prepped_findings\` is a schedule fact and never a failure. You do not
-need a Windows box to plan for Windows any more than you need POSIX to plan for POSIX. A plan
-pulled for the box it was planned on is a plan re-planned identically next wave, on a box that is
-just as likely to be the wrong one.
-
-**\`external_gate\` is a SPINE-ROW field, and on a BATON it is inert.** Do not tell anyone to
-declare one on a baton record so the gate stops re-offering it: \`roadmap.plan_gate\` never reads
-the key — candidacy is \`live\`, \`baton_role\`, \`status\` and \`deployment_state\`, and its scanner
-declares every baton key it reads, so one absent from that set reads as absent from the record.
-The write produces well-formed frontmatter, changes nothing, and leaves the baton recycling with an
-apparent fix in place, which is worse than the open defect: the next wave's EM reads the field and
-concludes the question is settled. Measured by example-game-workbench-repo-b8, who was given this
-no-op by two independent wave EMs. What suppresses a baton is a HOLD —
-\`plan_blitz_hold_reason\`, which the gate reads and reports under \`held\`. A \`blocked_by\` edge
-is not the alternative: an edge is a DISCOVERED dependency, and one the gate cannot resolve fails
-the baton closed forever. See the skill's § Read the gate.
-
-Pull for properties of the PLAN: a finding a reviewer logged but did not apply, a ledger that does
-not verify, acceptance criteria that contradict each other or the baton.
-"The rows cannot execute on this box" is a property of the box, and the plan already declared it.
-
-${HUMAN_ONLY_PULL_RULE}
-Apply it to your own reasons: a human-only,
-second-person, or other-host reason that names no missing capability on this host and no probe
-command is an INVALID pull. Treat that baton on its merits instead — an EM-owned open question is
-decided here, and a verification an agent can drive is not a human gate.
-
-**Records sharing a \`deliverable_id\` are a continued lineage, not a duplicate.** The id is the
-thread tying every stage of one deliverable together, so each successor keeps its predecessor's —
-that is the whole point of the field, and the engine's own resolvers key on the id alone with no
-lineage awareness, so reading them without knowing this lands exactly here. Before you call it a
-record defect, check what the other holders ARE: archived, \`deployment_state: continued\` stages
-are the expected shape and the resolver picked correctly.
-
-**Report a record anomaly; never prescribe its repair, and never one that edits an identity
-field.** The observation costs a reader a minute. The prescription is the hazard: it arrives
-inside the strongest-sounding verdict a gate can write ("break-class record defect confirmed
-against the tree"), and a second claim resting on it — that some gate reopens once the fix lands —
-turns a remark into an instruction with a payoff attached. The engine's one instrument in this
-territory, \`coordinator_core/ops/deliverable_fork_detect.py\`, is deliberately built to report and
-not resolve: it emits a family and its evidence paths with no \`winner\` field and no
-\`superseded_by\` slot, so a shape with nowhere to put a winner cannot silently grow one. Match
-that posture. Measured on project-rag-ue-addon wave 1, baton cpr-22, where the gate recommended
-deduplicating a healthy lineage — and the second file it named did not even carry the contested
-id.
-
-The \`prep gate\` line on a plan is the mise-prep bar measured AFTER the reviewers, with its
-mechanical findings already repaired once. \`after\` is the verdict that decides: a plan whose
-\`after\` is not PREPPED is pulled, with the gate report attached to your reason. It is mechanically
-enforced after you answer (a \`ready\` on it is rewritten to \`pulled\`), and there is no second loop.
-An INCOMPLETE \`plan-coverage-check\` verdict whose Mechanical rows appear in the same line's
-\`coverageRepaired\` is not a pull reason: the prep gate already applied them. Judgment rows, and
-Mechanical rows not listed there, still count.
-
-Open the sidecars. A summary line saying OK is not evidence anyone checked — a reviewer can
-confirm an author's prose without opening the code that would falsify it. Spot-check one
-substantive claim per plan against the tree.
-
-**Cross-plan seams are yours; no reviewer sees across plans.** Over this wave's plans and their
-approved blockers, check two things: every export one plan needs from another is promised by that
-other plan, and no two plans' spine \`writes:\` collide (nor does a plan write a file a sibling
-declares without declaring it). A hit is a pull naming both plans, the file or export, and the
-one-line repair; the pulled plan is revised in place, not rewritten.
-
-The premise check makes no claim about the plan. The \`premise-check\` verdict on the reviews line
-is the wave's routing of its rows, not the checker's opinion: BLOCKED means citations did not
-resolve, and a clean table says one class of false premise is absent — never that the plan is
-right, and never a reason to shorten your read. The \`premise rows\` block is where the signal is.
-Its UNCHECKABLE rows are assumptions nothing in this tree settled, carried forward openly rather
-than passed; a class its coverage line renders "none" was never attempted — a hole, not a pass;
-and its falsifier-arming line is the highest-value entry, because a plan whose instrument cannot
-report red has no evidence behind whatever it claims that instrument will show.
-
-The \`findings ledgers\` line is a RECORD, not an approval. Each reviewer applied its own findings
-in place and verified its own ledger — there is no separate integration pass, and no escalation
-lane behind it. Judge the applied edits like any other change to the plan: open the sidecar,
-check the ledger's before/after rows against what is actually in the plan now, and pull with a
-reason if an edit reads wrong. A reviewer that suspended its findings under PIVOT is a signal to
-read alongside the pivot itself, not a separate concern.
-
-BLOCKED and PIVOT are different questions, and the trail above keeps them apart per reviewer.
-
-A BLOCKED review is not a reason to withhold ready. It says the plan was wrong until the findings
-were fixed; the reviewer that found them has already fixed them, in place. Judge the plan AS
-REVISED — check that the findings were actually applied, and if they were, a plan whose every
-review was BLOCKED is a normal ready.
-
-Any plan whose review set contains a PIVOT: verdict replan. It is not yours to override here — an
-override needs explicit PM agreement recorded verbatim beforehand, and there is no PM in this
-wave. This is also enforced mechanically after you answer: a \`ready\` on a pivoted plan is
-rewritten to \`replan\` and your disagreement is recorded in the trail rather than acted on. Spend
-your attention on the replanBrief instead of on the route.
-
-Write the replanBrief for a session that will NOT have this context: what the baton was trying to
-achieve, the pivoting reviewer's premise-failure rationale verbatim, their alternatives, and the
-question a replan has to answer differently.
-
-On a MIXED SET — one reviewer pivoted, another returned OK/WARN/BLOCKED — the brief must carry
-BOTH. The co-reviewer's findings were suspended, not answered, and they are the most concrete
-thing the replan inherits: a brief holding only the pivot rationale throws away a whole review
-that nobody will run again. Name each surviving finding and its reviewer.
-${REPO_ROOT_RULE}
-${NO_EXECUTION_RULE}
-${MID_RUN_DIRECTION_RULE}`,
-  // Sonnet, one agent per fire. blitz-em is Opus-only by contract, so the gate wears the
-  // blitz-em ROLE_CONTRACT in its brief and a Sonnet-capable agent type. Every verdict is
-  // bounded by evidence on disk, and a ready on a pivoted plan is rewritten to replan after this
-  // answer. No Opus-reserved judgment remains: the replanBrief is authored here because it copies
-  // the pivoting reviewer's rationale verbatim, and the mechanical reconciliation below
-  // synthesises one from the review set when the gate writes none. "Two" in a run is two FIRES at one
-  // waveIndex (a wave larger than one fire is drained by several), never two gates in a fire.
-  { model: 'sonnet', ...withRole('coordinator:group-em-assistant'),
-    label: `readiness:wave-${waveIndex}`,
-    phase: 'Readiness gate',
-    schema: READINESS_SCHEMA,
-  },
-)) : synthesisedReadiness
 
 // WAVE RESULT — the caller stamps `ready` plans to `approved` (which is what opens the NEXT
 // wave's planning gates), mints a baton per `replan` entry, and re-queues both `pulled` and
@@ -3265,10 +3090,9 @@ const reviewedById = new Map(
 
 // The plan this fire actually authored, per baton -- the only reader of `planPath` that is not a
 // prose-driven agent. `roadmap.blitz_land` resolves every plan-carrying lane through this field and
-// refuses the row outright without it ("verdict carries no planPath"), so a gate that narrates its
-// verdict and forgets to echo the path costs the whole fire: measured on claude-klabauter, a fire
-// landed 0/0/0 with four refusals after 31 agents, every plan on disk and every verdict sound. The
-// path is knowable here without asking anyone, so it is written here rather than gated on recall.
+// refuses the row outright without it ("verdict carries no planPath"): measured on claude-klabauter,
+// a fire landed 0/0/0 with four refusals after 31 agents, every plan on disk and every verdict
+// sound. The path is knowable here without asking anyone.
 const planPathById = new Map(
   chains
     .filter(Boolean)
@@ -3276,48 +3100,24 @@ const planPathById = new Map(
     .filter(([, p]) => p),
 )
 
-// A PIVOT routes MECHANICALLY. The gate brief already says an EM may not override one,
-// and a rule only a prompt enforces is discharged by nobody — least of all by the one
-// reader with a standing incentive to call a pivoted plan ready, since `ready` is the
-// verdict that makes a wave look productive. So the route is reconciled here, over the
-// structured review output the wave already holds, and the override is RECORDED rather
-// than quiet: `pivotOverride` carries the EM's own verdict into the trail so a
-// disagreement stays visible instead of being erased by the thing that corrects it.
-// THE RULE ABOVE IS ENFORCED HERE, not left to the brief. A shared trail plus concurrent fires
-// means the gate can see, and has returned, verdicts for batons belonging to other fires.
-// Measured on this repo: one fire's gate returned `ready` for a baton a PREVIOUS fire had pulled,
-// and `replan` for two batons a CONCURRENT fire was still authoring plans for — landing that
-// verbatim would have minted replan batons against live work and reversed a completed landing.
-// Dropped rather than trusted, and reported rather than dropped silently: `foreignVerdicts` puts
-// them in the wave result so the caller sees what this fire declined to judge.
-const fireBatonIds = new Set(batons.map((b) => b.id))
-const foreignVerdicts = ((readiness && readiness.verdicts) || [])
-  .filter((v) => !fireBatonIds.has(v.batonId) || xsRunIds.has(v.batonId))
-  .map((v) => ({
-    batonId: v.batonId,
-    verdict: v.verdict,
-    droppedBecause: xsRunIds.has(v.batonId)
-      ? 'an XS run the driver lands, not this gate'
-      : 'not a member of this fire',
-  }))
-
+// A PIVOT routes MECHANICALLY: `opVerdictFor` maps any PIVOT in a chain's review set to `replan`
+// before the standing op verdict is read, so no `ready` can reach the landing on a pivoted plan.
 const coverageById = new Map(fireChains.map((c) => [c.baton.id, coverageForOp(c.coverage)]))
 const opReviewsById = new Map(fireChains.map((c) => [c.baton.id, c.opReviews || []]))
 
-const verdicts = ((readiness && readiness.verdicts) || [])
-  .filter((v) => fireBatonIds.has(v.batonId))
-  .filter((v) => !xsRunIds.has(v.batonId))
+const verdicts = fireChains
+  .map(opVerdictFor)
   .map((v) => {
   const reviews = reviewsById.get(v.batonId) || []
   const entry = {
     ...v,
     route: routeById.get(v.batonId) || null,
-    // This fire's own record of the plan wins over the gate's echo of it. An XS carries none and
-    // stays null; a gate that named a DIFFERENT path than the one the planner wrote was naming a
-    // plan this fire did not author. Recorded repo-relative whatever spelling the planner echoed:
-    // its brief names a new plan by absolute path so the agent resolves it against the right
-    // checkout, and that host path is then committed state no other box can open.
-    planPath: repoRelativeCitation(planPathById.get(v.batonId) || v.planPath) || null,
+    trail: trailById.get(v.batonId) || null,
+    // Recorded repo-relative whatever spelling the planner echoed: its brief names a new plan by
+    // absolute path so the agent resolves it against the right checkout, and that host path is
+    // then committed state no other box can open. This fire's own record of the plan is the only
+    // source; `roadmap.blitz_land` refuses a row without it.
+    planPath: repoRelativeCitation(planPathById.get(v.batonId)) || null,
     // Carried so the LANDING can refuse independently. `roadmap.blitz_land` re-checks
     // this and will not stamp a plan a reviewer pivoted, whatever this workflow decided
     // — two enforcement points, because the one in a file an agent edits is the one
@@ -3328,15 +3128,15 @@ const verdicts = ((readiness && readiness.verdicts) || [])
     // reviews [{reviewer, verdict}] (the premise check and every loop reviewer).
     coverage: coverageById.get(v.batonId) || null,
     reviews: opReviewsById.get(v.batonId) || [],
+    premise: premiseForOp(premiseById.get(v.batonId)),
   }
   // SPINE, reconciled mechanically for the same reason the pivot is: a plan with no
   // `plan-tasks` block declares no work a run can schedule, the planner brief says so, and
   // nothing between authoring and the mise-prep gate checks it. Measured 2026-09-10: a
   // 869-line plan with zero fenced blocks passed premise-check, two reviewers, integration,
-  // escalation resolution and the readiness gate, landed `approved`, and was refused a
-  // ceremony later with SPINE/spine-absent. The gate is the wrong reader for this — it is the
-  // one with a standing incentive to call a plan ready — so the premise pass reports it and
-  // the reconciliation happens here.
+  // escalation resolution and the old readiness gate, landed `approved`, and was refused a
+  // ceremony later with SPINE/spine-absent. The premise pass reports it and the
+  // reconciliation happens here.
   const premiseRow = premiseById.get(v.batonId)
   if (premiseRow && premiseRow.spinePresent === false && entry.verdict === 'ready') {
     return {
@@ -3348,9 +3148,9 @@ const verdicts = ((readiness && readiness.verdicts) || [])
       // the field behind it appears in no sidecar. Whoever reads this next can now re-run the
       // one check that produced it.
       spineOverride:
-        'EM returned ready; the premise check reported plan-spine-check NO-SPINE for this plan. '
+        'The op verdict was ready; the premise check reported plan-spine-check NO-SPINE for this plan. '
         + 'Reconciled to pulled. VERIFY BEFORE ACTING ON IT: re-run plan-spine-check against the '
-        + 'plan, and if it reports VALID this override is wrong and the EM verdict stood.',
+        + 'plan, and if it reports VALID this override is wrong and the op verdict stood.',
       spinePresentSource: premiseRow.sidecarPath || null,
       reason: `${entry.reason} [reconciled: premise check reported no plan-tasks spine — nothing to schedule]`,
     }
@@ -3371,7 +3171,7 @@ const verdicts = ((readiness && readiness.verdicts) || [])
       ...entry,
       verdict: 'pulled',
       reviewOverride:
-        'EM returned ready; the plan was written and no reviewer ran over it, so no finding is '
+        'The op verdict was ready; the plan was written and no reviewer ran over it, so no finding is '
         + 'known to have been applied. Reconciled to pulled.',
       reason: `${entry.reason} [reconciled: no reviewer ran over a plan that exists]`,
     }
@@ -3380,37 +3180,19 @@ const verdicts = ((readiness && readiness.verdicts) || [])
   // PREP GATE, reconciled mechanically: the re-gate verdict decides. Only a measured non-PREPPED
   // `after` pulls; a plan with no prep-gate row (blocked, not authored this fire) is untouched.
   const prepRow = prepGateById.get(v.batonId)
-  if (prepRow && prepRow.after !== 'PREPPED' && entry.verdict === 'ready' && !reviews.some((r) => r.pivot)) {
+  if (prepRow && prepRow.after !== 'PREPPED' && entry.verdict === 'ready') {
     return {
       ...entry,
       verdict: 'pulled',
       prepGateOverride:
-        `EM returned ready; plan.prep_gate was ${prepRow.before} before and ${prepRow.after} after `
+        `The op verdict was ready; plan.prep_gate was ${prepRow.before} before and ${prepRow.after} after `
         + 'the one revise-in-place loop. Reconciled to pulled.',
       prepGateReport: prepRow.gateReport || null,
       reason: `${entry.reason} [reconciled: prep gate ${prepRow.after} after revise — ${prepRow.gateReport || 'see gate report'}]`,
     }
   }
 
-  const pivots = reviews.filter((r) => r.pivot)
-  if (!pivots.length || entry.verdict !== 'ready') return entry
-  const who = pivots.map((r) => r.reviewer).join(', ')
-  return {
-    ...entry,
-    verdict: 'replan',
-    pivotOverride: `EM returned ready; ${who} returned PIVOT. Route reconciled to replan.`,
-    reason: `${entry.reason} [reconciled: ${who} pivoted]`,
-    // The EM wrote no brief for a plan it thought was ready, so one is synthesised from
-    // the review set — EVERY review, not only the pivoting one, because the co-reviewers'
-    // findings are what the replan inherits.
-    replanBrief:
-      entry.replanBrief ||
-      `Reconciled from a ready verdict the review set contradicts.\n`
-        + reviews
-          .map((r) => `${r.reviewer} [${r.verdict}]: ${r.premiseFailure
-            || `${r.findingCount || 0} finding(s), see ${r.sidecarPath}`}${r.alternativesConsidered ? ` | alternatives: ${r.alternativesConsidered}` : ''}`)
-          .join('\n'),
-  }
+  return entry
 })
 
 // ---------------------------------------------------------------------------
@@ -3550,11 +3332,6 @@ return {
   // PM-bound entries an adjudicator ruled on, each carrying `adjudication` and the `pm_ruling` it
   // wrote on the baton. The PM reads these at the receipt; nothing re-asks them.
   adjudicated,
-  // Verdicts this fire's gate returned for batons that are not its own, dropped before they
-  // could reach the landing. Non-empty means the gate over-reached its fire — usually because a
-  // concurrent fire is writing into the same shared trail. Carried so the caller can see what
-  // was declined rather than discovering it as a silent absence.
-  foreignVerdicts,
   // Second and later decisions the em returned for a baton it had already decided, dropped before
   // planning or dispatch. Non-empty means one baton would otherwise have run twice in this slot.
   duplicateDecisions,
@@ -3592,7 +3369,7 @@ return {
   // review ran and its file is on disk under the true holder, and only the disposition is gone.
   divergentSidecars: divergentSidecarHolders(),
   // SINGLE-PLAN MODE's `kind: plan` DoE wake digest (§ Pinned interfaces / C4 body item 5),
-  // wired here — after the gate has resolved this baton's verdict — so it renders what the wave
+  // wired here — after the op verdict is mapped for this baton — so it renders what the wave
   // actually decided rather than re-deriving it. Wave mode assembles no digest (§ body item 7
   // reserves that for a caller iterating every baton).
   ...(SINGLE_MODE

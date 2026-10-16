@@ -20,8 +20,9 @@ detached from this process, still best-effort, and still never a ceremony gate: 
 script's own job ends at a successful spawn, not at the child's exit, exactly as before.
 Never fails a ceremony: every reachable error path prints one `skipped -- <reason>` (or,
 for a broken registry, `defect -- <reason>`) line and exits 0, including a resolution failure, a bad ceremony name, or a spawn failure.
-It also skips when available memory is below the rebuild's floor (default 8 GB); a host
-that cannot report available memory spawns as before.
+It also skips when available memory is below the rebuild's floor (default 8 GB; a nan,
+infinite or negative env floor falls back to the default); a host that cannot report
+available memory spawns as before, but an absent engine prints a `defect` line and does not spawn.
 
 `run()` additionally prints, as a second line, the `line` field of the PRIOR publish
 attempt's record (`<git-common-dir>/coordinator-sessions/publish-repo-bundle-last.json`,
@@ -48,6 +49,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import subprocess
@@ -80,8 +82,15 @@ _MIN_AVAILABLE_GB_DEFAULT = 8.0
 _MIN_AVAILABLE_GB_ENV = "COORDINATOR_SCIP_REBUILD_MIN_AVAILABLE_GB"
 
 
+class EngineUnavailable(RuntimeError):
+    """The coordinator engine that supplies the memory sampler did not resolve."""
+
+
 def available_memory_gb() -> float | None:
-    """Physical memory available to a new process, in GB; None when this host can't say."""
+    """Physical memory available to a new process, in GB; None when this host can't say.
+
+    Raises EngineUnavailable when the engine itself is absent -- the gate cannot run, which
+    is a defect, not "can't say"."""
     try:
         bin_lib = str(Path(__file__).resolve().parent / "lib")
         if bin_lib not in sys.path:
@@ -90,19 +99,25 @@ def available_memory_gb() -> float | None:
 
         require_engine_on_path(__file__)
         from coordinator_core.telemetry import host_sampler
-
+    except Exception as exc:  # noqa: BLE001
+        raise EngineUnavailable(str(exc) or type(exc).__name__) from exc
+    try:
         avail, _total = host_sampler.avail_mb()
-    except Exception:  # noqa: BLE001 -- an unresolvable engine means "can't say"
+    except Exception:  # noqa: BLE001 -- a sampler that cannot read means "can't say"
         return None
     return None if avail is None else avail / 1024
 
 
 def _min_available_gb() -> float:
+    """The floor from the env, else the default; a non-finite or negative value is nonsense."""
     raw = os.environ.get(_MIN_AVAILABLE_GB_ENV)
     try:
-        return float(raw) if raw else _MIN_AVAILABLE_GB_DEFAULT
+        value = float(raw) if raw else _MIN_AVAILABLE_GB_DEFAULT
     except ValueError:
         return _MIN_AVAILABLE_GB_DEFAULT
+    return value if math.isfinite(value) and value >= 0 else _MIN_AVAILABLE_GB_DEFAULT
+
+
 _PUBLISH_SEQUENCER = Path(__file__).resolve().parent / "publish-repo-bundle-at-ceremony.py"
 _PUBLISH_RECORD_NAME = "publish-repo-bundle-last.json"
 
@@ -262,7 +277,10 @@ def run(ceremony: str, repo_root: Path) -> str:
     if not exe_path.is_file():
         return f"scip-rebuild: defect -- registry key names a file that does not exist: {exe_path}"
 
-    available = available_memory_gb()
+    try:
+        available = available_memory_gb()
+    except EngineUnavailable as exc:
+        return f"scip-rebuild: defect -- coordinator engine unavailable, memory gate cannot run: {exc}"
     floor = _min_available_gb()
     if available is not None and available < floor:
         return (

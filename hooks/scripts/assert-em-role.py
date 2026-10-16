@@ -7,7 +7,11 @@ suppressible (`COORDINATOR_REPOMAP_STATUS_OFF` et al., and the whole banner
 degrades quietly on a missing cache) — a role assertion riding the same
 channel would inherit that suppressibility, and a role assertion that can be
 silently switched off is worse than none at all. This hook has exactly one
-job, unconditionally: tell the main session it is the EM.
+job, unconditionally: tell the main session it is the EM. Cockpit-only, gated
+by `_cockpit_session.under_cockpit()`: the turn-intent instruction
+(`agent-role-em-cockpit.md`) and the per-session role marker
+(`_turn_intent.write_role_marker`, best-effort, after emission) that arms the
+turn-intent Stop block. The marker never alters stdout or the exit code.
 
 Why this needs to exist at all: the always-loaded doctrine corpus
 (formerly `coordinator/CLAUDE.md`, retired 2026-07-27 and split into
@@ -107,6 +111,21 @@ _SNIPPETS_DIR = _PLUGIN_ROOT / "snippets"
 # content, and why the two roots degrade differently on a missing file.
 _ROOT_PLUGIN = "PLUGIN"
 _ROOT_REPO = "REPO"
+
+# Outside _EM_SNIPPET_MANIFEST: em_payload_harness destructures that manifest as 2-tuples.
+_COCKPIT_SNIPPET = "agent-role-em-cockpit.md"
+
+
+def _under_cockpit() -> bool:
+    try:
+        if str(_SCRIPTS_DIR) not in sys.path:
+            sys.path.insert(0, str(_SCRIPTS_DIR))
+        import _cockpit_session
+
+        return _cockpit_session.under_cockpit()
+    except Exception:
+        return False  # SessionStart must exit 0; a missing helper means off-Cockpit
+
 
 _EM_SNIPPET_MANIFEST = [
     (_ROOT_PLUGIN, "agent-role-em.md"),
@@ -330,58 +349,30 @@ _GEM_SESSION_PREFIX_CHARS = 8
 _GEM_CLAUSE = "G-EM active: {name} ({session}) -- see wiki group-em-standing.md\n\n"
 
 
-def _group_em_nomination_module():
-    """The engine's `coordinator_core.group_em.nomination`, or None. Best-effort by
-    contract: ANY failure returns None and the caller omits the clause; a broken
-    nomination module must never cost this hook its one job.
-    """
-    try:
-        import _engine_root
-
-        root = _engine_root.resolve_claude_klabauter_root()
-        if not root:
-            return None
-        _engine_root.place_engine_root_on_path(root)
-        from coordinator_core.group_em import nomination
-
-        return nomination
-    except Exception:
-        return None
-
-
 def _group_em_clause(repo_root, timeout: float = 0.3) -> str:
-    """One terse line naming the session that currently holds this repo's Group
-    EM nomination, or "" -- WHICH IS THE COMMON CASE AND NOT A FAILURE.
+    """One terse line naming the box's live Group EM, or "" -- WHICH IS THE COMMON CASE
+    AND NOT A FAILURE.
 
-    Emitted iff a nomination record exists AND its holder is live. No line is
-    emitted for the no-nomination case, and none for a lapsed one: most repos
-    never nominate, and a standing "no Group EM here" line would spend the boot
-    payload's scarcest resource, fleet-wide and every session, to say nothing
-    happened.
+    Emitted iff the engine's box holder (`_gem_home.gem_holder`) is verified AND live. No
+    line for no holder and none for a lapsed one: most boxes never nominate, and a standing
+    "no Group EM" line would spend the boot payload's scarcest resource, every session, to
+    say nothing happened.
 
-    NEVER CACHED, AT ANY LAYER -- resolved fresh every boot, nothing written to
-    disk. ``group-em-nomination.py``'s module docstring sets the rule this
-    obeys: a cached "who is the Group EM" answer that survives a stand-down is
-    a wrong address that looks authoritative, strictly worse than no answer.
+    NEVER CACHED, AT ANY LAYER -- resolved fresh every boot, nothing written to disk. A
+    cached "who is the Group EM" answer that survives a stand-down is a wrong address that
+    looks authoritative, strictly worse than no answer.
 
-    Liveness is the registry join, never the record alone. A nomination whose
-    session is gone renders as no line, because a lapsed holder and no holder
-    authorize precisely the same thing.
+    BOX HOLDER, NOT THIS REPO'S RECORD. The G-EM lives in the general-work home, so the
+    holder is read from the engine's box-wide record, and `repo_root` only gates that this
+    session has a repo at all. A holder that is not verified and live renders no line.
 
-    THIS REPO ONLY, AND NEVER A SCAN. ``read_record(repo_root)`` resolves one
-    deterministic path from the repo root and rejects a record whose own
-    `repo_root` disagrees, so a Group EM sitting in some OTHER repo on this
-    machine cannot surface here. If a future pass wants the fleet view, it
-    belongs behind a verb the operator invokes, never here.
+    `peer_name` is an advisory snapshot a rename voids; the session prefix is what joins.
+    Both bounded -- see the constants above.
 
-    `peer_name` is an advisory snapshot a rename voids; the session prefix is
-    what joins. Both bounded -- see the constants above.
-
-    Bounded like ``_compute_contention`` and for its reason: ``is_live`` scans
-    the harness session registry, and that cost STACKS on that function's own
-    bound plus ``_read_stdin``'s inside one synchronous boot path. Returns ""
-    on any failure or timeout -- the caller degrades to omitting the line,
-    never to a boot error or a partial payload.
+    Bounded like ``_compute_contention`` and for its reason: the liveness join scans the
+    harness session registry, and that cost STACKS on that function's own bound plus
+    ``_read_stdin``'s inside one synchronous boot path. Returns "" on any failure or
+    timeout -- the caller degrades to omitting the line, never to a boot error.
     """
     if repo_root is None:
         return ""
@@ -390,16 +381,17 @@ def _group_em_clause(repo_root, timeout: float = 0.3) -> str:
 
     def _work() -> None:
         try:
-            gem = _group_em_nomination_module()
-            if gem is None:
-                return
-            record = gem.read_record(str(repo_root))
-            if not isinstance(record, dict):
-                return
-            if not gem.is_live(record).live:
+            if str(_SCRIPTS_DIR) not in sys.path:
+                sys.path.insert(0, str(_SCRIPTS_DIR))
+            import _gem_home
+
+            record = _gem_home.gem_holder()
+            if not record:
                 return
             holder = str(record.get("session_id") or "")
-            name = _gem_display_name(repo_root, holder, record.get("peer_name"))
+            name = _gem_display_name(
+                record.get("repo_root") or repo_root, holder, record.get("peer_name")
+            )
             box["result"] = _GEM_CLAUSE.format(
                 name=name[:_GEM_NAME_MAX_CHARS],
                 session=holder[:_GEM_SESSION_PREFIX_CHARS] or "unknown",
@@ -520,6 +512,26 @@ def _compose_oversize_repo_banner(rel_path: str, byte_len: int) -> str:
     )
 
 
+def _write_role_marker(repo_root, session_id) -> None:
+    """Best-effort, idempotent: arm the turn-intent Stop block for this session.
+    Never raises; a missing repo, git dir, or non-uuid4 session_id writes nothing."""
+    try:
+        if repo_root is None or not session_id:
+            return
+        sys.path.insert(0, str(_SCRIPTS_DIR))
+        import _turn_intent
+        from _git_common_dir import resolve_git_common_dir
+
+        common = resolve_git_common_dir(str(repo_root))
+        if not common:
+            return
+        _turn_intent.write_role_marker(
+            _turn_intent.session_dir(common, session_id), session_id
+        )
+    except Exception:
+        pass
+
+
 def main(argv: list) -> int:
     del argv  # no flags -- this hook takes no arguments
 
@@ -565,6 +577,17 @@ def main(argv: list) -> int:
         _w(snippet_text)
         _w("\n")
 
+    cockpit = _under_cockpit()
+    if cockpit:
+        cockpit_path = _SNIPPETS_DIR / _COCKPIT_SNIPPET
+        try:
+            cockpit_text = cockpit_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            _w(_compose_missing_snippet_banner(_COCKPIT_SNIPPET, cockpit_path, exc, _ROOT_PLUGIN))
+        else:
+            _w(cockpit_text.replace("`snippets/", f"`{_SNIPPETS_DIR.as_posix()}/"))
+            _w("\n")
+
     session_id = payload.get("session_id") if isinstance(payload.get("session_id"), str) else None
     contention = _compute_contention(repo_root, session_id)
     if contention is not None and any(contention):
@@ -584,6 +607,8 @@ def main(argv: list) -> int:
         except Exception:
             pass  # same degrade-and-continue contract as the pointer above
 
+    if cockpit:
+        _write_role_marker(repo_root, session_id)
     return 0
 
 

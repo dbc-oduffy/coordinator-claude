@@ -22,6 +22,11 @@ otherwise.
 the first Stop of a chain while one of this session's Workflow runs is stalled,
 naming the exact resume call -- see that shim's own docstring.
 
+`guard-manufactured-blocker.py` also hosts the EM turn-intent step, so its
+precondition admits a re-entered stop (`stop_hook_active`) and a payload
+carrying `last_assistant_message`; the guard exits the altitude verdict itself
+on a re-entered stop.
+
 `group-em-park-spool.py` is the Group-EM wake's producer, registered LAST --
 see its own module docstring for the full contract, and the REGISTRY comment
 beside it for why the order is load-bearing.
@@ -235,9 +240,11 @@ def _pre_next_move(ctx: Ctx) -> bool:
 
 
 def _pre_manufactured_blocker(ctx: Ctx) -> bool:
-    if ctx.agent_id or ctx.stop_hook_active:
+    # Admits a re-entered stop (stop_hook_active): the turn-intent step counts
+    # its own blocks and the guard itself skips the altitude verdict then.
+    if ctx.agent_id:
         return False
-    return bool(ctx.final_assistant_text())
+    return bool(ctx.payload.get("last_assistant_message")) or bool(ctx.final_assistant_text())
 
 
 def _pre_drive_root_new_dir(ctx: Ctx) -> bool:

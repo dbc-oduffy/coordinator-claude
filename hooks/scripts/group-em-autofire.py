@@ -25,8 +25,10 @@ THE ENTRY OP MUTATES, AND THAT IS THE POINT. Unlike a brief-computing hook,
 this one claims the Group EM nomination as a side effect. That is exactly what
 `/group-em` invocation means — the skill is PM-gated at the point a human types
 it, so firing on the typed verb inherits that gate rather than inventing one.
-It fires on nothing else: no `Stop` trigger, no timer, no other command. Wiring
-it to anything but the typed verb would re-derive the stood-down watcher that
+It enters only from the machine-local general-work home (`_gem_home.is_home`); from any other
+directory, or when the home is refused, it renders NOT ENTERED and runs nothing, so the engine's
+box holder record always names the home. It writes no record itself. It fires on nothing else:
+no `Stop` trigger, no timer, no other command. Wiring it to anything but the typed verb would re-derive the stood-down watcher that
 `SKILL.md` § Anti-scope forbids.
 
 SESSION ID IS PROPAGATED, NEVER AMBIENT. The payload carries the originating
@@ -93,6 +95,7 @@ def _normalize_command_name(name: str | None) -> str:
 # _-prefixed modules in this directory; see that module's docstring for why the per-hook-
 # independence posture does not cover this case.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _gem_home  # noqa: E402
 import _watch_module  # noqa: E402
 
 render_watch_line = _watch_module.render_watch_line
@@ -380,6 +383,29 @@ def render_additional_context(
     return text
 
 
+def _outside_home_context(repo_root: str) -> str | None:
+    """NOT ENTERED context when `repo_root` is not the general-work home (or the home is refused);
+    None when entry may proceed."""
+    try:
+        home = _gem_home.resolve_home()
+    except _gem_home.HomeRefused as refused:  # other failures propagate to compute_context's caller
+        return (
+            "## Group EM entry: NOT ENTERED (general-work home refused)\n\n"
+            f"{refused}\n\n"
+            "The Group EM was NOT claimed. Fix `coordinator.general_work_home` so it lies outside "
+            "every checkout, then run `/group-em` from the home."
+        )
+    if _gem_home.is_home(repo_root):
+        return None
+    ensure = (Path(__file__).resolve().parents[2] / "bin" / "general-work-home.py").as_posix()
+    return (
+        "## Group EM entry: NOT ENTERED (outside the general-work home)\n\n"
+        f"The Group EM enters only from the general-work home: {home}\n"
+        f"Create it with `python {ensure} ensure`, start a session there, and run `/group-em`.\n\n"
+        "The Group EM was NOT claimed and no roster or digest exists."
+    )
+
+
 def compute_context(stdin_text: str) -> str | None:
     """The `additionalContext` text for a UserPromptExpansion payload; None for a silent pass."""
     try:
@@ -406,6 +432,10 @@ def compute_context(stdin_text: str) -> str | None:
     script = resolve_enter_cli()
     if script is None:
         return watch_line or None  # transport failure -- CLI unresolvable, fail open
+
+    not_entered = _outside_home_context(repo_root)
+    if not_entered is not None:
+        return f"{watch_line}\n\n{not_entered}" if watch_line else not_entered
 
     prompt_id = payload.get("prompt_id")
     result = _run_enter(

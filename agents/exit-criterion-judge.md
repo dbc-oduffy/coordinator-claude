@@ -68,7 +68,7 @@ residue: commit messages, branch names, ceremony logs.
    `not_present`.
 4. Judge each `gated_exit_criteria` row the same way and record it in `gated`, using the plan
    schema's five-value status enum, with evidence capped at 1024 characters.
-5. Run `coordinator-invoke review.reachability '{"repo_root":"<repo you judge>","base_sha":"<run_base_sha>","worktree":true,"plan":"<plan path>"}'`; record it as an `observed` item, `provenance: judge`.
+5. Run `coordinator-invoke review.reachability '{"repo_root":"<repo you judge>","base_sha":"<run_base_sha>","worktree":true,"plan":"<plan path>"}'`; record it as an `observed` item, `provenance: judge`. The op runs the doc and op checks by default; no flag enables them.
 6. For each register row, record a `register_rows` item: claim `this-plan`, `other-plan` or
    `unclaimed` (from `register_claims` across the sizing's claimers), and met and wired judged
    from the row's named `surface` using step 5's reachability observation.
@@ -97,7 +97,7 @@ box-capacity guard denies an uncapped one. Tripwire: `A-BOX-CAP-COUNTS-COMMANDS-
 - `not_met` for each PM turn the brief's register evidence lists as uncovered; `reason` names the
   turn. Never recompute coverage: the engine's evidence is the one source. A `visual` row is wired
   only when you opened the named artifact.
-- **A user-facing capability is judged on its click path, not its tests.** Read the `review.reachability` result first: any `unreachable` entry or `broken` click path is `not_met`, `reason` naming the first symbol or role/`broken_at`; record all in `reachability.unreachable` / `.broken_click_paths`. `undecidable` entries go to `reachability.undecidable` and never change status. An unknown op, an `error`, or a denied call is not `indeterminate` (this overrides the denied-leg rule for this leg): omit the `reachability` block and hand-check: trace as below AND caller-grep each entry point the diff adds, symbol-keyed, tests excluded; a confirmed unreferenced one is `not_met` naming it, an unsettled one is named and never fails. Trace nav entry → page
+- **A user-facing capability is judged on its click path, not its tests.** Read the `review.reachability` result first: any `unreachable` entry or `broken` click path is `not_met`, `reason` naming the first symbol or role/`broken_at`; record all in `reachability.unreachable` / `.broken_click_paths`. `undecidable` entries go to `reachability.undecidable` and never change status. The doc and op checks run by default: a new hook or bin script the diff adds that nothing references is `unreachable`, hence `not_met`; a new hook in a repo with no hook-wiring surface is `undecidable`, never a fail. The result is a verdict input, never advisory. An unknown op, an `error`, or a denied call is not `indeterminate` (this overrides the denied-leg rule for this leg): omit the `reachability` block and hand-check: trace as below AND caller-grep each entry point the diff adds, symbol-keyed, tests excluded; a confirmed unreferenced one is `not_met` naming it, an unsettled one is named and never fails. Trace nav entry → page
   → component → API → handler → store for the role the criterion names. Any missing link (core or
   API only, CLI only, a page nothing links to) is `not_met`, whatever the pass count. Tripwire:
   `A-CAPABILITY-UNREACHABLE-FROM-THE-UI-IS-NOT-DELIVERED`. Each blocking finding or carve-out in

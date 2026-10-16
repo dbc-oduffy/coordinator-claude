@@ -1,14 +1,19 @@
 ---
 name: group-em
-description: "PM-GATED. Monitor peer sessions in this repo; never plan or author for them."
+description: "PM-GATED. Entered from the general-work home; box-wide G-EM standing. Monitor peer sessions; never plan or author for them."
 allowed-tools: ["Read", "Bash", "Glob", "Grep", "Agent", "SendMessage", "Monitor", "TaskStop"]
-argument-hint: "[no arguments — invoke to start monitoring this repo's peer sessions]"
+argument-hint: "[no arguments — invoke from the general-work home to take box-wide G-EM standing]"
 ---
 
 # Group EM — Peer-Session Monitoring and Wave Coordination
 
-`/group-em` switches this session into monitoring the other sessions in the same repo and moving
-them along. A **mode a session enters, not an operation on a target**.
+`/group-em` switches this session, run from the machine-local general-work home, into box-wide
+G-EM standing: monitoring the other sessions and moving them along. A **mode a session enters,
+not an operation on a target**. Contract with Cockpit:
+`coordinator/docs/wiki/cross-repo-communication/gem-cockpit-contract.md`.
+
+**Outside the home, `/group-em` renders NOT ENTERED.** Get to the home with
+`general-work-home ensure` and start the session there.
 
 **THIS BODY IS A SNAPSHOT, FROZEN WHEN YOU ENTERED, CARRYING NO VERSION.** Before citing it as
 authority for anything MECHANICAL — a signature, a module path, a flag, a refusal vocabulary —
@@ -211,8 +216,7 @@ liveness, reachability, or claim verdict.** `idle` means unknown, never quiet. T
 fixed threshold. Do not shape this as a process-table check. **Resource-usage proxies (CPU,
 memory, I/O) are banned too.** Rationale: `coordinator/docs/wiki/dispatching-parallel-agents/group-em-standing/group-em-assistant-remit.md` § Liveness.
 
-**A PM-reported dead watcher is never confirmed from the session list.** Answer from `last_tick_at` age and name the
-instrument.
+**A PM-reported dead watcher is never confirmed from the session list.** Answer from `last_tick_at` age.
 
 ### Every wake declines in writing, and stamps it to disk
 
@@ -228,8 +232,6 @@ raises against the engine copy. Signature and argument rules:
 record per park, appended by every session's own `Stop`
 (`coordinator/hooks/scripts/group-em-park-spool.py`). The spool retains at least the last 30
 minutes of parks.
-
-A Group EM who looks only when the PM asks has made the PM the watcher.
 
 **What the watch is FOR:** sessions asking permission for EM-autonomous acts they already
 recommended; break-class defects handed up as "worth your eye"; a session idling on a peer repo
@@ -258,12 +260,30 @@ this section deliberately. Worked cases: the standing wiki page. Tripwire: `A-SE
 
 ## No registration ceremony, no persistence
 
-Nothing is written on invoke or cleaned up on exit. No roster, address, or reachability fact for
-any peer is persisted; every fact is re-derived live.
+Nothing is written on invoke or cleaned up on exit. No peer roster, address, or reachability fact
+is persisted; every fact is re-derived live.
 
 **One carve-out: the send log.** `build_send_digest` appends to
 `.coordinator-local/subagent-share/<this-session-id>/group-em-send-log.jsonl` — session-scoped, so a new Group EM
 starts with an empty cooldown.
+
+**Second carve-out: the engine's box holder record** (`state/group-em/box/holder.json` under the
+settings home). It is the G-EM's own standing, not a peer roster; the engine writes it and removes
+it at stand-down. Fields and read surface: the contract page above, § 2.
+
+## Relaying the PM's word
+
+Commit the PM's words verbatim under the home's `state/pm-relays/` first, then send the stamp
+exactly as the contract page § 4 gives it (`[PM via G-EM <name> <sid8> <ISO>]`, the quoted words,
+`record: <path>@<short sha>`). Your own messages open with `[G-EM <name> <sid8>]` and never carry
+the PM stamp. Tripwire: `A-PM-VIA-G-EM-RELAY-QUOTES-AND-POINTS`.
+
+## Clearing a needs-PM flag
+
+After the escalation screen, record the verdict on the EM's turn-intent:
+`gem-triage-turn-intent --session-id <target> --repo-root <target root> --turn-ended-at <read value>
+--outcome cleared|escalated`. Pass the `turn_ended_at` you read; a mismatch refuses. Escalate only
+what the PM alone can decide.
 
 ## DACI is a frame, not a registry
 
@@ -361,7 +381,7 @@ own measured prior. Treat "this needs the PM" as a claim to test, never routing 
 yourself, or dispatch `coordinator:staff-eng` for a viability read. Route scope and direction to the
 APM. Pass the PM only what survives this screen, in plain words: what happens, to which server, why it cannot be undone.
 
-**This is a model disposition, not a peer failing.** Say so when you push, and push anyway.
+**This is a model disposition, not a peer failing.** Say so, and push anyway.
 
 ### Push, do not nudge
 

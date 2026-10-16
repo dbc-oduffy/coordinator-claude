@@ -47,24 +47,25 @@ Firing the Phase 1.5/1.6 background Workflow is one of those dispatches.
 
 1. Read the plan in full, then run `python3 "${CLAUDE_PLUGIN_ROOT:?plugin root unset}/lib/plan_scaffold_markers.py" <plan-path>`;
    exit 3 (`PLAN-SCAFFOLD-UNFILLED`) means the plan is an unfilled scaffold — report and stop.
-2. Unless `/autonomous`: run `pickup-assemble brief <plan-path>` FIRST, before minting — it emits
-   `gates.execution_stamp_match`, the check this step needs (no `stamp-check` verb exists). Minting first erases the signal. FRESH, STALE-bookkeeping, or a business-fail of
+2. Unless `/autonomous`: run `pickup-assemble brief <plan-path>` FIRST, before minting (minting erases the signal) — it emits
+   `gates.execution_stamp_match`; no `stamp-check` verb exists. FRESH, STALE-bookkeeping, or a business-fail of
    "carries no `execution_authorized_sha`" (nothing to compare yet) → proceed **without re-stamping**. STALE-substantive surfaces the delta and STOPS. A body changed since
    approval (`approved_body_sha`, which a row added mid-run also moves) goes back through plan
    review (`coordinator:review`) — never re-mint over it; once re-reviewed,
    `review-exec-auth-stamp restamp` rebinds it. Tripwire: `AN-APPROVED-PLAN-WHOSE-BODY-CHANGED-IS-UNREVIEWED`.
    THEN mint the record from this invocation:
    `review-exec-auth-stamp authorize-invocation <plan-path> --typed-command /execute-plan
-   [--utterance "<PM's verbatim words>"]`. Pass `--utterance` whenever the PM's invocation carries
-   words; emit refuses a plan whose PM words resolve nowhere. On Git Bash,
-   prefix the call with `MSYS_NO_PATHCONV=1` (or use PowerShell): MSYS rewrites `/execute-plan`. Under `/autonomous`, skip the brief and mint as a delegated run (2a) before the claim, never `--typed-command` (a keystroke the PM never made). A body changed before any mint recovers, after plan review, via `restamp --authorized-by-delegation <d> --delegation-source <ref>`.
-   **`mise_prepped_*` is a different axis; neither substitutes for the quartet.** This step writes only the quartet. Tripwire: `A-HANDOFF-AN-EM-RETYPES-IS-NOT-A-SEAM`.
+   [--utterance "<PM's verbatim words>"]`. Hands-on, `--utterance` is required when `pm-brief render <plan>`
+   resolves no `## PM brief`, sizing pm_verbatims or baton; a wordless typed-command mint is refused
+   (`A-WORDLESS-TYPED-COMMAND-MINT-IS-NOT-A-PM-BRIEF`). On Git Bash,
+   prefix with `MSYS_NO_PATHCONV=1` (or PowerShell): MSYS rewrites `/execute-plan`. Under `/autonomous`, skip the brief and mint as a delegated run (2a) before the claim, never `--typed-command`. A body changed before any mint recovers after plan review via `restamp --authorized-by-delegation <d> --delegation-source <ref>`.
+   **`mise_prepped_*` is a different axis and does not substitute for the quartet,** the only thing this step writes. Tripwire: `A-HANDOFF-AN-EM-RETYPES-IS-NOT-A-SEAM`.
 2a. **By mode.** An `engine-ask` run never reaches this skill; here
    is the relay fallback's turn 3 (sizing, plan, execute, workstream-complete). In
    **pm** and **ceo** modes the execute decision is not a further PM ask: the stamp records
    `authorized by accepted sizing (mode=<mode>)`, citing the sizing path, and passes no
    `--utterance` — never the sizing's `pm_quote`, and never invented words. **hands-on** is
-   unchanged: the `--utterance` ask, using the PM's execution words.
+   unchanged (step 2).
    **A delegated run** mints with `--authorized-by-delegation <delegate>` and `--delegation-source <ref>`,
    the PM's standing words, if any, in `--standing-direction-quote`, and never `--utterance`. Tripwire:
    `A-DELEGATED-RUN-STAMPS-THE-DELEGATE-NOT-THE-PM`.
@@ -310,10 +311,10 @@ join was deleted, not narrowed; do not restore it as an oversight. Two sha-ances
    one-shot query, manual observation, or live measurement records `not-applicable` plus a reason.
 3.6. **Adversarial criterion-only reader, M plans that went green first time only.** M per
    `sizing_object.estimate.tshirt` AND every wave-map chunk
-   landed without an executor BLOCKing — dispatch one reader that receives only the prime exit criterion statement and `HEAD`, and answers one question: does HEAD
+   landed without an executor BLOCKing — dispatch one reader that receives the prime exit criterion, the plan as its spec, and `HEAD`, and answers one question: does HEAD
    do this? A roster's judge stage (`coordinator:exit-criterion-judge`) is this reader; no second. **THE DENIAL LIST IS THE MECHANISM AND MUST BE EXPLICIT IN THE DISPATCH:**
-   no plan body, no AC table, no chunk bodies, no run reports, no reviewer sidecars.
-3.7. **Reachability re-check, before the stamp.** The judge's `reachability` block (`review.reachability`, wiki `judge-reachability-check`) is the re-check; unreachable is its not_met. No block (op absent, error): caller-grep at `HEAD`. Unconfirmed → Phase-5-halted, no stamp.
+   no agent's account of the run — no run reports, no reviewer sidecars, no executor output.
+3.7. **Reachability re-check, before the stamp.** The judge's `reachability` block (`review.reachability`, wiki `judge-reachability-check`) is the re-check; unreachable is its not_met, undecidable never is. No block (op absent, error): caller-grep at `HEAD`. Unconfirmed → Phase-5-halted, no stamp.
 3.8. **`review-stamp mint`, owed by hand only when `dispatch.terminal_commit` did not report
    `review_stamp: minted`.** `review-stamp mint --plan "$ARGUMENTS" --build-test <wake digest's
    tests.sidecar>` (not required when the spine wrote nothing testable and the criterion is

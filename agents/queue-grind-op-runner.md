@@ -1,7 +1,7 @@
 ---
 name: queue-grind-op-runner
 description: "Runs one queue-grind op verify via coordinator-invoke; relays exit code and JSON."
-model: sonnet
+model: haiku
 effort: low
 tools: ["Bash", "PowerShell"]
 access-mode: read-write

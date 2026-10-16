@@ -12422,16 +12422,6 @@ def _plan_round_for_root(
     def cold(code: str, detail: str, top: Optional[Path] = None, head: str = "") -> _RootPlan:
         return _RootPlan(ColdReason(code, detail), None, top, head, signature)
 
-    if signature is None:
-        return cold("signature-changed", "transform signature unavailable")
-    warmable = set(mirror_like_wire_names()) | {"manifest"}
-    for t in targets:
-        if t.name == _PLUGIN_PAYLOAD_ROW:
-            return cold("plugin-payload-row", f"{t.name} is graded over its whole assembled mirror")
-        if t.mode not in warmable:
-            return cold("unsupported-row-mode", f"{t.name} ({t.mode})")
-        if t.source_map:
-            return cold("multi-source-toplevel", f"{t.name} publishes through a source_map")
     tops: "set[Path]" = set()
     for t in targets:
         top = _resolve_show_toplevel(str(t.source_dir))
@@ -12439,12 +12429,33 @@ def _plan_round_for_root(
             return cold("no-stamp", f"{t.source_dir} is not inside a git work tree")
         tops.add(Path(top).resolve())
     if len(tops) != 1:
-        return cold("multi-source-toplevel", ", ".join(sorted(str(p) for p in tops)))
+        # A root fed by the engine plus one other source (coordinator-claude takes bin/lib from
+        # claude-klabauter) is stamped with that other source's head: its preflight checks that source.
+        foreign = [t for t in targets if str(Path(_resolve_show_toplevel(str(t.source_dir)) or "").resolve()) != str(Path(_engine_toplevel_key()).resolve())]
+        foreign_tops = {Path(_resolve_show_toplevel(str(t.source_dir)) or "").resolve() for t in foreign}
+        head = ""
+        if len(foreign_tops) == 1:
+            try:
+                head = _round_pin_source_sha(foreign[0].source_dir, round_pinned_shas, out=io.StringIO(), late=True)
+            except GitMaterializeError:
+                head = ""
+        return cold("multi-source-toplevel", ", ".join(sorted(str(p) for p in tops)), None, head)
     toplevel = next(iter(tops))
     try:
         head = _round_pin_source_sha(targets[0].source_dir, round_pinned_shas, out=io.StringIO(), late=True)
     except GitMaterializeError as exc:
         return cold("no-stamp", str(exc), toplevel)
+    # Cold reasons below still carry the root's own head, or the stamp falls back to the engine's sha.
+    if signature is None:
+        return cold("signature-changed", "transform signature unavailable", toplevel, head)
+    warmable = set(mirror_like_wire_names()) | {"manifest"}
+    for t in targets:
+        if t.name == _PLUGIN_PAYLOAD_ROW:
+            return cold("plugin-payload-row", f"{t.name} is graded over its whole assembled mirror", toplevel, head)
+        if t.mode not in warmable:
+            return cold("unsupported-row-mode", f"{t.name} ({t.mode})", toplevel, head)
+        if t.source_map:
+            return cold("multi-source-toplevel", f"{t.name} publishes through a source_map", toplevel, head)
     # After `head` resolves: a full sweep carries the head so its landing stamps a fresh base.
     if full_sweep:
         return cold("requested", "--full-sweep", toplevel, head)

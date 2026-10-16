@@ -37,7 +37,7 @@ Resolve the launcher per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin
 ### 1. Emit the fire — never hand-write the args
 
     python3 "${CLAUDE_PLUGIN_ROOT}/skills/roadmap-blitz/emit-roadmap-fire.py" \
-        --repo-root <abs> --trail-dir <abs repo>/state/roadmap-blitz \
+        --repo-root <abs> --trail-dir <abs repo>/scratch/roadmap-blitz \
         --provision-sidecar-cli <abs provision-sidecar> [--sizing <path>] --interaction-mode <mode>
 
 `--provision-sidecar-cli` is the `provision-sidecar` CLI (basename checked; never `coordinator-invoke`), resolved per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`. `--interaction-mode` is required unless the sizing carries `interaction_mode:`; the emitter refuses (exit 2) otherwise, so pass the mode `sizing-assemble` reported.
@@ -71,7 +71,7 @@ authors read the Approve. Commit the trail's record files (`approval.json`, `can
 scoped commit by pathspec; `roadmap-blitz.fire.mjs` is a snapshot and stays ignored. Then:
 
     python3 "${CLAUDE_PLUGIN_ROOT}/skills/roadmap-blitz/emit-roadmap-fire.py" \
-        --repo-root <abs> --resume --trail-dir <abs trail>
+        --repo-root <abs> --resume --trail-dir <abs repo>/scratch/roadmap-blitz
 
 and fire the printed line. It refuses an absent or non-`pm` `approval.json`; never route around a
 refusal. In `pm` or `ceo` mode the workflow's APM approves inside the run: no resume.
@@ -96,7 +96,7 @@ one (roadmap-planning Step 2.9) is the PM's call, never made here.
 
 **clusters.md carries a `Stub slug prefix:` line**, a short word never date-led, or two roadmaps collide on stub ids.
 
-**Cross-plan seams are owned by plan-blitz's readiness gate:** an export one plan needs from an
+**Cross-plan seams are checked at /mise-prep Step 2e:** an export one plan needs from an
 earlier plan, or a declared-write collision between sibling plans, is checked there.
 
 **Never write `state/roadmap/` by hand** — the workflow and `roadmap.blitz_stage` are the only writers.

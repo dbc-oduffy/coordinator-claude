@@ -123,6 +123,49 @@
       ],
       "witness": "writes the sizing, runs `emit-wave-fire`, and fires the Workflow in the same turn\nOn `route: plan` Step 4's `--write` runs `emit-wave-fire` and prints its `Workflow` line",
       "legacy_sites": []
+    },
+    {
+      "id": "plan-blitz-readiness-gate-owns-cross-plan-seams",
+      "claim": "plan-blitz's readiness gate owns cross-plan seams.",
+      "retired_by": "docs/plans/2026-10-15-plan-blitz-readiness-gate-leg-removal.md",
+      "signatures": [
+        "plan-blitz['’]s\\s+readiness\\s+gate\\s+owns\\s+(?:the\\s+)?cross-plan\\s+seams"
+      ],
+      "witness": "plan-blitz's readiness gate owns cross-plan seams",
+      "legacy_sites": []
+    },
+    {
+      "id": "plan-blitz-dispatches-a-readiness-gate-agent",
+      "claim": "plan-blitz dispatches a readiness-gate agent (blitz-em phase readiness-gate).",
+      "retired_by": "docs/plans/2026-10-15-plan-blitz-readiness-gate-leg-removal.md",
+      "signatures": [
+        "plan-blitz\\s+dispatches\\s+a\\s+readiness-gate\\s+agent",
+        "blitz-em\\s+phase\\s+`?readiness-gate`?"
+      ],
+      "witness": "plan-blitz dispatches a readiness-gate agent\nthe blitz-em phase `readiness-gate` decides which plans execute",
+      "legacy_sites": []
+    },
+    {
+      "id": "workday-start-offers-group-em-standing",
+      "claim": "The workday-start command offers the session the Group EM role.",
+      "retired_by": "docs/plans/2026-10-15-gem-general-work-home.md",
+      "signatures": [
+        "\\boffer\\s+to\\s+take\\s+the\\s+role\\b",
+        "\\bOffer\\s+to\\s+volunteer\\s+as\\s+Group\\s+EM\\b"
+      ],
+      "witness": "offer to take the role\nOffer to volunteer as Group EM",
+      "legacy_sites": []
+    },
+    {
+      "id": "sessionstart-group-em-line-repo-scoped",
+      "claim": "The SessionStart G-EM line reads only the opened repo's record, and the nomination holds this repo.",
+      "retired_by": "docs/plans/2026-10-15-gem-general-work-home.md",
+      "signatures": [
+        "reads\\s+only\\s+that\\s+repo['’]s\\s+record",
+        "nomination\\s+holds\\s+\\*\\*this\\*\\*\\s+repo"
+      ],
+      "witness": "reads only that repo's record\nnomination holds **this** repo",
+      "legacy_sites": []
     }
   ]
 }

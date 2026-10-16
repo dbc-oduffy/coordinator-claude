@@ -2,7 +2,9 @@
 
 `render --for executor|reviewer <plan>` prints the `## PM intent (verbatim)` block that module
 resolves and renders. Exit 1 with the `NoPmBriefError` message when nothing resolves — same
-fail-loud rule the emitter (C4) and `compose-review-wave.py` (C10) both use. All logic lives in
+fail-loud rule the emitter (C4) and `compose-review-wave.py` (C10) both use.
+`from-sizing <sizing>` prints the blockquote body that seeds `## PM brief` from a sizing's
+`pm_verbatims`; exit 1 with nothing on stdout when the sizing carries none. All logic lives in
 the imported module; this file is argument parsing and stdout only.
 """
 
@@ -39,10 +41,23 @@ def main(argv=None) -> int:
         "--for", dest="audience", choices=("executor", "reviewer"), required=True,
     )
 
+    from_sizing = sub.add_parser("from-sizing", help="print a sizing's pm_verbatims as a blockquote")
+    from_sizing.add_argument("sizing", type=str, help="repo-relative or absolute sizing path")
+
     args = parser.parse_args(argv)
 
     pm_brief = _pm_brief()
     repo_root = _repo_root()
+    if args.command == "from-sizing":
+        sizing_path = Path(args.sizing)
+        if not sizing_path.is_absolute():
+            sizing_path = repo_root / sizing_path
+        body = pm_brief.render_sizing_brief(sizing_path)
+        if body is None:
+            print(f"no pm_verbatims in {sizing_path}", file=sys.stderr)
+            return 1
+        print(body)
+        return 0
     plan_path = Path(args.plan)
     if not plan_path.is_absolute():
         plan_path = repo_root / plan_path

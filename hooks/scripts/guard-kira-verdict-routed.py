@@ -497,6 +497,57 @@ def _session_route_is_xs_dispatch(repo_root: str, session_id: str) -> bool:
         return False
 
 
+_NON_PRODUCT_ROOTS = (
+    "docs/", "state/", "archive/", "research/", "scratch/", ".coordinator-local/",
+)
+_NON_PRODUCT_SUFFIXES = (".md", ".txt")
+
+
+def _is_product_path(rel: str) -> bool:
+    """Product code = anything outside the doc/state/research roots, canvas
+    source and prose files. Separators normalised so Windows rows match."""
+    norm = rel.replace("\\", "/")
+    if norm.startswith("./"):
+        norm = norm[2:]
+    norm = norm.lower()
+    if norm.startswith(_NON_PRODUCT_ROOTS) or norm.endswith(_NON_PRODUCT_SUFFIXES):
+        return False
+    return "canvas" not in norm.split("/")
+
+
+def _session_touched_no_product_code(repo_root: str, session_id: str) -> bool:
+    """True only on a POSITIVE read: the session's touch record lists writes
+    and none is product code. No record, or an unreadable one, is False so
+    the guard keeps firing on what it cannot prove."""
+    try:
+        from _git_common_dir import resolve_git_common_dir
+
+        git_dir = resolve_git_common_dir(repo_root)
+        if not git_dir:
+            return False
+        session_dir = os.path.join(git_dir, "coordinator-sessions", session_id)
+        # Reads are not shipping: only write rows can put product code in the close.
+        rels = _touch_record_jsonl_paths(session_dir, kinds=("w",)) or _touched_txt_paths(session_dir)
+        if not rels:
+            return False
+        product = [r for r in rels if _is_product_path(r)]
+        if not product:
+            return True
+        # An untracked write (a scratch dump at the root) was never shipped, so it cannot owe a Kira routing.
+        import subprocess
+
+        tracked = subprocess.run(
+            ["git", "-C", repo_root, "ls-files", "--", *product],
+            capture_output=True, text=True, timeout=5,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        if tracked.returncode != 0:
+            return False
+        return not tracked.stdout.strip()
+    except Exception:
+        return False
+
+
 def _emit_could_not_evaluate(reason: str) -> None:
     sys.stdout.write(f"[guard] guard-kira-verdict-routed could not evaluate: {reason}\n")
 
@@ -535,6 +586,8 @@ def main() -> int:
     if level == "off":
         return 0
     if _session_route_is_xs_dispatch(repo_root, session_id):
+        return 0
+    if _session_touched_no_product_code(repo_root, session_id):
         return 0
 
     chain_session_ids = _pickup_chain_session_ids(repo_root, session_id)

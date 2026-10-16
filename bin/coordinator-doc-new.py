@@ -915,7 +915,9 @@ _LEDGER_OWING_KINDS: frozenset[str] = frozenset({
 })
 
 
-def _assert_scaffold_content_valid(content: str, out_path: str, repo_root: str | None) -> None:
+def _assert_scaffold_content_valid(
+    content: str, out_path: str, repo_root: str | None, *, waive_ledger_heading: bool = False
+) -> None:
     """Fail loud (sys.exit 1) if the freshly-generated ``content`` fails the
     schema its own kind/path resolves to in this repo's vendored corpus
     (``coordinator_core/frontmatter/schemas/``), so the emitter cannot mint a
@@ -1009,7 +1011,7 @@ def _assert_scaffold_content_valid(content: str, out_path: str, repo_root: str |
         sys.exit(1)
 
     kind = frontmatter.get("kind") if isinstance(frontmatter, dict) else None
-    if kind in _LEDGER_OWING_KINDS:
+    if kind in _LEDGER_OWING_KINDS and not waive_ledger_heading:
         # Was _compile_heading_re("Session Ledger")
         # over the full frontmatter+body `content` (near-missed the parser's grammar,
         # and a frontmatter field literal-matching the heading text could spuriously
@@ -3097,8 +3099,14 @@ def _scaffold_spinoff(
     governing_plan: str | None = None,
     next_steps: Sequence[str] = (),
     origin: "SpinoffOrigin | None" = None,
+    omit_unfilled: bool = False,
 ) -> str:
     """Generate validator-clean spinoff frontmatter + canonical section skeleton.
+
+    omit_unfilled=True (only `mint_baton_from_sizing` passes it) drops the sections that
+    would carry nothing but a comment: an empty `## Reference materials`, `## Anti-scope`,
+    and the whole Session Ledger block (`handoff.append_session_ledger` creates the
+    heading when it writes the first row).
 
     origin, when supplied, replaces the per-call `_resolve_spinoff_origin()` scan: a bulk
     minter resolves the origin once and passes it to every scaffold. Absent, unchanged.
@@ -3335,13 +3343,19 @@ def _scaffold_spinoff(
         if what_this_covers
         else "<!-- One paragraph: origin context, what surface is in play, who's affected. -->",
         "",
-        "## Reference materials (read first)",
-        "",
         *(
-            reference_materials
-            or ["<!-- List file paths the picking-up EM will need, each with a one-line annotation. -->"]
+            []
+            if omit_unfilled and not reference_materials
+            else [
+                "## Reference materials (read first)",
+                "",
+                *(
+                    reference_materials
+                    or ["<!-- List file paths the picking-up EM will need, each with a one-line annotation. -->"]
+                ),
+                "",
+            ]
         ),
-        "",
         "## Specification",
         "",
         specification
@@ -3366,10 +3380,16 @@ def _scaffold_spinoff(
         "",
         *(list(next_steps) if next_steps else ["<!-- 3-7 numbered steps, each verifiable. -->"]),
         "",
-        "## Anti-scope",
-        "",
-        "<!-- Failure modes a context-less EM might hit. Negative scope. -->",
-        "",
+        *(
+            []
+            if omit_unfilled
+            else [
+                "## Anti-scope",
+                "",
+                "<!-- Failure modes a context-less EM might hit. Negative scope. -->",
+                "",
+            ]
+        ),
         *(
             []
             if _is_session
@@ -3382,7 +3402,11 @@ def _scaffold_spinoff(
                 "",
             ]
         ),
-        *_require_session_ledger_block(),
+        *(
+            _require_session_ledger_block()[:0]
+            if omit_unfilled
+            else _require_session_ledger_block()
+        ),
         *(
             []
             if _is_session
@@ -4056,16 +4080,13 @@ def _scaffold_plan(
     sizing_object, when supplied, is emitted as a real frontmatter key (its
     on-disk resolution is asserted by the caller before this function runs —
     see main()'s --sizing-object validation block). When omitted, the existing
-    commented-optional-key skeleton is left unchanged (no behavior change).
+    key is not emitted.
 
     problem_set, when supplied, is emitted as a real frontmatter key (a ratified
-    problem-set slug, or the literal 'inline') instead of the commented
-    `# problem_set: inline` template line — the DoE census's requested bind to
-    the generic insert_fm_field-plus-a-key shape; no new named op required.
-    When omitted, the existing commented-optional-key skeleton is left
-    unchanged (no behavior change). Unlike sizing_object this is never
-    required — a plan with no ratified problem set simply leaves the
-    placeholder commented.
+    problem-set slug, or the literal 'inline'); the DoE census's requested bind
+    to the generic insert_fm_field-plus-a-key shape; no new named op required.
+    When omitted, no problem_set line is emitted. Unlike sizing_object this is
+    never required.
 
     sizing_repo_root, when supplied alongside a real (non-"null") sizing_object,
     is used to resolve that sizing's `exit_criterion` for inheritance (Design §
@@ -4150,28 +4171,11 @@ def _scaffold_plan(
             + ", ".join(f"{_yaml_quote(i)}: {_yaml_quote(p)}" for i, p in _register_pins.items())
             + "}",
         ]
-    lines += [
-        "# Optional keys — uncomment and fill as needed (promoted de-facto keys, D1):",
-        "# scope_mode: additive-only         # planning posture",
-    ]
     if problem_set:
-        # Real key, only when supplied — mirrors the sizing_object arm above.
-        # No absence-declaration sentinel exists for this field (unlike
-        # sizing_object's "null" convention): problem_set is genuinely
-        # optional, so an unsupplied value simply leaves the commented
-        # template line in place rather than emitting a stamped null.
+        # Real key, only when supplied; no absence sentinel exists for this
+        # field, so an unsupplied value emits no line at all.
         lines.append(f"problem_set: {_yaml_quote(problem_set)}  # ratified problem-set slug or 'inline'")
-    else:
-        lines.append("# problem_set: inline               # ratified problem-set slug or 'inline'")
     lines += [
-        "# predecessor_handoff: state/handoffs/YYYY-MM-DD-<slug>.md",
-        "# prerequisite_of: docs/plans/YYYY-MM-DD-<slug>.md",
-        "# source_memo: YYYY-MM-DD-<topic>.md",
-        "# review_signals:                   # reviewer routing; ids from coordinator/contract/review-signals.json",
-        "#   - architecture                  # absent = positive claim: no specialist surface in play",
-        "# scope:",
-        "#   - path/or/item/one",
-        "#   - path/or/item/two",
         # `prime_exit_criterion` — the CRITERION emitted LIVE with placeholder
         # markers; the FALSIFIER stays commented. The two were previously one
         # commented block on the reasoning that the falsifier is read-side owed
@@ -5037,6 +5041,16 @@ def _fill_skeleton_sections(text: str, fills: dict[str, list[str]]) -> tuple[str
             continue
         head = re.search(rf"^{re.escape(_BATON_SECTION_HEADS[name])}[^\n]*\n", text, re.MULTILINE)
         if head is None:
+            # A minted baton omits an empty Reference materials section; evidence re-creates it ahead of Specification.
+            spec = re.search(r"^## Specification[^\n]*\n", text, re.MULTILINE)
+            if name != "Reference materials" or spec is None:
+                continue
+            text = (
+                text[:spec.start()]
+                + _BATON_SECTION_HEADS[name] + " (read first)\n\n" + "\n".join(lines) + "\n\n"
+                + text[spec.start():]
+            )
+            filled.append(name)
             continue
         nxt = re.search(r"^## ", text[head.end():], re.MULTILINE)
         end = head.end() + nxt.start() if nxt else len(text)
@@ -5109,7 +5123,7 @@ def _sizing_remit_and_steps(
     if route == "plan":
         steps.append(
             f"1. Read the plan at {plan_rel}." if plan_rel
-            else f"1. Author the plan for the intent above (route: plan; sizing {sizing_rel})."
+            else f"1. Read the plan the sizing's `plan:` edge names, or author it when that edge is empty (sizing {sizing_rel})."
         )
         steps.append("2. Execute the plan chunk by chunk, gating each on its acceptance criteria.")
     elif route:
@@ -5293,10 +5307,11 @@ def mint_baton_from_sizing(
         kind="session-handoff",
         governing_plan=plan_rel,
         next_steps=next_steps,
+        omit_unfilled=True,
     )
     _assert_no_archived_handoff_twin(out_abs, handoff_id, repo_root)
     try:
-        _assert_scaffold_content_valid(content, out_abs, repo_root)
+        _assert_scaffold_content_valid(content, out_abs, repo_root, waive_ledger_heading=True)
     except SystemExit as exc:
         raise SizingMintRefused(
             ["intent"], f"--from-sizing refused for {sizing_rel}: baton scaffold failed validation ({exc})"

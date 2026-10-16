@@ -9,8 +9,8 @@ argument-hint: "[<baton-id> ...] [--roadmap-id <id>] [--waves <n>] [--dry-run]"
 
 # Plan-blitz — a roadmap's worth of plans, in waves
 
-Consumes a roadmap that already exists and produces plans for it, N batons per wave. Rationale and
-measured cases: fleet wiki under this skill's name. The waves fire from the top-level EM only — a
+Consumes a roadmap that already exists and produces plans for it, N batons per wave. Rationale: the
+plan-blitz wiki. The waves fire from the top-level EM only — a
 dispatched agent cannot fan out (`A-SKILL-PHASE-NAMES-ITS-ACTOR`).
 
 ---
@@ -19,10 +19,10 @@ dispatched agent cannot fan out (`A-SKILL-PHASE-NAMES-ITS-ACTOR`).
 
 | Mode | Target set |
 |---|---|
-| **Sweep** (default, no args) | every baton the engine returns as `needs_plan` — no linked plan, or one not yet review-cleared. An approved baton leaves the set, staying only as a satisfied blocker. `--roadmap-id` narrows to one roadmap. |
+| **Sweep** (default, no args) | every baton the engine returns as `needs_plan` — no linked plan, or one not yet review-cleared. `--roadmap-id` narrows to one roadmap. |
 | **Targeted** (`<baton-id> ...`) | the ids you pass as `targets`; everything unnamed stays a fully-resolved BLOCKER, not a candidate. |
 
-**Check `unmatched_targets` on every targeted run** — a dropped target is worse than a refusal.
+**Check `unmatched_targets` on every targeted run**.
 
 **When NOT to use:** no roadmap yet → `coordinator:roadmap-planning`. One baton →
 `coordinator:sizing`, then `coordinator:plan`. Plans exist and need executing →
@@ -47,14 +47,14 @@ Invoke `coordinator-invoke` per the ladder in `${CLAUDE_PLUGIN_ROOT}/snippets/re
 
     `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" roadmap.plan_gate '{"roadmap_id":"<id>"}'`
 
-It returns both gates per candidate baton, plus `waves`, `cycles`, `unresolved_blockers`, `held`, `counts`. **It reports, never refuses;** refusal is yours.
+It returns both gates per candidate baton. **It reports, never refuses;** refusal is yours.
 
 ---
 
 ## The flow — a loop with no judgment in it
 
-**This runs at Sonnet.** Opus judgment happens INSIDE a wave; the driver is mechanism: read a
-gate, fire, land, repeat. A judgment call needed to drive it is a loop defect.
+**This runs at Sonnet.** Opus judgment happens INSIDE a wave; the driver is mechanism. A judgment
+call needed to drive it is a loop defect.
 
 ### 0. Preflight — confirm the engine is reachable
 
@@ -112,14 +112,14 @@ resolve. `workflows/plan-blitz.mjs` holds the args contract.
 - **An emitted fire is a SNAPSHOT — RE-EMIT after any workflow fix.** Never retro-patch a fire that ran.
 - **Pass `--wave-number` with the run's own wave count**; omit on a one-wave run.
 - **At most 8 batons per fire**; the emitter splits a larger wave, sharing the `waveIndex`.
-- **`--exclude <baton-id>` narrows what is FIRED, never what the gate computed** (a part-fired wave).
+- **`--exclude <baton-id>` narrows what is FIRED, never what the gate computed**.
 - **Search the trail RECURSIVELY; order slots by INTEGER wave index** (`recycle-check.py :: _slot_order`).
 
 **Fires may run CONCURRENTLY; the driver owns disjointness.**
 
 - **Subtract your in-flight set from every fresh gate read** by `planPath`, not just baton id (`emit-wave-fire._split` covers one emit; you cover across emits), and adjudicated batons too — a `pulled` baton returns at the head of the next read. Tripwire: `A-GATE-READ-DOES-NOT-KNOW-A-FIRE-IS-RUNNING`.
 - **Re-freeze the gate before re-emitting a baton whose plan you edited.**
-- **A hold only you remember is not a hold** — write it in the trail's `RUN-NOTES.md`.
+- **A hold only you remember is not a hold**: write it in `RUN-NOTES.md`.
 
 **`emit-wave-fire` resolves `provisionSidecarCli`**; pass `--provision-sidecar-cli` only to
 OVERRIDE. A findings path with no `subagent-share` segment is a REFUSAL. Tripwire: `A-SIDECAR-THE-DISPOSITION-OP-REFUSES-LOSES-ONLY-THE-RECORD`.
@@ -141,7 +141,7 @@ One file per fire — the task output file works as-is; never extract `.result` 
 each fire through `roadmap.blitz_land`, **sums the three lanes across every fire**, and states the
 stop condition from that sum. It refuses if the fires disagree about `waveIndex`, or if a fire
 carries XS and no `--shipped-in` was given. It writes `wave-<n>.landing.<slot>.json` into the trail
-(read by `read_wave_landings`) and commits them itself (`--no-commit` lists them). **Never
+and commits them itself (`--no-commit` lists them). **Never
 redirect its stdout onto that path.**
 
 **Run each `xsRuns` entry before landing, one at a time** (each ends in a commit):
@@ -152,7 +152,7 @@ reported, not landed around. Pass `--shipped-in <batonId>=<sha>` per run. Never 
 `A-HAND-COMMITTED-XS-RUN-LANDS-WITHOUT-A-CLOSE-BLOCK`. `close_dispatched` stamps `shipped` with that `shipped_in`.
 
 `roadmap.blitz_land` links each `ready` plan, stamps `approved`, mints a baton per `replan`, and
-returns `next_wave` off a fresh gate read.
+returns `next_wave`.
 
 **Three lanes land differently; the op picks by route.**
 
@@ -192,7 +192,7 @@ trail; a linear `blocked_by` chain is the standing case. Then fire `next_wave` a
   `coordinator/docs/wiki/skills-corpus/usage-limit-pause.md`; tripwire:
   `A-DRIVER-PAST-ITS-USAGE-THRESHOLD-FIRES-NOTHING-NEW`.
 - `refused[]` is non-empty — report and stop.
-- `surfacedToPm` is non-empty — the residue: each is `pm_only`. Carry it out; **never re-queue one.** Report `adjudicated` by count.
+- `surfacedToPm` is non-empty — each is `pm_only`; **never re-queue one.** Report `adjudicated` by count.
 
 **What the driver escalates rather than decides:** an unresolved blocker, a cycle, a `refused` entry,
 `surfacedToPm` residue, an empty wave.
@@ -214,9 +214,9 @@ options are arbitrated by the resolve pass. Tripwire: `A-SINGLE-REVIEWER-OPTION-
 `senior-front-end`, data-science → `staff-data-sci`, ux-flow → `staff-ux`, cross-repo-seam →
 `eng-director` — added to the sized reviewers.
 
-**The readiness gate owns cross-plan seams:** an export one plan needs that its author never
-promised, and sibling `writes:` collisions; a hit is a pull naming both plans and the repair. The gate and
-prep-gate enricher spawn only as `plan.readiness_verdict` owes them; no reply spawns both. **Planners read the PM's Approve** from the roadmap OVERVIEW's `approver`/`approval_utterance`;
+**The last reviewer's op verdict decides:** `judgment` and no reply pull the plan, a PIVOT replans. The
+prep-gate enricher spawns only when the reply names mechanical repairs. Cross-plan seams (an export one plan needs that its
+author never promised, sibling `writes:` collisions) are checked at /mise-prep Step 2e. **Planners read the PM's Approve** from the roadmap OVERVIEW's `approver`/`approval_utterance`;
 none means baton defaults, stated.
 
 **`BLOCKED` and `PIVOT` are not a severity ladder.** `BLOCKED`: the reviewer applied its

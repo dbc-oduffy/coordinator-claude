@@ -7,12 +7,14 @@
  *
  * WHAT ONE RUN COVERS: one XL sizing with `xl_exit: roadmap`, from its corpus to a frozen gate
  * report. Phases: Synthesize (roadmap-planning Phase 1), Substantiate (research + OVERVIEW +
- * peer-team asks), Review (unconditional), Approve (the single gate), Stage (one engine call,
- * roadmap.blitz_stage), Fill stubs (the staged stubs get their bodies).
+ * peer-team asks), Review (unconditional), Approve (the single gate), Fill stubs (the planner's
+ * first step runs roadmap.blitz_stage, its second fills the staged stubs).
  *
  * Negative-spec — what this is NOT:
- *   - NOT a stager. roadmap.blitz_stage scaffolds, numbers, folds, audits, commits and freezes the
- *     gate report in one call; nothing here re-implements any of it.
+ *   - NOT a stager. roadmap.blitz_stage scaffolds, numbers, folds, audits, records the approval,
+ *     stamps OVERVIEW, commits and freezes the gate report in one call; nothing here re-implements it.
+ *   - NOT a committer. No leg here commits or stages; the only commits are the engine's own.
+ *   - NOT a writer of approval.json. The engine op is its single writer.
  *   - NOT able to ask the PM. In hands-on mode the run returns `awaitingApproval`; the skill driver
  *     asks, records <trailDir>/approval.json, and re-fires with `approvalPath`.
  *   - NOT a retirer of source plans. `owedRetirements` is reported; the driver surfaces it.
@@ -25,7 +27,7 @@
  *     repoRoot: string,             // ABSOLUTE. REQUIRED.
  *     sizing: string,               // repo-relative sizing path. REQUIRED.
  *     interactionMode: string,      // hands-on | pm | ceo. REQUIRED; approverFor maps it.
- *     trailDir: string,             // ABSOLUTE. REQUIRED. Approval record and review sidecars land here.
+ *     trailDir: string,             // ABSOLUTE or repo-relative, under scratch/. REQUIRED. Review sidecars land here.
  *     approver: string,             // optional; when supplied it must equal approverFor(interactionMode).
  *     corpus: [string],             // repo-relative inputs. Default: the sizing, its baton, its premise evidence.
  *     runId: string,                // default derived from the sizing stem; ^[a-z0-9][a-z0-9-]*$
@@ -46,14 +48,13 @@
 // phase declared after it.
 export const meta = {
   name: 'roadmap-blitz',
-  description: 'One batched roadmap run: an Opus roadmap-planner synthesizes the corpus, scouts research each cluster, reviewers apply findings unconditionally, one approval gate clears by interaction mode, one engine call stages the stubs, and the planner fills them.',
+  description: 'One batched roadmap run: an Opus roadmap-planner synthesizes the corpus, haiku scouts research the clusters in batches, one reviewer per lens applies findings unconditionally, one approval gate clears by interaction mode, and the planner runs the one engine call that stages the stubs, then fills them.',
   phases: [
     { title: 'Synthesize', detail: 'One roadmap-planner over the corpus writes inventory, clusters, reconciliation and any resolutions into the roadmap directory.' },
-    { title: 'Substantiate', detail: 'One scout per KEEP or MERGE-target cluster, at most 8 at once, then the planner authors OVERVIEW and peer-team asks.' },
+    { title: 'Substantiate', detail: 'One haiku scout per batch of up to 4 KEEP or MERGE-target clusters, at most 8 scouts at once, then the planner authors OVERVIEW and peer-team asks.' },
     { title: 'Review', detail: 'Fires unconditionally. Staff or director reviewer, then a domain reviewer when a flavor maps to one. Each applies its own findings.' },
     { title: 'Approve', detail: 'The single gate. The APM clears it for pm and ceo modes; hands-on returns awaitingApproval for the skill driver to ask the PM.' },
-    { title: 'Stage', detail: 'One executor commits the roadmap directory and runs roadmap.blitz_stage, which scaffolds, numbers, audits and freezes the gate report.' },
-    { title: 'Fill stubs', detail: 'The planner writes each staged stub summary and body from its OVERVIEW section, plus STUB-INDEX.' },
+    { title: 'Fill stubs', detail: 'The planner runs roadmap.blitz_stage, which records the approval, scaffolds, numbers, audits and freezes the gate report, then writes each staged stub summary and body from its OVERVIEW section, plus STUB-INDEX.' },
   ],
 }
 
@@ -97,6 +98,23 @@ const PROVISION_SIDECAR_CLI = str(parsedArgs.provisionSidecarCli)
 const PLUGIN_ROOT = str(parsedArgs.pluginRoot)
 const PLUGIN_AGENTS = parsedArgs.pluginAgentsAvailable !== false
 const SCOUT_CAP = 8
+const SCOUT_BATCH = 4
+
+// Balanced groups of at most `max`: ceil(n/max) groups, sizes differing by at most one.
+function balancedGroups(items, max) {
+  if (!items.length) return []
+  const k = Math.ceil(items.length / max)
+  const base = Math.floor(items.length / k)
+  const extra = items.length % k
+  const out = []
+  let at = 0
+  for (let g = 0; g < k; g++) {
+    const size = base + (g < extra ? 1 : 0)
+    out.push(items.slice(at, at + size))
+    at += size
+  }
+  return out
+}
 
 const RUN_ID = str(parsedArgs.runId) ||
   (SIZING ? SIZING.split('/').pop().replace(/\.ya?ml$/, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') : null)
@@ -148,8 +166,18 @@ const SYNTH_SCHEMA = {
 
 const SCOUT_SCHEMA = {
   type: 'object',
-  required: ['clusterId', 'corpusPath', 'tldr'],
-  properties: { clusterId: { type: 'string' }, corpusPath: { type: 'string' }, tldr: RETURN_TLDR_SCHEMA },
+  required: ['corpusPaths', 'tldr'],
+  properties: {
+    corpusPaths: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['clusterId', 'path'],
+        properties: { clusterId: { type: 'string' }, path: { type: 'string' } },
+      },
+    },
+    tldr: RETURN_TLDR_SCHEMA,
+  },
 }
 
 const OVERVIEW_SCHEMA = {
@@ -172,18 +200,14 @@ const REVIEW_SCHEMA = {
 
 const APPROVAL_SCHEMA = {
   type: 'object',
-  required: ['verdict', 'utterance', 'tldr'],
+  required: ['verdict', 'approver', 'ruling', 'ruling_ref', 'tldr'],
   properties: {
     verdict: { type: 'string', enum: ['approved', 'declined'] },
-    utterance: { type: 'string' },
+    approver: { type: 'string', enum: ['apm'] },
+    ruling: { type: 'string' },
+    ruling_ref: { type: 'string' },
     tldr: RETURN_TLDR_SCHEMA,
   },
-}
-
-const RECORD_SCHEMA = {
-  type: 'object',
-  required: ['recordPath', 'recordedAt', 'tldr'],
-  properties: { recordPath: { type: 'string' }, recordedAt: { type: 'string' }, tldr: RETURN_TLDR_SCHEMA },
 }
 
 const RESUME_SCHEMA = {
@@ -205,28 +229,17 @@ const RESUME_SCHEMA = {
   },
 }
 
-const STAGE_SCHEMA = {
-  type: 'object',
-  required: ['committed', 'refused', 'tldr'],
-  properties: {
-    committed: { type: 'boolean' },
-    refused: { type: 'boolean' },
-    refusal: { type: 'string' },
-    reply: { type: 'object' },
-    tldr: RETURN_TLDR_SCHEMA,
-  },
-}
-
 const FILL_SCHEMA = {
   type: 'object',
-  required: ['filled', 'paths', 'tldr'],
-  properties: { filled: { type: 'integer' }, paths: { type: 'array', items: { type: 'string' } }, tldr: RETURN_TLDR_SCHEMA },
-}
-
-const COMMIT_SCHEMA = {
-  type: 'object',
-  required: ['committed', 'tldr'],
-  properties: { committed: { type: 'boolean' }, tldr: RETURN_TLDR_SCHEMA },
+  required: ['tldr'],
+  properties: {
+    stageReply: { type: 'object' },
+    refused: { type: 'boolean' },
+    refusal: { type: 'string' },
+    filled: { type: 'integer' },
+    paths: { type: 'array', items: { type: 'string' } },
+    tldr: RETURN_TLDR_SCHEMA,
+  },
 }
 
 // An agent outage manufactures verdicts rather than merely losing a run, so every dispatch is
@@ -261,7 +274,7 @@ function trackAgent(label, call, { tldrOptional = false } = {}) {
         return result
       }
       if (!tldrOptional && typeof result === 'object' && !result.tldr) {
-        const path = ['sidecarPath', 'overviewPath', 'recordPath', 'corpusPath']
+        const path = ['sidecarPath', 'overviewPath']
           .map((k) => result[k]).find((v) => typeof v === 'string') || null
         const fallbackTldr = await tldrFallback(label, path)
         if (fallbackTldr === null) {
@@ -291,8 +304,7 @@ const slug = (text) => String(text).toLowerCase().replace(/[^a-z0-9]+/g, '-').re
 // Paths in the roadmap directory and the trail are ASSIGNED, never chosen: two agents picking the
 // obvious filename collide and the later write silently destroys the earlier.
 const corpusPathFor = (clusterId) => `${ROADMAP_DIR}/research-corpus/${slug(clusterId)}.md`
-const reviewPathFor = (role) => `${TRAIL_DIR}/review-${slug(role)}.md`
-const approvalRecordPath = () => `${TRAIL_DIR}/approval.json`
+const reviewPathFor = (role) => `${TRAIL_REL}/review-${slug(role)}.md`
 
 const REPO_ROOT_RULE = REPO_ROOT ? `
 Every repo-relative path in this brief is relative to THIS repo root, and nothing else:
@@ -336,15 +348,15 @@ failure verbatim and stop.`
 const WRITE_SCOPE_RULE = `
 Write only inside the roadmap directory and the trail named in this brief, and the one record this
 brief assigns you. Never scaffold a stub, number one, run any stub-emitting CLI, or write a plan,
-baton, sizing or goal artifact: staging belongs to the Stage phase's single engine call.`
+baton, sizing or goal artifact: staging belongs to the one engine call the Fill stubs planner runs.`
 
 const ROLE_CONTRACTS = {
   planner: `You are the roadmap-planner inside one roadmap-blitz run: you author the roadmap-planning
 artifacts for ONE roadmap and nothing else. You never size, approve, stage or execute, and you
 never dispatch another agent. The interactive PM rounds are replaced by this run's single Approve
 gate after review; do not stop to ask the PM or the EM.`,
-  scout: `You are a research scout inside one roadmap-blitz run. You research exactly one cluster and
-write one corpus file. You never edit any roadmap artifact other than that file.`,
+  scout: `You are a research scout inside one roadmap-blitz run. You research the clusters of one
+batch and write one corpus file per cluster. You never edit any roadmap artifact other than those files.`,
 }
 
 // A doctrine file the briefs cite lives in the plugin tree, never under the consumer repo's root.
@@ -386,7 +398,13 @@ function emptyResult(extra) {
 
 if (!REPO_ROOT) return emptyResult({ refused: [{ reason: 'no repoRoot supplied: every brief would resolve its repo-relative paths against the dispatching shell' }] })
 if (!SIZING) return emptyResult({ refused: [{ reason: 'no sizing supplied: the roadmap has no accepted sizing to run from' }] })
-if (!TRAIL_DIR) return emptyResult({ refused: [{ reason: 'no trailDir supplied: the approval record and review sidecars have nowhere durable to land' }] })
+if (!TRAIL_DIR) return emptyResult({ refused: [{ reason: 'no trailDir supplied: the review sidecars have nowhere durable to land' }] })
+const TRAIL_ROOT = REPO_ROOT.replace(/\\/g, '/').replace(/\/+$/, '')
+const TRAIL_ABS = TRAIL_DIR.replace(/\\/g, '/')
+const TRAIL_REL = (TRAIL_ABS.startsWith(TRAIL_ROOT + '/') ? TRAIL_ABS.slice(TRAIL_ROOT.length + 1) : TRAIL_ABS).replace(/\/+$/, '')
+if (!TRAIL_REL.startsWith('scratch/') || TRAIL_REL.split('/').includes('..')) {
+  return emptyResult({ refused: [{ reason: 'trailDir ' + JSON.stringify(TRAIL_DIR) + ' does not resolve to a repo-relative path under scratch/' }] })
+}
 if (!RUN_ID_OK) return emptyResult({ refused: [{ reason: 'runId ' + JSON.stringify(RUN_ID) + ' does not match ^[a-z0-9][a-z0-9-]*$' }] })
 
 const CORPUS = Array.isArray(parsedArgs.corpus) && parsedArgs.corpus.length
@@ -478,29 +496,36 @@ ${COMMON}`,
   owedRetirements = synth.ownedRetirements || []
 
   const researchable = synth.clusters.filter((c) => c.verdict === 'KEEP' || c.verdict === 'MERGE')
+  // External and repo clusters never share a scout: the two research differently.
+  const groups = [
+    ...balancedGroups(researchable.filter((c) => c.external), SCOUT_BATCH),
+    ...balancedGroups(researchable.filter((c) => !c.external), SCOUT_BATCH),
+  ]
   const scouts = []
-  for (let i = 0; i < researchable.length; i += SCOUT_CAP) {
-    const batch = researchable.slice(i, i + SCOUT_CAP)
-    const done = await parallel(batch.map((c) => () => trackAgent(`scout:${c.id}`, agent(
+  for (let i = 0; i < groups.length; i += SCOUT_CAP) {
+    const wave = groups.slice(i, i + SCOUT_CAP)
+    const done = await parallel(wave.map((group) => () => trackAgent(`scout:${group[0].id}+${group.length}`, agent(
       `${ROLE_CONTRACTS.scout}
 
-Research cluster ${c.id} (${c.title}) for the roadmap at ${ROADMAP_DIR}/. Read ${ROADMAP_DIR}/clusters.md
-for the cluster, and the corpus files it cites.
-${c.external
-  ? 'This cluster is marked external: yes. Research it on the web and cite each source by URL.'
-  : 'This cluster is marked external: no. The repo is the research: read the code, plans and wikis it touches and cite each by repo-relative path. Do not search the web.'}
+Research these ${group.length} cluster(s) for the roadmap at ${ROADMAP_DIR}/. Read ${ROADMAP_DIR}/clusters.md
+for each cluster, and the corpus files it cites.
+${group[0].external
+  ? 'These clusters are marked external: yes. Research them on the web and cite each source by URL.'
+  : 'These clusters are marked external: no. The repo is the research: read the code, plans and wikis each touches and cite each by repo-relative path. Do not search the web.'}
 
-Write one file with what a stub author needs: current state, constraints, prior art, open questions.
+Clusters and the EXACT path each one's record is written to:
+${group.map((c) => `  - ${c.id} (${c.title}) -> ${corpusPathFor(c.id)}`).join('\n')}
+
+Write one file per cluster with what a stub author needs: current state, constraints, prior art, open questions.
 ${COMMON}
-Write your record to EXACTLY this path and return it verbatim as \`corpusPath\`:
-
-    ${corpusPathFor(c.id)}`,
-      { model: 'sonnet', ...withRole(c.external ? 'coordinator:research-scout' : 'coordinator:repo-scout'),
-        label: `scout:${c.id}`, phase: 'Substantiate', schema: SCOUT_SCHEMA },
+Return \`corpusPaths\`: one {clusterId, path} per cluster you wrote, the path verbatim as assigned above.`,
+      { model: 'haiku', ...withRole(group[0].external ? 'coordinator:research-scout' : 'coordinator:repo-scout'),
+        label: `scout:${group[0].id}+${group.length}`, phase: 'Substantiate', schema: SCOUT_SCHEMA },
     )).catch(() => null)))
     scouts.push(...done)
   }
-  const missingScouts = researchable.filter((_c, i) => !scouts[i]).map((c) => c.id)
+  const gotPaths = new Set(scouts.filter(Boolean).flatMap((s) => (s.corpusPaths || []).map((p) => p.clusterId)))
+  const missingScouts = researchable.filter((c) => !gotPaths.has(c.id)).map((c) => c.id)
 
   overview = await trackAgent('roadmap-planner:overview', agent(
     `${ROLE_CONTRACTS.planner}
@@ -588,9 +613,11 @@ if (!approval) {
 
 Read ${ROADMAP_DIR}/OVERVIEW.md, ${ROADMAP_DIR}/peer-team-asks.md and the review records under
 ${TRAIL_DIR}/. Return \`approved\` when the roadmap is coherent, its contested items are named, and no
-review finding is left open that a stub author would trip on; return \`declined\` otherwise. Give
-your verdict as one utterance in your own words, which is recorded verbatim. This is a decision on
-the roadmap's shape and its reviews: you do not edit the roadmap.
+review finding is left open that a stub author would trip on; return \`declined\` otherwise. Return
+\`approver: "apm"\`, \`ruling\` (your verdict as one statement in your own words, recorded verbatim) and
+\`ruling_ref\` (the repo-relative path of the record the ruling rests on, such as the review record you
+weighed most). This is a decision on the roadmap's shape and its reviews: you do not edit the roadmap
+and you write no record; the engine records the approval.
 ${REPO_ROOT_RULE}
 ${MID_RUN_DIRECTION_RULE}`,
     { model: 'opus', ...withRole('coordinator:apm'), label: 'apm:approve', phase: 'Approve', schema: APPROVAL_SCHEMA },
@@ -598,28 +625,7 @@ ${MID_RUN_DIRECTION_RULE}`,
   if (!decision) {
     return emptyResult({ owedRetirements, refused: [{ reason: 'the APM returned no verdict; nothing is staged' }] })
   }
-  approval = { verdict: decision.verdict, approver: 'apm', utterance: decision.utterance, recorded_at: null }
-
-  // Workflow scripts have no clock, so the recording agent stamps recorded_at.
-  const recorded = await trackAgent('record:approval', agent(
-    `Record an approval decision. Write this JSON to ${approvalRecordPath()}, replacing the null
-\`recorded_at\` with the current UTC time as an ISO-8601 string and changing nothing else:
-
-${JSON.stringify(approval, null, 2)}
-${approval.verdict === 'approved'
-  ? `
-Then edit ${ROADMAP_DIR}/OVERVIEW.md frontmatter to \`status: final-approved\`, adding \`approver: apm\` and
-\`approval_utterance:\` set to the utterance above as a quoted string. Change nothing else.`
-  : `
-Do not touch OVERVIEW.md: the roadmap was declined.`}
-${REPO_ROOT_RULE}
-Return the path you wrote as \`recordPath\` and the timestamp you stamped as \`recordedAt\`.`,
-    { model: 'sonnet', effort: 'low', ...withRole('coordinator:executor'), label: 'record:approval', phase: 'Approve', schema: RECORD_SCHEMA },
-  ))
-  if (!recorded || !recorded.recordedAt) {
-    return emptyResult({ approval, owedRetirements, refused: [{ reason: 'the approval record was not written to ' + approvalRecordPath() + '; nothing is staged without a durable approval' }] })
-  }
-  approval.recorded_at = recorded.recordedAt
+  approval = { verdict: decision.verdict, approver: 'apm', ruling: decision.ruling, ruling_ref: decision.ruling_ref }
 }
 
 if (approval.verdict !== 'approved') {
@@ -627,83 +633,34 @@ if (approval.verdict !== 'approved') {
 }
 
 // ---------------------------------------------------------------------------
-// Stage: one engine call.
+// Fill stubs: the planner's step 1 is the one engine call; step 2 fills the stubs it names. The
+// engine writes <trail_dir>/approval.json and stamps OVERVIEW itself; no agent here does.
 // ---------------------------------------------------------------------------
 
-// The PM's approval lives in the trail's approval.json; plan authors read the roadmap's OVERVIEW,
-// so a resumed PM approval is stamped there exactly as the APM branch stamps its own.
-if (approval.approver === 'pm') {
-  await trackAgent('record:pm-approval', agent(
-    `Stamp the PM's recorded approval onto the roadmap so plan authors can see it. Edit
-${ROADMAP_DIR}/OVERVIEW.md frontmatter to \`status: final-approved\`, adding \`approver: pm\` and
-\`approval_utterance:\` set to this utterance as a quoted string, verbatim:
-
-${JSON.stringify(approval.utterance)}
-
-Change nothing else. Return the OVERVIEW path as \`recordPath\` and the current UTC time, ISO-8601,
-as \`recordedAt\`.
-${REPO_ROOT_RULE}`,
-    { model: 'sonnet', effort: 'low', ...withRole('coordinator:executor'), label: 'record:pm-approval', phase: 'Approve', schema: RECORD_SCHEMA },
-  ))
-}
-
-// Only the EM or coordinator:git-commit-agent commits (via ceremony.commit_v2 with an explicit
-// pathspec); the executor steps never do.
-await trackAgent('commit:roadmap-artifacts', agent(
-  `Commit the roadmap directory ${ROADMAP_DIR}/ with the message "roadmap-blitz: ${RUN_ID} roadmap
-artifacts". The pathspec is every uncommitted file under ${ROADMAP_DIR}/ (see \`git status --porcelain
--- ${ROADMAP_DIR}\`), listed by name: never a directory, \`-A\` or \`.\`. If nothing under it is
-uncommitted, that is not an error: return \`committed: false\`. Return \`committed: true\` only when
-the commit landed.
-${REPO_ROOT_RULE}`,
-  { model: 'sonnet', effort: 'low', ...withRole('coordinator:git-commit-agent'), label: 'commit:roadmap-artifacts', phase: 'Stage', schema: COMMIT_SCHEMA },
-))
-
-const staged = await trackAgent('executor:stage', agent(
-  `Stage the approved roadmap ${ROADMAP_DIR}/ in two steps, in order.
-
-1. You never commit or stage: the Executor Commit Gate forbids it. Skip to step 2; the directory is
-   committed by the git-commit-agent step that runs before you.
-2. Run the engine op and return its JSON reply verbatim as \`reply\`:
-
-       <resolved coordinator-invoke> roadmap.blitz_stage '{"roadmap": "${ROADMAP_DIR}"}'
-
-A refusal from the op (for example a cluster with no \`loe:\`) is an incident, not something to fix:
-set \`refused: true\`, put its message verbatim in \`refusal\`, and stop. Never edit clusters.md or
-any roadmap file to get past a refusal, and never scaffold, number or audit a stub by hand.
-${CLI_RESOLUTION_RULE}
-${REPO_ROOT_RULE}`,
-  { model: 'sonnet', ...withRole('coordinator:executor'), label: 'executor:stage', phase: 'Stage', schema: STAGE_SCHEMA },
-))
-
-// The engine op may reply bare or wrapped as { result: {...} }; the staged fields live in the payload.
-const rawStageReply = staged && !staged.refused && staged.reply ? staged.reply : null
-const stageReply = rawStageReply && rawStageReply.gate_report_path === undefined
-  && rawStageReply.result && typeof rawStageReply.result === 'object'
-  ? rawStageReply.result
-  : rawStageReply
-if (!stageReply || !stageReply.gate_report_path) {
-  if (staged && staged.refused) {
-    agentIncidents.push({ role: 'executor:stage', kind: 'stage-refused', detail: String(staged.refusal || '').slice(0, 500) })
-  }
-  return emptyResult({ approval, owedRetirements, stage: stageReply, staged: false })
-}
-
-// ---------------------------------------------------------------------------
-// Fill stubs: the staged stubs get their bodies. The frozen gate report is not touched.
-// ---------------------------------------------------------------------------
-
-const stubPaths = (Array.isArray(stageReply.stubs) ? stageReply.stubs : [])
-  .map((s) => (s && typeof s === 'object' ? s.path || s.stub_path || s.file : s))
-  .filter((p) => typeof p === 'string')
+const stageApproval = approval.approver === 'pm'
+  ? { verdict: approval.verdict, approver: 'pm', utterance: approval.utterance }
+  : { verdict: approval.verdict, approver: approval.approver, ruling: approval.ruling, ruling_ref: approval.ruling_ref }
+const stageCall = { roadmap: ROADMAP_DIR, approval: stageApproval, trail_dir: TRAIL_REL }
 
 const fill = await trackAgent('roadmap-planner:fill-stubs', agent(
   `${ROLE_CONTRACTS.planner}
 
-Run roadmap-planning Step 2.2 and Step 2.3 over the stubs roadmap.blitz_stage just scaffolded. Its
-reply, verbatim:
+Two steps, in order.
 
-${JSON.stringify(stageReply, null, 2)}
+STEP 1. Run the engine op with exactly this request (roadmap, approval, trail_dir) and return its JSON reply verbatim as
+\`stageReply\` (the op may reply bare or wrapped as { result: {...} }; return the payload):
+
+    <resolved coordinator-invoke> roadmap.blitz_stage '${JSON.stringify(stageCall)}'
+
+A refusal from the op (for example a cluster with no \`loe:\`) is an incident, not something to fix:
+set \`refused: true\`, put its message verbatim in \`refusal\`, and stop. Never edit clusters.md or
+any roadmap file to get past a refusal, and never scaffold, number or audit a stub by hand. A reply
+whose \`approval_record\` is null for this approved call is also a refusal: set \`refused: true\`,
+say so in \`refusal\`, and fill no stub. Never write approval.json yourself; the op is its only writer.
+${CLI_RESOLUTION_RULE}
+
+STEP 2. Run roadmap-planning Step 2.2 and Step 2.3 over the stubs the reply from step 1 names (its
+\`stubs\`, and its \`gate_report_path\` is the frozen gate report).
 
 For each staged stub, read its OVERVIEW section (${ROADMAP_DIR}/OVERVIEW.md) and the research files
 it cites, then write into the stub: a real \`summary:\` line, and the Step 2.2 body sections in order
@@ -715,26 +672,30 @@ one-line brief. Then write ${ROADMAP_DIR}/STUB-INDEX.md as a query callout, not 
 
 You edit stub bodies and \`summary:\` only. Never change a stub's frontmatter numbering, \`covers:\`,
 \`blocked_by\`, loe or size fields, never hand the roadmap sizing to a stub, never mark one
-ready, and never touch the frozen gate report (${stageReply.gate_report_path}).
-${stubPaths.length ? `Staged stub paths:\n${stubPaths.map((p) => `  - ${p}`).join('\n')}` : 'Find the staged stubs through the paths in the reply above.'}
+ready, and never touch the frozen gate report.
 ${COMMON}
-Return \`paths\`: every repo-relative path you wrote, and \`filled\`: the count of stubs filled.`,
+Return \`stageReply\` (step 1), \`paths\` (every repo-relative path you wrote in step 2) and \`filled\`
+(the count of stubs filled). You never commit or stage.`,
   { model: 'opus', effort: 'medium', ...withRole('coordinator:roadmap-planner'),
     label: 'roadmap-planner:fill-stubs', phase: 'Fill stubs', schema: FILL_SCHEMA },
 ))
 
-if (fill && fill.paths && fill.paths.length) {
-  await trackAgent('commit:fill', agent(
-    `Commit exactly these paths and nothing else, as an explicit pathspec (never a directory,
-\`-A\`, \`.\` or a sweep), with the message "roadmap-blitz: ${RUN_ID} stub bodies":
-
-${fill.paths.map((p) => `  - ${p}`).join('\n')}
-
-Never include ${stageReply.gate_report_path}. Return \`committed: true\` only when the commit landed.
-${REPO_ROOT_RULE}`,
-    { model: 'sonnet', effort: 'low', ...withRole('coordinator:git-commit-agent'), label: 'commit:fill', phase: 'Fill stubs', schema: COMMIT_SCHEMA },
-  ))
-} else {
+// The op may reply bare or wrapped as { result: {...} }; the staged fields live in the payload.
+const rawStageReply = fill && !fill.refused && fill.stageReply ? fill.stageReply : null
+const wrapped = rawStageReply && rawStageReply.gate_report_path === undefined ? fill.stageReply.result : null
+const stageReply = wrapped && typeof wrapped === 'object' ? wrapped : rawStageReply
+if (!stageReply || !stageReply.gate_report_path) {
+  if (fill && fill.refused) {
+    agentIncidents.push({ role: 'roadmap-planner:fill-stubs', kind: 'stage-refused', detail: String(fill.refusal || '').slice(0, 500) })
+  }
+  return emptyResult({ approval, owedRetirements, stage: stageReply, staged: false })
+}
+// Nothing is staged without a durable approval: a null approval_record means the engine did not record it.
+if (!stageReply.approval_record) {
+  agentIncidents.push({ role: 'roadmap-planner:fill-stubs', kind: 'stage-refused', detail: 'the stage reply carries approval_record: null for an approved call; no stub was filled' })
+  return emptyResult({ approval, owedRetirements, stage: stageReply, staged: false, refused: [{ reason: 'the stage reply carries approval_record: null; nothing is staged without a durable approval' }] })
+}
+if (!(fill.paths && fill.paths.length)) {
   agentIncidents.push({ role: 'roadmap-planner:fill-stubs', kind: 'no-fill', detail: 'the planner returned no written paths; the staged stubs stay skeletal' })
 }
 
@@ -747,6 +708,7 @@ return {
   approval,
   awaitingApproval: false,
   stage: stageReply,
+  uncommitted: fill.paths || [],
   owedRetirements,
   incidents: agentIncidents,
   trailDir: TRAIL_DIR,

@@ -218,6 +218,8 @@ The DAG does not exist on arrival — N independently-authored plans need a conv
 
 **Opus for a workflow agent is rare and PM-gated.** Before launching any workflow that sets `model: 'opus'` (or an Opus-tier override) on ANY `agent()` call, surface the intent and get explicit approval, naming which agents and why Sonnet was insufficient. The default fan-out — porters, executors, per-wave commit agents, mechanical verifiers — is Sonnet, full stop.
 
+**A new `agent()` leg is classified in the leg register** (`coordinator/tests/test_workflow_leg_register_ratchet.py`, `WORKFLOW-LEG-REGISTER-RATCHET`): a leg whose whole job is one op folds into the agent before it, or, with no agent before it, runs on the haiku floor, the one stated exception to the `model: 'sonnet'` rule.
+
 **Negative-spec:** an un-modeled `agent()` in an Opus session is a defect, not a shortcut. The omission is invisible in the script and surfaces only as burn.
 
 **The tool boundary enforces this.** The PreToolUse hook `hooks/scripts/block-workflow-unmodeled-agent.py` (tripwire `BLOCK-WORKFLOW-UNMODELED-AGENT`) gates every `Workflow` launch in an Opus-tier session: any `agent(` call with no `model:` set DENIES the launch, pre-filling the `model: 'sonnet'` fix rather than just naming the violation. Mixed coverage (some calls modeled, some not) is allowed with an advisory warning. It validates the resume path (`scriptPath`/`name`) by reading the file, not just an inline `script` string, and attributes `model:` per call-site via balanced-paren extraction rather than a global token tally. Escape hatch for the rare PM-approved Opus case: `COORDINATOR_OVERRIDE_WORKFLOW_MODEL_GUARD=1`. → `docs/wiki/coordinator-tripwires.md § BLOCK-WORKFLOW-UNMODELED-AGENT`.
@@ -319,14 +321,15 @@ and never deferred to `/workstream-complete`. The order, fixed by the roster fra
    worktree diff per slice plus the whole diff.
 2. **Review wave — one `parallel()`.** One `code-reviewer` per slice applies its own findings
    inside its slice's files only, logging anything outside its slice under `## Out-of-Slice
-   Findings` rather than applying it. `overengineering-reviewer` (Kira) and every
-   `review_signals`-resolved persona run over the whole diff, **findings-only** — they never
-   self-apply in this stage, because their lens spans every slice and a same-file write race
-   is exactly what disjoint slices exist to prevent. `delivery-verifier` runs read-only over
-   the whole diff, checking executor claims against it.
+   Findings` rather than applying it. `overengineering-reviewer` (Kira, L and above) runs over the whole
+   diff and applies whole-diff with exact-text `Edit`s (`applies: whole-diff`); every
+   `review_signals`-resolved persona runs over the whole diff **report-only**
+   (`applies: none`), because its lens spans every slice and a same-file write race is exactly
+   what disjoint slices exist to prevent. `delivery-verifier` is not a wave member; it runs
+   only on the reverify path.
 3. **Bookkeeping — the engine's `bookkeep_wave`, not an agent.** There is no integration commit
-   and no integrate remit: each slice reviewer applies and verifies its own findings, and the
-   whole-diff lenses report only. There is no second review round; a finding no reviewer can
+   and no integrate remit: each slice reviewer applies and verifies its own findings, Kira
+   applies hers, and the signal personas report only. There is no second review round; a finding no reviewer can
    resolve goes to the PM (`review-integration-doctrine.md` § No integration pass). A partitioned
    close needs no N+1 integration pass from this stage, because execute-review has no integration
    commit to budget for.
@@ -335,8 +338,8 @@ and never deferred to `/workstream-complete`. The order, fixed by the roster fra
 
 **Safety condition — this is what licenses "parallel reviewers, not sequential".** Slices are
 file-disjoint by construction (the prep partition), so two reviewers never write the same file at
-once; the whole-diff lenses stay findings-only in this stage for the same reason, since their span
-crosses every slice; and the engine's bookkeeping — the only step after the wave — writes no
+once; the signal personas stay report-only in this stage for the same reason, since their span
+crosses every slice, and Kira's whole-diff edits are exact-text; and the engine's bookkeeping — the only step after the wave — writes no
 source file. This supersedes the
 per-wave-review target shape once described here and the "named second exception to the
 sequential-review rule" it required: the execute-review stage is not an exception carved out of a

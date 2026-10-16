@@ -163,6 +163,7 @@ from __future__ import annotations
 
 import argparse
 import faulthandler
+import io
 import json
 import re
 import shutil
@@ -2087,6 +2088,101 @@ def _not_carried_prose(
     return "\n".join(lines)
 
 
+#: The target whose source dir is this one owns the hand-curated mirror CHANGELOG.
+_CHANGELOG_OWNER_SOURCE_REL = "dist/klabauter-toplevel"
+
+
+def _changelog_lag_line(
+    carried_rows: "Sequence[str]",
+    all_rows: "Sequence[str]",
+    source_root: "Path",
+    source_head: str,
+) -> str:
+    """`"CHANGELOG predates N carried source commit(s) since <short-sha>"`, or `""`.
+
+    Rows are resolved `name|mode|ABSsource|ABSdest...` strings. The owner is the
+    row whose source is `dist/klabauter-toplevel`; a carried row counts when it
+    publishes into the owner's dest tree, so engine rows count when the toplevel
+    row alone did not change. Two spawns (last-touch, then one `rev-list
+    --count` over every carried root), no call when no owner shares the round's
+    destination. Warns only: the CHANGELOG is hand-curated and never written here.
+    """
+    import os  # noqa: PLC0415
+
+    def _fields(row: str) -> "Tuple[Path, Path]":
+        parts = row.split("|")
+        return Path(parts[2]), Path(parts[3])
+
+    root = Path(os.path.realpath(source_root))
+
+    def _rel(path: Path) -> str:
+        try:
+            rel = Path(os.path.realpath(path)).relative_to(root).as_posix()
+        except ValueError:
+            return ""
+        return "" if rel == "." else rel
+
+    owner = next(
+        (r for r in all_rows if _rel(_fields(r)[0]) == _CHANGELOG_OWNER_SOURCE_REL), None
+    )
+    if owner is None:
+        return ""
+    owner_dest = Path(os.path.realpath(_fields(owner)[1]))
+    roots = sorted(
+        {
+            rel
+            for row in carried_rows
+            for src, dest in [_fields(row)]
+            if (rel := _rel(src))
+            and (
+                Path(os.path.realpath(dest)) == owner_dest
+                or owner_dest in Path(os.path.realpath(dest)).parents
+            )
+        }
+    )
+    if not roots:
+        return ""
+    changelog = f"{_CHANGELOG_OWNER_SOURCE_REL}/CHANGELOG.md"
+    git = ["git", "-C", str(root), "--no-optional-locks"]
+    last = _run(
+        git + ["log", "-1", "--format=%H %h", "--", changelog],
+        timeout=_GIT_PLUMBING_TIMEOUT_SECS,
+    )
+    parts = last.stdout.split()
+    if last.returncode != 0 or len(parts) != 2:
+        return ""
+    count = _run(
+        git + ["rev-list", "--count", f"{parts[0]}..{source_head or 'HEAD'}", "--", *roots],
+        timeout=_GIT_PLUMBING_TIMEOUT_SECS,
+    )
+    if count.returncode != 0 or not count.stdout.strip().isdigit():
+        return ""
+    n = int(count.stdout.strip())
+    if not n:
+        return ""
+    return f"CHANGELOG predates {n} carried source commit(s) since {parts[1]}"
+
+
+def _round_changelog_lag_line(percolate_root: str, target: str, source_head: str) -> str:
+    """`_changelog_lag_line` over the registered rows; `""` on any resolution failure."""
+    try:
+        _bootstrap = str(_COORDINATOR_LIB)
+        if _bootstrap not in sys.path:
+            sys.path.insert(0, _bootstrap)
+        from percolate.targets import load_targets  # type: ignore[import-not-found]  # noqa: PLC0415
+
+        setup_dir = Path(percolate_root) / "setup"
+        err = io.StringIO()
+        return _changelog_lag_line(
+            load_targets(setup_dir, target_filter=target, err=err),
+            load_targets(setup_dir, target_filter="", err=err),
+            _REPO_ROOT,
+            source_head,
+        )
+    except Exception:  # noqa: BLE001 - advisory line, never a round failure
+        return ""
+
+
 def _print_pathspec_surplus(
     target: str,
     real_changes: List[Tuple[str, str]],
@@ -3249,6 +3345,16 @@ def _cmd_round_default(
             )
             # The subject counts the remainder; the body names it.
             _not_carried_body = _not_carried_prose(dropped, unchanged_paths, explained_paths)
+            _lag_line = _round_changelog_lag_line(
+                percolate_root,
+                target,
+                (manifest.source_sha if manifest is not None else "") or "HEAD",
+            )
+            if _lag_line:
+                print(f"percolate-round: {_lag_line}")
+                _not_carried_body = (
+                    f"{_not_carried_body}\n{_lag_line}" if _not_carried_body else _lag_line
+                )
             print(f"=== percolate-round {target} — commit ({len(pathspec)} file(s)) ===")
             pathspec_file_path = tmp / "commit-pathspec.txt"
             pathspec_file_path.write_text(

@@ -1,8 +1,9 @@
 """
 check-bin-forwarders.py -- CLI trampoline over coordinator_core.plugin_health.doe_bin_forwarders.
 
-Exit 0 when every DoE coordinator/bin/*.py the engine also owns is a canonical forwarder, or
-the DoE clone is unresolvable; exit 1 listing offenders.
+Exit 0 when every DoE coordinator/bin/*.py the engine also owns, bar the names in
+doe_bin_forwarders.DOE_LIVE, is a canonical forwarder, or the DoE clone is unresolvable;
+exit 1 listing offenders.
 """
 
 from __future__ import annotations

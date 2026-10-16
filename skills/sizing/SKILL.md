@@ -14,7 +14,7 @@ argument-hint: "[PM ask text | nothing — describe the ask inline]"
 `Workflow({name: "coordinator:engine-ask", args: {ask: "<PM verbatim>"}})` — the user's opt-in,
 never a question. Its hook runs sizing
 through commit and close (`ENGINE-ASK-SUBMISSION-IS-THE-RUN`). To add a brief, mint with op
-`sizing.intake_mint` and submit the `args: {sizing}` line it returns; a refused mint leaves the bare `args: {ask}`. While live the EM does not dispatch, poll, verify or relay; a PM revision
+`sizing.intake_mint` and submit the `args: {sizing}` line it returns; a refused mint leaves the bare `args: {ask}`. Distinct initiatives go as separate asks in one `args: {asks: [...]}` submission, never bundled (shape: wiki `sizing-to-commit-chain-contract`). While live the EM does not dispatch, poll, verify or relay; a PM revision
 goes in verbatim via `workflow.revise`; a halted run also needs a refire of `engine-ask {sizing}`. Below is the in-chat lobby, only for a
 `shape`/`roadmap`/`pm-decision` refusal, or an engine refusal. Tripwire: `NOVEL-WORK-IS-ONE-FIRE-NEVER-A-RELAY`.
 Rationale: `coordinator/docs/wiki/planning/sizing-lobby.md`.

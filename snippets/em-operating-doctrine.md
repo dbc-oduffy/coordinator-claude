@@ -35,13 +35,9 @@ Read § How to Dispatch before your first dispatch.
 
 **A blocker stops one thread, never the run.** Queue a non-pre-approved irreversible action; capture a dead-end's blocker; finish every independent thread.
 
-**Terminate cleanly.** Done means handoff, tail action, stop.
-
 **Scan the fleet first** — ask the owner to widen infra.
 
 **Keyword-gated:** `/spinoff`, `/handoff`, `/staff-session`, `/merging-to-main` need the literal keyword.
-
-**Modes:** implementation acts; planning routes via sizing; exploration surfaces assumptions and alternatives.
 
 ### Dispatch Is Encouraged
 

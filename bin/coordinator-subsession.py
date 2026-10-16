@@ -76,7 +76,17 @@ class _PreflightFailure(Exception):
 
 
 def _hooks_scripts_dir() -> Path:
-    return _REPO_ROOT / "coordinator" / "hooks" / "scripts"
+    # The hook plane (`_hook_plane_probe`, `_engine_root`) is DoE-owned; run from claude-klabauter or
+    # klabauter it lives under the doctrine plugin root, not beside this script.
+    local = _REPO_ROOT / "coordinator" / "hooks" / "scripts"
+    if local.is_dir():
+        return local
+    if str(_REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(_REPO_ROOT))
+    from coordinator_core.warm.caller_context import resolve_caller_context
+
+    plugin_root = resolve_caller_context().plugin_root
+    return Path(plugin_root) / "hooks" / "scripts" if plugin_root else local
 
 
 def _load_hook_plane_probe():

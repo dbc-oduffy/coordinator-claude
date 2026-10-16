@@ -473,6 +473,122 @@ def _basename_collisions(rows: list, tracked: list) -> list:
     return out
 
 
+#: Test seam: `fn(root: Path, patterns: list[str]) -> list[tuple[str, str]]` of `(test_path, line)`
+#: replacing the single `git grep`.
+_TEST_REFERENCER_GREP_OVERRIDE = None
+
+_TEST_PATH_RE = re.compile(r"(?<![\w./-])((?:[\w.-]+/)*(?:test_[\w-]+|[\w-]+_test)\.py)\b")
+_TEST_PATHSPECS = ("**/test_*.py", "**/tests/**/*.py", "**/*_test.py")
+
+
+def _is_test_path(norm: str) -> bool:
+    base = norm.rsplit("/", 1)[-1]
+    return base.endswith(".py") and (
+        base.startswith("test_") or base.endswith("_test.py") or "/tests/" in f"/{norm}"
+    )
+
+
+def _covered(norm: str, written_paths: set) -> bool:
+    """True when `norm` is a listed write or sits under a `writes_under` directory."""
+    return norm in written_paths or any(
+        not w.endswith(".py") and norm.startswith(w.rstrip("/") + "/") for w in written_paths
+    )
+
+
+def _module_patterns(norm: str) -> list:
+    """Import-site strings for one module: its dotted path and its file name."""
+    stem = norm[:-3]
+    parts = stem.split("/")
+    patterns = [norm.rsplit("/", 1)[-1]]
+    if all(part.isidentifier() for part in parts):
+        patterns.append(".".join(parts))
+    return patterns
+
+
+def _grep_test_referencers(root: Path, patterns: list) -> list:
+    if _TEST_REFERENCER_GREP_OVERRIDE is not None:
+        return _TEST_REFERENCER_GREP_OVERRIDE(root, patterns)
+    _ensure_engine_on_path()
+    from coordinator_core.git.run import run_git
+
+    argv = ["-C", str(root), "grep", "-n", "-F", "--no-color"]
+    for pattern in patterns:
+        argv += ["-e", pattern]
+    argv += ["--", *_TEST_PATHSPECS]
+    result = run_git(argv)
+    if not result.ok:
+        return []
+    hits = []
+    for line in result.stdout.splitlines():
+        head, _, rest = line.partition(":")
+        hits.append((head, rest))
+    return hits
+
+
+def _test_caller_findings(path: Path, rows: list, written_paths: set) -> tuple:
+    """`(advisories, structural)`: orphaned test referencers of written modules; unlisted done-when tests."""
+    advisories: list = []
+    structural: list = []
+    modules = []
+    root = _repo_root_of(path)
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            continue
+        label = row.get("id") or f"row {index + 1} (no id)"
+        for p in row.get("writes") or []:
+            norm = _norm_path(p).removeprefix("./") if isinstance(p, str) else ""
+            if norm.endswith(".py") and not _is_test_path(norm):
+                modules.append((label, norm))
+        body = "\n".join(str(row.get(key) or "") for key in ("body", "done_when", "done-when"))
+        for match in dict.fromkeys(_TEST_PATH_RE.findall(body)):
+            cited = _norm_path(match).removeprefix("./")
+            # Only a full path no row creates and the tree lacks is unsatisfiable; a bare
+            # basename is ambiguous and an existing test is covered by the referencer advisory.
+            if (
+                "/" in cited
+                and not _covered(cited, written_paths)
+                and root is not None
+                and not (root / cited).exists()
+            ):
+                structural.append(
+                    {
+                        "row": label,
+                        "error": (
+                            f"UNLISTED-TEST: done-when/body cites test file {match} "
+                            "that no row writes and the tree lacks — add it to `writes`"
+                        ),
+                        "at": "body",
+                        "class": "structural",
+                    }
+                )
+    if not modules or root is None:
+        return advisories, structural
+    patterns = list(dict.fromkeys(p for _l, m in modules for p in _module_patterns(m)))
+    hits = _grep_test_referencers(root, patterns)
+    for label, module in modules:
+        mine = _module_patterns(module)
+        orphans = sorted(
+            {
+                _norm_path(test)
+                for test, line in hits
+                if any(p in line for p in mine) and not _covered(_norm_path(test), written_paths)
+            }
+        )
+        for test in orphans:
+            advisories.append(
+                {
+                    "row": label,
+                    "error": (
+                        f"TEST-REFERENCER-OUTSIDE-WRITES: {test} references {module} "
+                        "but no row writes it"
+                    ),
+                    "at": "writes",
+                    "class": "advisory",
+                }
+            )
+    return advisories, structural
+
+
 def _check_spine(path: Path, text: str, for_execution: bool) -> dict:
     result, LocateStatus = _locate_spine(text)
     if result.status is LocateStatus.ABSENT:
@@ -616,6 +732,9 @@ def _check_spine(path: Path, text: str, for_execution: bool) -> dict:
     tracked = _tracked_listing(path, rows)
     advisories.extend(_basename_collisions(rows, tracked))
     advisories.extend(_gate_created_elsewhere(text, rows, tracked))
+    caller_advisories, caller_structural = _test_caller_findings(path, rows, written_paths)
+    advisories.extend(caller_advisories)
+    findings.extend(caller_structural)
 
     width, width_unavailable = _compute_width(path)
     if width is not None:

@@ -20,8 +20,8 @@ only the JSON shape). No entry carries one today. The per-slice code-reviewer re
 Delivery claims are checked by that reviewer's brief-conformance rows, not by a separate wave
 member.
 
-Kira carries `min_tshirt: "L"`: Kira runs on a plan sized L or above, and a plan whose size cannot
-be derived runs Kira. `tiers` cannot express L-and-above, because the engine maps M and L to one
+Kira carries `min_tshirt: "L"`: Kira runs on a plan sized L or above; a plan whose size cannot be
+derived (a grind row) does not run Kira. `tiers` cannot express L-and-above, because the engine maps M and L to one
 tier; do not simplify `min_tshirt` to a `tiers` array.
 
 ## Required on every code-landing emit

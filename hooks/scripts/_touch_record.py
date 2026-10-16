@@ -36,7 +36,7 @@ def _touch_path(line: str):
     return line
 
 
-def _touch_record_jsonl_paths(session_dir: str) -> list[str]:
+def _touch_record_jsonl_paths(session_dir: str, kinds: tuple[str, ...] | None = None) -> list[str]:
     paths: list[str] = []
     try:
         with open(
@@ -54,6 +54,8 @@ def _touch_record_jsonl_paths(session_dir: str) -> list[str]:
                 except Exception:  # noqa: BLE001
                     continue
                 if not isinstance(row, dict):
+                    continue
+                if kinds is not None and row.get("kind", kinds[0]) not in kinds:
                     continue
                 rel = row.get("path")
                 if isinstance(rel, str) and rel:

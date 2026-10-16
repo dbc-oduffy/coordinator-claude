@@ -43,8 +43,11 @@ unreachable live-session registry, an unreadable holder record) degrades to
 silence on that leg -- never a crash, and the other legs (if computable) still
 emit.
 
-Repo-root resolution mirrors `group-em-autofire.py`'s convention exactly:
-`payload.get("cwd")` with an `os.getcwd()` fallback, passed to `read_watch`.
+Root resolution. The identity and Uhura legs use `payload.get("cwd")` with an
+`os.getcwd()` fallback, as `group-em-autofire.py` does. The GROUP EM WATCH leg reads the
+G-EM's own root instead: `_gem_home.gem_root()` when a live box holder exists, else
+`_gem_home.resolve_home()`; a refused home is silence on that leg, and the session repo's
+own state is never read for it.
 Not cwd alone -- a hook process's own cwd is not reliably the invoking
 session's under concurrency, and the plan's falsifier runs this surface
 against disposable fixture roots that only reach it via `cwd`.
@@ -109,6 +112,19 @@ def _group_em_identity(repo_root: str) -> dict | None:
         return identity if isinstance(identity, dict) else None
     except Exception as exc:  # noqa: BLE001
         print(f"watch-presence: group-em identify failed ({type(exc).__name__}); presence line omitted", file=sys.stderr)
+        return None
+
+
+def _watch_root() -> str | None:
+    """The G-EM's root for the watch leg, or None (silence) when the home is refused."""
+    try:
+        import _gem_home
+
+        root = _gem_home.gem_root()
+        if root:
+            return root
+        return str(_gem_home.resolve_home())
+    except Exception:  # noqa: BLE001
         return None
 
 
@@ -181,9 +197,10 @@ def main() -> int:
 
     module = _resolve_watch_module()
     watch_result = None
-    if module is not None:
+    watch_root = _watch_root() if module is not None else None
+    if module is not None and watch_root:
         try:
-            watch_result = module.read_watch(repo_root)
+            watch_result = module.read_watch(watch_root)
         except Exception:  # noqa: BLE001
             watch_result = None
 

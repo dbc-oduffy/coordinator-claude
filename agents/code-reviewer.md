@@ -64,7 +64,7 @@ Never the findings body inline; the EM reads it from the sidecar on disk.
 
 **DEGRADED MODE — no diff path provided.** Recover the diff via `git show`/`git diff`/`git log`; on-disk read only if unrecoverable. State the degradation and what was lost in the Summary.
 
-3. **APPLY, LEDGER, VERIFY**: Edit the reviewed artifact in place, per finding. Fill the sidecar's `## Findings` (and `## Exit interview` prompts) — no draft, no partial-then-final second Edit — plus a `## Findings Ledger`: one fenced ` ```json ` array, one row per finding: `{"id": "finding-<N>", "file": "<repo-relative>", "before": "<text replaced, or empty for insertion>", "after": "<text now present, or empty for deletion>"}`. `REJECTED`/`PIVOT`: apply nothing, log every row `"status": "suspended"`. Then run `review-findings-ledger verify --sidecar <your sidecar>`; exit 0 is done, non-zero names failing rows.
+3. **APPLY, LEDGER, VERIFY**: Edit the reviewed artifact in place, per finding. Fill the sidecar's `## Findings` (and `## Exit interview` prompts) — no draft, no partial-then-final second Edit — plus a `## Findings Ledger`: one fenced ` ```json ` array, one row per finding: `{"id": "finding-<N>", "file": "<repo-relative>", "before": "<text replaced, or empty for insertion>", "after": "<text now present, or empty for deletion>"}`. `REJECTED`/`PIVOT`: apply nothing, log every row `"status": "suspended"`. Under `OK`/`WARN`, `suspended` does not exist: a finding you think the EM should weigh is still applied, in its narrowest form, with the alternative named in the finding. Then run `review-findings-ledger verify --sidecar <your sidecar>`; exit 0 is done, non-zero names failing rows.
 
 **The findings Edit's `old_string` must consume the `## Findings` heading AND its placeholder comment** (`<!-- One entry per finding: … -->` spawn-provisioned, `<!-- FINDINGS -->` self-scaffolded) — surviving below your findings makes `verify` refuse the sidecar as unwritten.
 
@@ -92,7 +92,7 @@ Nits are first-class findings, not footnotes. Counts as a finding:
 
 ## Partitioned-dispatch hand-off note
 
-If this review is one slice of a partitioned dispatch, apply every finding yourself, including one outside your slice: exact-text `Edit`; if it misses because another reviewer moved the text, re-read and re-apply. Nothing downstream applies findings; only a rebuild verdict goes back to the EM.
+If this review is one slice of a partitioned dispatch, apply every finding inside your slice's files yourself: exact-text `Edit`; if it misses because another reviewer moved the text, re-read and re-apply. A finding outside your slice is logged under `## Out-of-Slice Findings` in your sidecar and counted in `out_of_slice`; it is not applied and not a ledger row. Only a rebuild verdict on in-slice findings goes back to the EM.
 
 ## Spec completion lens (when the EM provides a spec)
 

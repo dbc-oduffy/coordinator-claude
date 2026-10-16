@@ -10,12 +10,14 @@ quotes it.
 
 RESOLUTION CHAIN, first hit wins:
 1. the plan's own `## PM brief` body section;
-2. the plan's `execution_authorized_note` frontmatter field;
-3. a baton handoff -- `predecessor_handoff` first, then the plan's `deliverable_id` matched
+2. the PM prompts the lobby recorded: the plan's `sizing_object` sizing's `pm_verbatims`,
+   newest first (`ref` is the sizing path);
+3. the plan's `execution_authorized_note` frontmatter field;
+4. a baton handoff -- `predecessor_handoff` first, then the plan's `deliverable_id` matched
    against `state/handoffs/*.md`, then `archive/handoffs/**/*.md`, state tier before archive
    tier. More than one match within a single tier is unresolvable -- this never guesses between
    two live candidates;
-4. nothing: `NoPmBriefError`, naming all three sources checked and the remedy.
+5. nothing: `NoPmBriefError`, naming every source checked and the remedy.
 
 The baton-tier precedence (state before archive, ambiguous-within-a-tier refuses) mirrors
 `emit-dispatch-workflow.py :: _resolve_baton_cell_to_path`, which resolves a `## Baton
@@ -45,6 +47,8 @@ from typing import Optional
 
 import yaml
 
+_TRUNCATED_MARKER = "...[truncated]"
+
 SOURCE_PM_VERBATIM = "pm-verbatim"
 SOURCE_EXECUTION_UTTERANCE = "execution-utterance"
 SOURCE_BATON_ORIGINATING_ASK = "baton-originating-ask"
@@ -66,10 +70,10 @@ _REVIEWER_FRAMING = (
 
 
 class NoPmBriefError(Exception):
-    """Raised when none of the three PM-brief sources resolve.
+    """Raised when none of the four PM-brief sources resolve.
 
-    The message names all three sources checked and the remedy, per the resolution chain's
-    fourth step -- this is a loud refusal, never an empty brief.
+    The message names all four sources checked and the remedy, per the resolution chain's
+    fifth step -- this is a loud refusal, never an empty brief.
     """
 
 
@@ -189,10 +193,70 @@ def _resolve_baton_by_deliverable_id(deliverable_id: str, repo_root: Path) -> Op
     return None
 
 
-def resolve(plan_path: Path, repo_root: Path) -> Brief:
-    """Walk the four-step resolution chain and return the first hit.
+def sizing_verbatims(sizing_path: Path) -> list[dict]:
+    """The sizing's `pm_verbatims` entries in file order (newest first); `[]` when the file is
+    unreadable, malformed, or carries no usable entry. Entries without non-empty string `text`
+    are dropped."""
+    try:
+        raw = Path(sizing_path).read_text(encoding="utf-8")
+        data = yaml.safe_load(_normalize(raw))
+    except (OSError, yaml.YAMLError):
+        return []
+    items = data.get("pm_verbatims") if isinstance(data, dict) else None
+    if not isinstance(items, list):
+        return []
+    return [
+        i for i in items
+        if isinstance(i, dict) and isinstance(i.get("text"), str) and i["text"].strip()
+    ]
 
-    Raises `NoPmBriefError` naming all three sources checked and the remedy when nothing
+
+def _verbatims_text(entries: list[dict]) -> str:
+    turns = []
+    for entry in entries:
+        text = entry["text"]
+        if entry.get("truncated") is True:
+            text = f"{text}\n{_TRUNCATED_MARKER}"
+        turns.append(text)
+    return "\n\n".join(turns)
+
+
+def render_sizing_brief(sizing_path: Path) -> Optional[str]:
+    """The sizing's PM verbatims as the `## PM brief` blockquote body, newest first, each turn's
+    text byte-for-byte (a `truncated` turn ends with `...[truncated]`). `None` when the sizing
+    carries none."""
+    entries = sizing_verbatims(sizing_path)
+    if not entries:
+        return None
+    lines = _verbatims_text(entries).split("\n")
+    return "\n".join(f"> {ln}" for ln in lines)
+
+
+_ENGINE_STAMP_RES = (
+    re.compile(r"^PM authorized by typed command: /\S+ \(no accompanying words\)$"),
+    re.compile(r"^authorized by accepted sizing \(.*\)$"),
+)
+
+
+def _strip_engine_stamps(note: str) -> str:
+    kept = [
+        ln for ln in _normalize(note).split("\n")
+        if ln.strip() and not any(r.match(ln.strip()) for r in _ENGINE_STAMP_RES)
+    ]
+    return "\n".join(ln.strip() for ln in kept)
+
+
+def note_carries_pm_words(note: str) -> bool:
+    """True when `note` has any line left after removing the engine-composed stamps (a
+    typed-command stamp with no accompanying words, an accepted-sizing stamp). A denylist:
+    any other text, however terse, is the PM's own words."""
+    return bool(isinstance(note, str) and _strip_engine_stamps(note))
+
+
+def resolve(plan_path: Path, repo_root: Path) -> Brief:
+    """Walk the five-step resolution chain and return the first hit.
+
+    Raises `NoPmBriefError` naming every source checked and the remedy when nothing
     resolves.
     """
     plan_path = Path(plan_path)
@@ -208,9 +272,19 @@ def resolve(plan_path: Path, repo_root: Path) -> Brief:
             ref = pm_brief_fm["ref"]
         return Brief(text=section, source=SOURCE_PM_VERBATIM, ref=ref)
 
+    sizing_ref = fm.get("sizing_object") if isinstance(fm, dict) else None
+    if isinstance(sizing_ref, str) and sizing_ref.strip():
+        sizing_ref = sizing_ref.strip()
+        contained = not Path(sizing_ref).is_absolute() and ".." not in Path(sizing_ref).parts
+        entries = sizing_verbatims(repo_root / sizing_ref) if contained else []
+        if entries:
+            return Brief(text=_verbatims_text(entries), source=SOURCE_PM_VERBATIM, ref=sizing_ref)
+
     note = fm.get("execution_authorized_note") if isinstance(fm, dict) else None
-    if isinstance(note, str) and note.strip():
-        return Brief(text=note.strip(), source=SOURCE_EXECUTION_UTTERANCE, ref=None)
+    if isinstance(note, str) and note_carries_pm_words(note):
+        return Brief(
+            text=_strip_engine_stamps(note), source=SOURCE_EXECUTION_UTTERANCE, ref=None
+        )
 
     predecessor = fm.get("predecessor_handoff") if isinstance(fm, dict) else None
     handoff_path: Optional[Path] = None
@@ -235,10 +309,12 @@ def resolve(plan_path: Path, repo_root: Path) -> Brief:
 
     raise NoPmBriefError(
         f"no PM brief resolves for {plan_path}: checked (1) a `## PM brief` body section, "
-        "(2) the `execution_authorized_note` frontmatter field, (3) a baton via "
+        "(2) `pm_verbatims` in the sizing named by `sizing_object`, "
+        "(3) the `execution_authorized_note` frontmatter field, (4) a baton via "
         "`predecessor_handoff` or `deliverable_id` matched against state/handoffs/*.md then "
-        "archive/handoffs/**/*.md. Remedy: re-stamp with --utterance \"<PM's words>\" or add a "
-        "`## PM brief` section."
+        "archive/handoffs/**/*.md. A typed-command mint with no accompanying words carries no "
+        "PM words and needs `--utterance`. Remedy: re-stamp with --utterance \"<PM's words>\" "
+        "or add a `## PM brief` section."
     )
 
 

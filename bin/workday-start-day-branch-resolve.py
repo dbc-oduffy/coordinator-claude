@@ -240,6 +240,8 @@ def cmd_day_branch_assert(args: argparse.Namespace) -> int:
     outcome, detail = publish_day_branch(repo_root)
     if outcome == "published":
         print(f"day-branch: published {detail}")
+    elif outcome == "unconfirmed":
+        print(f"day-branch: publish UNCONFIRMED -- {detail}", file=sys.stderr)
     elif outcome == "failed":
         print(f"day-branch: publish FAILED -- {detail}", file=sys.stderr)
 

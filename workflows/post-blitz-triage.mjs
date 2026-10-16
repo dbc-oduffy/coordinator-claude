@@ -1,5 +1,5 @@
 /*
- * Dispatches the three post-plan-blitz follow-up categories a readiness gate produces: items
+ * Dispatches the three post-plan-blitz follow-up categories a plan-blitz wave verdict produces: items
  * surfaced to the PM, plans pulled for a named fixable defect, and XS/dispatch batons whose
  * execution gate is open. `ready` and `replan` batons feed back into roadmap.blitz_land
  * automatically; these three categories need a human (or a persona doing the human's first pass)

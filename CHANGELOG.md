@@ -4,6 +4,13 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.4.22] — 2026-10-16
+
+- **Turn-intent tail is Cockpit-only.** The EM's `<turn-intent>` tail and its Stop-hook enforcement apply only
+  when the session env carries `COORDINATOR_COCKPIT=1`; elsewhere there is no tail and no block.
+- **Kira verdict routing** counts only git-tracked product paths.
+- **General-work home template** for the Group EM and repo-less asks.
+
 ## [4.4.21] — 2026-10-15
 
 - **Leaner review.** Kira (overengineering) reviews only L and XL plans; the delivery verifier is retired and

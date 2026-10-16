@@ -14,7 +14,8 @@ absent `approval.json`, or one that is not an approved `pm` approval.
 workflow's `approverFor` owns that mapping.
 
 Exit codes: 0 fires emitted; 2 bad input (missing or non-roadmap-routed sizing, invalid runId,
-no interaction mode, malformed frozen candidates); 3 sweep found no candidates; 4 bind failed;
+no interaction mode, malformed frozen candidates, a --trail-dir outside `<repo-root>/scratch/`);
+3 sweep found no candidates; 4 bind failed;
 5 resume refused (approval.json absent, unreadable, not an approved pm approval).
 """
 
@@ -163,6 +164,14 @@ def _abs_dir(value: str) -> Path:
     return p
 
 
+def require_scratch_trail(repo_root: Path, trail_dir: Path) -> None:
+    """Refuse a trail dir that is not strictly inside `<repo-root>/scratch/` (resolved-part comparison)."""
+    scratch = repo_root.resolve().parts + ("scratch",)
+    parts = trail_dir.resolve().parts
+    if len(parts) <= len(scratch) or parts[: len(scratch)] != scratch:
+        raise Refusal(2, f"--trail-dir must be under <repo-root>/scratch/ ({Path(*scratch)}): {trail_dir}")
+
+
 def _provision_sidecar_cli(value: str) -> Path:
     p = _abs_dir(value)
     stem = p.name.lower()
@@ -275,6 +284,7 @@ def main(argv: list[str] | None = None) -> int:
         ap.error(f"--repo-root is not a directory: {repo_root}")
 
     try:
+        require_scratch_trail(repo_root, ns.trail_dir)
         if ns.resume:
             print(resume(ns.trail_dir, invoke, source, reemit))
             return 0

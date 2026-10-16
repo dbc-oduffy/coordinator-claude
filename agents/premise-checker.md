@@ -67,6 +67,16 @@ the tree says otherwise — a docstring, a wiki prohibition, a resolver that rai
 `UNCHECKABLE` (no surface in this tree settles it). Each row carries the class number, the
 citation verbatim, and the evidence you read.
 
+**A cited on-disk ruling is settled.** A premise that cites a ruling file (`state/apm-rulings/*`,
+`docs/decisions/*`) or the plan's own `Settled premises` section is `RESOLVES` once you have opened
+the cited file or section, it exists, and it addresses the premise; evidence names it. Never `UNRESOLVED` or `UNCHECKABLE`:
+the ruling is the settlement, and no further surface is owed. A cited ruling file that is absent is
+still `UNRESOLVED`.
+
+**A plan-created target resolves.** A citation of a symbol, file or path that a row of the same
+plan creates (its `writes:` or body says it adds it) is `RESOLVES`, with evidence naming that row.
+Never `UNRESOLVED`: absence at HEAD is what the row is for.
+
 `UNCHECKABLE` is a first-class answer and costs you nothing. `RESOLVES` on a citation you did not
 open is the failure this pass exists to stop.
 

@@ -144,11 +144,25 @@ never returns exit 2, at any posture. Suppressing a genuine PM decision for
 being worded badly is the one unrecoverable failure on this surface; the
 worst permitted outcome is that the EM restates it.
 
+TURN-INTENT STEP. Before the altitude verdict, every non-subagent stop runs
+`_turn_intent.decide` on the final message (`last_assistant_message`, else the
+transcript): a declared `<turn-intent>` tail is recorded to the session's
+`turn-intent.json`; a missing tail is blocked at most `BLOCK_CAP` times (own
+counter) and only in a session holding the EM role marker, then recorded as
+`source: heuristic` (label only, never a block). The block arms only under Cockpit
+(`_cockpit_session.under_cockpit()`): off Cockpit the step records and never blocks,
+even in a session that holds the marker. `stop_hook_active` does NOT
+exit this step -- the second block lands on a re-entered stop -- but it still
+exits the altitude verdict. The tail is stripped before the altitude regexes
+run.
+
 Contract:
   stdin   -- Stop JSON (session_id, transcript_path, cwd, stop_hook_active, agent_id...)
   stdout  -- the correction text, at posture `precision` only
-  stderr  -- the correction text, at posture `default`/`substrate-free` only
-  exit 2  -- guard fires at a blocking posture (blocks the stop; stderr shown to Claude)
+  stderr  -- the correction text, at posture `default`/`substrate-free` only,
+             then the turn-intent BLOCK_REASON when the tail is missing
+  exit 2  -- guard fires at a blocking posture, or the turn-intent tail is missing
+             (blocks the stop; stderr shown to Claude)
   exit 0  -- every other path, including every failure path (fail-open)
 
 Graceful degradation: any failure to read stdin, parse the transcript, or
@@ -162,8 +176,13 @@ import json
 import os
 import re
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _session_hub  # noqa: E402
+import _turn_intent  # noqa: E402
+import _cockpit_session  # noqa: E402
+from _session_hub import session_id_is_real as _session_id_is_real  # noqa: E402
 from _touch_record import _touch_lines  # noqa: E402
 from _posture import resolve_posture  # noqa: E402
 
@@ -912,32 +931,51 @@ def _emit_go_ask_advisory(payload: dict, text: str) -> None:
         sys.stdout.write(_GO_ASK_ADVISORY_TEXT)
 
 
-def main() -> int:
-    try:
-        raw = sys.stdin.read()
-    except Exception:
-        return 0
+def _heuristic_turn_intent(text: str) -> tuple[bool, str]:
+    """Label-only classifier for a turn that declared no intent: needs_pm iff
+    a shipped handoff/go-ask/ownership pattern fires; ask is that sentence."""
+    candidate = _candidate_ownership_sentence(text)
+    if candidate is not None:
+        return True, candidate[:_turn_intent.ASK_MAX]
+    for sentence in _split_sentences(text)[-_GO_ASK_TAIL_SENTENCES:]:
+        if any(_fires(p, sentence) for p in _GO_ASK_PATTERNS):
+            return True, sentence[:_turn_intent.ASK_MAX]
+    return (True, "") if _matches_manufactured_blocker(text) else (False, "")
 
-    try:
-        payload = json.loads(raw) if raw else {}
-        if not isinstance(payload, dict):
-            payload = {}
-    except Exception:
-        payload = {}
 
-    if payload.get("agent_id"):
-        return 0
-    if payload.get("stop_hook_active"):
-        return 0
+def _turn_intent_step(payload: dict, text: str) -> bool:
+    """Record this stop's turn intent; True iff the stop must be blocked for a
+    missing tail. Blocks only with a role marker and a durable counter."""
+    session_id = payload.get("session_id")
+    cwd = payload.get("cwd")
+    if not text.strip() or not isinstance(cwd, str) or not cwd:
+        return False
+    if not _session_id_is_real(session_id):
+        return False
+    git_root = git_root_walk(cwd)
+    git_dir = resolve_git_common_dir(git_root) if git_root else ""
+    if not git_dir:
+        return False
+    directory = _turn_intent.session_dir(git_dir, session_id)
+    if not _session_hub.ensure_session_dir(directory, session_id):
+        return False
+    decision = _turn_intent.decide(
+        text,
+        _turn_intent.read_blocks(directory),
+        # A session started under Cockpit and resumed in a terminal keeps its marker, so the marker alone is not the gate.
+        _turn_intent.role_marker_present(directory) and _cockpit_session.under_cockpit(),
+        _heuristic_turn_intent,
+    )
+    if decision.block:
+        count = _turn_intent.bump_blocks(directory)
+        return _turn_intent.read_blocks(directory) == count
+    if decision.record is not None:
+        needs_pm, ask, source = decision.record
+        _turn_intent.write_record(directory, session_id, needs_pm, ask, source, time.time())
+    return False
 
-    transcript_path = payload.get("transcript_path")
-    if not isinstance(transcript_path, str) or not transcript_path:
-        return 0
 
-    text = _strip_declared_operator_actions(_final_assistant_text(transcript_path))
-    if not text.strip():
-        return 0
-
+def _altitude_verdict(payload: dict, text: str) -> int:
     _emit_go_ask_advisory(payload, text)
 
     if not _matches_manufactured_blocker(text):
@@ -1001,6 +1039,45 @@ def main() -> int:
 
     sys.stdout.write(correction_text)
     return 0
+
+
+def main() -> int:
+    try:
+        raw = sys.stdin.read()
+    except Exception:
+        return 0
+
+    try:
+        payload = json.loads(raw) if raw else {}
+        if not isinstance(payload, dict):
+            payload = {}
+    except Exception:
+        payload = {}
+
+    if payload.get("agent_id"):
+        return 0
+
+    transcript_path = payload.get("transcript_path")
+    has_transcript = isinstance(transcript_path, str) and bool(transcript_path)
+    transcript_text = _final_assistant_text(transcript_path) if has_transcript else ""
+    last_message = payload.get("last_assistant_message")
+    intent_text = last_message if isinstance(last_message, str) and last_message.strip() else transcript_text
+
+    try:
+        intent_block = _turn_intent_step(payload, intent_text)
+    except Exception:
+        intent_block = False
+
+    altitude_rc = 0
+    if not payload.get("stop_hook_active") and has_transcript:
+        text = _strip_declared_operator_actions(_turn_intent.strip_marker(transcript_text))
+        if text.strip():
+            altitude_rc = _altitude_verdict(payload, text)
+
+    if intent_block:
+        sys.stderr.write(("\n" if altitude_rc == 2 else "") + _turn_intent.BLOCK_REASON + "\n")
+        return 2
+    return altitude_rc
 
 
 if __name__ == "__main__":

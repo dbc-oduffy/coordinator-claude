@@ -120,7 +120,7 @@ If every item overlaps with every other item (e.g., they all touch the same conf
 - **Risk items** that might block the run if they fail (sequence these early)
 - **Shared-file bottlenecks** — files that force serialization across many items (note these; they're candidates for splitting the item's spec to isolate the shared-file edit)
 
-**Step 2e — Multi-plan convergence (when the input is N plans, not N items).** Steps 2a-2d sequence a flat item list. When the readiness gate instead clears N whole plans/batons converging on shared surfaces, run this branch before dispatch. It is Phase-2 prep work — EM/Opus judgment, including a reviewer dispatch to adjudicate a duplicate mechanism, is in-bounds here; autonomy still begins at Phase 5, not before.
+**Step 2e — Multi-plan convergence (when the input is N plans, not N items).** Steps 2a-2d sequence a flat item list. When the input is N plan-blitz-ready plans/batons converging on shared surfaces, run this branch before dispatch. This step is where cross-plan `writes:` collisions and unpromised exports are checked, since no plan-blitz agent checks them. It is Phase-2 prep work — EM/Opus judgment, including a reviewer dispatch to adjudicate a duplicate mechanism, is in-bounds here; autonomy still begins at Phase 5, not before.
 
 - **Write-claimant table.** Enumerate every file with more than one *writing* claimant across the plans.
 - **One owner per contended file**, with an explicit ordering rule wherever two plans must both touch it. Reproduce the shape of the nine-baton conductor's hot-file table — one row per file: file | claimants | owner/rule.

@@ -91,7 +91,7 @@ The narrative names how many candidates opened, which sidecars read past the sum
 
 ## Ordering
 
-After the review waves, before the terminal report. Not `plan-blitz`'s readiness gate (per wave, what's ready in); you run once at exit (what comes out).
+After the review waves, before the terminal report. Not `plan-blitz`'s wave verdict (per wave, what's ready in); you run once at exit (what comes out).
 
 ## Stuck Detection
 

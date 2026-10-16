@@ -51,11 +51,12 @@ claimant is unverified and gets treated as an ordinary peer. Tripwire:
 
 ## Every peer is told at boot, in one line
 
-`assert-em-role.py` emits `G-EM active: <name> (<session prefix>)` at SessionStart, iff a live
-nomination holds **this** repo — never another repo's, and never from a cache. It is identity so
-an inbound claim can be weighed against something already known; it confers nothing.
+`assert-em-role.py` emits `G-EM active: <name> (<session prefix>)` at SessionStart, iff the engine's
+box holder — the G-EM sitting in the general-work home — is verified and live, whichever repo the
+session is in; never from a cache. It is identity so an inbound claim can be weighed against
+something already known; it confers nothing.
 
-No nomination, a lapsed one, or no peers all render no line — silence is the common case, not a
+No holder, a lapsed one, or no peers all render no line — silence is the common case, not a
 failed check. `name` is advisory and a rename voids it; the session id is what joins. Pinned by
 `coordinator/tests/test_assert_em_role_group_em_line.py`.
 

@@ -1,6 +1,6 @@
 export const meta = {
   name: "engine-ask",
-  description: "Submit an engineering ask to the engine: args {ask: \"<the PM's words, verbatim>\"} or {sizing: \"<state/sizings/x.yaml>\"}, optional repo, optional source: \"relayed\" for words that are not the PM's own (a Group EM relay, a peer's request, a memo). The engine fires the run.",
+  description: "Submit an engineering ask to the engine: args {ask: \"<the PM's words, verbatim>\"} or {sizing: \"<state/sizings/x.yaml>\"}, optional repo, optional source: \"relayed\" for words that are not the PM's own (a Group EM relay, a peer's request, a memo). The engine fires the run. Multi-ask form: args {asks: [{ask: \"<slice, carrying the full PM verbatim>\", label?: \"<short name>\", writes?: [\"<path>\", ...]}], confirm_split?: bool} beside the single {ask}; submit distinct initiatives as separate asks in one submission, never bundled. Returns {parent_id, runs: [{run_id, label, after?}]}, and each run sends its own completion notification. A single {ask} that sizing finds separable comes back split and auto-fires unless confirm_split is set.",
   phases: ["submit"],
 }
 

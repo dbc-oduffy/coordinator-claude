@@ -65,14 +65,9 @@ After the workflow returns, if it did not itself run `finish`, run
 
 ## Judgment points left to a person
 
-**Offer to volunteer as Group EM.** This ceremony never nominates and never calls `groupem.enter`.
-Report the run's `groupem-nomination-who` and `groupem-watch` rows in one line each — who was
-nominated is not whether anyone is still watching; neither substitutes for the other — followed by a
-one-line offer to take the role. Then stop. `nominate --repo <root> --session-id <this session>` runs
-on the PM's explicit yes to that offer and on nothing else: not on an empty record, a dead holder, an
-idle-looking session, or an unanswered offer. On a yes, report the verdict; if it names a displaced
-holder that is still running, tell that session the role has moved. Claiming the record is not
-entering the mode — `/group-em` stays PM-gated.
+**Report the general-work G-EM.** From the run's `groupem-nomination-who` and `groupem-watch` rows,
+say who holds the role and whether the watch is armed, or that the box has none. Report only: this
+ceremony never offers, nominates or calls `groupem.enter`; the G-EM is entered from the general-work home.
 
 **Day focus.** If `$ARGUMENTS` is provided: _"Requested focus: {arguments}"_ — carry it into
 "What should today's focus be?" in the briefing.

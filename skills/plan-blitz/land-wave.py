@@ -17,7 +17,7 @@ returned object, and passing it to the op means copying a large JSON literal out
 tool result. This reads it from disk instead — either the raw result or the harness's
 task-output envelope, whichever the caller points at.
 
-WHAT IT DOES NOT DECIDE. Nothing. The verdicts were the EM's, made at the readiness gate;
+WHAT IT DOES NOT DECIDE. Nothing. The verdicts were the wave's op verdicts;
 the op executes them. This module orders the calls and sums the lanes. It does not fire
 the next wave — that stays one explicit call away, which is what keeps a runaway loop
 impossible — and it does not re-queue anything the wave left `pm_only` in `surfacedToPm`.
