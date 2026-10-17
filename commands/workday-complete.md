@@ -3,7 +3,6 @@ name: workday-complete
 description: "End-of-day wrap — validate, consolidate, review, changelog."
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Skill"]
 argument-hint: "[optional summary of the day]"
-disable-model-invocation: true
 ---
 
 # Workday Complete — End-of-Day Orchestration
@@ -32,9 +31,12 @@ PowerShell hosts (rung 0, Shape W, same snippet), one command per line:
     & "$env:COORDINATOR_SETTINGS_HOME\bin\tier-u-grant-cli.exe" grant ceremony "workday-complete Tier-U consumers" --ceremony workday-complete
     & "$env:COORDINATOR_SETTINGS_HOME\bin\workday-complete-args-and-validate.exe" check-cross-machine "$ARGUMENTS"
 
-Capture stdout+exit code of each; non-zero on either stops. The assembler's front-door directive
-sets `$FOR_DATE`/`$ONLY_MODE`/`$ONLY_FLAG`/`$SCOPE_SUMMARY`. A cross-machine `--for-date` mismatch
-fails loud — stop and report.
+Capture stdout+exit code of each; non-zero on either stops. A cross-machine `--for-date` mismatch
+fails loud — stop and report; a pass prints nothing.
+
+No tool exports the variables — parse them from `$ARGUMENTS` yourself: `--for-date <YYYY-MM-DD>`
+sets `$FOR_DATE`; `--only` sets `$ONLY_MODE=1` and `$ONLY_FLAG=--only`; the remaining words are
+`$SCOPE_SUMMARY`. Anything absent is empty, and `$ONLY_MODE=0`. No arguments: all empty.
 
 ## Step 2: Compute the Ceremony
 
@@ -53,12 +55,20 @@ If `ToolSearch` finds `mcp__project-rag__*`, run the staleness survey with this 
 `project_root` (an unnamed call is ambiguous with a second live session). Surface
 stale/very-stale only for a repo `project_list_sources` reports as `origin: consumer-project` —
 elsewhere the step is N/A and silent (`A-RAG-VERDICT-ON-AN-UNINDEXED-REPO-IS-NOT-STALENESS`).
-Run `node --test coordinator/tests/plugin-ecosystem/run.js` — hook-behavior failures block;
-non-hook failures report and continue.
+A consumer-project registration with `reachable=false`/`root_exists=false` while the root exists
+on disk is a broken registration, not staleness: report one line naming the repo and the `origin`/`reachable`/`root_exists` values the tool returned (it returns no `resolution` field), and route it to the index owner; never re-index from here.
+
+Plugin validation runs only in the plugin source repo: where `coordinator/tests/plugin-ecosystem/run.js` exists under
+the repo root, run `node --test coordinator/tests/plugin-ecosystem/run.js` from `coordinator/`
+— hook-behavior failures block; non-hook failures report and continue. Every other repo: N/A,
+one report line, never the plugin-cache copy (it cannot resolve the engine checkout).
 
 **The register stall check:** `coordinator-invoke requirement_register.stall_report '{"today":"<today>"}'` (settings-home forwarder); render findings in the wrap report under `### Register stall check`, omitted when empty.
 
-**Step 4b: Structural index.** Run `"$_py" "$COORDINATOR_SETTINGS_HOME/bin/structural-index-refresh"` (POSIX; on PowerShell `& "$env:COORDINATOR_SETTINGS_HOME\bin\structural-index-refresh.exe"`, `snippets/resolve-coordinator-bin.md`) (non-blocking, always exit 0; `COORDINATOR_STRUCTURAL_INDEX_REFRESH_OFF=1` disables) — report its line if it prints one.
+**Step 4b: Structural index.** Run `"$_py" "$COORDINATOR_SETTINGS_HOME/bin/structural-index-refresh"` (POSIX; on PowerShell `& "$env:COORDINATOR_SETTINGS_HOME\bin\structural-index-refresh.exe"`, `snippets/resolve-coordinator-bin.md`) (non-blocking, always exit 0; `COORDINATOR_STRUCTURAL_INDEX_REFRESH_OFF=1` disables) — report its line if it prints one. A "still running" or "cold build started" line has no
+completion signal in this run: the detached run writes its outcome (`exit_code`,
+`stderr_tail`, `deferred`) to `.structural-index/refresh-last.json`. Read it at Step 10; a
+non-zero or missing `exit_code` there is a report line, still non-blocking.
 
 ## Step 5: Resolve Judgment Points
 
@@ -66,14 +76,15 @@ Read each `judgment_points[]` entry verbatim — question/evidence/dispositions 
 
 - `jp_step2_5_dirty_tree_ambiguous`: adopt-commit / discard / attribute-to-session. Attribute only
   to a session the claim index shows holding the path — `liveness=dead` is an orphan, not an
-  owner. Everything left over is adopt-commit; Step 9e will not let the ceremony end while any of
+  owner, even where the tool labels it `peer-claim (needs PM)`; that label routes nowhere, and
+  an orphan is adopt-commit. Everything left over is adopt-commit; Step 9e will not let the ceremony end while any of
   it is still dirty.
 - `jp_step3_5_backfill_cap`: backfill all, or bounded subset (default).
 - `jp_step4b_analyst_dispatch`: dispatch unless `skip_no_new_work`. `jp_step4c_observer_dispatch`:
   never dispatch daily; the observer runs weekly (`/workweek-complete` Step 7b).
 - `jp_step4_5_clustering_dispatch`: dispatch per ≥2-entry chain; `skip_only_mode` under `$ONLY_MODE=1`.
 - `jp_step4e_health_ledger_new_rows`: add `?` rows for touched systems; never audit clocks/grades.
-- `jp_day_goal_closeout`: `decisions["day_goal_closeout"] = {goal_id: "done"|"dropped"}`, or skip.
+- `jp_day_goal_closeout`: `day_goal_closeout` is a top-level key of the decisions file, beside the judgment-point entries: `{"day_goal_closeout": {goal_id: "done"|"dropped"}}`, or skip (shape: wiki).
 
 ## Step 6: Apply
 
@@ -84,7 +95,7 @@ PowerShell hosts (rung 0, Shape W):
 
     & "$env:COORDINATOR_SETTINGS_HOME\bin\workday-complete-assemble.exe" apply --decisions-file <path> $(if ($FOR_DATE) { "--for-date", $FOR_DATE }) $ONLY_FLAG
 
-Read `landed`/`blocked`/`failed`; `blocked` returns to Step 5 (exit codes: wiki).
+Read `landed`/`blocked`/`failed`; `blocked` returns to Step 5; a `blocked` directive the decisions file set to `skip` is settled, never a return (exit codes: wiki).
 
 ## Step 6b-7: Daily-Summary Dispatch and Stitch
 
@@ -121,7 +132,9 @@ PowerShell hosts (rung 0, Shape W), one command per line:
     & "$env:COORDINATOR_SETTINGS_HOME\bin\baton-drift-sweep.exe"
 
 Skip both under `$ONLY_MODE=1`. Read counts straight off, never collapsed to one number
-(`foreign`/`sibling_homed` are not gaps; `stranded` must be zero, `held` need not be — wiki).
+(`foreign`/`sibling_homed` are not gaps; `stranded` must be zero, `held` need not be — wiki). Act on `orphaned`/`stranded`/non-terminal
+handoff counts by their category, not the raw total: a large unclaimed or non-terminal count is
+a backlog to triage by category, not one failure (wiki).
 
 POSIX hosts: Shape A, resolving `check-auto-memory-drained --root .`.
 
@@ -153,9 +166,9 @@ Shape W above / Shape A/B POSIX — `snippets/resolve-coordinator-bin.md`. `--re
 
 ## Step 9e: Emitted Workflow Script Sweep
 
-Run the `/distill` § "Emitted workflow scripts" step for `state/**/fire-*.mjs` and
-`state/**/*.mjs.emitted.json`: the engine prune deletes finished units; `git rm --cached` any that
-are tracked and commit from the index.
+Run `coordinator-invoke fleet.prune_emitted_output '{}' --repo <repo-root>` (Shape W/A as Step 8b)
+over `state/**/fire-*.mjs` and `state/**/*.mjs.emitted.json`: it deletes finished units;
+`git rm --cached` any that are tracked and commit from the index.
 Advisory; the ceremony continues on failure.
 
 ## Step 9d: claudemeta Manifest Cadence

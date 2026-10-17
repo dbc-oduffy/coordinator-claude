@@ -39,7 +39,7 @@ Reviewer selection (routing-table match, tier precedence, effort) is a signal-lo
 - **Effort is PM-gated, not an EM dial.** `routing.md`'s Effort field is PM-facing reference only — never put a level in a dispatch prompt or narrate one unless the PM named it.
 - **the Director of Engineering:** cross-team/consumer-leak signal → dispatch standalone as primary (director-altitude posture in brief; no `mode` arg), skip the Staff Engineer. Chained-after-the Staff Engineer ("backstop") is the High-effort-architectural routing entry, not the Director of Engineering's only mode.
 - `--reviewers "name1,name2"` skips auto-detection; report "PM-directed review: [name1] then [name2]."
-- **Tier vs. complexity, not importance:** one reviewer suffices unless a second would likely *contradict*, not just add diminishing-return notes.
+- **Tier vs. complexity, not importance:** one reviewer suffices unless a second would likely *contradict*.
 
 **Pipeline phases** (docs-checker, prior-art-checker/plan-coverage-checker, external-pattern-checker, backstop, report) aren't optional — walk them inline per the surface's assembled phase list. The reviewer applies its own findings; there is no separate integrate phase.
 
@@ -47,22 +47,20 @@ Reviewer selection (routing-table match, tier precedence, effort) is a signal-lo
 
 **Persona/Opus reviewer** applies every finding in place, writes the `## Findings Ledger` to its sidecar, runs `review-findings-ledger verify --sidecar <path>`, and returns `DONE: <sidecar-path> | verdict: <OK|WARN|BLOCKED> | findings: <N>`; the EM reads the applied diff and the verified ledger. `code-reviewer`'s diff-only Sonnet pattern is assembled by the op.
 
-**Multi-reviewer chain:** each reviewer gets its own provisioned sidecar, applies its own findings, and verifies its own ledger against its returned path. A trivial/unfilled returned sidecar fails loud (BLOCKED) at intake.
+**Multi-reviewer chain:** each reviewer gets its own provisioned sidecar and verifies its own ledger. A trivial/unfilled returned sidecar fails loud (BLOCKED) at intake.
 
 ### A.3 — Sequencing
 
 **Code review (a diff) is one parallel wave, and every reviewer applies its own findings.**
 Slice owners, Kira and the named personas all apply in place with exact-text `Edit`s, including
-findings outside their own slice (no write against stale text: an exact-text `Edit` fails rather
-than clobbers). Kira (`overengineering-reviewer`) is the execute review wave's
+findings outside their own slice (an exact-text `Edit` fails rather than clobbers). Kira (`overengineering-reviewer`) is the execute review wave's
 whole-diff editor of shipped code, never of plans. Only a rebuild verdict goes back to the EM; there is no second review round. This
 runs inside the execute workflow's review stage (`coordinator/skills/execute-plan/SKILL.md`); a
 diff reviewed ad hoc (`/review-code`) applies and verifies its own ledger before a second
 reviewer touches it.
 
-**Plan review over one plan artifact stays ordered.** Reviewers apply their findings in place on
-the plan body, so Reviewer 1 applies and verifies its own findings before Reviewer 2 is dispatched.
-This is unchanged: only code review over a diff runs as a parallel wave.
+**Plan review over one plan artifact stays ordered.** Reviewer 1 applies and verifies its own findings in place on
+the plan body before Reviewer 2 is dispatched; only code review over a diff runs as a parallel wave.
 
 **Pre-flight sidecars are consumed alongside the plan**, never inserted into that chain; on a non-XL plan the Sonnet pre-flights (`docs-checker`, `prior-art-checker`, `plan-coverage-checker`) gate before the Opus reviewer; on the accepted-XL lane a `plan-reviewer` pass runs ahead of them, so four Sonnet-tier passes precede the Opus persona. `plan-coverage-checker` has no EM opt-out.
 
@@ -77,12 +75,11 @@ own findings ledger. The EM checks whether anything should come back out._
 
 **The double-check is a disagreement scan, not a re-adjudication.** Findings reaching the EM are already applied and ledgered by the reviewer. Read the applied diff and the findings ledger and reject what you disagree with via `review-findings-ledger reject --sidecar <path> --finding <id> --reason "<one line>"` — only the EM may run `reject`.
 
-**Application is not measured by count.** Rejecting a nit you disagree with is a correct outcome.
 The reviewer applies everything under an `OK`/`WARN`/`BLOCKED` verdict; under `REJECTED`/`PIVOT`
 (premise failure) or a Kira `rebuild_recommended: true`, it applies nothing and logs every row
 `suspended`.
 
-**Forbidden:** defer-to-later, capture-for-backlog, time-estimate-as-rationale — surface to PM; the EM does not decide to defer. Rejecting a disagreeable finding is a disposition, and needs a `reject` reason.
+**Forbidden:** defer-to-later, capture-for-backlog, time-estimate-as-rationale — surface to PM; the EM does not decide to defer. Rejecting needs a `reject` reason. Application is not measured by count; rejecting a disagreeable nit with a reason is a correct outcome.
 
 **Provenance gate — resolve before triage.** Reviewer (persona/`code-reviewer`) sidecar at
 `state/subagent-share/<session>/<key>.md`? → the ledger contract above applies. Pre-flight lens
@@ -92,8 +89,8 @@ with the lens sidecar path + adjudicated items instead; a pre-flight lens sideca
 findings-ledger sidecar. Never hand-author around this.
 
 **An artifact-shape tradeoff** (architectural direction, scope, sequencing, file organization,
-abstraction boundary) the reviewer applied anyway is exactly the case the EM's double-check exists
-for: read the reasoning, and `reject` it with a reason if the EM disagrees with the direction.
+abstraction boundary) the reviewer applied anyway is what the EM's double-check exists
+for: read the reasoning, and `reject` it with a reason if you disagree.
 YAGNI/scope-trim, refactor-over-patch, and build-vs-defer stay PM calls when the finding itself
 raises one — the reviewer applying the edit does not resolve who owns that call.
 
@@ -101,7 +98,7 @@ raises one — the reviewer applying the edit does not resolve who owns that cal
 EM dispatches), feed output back into EM context. Surface-specific eligibility and the
 test-evidence-parser capture-before-dispatch rule are assembled by the op.
 
-**Rejecting a finding from a plan body invalidates its mise-prep stamp** as applying one did: `mise_prepped_sha` is `canonical_body_sha` of the plan BODY, so any edit makes an existing `mise_prepped_*` attest STALE, not absent. Say STALE and route to a re-gate (`<settings-home>/bin/mise-prep-gate <plan>`), never a re-stamp; the predicate is a recomputed sha, never `mise_prepped_by` presence. Tripwire: `A-PRESENT-MISE-PREPPED-STAMP-IS-NOT-A-CERTIFICATION`; four states, four repairs: `coordinator/docs/wiki/lesson-triage/mise-prepped-attest.md`.
+**Rejecting a finding from a plan body invalidates its mise-prep stamp** as applying one did: any body edit makes an existing `mise_prepped_*` attest STALE, not absent. Say STALE and route to a re-gate (`<settings-home>/bin/mise-prep-gate <plan>`), never a re-stamp; the predicate is a recomputed `canonical_body_sha`, never `mise_prepped_by` presence. Tripwire: `A-PRESENT-MISE-PREPPED-STAMP-IS-NOT-A-CERTIFICATION`; four states, four repairs: `coordinator/docs/wiki/lesson-triage/mise-prepped-attest.md`.
 
 **`/review` fires on exiting `/plan`, not after an announcement.** The EM invokes it in the same
 turn, without waiting to be asked.

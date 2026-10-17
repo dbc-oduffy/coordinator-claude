@@ -10,10 +10,8 @@ argument-hint: "[--sizing <path>] --interaction-mode hands-on|pm|ceo"
 # Roadmap-blitz — an XL sizing to roadmap batons, one approval
 
 Batches `coordinator:roadmap-planning` for a sizing with `xl_exit: roadmap`: the workflow
-inventories, clusters, substantiates, reviews, and drafts OVERVIEW; one Approve gate stands in for
-the PM rounds; then `roadmap.blitz_stage` freezes a gate report and stub batons. Rationale: wiki
-`planning/roadmap-blitz`. The wave fires from the top-level EM only — a dispatched agent cannot
-fan out (`A-SKILL-PHASE-NAMES-ITS-ACTOR`).
+inventories, clusters, substantiates, reviews, drafts OVERVIEW; one Approve gate stands in for the
+PM rounds; `roadmap.blitz_stage` then freezes a gate report and stub batons. Only the top-level EM fires the wave (`A-SKILL-PHASE-NAMES-ITS-ACTOR`).
 
 **When NOT to use:** PM present → `coordinator:roadmap-planning`; one feature →
 `coordinator:plan`; goals not ratified → `coordinator:goal-blitz`.
@@ -40,35 +38,34 @@ Resolve the launcher per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin
         --repo-root <abs> --trail-dir <abs repo>/scratch/roadmap-blitz \
         --provision-sidecar-cli <abs provision-sidecar> [--sizing <path>] --interaction-mode <mode>
 
-`--provision-sidecar-cli` is the `provision-sidecar` CLI (basename checked; never `coordinator-invoke`), resolved per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`. `--interaction-mode` is required unless the sizing carries `interaction_mode:`; the emitter refuses (exit 2) otherwise, so pass the mode `sizing-assemble` reported.
+`--provision-sidecar-cli` is the `provision-sidecar` CLI (basename checked; never `coordinator-invoke`), resolved per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`. `--interaction-mode` is required unless the sizing carries `interaction_mode:` (the emitter refuses, exit 2); pass the mode `sizing-assemble` reported.
 
 Targeted with `--sizing`, else a sweep of sizings with `xl_exit: roadmap`, `status: routed` and no
 `state/roadmap/<run-id>/` yet. It freezes `<trail>/candidates.json`, binds the args via
-`workflow.bind_args` into `<trail>/roadmap-blitz.fire.mjs`, and prints one `Workflow({ scriptPath })`
+`workflow.bind_args` into `<trail>/roadmap-blitz.fire.mjs`, prints one `Workflow({ scriptPath })`
 line per sizing. Pass `--no-plugin-agents` where `coordinator:*` types do not resolve. Nothing to
 emit or a nonzero exit: report stderr and stop.
 
 - **Never hand-type an args object.** Tripwire: `A-HAND-TYPED-WAVE-ARG-IS-AN-UNARCHIVED-FIRE`.
 - **An emitted fire is a SNAPSHOT — RE-EMIT, never re-fire as found** after a workflow fix.
 - **Resolve `${CLAUDE_PLUGIN_ROOT}`; never pass a repo-relative path** to a workflow: the emitter
-  binds it as `pluginRoot` (`--plugin-root` overrides); a consumer repo has no `coordinator/` directory.
+  binds it as `pluginRoot` (`--plugin-root` overrides); a consumer repo has no `coordinator/`.
 
 ### 2. Fire and wait
 
-Fire the printed line, wait, and do not read the trail mid-wave. Read the result's `awaitingApproval`,
-`gate_report_path` and `incidents`.
+Fire the printed line and wait; do not read the trail mid-wave. Read the result's
+`awaitingApproval`, `gate_report_path` and `incidents`.
 
 ### 3. Approve — hands-on only
 
-With `interactionMode: hands-on` the PM approves: the run returns `awaitingApproval: true` and a
-null `gate_report_path`. Ask once with `AskUserQuestion` over `state/roadmap/<run-id>/OVERVIEW.md`
-(approve or decline, plus the PM's words), then write the answer
-**verbatim** to `<trail>/approval.json`, shaped `{verdict, approver: "pm", utterance, recorded_at}`
-(`verdict` is `approved` or `declined`). Never infer, backfill or paraphrase an approval; a picker
-label is EM text, so record `"<label> (option picked)"` plus any PM words. `declined` ends the
-run. The resume stamps `approver: pm` and `approval_utterance` onto OVERVIEW.md, where plan
-authors read the Approve. Commit the trail's record files (`approval.json`, `candidates.json`) in a
-scoped commit by pathspec; `roadmap-blitz.fire.mjs` is a snapshot and stays ignored. Then:
+With `interactionMode: hands-on` the run returns `awaitingApproval: true` and a null
+`gate_report_path`. Ask the PM once with `AskUserQuestion` over `state/roadmap/<run-id>/OVERVIEW.md`
+(approve or decline, plus their words); write the answer **verbatim** to `<trail>/approval.json`,
+`{verdict, approver: "pm", utterance, recorded_at}` (`verdict` is `approved` or `declined`). Never
+infer, backfill or paraphrase an approval; a picker label is EM text, so record `"<label> (option
+picked)"` plus any PM words. `declined` ends the run. The resume stamps `approver: pm` and
+`approval_utterance` onto OVERVIEW.md. Commit `approval.json` and `candidates.json` in a scoped
+commit by pathspec (`roadmap-blitz.fire.mjs` stays ignored). Then:
 
     python3 "${CLAUDE_PLUGIN_ROOT}/skills/roadmap-blitz/emit-roadmap-fire.py" \
         --repo-root <abs> --resume --trail-dir <abs repo>/scratch/roadmap-blitz
@@ -78,13 +75,13 @@ refusal. In `pm` or `ceo` mode the workflow's APM approves inside the run: no re
 
 ### 4. Hand to plan-blitz
 
-On a returned `gate_report_path`, invoke `coordinator:plan-blitz` with that report and nothing
-else to decide. A null `gate_report_path` with `incidents`: report them and stop.
+On a returned `gate_report_path`, invoke `coordinator:plan-blitz` with that report and nothing else to decide. A null
+`gate_report_path` with `incidents`: report them and stop.
 
 ### 5. Surface owedRetirements
 
-List the result's `owedRetirements` (live source plans the roadmap supersedes) to the PM; retiring
-one (roadmap-planning Step 2.9) is the PM's call, never made here.
+List the result's `owedRetirements` (live source plans the roadmap supersedes) to the PM;
+retiring one (roadmap-planning Step 2.9) is the PM's call, never made here.
 
 ---
 
@@ -96,8 +93,7 @@ one (roadmap-planning Step 2.9) is the PM's call, never made here.
 
 **clusters.md carries a `Stub slug prefix:` line**, a short word never date-led, or two roadmaps collide on stub ids.
 
-**Cross-plan seams are checked at /mise-prep Step 2e:** an export one plan needs from an
-earlier plan, or a sibling write collision, is checked there.
+**Cross-plan seams are checked at /mise-prep Step 2e** (an export one plan needs from an earlier plan, a sibling write collision).
 
 **Never write `state/roadmap/` by hand** — the workflow and `roadmap.blitz_stage` are the only writers.
 

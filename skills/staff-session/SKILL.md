@@ -7,9 +7,9 @@ argument-hint: "--mode plan|review --tier standard|full [--members \"the Staff E
 
 # Staff Session — Chatty-Workflow Planning and Review Driver
 
-The EM scopes the work, selects the debaters, fires ONE background `Workflow`, and is **freed**; the
-Workflow then runs the debate as rounds and synthesizes autonomously. Roles, models and counts:
-`pipelines/staff-session/team-protocol.md` § Roles — read there, don't re-derive. Doctrine:
+There are no tasks or `blockedBy`. The EM scopes the work, selects the debaters, fires ONE background `Workflow`, and is **freed**; the
+Workflow runs the debate as rounds and synthesizes autonomously. Roles, models and counts:
+`pipelines/staff-session/team-protocol.md` § Roles. Doctrine:
 `coordinator/docs/wiki/dispatching-parallel-agents/chatty-workflows.md`.
 
 **Lightweight tier falls through to single-reviewer dispatch via `/review` (plan) or
@@ -31,7 +31,7 @@ Parse `--mode`, `--tier` (both required — fail with usage message if missing),
 
 Generate run ID (`YYYY-MM-DD-HHhMM`), spawn timestamp, topic slug from input. Create
 `docs/research/{run-id}-workdir/` (shared paper-trail convention with
-`/coordinator:research` — detail: wiki). Set output path: plan mode →
+`/coordinator:research` — detail: wiki). Output path: plan mode →
 `docs/plans/YYYY-MM-DD-{topic-slug}.md`; review mode →
 `state/review-findings/YYYY-MM-DD-{topic-slug}-staff-review.md`. Advisory path:
 `{scratch-dir}/advisory.md`.
@@ -54,11 +54,9 @@ provides artifact path and focus areas only — never pre-formed findings.
 
 ## Step 4 — Select Debaters
 
-`--members` specified → those exact slugs are the debater list.
-
-Not specified → match topic + scope to a domain category (the one piece of genuine judgment this
-step retains). For `--tier full`, judgment-select 1-3 additional personas and append to an
-explicit override list.
+`--members` specified → those exact slugs are the debater list. Not specified → match topic + scope
+to a domain category (the one piece of genuine judgment this step retains). For `--tier full`,
+judgment-select 1-3 additional personas and append to an explicit override list.
 
 **Resolve the roster via the CLI, not a hand-maintained table:**
 
@@ -70,18 +68,15 @@ Returns `{personas: [{slug, agent_file, subagent_type}, ...], narration, source}
 error to the PM verbatim. `the Director of Engineering` is never a valid debater slug — fixed synthesizer identity
 (`coordinator:eng-director`), the Workflow's synthesizer stage in Step 6. Resolver mechanics: wiki.
 
-Debater count from the resolved roster: `standard` = 2 (default pair), `full` = 3-5 (default pair
-+ judgment-selected additions).
+Debater count: `standard` = 2 (default pair), `full` = 3-5 (default pair + judgment-selected
+additions).
 
-Announce composition to PM before firing the Workflow, using the resolved `personas[].slug`:
-> "I'll run this with **{Persona A}** and **{Persona B}** [+ **{Persona C}**...] debating, plus a
-> staff synthesizer. Proceeding."
+Announce the resolved `personas[].slug` debaters plus the staff synthesizer to the PM before firing.
 
 ## Step 5 — Fill Prompts
 
-The prompt templates in `${CLAUDE_PLUGIN_ROOT}/pipelines/staff-session/` are not filled by hand: the
-manifest `staff-session.manifest.yaml` names them, and the Workflow reads per-run values from
-`scope.md`. Complete `{scratch-dir}/scope.md` with the run fields, the output and advisory paths,
+Prompt templates are not filled by hand: `staff-session.manifest.yaml` names them and the Workflow
+reads per-run values from `scope.md`. Complete `{scratch-dir}/scope.md` with the run fields, the output and advisory paths,
 and the Roster table from Step 4's `personas[]` (`slug`, `subagent_type` as `agent_type`,
 persona name, perspective, `agent_file`) — see `pipelines/staff-session/templates-and-fields.md`
 § Template vocabulary and the brief. Create `{scratch-dir}/mail/`.
@@ -95,22 +90,16 @@ staff-session ...` with the same flags):
 
     ${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/bin/emit-dispatch-workflow --pipeline staff-session --brief {scratch-dir}/scope.md --flag mode=<plan|review> --list roster=<slug>=<agent_type>,<slug>=<agent_type>,... --out {scratch-dir}/staff-session.workflow.mjs
 
-`--brief` is the path to `scope.md` (a missing file is refused); `--list roster` carries one
-`slug=agent_type` per debater from the Roster table Step 5 wrote (`agent_type` is Step 4's
-`subagent_type`, never hardcoded — e.g. game-dev personas use `game-dev:`, not `coordinator:`);
-`--flag mode` is the session mode, and an absent one is refused. Fire the printed `Workflow` line as ONE background `Workflow`. The graph is
+`--list roster` carries one `slug=agent_type` per debater from the Roster table (`agent_type` is
+Step 4's `subagent_type`, never hardcoded — game-dev personas use `game-dev:`); `--flag mode` is
+required. Fire the printed `Workflow` line as ONE background `Workflow`. The graph is
 `staff-session.manifest.yaml`: round 1 (all debaters in parallel), one rebuttal round for each
-debater with unread mail, then the synthesizer (`coordinator:eng-director`) as overseer, the only
-output to the EM. Ordering is the manifest's `depends_on`; there are no tasks or `blockedBy`.
+debater with unread mail, then the synthesizer (`coordinator:eng-director`), the only output to
+the EM. Ordering is the manifest's `depends_on`.
 
 ## Step 7 — EM Is Freed
 
-After firing, announce:
-
-> "Staff session running on '**{topic}**' with **{N} debaters** ({names}) + **1 synthesizer**.
-> Round 1 positions and challenges, one rebuttal round, then synthesis. I'm available for other
-> work — I'll be notified when the Workflow completes."
-
+After firing, tell the PM the topic, debater names, and that you will be notified on completion.
 **You are now free to continue with the PM.** Do not poll, monitor, or message the agents — the
 script self-governs via `team-protocol.md`.
 
@@ -124,14 +113,11 @@ script self-governs via `team-protocol.md`.
    Review mode → findings structured with severities/persona attributions, `## Verdict` line
    present.
 3. Check for advisory: `test -f {scratch-dir}/advisory.md`; read if present.
-4. Commit the output artifact (scoped): `git add -- {output-path}` then `git commit -m
-   "staff-session: {mode} — {topic-slug}" -- {output-path}`. Then commit the paper trail as an
-   explicit file list, not the whole workdir: `git add -- {scratch-dir}/scope.md
-   {scratch-dir}/*-position.md {scratch-dir}/synthesis.md {scratch-dir}/advisory.md` then
-   `git commit -m "staff-session: paper trail — {topic-slug}" -- {scratch-dir}/scope.md
-   {scratch-dir}/*-position.md {scratch-dir}/synthesis.md {scratch-dir}/advisory.md` (omit
-   `advisory.md` from both commands when the synthesizer wrote none) — the archive op in item 5
-   cannot archive an untracked workdir; detail: wiki.
+4. Commit the output artifact, scoped to `{output-path}` (`git commit -m … -- {output-path}`), message `staff-session: {mode} —
+   {topic-slug}`. Then commit the paper trail as an explicit file list, not the whole workdir —
+   `{scratch-dir}/scope.md`, `*-position.md`, `synthesis.md`, and `advisory.md` when written — message
+   `staff-session: paper trail — {topic-slug}`; the archive op in item 5 cannot archive an
+   untracked workdir; detail: wiki.
 5. Archive-and-cleanup: invoke `fleet.archive_paper_trail` with `run_id={run-id}`,
    `topic_slug={topic-slug}`, `dry_run=false`. Moves `{scratch-dir}` to
    `docs/research/archive/YYYY-MM-DD-{topic-slug}/`, lands one scoped commit, removes the source
@@ -142,6 +128,5 @@ script self-governs via `team-protocol.md`.
 
 ## Error Handling
 
-See `pipelines/staff-session/templates-and-fields.md` § Error Handling Matrix for the full
-failure-mode → action table (debater crash, synthesizer failure, Workflow refusal, non-convergence,
-unknown slug, missing output).
+See `pipelines/staff-session/templates-and-fields.md` § Error Handling Matrix (debater crash,
+synthesizer failure, Workflow refusal, non-convergence, unknown slug, missing output).

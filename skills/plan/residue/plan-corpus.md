@@ -7,7 +7,7 @@ order: 880
 
 - **None, and `scope_mode` is `feature`/`architecture`/`spike`** → produce the forced-articulation block before drafting tasks, surfacing its material items to the PM: **(1)** restate the problem(s) in the PM's vocabulary, falsifiably; **(2)** name your single biggest uncertainty; **(3)** flag any intent you inferred that the PM did not state.
 
-**Step (2) un-gaming:** a yes/no "I have the shape" is banned. The item must be the scope boundary whose wrong guess costs the most rework, with its probability-weighted consequence ("if I'm wrong about X, C2–C4 are rework"), at PM altitude (intent, scope boundary, success criteria) — tactical uncertainties are disqualified, resolve them.
+**Step (2):** name the scope boundary whose wrong guess costs the most rework, with its probability-weighted consequence, at PM altitude; never a yes/no "I have the shape". Tactical uncertainties are disqualified: resolve them.
 
 ## Branch C — Compose the plan body
 
@@ -15,45 +15,40 @@ _Condition: substrate verified. The four PM doctrinal lenses bind here: time (ag
 
 - _Scope mode declared?_ (prototype | production-patch | feature | architecture | spike | spec-dispatch | audit) → Pick one before drafting. Mode shapes review depth and the evidence bar. `schemas/plan.schema.json` types the field as a free string: this list is doctrine, not validation.
 
-- _Composing the plan body?_ → Capture the **prime exit criterion**: one sentence, in the PM's own words from plan composition, plus a `derived_from` link to the sizing object whose `intent`/`intent_source` already hold those words. No `derived_from` to cite ⇒ put the sentence in front of the PM once, at ratification. **The ordering is the mechanism:** the baseline falsifier is run and recorded BEFORE the task spine is authored. The EM does NOT hand-write the falsifier: dispatch `coordinator:exit-criterion-falsifier` (C13) with the prime exit criterion statement and NOTHING ELSE — not the ACs, not the spine — and accept or reject what it returns. Reject a report whose `## Clause coverage` names a clause no instrument covers. **What the instrument may
-OBSERVE is doctrine, not the falsifier's choice: artifact state the work leaves behind — a file's
-content, a field's value, a row's status, a test's result. Never process residue about the work:
-commit subjects or messages, branch names, PR titles, ceremony logs.**
+- _Composing the plan body?_ → Capture the **prime exit criterion**: one sentence, in the PM's own words, plus a `derived_from` link to the sizing object whose `intent`/`intent_source` already hold those words. No `derived_from` to cite ⇒ put the sentence in front of the PM once, at ratification. **The ordering is the mechanism:** the baseline falsifier is run and recorded BEFORE the task spine is authored. The EM does NOT hand-write the falsifier: dispatch `coordinator:exit-criterion-falsifier` (C13) with the prime exit criterion statement and NOTHING ELSE — not the ACs, not the spine — and accept or reject what it returns. Reject a report whose `## Clause coverage` names a clause no instrument covers. **The instrument OBSERVES artifact state the work leaves behind — a file's content, a field's value, a row's status, a test's result — never process residue: commit subjects or messages, branch names, PR titles, ceremony logs.**
 
-**A criterion not observable in artifact state is the wrong criterion** — rewrite it, never add a chunk to make it observable. **Where the plan ratified an absence (no migration, no shim, no row), the instrument observes THAT; the absence's appearance is the failure.** Evidence: writing-plans.md § Prime Exit Criterion.
+**A criterion not observable in artifact state is the wrong criterion** — rewrite it, never add a chunk to make it observable. **Where the plan ratified an absence (no migration, no shim, no row), the instrument observes THAT; the absence's appearance is the failure.** Rationale: writing-plans.md § Prime Exit Criterion.
 - _Composing exit criteria?_ -> Name the plan's own targeted tests plus its acceptance oracle; a fast/full suite going green is never the criterion. See writing-plans.md Test Surface.
 - _Full-coverage check: does the task list cover the COMPLETE problem set, or only the slice fitting this session?_
-  → **Consume the computed evidence.** `plan-coverage-checker`'s Lens 1 (Phase 2, Oracle-vs-Slate Cross-Reference) reports the set-difference; run it, or read its sidecar, before asserting coverage by inspection. Disposing of any gap is the EM's call.
-
-  → **Default scope is the complete problem set — a session boundary is a scheduling constraint on execution, not a scoping input on the body.** **Partial-to-fit-one-session is the anti-pattern.** ADR, lineage and docs chunks go under `## Distill pass`, not the spine.
+  → **Consume the computed evidence.** `plan-coverage-checker`'s Lens 1 (Phase 2, Oracle-vs-Slate Cross-Reference) reports the set-difference; run it, or read its sidecar, before asserting coverage by inspection.
+  → **Default scope is the complete problem set** — a session boundary is a scheduling constraint on execution, not a scoping input. **Partial-to-fit-one-session is the anti-pattern.** ADR, lineage and docs chunks go under `## Distill pass`, not the spine.
 
 - _Plan will go through `coordinator:review`?_
-  → The reviewer's design lens is the prime exit criterion and its falsifier delta, not a checkbox table: does the stated criterion actually falsify against the drafted spine, and does every acceptance fact resolve to either a falsifier leg or a spine row with a real disposition? No test-cell grammar, no mechanical gate.
-- _Refactor-or-patch?_ → Default to refactor when AI is the implementer and the patch lands in a patch-accumulating area. If a reviewer would propose a refactor, propose it now. The verdict stays the EM's call; bring evidence: `git log -- <locus path>` and a check of `state/debt-*/` for a row already naming this locus.
+  → The reviewer's design lens is the prime exit criterion and its falsifier delta: does the criterion falsify against the drafted spine, and does every acceptance fact resolve to either a falsifier leg or a spine row with a real disposition? No test-cell grammar, no mechanical gate.
+- _Refactor-or-patch?_ → Default to refactor when AI is the implementer and the patch lands in a patch-accumulating area; if a reviewer would propose a refactor, propose it now. The verdict stays the EM's call; evidence: `git log -- <locus path>` and `state/debt-*/` for a row naming this locus.
 
 - _The drafted spine carries 5+ candidate scope-cut rows?_ (disposition `backlogged`/`wont_do`, or `open` rows carrying `case_against`) — a literal count over the spine's typed disposition fields, no judgment in the count itself.
-  → That volume means the plan is mis-scoped, not that each cut needs individual disposition. Stop enumerating IDs; describe the shape the cuts form, bucket them, and propose one spinoff per bucket — the `plan⇄sizing` return edge, not a push-through.
+  → The plan is mis-scoped. Bucket the cuts and propose one spinoff per bucket — the `plan⇄sizing` return edge, not a push-through.
 
 - _Writing `## Anti-scope`, or any prose about how the plan gets executed?_
-  → **Name no execution vehicle.** The executing EM picks it at dispatch (default a background Workflow); a "do not fan this out" line gets overridden — write the real constraint instead: a shared write target is a `depends_on` edge, a Workflow-inexpressible shape is a named carve-out (`coordinator/docs/wiki/em-operating-model/workflow-orchestration.md`). Tripwire: `A-PLAN-DOES-NOT-PICK-THE-EXECUTION-VEHICLE`.
+  → **Name no execution vehicle.** The executing EM picks it at dispatch (default a background Workflow); write the real constraint instead: a shared write target is a `depends_on` edge, a Workflow-inexpressible shape is a named carve-out (`coordinator/docs/wiki/em-operating-model/workflow-orchestration.md`). Tripwire: `A-PLAN-DOES-NOT-PICK-THE-EXECUTION-VEHICLE`.
 - _Wave shape depends on something this plan has not established ("do X, then decide")?_
-  → That is a **spike chunk before execution**, not a licence to grind chunk-at-a-time. An
-  unresolved decision left in the body bounces at `/execute-plan` Phase 1.4 anyway.
+  → That is a **spike chunk before execution**; an unresolved decision left in the body bounces at `/execute-plan` Phase 1.4.
 
 - _Plan mutates a shared symbol (state enum, gameplay tag, public field, exported signature)?_ → Add a reverse-reference scan subsection listing every consumer.
 
-- _Drafting tasks?_ → Declare `review_signals` first, from `coordinator/contract/review-signals.json` — membership is enforced by the contract's parity test plus the frontmatter write guard where a coordinator engine is installed, never by an enum here or in the schema. An absent field is a positive claim: no specialist and no external-docs surface is in play, not an oversight to fill in later.
+- _Drafting tasks?_ → Declare `review_signals` first, from `coordinator/contract/review-signals.json`. An absent field is a positive claim: no specialist and no external-docs surface is in play. Enforcement: `coordinator/docs/wiki/skills-corpus/plan-residue.md`.
 
 - _Plan amends an assumption another live plan depends on?_
-  → **Edit the body of every affected sibling in this same change.** (1) grep `docs/plans/` for references to the amended assumption; (2) edit each hit inline; (3) add `**Amended <YYYY-MM-DD> by <this-plan-slug>:** <one-line change>` at the top of each; (4) commit the amending plan and all edited siblings together.
-- _Plan supersedes another plan or its seam?_ (declares `supersedes:`/`predecessor_plan:`, or replaces a chunk/AC wholesale — distinct from *amending*)
-  → **Append `**Superseded <YYYY-MM-DD> by <this-plan-slug>:** <reason>` to the top of the superseded plan in the same commit.** This rides the sibling-amendment pass; no new automation. *Amend* = a sibling's assumption shifted in place; *supersede* = replaced wholesale. The note is a backstop, not a substitute for HEAD-drift discovery.
+  → **Edit the body of every affected sibling in this same change.** Grep `docs/plans/` for the amended assumption, edit each hit inline, add `**Amended <YYYY-MM-DD> by <this-plan-slug>:** <one-line change>` at its top, and commit the amending plan and all edited siblings together.
+- _Plan supersedes another plan or its seam?_ (`supersedes:`/`predecessor_plan:`, or replaces a chunk/AC wholesale)
+  → **Append `**Superseded <YYYY-MM-DD> by <this-plan-slug>:** <reason>` to the top of the superseded plan in the same commit.** The note is a backstop, not a substitute for HEAD-drift discovery.
 - _Plan retires a surface, path, flag, or mechanism some doctrine describes?_ → a spine row adds its claim to `coordinator/contract/retired-claims.json` (claim, witness, signature, legacy_sites); the guard's red list is the sweep scope. Tripwire: `RETIRED-CLAIMS-REGISTRY`.
 - _Plan scaffolds a new autonomous skill / agent / command?_
-  → Apply the skill-scaffold checklist before drafting: (1) destructive-action prohibition block for any write-capable autonomous skill; (2) explicit out-of-scope list; (3) spinoff-schema awareness if it can author handoffs (`kind`/`predecessor`/`deployment_state`); (4) recheck-marker semantics if it has a cadence; (5) discovery-surface integration (where does it announce itself?); (6) **platform-vocabulary collision check on the invokable name** — grep the proposed verb against the platform's command/primitive surface AND this repo's own `coordinator/commands/` and `coordinator/skills/*/SKILL.md` verbs.
+  → Apply the skill-scaffold checklist before drafting: (1) destructive-action prohibition block for any write-capable autonomous skill; (2) out-of-scope list; (3) spinoff-schema awareness if it can author handoffs; (4) recheck-marker semantics if it has a cadence; (5) discovery-surface integration; (6) **platform-vocabulary collision check on the invokable name** against the platform's command surface AND this repo's `coordinator/commands/` and `coordinator/skills/*/SKILL.md` verbs.
 
 - _Drafting tasks, Branch C — authoring for width?_
-  → Put contracts/types/stubs/schema in an interface-first chunk in wave 0; many small disjoint
+  → Interface-first chunk (contracts/types/stubs/schema) in wave 0; many small disjoint
   chunks with file-level `writes` (except a same-rule transform over N files: one row, `A-SAME-RULE-TRANSFORM-OVER-N-FILES-IS-ONE-ROW`); `reads_at_head` by default, `consumes` only for real output
   consumption; critical path <= ~1/3 of dispatchable rows; width < 3 needs a `## Width rationale`
   section. Tokens `A-REFERENCE-READ-DECLARED-AS-AN-ORDERING-EDGE-SERIALISES-THE-PLAN` and
@@ -64,10 +59,8 @@ commit subjects or messages, branch names, PR titles, ceremony logs.**
 
 ---
 
-| `plan` | **Full terminal.** Invoke `coordinator:review` immediately with a named Opus persona. Do not ask the PM whether to proceed — plan→review is the pipeline, not a checkpoint; review-or-not is gated inside `coordinator:review` Branch A.2. **XL lane:** when the plan's cited sizing object has `estimate.tshirt == XL` **AND** `xl_exit == accept_multi_session`, dispatch `plan-reviewer` and integrate it via `review-integrator` BEFORE the three pre-flights and the named Opus persona; a null `xl_exit` never fires the branch. The `plan-reviewer` dispatch brief names `docs/plans/<slug>.md` in its prompt prose, and that plan must be the **first** `docs/plans/` citation in the brief (the sidecar is keyed off the first match). Every other `plan`-route plan skips this step. **The absent-sizing-object case cannot reach this Exit** — Branch A's wall refuses Branch B without one. |
+| `plan` | **Full terminal.** Invoke `coordinator:review` immediately with a named Opus persona. Do not ask the PM whether to proceed — plan→review is the pipeline; review-or-not is gated inside `coordinator:review` Branch A.2. **XL lane:** when the cited sizing object has `estimate.tshirt == XL` **AND** `xl_exit == accept_multi_session`, dispatch `plan-reviewer` and integrate it via `review-integrator` BEFORE the three pre-flights and the named Opus persona; a null `xl_exit` never fires the branch. The `plan-reviewer` brief names `docs/plans/<slug>.md` in its prompt prose, and that plan must be the **first** `docs/plans/` citation in the brief (the sidecar is keyed off the first match). Every other `plan`-route plan skips this step. An absent sizing object cannot reach this Exit — Branch A's wall refuses Branch B without one. |
 
-**Reviewer altitude on the `plan` route:** a named Opus persona, or no review; the XL lane above adds a Sonnet `plan-reviewer` lens ahead of the persona and never replaces it (rationale: writing-plans.md § Prime Exit Criterion).
-
-**The full pipeline for the `plan`-route terminal:** (1) substrate verification (Branch B), (2) body composition with the four lenses (Branch C), (3) XL lane only: `plan-reviewer` → `review-integrator`, (4) `docs-checker` / `prior-art-checker` / **`plan-coverage-checker`** pre-flights via `coordinator:review`, (5) named Opus reviewer, who applies every finding in place and verifies via `review-findings-ledger verify`. A non-XL plan runs steps 1, 2, 4, 5. Skipping `coordinator:plan` skips the pipeline.
+**The full pipeline for the `plan`-route terminal:** (1) substrate verification (Branch B), (2) body composition with the four lenses (Branch C), (3) XL lane only: `plan-reviewer` → `review-integrator`, (4) `docs-checker` / `prior-art-checker` / **`plan-coverage-checker`** pre-flights via `coordinator:review`, (5) named Opus reviewer, who applies every finding in place and verifies via `review-findings-ledger verify`. A non-XL plan runs 1, 2, 4, 5.
 
 ---

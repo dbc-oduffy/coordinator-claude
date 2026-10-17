@@ -1920,8 +1920,85 @@ _NO_BUDGET_FALLBACK_SECS = 10
 _DUMP_PROBE_TIMEOUT_SECS = _NO_BUDGET_FALLBACK_SECS
 
 
+#: Every engine file the op-timeout map is computed from, relative to the engine root.
+#: A change to any of them (mtime or size) invalidates the cached map.
+_OP_TIMEOUT_MAP_SOURCES = (
+    "coordinator_core/ipc.py",
+    "coordinator_core/op_scopes.py",
+    "coordinator_core/op_budget_suspension.py",
+    "coordinator_core/invoke/__main__.py",
+    "coordinator_core/invoke/warm_miss.py",
+    "coordinator_core/warm/client.py",
+)
+
+#: The two env knobs the map's resolvers read (`ipc._resolve_dispatch_timeout_secs`,
+#: `warm_miss._warm_boot_wait_deadline`); their values are part of the cache key.
+_OP_TIMEOUT_MAP_ENV = ("COORDINATOR_DISPATCH_TIMEOUT_SECS", "COORDINATOR_WARM_BOOT_WAIT_SECS")
+
+
+def _op_timeout_map_cache_key(claude_klabauter_root: str, env: dict[str, str] | None = None) -> list | None:
+    """Fingerprint of everything the map derives from, or None when a source is unreadable.
+
+    `env` is the spawn env: a probe child reads its knobs from there, not from this process.
+    """
+    key: list = [os.path.normcase(os.path.realpath(claude_klabauter_root))]
+    for rel in _OP_TIMEOUT_MAP_SOURCES:
+        try:
+            st = os.stat(os.path.join(claude_klabauter_root, *rel.split("/")))
+        except OSError:
+            return None
+        key.append([rel, st.st_mtime_ns, st.st_size])
+    key.append([os.environ.get(name) for name in _OP_TIMEOUT_MAP_ENV])
+    key.append([(env or {}).get(name) for name in _OP_TIMEOUT_MAP_ENV])
+    return key
+
+
+def _op_timeout_map_cache_path(key: list) -> str:
+    try:
+        from _sha1 import sha1  # noqa: PLC0415 -- CPython's builtin SHA-1: no _hashlib/OpenSSL load
+    except ImportError:
+        from hashlib import sha1  # noqa: PLC0415
+
+    digest = sha1(str(key[0]).encode("utf-8")).hexdigest()[:12]
+    return os.path.join(
+        _route_unreachable_runtime_base(), "coordinator", f"op-timeouts-{digest}.json"
+    )
+
+
+def _read_cached_op_timeout_map(path: str, key: list) -> dict | None:
+    try:
+        with open(path, encoding="utf-8") as fh:
+            blob = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    # A map without "__default__" would be rejected downstream as "error" on every
+    # run, since the key never changes: treat it as a miss so it is recomputed.
+    if (
+        isinstance(blob, dict)
+        and blob.get("key") == key
+        and isinstance(blob.get("map"), dict)
+        and "__default__" in blob["map"]
+    ):
+        return blob["map"]
+    return None
+
+
+def _write_cached_op_timeout_map(path: str, key: list, payload: dict) -> None:
+    tmp = f"{path}.{os.getpid()}.tmp"
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump({"key": key, "map": payload}, fh)
+        os.replace(tmp, path)
+    except (OSError, TypeError, ValueError):
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
 def _dump_op_timeouts_in_process(claude_klabauter_root: str) -> dict | None:
-    """The engine's `--dump-op-timeouts` payload computed in this interpreter, or None.
+    """The engine's `--dump-op-timeouts` payload for `claude_klabauter_root`, or None.
 
     None means "use the probe spawn": the engine at `claude_klabauter_root` is not the one this
     process would import (a different `coordinator_core` is already loaded, or the
@@ -1959,7 +2036,8 @@ def _resolve_op_timeouts(claude_klabauter_root: str, env: dict[str, str], probe_
                  falls back to `_NO_BUDGET_FALLBACK_SECS` but earns a once-per-process
                  breadcrumb.
 
-    The DEC-1 dump surface ships server-side today, so the probe always runs — once
+    The DEC-1 dump surface ships server-side today, so the probe runs unless the
+    per-engine-root cache holds the map — once
     per process, memoized via the `_OP_TIMEOUTS_STATE is not None` guard above, so it
     never doubles the per-op subprocess/CreateProcess spawn count (the single most
     expensive syscall path on Windows) beyond that one-time cost. Older engine
@@ -1974,7 +2052,21 @@ def _resolve_op_timeouts(claude_klabauter_root: str, env: dict[str, str], probe_
     _OP_TIMEOUTS_MAP = {}
     _OP_TIMEOUTS_STATE = "absent"
 
-    parsed = _dump_op_timeouts_in_process(claude_klabauter_root)
+    # Answers one hop question: the cold spawn's kill ceiling. Computing the map costs an
+    # `ipc` import (in-process) or a whole child interpreter (foreign engine), so a valid
+    # "ok" map is cached per engine root, fingerprinted by `_OP_TIMEOUT_MAP_SOURCES` and the
+    # env knobs. A process that already loaded the ops registry map never uses the cache:
+    # ceremony membership then reads that table, so its result is not the cold one.
+    cache_key = (
+        None
+        if "coordinator_core.ops._registry_map" in sys.modules
+        else _op_timeout_map_cache_key(claude_klabauter_root, env)
+    )
+    cache_path = _op_timeout_map_cache_path(cache_key) if cache_key is not None else None
+    parsed = _read_cached_op_timeout_map(cache_path, cache_key) if cache_path else None
+    from_cache = parsed is not None
+    if parsed is None:
+        parsed = _dump_op_timeouts_in_process(claude_klabauter_root)
     if parsed is None:
         try:
             proc = subprocess.run(
@@ -2027,6 +2119,8 @@ def _resolve_op_timeouts(claude_klabauter_root: str, env: dict[str, str], probe_
 
     _OP_TIMEOUTS_MAP = coerced
     _OP_TIMEOUTS_STATE = "ok"
+    if cache_path and not from_cache:
+        _write_cached_op_timeout_map(cache_path, cache_key, parsed)
 
 
 def _op_timeout_ceiling(op: str, claude_klabauter_root: str, env: dict[str, str]) -> int:

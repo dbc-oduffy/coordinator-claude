@@ -19,7 +19,6 @@ invocation on this page, never the `${...}` POSIX-shell form shown below. Ladder
 ```
 validate-fast-and-packageability fast
 ```
-(resolved per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`: Shape A/B on POSIX hosts, Shape W on PowerShell)
 
 Resolves the command (env var → `coordinator.local.md` `fast_test_cmd:` → skip-with-notice, no
 conventional fallback), executes it, prints exactly one `Validation: <value>` line. Run via Bash
@@ -50,9 +49,8 @@ any repo that hasn't opted in), never a fleet-wide gate:
 ```
 validate-fast-and-packageability packageability
 ```
-(resolved per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`: Shape A/B on POSIX hosts, Shape W on PowerShell)
 
-Prints its own `Packageability: <exit-code>` line, separate from `Validation:` above. Do not wire
+Prints its own `Packageability: <exit-code>` line, separate from `Validation:`. Do not wire
 this into any cross-repo/fleet-shared hook.
 
 ### Tier gating — Tier F and Tier U both need a live grant
@@ -64,7 +62,6 @@ time, with no standing exemption** — checked via:
 ```
 tier-u-grant-cli check
 ```
-(resolved per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`: Shape A/B on POSIX hosts, Shape W on PowerShell)
 
 Exit 0 = granted, proceed. Exit 1 (or an absent/malformed token) = ungranted, fail-closed — halt
 before invoking. This skill never writes a grant itself. On a halt, or when a command's shape is
@@ -74,20 +71,20 @@ ask the PM for a session grant; run under a ceremony that already holds one (`/w
 `fast_tier_unscoped_reason:`/`fast_tier_shape:` in `coordinator.local.md`); or defer and report
 `Validation: skipped`. A grant is permission to spend the run, not a reason to — dispatching a
 subagent doesn't dodge the cost (subagents hold Tier T only; the spawn lands on the same box).
-Full tier-shape mechanics and the honest-exits worked examples: wiki.
+Full tier-shape mechanics and worked examples: wiki.
 
 ### Recording a ceremony tier's run
 
 A `ceremony_test_cmds` entry's execution is not durable on its own — record it so a boot-time or
-`/workday-start` reader can distinguish a tier that ran this morning from one nobody has run since
-it was written:
+`/workday-start` reader can tell a tier that ran this morning from one nobody has run since it
+was written:
 
 ```
 python3 "${CLAUDE_PLUGIN_ROOT:?coordinator plugin root unset — run this from a plugin command/skill, or substitute an absolute path}/bin/tier-last-run.py" record --entry <name> --cmd <the command run, verbatim> --exit <its exit code>
 ```
 
-Run this immediately after invoking a ceremony tier by hand, not only from inside an automated
-ceremony step — an unrecorded hand-run is an undocumented bypass, not a faster path.
+Run this immediately after invoking a ceremony tier by hand — an unrecorded hand-run is an
+undocumented bypass, not a faster path.
 
 ## When to Use
 
@@ -100,8 +97,7 @@ subset covering the change's own surface (Tier T), not this skill.
 
 Complements `verification-before-completion` (that skill requires evidence; this skill produces
 it). `/workday-complete` Step 1 and `/workweek-complete` Step 2 both delegate here as sole owner
-of the resolution logic — `/workday-complete`'s delegation fires inside the engine and
-is not yet grant-check-observable the way `/workweek-complete`'s Bash-level call is. Detail: wiki.
+of the resolution logic.
 
 ## Common Mistakes
 

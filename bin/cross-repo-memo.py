@@ -111,14 +111,11 @@ from __future__ import annotations
 
 import argparse
 import datetime
-import hashlib
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
-import tempfile
 import textwrap
 import time as _time
 from pathlib import Path
@@ -3906,6 +3903,8 @@ def _cmd_version() -> int:
     except OSError as exc:
         print(f"cross-repo-memo --version: could not read {self_path}: {exc}", file=sys.stderr)
         return 1
+    import hashlib  # deferred: only --version needs it; keeps it off the list hop
+
     digest = hashlib.sha256(content).hexdigest()[:12]
     line_count = content.count(b"\n") + 1
 

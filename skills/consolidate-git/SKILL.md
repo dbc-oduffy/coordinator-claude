@@ -25,13 +25,12 @@ into the current branch; merge to main is separate."
 ## Compute the Inventory
 
 **On a PowerShell host, use the `.exe` launcher through the call operator** (Shape W), never the
-`${...}` POSIX-shell form shown below. Ladder and shapes: `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`.
+`${...}` POSIX-shell form. Ladder and shapes: `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`.
 
-`consolidate-assemble brief` (per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`)
-returns the current-user + branch inventory (ownership category per branch and worktree),
-unique-commit evidence per stale branch, absorb/delete directives, and the judgment points below.
-It is READ-ONLY — every mutating action surfaces as a directive or a judgment point, never fires
-silently.
+`consolidate-assemble brief` returns the current-user + branch inventory (ownership category per
+branch and worktree), unique-commit evidence per stale branch, absorb/delete directives, and the
+judgment points below. It is READ-ONLY — every mutating action surfaces as a directive or a
+judgment point, never fires silently.
 
 **Worktrees are not exempt.** One whose tip is reachable from main or the current branch is stale
 (a lock is a stale signal, not a veto); a dirty one is a genuine pause.
@@ -44,17 +43,17 @@ reported under `gates` and never touched.
 
 ## Resolve the Judgment Points
 
-**Re-verify against origin before the first mutating action.** `consolidate-assemble brief` is a
-snapshot; a concurrent `git reset` can fork local from origin invisibly to a tree-diff. If either
-side holds a commit the other lacks (`<branch>` vs `origin/<branch>`), the brief is stale — re-run
-it before absorbing, deleting, or merging.
+**Re-verify against origin before the first mutating action.** `brief` is a snapshot; a concurrent
+`git reset` can fork local from origin invisibly to a tree-diff. If either side holds a commit the
+other lacks (`<branch>` vs `origin/<branch>`), the brief is stale — re-run it before absorbing,
+deleting, or merging.
 
 **`consolidate-assemble apply` executes with no preview** — every unconditional directive (deletes,
 worktree removals, prune) fires. Read `brief` first and pass `--decisions-file`; never run a bare
 `apply` to see what it would do. A commit that looks orphaned mid-run: wiki § Consolidate-git.
 
-Each judgment point below carries its own evidence and per-option guidance in the decision
-object — decide from it, never invent a verdict the evidence doesn't support.
+Each judgment point carries its own evidence and per-option guidance in the decision object —
+decide from it, never invent a verdict the evidence doesn't support.
 
 **`j-delete-<branch>` — zero-unique-commit `cloud-session` branch.** **delete** once its tip is
 reachable from main or the current branch and it heads no open PR, which you check with `gh pr list`.
@@ -62,12 +61,11 @@ Otherwise **keep**. Before any remote delete, run `git merge-base --is-ancestor 
 `cloud-session` branch always gets a verdict, because its owner is inferred, not proven.
 
 **`j-absorb-<branch>` — supersession verdict.** You get the unique-commit list plus a
-`git show --stat` per commit; nothing labels a commit "superseded" for you. Before
-choosing **skip**, name the file(s) on the current branch that supersede each commit — "current
-branch has a newer version" without a path is a guess, not evidence, and any commit touching a
-file the current branch never touched must be absorbed, not skipped. Choosing **absorb** applies
-the computed cherry-pick/merge selection (cherry-pick for small counts, merge for large)
-via the closed CLI table — you are not hand-choosing the git verb.
+`git show --stat` per commit; nothing labels a commit "superseded" for you. Before choosing
+**skip**, name the file(s) on the current branch that supersede each commit — "current branch has
+a newer version" without a path is a guess, and any commit touching a file the current branch never
+touched must be absorbed. **absorb** applies the computed cherry-pick/merge selection (cherry-pick
+for small counts, merge for large) via the closed CLI table — you are not hand-choosing the git verb.
 
 **keep.** A branch the PM wants left alive (e.g. committed to within N hours) is neither absorbed
 nor deleted: **skip** is a delete verdict, so leave that point unresolved (no directive depending
@@ -77,9 +75,8 @@ on it fires) and report the branch as `kept` with the PM's stated reason.
 `pre-*`-named ref on unique-commit count: name what it insures against, and if unknown, report and
 leave it. "Merged into HEAD" is not "safe to lose".
 
-**Conflict resolution (surfaces mid-directive-apply, not as a separate judgment point).**
-If the current branch already supersedes the change, abort and skip (note it); else resolve and
-continue. Never force through conflicts.
+**Conflict resolution (surfaces mid-directive-apply).** If the current branch already supersedes
+the change, abort and skip (note it); else resolve and continue. Never force through conflicts.
 
 **Post-absorb:** confirm a conflict-resolved shared file kept its canonical phrase; re-apply if lost.
 
@@ -89,8 +86,8 @@ it, never remove silently. **rescue** saves the state (stash or throwaway-branch
 removal; **proceed** discards it when genuinely disposable. Default is pause for a decision.
 
 **`j-behind-main`.** Fires only when the current branch is behind main. **merge-main-first**
-ensures the final state includes everything before absorbing; **proceed-anyway** is the branch's
-call if a stale main is expected.
+ensures the final state includes everything before absorbing; **proceed-anyway** if a stale main
+is expected.
 
 **`j-merge-ready`.** Fires whenever any directive or judgment point exists. Offer
 **chain-to-merge** only when the branch looks ship-ready (finished, reviewed, no unresolved skips
@@ -98,9 +95,8 @@ or flagged dirty worktrees) — otherwise **stop-here**. Phrase it as a recommen
 
 ## Report
 
-Summarize per the `branches`/`worktrees` gates: absorbed, skipped (with the
-superseding evidence named), kept, deleted (branches + worktrees), and left untouched (other owners).
-Close with current branch, ahead-of-main count, and the merge-ready disposition.
+Per the `branches`/`worktrees` gates: absorbed, skipped (superseding evidence named), kept,
+deleted, untouched (other owners); then current branch, ahead-of-main count, merge-ready disposition.
 
 ## Edge Cases
 
@@ -111,8 +107,8 @@ before a remote delete is proposed. Cross-device reconciliation: wiki § Consoli
 
 ## What This Does NOT Do
 
-- **Merge to main.** Consolidation lands everything on the current branch and stops; shipping is
-  `/merging-to-main`, invoked separately by the PM (optionally recommended via `j-merge-ready`).
+- **Merge to main.** Consolidation stops on the current branch; shipping is `/merging-to-main`,
+  invoked separately by the PM (optionally recommended via `j-merge-ready`).
 - **Rebase** — merges and cherry-picks only.
 - **Touch other repos** — scoped to the current repository only.
 - **Delete main** — always preserved as the merge target.

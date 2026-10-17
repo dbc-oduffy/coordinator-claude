@@ -6,8 +6,7 @@
 **Basis.** Existing code repo, no coordinator setup, classification `working`.
 
 **Ratification accepts Phase 1.5's synthesis unattended.** `p15.ratification-ask` resolves
-`ratify`; the proposed name, type and workstreams are trusted without a round-trip. When the
-proposal differs from the Phase 1 `detected_type`, the proposal wins.
+`ratify`; the proposed name, type and workstreams are trusted, and win over the Phase 1 `detected_type`.
 
 **Terminal offers with residual judgment:**
 

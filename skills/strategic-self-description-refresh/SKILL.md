@@ -11,34 +11,29 @@ allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob"]
 
 ## Purpose
 
-Reconciles the per-repo canonical strategic self-description
-(`state/strategic/self-description.yaml`) against a generated draft
-(`state/strategic/self-description.draft.yaml`), when present, through a human ceremony gate.
-Generation SEEDS curation — it never auto-commits over human-ratified content. This skill is the
-ceremony gate itself: a generated observable-field draft either gets ratified into the canonical
-file (per-field, provenance-marked) or is left for the human to curate directly.
+Reconciles the canonical `state/strategic/self-description.yaml` against a generated draft
+(`state/strategic/self-description.draft.yaml`) through a human ceremony gate. Generation SEEDS
+curation — it never auto-commits over human-ratified content. Draft fields are ratified
+per-field with provenance, or left for the human to curate.
 
 ## When to Use
 
-- Nudged from `/workweek-complete` (weekly cadence seam) — a prompt, not a trigger; see § Cadence.
-- PM or EM directly invokes it ("refresh/reconcile/ratify the strategic self-description").
-- A draft file appears on disk (e.g. after an engine generation run) and the EM notices it
-  unreconciled.
+- Nudged from `/workweek-complete` — a prompt, not a trigger; see § Cadence.
+- PM or EM invokes it directly.
+- A draft file appears on disk unreconciled.
 
 ## Out of scope
 
-- **Does not build the generator that produces the draft.** Consumes a draft already emitted;
-  does not compute version highlights or competitor deltas itself.
-  <!-- Negative-spec: no generation logic here even if convenient — the seam is the draft file. -->
-- Does not build a query surface or consolidation/harvest index — per-repo emission only.
-- **Does not author handoffs, spinoffs, or any `kind:` stub.** Artifact surface is exactly
-  `state/strategic/self-description.yaml` (write) and `self-description.draft.yaml` (read,
-  post-ratify archive/clear).
-- **Not a scheduler or cron** — no background job fires this skill; the human running the
-  ceremony IS the gate. Reaching for `CronCreate`/`RemoteTrigger` to automate this is a scope
-  violation — stop.
-- Does not write the canonical file with unreconciled generated output (§ Non-clobber invariant).
-- Operates only on the repo it runs in — never a sibling repo's own self-description.
+- **Does not build the generator.** Consumes an emitted draft; computes no version highlights or
+  competitor deltas.
+- No query surface or harvest index — per-repo emission only.
+- **Authors no handoffs, spinoffs, or `kind:` stub.** Artifact surface is exactly
+  `self-description.yaml` (write) and `self-description.draft.yaml` (read, post-ratify
+  archive/clear).
+- **Not a scheduler** — the human running the ceremony IS the gate. Reaching for
+  `CronCreate`/`RemoteTrigger` is a scope violation — stop.
+- Never writes the canonical file with unreconciled generated output (§ Non-clobber invariant).
+- Operates only on this repo, never a sibling's self-description.
 
 ## Destructive-action prohibition
 
@@ -54,9 +49,8 @@ Write-capable on both the canonical and draft files. Observe:
   (`${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`):
   `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-doc-new.exe" --type strategic-self-description` —
   never treat a missing canonical file as license to bulk-write unreviewed content.
-- **The draft may be archived/cleared ONLY after its fields are reconciled into the canonical
-  file (or explicitly rejected) this same session.** Deleting an unreconciled draft destroys the
-  generator's signal with no compensating write.
+- **Archive/clear the draft ONLY after its fields are reconciled (or explicitly rejected) this
+  same session.**
 - **Never run unattended.** No human able to answer the Step 3 prompts → stop, report `blocked`.
 
 ## Non-clobber invariant
@@ -101,17 +95,9 @@ trigger is elapsed time, not judgment: newest `version_highlights[].date` older 
 this skill runs that ceremony. Skipping is legal and needs a recorded reason on the spine;
 silence is not a disposition.
 
-That schedules the gate — it does not displace it. Nothing fires this skill automatically and
-nothing writes the canonical file without the human ratify pass in Step 3; a cadence that ran
-unattended would violate § Destructive-action prohibition. If no human is available to answer,
-the correct outcome is `blocked`, recorded, not a generated write.
+That schedules the gate — it does not displace it. Nothing fires this skill automatically or
+writes the canonical file without the Step 3 ratify pass. No human available: `blocked`,
+recorded, not a generated write.
 
-**Known residual: detection is coupled to ceremony execution.** A repo whose
-`/workweek-complete` does not run for three weeks gets zero nudges, and the drift is invisible
-locally — a consumer notices first. Left unaddressed, this produces fleet-wide simultaneous
-staleness across every repo sharing that gap. An elapsed-time surface that runs independently of
-the ceremony would close it; none is built.
-
-## Discovery-surface integration
-
-Referenced from `coordinator/commands/workweek-complete.md` (Chunk C5) as the weekly nudge.
+Known residual: detection is coupled to `/workweek-complete`; a repo whose ceremony skips weeks
+gets no nudge.

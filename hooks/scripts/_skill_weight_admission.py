@@ -11,6 +11,11 @@ admits a commit that shrinks it. The test suite
 Negative-spec: no subprocess, no filesystem read of the repo state. Callers
 (`guard-skill-weight-budget-precommit.py`) own the git I/O and pass plain
 `{skill name: resident bytes}` mappings plus the parsed baseline JSON.
+
+A limit is never raised to admit growth. `limit_raises(proposed_baseline,
+base_baseline)` refuses any baseline edit that moves a limit, floor or the
+ceiling upward, or adds an exception above CEILING; the way to fit an addition
+is to cut text.
 """
 
 from __future__ import annotations
@@ -45,8 +50,8 @@ NEW_SKILL_CAP = CEILING
 # passes while the recorded `limit` stays where it is, so the comparison on the
 # next run is still against the ORIGINAL limit -- drift cannot accumulate 255 B
 # at a time into an unbounded rise, which is exactly what a band that silently
-# rewrote the baseline would allow. Growth past the band is still red, still
-# wants a `raised:` block, and still needs someone named.
+# rewrote the baseline would allow. Growth past the band is still red, and the
+# limit is never raised to admit it: `limit_raises` refuses that edit.
 #
 # Flat, not proportional: jitter is a property of prose editing, not of entry
 # size, so a percentage would hand the largest entries the largest free pass
@@ -60,11 +65,11 @@ def admission_violations(
     """Refusal lines for growth over budget; empty means admit.
 
     `proposed` and `base` map skill name -> resident bytes. `baseline` is the
-    parsed skill-weight-budget JSON read from the proposed tree, so a
-    deliberate same-commit limit raise is honoured (the suite's ratchet-floor
-    leg polices it). A skill absent from `base` counts as 0 there. Each line
-    reads `<leg> <name>: <measured> B > <limit> B (+<delta>)`, where delta is
-    growth versus base."""
+    parsed skill-weight-budget JSON read from the proposed tree; a raised
+    limit in it is judged separately by `limit_raises`. A skill absent from
+    `base` counts as 0 there. Each line reads
+    `<leg> <name>: <measured> B > <limit> B (+<delta>)`, where delta is growth
+    versus base."""
     lines: "list[str]" = []
 
     total, base_total = sum(proposed.values()), sum(base.values())
@@ -88,4 +93,36 @@ def admission_violations(
         grown = size - base.get(name, 0)
         if grown > 0:
             lines.append(f"skill {name}: {size} B > {limit} B (+{grown})")
+    return lines
+
+
+def limit_raises(proposed_baseline: dict, base_baseline: "dict | None") -> "list[str]":
+    """Refusal lines for a baseline edit that raises any limit; empty means admit.
+
+    Compares `fleet.resident_limit`, `fleet.resident_ratchet_floor`, the
+    top-level `ceiling`, and each exception's `limit` and `ratchet_floor`
+    against the base. A new exception whose `limit` exceeds CEILING counts as a
+    raise from CEILING. `base_baseline is None` (no prior revision) admits.
+    Lowering a value or deleting an exception is never a finding. Each line
+    reads `limit-raise <path>: <old> B -> <new> B (+<delta>)`."""
+    if base_baseline is None:
+        return []
+    lines: "list[str]" = []
+
+    def _check(path: str, old, new) -> None:
+        if isinstance(old, int) and isinstance(new, int) and new > old:
+            lines.append(f"limit-raise {path}: {old} B -> {new} B (+{new - old})")
+
+    proposed_fleet, base_fleet = proposed_baseline.get("fleet", {}), base_baseline.get("fleet", {})
+    for key in ("resident_limit", "resident_ratchet_floor"):
+        _check(f"fleet.{key}", base_fleet.get(key), proposed_fleet.get(key))
+    _check("ceiling", base_baseline.get("ceiling"), proposed_baseline.get("ceiling"))
+
+    base_exceptions = base_baseline.get("exceptions", {})
+    for name, entry in sorted(proposed_baseline.get("exceptions", {}).items()):
+        if name not in base_exceptions:
+            _check(f"exceptions.{name}.limit", CEILING, entry.get("limit"))
+            continue
+        for key in ("limit", "ratchet_floor"):
+            _check(f"exceptions.{name}.{key}", base_exceptions[name].get(key), entry.get(key))
     return lines

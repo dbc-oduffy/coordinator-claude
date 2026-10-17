@@ -1,0 +1,105 @@
+{
+  "schema": "cadence-period-mode-fragment",
+  "schema_version": 1,
+  "flags": {
+    "catch_up": "--catch-up",
+    "conclude": "--conclude",
+    "ceremonies": ["workday-complete", "workweek-complete"],
+    "no_flag_ceremonies": {
+      "workweek-start": "takes no flag; reset never archives the in-progress week; routes missed weeks to '/workweek-complete --catch-up'",
+      "workday-start": "takes no flag; dispatches one 'workday-complete --catch-up' entry when the scan has at least one gap row"
+    },
+    "refusals": [
+      {"flag": "--catch-up", "with": "--conclude"},
+      {"flag": "--conclude", "with": "--catch-up"},
+      {"flag": "--catch-up", "with": "--only"},
+      {"flag": "--catch-up", "with": "--for-date"},
+      {"flag": "--conclude", "with": "--only"},
+      {"flag": "--conclude", "with": "--for-date"}
+    ],
+    "for_date_semantics": "--for-date D [--only] keeps its single-date semantics and is never redefined"
+  },
+  "mode": {
+    "values": ["catch_up", "conclude"]
+  },
+  "source": {
+    "values": ["explicit", "auto-clock"],
+    "explicit_always_wins": true
+  },
+  "thresholds": {
+    "day": {
+      "key": "coordinator.cadence.day_conclude_after",
+      "default": "15:00",
+      "rule": "catch_up when the coordinator-local time is before the key's value"
+    },
+    "week": {
+      "key": "coordinator.cadence.week_conclude_after_days",
+      "default": 4,
+      "rule": "catch_up when the coordinator-local date is fewer than the key's value days past the week anchor"
+    },
+    "machine_local": true
+  },
+  "resolver": {
+    "function": "resolve_period_mode",
+    "module": "coordinator_core/cadence/period_mode.py",
+    "cadences": ["day", "week"],
+    "signature": "resolve_period_mode(cadence, now_local, explicit, *, week_anchor)",
+    "returns": "PeriodMode",
+    "period_mode_fields": ["mode", "source", "in_progress", "missed", "reason"]
+  },
+  "week_window": {
+    "function": "week_window",
+    "signature": "week_window(d, week_anchor) -> (start, end_exclusive)",
+    "anchor": "the weekday of HEADER.md 'Week starting:'; never assumed Monday"
+  },
+  "brief": {
+    "top_level_key": "period_mode",
+    "narration_lead": "Catch-up run: <missed periods> backfilled; <in_progress> left open",
+    "narration_lead_prefix": "Catch-up run: ",
+    "catch_up_rule": "a concluding directive is absent from directives[], never present and self-skipping"
+  },
+  "concluding_directives": {
+    "workday-complete": [
+      "d_step9_changelog",
+      "d_goal_close_day",
+      "d_step10_5_post_command_hook",
+      "jp_step4b_analyst_dispatch",
+      "jp_step4_5_clustering_dispatch"
+    ],
+    "workweek-complete": [
+      "d_step13_archive_close",
+      "d_step13_5_post_command_hook",
+      "jp_step8_5_loe_high_water",
+      "jp_step9_editorial_bucketing",
+      "jp_step9_pm_release_notes_gate",
+      "jp_step10_semver_judgment",
+      "jp_step10_5_gh_release_publish"
+    ]
+  },
+  "catch_up_variants": {
+    "workday-complete": {
+      "jp_step4b_analyst_dispatch": "emitted for the gap days only",
+      "jp_step4_5_clustering_dispatch": "absent"
+    },
+    "workweek-complete": {
+      "d_step1b_backfill_changelog_gaps": "passes --through <last missed week's end>",
+      "archive": "one --week-only --week-starting W --week-ending W+6 directive per missed week"
+    }
+  },
+  "release_acts_absent_under_catch_up": ["merge to main", "version bump", "release notes", "gh release publish", "current-week HEADER rewrite"],
+  "engine_mirror": {
+    "source": "coordinator_core/cadence/period_mode.py",
+    "constants": {
+      "CATCH_UP_FLAG": "--catch-up",
+      "CONCLUDE_FLAG": "--conclude",
+      "MODE_VALUES": ["catch_up", "conclude"],
+      "SOURCE_VALUES": ["explicit", "auto-clock"],
+      "DAY_CONCLUDE_AFTER_KEY": "coordinator.cadence.day_conclude_after",
+      "DAY_CONCLUDE_AFTER_DEFAULT": "15:00",
+      "WEEK_CONCLUDE_AFTER_DAYS_KEY": "coordinator.cadence.week_conclude_after_days",
+      "WEEK_CONCLUDE_AFTER_DAYS_DEFAULT": 4,
+      "PERIOD_MODE_KEY": "period_mode",
+      "NARRATION_LEAD_PREFIX": "Catch-up run: "
+    }
+  }
+}

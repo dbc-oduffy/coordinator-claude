@@ -35,15 +35,14 @@
       "legacy_sites": []
     },
     {
-      "id": "doe-box-plain-claude-is-coordinator-less",
-      "claim": "On a DoE box, plain `claude` is coordinator-less by design and only the DoE launcher loads the coordinator plugin.",
-      "retired_by": "archive/specs/2026-10/2026-10-02-install-dogfood-fixes.md",
+      "id": "doe-box-plain-claude-loads-coordinator",
+      "claim": "On a DoE box, plain `claude` loads coordinator through an installed-plugin record repointed at the clone.",
+      "retired_by": "docs/decisions/DR-plain-claude-is-vanilla-on-a-doe-box.md",
       "signatures": [
-        "\\bcoordinator-less\\s+by\\s+design\\b",
-        "\\bnever\\s+registers\\s+or\\s+installs\\s+the\\s+coordinator\\s+plugin\\b",
-        "\\bonly\\s+way\\s+a\\s+DoE\\s+box\\s+loads\\s+coordinator\\b"
+        "\\bplain\\s+`claude`\\s+(?:already\\s+|therefore\\s+)?(?:loads|runs)\\s+(?:the\\s+live\\s+)?coordinator\\b",
+        "\\bplain\\s+`claude`\\s+session\\s+loads\\s+coordinator\\b"
       ],
-      "witness": "plain claude is coordinator-less by design\nthe installer never registers or installs the coordinator plugin\nthe launcher is the only way a DoE box loads coordinator",
+      "witness": "Plain `claude` loads coordinator on a DoE box\nPlain `claude` therefore runs the live coordinator surface\nA plain `claude` session loads coordinator through the registration",
       "legacy_sites": []
     },
     {

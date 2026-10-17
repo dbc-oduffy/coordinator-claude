@@ -12,18 +12,15 @@ order: 2
 - _Plan is genuinely trivial?_ (one-line doc fix, typo, link repoint, no design content)
   → Skip `prior-art-checker`.
 
-**Resolve `fleet_capability_index:` before dispatch (plan mode, non-blocking).** Use the same
-op-invocation seam every `coordinator/hooks/scripts/*.py` dispatcher uses (sibling engine root →
+**Resolve `fleet_capability_index:` before dispatch (plan mode, non-blocking).** Use the op-invocation seam every `coordinator/hooks/scripts/*.py` dispatcher uses (sibling engine root →
 `sys.path.insert` → in-process `coordinator_core.ipc.dispatch_message`, method
 `"fleet.aggregate_capability_index"`, `common_dir` scope via `_origin_worktree`). **Never invent a
 second seam or author your own index builder** — the sibling op
 (`coordinator_core/ops/fleet/capability_index.py`) produces the index; this skill only resolves and reads it.
 
-1. Invoke the op. Any failure (engine unresolvable, import error, op exception) → proceed without
-   the field, never blocking.
+1. Invoke the op. Any failure → proceed without the field, never blocking.
 2. Read `state/capabilities/fleet-index.json` only far enough to confirm it parses against
    `coordinator/schemas/fleet-capability-index.schema.json` (AC8/F2); invalid JSON → treat as
-   absent. Do NOT perform the `generated_at`/`ttl` staleness check (AC9) — `prior-art-checker`
-   re-reads the path and does it itself.
+   absent. Do NOT perform the `generated_at`/`ttl` staleness check (AC9) — `prior-art-checker` does it.
 3. Pass the path as the `fleet_capability_index:` dispatch-brief field. Absent at any prior step →
-   omit the field entirely; `prior-art-checker` already skips its Platform-capability bucket.
+   omit the field; `prior-art-checker` skips its Platform-capability bucket.

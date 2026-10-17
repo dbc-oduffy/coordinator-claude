@@ -15,9 +15,8 @@ summary. Results wait at the next workstream-start.
 **Announce at start:** "I'm using /code-health to review recent commits."
 
 **Run on every committed day, regardless of commit count.** A small commit count is exactly when
-a review gets skipped and is exactly where the adjacent-path regression hides — the cost-benefit
-is asymmetric. The only valid skip: zero completion entries today AND zero fallback commits (see
-Failure Modes).
+a review gets skipped and exactly where the adjacent-path regression hides. The only valid skip:
+zero completion entries today AND zero fallback commits (see Failure Modes).
 
 ## Step 1: Identify Surfaces
 
@@ -44,10 +43,10 @@ reviewer selection.
 > step names; it dissolves no gate this skill's own body names.
 
 Always the Sonnet `coordinator:code-reviewer`, never a persona — personas are Opus-only, reserved
-for the weekly arch pass and explicit architectural decisions; a finding that genuinely needs one
-gets flagged for `/workweek-complete` Step 7.5, not escalated here. Tell it what to weight by
-dominant change type (UE idioms / component-token-reuse-accessibility / numeric-correctness /
-coupling-and-interface-seams) — vocabulary only, never identity.
+for the weekly arch pass; a finding that genuinely needs one gets flagged for `/workweek-complete`
+Step 7.5. Tell it what to weight by dominant change type (UE idioms /
+component-token-reuse-accessibility / numeric-correctness / coupling-and-interface-seams) —
+vocabulary only, never identity.
 
 First register the reviewed file list: `review-findings-ledger targets --add` for Step 1's
 surfaces. Then dispatch unattended: `coordinator:code-reviewer`, UNNAMED, `run_in_background:
@@ -63,17 +62,13 @@ interacting files or new abstractions go to Step 5 instead. No findings: skip to
 
 ## Step 4.5: Commenting Lint Sweep
 
-Non-blocking. Run alongside the reviewer dispatch, never as a gate: `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" ci.run_commenting_sweep '{"repo_root":"<repo-root>"}'`.
-Passing no `paths` (this call) scopes the sweep to files changed against the default branch plus
-untracked files — the right size for a nightly pass, never the whole tracked tree. Its `findings`
-(a changelog, attribution, task-ref, narration or grep-bait comment shape) file to the debt
-backlog the same way Step 5 files a reviewer finding, `source: daily-health/commenting-sweep/{date}`.
-No findings: skip. This is reporting only — no hook, no gate, no pre-commit leg.
+Non-blocking, alongside the reviewer dispatch, never a gate: `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" ci.run_commenting_sweep '{"repo_root":"<repo-root>"}'`.
+Without `paths` it scopes to files changed against the default branch plus untracked files — the
+nightly size, never the whole tree. Its `findings` file to the debt backlog the way Step 5 files a
+reviewer finding, `source: daily-health/commenting-sweep/{date}`. No findings: skip. Reporting only.
 
-**Audit-cadence (whole-repo) form**, for `/architecture-audit` or a periodic full sweep only —
-never the nightly default above: `... ci.run_commenting_sweep '{"repo_root":"<repo-root>","paths":[<every tracked path from "git ls-files">]}'`.
-Passing an explicit `paths` list is what scans the whole tree; this is a heavier, occasional pass,
-not the per-run default.
+**Audit-cadence (whole-repo) form**, for `/architecture-audit` or a periodic full sweep only:
+`... ci.run_commenting_sweep '{"repo_root":"<repo-root>","paths":[<every tracked path from "git ls-files">]}'`.
 
 ## Step 5: Debt Backlog
 
@@ -90,14 +85,12 @@ audit:`/`Next rotation target:`, then a `## System Index` table: System | Grade 
 Audited | Open P0/P1/P2 | Lines | Notes). Update `Last daily check` to today. If findings changed
 a grade, update that row; a system touched but rowless gets grade `?`.
 
-The health ledger is the single source of truth for grades — `/architecture-audit` also writes
-here after weekly audits. Read the existing grade before changing it; don't downgrade a
-just-upgraded system absent new P0/P1s.
+The ledger is the single source of truth for grades — `/architecture-audit` also writes here.
+Read the existing grade before changing it; don't downgrade a just-upgraded system absent new P0/P1s.
 
 <!-- engine-gap: field=health_ledger.grade_from_findings producer=unknown memo=engine-gap-markers-name-a-memo-that-was-never-filed.md -->
 Grading anchors, status-trigger definitions, and the reviewer-emphasis-by-change-type mapping
-this step and Step 3 apply by eye have no engine producer yet — apply the calibration in the
-wiki page for this skill until one lands.
+have no engine producer yet — apply the calibration in the wiki page for this skill.
 
 ## Step 7: Health Summary
 
@@ -111,32 +104,22 @@ example: wiki.
 
 Commit per `snippets/scoped-commit-route.md`, subject `daily-code-health: review of surfaces from
 completion entries [date]`, pathspec exactly `state/health-ledger.md` and
-`state/health/<YYYY-MM-DD>-health-summary.md`.
-
-Nothing else this run touched. Post-commit hook pushes automatically.
+`state/health/<YYYY-MM-DD>-health-summary.md`. Nothing else this run touched. Post-commit hook pushes automatically.
 
 ## Failure Modes
 
 | Situation | Action |
 |---|---|
 | No health ledger on first run | Create from template, use last 24h as scope |
-| No completion entries for today | Fall back to `git log --since=<last-check>` scope; report fallback |
-| `query-completions` not found | Fall back to git-log scope; note missing binary |
+| No completion entries for today, or `query-completions` not found | Fall back to `git log --since=<last-check>` scope; report fallback |
 | No new commits since last check (fallback path) | Update timestamp, report, exit — no dispatch |
 | Reviewer returns no findings | Skip Steps 4-5, go to Step 6 |
 | Debt backlog doesn't exist | Create from template first |
 | Complex finding can't be fixed inline | Debt backlog, with severity and effort estimate |
 | Git commands fail (no commits, detached HEAD) | Report the error and stop |
 
-## Cost
-
-1 Sonnet `code-reviewer` dispatch (`--problems-only`), applying its own findings inline. No
-persona, no Opus at this cadence.
-
 ## Relationship to Other Commands
 
-`/workday-complete` is the primary trigger — let it invoke this rather than running standalone.
-`/workstream-start`'s cockpit snapshot and record queries surface `state/health/*.md` at the top
-of the next session (nested path, not the stale flat `state/health-summary.md`). `/review-code`'s
-full feature-review workflow is a different tool — this dispatches `--problems-only` directly.
-`pipelines/daily-code-health/PIPELINE.md` is the pipeline definition this command executes.
+Cost: 1 Sonnet `code-reviewer` dispatch, no persona. `/workday-complete` is the primary trigger.
+`/workstream-start`'s cockpit snapshot surfaces `state/health/*.md` next session.
+`pipelines/daily-code-health/PIPELINE.md` is the pipeline definition this executes.

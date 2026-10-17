@@ -31,8 +31,7 @@ round_trip_directives:
     engine_judgment_point_id: null
     value: "not reached (classification (b) halts before Phase 1.5)"
     rationale: >
-      Declared for AC2 completeness only. If a future contract revision ever reaches this point
-      under this lane, the safe fallback value is go-cold (same as new-project.yaml).
+      Declared for AC2 completeness only; safe fallback go-cold (as new-project.yaml).
     resolves: []
 
   - step_id: p2.ask-project-name
@@ -92,9 +91,8 @@ terminal_offer_defaults:
   - step_id: p3x.memo-destination-offer
     value: "no"
     rationale: >
-      Default no for classification (b) per census note ("default yes for (a)/(c), default no for
-      (b)") -- the material differentiator against add-existing-project.yaml's "yes". A thin-door
-      registration is not yet a fully addressable fleet peer.
+      Default no for classification (b) per census note -- the differentiator against
+      add-existing-project.yaml's "yes". A thin-door registration is not yet a fully addressable peer.
 
   - step_id: tw.windows-console-offer
     value: "not reached"

@@ -24,10 +24,8 @@ round_trip_directives:
     engine_judgment_point_id: null
     value: go-cold
     rationale: >
-      Phase 1.5 substrate synthesis has nothing to read on a from-scratch repo --
-      p15.skip-gate-empty-repo mechanically skips the phase before this point would fire. Declared
-      here (AC2 requires every round_trip row pre-answered regardless of reachability) with the
-      safe value: skip straight to Phase 2 cold-asks, answered below.
+      Nothing to synthesize on a from-scratch repo; p15.skip-gate-empty-repo skips the phase.
+      Declared (AC2: every round_trip row pre-answered) with the safe value: skip to Phase 2.
     resolves: [p15.skip-phase2-on-ratification]
 
   - step_id: p2.ask-project-name
@@ -40,8 +38,7 @@ round_trip_directives:
     engine_judgment_point_id: null
     value: "caller-supplied (op parameter `project_type`, required, closed four-value enum)"
     rationale: >
-      Selects the project-type-block templates; a from-scratch repo has no manifest signals for
-      detection to fall back on, so this is caller-required rather than caller-optional.
+      Selects the project-type-block templates; no manifest signals exist, so it is caller-required.
     resolves: [p3a.render-claude-md]
 
   - step_id: p2.ask-workstreams
@@ -93,8 +90,7 @@ terminal_offer_defaults:
   - step_id: tw.windows-console-offer
     value: "yes"
     rationale: >
-      Install by default on a from-scratch repo to establish the bash-free convention from day
-      one, rather than waiting for a *.sh signal to accrete first.
+      Install by default to establish the bash-free convention from day one.
 
 # --- AC5: ROSTER SLOTS. Ordered ready_to_fire baton slots; see CONTRACT.md § Roster slots for
 # the ordering convention. This lane writes no baton -- slots are data naming the primitive.

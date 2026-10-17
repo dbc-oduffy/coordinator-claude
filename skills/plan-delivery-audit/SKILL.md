@@ -10,8 +10,7 @@ argument-hint: "[plan-glob — default: docs/plans/*.md]"
 
 Triangulate each plan's own `status:` claim against code-reality and review-trail coverage,
 resolving every plan into exactly one of five buckets. Invoke after a crash/partition, a
-mid-quarter shipped-work reconciliation, or any time `status: implemented` needs independent
-verification. Worked example and closest-analogue rationale: wiki.
+shipped-work reconciliation, or whenever `status: implemented` needs independent verification.
 
 ## Phase 1 — Gather and filter (EM, ~2 min)
 
@@ -26,8 +25,7 @@ Rough-sort by frontmatter `status:`:
 
 ## The three oracles
 
-Read each independently. Oracle 1 is the hypothesis under test; Oracles 2 and 3 confirm or
-falsify it — never let Oracle 1 color how you read them.
+Read each independently; Oracle 1 is the hypothesis, Oracles 2 and 3 test it; never let Oracle 1 color how you read them.
 
 **Oracle 1 — plan-claim.** The plan's own `status:`, per-AC status column, execution/`reviewed:`
 notes. A claim, not a verdict.
@@ -49,17 +47,14 @@ artifacts, Oracle 2(a) is unverifiable — treat the plan conservatively (see ti
 `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`; PowerShell shown)
 `& "$env:COORDINATOR_SETTINGS_HOME\bin\tier-u-grant-cli.exe" check`
 the way `coordinator:validate` does. Granted: run the project's `fast_test_cmd` at HEAD once for
-the whole batch — a failing suite is independent falsifying evidence even when artifacts check
-out. Ungranted: report Oracle 2(b) as skipped-pending-grant; never substitute a hand-rolled
-command or treat an unrun suite as passing.
+the batch; a failing suite falsifies even when artifacts check out. Ungranted: report
+skipped-pending-grant; never substitute a hand-rolled command or treat an unrun suite as passing.
 
 **Oracle 3 — review (archive-aware).** Trail records live at BOTH `state/review-trail/**/*.json`
 AND `archive/review-trail/**/*.json` — `/workweek-complete` moves the current week's records into
 `archive/review-trail/<week>/` on every reset, so a live-only glob under-counts. There is no
-lister CLI — the per-commit review-trail writer/lister family was retired with no launcher of any
-kind, replaced by a binary review receipt. Walk both trees directly:
-glob `state/review-trail/**/*.json` and `archive/review-trail/**/*.json`, union the results, and
-sort by **basename**, not full path — week-subdirectory ordering inverts on a full-path sort.
+lister CLI. Glob both trees, union the results, and sort by **basename**, not full path —
+week-subdirectory ordering inverts on a full-path sort.
 
 For each returned record, call `coordinator_core.git_ancestry.is_covered(commit, start_sha,
 end_sha)` — the single source of truth for the covered-by-range polarity — for each of the
@@ -67,12 +62,10 @@ plan's delivery commits against the record's `sha_range`. ≥1 record covering e
 commit = COVERED. No covering record = UNCOVERED only if delivery predates the
 trail's freeze; after it, Oracle 3 is `UNAVAILABLE`.
 
-**The corpus is frozen; absence stopped meaning anything.** `review_trail.write` is retired with
-no live writer left (retired in the engine repo); this repo's newest record is `2026-08-26-211749`. Reviews land
-in the reviewer sidecar's `findings_ledger`, which this oracle cannot read
--- so a post-freeze plan returns UNCOVERED whether or not it was reviewed. Read the sidecar before
-reporting a review missing. If delivery commits aren't named in frontmatter or execution
-notes, identify them from what the plan's ACs describe.
+**The corpus is frozen** (newest record `2026-08-26-211749`; no live writer). Reviews land in the
+reviewer sidecar's `findings_ledger`, which this oracle cannot read, so a post-freeze plan returns
+UNCOVERED reviewed or not. Read the sidecar before reporting a review missing. Delivery commits
+unnamed in frontmatter or notes: identify them from the plan's ACs.
 
 ## Bucket decision tree
 
@@ -90,8 +83,7 @@ suite) → **PARTIAL**, not DELIVERED — self-assertion alone is not delivery. 
 commit evidence of shipped work still resolves to **IN-FLIGHT** — flip the frontmatter rather
 than reclassify here. **DELIVERED-UNREVIEWED** is a real state, not an error — recommend a
 `code-reviewer` dispatch against the delivery diff, never backdoor a review claim.
-**REVIEW-UNKNOWN** never enters that queue -- the oracle is blind, not negative, and
-re-reviewing work whose receipt this skill cannot read buys nothing. **ABANDONED**
+**REVIEW-UNKNOWN** never enters that queue -- the oracle is blind, not negative. **ABANDONED**
 with Oracle 2 evidence of shipped code should surface a `status: superseded` +
 `superseded_by:` flip recommendation.
 
@@ -102,16 +94,11 @@ count per bucket, the DELIVERED-UNREVIEWED catch-up queue (with delivery commits
 frontmatter-flip recommendations, and a method-notes line for any plan with unverifiable
 Oracle 2 or unresolved delivery commits.
 
-Save to `state/audits/YYYY-MM-DD-<SID_SHORT>-plan-delivery-audit.md`, where `SID_SHORT` is the
-first 8 characters of `cs_resolve_session_id` (4-tier: `COORDINATOR_SESSION_ID` →
-`CLAUDE_SESSION_ID` → `CLAUDE_CODE_SESSION_ID` → sentinel; fall back to an 8-char nonce if
-unavailable). Create `state/audits/` if absent — the session/nonce key exists so same-day audits
-don't clobber each other.
+Save to `state/audits/YYYY-MM-DD-<SID_SHORT>-plan-delivery-audit.md` (`SID_SHORT` = first 8
+characters of `cs_resolve_session_id`, else an 8-char nonce; create `state/audits/` if absent).
 
 ## Dispatch sequencing
 
-Phase 2 (~10 min): parallel Oracle-2(a) scouts, one per implemented plan, per the dispatch shape
-above. Concurrently (EM-side): run Oracle 2(b) once for the batch, and Oracle 3 per plan via the
-direct trail-tree walk (§ Oracle 3) + `is_covered`. Phase 3 (~3 min): apply the decision tree to every
-plan, write the output table, and surface any DELIVERED-UNREVIEWED plans to the PM with a
-`code-reviewer` dispatch recommendation — don't dispatch it autonomously, the PM may defer.
+Phase 2: parallel Oracle-2(a) scouts; EM-side, Oracle 2(b) once and Oracle 3 per plan. Phase 3:
+apply the decision tree, write the table, and surface DELIVERED-UNREVIEWED plans to the PM with a
+`code-reviewer` recommendation — never dispatch it autonomously.

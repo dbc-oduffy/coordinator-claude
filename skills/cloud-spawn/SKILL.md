@@ -36,11 +36,9 @@ Children sit behind the same egress proxy: they add build throughput, never publ
 
 ## Why a PR comment on the source repo is the channel
 
-A cloud child cannot reach its parent through `ListAgents` or `SendMessage`, because each runs in a
-separate container. The child can read the parent with `get_session`, but it cannot write to it.
-What the child can write to is a PR comment, and only on a repo in its GitHub scope. That scope is
-its creation source, plus anything attached with `add_repo`. So the parent's channel PR must live
-on the child's source repo; a shared comms repo outside that scope is unreachable.
-`coordinator:cloud-channel` makes the PR and subscribes to it.
+A child cannot reach its parent through `ListAgents` or `SendMessage` (separate containers), and
+`get_session` is read-only. It can write a PR comment only on a repo in its GitHub scope: its
+creation source plus `add_repo` attachments. So the parent's channel PR must live on the child's
+source repo. `coordinator:cloud-channel` makes the PR and subscribes to it.
 
 A child's own subagents have no `Workflow` tool, so fan-out stays with a top-level session.

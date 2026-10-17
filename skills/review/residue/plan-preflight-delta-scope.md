@@ -16,11 +16,11 @@ order: 1
 
 **A delta re-run writes the canonical path, never a delta-suffixed one.** The plan-sidecar
 family has exactly one path per `(plan-stem, lens)` pair — `.coordinator-local/plan-sidecars/<plan-stem>.<lens>.md`
-(`<lens>` includes `plan-review-check` for `plan-reviewer`) — provisioning re-opens it idempotently. A re-run archives the prior sidecar
+(`<lens>` includes `plan-review-check` for `plan-reviewer`). A re-run archives the prior sidecar
 by inserting `.<UTC-mtime>` before its final `.md` (hyphens for colons) and
 writes the fresh findings at the canonical path. A `<plan-stem>.<lens>-delta.md` name is invisible to consumers: reject it.
 
-Name the delta in the re-dispatch brief; a full re-run is correct only when the amendment was structural enough that the prior pass's coverage fails.
+Name the delta in the re-dispatch brief; a full re-run is correct only when the amendment was structural.
 
 Both checks below fire independently — a non-trivial plan that also cites C++/UE APIs runs both workers.
 

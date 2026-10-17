@@ -326,7 +326,58 @@ def _is_review_activity(filename: str, meta: dict) -> bool:
     return "review" in filename.lower()
 
 
-def _block_condition_1(in_scope: list[tuple[str, dict]]) -> bool:
+_RUN_ID_RE = re.compile(r"ask-\d{8}T\d{6}-[0-9a-f]{6}")
+
+
+def _run_attribution(
+    repo_root: str, in_scope: list[tuple[str, dict]]
+) -> tuple[frozenset[str], frozenset[str]]:
+    """(sidecar stems, repo-relative code paths) owned by in-session engine-ask
+    runs, which share the EM's session_id. The positive signal is the run's own
+    `engine:*` sidecars: a stem is the run's only when one of them names it in
+    `integrated_from`; a path is the run's only when the manifest of a run id
+    carried in an engine sidecar's filename declares it. An unreadable manifest
+    attributes nothing, so the guard keeps surfacing what it cannot prove."""
+    stems: set[str] = set()
+    run_ids: set[str] = set()
+    for filename, meta in in_scope:
+        agent_type = meta.get("agent_type")
+        if not (isinstance(agent_type, str) and agent_type.startswith("engine:")):
+            continue
+        stems.update(_integrated_from_list(meta))
+        run_ids.update(_RUN_ID_RE.findall(filename))
+    paths: set[str] = set()
+    for run_id in run_ids:
+        try:
+            with open(
+                os.path.join(repo_root, "state", "warp", run_id, "manifest.json"),
+                "r",
+                encoding="utf-8",
+            ) as fh:
+                manifest = json.load(fh)
+            declared = list(manifest.get("review_declared_paths") or [])
+            for row in manifest.get("rows") or []:
+                declared.extend(row.get("writes") or [])
+        except (OSError, ValueError, AttributeError, TypeError):
+            continue
+        paths.update(p.replace("\\", "/") for p in declared if isinstance(p, str))
+    return frozenset(stems), frozenset(paths)
+
+
+def _is_run_owned(filename: str, meta: dict, run_stems: frozenset[str]) -> bool:
+    """True for a sidecar an engine-ask run wrote (an `engine:*` agent_type, an
+    `ask-` filename) or one an engine sidecar of the run names in `run_stems`."""
+    agent_type = meta.get("agent_type")
+    if isinstance(agent_type, str) and agent_type.startswith("engine:"):
+        return True
+    if filename.startswith(("ask-", "manifest-ask-")):
+        return True
+    return _kira_stem(filename) in run_stems
+
+
+def _block_condition_1(
+    in_scope: list[tuple[str, dict]], run_stems: frozenset[str] = frozenset()
+) -> bool:
     kira_present = any(_is_kira(f, m) for f, m in in_scope)
     if kira_present:
         return False
@@ -338,7 +389,7 @@ def _block_condition_1(in_scope: list[tuple[str, dict]]) -> bool:
             plan_review_names.add(_kira_stem(f))
 
     def _counts_as_review(f: str, m: dict) -> bool:
-        if _is_kira(f, m):
+        if _is_kira(f, m) or _is_run_owned(f, m, run_stems):
             return False
         if not _is_review_activity(f, m):
             return False
@@ -515,10 +566,14 @@ def _is_product_path(rel: str) -> bool:
     return "canvas" not in norm.split("/")
 
 
-def _session_touched_no_product_code(repo_root: str, session_id: str) -> bool:
+def _session_touched_no_product_code(
+    repo_root: str, session_id: str, run_paths: frozenset[str] = frozenset()
+) -> bool:
     """True only on a POSITIVE read: the session's touch record lists writes
-    and none is product code. No record, or an unreadable one, is False so
-    the guard keeps firing on what it cannot prove."""
+    and none is product code outside `run_paths` (paths an in-session engine
+    run declared; touches carry no agent id, so a hand edit to such a path is
+    masked). No record, or an unreadable one, is False so the guard keeps
+    firing on what it cannot prove."""
     try:
         from _git_common_dir import resolve_git_common_dir
 
@@ -530,7 +585,10 @@ def _session_touched_no_product_code(repo_root: str, session_id: str) -> bool:
         rels = _touch_record_jsonl_paths(session_dir, kinds=("w",)) or _touched_txt_paths(session_dir)
         if not rels:
             return False
-        product = [r for r in rels if _is_product_path(r)]
+        product = [
+            r for r in rels
+            if _is_product_path(r) and r.replace("\\", "/") not in run_paths
+        ]
         if not product:
             return True
         # An untracked write (a scratch dump at the root) was never shipped, so it cannot owe a Kira routing.
@@ -587,8 +645,6 @@ def main() -> int:
         return 0
     if _session_route_is_xs_dispatch(repo_root, session_id):
         return 0
-    if _session_touched_no_product_code(repo_root, session_id):
-        return 0
 
     chain_session_ids = _pickup_chain_session_ids(repo_root, session_id)
     share_dirs = [
@@ -631,9 +687,13 @@ def main() -> int:
     if not in_scope:
         return 0
 
+    run_stems, run_paths = _run_attribution(repo_root, in_scope)
+    if _session_touched_no_product_code(repo_root, session_id, run_paths):
+        return 0
+
     reasons: list[str] = []
 
-    if _block_condition_1(in_scope):
+    if _block_condition_1(in_scope, run_stems):
         reasons.append(
             "- Other review activity ran this session, but no Kira "
             "(overengineering-reviewer) sidecar is present. Kira fires on "

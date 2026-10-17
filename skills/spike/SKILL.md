@@ -18,8 +18,8 @@ open-ended "keep researching" path (that's `coordinator:research`).
 
 spike is the research door's verdict class (`coordinator/commands/research.md`).
 
-Distinct from siblings: `coordinator:research` is broad, non-binary, and runs no code on this
-machine. `coordinator:systematic-debugging` is backward-looking (why did one known thing break).
+Siblings: `coordinator:research` is broad, non-binary, and runs no code on this machine.
+`coordinator:systematic-debugging` is backward-looking (why did one known thing break).
 `coordinator:dogfood` is fix-through on a thing already built. `coordinator:shape` is
 problem-shaping (what to build), not mechanism-proving (can we build it this way).
 
@@ -34,7 +34,7 @@ self-classification:
 - **Research-door entry (default).** The PM says 'spike', or the EM sizes
   `research.value_class: spike`. The EM's sizing is the authority
   (`A-RESEARCH-RUNS-ON-THE-EMS-SIZING-NEVER-A-PM-GATE`). A bare `/spike <mechanism>` with no structural
-  signal present is ALWAYS this variant, full stop.
+  signal present is ALWAYS this variant.
 - **Plan-trampoline.** EM-reachable, no PM round-trip — only when `coordinator:plan` Branch B
   substrate verification carries an explicit `trampoline: true`-style signal on an unproven
   mechanism gate (`coordinator/skills/plan/SKILL.md`, the eighth verification dimension). Absence
@@ -52,17 +52,15 @@ finish the empirical half before declaring a verdict.
 
 ## Probes Are Throwaway
 
-Probe scripts are derisking scaffolding, not durable test artifacts — discarded once the
-measurement is taken and the verdict recorded. Never commit them to the persistent test suite;
-that confuses throwaway scaffolding with a regression guard, which is the plan's own tests' job
-once drafted around a proven mechanism.
+Probe scripts are derisking scaffolding — discarded once the measurement is taken and the verdict
+recorded. Never commit them to the persistent test suite; that is the plan's own tests' job once
+drafted around a proven mechanism.
 
 ## Durable Output — the Verdict Record
 
 Write to `docs/research/spike-verdicts/YYYY-MM-DD-<mechanism-slug>.md`, validated against
 `spike-result.schema.json`. No `state/handoffs/` lifecycle fields (no `status`,
-`deployment_state`, `pickup_ready`) — a verdict record is evidence, not a baton; evidence is read
-and cited, never picked up.
+`deployment_state`, `pickup_ready`) — a verdict record is evidence, not a baton.
 
 Carries: research findings, empirical measurements, binary verdict (`viable`/`not-viable`),
 `gated_route` (the downstream plan/chunk/decision this verdict gates, when reached via the
@@ -73,9 +71,7 @@ string).
 target, write that intent onto the real target before the session ends — the plan the spike
 gates, an existing baton already carrying the work, or a PM-facing surface for a
 `coordinator:shape`-reached verdict — and name it in `discharged_by`. The schema rejects a
-non-empty `gated_route` paired with a null `discharged_by`; there is no such thing as a record
-that exits promising to be picked up later. Rationale and the corpus evidence behind this
-discipline: wiki.
+non-empty `gated_route` paired with a null `discharged_by`.
 
 **A spike carried as plan rows owes no verdict record.** Tripwire: `A-SPIKE-CARRIED-AS-PLAN-ROWS-OWES-NO-VERDICT-RECORD`.
 
@@ -88,17 +84,15 @@ discipline: wiki.
 
 Not an EM judgment call once the verdict lands — the verdict is the router. This wiring is the
 **plan⇄spike back-edge**: `coordinator:plan` Branch B trampolines into a spike on an unproven
-mechanism gate, and this skill's viable-verdict exit resumes that trampolined plan.
+mechanism gate, and this skill's viable-verdict exit resumes that trampolined plan. Both verdict
+rows and the `plan⇄spike back-edge` phrase must stay grep-assertable from this file and
+`plan/SKILL.md`.
 
 ## `coordinator:spike` vs. `scope_mode: spike`
 
 Complementary, not colliding. `scope_mode: spike` is a plan-header enum describing a *plan's own*
-discovery mode ("throwaway code allowed, findings + recommendation"). `coordinator:spike` is a
-distinct upstream *invocation* that runs before a plan exists and produces a verdict record
-gating whether/how one gets drafted. A `/spike` verdict typically precedes a plan carrying
-`scope_mode: feature`/`architecture`, since the spike already de-risked the mechanism;
-occasionally the follow-on plan still carries `scope_mode: spike` if it remains exploratory on a
-different axis than the one this spike resolved.
+discovery mode. `coordinator:spike` is a distinct upstream *invocation* that runs before a plan
+exists and produces a verdict record gating whether/how one gets drafted.
 
 ## Destructive-Action Prohibition
 
@@ -109,22 +103,8 @@ pr merge`, `--no-verify`/`--no-gpg-sign`, hibernate/shutdown/power-off, killing 
 
 ## Out of Scope
 
-Retrofitting historical spikes (pre-dating this skill) into verdict records — they stay as-was,
-folded into wiki reference material, not retroactively migrated. Editing the `/research` or
-`/dogfood` skill bodies — this skill defines its boundary against them by citation, not by
-editing theirs. A generic pipeline-graph engine — the shape→spike→plan edges are wired
-point-to-point in the affected skills, not abstracted into a routing framework. A central
-gating-registry file — the research-door entry is documented here and cross-referenced
-from discovery surfaces. A new `deployment_state` enum value for the trampoline path — that's a
-handoff body directive, not a new enum value. A new primary manifest docType beyond the
-verdict-record schema itself.
-
-## Discovery-Surface Integration and Test Surface
-
-Registering `/spike` on `/workstream-start`, a gating registry, and pipeline-graph
-cross-refs is a separate concern from this authoring surface. No runtime test exists for this
-skill body — a skill body is prose-doctrine, and this repo has no invocation harness that runs a
-skill end-to-end as a unit test, same as `/dogfood`/`/shape`/`/plan`. Frontmatter validates via
-`yaml.safe_load` the same way sibling skills' does. The exit-routing table above (both verdict
-rows, and the `plan⇄spike back-edge` phrase) must stay grep-assertable from both this file and
-`plan/SKILL.md` — that cross-file assertion is the test surface for this section.
+Retrofitting historical spikes into verdict records. Editing the `/research` or `/dogfood` skill
+bodies. A generic pipeline-graph engine — the shape→spike→plan edges are wired point-to-point. A
+central gating-registry file. A new `deployment_state` enum value for the trampoline path. A new
+primary manifest docType beyond the verdict-record schema. Discovery-surface registration
+(`/workstream-start`, pipeline-graph cross-refs) is a separate concern.

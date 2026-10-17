@@ -19,18 +19,16 @@ round_trip_directives:
     engine_judgment_point_id: null
     value: working
     rationale: >
-      An existing repo being onboarded via this lane is, by construction, an actively developed
-      one -- the "add repo" thin door (see add-repo.yaml) is the lane for published-artifact
-      registration-only. Phase 2 runs.
+      An existing repo onboarded here is actively developed; add-repo.yaml is the registration-only
+      door. Phase 2 runs.
     resolves: [p1.classification-branch-b-stop, p2.question-set-selection]
 
   - step_id: p15.ratification-ask
     engine_judgment_point_id: null
     value: ratify
     rationale: >
-      Accept Phase 1.5's proposed name/type/workstreams synthesis as-is with no confirmation
-      round-trip. The synthesis (p15.propose-project-type, p15.propose-workstreams) is agent-work
-      the engine performs against real substrate; this lane's policy is to trust it unattended.
+      Accept Phase 1.5's proposed name/type/workstreams synthesis as-is, with no confirmation
+      round-trip.
     resolves: [p15.skip-phase2-on-ratification]
 
   - step_id: p2.ask-project-name
@@ -68,8 +66,7 @@ terminal_offer_defaults:
   - step_id: p15.propose-workstreams
     value: accept-as-proposed
     rationale: >
-      The Phase 1.5 synthesis output feeds p2.ask-workstreams directly, per the ratify answer
-      above -- no additional confirmation step.
+      The Phase 1.5 synthesis feeds p2.ask-workstreams directly; no confirmation step.
 
   - step_id: p3d5.hand-section-prompt
     value: defer
@@ -96,8 +93,7 @@ terminal_offer_defaults:
   - step_id: p3x.memo-destination-offer
     value: "yes"
     rationale: >
-      Default yes for classification (a)/(c) per census note; this lane always answers
-      p1.repo-classification-ask as (a) working.
+      Default yes for classification (a)/(c); this lane always answers (a) working.
 
   - step_id: tw.windows-console-offer
     value: "install if tw.windows-console-signal-detect fires, else skip"

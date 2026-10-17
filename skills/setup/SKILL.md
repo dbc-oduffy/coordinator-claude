@@ -12,16 +12,14 @@ plugin-adoption chain). Reads the install manifest, walks `direct_deps` (ONE har
 control-plane engine), and emits the chain-complete terminal banner once satisfied, or fails loud
 with remediation if the engine is unresolvable. Does NOT replace `coordinator:install` (OSS plugin
 bootstrap into `~/.claude/`) or `coordinator:repo-setup` (consumer-project first-time
-scaffolding) — three distinct verbs; disambiguation rationale: wiki.
+scaffolding) — three distinct verbs.
 
 **`setup_skill` in the manifest is informational, not the dispatch primitive.** This skill uses
-direct Bash calls, not subagent dispatch (the engine dependency self-confirms via
-`claude_klabauter_seam_resolvable`).
+direct Bash calls, not subagent dispatch (the engine self-confirms via `claude_klabauter_seam_resolvable`).
 
 **Registry-key resolution:** a dev-tree session resolves the engine via `repos.claude_klabauter` (in
-`<settings-home>/machine-local/registry.local.toml`) /
-`REPO_CLAUDE_KLABAUTER`; an OSS install resolves the same engine (published as `claude-klabauter`)
-via `docs/install/AGENT.md`.
+`<settings-home>/machine-local/registry.local.toml`) / `REPO_CLAUDE_KLABAUTER`; an OSS install
+resolves the same engine (published as `claude-klabauter`) via `docs/install/AGENT.md`.
 
 ---
 
@@ -29,10 +27,10 @@ via `docs/install/AGENT.md`.
 
 DO NOT run `gh pr create`, `gh pr merge`, `git push origin main`, `gh release create`, or any `gh`
 command mutating GitHub state beyond pushing the current branch. DO NOT commit to `main` directly.
-Surface a needed merge to the EM instead of doing it.
+Surface a needed merge to the EM instead.
 
 - Writing outside `plugins/coordinator-claude/coordinator/`.
-- Modifying `docs/install/agent-install-manifest.json` at runtime (static artifact, read-only here).
+- Modifying `docs/install/agent-install-manifest.json` at runtime (static, read-only here).
 - Touching the DR, example-game-repo, ue-addon, or project-rag trees.
 - Any `git commit` or `git push`.
 
@@ -41,16 +39,16 @@ Surface a needed merge to the EM instead of doing it.
 ## Step 1 — Detect layout
 
 `PLUGIN_ROOT` is two levels up from this skill file (`coordinator/skills/setup/SKILL.md` →
-`coordinator/`); resolve it relative to wherever this file lives on disk.
+`coordinator/`); resolve it relative to wherever this file lives.
 
-**On a PowerShell host, invoke the `.exe` launcher through the call operator** (Shape W) for every
-`setup-verify` invocation on this page, never the `${...}` POSIX-shell form shown. Ladder and
-shapes: `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`.
+**`SV` below is the `setup-verify` launcher.** On a PowerShell host it is
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\setup-verify.exe"` (call operator, Shape W), never the
+`${...}` POSIX form. Ladder and shapes: `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`.
 
-Run `& "$env:COORDINATOR_SETTINGS_HOME\bin\setup-verify.exe" layout --plugin-root "<PLUGIN_ROOT>"` (Shape W; ladder and POSIX shapes: `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`).
-Prints `Layout: <flat|nested>` and `Manifest path: <path>`; exits 1 with a "Manifest not found"
-remediation if `docs/install/agent-install-manifest.json` is absent under the resolved repo root.
-Surface an exit-1 error verbatim.
+Run `SV layout --plugin-root "<PLUGIN_ROOT>"`. Prints `Layout: <flat|nested>` and
+`Manifest path: <path>`; exits 1 with a "Manifest not found" remediation if
+`docs/install/agent-install-manifest.json` is absent under the resolved repo root. Surface an
+exit-1 error verbatim.
 
 ---
 
@@ -59,20 +57,18 @@ Surface an exit-1 error verbatim.
 Verify `${MANIFEST}` exists (error and exit if missing), then parse it. Extract:
 `agent_install_contract_version` (must be 1, 2, or 3 — reject otherwise), `repo_id` (should be
 `"coordinator-claude"`), `direct_deps` (the walk list — one hard entry), `override_flags` (the
-consent-gate flag-pair names). On a JSON parse failure, surface the error and exit — do not
-continue with a corrupt manifest.
+consent-gate flag-pair names). On a JSON parse failure, surface the error and exit.
 
 ---
 
 ## Step 3 — Initialise the visited-set
 
 Disk-resident, for diamond-DAG and cycle detection:
-`<settings-home>/coordinator-claude/chain-walk-<session-id>.json`, where `<settings-home>` is
-resolved per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` (Shape W on PowerShell hosts).
+`<settings-home>/coordinator-claude/chain-walk-<session-id>.json`, `<settings-home>` resolved per
+`${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`.
 
-Run `& "$env:COORDINATOR_SETTINGS_HOME\bin\setup-verify.exe" visited-init` (Shape W)
-— generates a session id, prunes `chain-walk-*.json` files older than 60 minutes, writes the new
-file with an empty `visited` array, prints `Session ID:` and `Visited-set:`.
+Run `SV visited-init` — generates a session id, prunes `chain-walk-*.json` older than 60
+minutes, writes the new file with an empty `visited` array, prints `Session ID:` and `Visited-set:`.
 
 ---
 
@@ -93,14 +89,11 @@ codes 90/91/92 (full install), remediation pointing at the engine-root resolver.
 contract detail (severity taxonomy, consent-gate banner, exit codes): wiki.
 
 **Read-only flags** (`--help`, `--version`, `--phase-list`, `--last-status`, `--check`) are
-serviced before any dep-walking and do not trigger the override check.
+serviced before any dep-walking and skip the override check.
 
-**Override flags** — both must be passed TOGETHER: `--skip-dep-check` and
-`--accept-missing-deps-risk`. Validate via
-`& "$env:COORDINATOR_SETTINGS_HOME\bin\setup-verify.exe" check-override-flags -- $args`
-(Shape W)
-— exits 93 when exactly one is present, else 0. One alone degrades most mutating operations;
-both together bypass the consent gate.
+**Override flags** — pass BOTH together: `--skip-dep-check` and `--accept-missing-deps-risk`.
+Validate via `SV check-override-flags -- $args` — exits 93 when exactly one is present, else 0.
+One alone degrades most mutating operations; both together bypass the consent gate.
 
 Then seed the Group EM's home: `python3 "${CLAUDE_PLUGIN_ROOT}/bin/group-em-home.py" ensure`
 (idempotent; also moves an existing legacy general-work home into place when no session is live in it). Exit 3 (home inside a checkout): a `[WARN]` row; never move it.
@@ -111,8 +104,8 @@ Then seed the Group EM's home: `python3 "${CLAUDE_PLUGIN_ROOT}/bin/group-em-home
 
 Report: header `## /coordinator:setup — chain step 5 of 5`; manifest path, contract version,
 layout, session id; a prerequisite table (python hard — the sole hard gate; gh, node, git,
-clone_auth, uv, pwsh, ue, longpaths, git_lfs advisory, WARN does not block); a dependency row
-(the engine, hard, `claude_klabauter_seam_resolvable`, self-confirming); result line `coordinator
+clone_auth, uv, pwsh, ue, longpaths, git_lfs advisory); a dependency row (the engine, hard,
+`claude_klabauter_seam_resolvable`, self-confirming); result line `coordinator
 install-chain walker — chain step 5 of 5: all deps satisfied.` then `coordinator-claude install
 chain complete.` Exit 0 (advisory WARN rows do not affect it).
 
@@ -132,68 +125,57 @@ items require a Claude Code restart to take effect. Restart Claude Code NOW, the
 
 ### Restart discriminator
 
-- **restart-gated-expected** — fails, no restart since the config write → restart-batch; not a
-  hard failure.
+- **restart-gated-expected** — fails, no restart since the config write → restart-batch, not a hard failure.
 - **configured-but-broken** — fails after a restart (or its settle window) → fail loud.
 - **pending-settle** — fails within the settle window → re-probe once, then reclassify.
 
 ### Probes
 
-Run via Bash. Resolve `PLUGIN_ROOT` per-probe if not already in scope (each probe must be
-self-contained). Rationale for probe ordering and design: wiki.
+Run via Bash. Resolve `PLUGIN_ROOT` per-probe if not in scope (each probe is self-contained).
+
 
 **Probe 0 — Plugin reachable.**
-`& "$env:COORDINATOR_SETTINGS_HOME\bin\setup-verify.exe" check-plugin-registered --plugin coordinator --marketplace coordinator-claude --marketplace-source dbc-oduffy/coordinator-claude --plugin-dir "<PLUGIN_ROOT>"`
-(Shape W).
+`SV check-plugin-registered --plugin coordinator --marketplace coordinator-claude --marketplace-source dbc-oduffy/coordinator-claude --plugin-dir "<PLUGIN_ROOT>"`.
 Asserts reachability (marketplace registration OR live `--plugin-dir` resolution — `PASS
 (live-resolved)`), not mere enablement. **Never restart-gated.**
 
 **Probe 1 — Plugin enabled in settings.json.**
-`& "$env:COORDINATOR_SETTINGS_HOME\bin\setup-verify.exe" check-settings-membership --plugin-dir "<PLUGIN_ROOT>"`
-(Shape W; optional `--settings <path>`, default `~/.claude/settings.json`).
-Pass the same `<PLUGIN_ROOT>` Probe 0 got — omitting `--plugin-dir` FAILs a live-resolved install.
-`PASS`/exit 0, `[WARN]`/exit 0 if settings.json missing/unparseable, `FAIL`/exit 1 otherwise. A
-FAIL after a config write with no subsequent restart is restart-gated-expected; after a restart,
-configured-but-broken.
+`SV check-settings-membership --plugin-dir "<PLUGIN_ROOT>"` (optional `--settings <path>`, default
+`~/.claude/settings.json`). Pass the same `<PLUGIN_ROOT>` Probe 0 got — omitting `--plugin-dir`
+FAILs a live-resolved install. `PASS`/exit 0, `[WARN]`/exit 0 if settings.json missing/unparseable,
+`FAIL`/exit 1 otherwise. A FAIL after a config write with no subsequent restart is
+restart-gated-expected; after a restart, configured-but-broken.
 **Probe 0 governs this one.** On `PASS (live-resolved)`, Probe 1 degrades to `[WARN]`/exit 0 —
 absence from enabledPlugins is that shape's expected state.
 Retired `<name>@coordinator-claude` keys (not in the marketplace manifest) `[WARN]`; `--prune-retired` removes them.
 
 **Probe 2 — Hooks registered and live on disk.**
-`& "$env:COORDINATOR_SETTINGS_HOME\bin\setup-verify.exe" check-hooks --plugin-root "<PLUGIN_ROOT>"`
-(Shape W).
-Parses `<PLUGIN_ROOT>/hooks/hooks.json`, verifies each coordinator-owned hook path exists on disk
-(named lookup, not a blanket file count). `PASS`/exit 0, `FAIL` (lists missing paths)/exit 1,
-`[WARN]` (hooks.json absent/unparseable, or no coordinator hooks)/exit 0. Absent from disk →
-configured-but-broken; present but not yet loaded → restart-gated-expected.
+`SV check-hooks --plugin-root "<PLUGIN_ROOT>"`. Parses `<PLUGIN_ROOT>/hooks/hooks.json`, verifies
+each coordinator-owned hook path exists on disk (named lookup, not a blanket file count).
+`PASS`/exit 0, `FAIL` (lists missing paths)/exit 1, `[WARN]` (hooks.json absent/unparseable, or no
+coordinator hooks)/exit 0. Absent from disk → configured-but-broken; present but not yet loaded →
+restart-gated-expected.
 
 **Probe 3 — Skill discovery preconditions.**
-Use this skill itself as the representative: `<PLUGIN_ROOT>/skills/setup/SKILL.md`.
-`& "$env:COORDINATOR_SETTINGS_HOME\bin\setup-verify.exe" check-skill-description --skill-file "<PLUGIN_ROOT>/skills/setup/SKILL.md"`
-(Shape W).
+This skill is the representative: `SV check-skill-description --skill-file "<PLUGIN_ROOT>/skills/setup/SKILL.md"`.
 `PASS`/exit 0, `FAIL` (missing file, no frontmatter, no/empty `description:`)/exit 1 — always
 configured-but-broken, never restart-gated. Probe 1's WARN propagates here.
 
 **Probe 4 — Windows launch shape (dogfood shape only).**
-`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/check-launch-shape"` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\check-launch-shape.exe"`, same arguments).
+`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/check-launch-shape"` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\check-launch-shape.exe"`).
 Asserts the interactive `claude.exe` would be a DIRECT child of the invoking shell (no `claude-author`
 shadowing the real launcher on PATH; shim and launcher shapes intact). `PASS`/exit 0, `FAIL`
 (names the offender)/exit 1, `SKIP`/exit 0 on non-Windows or with no rendered launcher pair on
-PATH. Always configured-but-broken on FAIL, **never restart-gated**.
+PATH. FAIL is always configured-but-broken, **never restart-gated**.
 
 ### Validation summary table
 
-```
-### Step 6 — Live Claude-Code-integration validation (running-in-Claude-Code)
-
-| Probe | Surface | Result | Classification |
-|-------|---------|--------|----------------|
-| Plugin reachable | marketplace registration OR `--plugin-dir` live resolution | PASS/FAIL | live / configured-but-broken (never restart-gated) |
-| Plugin enabled | settings.json enabledPlugins | PASS/WARN/FAIL | live / restart-gated-expected or live-resolved (Probe 0 PASS) / configured-but-broken |
-| Hooks live on disk | ~/.claude/hooks/ | PASS/WARN/FAIL | live / restart-gated-expected / configured-but-broken |
-| Skill discovery preconditions | skills/setup/SKILL.md | PASS/WARN | live / configured-but-broken |
-| Windows launch shape | PATH resolution of claude-author + rendered shim/launcher | PASS/FAIL/SKIP | live / configured-but-broken (never restart-gated) / not-this-shape |
-```
+Heading `### Step 6 — Live Claude-Code-integration validation (running-in-Claude-Code)`, then a
+`| Probe | Surface | Result | Classification |` table, one row per probe (Plugin reachable,
+Plugin enabled, Hooks live on disk, Skill discovery preconditions, Windows launch shape). Result is
+the probe's PASS/WARN/FAIL (SKIP for Probe 4); Classification is `live`, `restart-gated-expected`
+(Probes 1-2 only; Probe 1 reads `live-resolved` when Probe 0 passed), `configured-but-broken`, or
+`not-this-shape` (Probe 4 SKIP).
 
 ### Exit-code semantics
 

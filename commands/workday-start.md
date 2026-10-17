@@ -3,7 +3,6 @@ name: workday-start
 description: "Morning orient — triage handoffs, staleness, priorities."
 allowed-tools: ["Read", "Write", "Grep", "Glob", "Bash", "Agent", "Workflow"]
 argument-hint: "[optional day focus]"
-disable-model-invocation: true
 ---
 
 # Workday Start — Morning Orientation

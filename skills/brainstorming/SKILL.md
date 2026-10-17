@@ -20,8 +20,8 @@ if the request would take 2+ rounds of "what is this even?" clarifying questions
 
 **vs. `coordinator:shape`:** siblings, not twins. Brainstorming is for *not knowing what to
 build* (produces a solution artifact). `shape` is for *converging on a problem the PM already
-holds*. Discriminator: PM wants confirmation you understood a problem → `shape`; PM doesn't know
-what to build → `brainstorming`. Both terminate in `coordinator:plan`.
+holds*. PM wants confirmation you understood a problem → `shape`; PM doesn't know what to build →
+`brainstorming`. Both terminate in `coordinator:plan`.
 
 <HARD-GATE>
 Once started, do NOT invoke any implementation skill, write code, scaffold a project, or dispatch
@@ -31,47 +31,15 @@ entirely — but once started, see it through.
 </HARD-GATE>
 
 The design can be lightweight — a few sentences for simple work — but it must exist and be
-PM-approved before implementation. Simple-looking requests are where unexamined assumptions cause
-the most rework; "we discussed it earlier" doesn't survive context compaction, the written spec
-does.
+PM-approved before implementation; "we discussed it earlier" doesn't survive context compaction,
+the written spec does.
 
 ## Process
 
-```dot
-digraph brainstorming {
-    "Explore project context" [shape=box];
-    "Clarify intent with PM" [shape=box];
-    "More questions?" [shape=diamond];
-    "Propose 2-3 approaches" [shape=box];
-    "PM selects direction" [shape=diamond];
-    "Present design sections" [shape=box];
-    "PM approves design?" [shape=diamond];
-    "Scope check" [shape=diamond];
-    "Split into sub-specs" [shape=box];
-    "Write spec" [shape=box];
-    "Self-review" [shape=box];
-    "PM reviews spec" [shape=diamond];
-    "Invoke coordinator:plan" [shape=doublecircle];
-
-    "Explore project context" -> "Clarify intent with PM";
-    "Clarify intent with PM" -> "More questions?";
-    "More questions?" -> "Clarify intent with PM" [label="yes"];
-    "More questions?" -> "Propose 2-3 approaches" [label="no"];
-    "Propose 2-3 approaches" -> "PM selects direction";
-    "PM selects direction" -> "Propose 2-3 approaches" [label="none fit"];
-    "PM selects direction" -> "Present design sections" [label="chosen"];
-    "Present design sections" -> "PM approves design?";
-    "PM approves design?" -> "Present design sections" [label="revise"];
-    "PM approves design?" -> "Scope check" [label="approved"];
-    "Scope check" -> "Split into sub-specs" [label="multi-subsystem"];
-    "Scope check" -> "Write spec" [label="focused"];
-    "Split into sub-specs" -> "Write spec";
-    "Write spec" -> "Self-review";
-    "Self-review" -> "PM reviews spec";
-    "PM reviews spec" -> "Write spec" [label="changes"];
-    "PM reviews spec" -> "Invoke coordinator:plan" [label="approved"];
-}
-```
+Explore project context → clarify intent with the PM (loop until clear) → propose 2-3 approaches
+(loop if none fit) → present design sections, PM approving each (loop on revise) → scope check
+(multi-subsystem: split into sub-specs) → write spec → self-review → PM reviews (loop on changes)
+→ `coordinator:plan`.
 
 **Terminal state:** the ONLY next step after brainstorming is `coordinator:plan`.
 
@@ -101,27 +69,24 @@ substitute and confirm: *"You said X — you mean &lt;canonical-term&gt;?"*
 
 When the PM resolves a term during dialogue, update `CONTEXT.md` inline (don't batch): a `##
 Terms` section, `**<Canonical term>** — one-sentence definition.` plus an `_Avoid_:` line of
-synonyms actually seen. Lazily create the file on the first resolved term if it doesn't exist —
-never scaffold it empty.
+synonyms actually seen. Lazily create the file on the first resolved term — never scaffold it empty.
 
 ## Exploring Approaches, Presenting the Design
 
-2-3 approaches with trade-offs (more creates decision paralysis), leading with your
-recommendation — one sentence each on the idea, the trade-off, and when you'd choose it; say so
-if one is clearly superior; flag a significant drawback even in a favored option. Scale each
-design section to its complexity (a few sentences to ~300 words); ask after each whether it looks
-right — incremental approval, not monolithic review. Cover as applicable: architecture,
-components, data flow, interfaces, error handling, testing strategy. In existing codebases,
-follow established patterns.
+2-3 approaches with trade-offs, leading with your recommendation — one sentence each on the idea,
+the trade-off, and when you'd choose it; say so if one is clearly superior; flag a significant drawback even in a favored option.
+Scale each design section to its complexity (a few sentences to ~300 words); ask after each
+whether it looks right — incremental approval, not monolithic review. Cover as applicable: architecture, components, data flow, interfaces,
+error handling, testing strategy. In existing codebases, follow established patterns.
 
 ## Writing the Spec
 
 **Save to:** `docs/specs/YYYY-MM-DD-<topic>-design.md` (create `docs/` if absent). Must carry
 enough context for a cold-start agent to implement without conversation history.
 
-**Self-review before presenting** (fix inline, no separate pass): no TBD/TODO/vague requirements;
-no internal contradictions; scope focused enough for a single plan (split now if not); no
-requirement readable two ways; `CONTEXT.md` updated for any term resolved in dialogue.
+**Self-review before presenting** (fix inline): no TBD/TODO/vague requirements; no internal
+contradictions; scope focused enough for a single plan (split now if not); no requirement readable
+two ways; `CONTEXT.md` updated for any term resolved in dialogue.
 
 **Commit the spec**, then:
 

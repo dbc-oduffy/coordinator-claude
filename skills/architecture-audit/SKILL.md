@@ -12,10 +12,11 @@ it, and **packages findings as spinoff candidates** down a disposition ladder �
 **never edits code**. Updates the health ledger's `Last targeted audit` clock and the atlas
 metadata.
 
-Run when `/workstream-start` surfaces a stale targeted audit (`check-arch-audit-staleness` owns the verdict), or any time PM intuition
-wants a targeted review. `$ARGUMENTS` names a system directly, skipping Step 1.
+Run when `/workstream-start` surfaces a stale targeted audit (`check-arch-audit-staleness` owns
+the verdict), or when PM intuition wants a targeted review. `$ARGUMENTS` names a system directly,
+skipping Step 1.
 
-**Announce at start:** _"I'm using /architecture-audit to audit [system name]."_
+**Announce:** _"I'm using /architecture-audit to audit [system name]."_
 
 ---
 
@@ -69,32 +70,7 @@ wiki.
 
 <!-- engine-gap: field=dispatch.review_tier producer=unknown memo=2026-08-27-claude-klabauter-em-doe-unmarked-obligations-and-four-lost-markers.md -->
 
-<!--
-This audit's Haiku→Sonnet pre-digestion (Step 3, >10-file path) dispatches the SAME Phase-1/1R and
-Phase-2 templates the rebuilt /architecture-survey uses, sourced from one shared template file:
-`${CLAUDE_PLUGIN_ROOT}/pipelines/deep-architecture-survey/agent-prompts.md` — no separate copy
-exists here to go stale. Three things that do NOT apply to this audit are deliberate, not gaps —
-do not "fix" them:
-
-- **Engine extraction consumption (`cartography.*` ops replacing agentic Phase-1 inventory)** does
-  not apply here: that consume-gate is wired into /architecture-survey's first-run/refresh atlas-
-  *construction* pipeline (full-tree extraction), whereas this audit is a narrower re-review of ONE
-  system the atlas already describes (Step 2.5 loads the existing atlas page precisely so
-  reviewers do NOT rebuild structure from scratch). Wiring the engine's precomputed substrate into this
-  audit's pre-digestion is new scope for a future plan, not an omission of this one.
-
-- **Workflow-native dispatch** (single background Workflow owning a multi-phase, multi-system wave
-  map) does not apply here either: this audit dispatches exactly ONE system per invocation, a
-  single short-lived 3-tier fan-out — not the multi-wave, multi-system problem the Workflow vehicle
-  exists to solve. Only if a future change makes this audit batch multiple systems per invocation
-  does that become worth revisiting.
-
-- The **H2 anchors** this audit's Sonnet analysis prompt relies on (`## System Narrative` /
-  `## Information Flow Diagram` / `## Boundary Catalog` / `## Health Grade` / `## Summary`, under
-  "Phase 2: Sonnet System Analysis Prompt (Audit)" in the shared template file above) must
-  continue to exist verbatim — renaming any of them silently breaks this audit without touching
-  this file, so check here before renaming those headings in the shared template.
--->
+<!-- Pre-digestion uses the shared templates in `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-architecture-survey/agent-prompts.md`; the Phase-2 (Audit) H2 anchors (`## System Narrative`, `## Information Flow Diagram`, `## Boundary Catalog`, `## Health Grade`, `## Summary`) must stay verbatim there. Engine extraction and Workflow dispatch deliberately do not apply (wiki). -->
 
 ---
 
@@ -105,11 +81,10 @@ do not "fix" them:
 authoritative; the reviewer fills it in-place via `mode: auto`. Reviewer prompt must cover:
 populate frontmatter (`grade`, `health_status`, `run_id`, `reviewer`), write the `### Diagram
 (ASCII)` section, fill every prose section without flattening grade-rationale/ambition-check
-content. Detail: wiki.
+content.
 
 **Negative-spec (hard):** the three historical audit records (`2026-05-28-coordinator-runtime.md`
-et al.) are frozen point-in-time records — they are NOT retrofitted to the canonical schema (plan
-D4). The new shape governs only records authored after this step lands.
+et al.) are frozen; never retrofit them to the canonical schema.
 
 ---
 
@@ -126,7 +101,7 @@ Disposition is EM judgment down a ladder:
   --out docs/decisions/DR-<NNN>-<slug>.md`.
 
 Spinoff PM-gate applies only to the grouped/standalone path — surface `Candidate spinoff: <slug>
-— <topic>. Authorize?` and block. No debt-backlog auto-write (rationale: wiki).
+— <topic>. Authorize?` and block. No debt-backlog auto-write.
 
 ---
 
@@ -151,9 +126,9 @@ No atlas page for the target → skip entirely. Otherwise pick a branch:
   close-out commit message must contain `atlas-current-as-of: <YYYY-MM-DD>`.
 
 Run `verify-arch-audit-atlas-refresh <AUDIT_DATE> <TARGET_SYSTEM> [<COMMIT_MSG_FILE>]` before
-`git commit`. `PASS branch=A|B` → commit scoped, explicit-path: `git commit -m "<subject>" --
-state/health-ledger.md <atlas-page-path>`. `FAIL` → do not commit; amend per the branch you're on,
-re-stage, re-run. Anti-scope and full branch mechanics: wiki.
+`git commit`. `PASS branch=A|B` → `git commit -m "<subject>" -- state/health-ledger.md
+<atlas-page-path>`. `FAIL` → do not commit; amend per your branch, re-stage, re-run. Anti-scope
+and branch mechanics: wiki.
 
 ---
 
@@ -168,9 +143,8 @@ output is fully consumed by the Opus reviewer).
 
 **Precondition:** the canonical audit record at
 `docs/architecture/audit-records/<date>-<system>.md` exists with populated frontmatter and a
-`### Diagram (ASCII)` section, staged/committed alongside the atlas + ledger close-out, and the
-Step 6.5 gate returned `PASS` — on `FAIL`, fix per that step and re-attempt. Chat report ≠ on-disk
-record — the FAIL message text: wiki.
+`### Diagram (ASCII)` section, committed with the atlas + ledger close-out, and the Step 6.5 gate
+returned `PASS` — on `FAIL`, fix per that step. Chat report ≠ on-disk record (FAIL text: wiki).
 
 ```markdown
 ## Architecture Audit Complete
@@ -187,5 +161,5 @@ record — the FAIL message text: wiki.
 
 ## Notes
 
-Failure modes, cost profile, and relationship to `/architecture-survey`, `/review`/`/review-code`,
-and `pipelines/weekly-architecture-audit/PIPELINE.md`: wiki.
+Failure modes, cost, and relation to `/architecture-survey`, `/review`/`/review-code`, and
+`pipelines/weekly-architecture-audit/PIPELINE.md`: wiki.

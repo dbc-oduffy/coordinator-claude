@@ -57,45 +57,28 @@ every verb but normally omitted -- it defaults to the git toplevel. Exit code 0 
 result and a structured "not configured" one (see § No config, no effect); 2 is a usage error; 3
 is a transport/op failure.
 
-This is a lifecycle, not a one-shot action: `launch` without a later `teardown` leaves state
-behind for `census` to report and a future `teardown` to clear.
+`launch` without a later `teardown` leaves state behind for `census` and `teardown` to find.
 
 ## Config resolution
 
-Each op resolves its target's config via `cs_read_local_md_mapping(repo_root, key) -> dict`
-(`coordinator_core/resolve_validation_cmd.py`), not `cs_read_local_md_key`: the `app_session`
-value is a mapping of target name to a nested per-target object (`runtime`, `command`, ...), and
-`cs_read_local_md_key`'s flat-string/flow-list reads can't see into that nesting -- only the
-mapping reader can. The resolver returns a bare `dict` for a present, well-formed target key, and
-`None` for an absent or malformed one -- there is no typed dataclass in this path, unlike
-`doc_registry.py`'s `DocRegistryConfig`. Callers turn the `None` case into the structured
-"not configured" result described below rather than raising.
+Each op resolves its target via `cs_read_local_md_mapping(repo_root, key) -> dict`
+(`coordinator_core/resolve_validation_cmd.py`), not `cs_read_local_md_key`, which cannot read the
+nested per-target mapping. It returns a bare `dict` for a present, well-formed target and `None`
+for an absent or malformed one; callers turn `None` into the structured "not configured" result
+below rather than raising.
 
 ## No config, no effect
 
-A repo whose `coordinator.local.md` declares no `app_session` keys is not an error -- every verb
-degrades to a silent no-op, because `app_session` is opt-in capability, not an assertion the repo
-is verifiable. This is a deliberate divergence from `fast_test_cmd`, which fails loud on an
-absent key at a cadence gate (`validate/SKILL.md`) -- that gate asserts the repo is verifiable,
-and `app_session` makes no such assertion for a repo that never opted in. Concretely, this is a
-`cs_read_local_md_mapping` empty-dict result, the target key absent from it, and `None` from the
-resolver with no configured command to run, which the launch/teardown ops turn into the structured
-`{"ok": true, "configured": false, ...}` result rather than an error -- exit 0, not a failure exit.
+A repo declaring no `app_session` keys is not an error: every verb degrades to a silent no-op,
+because `app_session` is opt-in, unlike `fast_test_cmd`, which fails loud at a cadence gate
+(`validate/SKILL.md`). The ops return `{"ok": true, "configured": false, ...}`, exit 0.
 
-`app_session` also deliberately carries no environment-variable override rung, unlike
-`fast_test_cmd`'s env -> frontmatter -> skip-with-notice ladder. The configured value spawns a
-process rather than running a test command, and an env-settable spawn target is a materially
-worse blast radius than an env-settable test command -- so resolution reads only
-`coordinator.local.md`, never an environment variable. Both of these are stated defaults the ops
-ship with, not gaps this skill works around.
+`app_session` carries no environment-variable override rung: the configured value spawns a
+process, and an env-settable spawn target is a worse blast radius than an env-settable test
+command. Resolution reads only `coordinator.local.md`.
 
 ## Relationship to the platform's `run` skill
 
-The harness ships a built-in `run` skill that states a preference for a project skill over its
-own built-in fallbacks (CLI, server, TUI, Electron, browser-driven, library) -- this is the
-platform's stated preference, not a verified registration relationship; the exact discovery
-mechanism is unconfirmed. `app-session` is complementary to `run`, not competing with it: `run` is
-one-shot "start it and look at it", while `app-session` is the stateful, multi-verb
-census/launch/teardown lifecycle around a target with per-repo config. `app-session` is not named
-`run`, `run-app`, or `run-desktop` because `run` is a taken platform primitive -- the name
-`app-session` names the lifecycle itself, not the launch verb.
+`app-session` complements the built-in `run` skill (one-shot "start it and look at it"): it is the
+stateful census/launch/teardown lifecycle with per-repo config, and is not named `run*` because
+`run` is a taken platform primitive. Registration with `run` is unconfirmed.

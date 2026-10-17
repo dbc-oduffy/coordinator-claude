@@ -41,8 +41,8 @@ halt: _"Test suite failed. Fix first, or use `/merging-to-main --force` to bypas
 
 **Accepted red.** A suite that ran red on a baseline predating the branch, with the PM's merge
 order: run it (never `--force`, which skips the run), copy the run's `state/test-runs/<suite>-last.txt`
-and `-last.json` (gitignored) to `state/audits/<date>-<branch>-red-set/`, cite that path in the PR body's verification line, and
-merge. A failure not in that set, or a red set the branch introduced, still halts.
+and `-last.json` (gitignored) to `state/audits/<date>-<branch>-red-set/`, cite that path in the PR
+body's verification line, and merge. A failure outside that set, or a red set the branch introduced, still halts.
 
 ---
 
@@ -78,23 +78,21 @@ Verdict meanings: wiki § Ship verdict table.
 **Release-note framing.** Prefer the latest `state/week-changelog/*-pending-release.md`
 accumulator; absent, draft inline by impact (Added/Changed/Fixed/Deps/Internal; template: wiki).
 Cutting a tag: omit each entry already named in an `archive/releases/*.yaml` index (released
-status is that index, via `query_completions` `released_names`). Write the notes to the repo-root `CHANGELOG.md`, always,
-committed before Step 5, under `## [X.Y.Z] - YYYY-MM-DD` when cutting a tag, else `## [Unreleased]`.
-Absent or missing tag sections: create it with the begins-at line and backfill per
-`coordinator/docs/wiki/release-and-distribution/changelog-and-release-surfaces.md`.
-`$RELEASE_NOTES` is that section. `tasks/`/`tmp/`-only
-merges get an "Internal" line only.
+status is that index, via `query_completions` `released_names`). Always write the notes to the
+repo-root `CHANGELOG.md`, committed before Step 5, under `## [X.Y.Z] - YYYY-MM-DD` when cutting a
+tag, else `## [Unreleased]`. Absent file or tag section: create it with the begins-at line and
+backfill per `coordinator/docs/wiki/release-and-distribution/changelog-and-release-surfaces.md`.
+`$RELEASE_NOTES` is that section. `tasks/`/`tmp/`-only merges get an "Internal" line only.
 
-**Demo path** (user-visible merges) — append a Demo Path section (template: wiki) to the PR body.
+**Demo path** (user-visible merges): append a Demo Path section (template: wiki) to the PR body.
 
-**Version-bump (`version_bump_final`).** `version_bump` is `d2`'s proposal; the EM decides the tag
-with no PM confirmation when the proposal is a patch bump on a `ship` verdict — set
-`version_bump_final` to it before `d2` plans the tag. A minor/major bump, or any bump on a non-`ship`
-verdict, goes to the APM (mode detail: wiki).
+**Version-bump (`version_bump_final`).** `version_bump` is `d2`'s proposal; on a patch bump with a
+`ship` verdict the EM decides, no PM confirmation: set `version_bump_final` to it before `d2` plans
+the tag. A minor/major bump, or any bump on a non-`ship` verdict, goes to the APM (mode detail: wiki).
 
 **Portability (`portability_disposition`).** Empty sweep report continues silently; non-empty needs
 a per-finding PM disposition (options: wiki). Not a merge blocker;
-`COORDINATOR_OVERRIDE_PORTABILITY=1` skips it for a one-off.
+`COORDINATOR_OVERRIDE_PORTABILITY=1` skips it once.
 
 ---
 
@@ -114,9 +112,9 @@ A schema bump needs `schema-migration-auditor` dispatched, the Staff Engineer re
 Compose the PR body via `merge-gate-and-pr pr-body --ship-verdict "$SHIP_VERDICT" --summary
 "$SUMMARY" --release-notes "$RELEASE_NOTES" --verification "$VERIFICATION" --risk "$RISK" --links
 "$LINKS" --commit-range main..HEAD` (`d4`), then `gh pr create --base main --head "$BRANCH" --title
-"$TITLE" --body "$BODY"`. Pass `--release-notes` and `--demo-path` without headings of their own, version headings at `###`
-or lower. Exit 2 `unrecognized arguments` (older engine): rerun without `--summary`,
-`--verification`, `--risk`, `--links`.
+"$TITLE" --body "$BODY"`. Pass `--release-notes` and `--demo-path` without headings of their own;
+version headings at `###` or lower. Exit 2 `unrecognized arguments` (older engine): rerun without
+`--summary`, `--verification`, `--risk`, `--links`.
 
 State the decided bump in the PR body: _"Version bump: patch ({old} → {new}) — EM-decided on a ship
 verdict."_ A bump still awaiting the APM reads _"Suggested bump: {kind} ({old} → {new}) — pending APM."_
@@ -134,21 +132,22 @@ or investigate via `coordinator:systematic-debugging`."_
 ## Step 7: Merge
 
 Pre-merge quiet check: `merge-gate-and-pr active-branch-guard --pr "$PR"` halts if the PR's newest
-commit is younger than 300 seconds. Override with the skill's own `--force-merge-active-branch`.
+commit is younger than 300 seconds; override with `--force-merge-active-branch`.
 
-Merge via `gh pr merge` (no `--delete-branch`), merge commit (never squash). The head branch is
-deleted only when its remote tip is an ancestor of the base (a merged PR is a snapshot); otherwise keep it and report the tip and its unmerged-commit count. Recovery recipes for
-"base branch policy prohibits" and "head not up to date": wiki. **Merge conflicts** — do not force
-through; offer the PM merge-main-in-and-resolve (recommended) or rebase; stop and wait.
+Merge via `gh pr merge` (no `--delete-branch`), merge commit (never squash). Delete the head branch
+only when its remote tip is an ancestor of the base; otherwise keep it and report the tip and its
+unmerged-commit count. Recovery recipes for "base branch policy prohibits" and "head not up to
+date": wiki. **Merge conflicts** — do not force through; offer the PM merge-main-in-and-resolve
+(recommended) or rebase; stop and wait.
 
 **IF `d2` PLANNED A RELEASE TAG, CUT IT NOW, AT THE MERGE COMMIT:**
 
     merge-recovery-and-tag-cut cut-tag <tag> --pr <PR>
     git fetch origin --tags && git rev-list --count <tag>..origin/main
 
-`cut-tag` resolves the PR's merge commit, tags it, and pushes. A refusal stops the ceremony: the
-tag already exists elsewhere on origin, `gh` is missing, or the PR isn't merged. A non-zero count
-also stops it. **Never force-push or retarget a tag.** Why: wiki § Tag-contains-release guard.
+`cut-tag` resolves the PR's merge commit, tags it, and pushes. A refusal (tag exists elsewhere on
+origin, `gh` missing, PR not merged) or a non-zero count stops the ceremony. **Never force-push or
+retarget a tag.** Why: wiki § Tag-contains-release guard.
 
 Once the merge lands, trigger the SCIP rebuild best-effort in the background (never blocks): `"$_py"
 "${CLAUDE_PLUGIN_ROOT:-<content-root>/coordinator}/bin/scip-rebuild-at-ceremony.py" --ceremony
@@ -166,7 +165,7 @@ phrase from your change at `HEAD`; missing → re-apply, push a follow-up.
 
 ## Step 9: Local Cleanup
 
-First run `"$COORDINATOR_SETTINGS_HOME/bin/structural-index-refresh"` (POSIX; on PowerShell `& "$env:COORDINATOR_SETTINGS_HOME\bin\structural-index-refresh.exe"`, `snippets/resolve-coordinator-bin.md`) (non-blocking, always exit 0; `COORDINATOR_STRUCTURAL_INDEX_REFRESH_OFF=1` disables) — report its line if it prints one.
+First run `"$COORDINATOR_SETTINGS_HOME/bin/structural-index-refresh"` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\structural-index-refresh.exe"`; non-blocking, always exit 0; `COORDINATOR_STRUCTURAL_INDEX_REFRESH_OFF=1` disables) — report its line if it prints one.
 
 Check out main (`COORDINATOR_OVERRIDE_BRANCH=1`), pull, delete the local branch (a follow-on
 `/bug-blitz` cuts a fresh day branch from main). Clear any stray worktree (`git worktree remove <path>`).
@@ -175,22 +174,16 @@ Check out main (`COORDINATOR_OVERRIDE_BRANCH=1`), pull, delete the local branch 
 
 ## Step 10: Completion-Log Status Flip
 
-Runs when a release tag was cut. Released status is the
-`archive/releases/<tag>.yaml` index (`release.write_index`); `mkdir -p archive/release-notes/`,
-`git mv` the accumulator into it (best-effort), scoped-commit the release index
-+ accumulator, push to main.
+Runs when a release tag was cut. Released status is the `archive/releases/<tag>.yaml` index
+(`release.write_index`); `mkdir -p archive/release-notes/`, `git mv` the accumulator into it
+(best-effort), scoped-commit the release index + accumulator, push to main.
 
 ---
 
 ## Step 11: Report
 
-```
-## Merged to Main
-- **PR:** {url}
-- **Merge commit:** {sha}
-- **Branch deleted:** {branch} (local + remote)
-- **Now on:** main @ {sha}
-```
+Four lines: `## Merged to Main`, then `- **PR:** {url}`, `- **Merge commit:** {sha}`,
+`- **Branch deleted:** {branch} (local + remote)`, `- **Now on:** main @ {sha}`.
 
 `d8` (`orphan-branch-sweep --format text --severity-min warning`, non-`OK` lines) surfaces other
 in-flight branches: _"Multiple work branches in flight — verify these don't carry work intended for

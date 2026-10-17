@@ -4,6 +4,11 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.4.27] — 2026-10-17
+
+- **Install:** a consumer install registers coordinator from the marketplace and plain `claude` loads it; nothing else changes for consumers.
+- **Skill weight:** the fleet skill budget is back at its original cap and can no longer be raised; skill text was tightened to fit, with every rule kept.
+
 ## [4.4.26] — 2026-10-17
 
 - **Design route:** sizing-object schema 1.44.0 carries `design_route` (route, authority, board_url, approval); an unapproved canvas halts for PM board review after plan, before stage.
@@ -16,7 +21,9 @@ All notable changes to coordinator-claude are documented here.
 
 ## [4.4.24] — 2026-10-16
 
+<!-- INSTALL-DOE-ONLY:BEGIN -->
 - **`claude-author --control-socket`** (opt-in): a PTY/ConPTY relay supervisor with a per-session control socket (compact, model and effort verbs, plus a user-idle gate). Verified live on macOS.
+<!-- INSTALL-DOE-ONLY:END -->
 - **Design registry:** a contract, a gate, and premise-checker and plan-coverage lenses.
 - **`op-relay` agent.**
 

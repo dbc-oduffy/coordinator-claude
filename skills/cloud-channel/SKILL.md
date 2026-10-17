@@ -19,16 +19,14 @@ and base. Every step is idempotent, so re-running after a compaction is safe.
 
 0. **Anchor if level.** GitHub refuses a PR with nothing ahead of base. If
    `git -C <checkout> rev-list --count origin/<base>..HEAD` prints `0`, give the branch an empty
-   anchor commit; any other count skips this step. Take `<head>` from `git rev-parse HEAD` and
-   `<tree>` from `git rev-parse HEAD^{tree}`, then
-   `git commit-tree <tree> -p <head> -m "<message>"`, where the message is
-   `cloud: open session channel`, a blank line, `Empty anchor so this branch can carry the
-   session's draft PR (coordinator:cloud-channel).`, a blank line, and `Cloud-Session-Id:` plus the
-   value of `CLAUDE_CODE_REMOTE_SESSION_ID` (`unknown` when empty). If `git config user.email` is
-   unset, run it with `GIT_AUTHOR_NAME=Claude GIT_COMMITTER_NAME=Claude` and
-   `GIT_AUTHOR_EMAIL=noreply@anthropic.com GIT_COMMITTER_EMAIL=noreply@anthropic.com`. Then
-   `git update-ref refs/heads/<branch> <new> <head>`, a compare-and-swap that never touches the
-   index or working tree; never use `git commit` here.
+   anchor commit; any other count skips this step. `git commit-tree
+   $(git rev-parse HEAD^{tree}) -p $(git rev-parse HEAD) -m "<message>"`, message: `cloud: open
+   session channel`, blank line, `Empty anchor so this branch can carry the session's draft PR
+   (coordinator:cloud-channel).`, blank line, `Cloud-Session-Id: ` plus
+   `CLAUDE_CODE_REMOTE_SESSION_ID` (`unknown` when empty). If `git config user.email` is unset, set
+   `GIT_AUTHOR_NAME`/`GIT_COMMITTER_NAME` to `Claude` and the `*_EMAIL` pair to
+   `noreply@anthropic.com`. Then `git update-ref refs/heads/<branch> <new> <head>` (`<head>` from `git rev-parse HEAD`, `<new>` the `git commit-tree` output) (compare-and-swap,
+   no index or working tree); never `git commit` here.
 1. **Record the operator.** Cloud commits are authored `Claude <noreply@anthropic.com>` with no trace of the human, so `/consolidate-git` holds them for a verdict. Load the GitHub MCP tools with `ToolSearch`, call `get_me`, and run `git config --global coordinator.operator "<id>+<login>@users.noreply.github.com"`; the `prepare-commit-msg` hook stamps it as an `Operator:` trailer. If `get_me` is unavailable, skip.
 2. **Push.** `git -C <checkout> push -u origin <branch>`; on a network failure retry up to four
    times at 2s, 4s, 8s, 16s.

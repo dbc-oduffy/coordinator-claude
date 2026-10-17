@@ -22,6 +22,9 @@ commit is what `ls-files` reads.
 Modes: default reads the index; `--tree T --base B` measures two tree-ishes
 (the seam for the engine commit route, which runs no git hook).
 
+A baseline edit that raises any limit or floor against the base revision is
+refused (`limit_raises`); the override hint is not printed for it.
+
 Fail-open: a plumbing failure prints a one-line "did not run" note and exits
 0; only a measured violation exits 1. Override:
 COORDINATOR_OVERRIDE_PRECOMMIT_SKILL_WEIGHT_BUDGET.
@@ -116,6 +119,14 @@ def read_baseline(ref: str) -> dict:
     return json.loads(_git("show", f"{ref}{_BASELINE_PATH}").decode("utf-8"))
 
 
+def read_base_baseline(rev: str) -> "dict | None":
+    """The baseline at `rev`, or None when that revision carries no baseline
+    blob. Any other git failure still raises `_GitFailure`."""
+    if not _git("ls-tree", rev, "--", _BASELINE_PATH).strip():
+        return None
+    return read_baseline(f"{rev}:")
+
+
 def _resident(sizes: "dict[str, int]") -> "dict[str, int]":
     import skill_weight_harness as harness
 
@@ -123,12 +134,21 @@ def _resident(sizes: "dict[str, int]") -> "dict[str, int]":
     return {name: row["resident"] for name, row in measured.items()}
 
 
-def _check(proposed_sizes, base_sizes, baseline) -> int:
-    from _skill_weight_admission import admission_violations
+def _check(proposed_sizes, base_sizes, baseline, base_baseline) -> int:
+    from _skill_weight_admission import admission_violations, limit_raises
 
     violations = admission_violations(
         _resident(proposed_sizes), _resident(base_sizes), baseline
     )
+    raises = limit_raises(baseline, base_baseline)
+    if raises:
+        print(
+            f"{_TAG} commit refused: a limit is never raised to admit growth; cut skill text",
+            file=sys.stderr,
+        )
+        for line in raises + violations:
+            print(f"  {line}", file=sys.stderr)
+        return 1
     if not violations:
         return 0
     print(f"{_TAG} commit refused: skill growth over budget", file=sys.stderr)
@@ -157,14 +177,24 @@ def main(argv: "list[str]") -> int:
         return 0
     try:
         if tree is not None:
-            return _check(committed_sizes(tree), committed_sizes(base), read_baseline(f"{tree}:"))
+            return _check(
+                committed_sizes(tree),
+                committed_sizes(base),
+                read_baseline(f"{tree}:"),
+                read_base_baseline(base),
+            )
         staged = staged_paths()
         if not any(
             p.startswith(_SKILLS_PREFIX) or p in (_BASELINE_PATH, _ADMISSION_PATH)
             for p in staged
         ):
             return 0
-        return _check(index_sizes(), committed_sizes("HEAD"), read_baseline(":"))
+        return _check(
+            index_sizes(),
+            committed_sizes("HEAD"),
+            read_baseline(":"),
+            read_base_baseline("HEAD"),
+        )
     except (_GitFailure, ValueError, KeyError, OSError, ImportError) as exc:
         print(f"{_TAG} did not run this commit: {exc}", file=sys.stderr)
         return 0

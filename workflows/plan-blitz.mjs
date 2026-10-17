@@ -101,9 +101,9 @@
  *                             //  saying which code ran. Absent on a fire emitted before the
  *                             //  field existed — which is itself the version signal.
  *     readyOp: {              // OPTIONAL. {op, params}: one more engine op the LAST reviewer runs
- *       op, params,           //  once for a plan the readiness op proved ready, its reply returned
+ *       op, params, schema?,  //  once for a plan the readiness op proved ready, its reply returned
  *     },                      //  verbatim as `readyOpReply` on that ready entry. `params` omits
- *                             //  plan_path. Contract: claude-klabauter
+ *                             //  plan_path; `schema` types the reply. Contract: claude-klabauter
  *                             //  coordinator_core/contract/plan-blitz-ready-op-contract.md.
  *                             //  Absent means plan-blitz behaves unchanged.
  *     batons: [ {
@@ -209,14 +209,17 @@ if (readyOpArg !== undefined && readyOpArg !== null) {
     || typeof readyOpArg.op !== 'string'
     || !/^[a-z_][a-z0-9_]*(\.[a-z_][a-z0-9_]*)+$/.test(readyOpArg.op)
     || !plain(readyOpArg.params)
-    || Object.prototype.hasOwnProperty.call(readyOpArg.params, 'plan_path')) {
+    || Object.prototype.hasOwnProperty.call(readyOpArg.params, 'plan_path')
+    || (readyOpArg.schema !== undefined && !plain(readyOpArg.schema))) {
     throw new Error(
       'plan-blitz received a malformed readyOp arg: it must be {op: dotted.lower_case.identifier, ' +
-      'params: plain object without plan_path} — see ' + READY_OP_CONTRACT + '.'
+      'params: plain object without plan_path, schema?: plain object} — see ' + READY_OP_CONTRACT + '.'
     )
   }
 }
 const READY_OP = (readyOpArg === undefined || readyOpArg === null) ? null : readyOpArg
+// The caller's reply schema types `readyOpReply`; untyped, a relaying agent can drop row fields.
+const READY_OP_REPLY_SCHEMA = (READY_OP && READY_OP.schema) || {}
 
 
 // `return-tldr` — pinned by § Pinned interfaces (C1 authors the standalone JSON schema this
@@ -401,8 +404,8 @@ const REVIEW_SCHEMA = {
     readinessError: { type: 'string' },
     // How many times the host ran the op (2 when the retry also failed).
     readinessAttempts: { type: 'integer' },
-    // The ready-op reply verbatim (an object or a bare string, so untyped) and its one-line failure.
-    readyOpReply: {},
+    // The ready-op reply verbatim, typed by readyOp.schema when given, and its one-line failure.
+    readyOpReply: READY_OP_REPLY_SCHEMA,
     readyOpError: { type: 'string' },
     tldr: RETURN_TLDR_SCHEMA,
   },
@@ -433,7 +436,7 @@ const PREP_GATE_REVISE_SCHEMA = {
     gateReport: { type: 'string' },
     // The ready op, run by this loop when its re-run is ready: the reviewer's ready op skipped a
     // repaired plan, so without these a repaired-ready plan reaches the caller with no reply.
-    readyOpReply: {},
+    readyOpReply: READY_OP_REPLY_SCHEMA,
     readyOpError: { type: 'string' },
     tldr: RETURN_TLDR_SCHEMA,
   },
