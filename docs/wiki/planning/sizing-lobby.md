@@ -799,8 +799,8 @@ Skill Step 0 carries the dispatch; this section carries the reasons.
   substrate pointers, and the capabilities this session holds (the scout cannot see a credential,
   a mounted store, or an operator at a keyboard; Step 1a). No t-shirt, lean, guess, or route: a
   scout handed a size anchors on it.
-- **In the in-chat fallback the EM keeps `--write`.** `pm_verbatims` is read from the EM session's own PM-turn log; a
-  subagent's write may silently omit it. The scout returns the complete `sizing-assemble` flag set
+- **The run's sizing stage keeps `--write`, never the scout.** `pm_verbatims` is read from the EM session's own PM-turn log; a
+  subagent's write may silently omit it. The EM no longer hand-dispatches the scout: the engine refuses it. The scout returns the complete `sizing-assemble` flag set
   (never `--write`, `--premise-evidence`, `--interaction-mode`, `--express-lane`, or an unquoted
   `--appetite`), and the EM re-runs it.
 - **The confident-XS predicate is mechanical.** The scout is skipped only when every condition

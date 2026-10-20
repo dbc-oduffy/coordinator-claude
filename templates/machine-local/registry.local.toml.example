@@ -54,6 +54,26 @@ schema = 1
 # p4_client = "sample-client" # optional; feeds the p4 no-submit identifiers
 
 # ---------------------------------------------------------------------------
+# Per-machine data stores. A store is data that matters but lives outside any
+# repo (render roots, vendor checkouts, scraped data, build intermediates).
+# Declared per machine so it resolves by name, never by a drive scan. Exactly
+# one of path / path_key; owner is a repos.* slug; purpose is one line.
+# Prefer `machine-local set stores.<name>.path <root>`; after a move run
+# `machine-local relocate-store <name> <new-path>`; probe with
+# `machine-local store --check`.
+# ---------------------------------------------------------------------------
+# [stores.sample_renders]
+# path       = "X:/data/sample-renders" <!-- foreign-path-ok: illustrative sample value for this per-machine example file, not a real machine path -->
+# owner      = "sample_repo"            # a repos.* key slug
+# purpose    = "Rendered frames for the sample repo"
+# dependents = ["X:/config/sample.json"] # optional: files outside the registry that spell this path <!-- foreign-path-ok: illustrative sample value for this per-machine example file, not a real machine path -->
+#
+# [stores.sample_models]
+# path_key   = "vendor.sample_models_root" # OR: adopt an existing registry key; its readers keep working
+# owner      = "sample_repo"
+# purpose    = "Vendor model checkout"
+
+# ---------------------------------------------------------------------------
 # Per-machine vendor / engine roots (if not using concern files). The path
 # below is an illustrative sample -- substitute your own machine's actual
 # location.

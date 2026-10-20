@@ -39,10 +39,13 @@ hosting change, not a policy change: same advisories, same text, same emission
 conditions, same ordering and dedup as the five standalone scripts.
 
 Aggregation contract, copied from `_stop_family_runner.run_stop_family_guards`:
-CONCATENATE-ALL, never first-fires-wins. Combined exit is 2 if ANY guard
-returned 2; combined stderr is every firing guard's text joined by a blank
-line; stdout (the posture-scaled advisory channel two of these guards use) is
-concatenated separately and always emitted. Every guard runs inside its own
+CONCATENATE-ALL, never first-fires-wins. If ANY guard returned 2, every
+firing guard's stderr text (blank-line joined; stdout advisories are dropped,
+as exit 2 always dropped them) leaves as ONE `hookSpecificOutput.additionalContext` JSON object on stdout at
+exit 0 -- the turn still continues for Claude, but the PM sees quiet "Stop
+hook feedback" instead of a red "Stop hook error". With nothing fired, stdout
+(the posture-scaled advisory channel two of these guards use) is emitted as
+plain text. Every guard runs inside its own
 `try/except BaseException` -- one guard crashing removes only that guard
 (fail-open for it alone, with a stderr skipped-list breadcrumb), exactly as
 both shipped runners do (`_guard_runner.run_guards`,
@@ -64,16 +67,6 @@ same process. Does NOT reintroduce a `git rev-parse` spawn anywhere.
 `watchdog-undischarged-next-move.py` is ALSO registered on
 PostToolUse(Skill|Agent) -- untouched by this dispatcher, which only replaces
 its Stop-event registration.
-
-`guard-kira-verdict-routed.py` (docs/plans/2026-08-30-kira-verdict-routing-
-join-key.md chunk C5) hard-stops a close whose Kira (overengineering-
-reviewer) verdict was never routed to review-integrator or a refactor
-executor -- see that module's own docstring for the full detection contract.
-Registered here, not on `postuse-stop-family-dispatch.py`, because that
-runner's `GuardScopeDescriptor` matches `tool_input.file_path` and this
-guard's predicate has no file-path key to match against -- registering it
-there would fire zero times, forever
-(`docs/research/spike-verdicts/2026-08-29-six-detectors-onto-stop-family-runner.md`).
 
 Negative spec: do not add another guard here without updating this module's
 docstring and the hooks.json comment naming the fold set; do not reintroduce a
@@ -212,8 +205,7 @@ def _pre_next_move(ctx: Ctx) -> bool:
     # on disk from a predicate that never has anything to say; the tell was
     # 123 ledgers at the real path and 0 at this one.
     #
-    # Both machinery roots are probed, same reasoning and same retirement
-    # condition as `_pre_kira_verdict_routed` below: the engine's provisioned
+    # Both machinery roots are probed: the engine's provisioned
     # root moved from `state/` to `.coordinator-local/` on 2026-09-02, and a
     # session provisioned before that republish still has its ledger under
     # the old root. Probing the new literal alone suppresses this leg for
@@ -264,25 +256,6 @@ def _pre_em_report_altitude(ctx: Ctx) -> bool:
     if ctx.agent_id:
         return False
     return bool(ctx.final_assistant_text())
-
-
-def _pre_kira_verdict_routed(ctx: Ctx) -> bool:
-    # Relevant only on the EM's own Stop, in a session with a share dir.
-    # Both machinery roots are probed because the engine's provisioned root
-    # moved from `state/` to `.coordinator-local/` -- probing the old
-    # literal alone would suppress the guard for every session provisioned
-    # today, indistinguishable from the guard passing.
-    if ctx.agent_id or ctx.stop_hook_active:
-        return False
-    root = ctx.repo_root()
-    if not root or not ctx.session_id:
-        return False
-    return any(
-        os.path.isdir(
-            os.path.join(root, machinery_root, "subagent-share", ctx.session_id)
-        )
-        for machinery_root in (".coordinator-local", "state")
-    )
 
 
 def _pre_workflow_stall(ctx: Ctx) -> bool:
@@ -342,8 +315,6 @@ REGISTRY: Tuple[StopGuard, ...] = (
               "guard-manufactured-blocker.py", _pre_manufactured_blocker),
     StopGuard("stop_em_report_altitude",
               "stop-em-report-altitude.py", _pre_em_report_altitude),
-    StopGuard("guard_kira_verdict_routed",
-              "guard-kira-verdict-routed.py", _pre_kira_verdict_routed),
     StopGuard("guard_drive_root_new_dir",
               "guard-drive-root-new-dir.py", _pre_drive_root_new_dir),
     StopGuard("stop_workflow_stall",
@@ -511,6 +482,25 @@ def main() -> int:
             if err.strip():
                 fired_err.append(err.rstrip("\n"))
 
+    if any_fired:
+        # A block rides `hookSpecificOutput.additionalContext`, never exit 2:
+        # exit 2 (and `decision: "block"`) renders to the PM as a red "Stop
+        # hook error" carrying the whole guard text, while additionalContext
+        # still continues the turn for Claude but shows only as quiet "Stop
+        # hook feedback". Stdout must then be this one JSON object, so the
+        # advisories are dropped on a firing stop -- exactly what exit 2 did
+        # with them -- rather than folded in, where the PM would see them too.
+        _context = "\n\n".join(fired_err) or "[stop-dispatch] a guard blocked this stop."
+        _event = ctx.payload.get("hook_event_name") or "Stop"
+        _envelope = {"hookSpecificOutput": {"hookEventName": _event, "additionalContext": _context}}
+        sys.stdout.buffer.write((json.dumps(_envelope) + "\n").encode("utf-8"))
+        sys.stdout.buffer.flush()
+        if skipped:
+            sys.stderr.write(
+                "[stop-dispatch] guard(s) skipped (fail-open for those only): "
+                + ", ".join(skipped) + "\n"
+            )
+        return 0
     if advisory_out:
         # Re-emit through .buffer, never the text wrapper -- these strings
         # may carry a folded guard's raw byte-mode writes (Windows

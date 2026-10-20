@@ -236,7 +236,7 @@ class Entry:
         if self.duplicates:
             d["duplicates"] = self.duplicates
         if self.claimed_by:
-            d["claimed_by"] = self.claimed_by
+            d["claimed_by"] = self.claimed_by  # dr084: write-not-read, output dict key
         return d
 
 

@@ -219,6 +219,7 @@ concerns = ["project_rag", "unreal"]
 "publish.targets"              = "idempotent-regeneratable"
 "publish.mirrors.coordinator_claude.path" = "session-accumulated-must-survive-crash"
 "external_workspaces"          = "session-accumulated-must-survive-crash"
+"stores"                       = "session-accumulated-must-survive-crash"
 "repos.example-sim-repo"               = "session-accumulated-must-survive-crash"
 "repos.project_rag"            = "session-accumulated-must-survive-crash"
 "repos.project_rag_ue_addon"   = "session-accumulated-must-survive-crash"

@@ -15,11 +15,12 @@ is yours."*
 
 THE TWO LEGS, and why neither is transcribed here:
 
-  SEAM 1  `coordinator_core.roadmap.plan_gate :: assemble_plan_gate` -> `batons[]`, filtered to
-          the FIREABLE set: `plan.status == "approved"` (the M/L exit) OR the baton's
-          `execution_authorized` (the S exit, whose plan stays at `draft` by design). Both arms,
-          because plan-blitz has two exits — `constituents` reads "approved" nowhere in its own
-          count. This module lives inside the engine, so it imports the gate directly — no seam.
+  SEAM 1  the plan-gate read -> `batons[]`, filtered to the FIREABLE set: `plan.status ==
+          "approved"` (the M/L exit) OR the baton's `execution_authorized` (the S exit, whose
+          plan stays at `draft` by design). Both arms, because plan-blitz has two exits.
+          The read is `roadmap.plan_gate`'s engine call, `gate_v2.compute_gate_report`, in
+          process. A `GateReadRefused` raises `SeamError`; SEAM 1 never reports an empty fire
+          set it could not compute.
   SEAM 2  `coordinator/bin/aggregate-rollup.py :: certification_state` -> the four-state
           attest read over each plan's own bytes, loaded by path from this module's own
           `coordinator/bin` sibling (arrived via docs/plans/2026-09-18-doe-holds-no-scripts.md,
@@ -47,10 +48,10 @@ Negative-spec:
   - Does NOT run the authoring bar, and does not stamp. Neither verdict is an entry need. The
     repair line names the writer (`plan.stamp_prepped`) and the bar's own resolved launcher name as
     the diagnostic for its refusal, and stops at naming them.
-  - Does NOT re-derive the claimed / `in_flight` exclusion. `assemble_plan_gate` applies it.
+  - Does NOT re-derive the claimed / `in_flight` exclusion. The plan-gate read applied it.
   - Does NOT decide what to fire. It reports the set; invoking the run is the operator's act.
 
-A LIMIT WORTH NAMING, rather than discovered later. `assemble_plan_gate`'s candidate filter is a
+A LIMIT WORTH NAMING, rather than discovered later. The plan-gate read's candidate filter is a
 PLANNING filter: a baton at `status: claimed` or `deployment_state: in_flight` is excluded because
 handing it to a planning wave races its holder. A certification queue keyed on that filter
 inherits an exclusion that was never about certification, so a plan approved and then claimed
@@ -156,17 +157,6 @@ class SeamError(RuntimeError):
     question look identical downstream, and the second one must never read as the first."""
 
 
-def _ensure_engine_on_path() -> None:
-    """Put the engine root on `sys.path`, fail-loud — the same self-location-first bootstrap
-    every other `coordinator/bin/*.py` engine-backed CLI uses (see e.g.
-    `coordinator/bin/compose-review-wave.py`). Idempotent: `require_colocated_engine_on_path`
-    front-inserts onto `sys.path` and a second call is harmless."""
-    import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
-    from cc_invoke import require_colocated_engine_on_path
-
-    require_colocated_engine_on_path(__file__)
-
-
 def _load_rollup():
     """SEAM 2's module, loaded by path from this engine's own `coordinator/bin` — never off the
     plugin root, which holds no scripts."""
@@ -188,14 +178,17 @@ def _load_rollup():
 
 
 def _engine_plan_gate():
-    """`assemble_plan_gate`, imported directly — this module lives inside the engine, so SEAM 1
-    resolves through this module's own tree with no seam at all."""
-    _ensure_engine_on_path()
-    try:
-        from coordinator_core.roadmap.plan_gate import assemble_plan_gate
-    except Exception as exc:
-        raise SeamError(f"coordinator_core.roadmap.plan_gate unimportable: {exc}")
-    return assemble_plan_gate
+    """SEAM 1's gate read: `gate_v2.compute_gate_report`, in process. A `GateReadRefused` becomes
+    a `SeamError`: a read that cannot answer never yields a fire set, empty or otherwise."""
+    from coordinator_core.roadmap.gate_v2 import GateReadRefused, compute_gate_report
+
+    def read(repo_root, roadmap_id=None):
+        try:
+            return compute_gate_report(repo_root, roadmap_id=roadmap_id)
+        except GateReadRefused as exc:
+            raise SeamError(f"plan-gate read refused: {exc}")
+
+    return read
 
 
 def approved_plans(repo_root: Path, roadmap_id: Optional[str] = None,
@@ -208,19 +201,13 @@ def approved_plans(repo_root: Path, roadmap_id: Optional[str] = None,
     while leaving the plan at `draft` BY DESIGN. Deduplicated on `plan`: several batons may cite
     one governing plan, and firing that plan twice is not a composition, it is a double dispatch.
     """
-    assemble = _engine_plan_gate()
-    try:
-        report = assemble(repo_root, roadmap_id=roadmap_id)
-    except SeamError:
-        raise
-    except Exception as exc:
-        raise SeamError(f"coordinator_core.roadmap.plan_gate.assemble_plan_gate failed: {exc}")
+    report = _engine_plan_gate()(repo_root, roadmap_id=roadmap_id)
     rows, seen = [], set()
     for baton in report["batons"]:
         if not all_batons and not baton.get("candidate", True):
             continue
         plan = baton.get("plan")
-        if not plan:
+        if not plan or not plan.get("path"):
             continue
         approved = str(plan.get("status") or "").strip().lower() == APPROVED
         if not (approved or baton.get("execution_authorized")):

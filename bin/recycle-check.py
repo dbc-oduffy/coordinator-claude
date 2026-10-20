@@ -367,7 +367,8 @@ def resurrected(repo_root: Path, baton_ids, live, archive_root: str = "archive/h
 def _gate_body(gate_report: Path) -> dict:
     """The gate report's body, whichever shape the caller froze.
 
-    `coordinator-invoke roadmap.plan_gate` writes a JSON-RPC envelope -- the gate's own fields
+    A gate report redirected from `coordinator-invoke` (producer: `roadmap.plan_gate`,
+    `coordinator_core/roadmap/gate_v2.py :: compute_gate_report`) is a JSON-RPC envelope -- the gate's own fields
     sit under `result`, and a caller that redirects that stdout straight to disk (which is what
     the skill's step 2 tells it to do) freezes the ENVELOPE. Reading `waves` off the envelope
     finds nothing and reports `wave 0 is empty`, which is indistinguishable from a wave that
@@ -409,7 +410,7 @@ def main(argv=None) -> int:
     )
     ap.add_argument("baton_ids", nargs="*", help="baton ids; default: the gate report's wave")
     ap.add_argument("--repo-root", default=".", help="repo root (default: cwd)")
-    ap.add_argument("--gate-report", help="frozen roadmap.plan_gate JSON to take the wave from")
+    ap.add_argument("--gate-report", help="frozen gate report JSON to take the wave from")
     ap.add_argument("--wave-index", type=int, default=0, help="which wave of the report (default 0)")
     ap.add_argument("--trail-root", default="state/plan-blitz", help="repo-relative trail root")
     ap.add_argument("--exclude-run", help="trail dir name to skip, normally this run's own")

@@ -44,6 +44,12 @@ paid that spawn cost before registering this script, so delegating to it adds
 no new cost class. With no inner command configured, there is no spawn at
 all.
 
+THE COST FIELD. The last segment is `~$N.NN`, the session's whole-history estimate from
+`coordinator_core.usage.session_cost`: a per-file offset-plus-running-sum cache, so a render parses
+only appended bytes and never re-sums. Its tree scan is the one earned directory scan: throttled
+to once per `_RESCAN_AFTER_SEC` and byte-budgeted, never per message. A trailing `+` marks a
+lower bound while backlog remains; any failure omits the segment.
+
 Sidecars are not pruned here — a directory scan per assistant message costs more
 than the stale files do. They are swept with the rest of session scratch. A
 `.tmp` sibling orphaned by a cancellation between `mkstemp` and `os.replace` is
@@ -86,13 +92,48 @@ def _group_em_helper(name: str):
         return __import__(name)
     except ImportError:
         pass
+    return _engine_module(f"coordinator_core.group_em.{name}")
+
+
+def _engine_module(dotted: str):
+    """Import `dotted` from the engine, resolving the engine onto `sys.path` first."""
+    _on_path(_BIN_LIB_DIR)
     import lib  # noqa: F401 -- the published bin/lib package bootstraps the engine resolver
     from cc_invoke import require_dispatch_engine_on_path
 
     require_dispatch_engine_on_path()
     import importlib
 
-    return importlib.import_module(f"coordinator_core.group_em.{name}")
+    return importlib.import_module(dotted)
+
+
+def _cost_path(session_id: str) -> Path:
+    return _settings_home() / "state" / "session-cost" / f"{_safe_stem(session_id)}.json"
+
+
+def _session_cost_segment(payload: dict, session_id: str) -> str | None:
+    """The dimmed `~$N.NN` whole-session cost, or None. Any failure omits the segment."""
+    transcript = payload.get("transcript_path")
+    if not session_id or not isinstance(transcript, str) or not transcript:
+        return None
+    cost_path = _cost_path(session_id)
+    try:
+        # Fast path: a complete cache inside its rescan window, whose recorded main-transcript
+        # size equals the transcript's current size (one stat), renders as-is; importing the
+        # engine (lib + cc_invoke, ~15ms) on every redraw would blow the field's 10ms budget.
+        rec = json.loads(cost_path.read_text(encoding="utf-8"))
+        if (rec.get("complete") and rec.get("files") and time.time() < rec.get("fresh_until", 0)
+                and Path(transcript).stat().st_size == rec["main_size"]):
+            return _colorize(None, f"~${max(0.0, rec['usd_total']):.2f}")
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        pass
+    try:
+        cost = _engine_module("coordinator_core.usage.session_cost")
+        text = cost.render(cost.advance(
+            transcript, cost_path, now=time.time(), byte_budget=cost.BYTE_BUDGET))
+    except Exception:  # noqa: BLE001 -- the cost field must never blank the line
+        return None
+    return _colorize(None, text) if text else None
 
 
 def _session_registry_dir(*args, **kwargs):
@@ -802,6 +843,9 @@ def main(argv: list[str] | None = None) -> int:
     receiver = _colorize_scarlet(_UHURA_GLYPH) if holds_uhura else None
     segments = [s for s in (receiver, standing, label, model, effort) if s]
     segments.append(_colorize(pct, _gauge_text(pct)))
+    cost = _session_cost_segment(payload, session_id)
+    if cost:
+        segments.append(cost)
     sys.stdout.write(_colorize(None, " · ").join(segments) + "\n")
     return 0
 

@@ -32,6 +32,8 @@ or a `peer-team-asks.md` entry.
 
 - One heading per cluster: `## <id> — <title>`.
 - Under each: `**loe:**` (never absent) and `**blocked_by:**` (cluster ids, or none).
+  The line holds only ids, never a parenthetical or prose: the parser reads every id it finds as an
+  edge. A review note goes on its own separate line.
 - An optional `**external:** yes|no` line per cluster marks whether its research needs the web; an
   absent line reads as `no` (the repo is the evidence).
 - `reconciliation.md` carries one verdict per cluster; `OVERVIEW.md` one section per KEEP cluster,

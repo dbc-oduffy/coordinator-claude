@@ -127,10 +127,14 @@ nobody and nothing re-runs entry. In this order, as your first act:
 
 3. **Events wake you; no cron tick exists.** Your wakes are: the background watch run's
    completion; peer `SendMessage`s; `notify_when_idle` one-shots (main conversation only); and
-   the **memory governor** `Monitor` (`<plugin-root>/bin/group-em-memory-governor.py`). At
+   the **memory governor**. Run `python -u <plugin-root>/bin/group-em-memory-governor.py >>
+   <home>/scratch/governor.log 2>&1` once, `run_in_background`, for the whole standing; the wake is a
+   second background run, `<plugin-root>/bin/group-em-memory-governor-wait.py <that log>`, which
+   exits on the first new line. Relaunch only the waiter; never filter its line, never wrap either in
+   a `Monitor` (its expiry kills the governor). At
    `CRITICAL` kernel pressure it suspends the youngest heavy command, never a deploy or language
-   server, and resumes it when the box calms. On a PAUSED line, tell its owner. You send no hold or clear messages: `WARN` and swap-out hold nothing. Admit a heavy command when its declared whole-tree peak + 8 GiB <=
-   kernel-available; a GO names peak, launch gate, 8 GiB stop floor. Tripwire:
+   server, and resumes it when the box calms. On a PAUSED line, tell its owner. You send no hold or clear messages: `WARN` and swap-out hold nothing. Admit a heavy command when peak + min(50%, 8 GiB) <= kernel-available; check `CacheBytes`
+   first; floor 2.5 GiB. Copies: queued `robocopy /J`. Tripwire:
    `A-BOX-MEMORY-IS-THE-KERNEL-VERDICT-NOT-A-FREE-PAGES-FLOOR`. The GPU is one slot: embedding writes
    and UE GPU work never overlap (`A-GPU-IS-ONE-SLOT-EMBED-SIDECARS-AND-UE-GPU-WORK-NEVER-OVERLAP`).
    A `CronCreate` poll over an event surface is a poll where an event exists
@@ -381,12 +385,13 @@ it and commits its `commit.pathspec`. Tripwire: `A-GROUP-EM-HAND-AUTHORING-THE-I
 
 ## Cross-repo commit authority
 
-**Committing in another fleet repo needs no PM assent while you hold the standing and
-`coordinator.feature.gem_cross_repo_commit` is on** (unset reads on). Off: ask that repo's EM in
-its own session (Cockpit, or headless `claude -p`, same `--plugin-dir`); non-urgent work is a
-memo. Tripwires: `GEM-CROSS-REPO-COMMIT-IS-A-BOX-SETTING`,
-`A-BARE-CLAUDE-BG-SPAWN-LOADS-THE-WRONG-PLUGIN-TREE`. On: scoped commits only, no destructive git
-ops, never leave a sibling red; memo engine-subject work.
+**With the standing and `coordinator.feature.gem_cross_repo_commit` on, commit in any
+fleet repo without PM assent:** scoped commits, no destructive git ops, never leave a sibling red,
+memo engine work. Off: ask that repo's EM in its own session (same `--plugin-dir`), else memo. Tripwires: `GEM-CROSS-REPO-COMMIT-IS-A-BOX-SETTING`,
+`A-BARE-CLAUDE-BG-SPAWN-LOADS-THE-WRONG-PLUGIN-TREE`.
+
+**Doctrine is yours to change either way; no fleet fan-out:**
+`GEM-MAY-CHANGE-DOCTRINE`.
 
 ## Anti-scope
 

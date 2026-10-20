@@ -51,11 +51,9 @@ if _LIB_DIR not in sys.path:
 # root-resolution scheme.
 # Spec backlink: cross-repo/inbox/2026-08-17-coordinator-content-repo-em-mirror-entrypoints-missing-coordinator-core.md
 try:
-    from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+    from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
-    _REPO_ROOT = _resolve_claude_klabauter_root()
-    if _REPO_ROOT not in sys.path:
-        sys.path.insert(0, _REPO_ROOT)
+    _REPO_ROOT = require_dispatch_engine_on_path()
     from git_hook_install import ensure_hooks_fleet  # noqa: E402
 
     _BOOTSTRAP_ERROR: Exception | None = None

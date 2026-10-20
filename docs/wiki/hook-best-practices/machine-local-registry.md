@@ -378,7 +378,7 @@ The library/service distinction is useful here: this is a **library**, not a **s
 
 Four shapes, only one is heavyweight:
 
-1. **Per-machine path that varies across your machines.** Append a key to `registry.local.toml`. No declaration step required. The reader is schemaless; declaring an empty placeholder in tracked `registry.toml` is *optional* and only useful if you want the key shape to be discoverable across machines via git.
+1. **Per-machine path that varies across your machines.** Append a key to `registry.local.toml`. No declaration step required. The reader is schemaless; declaring an empty placeholder in tracked `registry.toml` is *optional* and only useful if you want the key shape to be discoverable across machines via git. A data location outside any repo (render root, vendor checkout, build intermediates) is declared as a store, `stores.<name>` (§5c.7), not as a bare ad-hoc `*_root` key.
 2. **New namespace cluster you own** (`mything.*`, `mytool.*`). Just use it. The `concerns` array (§6) gates *concern-file isolation* (whether `mything.*` reads from a separate `mything.toml`), not *namespace existence*. A new namespace under `registry.local.toml` needs zero registration.
 3. **Sanctioned auto-writer** (your installer or daemon writes values, not just reads them). Heavier — §6's machine-generated-write-authority criterion applies, with single registered writer, declared sources, loud-fail on collision, and a `[provenance]` table. Worked example: project-rag's `wire` writes `[env]`/`[provenance]` to the **untracked** `project_rag.local.toml` — those values are machine-specific corpus paths, so by §9 they belong in the `.local` layer, not the tracked baseline. The tracked `project_rag.toml` carries only the operator-stable `[addons]` registration (enabled-flags, set by setup Phase 7D — not a per-machine path). This is the only path that warrants the heavier criteria; it is heavy because *unsupervised writers* need clobber-discipline, not because *humans/EMs adding values* do. **Concern-file provenance shape:** the `[provenance]` block lives at the concern-file root (not `[provenance.<concern>]`) because the concern name is already the file's namespace; provenance uses per-key sub-tables (e.g., `[provenance.install_root]`) to support multi-writer collision diagnosis when more than one automated writer contributes keys to the same concern file.
 4. **Hand-edited cross-machine value** (same on every machine — schema version, a public URL). Append to `registry.toml`. It travels via git.
@@ -452,6 +452,7 @@ The `publish.mirrors.*` namespace holds outward-only OSS distribution destinatio
 | Publish-target mirrors | `publish.mirrors.*` | OSS mirror DEST roots — outward push only, never working trees | `machine-local get publish.mirrors.<key>.path` |
 | Engine working-repo discriminant (§5c.3) | `engine.working_repos.*` | The (much narrower) set of repos that work ON the coordinator engine and must resolve the live engine checkout, not the published engine | `machine-local get engine.working_repos.<slug>` |
 | External workspaces (§5c.6) | `external_workspaces.*` | Directories of someone else's code, registered read-only — never peers, memo receivers or `$REPO_*` exports | `machine-local external-workspace <name-or-path>` |
+| Data stores (§5c.7) | `stores.*` | Data locations outside any repo that matter (render roots, vendor checkouts, build intermediates) — owned, described, probed and relocatable; never peers or workspaces | `machine-local store <name-or-path>` |
 
 **Why distinct namespaces, not a class attribute on `repos.*`?** Distinct namespaces make the publish→working-repo clobber guard structural: the engine repo's `coordinator/bin/publish.py` reads only the mirror namespace, so it can never accidentally resolve a working repo as a publish destination. The clobber risk is documented at `plugin-extraction-and-distribution.md:87` and `live-install-drift-audit.md:21`.
 
@@ -615,6 +616,68 @@ p4_client = "oduffy-mac-slice" # optional; feeds the p4 no-submit identifiers
   `machine-local set repos.<k>` refuses a path inside a registered workspace.
 - **Never written by an agent.** Tool writes into a workspace are hard-denied for every caller with
   no cwd pass-through; git history writes and `p4 submit`/`shelve` are hard-denied. None has an override.
+
+## 5c.7. `stores.*` — Data That Matters but Lives Outside Any Repo
+
+A store is a filesystem location outside every repo that something depends on: a render root, a
+vendor model checkout, a scraped-data folder, index build intermediates, a pin checkout. It is
+findable by name and by path, owned by a repo, probed for existence, and re-pointed after a move.
+It is data, never a peer and never someone else's code: not a `repos.*` key, not an
+`external_workspaces.*` entry. Tripwire: `A-DATA-STORE-OUTSIDE-A-REPO-IS-FOUND-BY-NAME-NEVER-BY-DRIVE-SCAN`.
+
+```toml
+# registry.local.toml (GITIGNORED — per-machine; never a concern file, never under repos.*)
+[stores.example_stats_repo_facepack]
+path = "<absolute path>"             # the location. Exactly one of path / path_key.
+# path_key = "likeness.render_root"  # OR: adopt an existing registry key; its readers keep working
+owner = "example_stats_repo"                 # required: a repos.* key slug (the owning repo)
+purpose = "EXAMPLE-STATS-REPO facepack renders"    # required: one line
+dependents = ["<abs file>"]          # optional: files outside the registry that spell this path
+```
+
+- **Path XOR path_key.** `path` is the location. `path_key` adopts an existing registry key
+  (`paths.*`, `vendor.*`, `likeness.*`, `project_rag_ue_addon.*_root`): the store resolves to that
+  key's value and the key's readers keep working with no change. A `path_key` may not name a key under
+  `repos.`, `external_workspaces.`, `publish.mirrors.` or `stores.`.
+- **A vanished store is kept.** An entry whose path does not exist stays registered; the absence is
+  the finding `--check` reports.
+- **Read verb.** `machine-local store <name-or-path>` prints
+  `name<TAB>path<TAB>owner<TAB>purpose` (tabs and newlines in `purpose` rendered as spaces) and exits 0
+  for a registered name or a path equal to or under a store's root (deepest root wins); 1 when not
+  registered; 2 on operational failure (§4.1). A resolved store whose path does not exist still exits 0
+  and adds one stderr line naming it. `--list` prints every store.
+- **Existence probe.** `machine-local store --check` prints one typed line per finding and exits 1,
+  or exits 0 with no output when clean (2 on operational failure):
+  `missing<TAB>name<TAB>path` (path empty, absent on disk, or `path_key` unresolvable);
+  `orphan<TAB>name<TAB>owner` (owner absent, or `repos.<owner>` does not resolve);
+  `incomplete<TAB>name<TAB>field` (no `purpose`, both or neither of `path`/`path_key`, or a barred
+  `path_key` namespace); `dead-dependent<TAB>name<TAB>file` (a declared dependent file that no longer
+  exists). An orphan is a store whose declared owner does not resolve; there is no drive scan for
+  unregistered directories.
+- **Write verb.** `machine-local relocate-store <name> <new-path> [--dry-run] [--allow-missing]`
+  records a move the operator already made. It canonicalises `<new-path>` to absolute and refuses
+  (exit 2) an unknown name, a `<new-path>` that does not exist unless `--allow-missing`, a `path_key`
+  naming a concern-namespace key (the message names `set --concern`), and a `path_key` under
+  `repos.`, `external_workspaces.`, `publish.mirrors.` or `stores.`. It writes through the `set` writer
+  to `stores.<name>.path`, or, for a `path_key` store, to the key it names so that key's readers
+  follow; the write lands in `registry.local.toml`, so a `path_key` defined only in `registry.toml` is
+  shadowed locally, not edited. It then prints `stale-dependent<TAB>name<TAB>file` for each declared
+  dependent still spelling the old location (as stored, `/`-separated, `\`-separated or `\\`-escaped)
+  and exits 0. It never moves, copies or deletes data.
+- **Relocate reports dependents; it never writes them.** A dependent is a file another owner
+  maintains (a `wire`-aggregated concern file the next `wire` run clobbers, a sibling repo's own
+  config). Relocating a location is a contract change owed a consumable signal to every dependent
+  reader, discharged by routing the reader through an accessor that resolves the current location
+  (`docs/decisions/DR-sibling-surface-relocation-is-a-contract-change.md`). The store name is that
+  accessor; `path_key` lets existing readers follow with no change; each dependent still embedding a
+  copy is named by `relocate-store` and `--check`, and its owner converts it to read the registry.
+- **Adopt, do not migrate.** Existing ad-hoc path keys become findable and relocatable by naming them
+  in `path_key`; they are not moved into `stores.*`, unset or renamed.
+- **Root namespace, not a concern.** Like `publish.mirrors.*` and `external_workspaces.*`, this
+  namespace stays in `registry.local.toml` (F6, §5c.2). Tracked `registry.toml` carries only the
+  `[regeneratability]` entry `"stores"`.
+- **Registration is an operator act per box**, via `machine-local set stores.<name>.path <root>`
+  (plus `.owner` and `.purpose`; `machine-local array-set` for `dependents`).
 
 ## 5c. Coordinator-owned Keys — Reference
 

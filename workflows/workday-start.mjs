@@ -7,6 +7,18 @@
  * to <repoRoot>/scratch/ceremony-runs/<run_id>/agent-results.json and runs digest.finish_argv with
  * `--agent-results` itself, so no EM-held step sits between the agents and finish.
  *
+ * Ordering: an entry whose inputs.depends_on names another entry key in its group is dispatched
+ * only after that entry settles (needs-ruling pass included); if the predecessor failed, the
+ * dependant is recorded failed ("dependency <key> did not complete") and never dispatched. A
+ * depends_on naming no entry in the group, or forming a cycle, is logged and ignored. Independent
+ * entries and separate chains run in parallel.
+ *
+ * Disposal: an entry with inputs.memos and no predecessor roots a chain (it and its transitive
+ * dependants). Staged entries (inputs.stage) get no inbox rules and never edit a memo. When every
+ * entry of the chain settles non-failed, one `dispose:` agent disposes the root's memos from the
+ * verified report and returns what it closed; those merge into the root's result `memos`. No
+ * result key is added beyond the digest's entry keys.
+ *
  * Contract: coordinator_core/contract/ceremony-run-digest.schema.json. digest.chained is not run
  * here; the log notes its presence.
  *
@@ -80,7 +92,7 @@ const entryBlock = (g, e) => `Group ${g.id}. Group inputs:\n${JSON.stringify(g.i
 
 const dispatch = (g, e) => {
   if (g.agent && e.brief) {
-    return agent(`${WORK_COMMON}\n\n${DECISION_RULE}${hasMemos(e) ? `\n\n${INBOX_RULES}` : ''}\n\nBrief (verbatim):\n${e.brief}\n\n${entryBlock(g, e)}`, { label: `work:${g.id}:${e.key}`, phase: 'Work', schema: RESULT, agentType: g.agent, model: 'sonnet' })
+    return agent(`${WORK_COMMON}\n\n${DECISION_RULE}${hasMemos(e) && !(e.inputs && e.inputs.stage) ? `\n\n${INBOX_RULES}` : ''}\n\nBrief (verbatim):\n${e.brief}\n\n${entryBlock(g, e)}`, { label: `work:${g.id}:${e.key}`, phase: 'Work', schema: RESULT, agentType: g.agent, model: 'sonnet' })
   }
   if (Array.isArray(e.argv) && e.argv.length) {
     return agent(`${COMMON}\n\nRun this argv verbatim through the launcher for its first element (the CLI), with the remaining elements as its arguments, from the repo root:\n${JSON.stringify(e.argv)}\n\nReturn outcome "ok" when it exits 0, otherwise "failed" with the exit code and the last lines of its output in question.\n\n${entryBlock(g, e)}`, { label: `run-argv:${g.id}:${e.key}`, phase: 'Work', schema: RESULT, model: 'sonnet' })
@@ -90,19 +102,69 @@ const dispatch = (g, e) => {
 
 const rule = (g, e, r) => agent(`${WORK_COMMON}\n\n${DECISION_RULE}\n\nA worker returned needs-ruling for this entry. Decide it yourself and return the entry's final result (same key), with decision set from the offered options; never return needs-ruling again and never defer to a person.\n\nWorker result:\n${JSON.stringify(r)}\n\n${entryBlock(g, e)}`, { label: `rule:${g.id}:${e.key}`, phase: 'Rule', schema: RESULT, agentType: g.ruling_agent, model: 'sonnet' })
 
+const dispose = (g, root, chain) => agent(`${WORK_COMMON}\n\n${DECISION_RULE}\n\n${INBOX_RULES}\n\nDispose step. The triage and verify agents of this memo chain have settled and none of them may edit a memo; you are the only stage that disposes. Dispose each memo in the entry's inputs.memos per the verified report at inputs.report_path (read it first, and the chain's settled results below), re-enumerate the inbox directory before you finish, and return in memos every memo path you closed. Return the root entry's key verbatim.\n\nChain results:\n${JSON.stringify(chain)}\n\n${entryBlock(g, root)}`, { label: `dispose:${g.id}:${root.key}`, phase: 'Work', schema: RESULT, agentType: g.agent, model: 'sonnet' })
+
+const settleEntry = async (g, e) => {
+  const r = await dispatch(g, e)
+  const ruled = r && r.outcome === 'needs-ruling' && g.ruling_agent ? await rule(g, e, r) : r
+  return { outcome: 'failed', ...(ruled || {}), key: e.key }
+}
+
+const runGroup = async g => {
+  const entries = g.entries || []
+  const byKey = new Map(entries.map(e => [e.key, e]))
+  const waitsOn = new Map()
+  for (const e of entries) {
+    const d = e.inputs && e.inputs.depends_on
+    if (d === undefined || d === null) continue
+    let cur = d, hops = 0
+    while (cur && cur !== e.key && byKey.has(cur) && hops++ <= entries.length) {
+      const n = byKey.get(cur).inputs && byKey.get(cur).inputs.depends_on
+      cur = typeof n === 'string' ? n : null
+    }
+    if (typeof d === 'string' && byKey.has(d) && d !== e.key && cur !== e.key) waitsOn.set(e.key, d)
+    else log(`depends_on ${JSON.stringify(d)} of ${e.key} names no usable entry in group ${g.id}; dispatching it with no predecessor`)
+  }
+  const runs = new Map()
+  const run = e => {
+    if (!runs.has(e.key)) {
+      runs.set(e.key, (async () => {
+        const p = waitsOn.get(e.key)
+        if (p) {
+          const pr = await run(byKey.get(p))
+          if (!pr || pr.outcome === 'failed') return { key: e.key, outcome: 'failed', question: `dependency ${p} did not complete` }
+        }
+        return settleEntry(g, e)
+      })())
+    }
+    return runs.get(e.key)
+  }
+  const chainOf = root => {
+    const members = [root]
+    for (const m of members) for (const e of entries) if (waitsOn.get(e.key) === m.key && !members.includes(e)) members.push(e)
+    return members
+  }
+  const roots = entries.filter(e => hasMemos(e) && !waitsOn.has(e.key))
+  const closedBy = new Map()
+  const disposeChain = async root => {
+    const members = chainOf(root)
+    const results = await Promise.all(members.map(run))
+    if (results.some(r => !r || r.outcome === 'failed')) { log(`chain ${root.key} in group ${g.id} has a failed member; its memos are not disposed`); return }
+    const d = await dispose(g, root, results)
+    if (d && d.outcome !== 'failed' && Array.isArray(d.memos)) closedBy.set(root.key, d.memos)
+    else log(`dispose of chain ${root.key} in group ${g.id} closed no memos`)
+  }
+  await parallel([...entries.map(e => () => run(e)), ...roots.map(r => () => disposeChain(r))])
+  const settled = await Promise.all(entries.map(run))
+  return settled.map(r => {
+    const closed = closedBy.get(r.key)
+    return closed ? { ...r, memos: [...new Set([...(r.memos || []), ...closed])] } : r
+  })
+}
+
 const collected = {}
 const groups = [...digest.agent_work.groups].sort((a, b) => a.phase - b.phase)
-for (const g of groups) {
-  const entries = g.entries || []
-  if (!entries.length) { collected[g.id] = []; continue }
-  const first = await parallel(entries.map(e => () => dispatch(g, e)))
-  const settled = await parallel(entries.map((e, i) => () => {
-    const r = first[i]
-    if (r && r.outcome === 'needs-ruling' && g.ruling_agent) return rule(g, e, r)
-    return Promise.resolve(r || { key: e.key, outcome: 'failed' })
-  }))
-  collected[g.id] = settled.map((r, i) => ({ outcome: 'failed', ...r, key: entries[i].key }))
-}
+for (const g of groups) collected[g.id] = await runGroup(g)
 if (digest.chained) log('digest.chained present; the template does not run it')
 
 const resultsPath = `${repoRoot}/scratch/ceremony-runs/${digest.run_id}/agent-results.json`

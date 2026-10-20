@@ -28,7 +28,7 @@
           "type": "null"
         }
       ],
-      "description": "sha256 hex of the backing ledger claim's canonical body — the projection-render join anchor (example-retrieval-repo fleet identity). Nullable-present on the hosted contract; example-market-data-repo enforces non-null producer-side per cgs-03."
+      "description": "sha256 hex of the backing ledger claim's canonical body — the projection-render join anchor (project-rag fleet identity). Nullable-present on the hosted contract; example-market-data-repo enforces non-null producer-side per cgs-03."
     },
     "taxonomy": {
       "type": "string"

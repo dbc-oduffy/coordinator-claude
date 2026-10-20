@@ -92,6 +92,8 @@ Before writing tasks, confirm each item or explicitly waive it. If multiple are 
 
 If two or more checkboxes can't be filled honestly, the plan isn't ready. Surface to the PM with a specific ask, not a draft full of TBDs.
 
+**Census rows take the engine's allowed form; a live check is execution-time evidence.** Each `census:` command takes `coordinator_core.roadmap.census.ALLOWED_FORM` (read-only pipeline; no `python -c`, `$( )`, loops). A live check that cannot (`node`, `npx`, `gh`, `claude`) is appended with `plan.tasks.mutate` `evidence-append`. Form and rule: [mise-prepped-authoring-bar](../lesson-triage/mise-prepped-authoring-bar.md).
+
 **Plans default to decisions, not questions.** Reviewer-facing questions in the plan body indicate undelegated decisions the author had context to make. Decide; surface only the genuine tradeoffs.
 
 **`UNCERTAIN`-as-status is hedging — rectify before any PM gate.** A plan, stub, or AC row that carries `UNCERTAIN` / `TBD` / `unclear` in a status field is an undelegated decision wearing a status label, not a legitimate state. Resolve it (decide, or grep the substrate) before the plan reaches a PM gate or review — a PM gate is not the place to discover the author never made a call.
@@ -1155,6 +1157,10 @@ Sister to "existence ≠ fit" and `§ Verifying Handoff Premises` (broken-today 
 **Cross-plan amendment discipline: body-edit, not wiki audit-trail.** When a PM-ratified decision in plan A supersedes a decision in plan B on the same branch, grep-and-amend plan B's body in one coordinated commit — a wiki audit-trail entry alone leaves downstream executor briefs on the stale doctrine. Enumerate every surface that carries the superseded claim (sub-decision body, risk row, convergence timeout, wave steps, AC rows) and update them in-place; a single missed surface ships an executor brief that contradicts the ratification.
 
 **Cross-plan amendments need a structural pointer, not just a body breadcrumb — `amendments:` frontmatter list as the durable seam.** When plan A amends a live peer plan B (especially during concurrent EM sessions where plan B is mid-execution), body-prose markers ("**Amended YYYY-MM-DD by <slug>:** …") have real concurrency risk (a peer rebase or mid-chunk recompose can clobber the prose region) AND no programmatic consumer (nothing greps for them). Add an `amendments:` frontmatter list to the parent plan (and its DR if applicable) with one entry per amendment — durable structural pointer, future tooling can enumerate, single well-defined frontmatter region less likely to collide with in-flight body edits. Keep a body-prose marker as a redundant reader-facing breadcrumb. Same shape on DRs: same-day clarification that does NOT change the decision → edit-in-place + `amendments:` frontmatter list (shape A); ≥1-day-later amendment → follow-up DR with `related: [<parent-DR-id>]` (shape B).
+
+## Deploy and publish rows are EM-owned
+
+A row whose finish is a deploy or publish step that needs a committed SHA is EM-owned: author it with an EM owner, place it after the commit boundary that lands the SHA, and never dispatch it to an executor. Executors do not commit, so they cannot supply the SHA; the executor no-commit rule is unchanged, and the (n) carve-out below covers a row that must create a commit, not a deploy that consumes one. Tripwire: `A-DEPLOY-ROW-NEEDING-A-COMMITTED-SHA-IS-EM-OWNED`.
 
 ## Hard Constraints for Executor-Bound Plans
 

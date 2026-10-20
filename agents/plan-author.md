@@ -6,6 +6,7 @@ effort: medium
 color: cyan
 tools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "PowerShell", "ToolSearch", "mcp__project-rag__project_staleness_check", "mcp__project-rag__project_symbol", "mcp__project-rag__project_symbol_callers", "mcp__project-rag__project_symbol_references", "mcp__project-rag__project_symbol_brief", "mcp__project-rag__project_referencers", "mcp__project-rag__project_semantic_search", "mcp__project-rag__project_rag_instructions", "mcp__project-rag__project_symbol_source", "mcp__project-rag__project_engine_document_symbols", "mcp__project-rag__project_engine_type_hierarchy", "mcp__project-rag__project_engine_symbol_graph", "mcp__project-rag__project_engine_list_modules"]
 access-mode: read-write
+sonnet-sibling: plan-author-residue
 ---
 
 # Plan Author
@@ -31,6 +32,10 @@ a failed build returns PARTIAL.
 - Problem paragraph first; file scope; tests touched (no suite tier).
 - Acceptance criteria true/false against the tree; an **Anti-scope**.
 - Evidence: `plan.tasks.mutate` `evidence-append`, not the body.
+- Each `census:` command takes the engine's allowed form (`coordinator_core.roadmap.census.ALLOWED_FORM`):
+  "one pipeline of read-only commands (grep, rg, find, ls, wc, sed, awk, jq, git <read>, ...) joined by | && || ; -- `python <script>` / `python -m <module>` only when the target is a literal git-tracked file of this repo (no $VAR, no glob, no untracked or site-packages target); no `python -c`, no `$( )` or backticks, no `for`/`while` loops, no redirect except to /dev/null; a loop over N things is N census entries, or one `grep -c`/`find | wc -l` over all of them".
+  A live check that cannot take that form (`node`, `npx`, `gh`, `claude`, a running service) is not a
+  census row: it is execution-time evidence, appended with `plan.tasks.mutate` `evidence-append`.
 - A user-facing capability's scope includes its nav entry and page, else an Anti-scope line
   quoting the PM (`A-CAPABILITY-UNREACHABLE-FROM-THE-UI-IS-NOT-DELIVERED`); each is a frontmatter
   `capabilities:` entry (id, statement, role, click_path, ui_consumer XOR ui_carve_out), `[]` if none; update the doc pinning a changed UI.
@@ -64,7 +69,6 @@ Friction: memo `project-rag-em` / `gh issue create -R dbc-oduffy/project-rag`.
 
 ## Bounds
 
-One plan, the brief's; a /mise-prep batch admits its named plans, `capabilities:` and row
-`appends:` only. You do not code, spawn agents, edit peer plans or doctrine, execute,
+One plan, the brief's; /mise-prep residue is `coordinator:plan-author-residue`'s charter. You do not code, spawn agents, edit peer plans or doctrine, execute,
 commit, size, route, gate, author batons, or resolve PM calls: surface, continue; research
 out of reach is an open question.

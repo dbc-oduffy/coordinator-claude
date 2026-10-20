@@ -23,7 +23,7 @@ from typing import Callable, Iterable
 
 _LIB = Path(__file__).resolve().parent.parent / "lib"
 
-CONTENT_ROOT = Path(__file__).resolve().parents[2]
+CHECKOUT_ROOT = Path(__file__).resolve().parents[2]
 OVERRIDES = ("solo", "multi", "auto")
 
 
@@ -120,8 +120,8 @@ def refresh(
     `probe` is the injection seam for the one real `git log` spawn.
     """
     root = Path(repo_root).resolve()
-    if root != CONTENT_ROOT:
-        raise RefreshError(f"refused: {root} is not the coordinator-content-repo checkout this CLI ships in")
+    if root != CHECKOUT_ROOT:
+        raise RefreshError(f"refused: {root} is not the checkout this CLI ships in")
 
     previous = _gate().read_verdict(root)
     if previous.source == "corrupt":
@@ -157,7 +157,7 @@ def refresh(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="collab-verdict", description=__doc__.splitlines()[0])
     parser.add_argument("verb", choices=("read", "refresh"))
-    parser.add_argument("--repo-root", default=str(CONTENT_ROOT))
+    parser.add_argument("--repo-root", default=str(CHECKOUT_ROOT))
     args = parser.parse_args(argv)
 
     if args.verb == "read":

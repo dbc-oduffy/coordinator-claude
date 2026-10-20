@@ -2,16 +2,16 @@
 """
 coordinator/bin/gate-validate-invocable — operator-invocable CLI entry for the
 "gate.validate_invocable" op (docs/plans/2026-07-20-merge-gate-dod-engine-enforced.md
-§ C1), mirroring `coordinator/bin/static-check`'s "a confined executor can
+§ C1), mirroring coordinator/bin/static-check's "a confined executor can
 run this" precedent.
 
 WHY THIS EXISTS
     DR-233 (engine-native, advisory-only, no GHA/pre-commit authority layer),
     superseded by DR-375, removed both automatic invocation points this
     design's local check ever had. Without an explicit invocation site the op
-    is a library nobody calls (C1). This is that site: `python3
-    coordinator/bin/gate-validate-invocable <changed-file>...`. (DR-375 put a
-    separate remote-authority layer behind `git push`; it does not restore
+    is a library nobody calls (C1). This is that site: python3
+    coordinator/bin/gate-validate-invocable <changed-file>.... (DR-375 put a
+    separate remote-authority layer behind git push; it does not restore
     an invocation point here.)
 
 USAGE
@@ -19,9 +19,9 @@ USAGE
 
     <path>...     the changed-file set to evaluate (repo-relative or
                    absolute; passed through unexamined as the op's
-                   `changed_files` param).
+                   changed_files param).
     --diff-base   optional explicit diff-base reference, passed through
-                   unexamined as the op's `diff_base` param (C4: never a
+                   unexamined as the op's diff_base param (C4: never a
                    hardcoded origin/main default).
 
 OUTPUT

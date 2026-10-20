@@ -692,6 +692,58 @@ def _trigger_window_text(text: str) -> str:
     return " ".join(sentences[i] for i in sorted(window_idxs))
 
 
+# EM-only markers (broad by design: a false positive here fails closed to the
+# altitude block): things a PM would not recognise by their own nouns. Detected
+# structurally (code/identifier shapes) plus a small lexicon of coordinator
+# machinery words. Drive-letter paths are deliberately NOT markers: they name
+# the PM's own disks.
+_EM_ONLY_MARKER_PATTERNS = [
+    re.compile(r"\b[AC]\d+\b"),
+    re.compile(r"\b[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]+)+\b"),
+    re.compile(r"\b[a-z][a-z0-9]*_[a-z0-9_]+\b"),
+    re.compile(r"\b\w+\(\)"),
+    re.compile(r"(?<![\w-])--[a-z][\w-]*"),
+    re.compile(r"\b[\w.-]+/[\w./-]+\.(?:py|md|ya?ml|json|sh|js|toml)\b"),
+    re.compile(r"\b\w[\w-]*\.(?:py|md|ya?ml|json|sh|js|toml)\b"),
+    re.compile(
+        r"\bexit[- ]codes?\b|\bnegative-spec\b|\bexecute-plan\b|\bauthorization\s+gate\b"
+        r"|\b(?:hook|guard|tripwire|sidecar|nonce|executor|subagent|worktree"
+        r"|frontmatter|dispatch(?:ed)?)s?\b",
+        re.IGNORECASE,
+    ),
+]
+
+
+def _window_names_em_only_things(scope: str) -> bool:
+    """True when the A13 trigger window carries any EM-only marker (bare
+    identifiers, code shapes, repo paths, coordinator machinery words). The
+    altitude verdict's stated test: would the PM recognise these nouns."""
+    return any(_fires(p, scope) for p in _BARE_IDENTIFIER_PATTERNS) or any(
+        p.search(scope) for p in _EM_ONLY_MARKER_PATTERNS
+    )
+
+
+# A concrete quantity the PM can weigh (size, time, money). A bare "your call"
+# with no EM markers but nothing concrete is content-free, not plain-noun.
+_QUANTITY_RE = re.compile(
+    r"\d[\d,.]*\s*(?:[KMGT]i?B|%|hours?|hrs?|minutes?|mins?|days?|weeks?|seconds?)\b"
+    r"|[$£€]\s*\d",
+    re.IGNORECASE,
+)
+
+
+def _plain_noun_handoff(text: str) -> bool:
+    """A handoff whose trigger window states a concrete, quantified choice and
+    carries no EM-only marker. Reads the window only, never the whole message
+    (A13). The quantity requirement is deliberate: a quantity-free plain handoff
+    stays on the altitude block rather than passing as content-free."""
+    sentences, window_idxs = _trigger_window_idxs(text)
+    if not window_idxs:
+        return False
+    scope = " ".join(sentences[i] for i in sorted(window_idxs))
+    return bool(_QUANTITY_RE.search(scope)) and not _window_names_em_only_things(scope)
+
+
 def _any_exemption_applies(payload: dict, text: str) -> bool:
     sentences, window_idxs = _trigger_window_idxs(text)
     scope = " ".join(sentences[i] for i in sorted(window_idxs)) if window_idxs else text
@@ -990,7 +1042,7 @@ def _altitude_verdict(payload: dict, text: str) -> int:
             return _emit_declarative_stall_verdict(text)
         return _emit_decidability_verdict(candidate, text)
 
-    if _any_exemption_applies(payload, text):
+    if _any_exemption_applies(payload, text) or _plain_noun_handoff(text):
         # ALTITUDE PASSED (A13 exemption -- a real PM gate). Ordering (A15):
         # altitude first, decidability second. This item survived C5; now C6
         # asks whether the PM can actually answer it as written.

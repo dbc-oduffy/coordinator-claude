@@ -1184,6 +1184,199 @@ def cmd_external_workspace(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+_STORES_NS = "stores"
+_STORE_FIELDS = ("path", "path_key", "owner", "purpose")
+_STORE_FORBIDDEN_PATH_KEY_PREFIXES = ("repos.", "external_workspaces.", "publish.mirrors.", "stores.")
+
+
+def _stores(layers: list[dict]) -> dict[str, dict]:
+    """Declared `stores.<name>.*` entries, resolved in layer order (first layer to
+    define a leaf wins). Each entry carries `path`, `path_key`, `owner`, `purpose`
+    (strings, "" when absent), `dependents` (list of str) and `effective_path`:
+    `path`, else the value of the key `path_key` names, else "". An entry whose
+    path does not exist is KEPT: a store that vanished is the finding."""
+    raw: dict[str, dict] = {}
+    prefix = _STORES_NS + "."
+    for layer in layers:
+        for flat_key, val in layer.items():
+            if not flat_key.startswith(prefix):
+                continue
+            name, _, leaf = flat_key[len(prefix):].rpartition(".")
+            if not name:
+                continue
+            if leaf == "dependents":
+                items = val if isinstance(val, list) else [val]
+                raw.setdefault(name, {}).setdefault("dependents", [str(i) for i in items])
+            elif leaf in _STORE_FIELDS and not isinstance(val, (list, dict)):
+                raw.setdefault(name, {}).setdefault(leaf, str(val))
+    entries: dict[str, dict] = {}
+    for name, fields in raw.items():
+        entry = {f: fields.get(f, "").strip() for f in _STORE_FIELDS}
+        entry["dependents"] = [d for d in fields.get("dependents", []) if d.strip()]
+        effective = entry["path"]
+        if not effective and entry["path_key"]:
+            effective = (_resolve_key(entry["path_key"], layers) or "").strip()
+        entry["effective_path"] = effective
+        entries[name] = entry
+    return entries
+
+
+def _store_containing(path: str, entries: dict[str, dict]) -> str | None:
+    """Name of the store whose canonical root equals or contains `path`; the
+    deepest root wins. A store with no resolved path holds nothing."""
+    target = _canon_path(path)
+    best: tuple[int, str] | None = None
+    for name, entry in entries.items():
+        if not entry["effective_path"]:
+            continue
+        root = _canon_path(entry["effective_path"])
+        if _path_inside(target, root) and (best is None or len(root) > best[0]):
+            best = (len(root), name)
+    return best[1] if best else None
+
+
+def _store_findings(entries: dict[str, dict], layers: list[dict]) -> list[tuple[str, str, str]]:
+    """(type, name, detail) for every missing / orphan / incomplete / dead-dependent finding."""
+    out: list[tuple[str, str, str]] = []
+    for name, e in entries.items():
+        if not e["purpose"]:
+            out.append(("incomplete", name, "purpose"))
+        if bool(e["path"]) == bool(e["path_key"]):
+            out.append(("incomplete", name, "path/path_key"))
+        elif e["path_key"] and e["path_key"].startswith(_STORE_FORBIDDEN_PATH_KEY_PREFIXES):
+            out.append(("incomplete", name, "path_key"))
+        eff = e["effective_path"]
+        if not eff or not os.path.exists(eff):
+            out.append(("missing", name, eff))
+        if not e["owner"] or not (_resolve_key("repos." + e["owner"], layers) or "").strip():
+            out.append(("orphan", name, e["owner"]))
+        for dep in e["dependents"]:
+            if not os.path.exists(dep):
+                out.append(("dead-dependent", name, dep))
+    return out
+
+
+def cmd_store(args: argparse.Namespace) -> int:
+    """Implement: machine-local store <name-or-path> | --list | --check.
+
+    Prints `name<TAB>path<TAB>owner<TAB>purpose`; exit 0 when the argument is a
+    declared store or a path equal to or under a store root, 1 when not
+    registered, 2 on operational failure. `--check` is the existence probe: one
+    `<type><TAB>name<TAB>detail` line per finding, exit 1 when any. Never writes.
+    """
+    layers = _build_resolution_layers(_registry_dir())
+    entries = _stores(layers)
+
+    def _line(name: str) -> str:
+        e = entries[name]
+        purpose = " ".join(e["purpose"].split())
+        return f"{name}\t{e['effective_path']}\t{e['owner']}\t{purpose}"
+
+    if args.check:
+        findings = _store_findings(entries, layers)
+        for kind, name, detail in findings:
+            print(f"{kind}\t{name}\t{detail}")
+        return EXIT_NOT_FOUND if findings else EXIT_OK
+    if args.list:
+        for name in entries:
+            print(_line(name))
+        return EXIT_OK
+    if not args.target:
+        print("machine-local: store needs <name-or-path>, --list or --check", file=sys.stderr)
+        return EXIT_OPERATIONAL
+    name = args.target if args.target in entries else _store_containing(args.target, entries)
+    if name is None:
+        return EXIT_NOT_FOUND
+    print(_line(name))
+    eff = entries[name]["effective_path"]
+    if not eff or not os.path.exists(eff):
+        print(f"machine-local: store '{name}' path does not exist: {eff or '(unresolved)'}", file=sys.stderr)
+    return EXIT_OK
+
+
+def _stale_dependents(entry: dict, old_path: str) -> list[str]:
+    """Declared dependents that exist and still spell `old_path` (as stored, `/`,
+    `\\`, or JSON-escaped `\\\\`). Read-only: no dependent is opened for writing."""
+    old = old_path.rstrip("/\\") or old_path
+    if not old:
+        return []
+    back = old.replace("/", "\\")
+    spellings = {old, old.replace("\\", "/"), back, back.replace("\\", "\\\\")}
+    fold = os.path.normcase("A") != "A"
+    if fold:
+        spellings = {s.casefold() for s in spellings}
+    stale: list[str] = []
+    for dep in entry["dependents"]:
+        try:
+            with open(dep, "r", encoding="utf-8", errors="replace") as f:
+                text = f.read()
+        except OSError:
+            continue
+        if fold:
+            text = text.casefold()
+        if any(s in text for s in spellings):
+            stale.append(dep)
+    return stale
+
+
+def cmd_relocate_store(args: argparse.Namespace) -> int:
+    """Implement: machine-local relocate-store <name> <new-path> [--dry-run] [--allow-missing].
+
+    Rewrites the store's registry location through `cmd_set` (`stores.<name>.path`,
+    or the key `path_key` names), then prints `stale-dependent<TAB>name<TAB>file`
+    for each declared dependent still spelling the old location. Never moves data
+    and never writes a dependent file. Exit 0 done, 2 refused or operational failure.
+    """
+    reg_dir = _registry_dir()
+    layers = _build_resolution_layers(reg_dir)
+    entries = _stores(layers)
+    name = args.name
+    entry = entries.get(name)
+    if entry is None:
+        print(f"machine-local: relocate-store: unknown store '{name}'", file=sys.stderr)
+        return EXIT_OPERATIONAL
+    new_path = os.path.abspath(args.new_path)
+    if not os.path.exists(new_path) and not args.allow_missing:
+        print(
+            f"machine-local: relocate-store: '{new_path}' does not exist "
+            "(pass --allow-missing to record a location not yet created)",
+            file=sys.stderr,
+        )
+        return EXIT_OPERATIONAL
+    if entry["path"]:
+        key = f"{_STORES_NS}.{name}.path"
+    elif entry["path_key"]:
+        key = entry["path_key"]
+        if key.startswith(_STORE_FORBIDDEN_PATH_KEY_PREFIXES):
+            print(
+                f"machine-local: relocate-store: store '{name}' adopts '{key}', which a store "
+                "never relocates (a peer repo, workspace, mirror or another store)",
+                file=sys.stderr,
+            )
+            return EXIT_OPERATIONAL
+        if _check_concern_namespace(reg_dir, key) != 0:
+            print(
+                f"machine-local: relocate-store: '{key}' lives in a concern file; "
+                f"relocate it with `machine-local set --concern <name> {key} <path>`",
+                file=sys.stderr,
+            )
+            return EXIT_OPERATIONAL
+    else:
+        print(f"machine-local: relocate-store: store '{name}' declares neither path nor path_key", file=sys.stderr)
+        return EXIT_OPERATIONAL
+    old_path = entry["effective_path"]
+    rc = cmd_set(argparse.Namespace(
+        key=key, value=new_path, write_global=False, dry_run=args.dry_run, concern=None,
+    ))
+    if rc != 0:
+        return EXIT_OPERATIONAL
+    if not old_path or _canon_path(old_path) == _canon_path(new_path):
+        return EXIT_OK
+    for dep in _stale_dependents(entry, old_path):
+        print(f"stale-dependent\t{name}\t{dep}")
+    return EXIT_OK
+
+
 def _external_collision_refusal(reg_dir: str, key: str, value: str) -> str | None:
     """Reason `set` must refuse (None when it may proceed): a `repos.*` path
     inside an external workspace, or an external-workspace root that is already
@@ -2677,7 +2870,7 @@ def cmd_migrate_publish_mirrors(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
-_MUTATING_COMMANDS = frozenset({"set", "unset", "array-append", "array-set", "migrate-publish-mirrors"})
+_MUTATING_COMMANDS = frozenset({"set", "unset", "array-append", "array-set", "migrate-publish-mirrors", "relocate-store"})
 
 
 @contextlib.contextmanager
@@ -2754,6 +2947,34 @@ def main() -> int:
     )
     ew_p.add_argument("target", nargs="?", default=None, help="Registered key, or a path equal to or under a registered root")
     ew_p.add_argument("--list", action="store_true", help="Print every registered entry")
+
+    store_p = subparsers.add_parser(
+        "store",
+        help=(
+            "Resolve a declared data store (stores.*) by name or by a path inside it. "
+            "Prints name<TAB>path<TAB>owner<TAB>purpose; exit 0 found, 1 not, 2 operational failure"
+        ),
+    )
+    store_p.add_argument("target", nargs="?", default=None, help="Store name, or a path equal to or under a store root")
+    store_mode = store_p.add_mutually_exclusive_group()
+    store_mode.add_argument("--list", action="store_true", help="Print every declared store")
+    store_mode.add_argument(
+        "--check", action="store_true",
+        help="Existence probe: one missing/orphan/incomplete/dead-dependent line per finding; exit 1 when any",
+    )
+
+    rs_p = subparsers.add_parser(
+        "relocate-store",
+        help=(
+            "Point a declared store (stores.*) at its new location after the data was moved. "
+            "Prints stale-dependent<TAB>name<TAB>file for each declared dependent still "
+            "spelling the old path; never moves data or writes a dependent. Exit 0 done, 2 refused"
+        ),
+    )
+    rs_p.add_argument("name", help="Declared store name")
+    rs_p.add_argument("new_path", help="The store's new location")
+    rs_p.add_argument("--dry-run", action="store_true", help="Print what would be written without making changes")
+    rs_p.add_argument("--allow-missing", action="store_true", help="Accept a new path that does not exist yet")
 
     keys_p = subparsers.add_parser("keys", help="List all known keys, one per line")
     keys_p.add_argument(
@@ -2918,6 +3139,8 @@ def main() -> int:
         "has": cmd_has,
         "keys": cmd_keys,
         "external-workspace": cmd_external_workspace,
+        "store": cmd_store,
+        "relocate-store": cmd_relocate_store,
         "dump": cmd_dump,
         "check": cmd_check,
         "path": cmd_path,

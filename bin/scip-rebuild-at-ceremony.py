@@ -73,6 +73,17 @@ def no_console_creationflags() -> dict:
     return _impl()
 
 
+def _console_python() -> str:
+    """A real console CPython for a child argv. `sys.executable` alone is the running image,
+    which under an installed forwarder exe is not an interpreter (bin/lib/python_interp.py)."""
+    bin_lib = str(_THIS.parent / "lib")
+    if bin_lib not in sys.path:
+        sys.path.insert(0, bin_lib)
+    from python_interp import resolve_console_python
+
+    return resolve_console_python() or sys.executable
+
+
 # project-rag's own CLI enforces this grammar too, but refusing here keeps a
 # malformed name from ever reaching a subprocess argv.
 _CEREMONY_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
@@ -147,7 +158,7 @@ def _resolve_registry_key(key: str) -> tuple[str | None, str | None]:
         return None, f"machine-local reader not found at {reader}"
     try:
         result = subprocess.run(
-            [sys.executable, str(reader), "get", key],
+            [_console_python(), str(reader), "get", key],
             capture_output=True,
             text=True,
             check=False,
@@ -294,7 +305,7 @@ def run(ceremony: str, repo_root: Path) -> str:
     log_path = log_dir / f"scip-rebuild-{ceremony}-{stamp}.log"
 
     argv = [
-        sys.executable,
+        _console_python(),
         str(_PUBLISH_SEQUENCER),
         "--ceremony",
         ceremony,

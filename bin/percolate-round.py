@@ -2608,6 +2608,17 @@ def _engine_modules_to_import(repo_root: str, pathspec: Sequence[str]) -> List[s
     return sorted(set(names))
 
 
+def _console_python() -> str:
+    """A real console CPython for a child argv; bare `sys.executable` is not one under an
+    installed forwarder exe (bin/lib/python_interp.py)."""
+    bin_lib = str(Path(__file__).resolve().parent / "lib")
+    if bin_lib not in sys.path:
+        sys.path.insert(0, bin_lib)
+    from python_interp import resolve_console_python
+
+    return resolve_console_python() or sys.executable
+
+
 def _engine_import_failures(repo_root: str, pathspec: Sequence[str]) -> Optional[str]:
     """Import every engine module this round published, in ONE interpreter rooted at the
     destination, and name each that fails. None when all import (or none apply). Catches a
@@ -2616,7 +2627,7 @@ def _engine_import_failures(repo_root: str, pathspec: Sequence[str]) -> Optional
     if not modules:
         return None
     probe = _run(
-        [sys.executable, "-I", "-B", "-c", _ENGINE_IMPORT_PROBE, repo_root, *modules],
+        [_console_python(), "-I", "-B", "-c", _ENGINE_IMPORT_PROBE, repo_root, *modules],
         timeout=_REGISTRY_CLI_TIMEOUT_SECS,
         cwd=repo_root,
     )

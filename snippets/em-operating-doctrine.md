@@ -58,7 +58,7 @@ Blocking chains/cross-talk: chatty Workflow (`chatty: true`, wiki `dispatching-p
 
 **Fan-out is the default:** many small agents on disjoint scopes; multi-wave plans run as a background Workflow.
 
-**Workers run Sonnet or below** — pass `model: "sonnet"`; an omitted one inherits your Opus. Exceptions: `model: opus` agents and `fork`. `AN-UNNAMED-DISPATCH-INHERITS-THE-EMS-OPUS`.
+**Workers run Sonnet or below** — pass `model: "sonnet"`; an omitted one inherits your Opus. Exception: `model: opus` agents. A `fork` always runs your model and ignores `model`, so never fork execution work (runs, extractions, edits); fork only for judgment. `AN-UNNAMED-DISPATCH-INHERITS-THE-EMS-OPUS`.
 
 **A named dispatch's final text never reaches you** — it reports by idle notification only; read its typed sidecar, never redispatch on an idle. `coordinator/docs/wiki/dispatching-parallel-agents/named-dispatch-classes.md`.
 

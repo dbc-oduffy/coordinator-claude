@@ -476,7 +476,8 @@ ${CORPUS_RULE}
 Write exactly these files:
   - ${ROADMAP_DIR}/inventory.md. The inventory row MARKS each input that is a live plan under docs/plans/.
   - ${ROADMAP_DIR}/clusters.md. Each cluster is a \`## <id> — <title>\` heading carrying a \`**loe:**\`
-    line (the whole-baton t-shirt read), a \`**blocked_by:**\` line (cluster ids, or none), and an
+    line (the whole-baton t-shirt read), a \`**blocked_by:**\` line (only cluster ids, or none: no parentheticals or prose, because
+    blitz_stage parses every id on it as an edge; a note goes on its own separate line), and an
     \`**external:**\` yes or no line: yes only when answering the cluster needs the web, no when the
     repo itself is the research. blitz_stage parses these lines and refuses a cluster without loe.
   - ${ROADMAP_DIR}/reconciliation.md. One verdict per cluster (MERGE, DEFER, KEEP, DROP, MOVE); the
@@ -571,7 +572,9 @@ Judge the roadmap on its own merits: coverage of the sizing ${SIZING}, cluster b
 and whether any cluster is a unit of dispatch masquerading as a unit of coverage. Then APPLY your
 own findings to the roadmap files yourself, because nothing downstream reads a finding that is only
 in your summary. Findings you cannot resolve go in OVERVIEW under the cluster's \`### Contested\`
-heading. You never approve, never stage, and never write outside ${ROADMAP_DIR}/ and your sidecar.
+heading. A \`**blocked_by:**\` line in clusters.md carries only cluster ids, or none: never a
+parenthetical or prose, since blitz_stage parses every id on it as an edge. Put a review note about
+a dependency on its own separate line. You never approve, never stage, and never write outside ${ROADMAP_DIR}/ and your sidecar.
 
 ${SIDECAR_RULE(role)}
 ${COMMON}

@@ -42,9 +42,7 @@ An executor dispatched with an explicit refactor remit answering a Kira `rebuild
 verdict must carry `integrated_from`: the cited Kira sidecar stem(s), at column zero, written as
 its last action (`agents/executor.md` § Rebuild-remit terminal stamp). Never indented — the
 scaffold's `divergence:` pair is itself indented, and appending at that indent nests the key under
-it and discards the stamp silently. `guard-kira-verdict-routed.py` joins a Kira verdict to its
-rebuild executor on this key alone, so an unstamped run is indistinguishable at close from one
-that was never dispatched and hard-stops the EM's close. An ordinary review dispatch (reviewer
+it and discards the stamp silently. An ordinary review dispatch (reviewer
 applies its own findings and verifies the ledger) never writes this key at all. Every other
 persona receiving this block ignores this paragraph.
 

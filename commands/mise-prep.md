@@ -1,6 +1,6 @@
 ---
 name: mise-prep
-description: "Certify approved plans; route residue to plan-author."
+description: "Certify approved plans; route residue to plan-author-residue."
 allowed-tools: ["Read", "Bash", "Grep", "Glob", "Agent"]
 argument-hint: "[plan ...] [--roadmap-id <id>] [--dry-run]"
 ---
@@ -11,6 +11,9 @@ The stage between `plan-blitz` and `/mise-en-place`: gate every approved plan ag
 authoring bar and stamp the ones that pass. It stops at certification — it fires nothing.
 Certification is per plan; the seam check runs over the set (`lesson-triage/mise-seam-check.md`),
 and this command owns the seam pass: no EM step sits between a refusal and its fix.
+The stamp certifies the plan body's sha only and makes no census-freshness claim: prep never
+re-runs census commands or refreshes a `result:`, so a census row's age is adjudicated at fire
+(`/mise-en-place` Phase 0, benign-growth class), never refreshed here.
 
 ## 1. Run the seam-pass loop
 
@@ -46,7 +49,11 @@ Route by row:
 - `SEAM-REFUSED` with `seam:` lines, by class:
   - `capabilities-undeclared` (named or default set) → step 2.
   - `writes-collision` where every writing row only adds an entry to a shared registry file → step 2
-    declares that path in the row's `appends:`. Any other collision is fixed by `plan.seam_fix`
+    declares that path in the row's `appends:`. A collision between two already-certified plans is
+    never fixed by `plan.seam_fix` (the edge is a body edit and voids the stamp): its ordering is
+    owned by `/mise-en-place`, derived at Phase 0 from the plans' declared writes with no EM step
+    and no body edit (`lesson-triage/mise-seam-check.md`); report it, write no edge. Any other
+    collision is fixed by `plan.seam_fix`
     over the set (a mutating op: `depends_on_plan` edges, cycle-checked, idempotent); a
     `skipped_cycles` entry is APM-routed. The out-of-set pass is `plan.seam_check` with
     `universe: true` (non-blocking `missing-seam`); a flag handling cannot resolve goes to
@@ -60,8 +67,12 @@ Route by row:
 ## 2. Draft the residue
 
 Residue the loop cannot fix mechanically is authorship: the bar asks what only a plan's author
-knows. Dispatch `coordinator:plan-author` in parallel, one agent per up to 8 plans — each plan file
-has one owner. This runs over the default set too, not only a named one. Brief each with:
+knows. `mise-prep-run` emits it as the **residue-author workflow stage** and prints a
+`Workflow({scriptPath})` line: **fire that line** — never compose the stage by hand, and never a
+hand-dispatched Opus `plan-author` Agent batch. The stage runs one Sonnet
+`coordinator:plan-author-residue` agent per up to 8 plans, in parallel, each plan file with one
+owner, over the default set too. Leftover census rows and seam_fix `skipped_cycles` go to the
+stage's own `coordinator:apm` step; the EM relays neither. Each stage agent is briefed with:
 
 - each plan's path with its `bar:` / `seam:` lines verbatim;
 - the bar's own refusal, naming each missing declaration and its declared-empty form:

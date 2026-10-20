@@ -747,9 +747,6 @@ def main(argv=None) -> int:
         all_refused.extend(unshipped_rows)
         all_surfaced.extend(reply.get("surfaced_to_pm") or [])
         all_fell_back.extend(_fallback_lines(reply))
-        # Each landing recomputes `next_wave` from a FRESH gate read taken after its
-        # own writes, so the last fire's is the only current one — an earlier fire's
-        # was computed before the later fires had landed anything.
         next_wave = reply.get("next_wave") or next_wave
         landings.append(
             {"fire": path.name, "counted": counted, "reply": reply,
@@ -826,6 +823,7 @@ def main(argv=None) -> int:
                     "fellBack": all_fell_back,
                     "trackerShipped": tracker_shipped,
                     "nextWave": next_wave,
+                    "nextWaveRefusal": (next_wave or {}).get("detail") if (next_wave or {}).get("refused") else None,
                     "landings": [
                         {"fire": l["fire"], "counted": l["counted"]} for l in landings
                     ],
@@ -856,7 +854,9 @@ def main(argv=None) -> int:
             print(f"  fellback {entry}")
         for entry in tracker_shipped:
             print(f"  shipped  {entry} (pickup_ready cleared)")
-        if next_wave:
+        if next_wave and next_wave.get("refused"):
+            print(f"  next     wave REFUSED ({next_wave['refused']}): {next_wave.get('detail')}")
+        elif next_wave:
             print(f"  next     wave {next_wave.get('waveIndex')}: "
                   f"{len(next_wave.get('batons') or [])} baton(s)")
 

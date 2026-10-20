@@ -12701,16 +12701,31 @@ def _source_deleted_paths(targets: "Iterable[ResolvedTarget]") -> "frozenset[str
     return frozenset(line for line in (out or "").splitlines() if line)
 
 
+def _path_covers(entry: str, rel: str) -> bool:
+    """True when allowlist `entry` names `rel` itself or a directory containing it."""
+    return rel == entry or rel.startswith(entry.rstrip("/") + "/")
+
+
 def _removals_this_source_shipped(
     target: "ResolvedTarget", removals: "Iterable[str]", shipped_then_deleted: "frozenset[str]"
 ) -> "set[str]":
-    """The row's cold removals this repo once held at that path and since deleted; the rest are reported, kept."""
+    """The row's cold removals this repo once held at that path and since deleted, plus those its
+    allowlist `!`-withholds; the rest are reported, kept."""
+    removals = set(removals)
     if not target.source_dir.is_relative_to(_REPO_ROOT):
         kept: "set[str]" = set()
     else:
         prefix = target.source_dir.relative_to(_REPO_ROOT).as_posix()
         kept = {r for r in removals if (r if prefix == "." else f"{prefix}/{r}") in shipped_then_deleted}
-    foreign = sorted(set(removals) - kept)
+    if target.allowlist:
+        _bootstrap_engine()
+        _entries, exclusions = split_inclusion_exclusion(parse_allowlist_csv(target.allowlist))
+        kept |= {
+            r
+            for r in removals
+            if any(_path_covers(x, r) for x in exclusions)
+        }
+    foreign = sorted(removals - kept)
     if foreign:
         print(
             f"  {target.name}: keeping {len(foreign)} destination path(s) this repo never shipped "
@@ -12728,13 +12743,10 @@ def _paths_the_row_allowlist_denies(target: "ResolvedTarget", removals: "Iterabl
     if not entries:
         return set()
 
-    def covers(entry: str, rel: str) -> bool:
-        return rel == entry or rel.startswith(entry.rstrip("/") + "/")
-
     return {
         r
         for r in removals
-        if any(covers(x, r) for x in exclusions) or not any(covers(e, r) for e in entries)
+        if any(_path_covers(x, r) for x in exclusions) or not any(_path_covers(e, r) for e in entries)
     }
 
 

@@ -217,6 +217,15 @@ def main(argv: Optional[list] = None) -> int:
     parser.add_argument("--run-and-record", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--rag", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    try:
+        from coordinator_core.cli_entry import recording_declared_writes
+    except Exception:  # the published transform may carry no engine
+        return _run(args)
+    with recording_declared_writes():
+        return _run(args)
+
+
+def _run(args: argparse.Namespace) -> int:
     if args.run_and_record:
         run_and_record(Path(args.rag), Path(args.root).resolve())
         return 0

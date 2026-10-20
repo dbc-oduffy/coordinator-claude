@@ -267,6 +267,13 @@ Report: one block per memo -- path, classification, space, one-line
 rationale. Do not edit any memo; do not flip any lifecycle field.
 """.strip()
 
+_RESULT_CONTRACT = """
+RESULT CONTRACT. Your final result object lists every memo path you triaged
+in `memos`, exactly as given in the manifest, and sets `outcome` to `triaged`
+only once the report at `{report_path}` is written. A memo missing from
+`memos` is recorded as having no result.
+""".strip()
+
 _BUCKET_SPEC = {
     "fyi": ("fyi-tier sweep", _FYI_BRIEF),
     "dominant": ("dominant-correspondent cluster", _DOMINANT_BRIEF),
@@ -409,6 +416,7 @@ def _build_triage_all(buckets: list, supersessions: list, repo_root: str) -> tup
         _DOMINANT_BRIEF.format(not_verified=_VERIFY_AS_YOU_GO) + section,
         _VERIFICATION_CLAUSE,
         f"Write your single report to `{report_path}`.",
+        _RESULT_CONTRACT.format(report_path=report_path),
     ])
     memo_paths = [m["path"] for m in memos]
     return [{
@@ -476,6 +484,7 @@ def _build_dispatches(buckets: list, supersessions: list, repo_root: str) -> tup
         report_path = _unused_report_path(today, bucket_name)
         not_verified = _NOT_VERIFIED_SENTENCE.format(report_path=report_path)
         brief = brief_template.format(not_verified=not_verified)
+        brief += "\n\n" + _RESULT_CONTRACT.format(report_path=report_path)
         if bucket_name == "dominant":
             section, dropped = _supersession_section({m["id"] for m in memos}, supersessions)
             brief += section

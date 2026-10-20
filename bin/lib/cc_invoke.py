@@ -94,7 +94,6 @@ import math
 import os
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 from typing import Any, Callable, NamedTuple, Optional, cast
 
@@ -344,6 +343,32 @@ def _params_tempdir(claude_klabauter_root: str) -> "str | None":
         return None
 
 
+def _create_params_file(claude_klabauter_root: str) -> "tuple[int, str]":
+    """Create the private ``--params-file`` handoff; returns ``(fd, path)``.
+
+    O_EXCL under the managed Temp dir with an unpredictable name, mode 0600 --
+    the guarantees ``tempfile.mkstemp`` gave, without loading ``tempfile``'s
+    ``shutil``/``random`` closure on every spawn-path CLI call. The system-Temp
+    fallback (managed dir unresolvable) still goes through ``tempfile``.
+    """
+    directory = _params_tempdir(claude_klabauter_root)
+    if directory is None:
+        import tempfile
+
+        # `tempfile` caches its directory on first use; re-reading the env here keeps a
+        # later TMPDIR/TEMP/TMP change (a test sandbox) from being ignored.
+        sys_temp = os.environ.get("TMPDIR") or os.environ.get("TEMP") or os.environ.get("TMP")
+        return tempfile.mkstemp(prefix="cc-invoke-params-", dir=sys_temp)
+    flags = os.O_RDWR | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOINHERIT", 0)
+    for _ in range(100):
+        path = os.path.join(directory, "cc-invoke-params-" + os.urandom(8).hex())
+        try:
+            return os.open(path, flags, 0o600), path
+        except FileExistsError:
+            continue
+    raise FileExistsError("cc_invoke: no unused params-file name after 100 attempts")
+
+
 def _no_console_kw(claude_klabauter_root: str) -> dict:
     """Splat-ready Windows console-suppression kwarg for a `coordinator_core.invoke`
     child spawn. ``claude_klabauter_root`` is already resolved by every call site here (the
@@ -372,6 +397,34 @@ def _no_console_kw(claude_klabauter_root: str) -> dict:
         if os.name != "nt":
             return {}
         return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+
+
+def _parent_has_console() -> bool:
+    """True when this process is attached to a console it can hand to a child.
+
+    ``CONOUT$`` opens only while a console is attached (not under ``pythonw`` or a
+    detached parent; a ``CREATE_NO_WINDOW`` parent owns a hidden console, which counts).
+    Any error reads as "no console", so the caller keeps today's suppression.
+    """
+    if os.name != "nt":
+        return False
+    try:
+        open("CONOUT$", "wb", buffering=0).close()
+    except OSError:
+        return False
+    return True
+
+
+def _invoke_spawn_kw(claude_klabauter_root: str) -> dict:
+    """`_no_console_kw` for a `coordinator_core.invoke` child, minus the second conhost.
+
+    ``CREATE_NO_WINDOW`` allocates a fresh conhost for the child; when this process
+    already owns a console the child inherits it instead. ``capture_output`` still
+    pipes stdout/stderr, so only the attached console changes. Off Windows: ``{}``.
+    """
+    if os.name == "nt" and _parent_has_console():
+        return {"creationflags": 0}
+    return _no_console_kw(claude_klabauter_root)
 
 
 def _no_console_passthrough_kw(claude_klabauter_root: str) -> dict:
@@ -2077,7 +2130,7 @@ def _resolve_op_timeouts(claude_klabauter_root: str, env: dict[str, str], probe_
                 timeout=probe_timeout,
                 env=env,
                 cwd=claude_klabauter_root,
-                **_no_console_kw(claude_klabauter_root),
+                **_invoke_spawn_kw(claude_klabauter_root),
             )
         except subprocess.TimeoutExpired:
             _OP_TIMEOUTS_STATE = "error"
@@ -2697,6 +2750,13 @@ def _try_stamped_in_process_dispatch(
     """
     if os.environ.get(_NO_IN_PROCESS_RUNG_ENV) == "1":
         return None
+    # ipc._DISPATCH_ENGINE_ROOT is the package's own parent, so (b) is answerable from
+    # the bound package before paying for the ipc import; once ipc is loaded, ask it.
+    if (
+        "coordinator_core.ipc" not in sys.modules
+        and provenance_against(root=claude_klabauter_root).verdict == PROVENANCE_DIVERGENT
+    ):
+        return None
     path_before = list(sys.path)
     try:
         _front_insert_on_path(claude_klabauter_root)
@@ -2883,9 +2943,7 @@ def cc_invoke(
     # docstring's Params transport note above). Written, closed, passed by path,
     # and unlinked in finally so a large payload never overflows argv. Mirrors
     # cc_invoke_bare()'s identical --params-file handling below.
-    _params_fd, _params_path = tempfile.mkstemp(
-        prefix="cc-invoke-params-", dir=_params_tempdir(claude_klabauter_root)
-    )
+    _params_fd, _params_path = _create_params_file(claude_klabauter_root)
     try:
         try:
             _pf = os.fdopen(_params_fd, "w", encoding="utf-8", newline="\n")
@@ -2910,7 +2968,7 @@ def cc_invoke(
                 timeout=timeout,
                 env=env,
                 cwd=claude_klabauter_root,
-                **_no_console_kw(claude_klabauter_root),
+                **_invoke_spawn_kw(claude_klabauter_root),
             )
             rc = proc.returncode
             stdout_text = proc.stdout
@@ -3040,9 +3098,7 @@ def cc_invoke_bare(
 
     # params ride a temp file (--params-file), NOT argv — ARG_MAX-immune. Written, closed,
     # passed by path, and unlinked in finally so a large payload never overflows argv.
-    _params_fd, _params_path = tempfile.mkstemp(
-        prefix="cc-invoke-params-", dir=_params_tempdir(claude_klabauter_root)
-    )
+    _params_fd, _params_path = _create_params_file(claude_klabauter_root)
     try:
         try:
             _pf = os.fdopen(_params_fd, "w", encoding="utf-8", newline="\n")
@@ -3066,7 +3122,7 @@ def cc_invoke_bare(
                 timeout=timeout,
                 env=env,
                 cwd=claude_klabauter_root,
-                **_no_console_kw(claude_klabauter_root),
+                **_invoke_spawn_kw(claude_klabauter_root),
             )
             rc = proc.returncode
             stdout_text = proc.stdout

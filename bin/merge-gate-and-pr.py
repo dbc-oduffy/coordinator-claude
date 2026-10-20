@@ -534,16 +534,23 @@ def main(argv: list[str]) -> int:
         from coordinator_core.argv_fidelity import ArgvFidelityError, resolve_optional_prose
 
         try:
-            for dest in ("summary", "verification", "risk"):
-                setattr(
-                    args,
-                    dest,
-                    resolve_optional_prose(
-                        getattr(args, dest),
-                        getattr(args, f"{dest}_file"),
-                        flag_name=f"--{dest}",
-                    ),
-                )
+            args.summary = resolve_optional_prose(args.summary, args.summary_file, flag_name="--summary")
+            args.verification = resolve_optional_prose(
+                args.verification, args.verification_file, flag_name="--verification"
+            )
+            args.risk = resolve_optional_prose(args.risk, args.risk_file, flag_name="--risk")
+        except ArgvFidelityError as exc:
+            parser.error(str(exc))
+    elif args.subcommand == "merge-pinned":
+        import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+        from cc_invoke import require_engine_on_path
+
+        require_engine_on_path(__file__)
+
+        from coordinator_core.argv_fidelity import ArgvFidelityError, refuse_newline_argv
+
+        try:
+            refuse_newline_argv(args.title, flag_name="--title", remedy="a PR title is a single line.")
         except ArgvFidelityError as exc:
             parser.error(str(exc))
     token = _REPO_ROOT.set(args.repo_root)

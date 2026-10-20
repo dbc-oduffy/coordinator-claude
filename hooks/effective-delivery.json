@@ -1,10 +1,10 @@
 {
   "x-effective-delivery": {
     "version": 1,
-    "generated_from_sha": "4f5e1f34ec55f2cac278acb1355d83f2b28c5d50",
-    "generated_at": "2026-10-13T15:28:55Z",
+    "generated_from_sha": "bb0fe66c3d26729599f426c87f86f50cea72c421",
+    "generated_at": "2026-10-17T10:54:45Z",
     "generated_from_dirty_tree": true,
-    "engine_source_sha": "b8fa82eb8e1cc138c57828832bf4cd8a62b5fc7c",
+    "engine_source_sha": "76f072ff99ac4c1c20bb2fc9809c7ae247c914af",
     "engine_source_dirty_tree": false,
     "engine_source_resolution": "resolved-engine/published-target",
     "carriers": {
@@ -173,6 +173,16 @@
             ]
           },
           {
+            "id": "block_cross_repo_agent_write",
+            "script": "write_guards/block_cross_repo_agent_write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
             "id": "block_cutover_phase_hand_edit",
             "script": "write_guards/block_cutover_phase_hand_edit.py",
             "tool_names": [
@@ -213,6 +223,16 @@
           {
             "id": "block_disarm_marker_sentinel_write",
             "script": "write_guards/block_disarm_marker_sentinel_write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_drive_root_new_dir_write",
+            "script": "write_guards/block_drive_root_new_dir_write.py",
             "tool_names": [
               "Write",
               "Edit",
@@ -889,6 +909,14 @@
             ]
           },
           {
+            "id": "block-drive-root-new-dir-bash-write",
+            "script": "bash_guards/block_drive_root_new_dir_bash_write.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
             "id": "block-dev-repo-sentinel-removal",
             "script": "bash_guards/block_dev_repo_sentinel_removal.py",
             "tool_names": [
@@ -931,6 +959,22 @@
           {
             "id": "block-perforce-submit",
             "script": "bash_guards/block_perforce_submit.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "block-external-workspace-vcs-write",
+            "script": "bash_guards/block_external_workspace_vcs_write.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "block-push-pr-non-owned-remote",
+            "script": "bash_guards/block_push_pr_non_owned_remote.py",
             "tool_names": [
               "Bash",
               "PowerShell"
@@ -1234,6 +1278,21 @@
             ]
           },
           {
+            "id": "trailing-background-ampersand",
+            "script": "bash_guards/guard_trailing_background_ampersand.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "move-from-inside-cwd",
+            "script": "bash_guards/guard_move_from_inside_cwd.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
             "id": "git-commit-safe-commit-advise",
             "script": "bash_guards/dispatch_checks.py",
             "tool_names": [
@@ -1435,6 +1494,11 @@
             "tool_names": []
           },
           {
+            "id": "session_start_ensure_group_em_home",
+            "script": "scripts/session-start-ensure-group-em-home.py",
+            "tool_names": []
+          },
+          {
             "id": "sweep_boot",
             "script": "scripts/sweep-boot.py",
             "tool_names": []
@@ -1476,13 +1540,13 @@
             "tool_names": []
           },
           {
-            "id": "guard_kira_verdict_routed",
-            "script": "scripts/guard-kira-verdict-routed.py",
+            "id": "guard_drive_root_new_dir",
+            "script": "scripts/guard-drive-root-new-dir.py",
             "tool_names": []
           },
           {
-            "id": "guard_drive_root_new_dir",
-            "script": "scripts/guard-drive-root-new-dir.py",
+            "id": "stop_workflow_stall",
+            "script": "scripts/stop-workflow-stall.py",
             "tool_names": []
           },
           {

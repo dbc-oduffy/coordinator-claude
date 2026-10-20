@@ -51,8 +51,8 @@ Returns `artifact`/`preflight`/`gates`/`directives`/`judgment_points`/`decisions
      <!-- enum-prose: schema=handoff field=deployment_state omit=awaiting_gate,ready_to_fire,in_flight -->
 
   `[[terminal-batons-are-swept-at-close-not-left-to-the-next-ceremony]]`
-- **Kira-routing enforcement is mechanical:** `coordinator/hooks/scripts/guard-kira-verdict-routed.py`, a `stop-dispatch.py` `StopGuard`, blocks the next turn end once on an unrouted Kira verdict. Tripwire: `KIRA-ROUTING-IS-STAMPED-NOT-REMEMBERED`.
-- **An idle subagent has not failed.** Recover a review that never delivered its verdict from its transcript under `subagents/` (`stop_reason: end_turn` = finished); never replace it with `em-verified`. `AN-IDLE-SUBAGENT-HAS-NOT-NECESSARILY-FAILED`.
+- **Kira fires per the run's review tier** (L/XL/XXL in the engine-ask review wave; XS/S/M skip Kira by design), never on every close.
+- **An idle subagent has not failed.** Recover a review that never delivered its verdict from its transcript under `subagents/` (`stop_reason: end_turn` = finished); never replace it with `em-verified`, which overwrites an independent finding. `AN-IDLE-SUBAGENT-HAS-NOT-NECESSARILY-FAILED`.
 
 ---
 

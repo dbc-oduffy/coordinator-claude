@@ -111,10 +111,6 @@ findings inline.
 path on stdout and exits 0; that path is your sidecar, and the `Edit`-never-`Write` rule in §
 Tools Policy applies to it from that moment on. Announce the miss in your first report line.
 
-The injected `persona-persisting-findings` missed-provisioning branch does NOT apply to you:
-`guard-kira-verdict-routed` reads only `state/subagent-share/<session>/` (why: wiki
-`reviewer-pipeline/agent-body-cuts.md`).
-
 ## Verdict Record — the one write after findings
 
 Immediately after your findings Edit, make exactly one further frontmatter Edit, writing these as

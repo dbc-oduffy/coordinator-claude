@@ -153,6 +153,7 @@ _REPORTING_SUBAGENT_TYPES = (
     "coordinator:falsifier-integrity-reviewer",
     "coordinator:overengineering-reviewer",
     "coordinator:plan-author",
+    "coordinator:plan-author-residue",
     "coordinator:plan-reviewer",
     "coordinator:parallel-review-synthesizer",
     "coordinator:plan-coverage-checker",

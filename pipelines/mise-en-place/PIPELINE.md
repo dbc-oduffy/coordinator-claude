@@ -82,6 +82,8 @@ Residual judgment, all of it `/pickup`'s ordinary shape: resolve open judgment p
 
 **Otherwise:** before inventory, before announcement, before any flight-recorder work — apply the readiness criteria above to every candidate item. A failing item routes out of the run (see the command file for the routing-report format) rather than blocking Phase 1 — reserve stopping the whole run for when the routed residue isn't coherent, or when routing itself would need a PM decision.
 
+**Scout-owned Phase 0 (option, runs over 10 plans).** When the run holds more than 10 plans, the EM may delegate the readiness *reading* to a scout (`run_in_background: true`): the scout applies the readiness criteria to every candidate and returns one compact verdict table (identifier | spec path | verdict | failing criterion, if any) instead of the EM reading each stub. The routing decisions stay the EM's: the EM reads the table, decides which items route out and what the run proceeds on, and owns any stop-the-run call. The option is never mandatory, and the bypass condition above is unchanged.
+
 ### Phase 1: Inventory — What's on the Board?
 
 **Bandwidth rule:** The EM does NOT read every stub. For runs with >3 items (or PM-flagged "many items"), dispatch a Sonnet inventory scout with `run_in_background: true` to produce a structured table at `state/mise-inventory/<run-id>.md` (one row per item: identifier | spec path | one-line summary | declared file footprint | dependencies | verification | complexity | disposition).

@@ -270,7 +270,7 @@ Stays the CLI-emitted `commits: []` for your dispatch (§ Commit Gate); the EM p
 
 After edits land, write `integrated_from` (the cited Kira sidecar stems) as a top-level frontmatter key **at column zero** — never indented under `divergence:` (silently discarded). You are its sole writer.
 
-**Self-check before completion:** re-open; one entry per cited Kira sidecar at column zero — absent, indented, or a bare string is not done (`guard-kira-verdict-routed.py` joins on it). Report a `Stamp:` line.
+**Self-check before completion:** re-open; one entry per cited Kira sidecar at column zero — absent, indented, or a bare string is not done. Report a `Stamp:` line.
 
 ### Plan-body immutability
 

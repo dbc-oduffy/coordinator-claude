@@ -17,7 +17,7 @@ CROSS-REPO IMPORT. This file lives under the coordinator plugin's own
 `lib/` — the same live-resolved-from-source tree every other doctrine
 surface in this repo resolves through (see `coordinator/agents/
 prior-art-checker.md` § Bootstrap item 3 for the canonical FAIL-LOUD
-`_content_root` / `CLAUDE_PLUGIN_ROOT` resolution a consumer script should
+Content-root / `CLAUDE_PLUGIN_ROOT` resolution a consumer script should
 reuse to find this file). A consumer repo's own gate resolves the
 coordinator root the same way, then loads this module via
 `importlib.util.spec_from_file_location` (see

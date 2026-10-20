@@ -26,7 +26,10 @@ rest, guard 4 (the last) included, and its deny is emitted verbatim.
 
 A non-deny envelope from guards 1-4 is never dropped:
   - `updatedInput` REPLACES `tool_input` for every later guard. Guard 2's
-    engine verdict emits one (the inherited-Opus -> sonnet model switch), so
+    engine verdict emits one (the inherited-Opus -> sonnet model switch), and
+    guard 3 (`guard-agent-model-pin.py`) emits one when it reroutes a
+    cross-tier dispatch onto the pinned agent's declared `<family>-sibling`
+    (subagent_type rewritten, `model` dropped), so
     guard 4 builds its own `updatedInput` from the already-rewritten input and
     its rewrite lands on top of guard 2's by construction.
   - `additionalContext` and `systemMessage` strings accumulate in order.
@@ -150,9 +153,43 @@ _SKILL_STAGE_RE = re.compile(
 )
 
 
+_CLAUSE_SPLIT_RE = re.compile(r"[.;:!?\n]")
+_STAGE_DIRECTIVE_RE = re.compile(
+    r"(?<![\w-])(?:(?:do|don'?t|not|never|without|skip)\s+)?"
+    r"(run|runs|invoke|execute|perform|apply|use|start|then)(?![\w-])",
+    re.IGNORECASE,
+)
+_NEGATOR_RE = re.compile(r"^(?:do|don'?t|not|never|without|skip)\b", re.IGNORECASE)
+_LIST_ITEM_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
+
+
+def _directed_stages(prompt: str) -> set:
+    """Stages named after an un-negated run-verb within one clause; a stage named
+    only as context (no directive before it in its clause) is not counted."""
+    directed: set = set()
+    carry = False
+    for line in prompt.split("\n"):
+        if carry and _LIST_ITEM_RE.match(line):
+            directed.update(m.lower() for m in _SKILL_STAGE_RE.findall(line))
+            continue
+        carry = False
+        for clause in _CLAUSE_SPLIT_RE.split(line):
+            for d in _STAGE_DIRECTIVE_RE.finditer(clause):
+                if _NEGATOR_RE.match(d.group(0)):
+                    continue
+                directed.update(m.lower() for m in _SKILL_STAGE_RE.findall(clause[d.end():]))
+                break
+        if line.rstrip().endswith(":"):
+            last = _CLAUSE_SPLIT_RE.split(line.rstrip()[:-1])[-1]
+            carry = any(not _NEGATOR_RE.match(d.group(0)) for d in _STAGE_DIRECTIVE_RE.finditer(last))
+        else:
+            carry = False
+    return directed
+
+
 def _skill_stage_advisory(payload: Any) -> Optional[str]:
-    """Advisory text when a non-coordinator Agent prompt names >= 2 distinct
-    skill stages; None otherwise."""
+    """Advisory text when a non-coordinator Agent prompt directs a worker to run
+    >= 2 distinct skill stages; None otherwise (context mentions do not count)."""
     if not isinstance(payload, dict):
         return None
     tool_input = payload.get("tool_input")
@@ -164,7 +201,7 @@ def _skill_stage_advisory(payload: Any) -> Optional[str]:
     prompt = tool_input.get("prompt")
     if not isinstance(prompt, str):
         return None
-    named = {m.lower() for m in _SKILL_STAGE_RE.findall(prompt)}
+    named = _directed_stages(prompt)
     if len(named) < 2:
         return None
     stages = [s for s in _SKILL_STAGES if s in named]

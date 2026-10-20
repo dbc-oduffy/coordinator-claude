@@ -44,7 +44,7 @@ import sys
 PLAN_ROUTE_MODULE = "coordinator_core.ops.dispatch_emit.plan_route"
 CLI_MODULE = "coordinator_core.ops.dispatch_emit.cli"
 # Mirrors plan_route.ACCEPTED_FLAGS; the door cannot import plan_route to read it.
-_PLAN_ROUTE_FLAGS = frozenset({"--plan", "--out", "--force", "--repo-root"})
+_PLAN_ROUTE_FLAGS = frozenset({"--plan", "--out", "--force", "--repo-root", "--resume-rows"})
 
 
 def route_module(args: "list[str]") -> str:

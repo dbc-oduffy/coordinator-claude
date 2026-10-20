@@ -43,7 +43,8 @@ from pathlib import Path
 
 _THIS = Path(__file__).resolve()
 _REPO_ROOT = _THIS.parent.parent.parent
-_LIB_DIR = _REPO_ROOT / "coordinator" / "lib"
+# bin/ and lib/ are siblings in both the claude-klabauter tree (coordinator/) and the OSS mirror (root).
+_LIB_DIR = _THIS.parent.parent / "lib"
 
 
 def no_console_creationflags() -> dict:
@@ -54,6 +55,17 @@ def no_console_creationflags() -> dict:
     from win_portability import no_console_creationflags as _impl
 
     return _impl()
+
+
+def _console_python() -> str:
+    """A real console CPython for a child argv. `sys.executable` alone is the running image,
+    which under an installed forwarder exe is not an interpreter (bin/lib/python_interp.py)."""
+    bin_lib = str(_THIS.parent / "lib")
+    if bin_lib not in sys.path:
+        sys.path.insert(0, bin_lib)
+    from python_interp import resolve_console_python
+
+    return resolve_console_python() or sys.executable
 
 
 _CEREMONY_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
@@ -94,7 +106,7 @@ def _resolve_registry_key(key: str) -> tuple[str | None, str | None]:
         return None, f"machine-local reader not found at {reader}"
     try:
         result = subprocess.run(
-            [sys.executable, str(reader), "get", key],
+            [_console_python(), str(reader), "get", key],
             capture_output=True,
             text=True,
             check=False,

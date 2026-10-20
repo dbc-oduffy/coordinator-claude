@@ -23,9 +23,8 @@ Other draft verbs: `list` (outbox drafts + age), `discard <topic>` (drop an unse
 Write the body into the outbox path the CLI prints, never `%TEMP%` or a `tasks/` path.
 The CLI owns that buffer; a body staged anywhere else is not what `send` reads.
 
-`--summary` is capped at 120 characters and is checked at SEND, not at draft. `draft`
-accepts an over-length summary without complaint, so the refusal arrives after the body
-is written rather than when the mistake is made. Omit `--summary` and one is derived
+`--summary` is capped at 120 characters and `draft` refuses an over-length summary, so
+the mistake is caught before the body is written; `send` enforces the same cap. Omit `--summary` and one is derived
 from the body.
 
 An empty outbox is the SENT state, not a failed send. `send` stamps the draft and parks

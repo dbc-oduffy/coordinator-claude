@@ -68,7 +68,7 @@ CERTIFIED with no entry-level census DRIFT; an unclosed census leg (`UNDECIDABLE
 `UNRUNNABLE`, per-entry or rolled up) does not block the fire — record it as a named,
 non-blocking finding in the Phase 1 ledger. STALE → re-gate (`<settings-home>/bin/mise-prep-gate <plan>`, `<settings-home>` resolved per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`), then re-stamp;
 UNSTAMPED → gate and stamp; MALFORMED → a hand-written stamp, repair the frontmatter; census
-drift → the premise moved, re-plan — unless format-only (same value, different formatting) or caused by the plan's own landed rows: the EM records entry and reason as a Phase 1 ledger finding and fires. **Name the state** — "not certified" sends an author to the
+drift → the premise moved, re-plan — unless format-only (same value, different formatting), caused by the plan's own landed rows, or benign growth (ordinary tree growth that leaves the plan's decision intact): the EM records entry and a one-line "decision still holds" reason as a Phase 1 ledger finding and fires. Any other drift re-plans. A `mise_prepped` stamp certifies the body sha only and makes no census-freshness claim, so census age is adjudicated here. **Name the state** — "not certified" sends an author to the
 wrong repair. A handoff can assert executability; it cannot assert a sha. States, recipe and the
 four repairs: `coordinator/docs/wiki/lesson-triage/mise-prepped-attest.md`.
 
@@ -76,6 +76,14 @@ four repairs: `coordinator/docs/wiki/lesson-triage/mise-prepped-attest.md`.
 those, repaired by routing the finding and re-prepping the set. `capabilities-undeclared` blocks
 here and its repair is the `capabilities` frontmatter key (no re-stamp). Detail:
 `coordinator/docs/wiki/lesson-triage/mise-seam-check.md`.
+
+**Cross-certified ordering is Phase 0's.** Two certified plans writing the same path take no
+`depends_on_plan` edge (a body edit voids the stamp). Phase 0 derives their order from the plans'
+declared `writes:`, mechanically, with no EM step and no plan-body edit, and the Tranche step runs
+the plans in that order. The derivation is `plan.overlap_edges` (`{plans}`, compute-only:
+`edges`, `cycles`, `uncertified`, `unreadable`); a `cycles` entry goes to `coordinator:apm`. Never a
+hand-rolled scanner or edge writer here. See § Cross-certified ordering in
+`mise-seam-check.md`.
 
 Bypass only if the invoking handoff asserts **executability** (not merely pickup-readiness) for
 the named items in its body — a stated stop condition or `deployment_state: awaiting_gate` always

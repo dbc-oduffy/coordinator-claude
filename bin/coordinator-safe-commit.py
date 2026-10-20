@@ -993,10 +993,15 @@ def _argv_batches(paths: Sequence[str]) -> "List[List[str]]":
 
 
 def _run_git_batched(
-    prefix: Sequence[str], paths: Sequence[str], cwd: Optional[str], timeout: Optional[float]
+    prefix: Sequence[str],
+    paths: Sequence[str],
+    cwd: Optional[str],
+    timeout: Optional[float],
+    stderr_sink: "Optional[List[str]]" = None,
 ) -> "Optional[str]":
     """Concatenated stdout of `prefix + batch` over `_argv_batches(paths)`;
-    `None` if any batch exits nonzero. Spawn/timeout errors propagate."""
+    `None` if any batch exits nonzero (its stderr is appended to
+    `stderr_sink` when given). Spawn/timeout errors propagate."""
     out: "List[str]" = []
     for batch in _argv_batches(paths):
         result = subprocess.run(
@@ -1009,6 +1014,8 @@ def _run_git_batched(
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         if result.returncode != 0:
+            if stderr_sink is not None:
+                stderr_sink.append(result.stderr or "")
             return None
         out.append(result.stdout)
     return "".join(out)
@@ -1527,16 +1534,19 @@ def _paths_tracked_at_head(worktree_root: str, paths: Sequence[str]) -> "set[str
     so an absent directory now falls into the `unknown` branch below and is
     refused rather than silently misclassified as a file deletion.
     """
+    git_stderr: "List[str]" = []
     stdout = _run_git_batched(
         ["git", "-C", worktree_root, "ls-tree", "-r", "-z", "--name-only", "HEAD", "--"],
         list(paths),
         None,
         None,
+        git_stderr,
     )
     if stdout is None:
+        detail = "".join(git_stderr).strip() or "git ls-tree failed"
         print(
             "BLOCKED: could not read HEAD to tell a deletion from a bad "
-            "path: git ls-tree failed",
+            f"path: {detail}",
             file=sys.stderr,
         )
         sys.exit(1)

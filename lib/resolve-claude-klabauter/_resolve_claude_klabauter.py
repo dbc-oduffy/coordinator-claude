@@ -317,6 +317,7 @@ RETIRED_HELPER_STEMS = frozenset({
     "list-review-trail-records",
     "repair-empty-review-trail-ranges",
     "schema-drift-gate",
+    "reap-claims-for-repos",
 })
 
 

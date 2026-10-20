@@ -31,7 +31,7 @@ that module holds (a test file, another adapter instance); (3) no path outside t
 (4) no held capability beyond the checkout (Step 1a); (5) the change has shipped before in this
 repo (`--precedent shipped-before`); (6) the PM's words carry one instruction. All true:
 `sizing-assemble --express-lane --tshirt XS` (Step 3) writes no object; submit `args: {ask}`. Any
-doubt fails the predicate. Otherwise `coordinator:sizing-scout` sizes, in the submitted run or the in-chat fallback (refusal, research). Its brief carries no t-shirt,
+doubt fails the predicate. Otherwise `coordinator:sizing-scout` sizes, in the submitted run only; a hand dispatch is refused. Its brief carries no t-shirt,
 lean, guess or route; only the PM's verbatim words, `pm-turns window` output, EM session id and `interaction_mode`. The EM's act is the one `args: {ask}` call.
 Tripwire: `THE-EM-TRIGGERS-SIZING-AN-AGENT-SIZES-IT`.
 

@@ -18,7 +18,7 @@ cc_invoke/IPC hop — there is no registered op for this question, and none
 is warranted (this is a read-only local-filesystem join, not a mutation).
 
 Reuses C1's public bare-path-set seam,
-``claim_neighbours.find_neighbours_for_paths`` — the join, owner-fold,
+claim_neighbours.find_neighbours_for_paths — the join, owner-fold,
 liveness, and peer-artifact-resolution internals live there now; this file
 only parses argv, dedupes the path set, and renders the three-bucket
 answer.

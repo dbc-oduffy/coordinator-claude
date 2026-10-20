@@ -2774,9 +2774,6 @@ def _cmd_draft(args: argparse.Namespace) -> int:
     print(draft_path)
     receipt_rel = os.path.relpath(_sent_outbox_archive_path(draft_path), sender_root).replace(os.sep, "/")
     print(f"cross-repo-memo draft: send writes the receipt to {receipt_rel}", file=sys.stderr)
-    cap_advisory =acted[0].get("summary_cap_advisory") if isinstance(acted[0], dict) else None
-    if cap_advisory:
-        print(f"{cap_advisory} (summary left as the placeholder; original text kept in the draft body)")
     return 0
 
 

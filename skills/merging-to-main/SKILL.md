@@ -86,9 +86,9 @@ backfill per `coordinator/docs/wiki/release-and-distribution/changelog-and-relea
 
 **Demo path** (user-visible merges): append a Demo Path section (template: wiki) to the PR body.
 
-**Version-bump (`version_bump_final`).** `version_bump` is `d2`'s proposal; on a patch bump with a
-`ship` verdict the EM decides, no PM confirmation: set `version_bump_final` to it before `d2` plans
-the tag. A minor/major bump, or any bump on a non-`ship` verdict, goes to the APM (mode detail: wiki).
+**Version-bump (`version_bump_final`).** `version_bump` is `d2`'s proposal; on a `ship` verdict the
+EM picks patch or minor, no confirmation, and sets `version_bump_final` before `d2` plans the tag.
+A major bump, or any bump on a non-`ship` verdict, needs a PM ruling.
 
 **Portability (`portability_disposition`).** Empty sweep report continues silently; non-empty needs
 a per-finding PM disposition (options: wiki). Not a merge blocker;
@@ -116,8 +116,8 @@ Compose the PR body via `merge-gate-and-pr pr-body --ship-verdict "$SHIP_VERDICT
 version headings at `###` or lower. Exit 2 `unrecognized arguments` (older engine): rerun without
 `--summary`, `--verification`, `--risk`, `--links`.
 
-State the decided bump in the PR body: _"Version bump: patch ({old} → {new}) — EM-decided on a ship
-verdict."_ A bump still awaiting the APM reads _"Suggested bump: {kind} ({old} → {new}) — pending APM."_
+State the decided bump in the PR body: _"Version bump: {kind} ({old} → {new}) — EM-decided on a ship
+verdict."_ A bump awaiting a PM ruling reads _"Suggested bump: {kind} ({old} → {new}) — pending PM."_
 
 ---
 

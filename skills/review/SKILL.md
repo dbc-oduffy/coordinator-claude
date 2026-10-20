@@ -53,8 +53,9 @@ Reviewer selection (routing-table match, tier precedence, effort) is a signal-lo
 
 **Code review (a diff) is one parallel wave, and every reviewer applies its own findings.**
 Slice owners, Kira and the named personas all apply in place with exact-text `Edit`s, including
-findings outside their own slice (an exact-text `Edit` fails rather than clobbers). Kira (`overengineering-reviewer`) is the execute review wave's
-whole-diff editor of shipped code, never of plans. Only a rebuild verdict goes back to the EM; there is no second review round. This
+findings outside their own slice (no write against stale text: an exact-text `Edit` fails rather
+than clobbers). Kira (`overengineering-reviewer`) is the execute review wave's
+whole-diff editor of shipped code, never of plans; Kira fires per the run's review tier (L/XL/XXL in the engine-ask review wave; XS/S/M skip Kira by design). Only a rebuild verdict goes back to the EM; there is no second review round. This
 runs inside the execute workflow's review stage (`coordinator/skills/execute-plan/SKILL.md`); a
 diff reviewed ad hoc (`/review-code`) applies and verifies its own ledger before a second
 reviewer touches it.

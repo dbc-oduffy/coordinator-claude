@@ -28,8 +28,7 @@ serve; this file does NOT compute that scan itself, the op does.
 
 Repo root resolves from the process cwd via
 `coordinator_core.git.repo_root.show_toplevel()` (zero-spawn parent-walk),
-not from this file's own `__file__` location — same rationale as
-`block-discharge.py::_resolve_ledger_root`: the op's target repo is
+not from this file's own `__file__` location — the op's target repo is
 whichever one the calling session (a mise-en-place run, local or cloud) is
 actually working in, not wherever this CLI happens to be checked out.
 `--repo-root` overrides when the caller already knows it.

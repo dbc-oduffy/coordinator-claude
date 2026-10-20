@@ -64,6 +64,14 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
+def _no_console_passthrough_kw() -> dict:
+    if str(_REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(_REPO_ROOT))
+    from coordinator_core.win_portability import no_console_passthrough_kwargs
+
+    return no_console_passthrough_kwargs()
+
+
 class _PreflightFailure(Exception):
     """One failed preflight condition: `condition` names which check failed,
     `reason` is the human-readable detail for the `refused: <condition>:
@@ -438,7 +446,7 @@ def main(argv: "list | None" = None) -> int:
     # parent's file descriptors directly, so a caller parsing
     # `--output-format json` off this launcher's stdout sees the child's
     # stdout byte-for-byte, unbuffered by this process.
-    result = subprocess.run(cmd, env=child_env)
+    result = subprocess.run(cmd, env=child_env, **_no_console_passthrough_kw())
 
     if snapshot is not None:
         report = _build_fidelity_report(snapshot)

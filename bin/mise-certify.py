@@ -163,14 +163,14 @@ def certify(plan: Path, repo_root: Path, timeout: int, attribute: bool = False,
 
 def plan_state(row: dict) -> str:
     """The plan's one verdict: the sha state until CERTIFIED, then census DRIFT, a blocking
-    seam, the census state. Without this the JSON row carried only `sha` and `census.state`."""
+    seam, the census state."""
     if row["sha"] != "CERTIFIED":
         return row["sha"]
     census_state = (row["census"] or {}).get("state")
     if census_state == "DRIFT":
         return census_state
     if (row.get("seam") or {}).get("blocking"):
-        return "SEAM_BLOCKED"
+        return _prep_run()._seam_spell("REFUSED")
     return census_state or "CERTIFIED"
 
 
@@ -230,8 +230,7 @@ def main(argv: list[str]) -> int:
     except ValueError as exc:
         print(f"mise-certify: REFUSED — seam check: {exc}", file=sys.stderr)
         return EXIT_REFUSED
-    for r in rows:
-        r["state"] = plan_state(r)
+    rows = [{"plan": r["plan"], "state": plan_state(r), **r} for r in rows]
     if args.json:
         json.dump(rows, sys.stdout, indent=1)
         print()

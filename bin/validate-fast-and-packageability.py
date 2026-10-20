@@ -131,12 +131,14 @@ from coordinator_core.diff_scoped_tests import (  # noqa: E402
     PYTEST_NO_TESTS_COLLECTED,
     append_test_paths,
     compute_diff_scoped_paths,
+    find_changed_source_files,
 )
+from coordinator_core.source_test_map import map_source_to_tests  # noqa: E402
 
 from coordinator_core.diff_scoped_tests import diag as diff_diag  # noqa: E402
 from coordinator_core.session import gate_budget  # noqa: E402
 from coordinator_core.session.tier_u_gate import enforce_tier_u_gate  # noqa: E402
-from coordinator_core.testing import suite_mutex, suite_run_record, suite_run_reuse  # noqa: E402
+from coordinator_core.testing import suite_mutex, suite_run_reuse  # noqa: E402
 from coordinator_core.win_portability import no_console_passthrough_kwargs  # noqa: E402
 from coordinator_core.testing.suite_mutex import MUTEX_WAIT_SECS, mutex_owner  # noqa: E402
 
@@ -393,6 +395,16 @@ def _run_resolved_command(cmd: str, record: "tuple | None" = None) -> int:
         gate_budget.emit_budget_lines(gate_budget.self_process_ms(), suite_ms)
 
 
+def _unmapped_changed_sources(repo_root: str | None) -> list[str]:
+    """Changed source files with no covering test; compute_diff_scoped_paths
+    reports only a boolean, so the names are re-derived from the same two
+    helpers it uses."""
+    return [
+        p for p in find_changed_source_files(repo_root)
+        if not map_source_to_tests(p, repo_root if repo_root is not None else ".")
+    ]
+
+
 def run_fast(repo_root: str | None) -> tuple[str, int]:
     """Resolve + (when resolved) execute the fast-test command.
 
@@ -407,6 +419,10 @@ def run_fast(repo_root: str | None) -> tuple[str, int]:
     branch stays silent on the resolver's own diagnostic, exactly as the
     bash fence's `[[ $RESOLVER_EXIT -eq 2 ]]`-gated `cat "$_DIAG_TMP"`
     calls did (never invoked on the RESOLVER_EXIT -eq 0 path).
+
+    The run is strictly diff-scoped: unmapped changed sources are named on
+    stderr, only mapped tests run, and a diff mapping to no test (or a scoped
+    run collecting zero) returns ("skipped", 0). The unscoped command never runs.
     """
     diag_buf = io.StringIO()
     with contextlib.redirect_stderr(diag_buf):
@@ -441,26 +457,16 @@ def run_fast(repo_root: str | None) -> tuple[str, int]:
 
     diff_paths, fully_mapped = compute_diff_scoped_paths(repo_root)
     if not fully_mapped:
+        unmapped = _unmapped_changed_sources(repo_root)
         diff_diag(
-            "changed source file(s) did not fully map to covering tests -- "
-            "falling back to the full configured fast tier (conjunctive fail-safe)."
+            "no covering test for changed source file(s): "
+            f"{', '.join(unmapped) or '<unresolved>'} -- running only the mapped tests."
         )
-        diff_paths = []
-    if diff_paths:
-        scoped_cmd = append_test_paths(cmd, diff_paths)
-        diff_diag(f"changed test file(s) detected -- scoping run to: {', '.join(diff_paths)}")
-    else:
-        scoped_cmd = cmd
-
-    root = suite_run_record.repo_root_for(repo_root or os.getcwd())
-    full_record = None
-    if not diff_paths and root is not None:
-        key = suite_run_reuse.command_key(shlex.split(cmd))
-        reuse = suite_run_reuse.find_reusable(root, "fast", shlex.split(cmd))
-        if reuse is not None:
-            print(suite_run_reuse.reused_line(reuse), file=sys.stderr)
-            return str(reuse.exit_code), reuse.exit_code
-        full_record = (root, "fast", key)
+    if not diff_paths:
+        diff_diag("no mapped tests for this diff -- running no tests.")
+        return "skipped", 0
+    scoped_cmd = append_test_paths(cmd, diff_paths)
+    diff_diag(f"scoping run to: {', '.join(diff_paths)}")
 
     gate = enforce_tier_u_gate(scoped_cmd, repo_root=repo_root)
     if not gate.proceed:
@@ -476,47 +482,14 @@ def run_fast(repo_root: str | None) -> tuple[str, int]:
                 % (current.get("owner", "<unknown>"), int(MUTEX_WAIT_SECS)),
                 file=sys.stderr,
             )
-        cmd_exit = (
-            _run_resolved_command(scoped_cmd, record=full_record)
-            if full_record else _run_resolved_command(scoped_cmd)
-        )
+        cmd_exit = _run_resolved_command(scoped_cmd)
 
-    if diff_paths and cmd_exit == PYTEST_NO_TESTS_COLLECTED:
-        # The diff-scoped run named a changed test file the `-m` marker
-        # filter then deselected entirely (e.g. it carries only
-        # designed_red-marked tests) -- pytest's own "no tests collected"
-        # exit code. That is neither a pass nor a failure; fall back to
-        # the full configured fast tier so the gate still runs SOMETHING
-        # (fail-safe: always toward more testing, never toward silently
-        # running zero tests).
+    if cmd_exit == PYTEST_NO_TESTS_COLLECTED:
         diff_diag(
-            "diff-scoped run collected zero tests (pytest rc="
-            f"{PYTEST_NO_TESTS_COLLECTED}) -- falling back to the full "
-            "configured fast tier."
+            f"scoped run collected zero tests (pytest rc={PYTEST_NO_TESTS_COLLECTED}) "
+            "-- running no further tests."
         )
-        full_record = None
-        if root is not None:
-            reuse = suite_run_reuse.find_reusable(root, "fast", shlex.split(cmd))
-            if reuse is not None:
-                print(suite_run_reuse.reused_line(reuse), file=sys.stderr)
-                return str(reuse.exit_code), reuse.exit_code
-            full_record = (root, "fast", suite_run_reuse.command_key(shlex.split(cmd)))
-        gate_full = enforce_tier_u_gate(cmd, repo_root=repo_root)
-        if not gate_full.proceed:
-            print(gate_full.refusal_message, file=sys.stderr)
-            return "tier-u-refused", 3
-        with suite_mutex.held(owner, "validate-fast", timeout=MUTEX_WAIT_SECS) as acquired:
-            if not acquired:
-                current = suite_mutex.holder() or {}
-                print(
-                    "[WARN] suite mutex held by %s for %ss — proceeding unserialized"
-                    % (current.get("owner", "<unknown>"), int(MUTEX_WAIT_SECS)),
-                    file=sys.stderr,
-                )
-            cmd_exit = (
-                _run_resolved_command(cmd, record=full_record)
-                if full_record else _run_resolved_command(cmd)
-            )
+        return "skipped", 0
 
     return str(cmd_exit), cmd_exit
 

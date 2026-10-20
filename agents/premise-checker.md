@@ -69,7 +69,7 @@ changes if it does not resolve.
 
 ## Design registry
 
-Registry: `docs/design/registry.yaml` or the `design_registry_path` key (`coordinator/docs/wiki/schema-and-validation-contracts/design-registry.md`). Absent: write one line saying there is none.
+Registry: `docs/design/registry.yaml` or the `design_registry_path` key (`coordinator/docs/wiki/schema-and-validation-contracts/design-registry.md`). Absent: write one line saying there is none, never a verdict row; the registry is your lookup, not a plan citation.
 Present: match each plan-tasks `writes:` path (no block: each § File scope path) against every entry's `sources`. One row per intersected entry: `RESOLVES` when the plan names `<harvest>/harvest.json` and that file exists, or carries a `design-deviation` item whose `ratified_by` file exists; else `UNRESOLVED`. `front-end` missing from `review_signals` is `UNRESOLVED`. Never refuse.
 
 ## Verdicts
@@ -93,6 +93,9 @@ still `UNRESOLVED`.
 **A plan-created target resolves.** A citation of a symbol, file or path that a row of the same
 plan creates (its `writes:` or body says it adds it) is `RESOLVES`, with evidence naming that row.
 Never `UNRESOLVED`: absence at HEAD is what the row is for.
+
+**A denial is not a citation.** A path the plan or its run notes name only to say it is absent,
+not cited, or not load-bearing gets no row.
 
 `UNCHECKABLE` is a first-class answer and costs you nothing. `RESOLVES` on a citation you did not
 open is the failure this pass exists to stop.

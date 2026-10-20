@@ -489,8 +489,8 @@ Three concrete ways a memo can leave the sender's hands broken without the sende
   one; treat any surviving reference to a flag-only `--body-file`-style invocation as something to
   route through draft/compose/send instead, never as a shortcut.
 - **The `cross-repo-memo` summary field has a hard 120-character cap.** A drafted summary that
-  reads naturally in prose routinely exceeds it — check the length before `send`, not after the
-  CLI rejects it.
+  reads naturally in prose routinely exceeds it. `draft` refuses an over-120-character summary
+  (and `send` enforces the same cap), so shorten it and re-run `draft`.
 
 ## Send a cross-repo contract as a consult with open questions, never as a frozen schema
 

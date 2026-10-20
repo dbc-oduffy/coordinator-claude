@@ -123,6 +123,7 @@ report_type_map:
   coordinator:sizing-scout: review-findings
   coordinator:blitz-em: staff-eng-review
   coordinator:plan-author: run-report
+  coordinator:plan-author-residue: run-report
   coordinator:roadmap-planner: run-report
   coordinator:exit-criterion-falsifier: run-report
   coordinator:exit-criterion-judge: run-report
@@ -275,6 +276,7 @@ dispatch_tier:
   
   coordinator:blitz-em: exploration
   coordinator:plan-author: exploration
+  coordinator:plan-author-residue: exploration
   coordinator:roadmap-planner: exploration
 
 
@@ -438,6 +440,8 @@ contract_blocks:
     - return-tldr
     - sizing-object-consumption
   coordinator:plan-author:
+    - return-tldr
+  coordinator:plan-author-residue:
     - return-tldr
   coordinator:roadmap-planner:
     - return-tldr

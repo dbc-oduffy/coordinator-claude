@@ -95,7 +95,45 @@ def _declare_write(target_file: str) -> None:
         pass
 
 
-def _rewrite_anchor(target_file: str, full_sha: str, machine: str) -> None:
+_FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+_NULL_TOKENS = {"", "null", "none", "~"}
+
+
+def _anchor_write_refusal(full_sha: str, machine: str) -> str:
+    """Return a one-line refusal reason when the anchor is not writable, else ''."""
+    if not _FULL_SHA_RE.match(full_sha or ""):
+        return f"REFUSED: covered_tip_sha must be 40 hex (got {full_sha!r}); anchor not written"
+    if not (machine or "").strip():
+        return "REFUSED: covered_machine must be non-empty; anchor not written"
+    return ""
+
+
+def _read_anchor_values(target_file: str) -> tuple[str, str]:
+    """Return (recorded sha token, recorded machine token); '' when absent or null."""
+    sha = machine = ""
+    seen_sha = seen_machine = False
+    with open(target_file, "r", encoding="utf-8") as f:
+        for line in f:
+            if not seen_sha and line.startswith(_ANCHOR_KEY):
+                seen_sha = True
+                parts = line.split()
+                sha = parts[1] if len(parts) >= 2 else ""
+            elif not seen_machine and line.startswith(_MACHINE_KEY):
+                seen_machine = True
+                parts = line.split()
+                machine = parts[1] if len(parts) >= 2 else ""
+    if sha.lower() in _NULL_TOKENS:
+        sha = ""
+    if machine.lower() in _NULL_TOKENS:
+        machine = ""
+    return sha, machine
+
+
+def _rewrite_anchor(target_file: str, full_sha: str, machine: str) -> int:
+    refusal = _anchor_write_refusal(full_sha, machine)
+    if refusal:
+        _err(refusal)
+        return 1
     with open(target_file, "r", encoding="utf-8") as f:
         lines = f.read().splitlines(keepends=True)
     stip = smach = False
@@ -110,12 +148,20 @@ def _rewrite_anchor(target_file: str, full_sha: str, machine: str) -> None:
             smach = True
             continue
         out.append(line)
+    if stip and not smach:
+        idx = next(i for i, ln in enumerate(out) if ln.startswith("covered_tip_sha:"))
+        out.insert(idx + 1, f"covered_machine: {machine}\n")
     with open(target_file, "w", encoding="utf-8", newline="\n") as f:
         f.writelines(out)
     _declare_write(target_file)
+    return 0
 
 
 def _inject_anchor(target_file: str, full_sha: str, machine: str, today: str) -> int:
+    refusal = _anchor_write_refusal(full_sha, machine)
+    if refusal:
+        _err(refusal)
+        return 1
     with open(target_file, "r", encoding="utf-8") as f:
         lines = f.read().splitlines(keepends=True)
 
@@ -273,26 +319,41 @@ def main(argv: list[str]) -> int:
         _err(f"summary-absent: no summary file found for {date} in {ds_dir}/")
         return 20
 
-    recorded = ""
+    recorded, recorded_machine = _read_anchor_values(target_file)
+    has_anchor_key = False
     with open(target_file, "r", encoding="utf-8") as f:
-        for line in f:
-            if line.startswith(_ANCHOR_KEY):
-                parts = line.split()
-                if len(parts) >= 2:
-                    recorded = parts[1]
-                break
+        has_anchor_key = any(ln.startswith(_ANCHOR_KEY) for ln in f)
+    if has_anchor_key and not recorded:
+        rc = _rewrite_anchor(target_file, full_sha, machine)
+        if rc != 0:
+            return rc
+        _err(f"bumped: {target_file}  covered_tip_sha <null> -> {full_sha}")
+        print(f"TARGET={target_file}")
+        return 0
     if recorded:
         rec_full = wc.git_out("-C", root, "rev-parse", "--verify", f"{recorded}^{{commit}}")
         if rec_full and rec_full == full_sha:
-            _err(f"already-anchored (fresh): {target_file}")
-            return 10
+            if recorded == full_sha and recorded_machine:
+                _err(f"already-anchored (fresh): {target_file}")
+                return 10
+            rc = _rewrite_anchor(target_file, full_sha, recorded_machine or machine)
+            if rc != 0:
+                return rc
+            _err(f"normalised: {target_file}  covered_tip_sha {recorded} -> {full_sha}  "
+                 f"covered_machine {recorded_machine or '<null>'} -> {recorded_machine or machine}")
+            print(f"TARGET={target_file}")
+            return 0
         if rec_full and wc.git_ok("-C", root, "merge-base", "--is-ancestor", rec_full, full_sha):
-            _rewrite_anchor(target_file, full_sha, machine)
+            rc = _rewrite_anchor(target_file, full_sha, machine)
+            if rc != 0:
+                return rc
             _err(f"bumped: {target_file}  covered_tip_sha {recorded} -> {full_sha}")
             print(f"TARGET={target_file}")
             return 0
         if not rec_full:
-            _rewrite_anchor(target_file, full_sha, machine)
+            rc = _rewrite_anchor(target_file, full_sha, machine)
+            if rc != 0:
+                return rc
             _err(f"bumped: {target_file}  covered_tip_sha <unresolvable:{recorded}> -> {full_sha}")
             print(f"TARGET={target_file}")
             return 0

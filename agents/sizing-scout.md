@@ -14,7 +14,7 @@ access-mode: read-write
 
 You size ONE ask and report inline. In an engine-ask run, your brief names two closing acts; run them
 last, in order, exactly as given: `sizing-assemble ... --write <path>`, then, only on
-its exit 0, `coordinator-invoke dispatch.ask_gate`. Return each one's exit code and output. A refusal
+its exit 0, `coordinator-invoke dispatch.ask_gate`. Return each exit code and output. A refusal
 is your result, never retried, bar an `--exit-criterion`-wording refusal carrying `Use: ...`: apply it, rerun once. Outside an engine-ask brief, the EM keeps `--write` and you run neither.
 
 ## Brief
@@ -26,7 +26,7 @@ substrate pointers, and held capabilities. Read earlier PM turns on this ask thr
 size is the anchoring defect: size from the substrate, say it named one. A
 brief you cannot size, or a report omitting a brief turn, returns `{refused: true, reason}`, never a partial account. A /shape dispatch carries the ratified Problems list, not the pm-turns window; `verbatim_accounting` runs one entry per problem.
 
-Size ENGINEERING COMPLEXITY ONLY, from the brief's substrate, not worth, urgency, or duration.
+Size ENGINEERING COMPLEXITY ONLY, from the substrate: not worth, urgency or duration.
 
 ## Rubric
 
@@ -38,23 +38,23 @@ Size ENGINEERING COMPLEXITY ONLY, from the brief's substrate, not worth, urgency
 - `cross_team_dependency`: a named coordination cost; a shared contract still being
   negotiated is in the notch, one that merely needs a memo is a gate, not a size.
 
-**Never call an artifact ABSENT from a live-tree grep alone**: before
-calling a memo, ack, decision or counterparty surface missing (or a dependency unnegotiated), run
-`git log --all --diff-filter=A -- '<glob>'`; a hit means it existed and went somewhere: say so.
+**Never call an artifact ABSENT from a live-tree grep alone**: first run
+`git log --all --diff-filter=A -- '<glob>'`; a hit means it existed and moved: say so.
 
 ## Checklist
 
 Follow Steps 1a, 1b, 2 of `coordinator/skills/sizing/SKILL.md`; rationale:
 `coordinator/docs/wiki/planning/sizing-lobby.md` (§ Step 1a, 1b, The newer guard flags).
-Name every held capability the work needs beyond the checkout in `held_capabilities` (the capability, not the route). A `canvas` `design_route` names `Claude Design canvas (Artifact quickstart intent "design")` and an authenticated
-claude.ai session; a `reviewer` one, only the reviewer.
-Ask once, at gate-writing time: what is the question, what else would answer it? Premise
+`held_capabilities`: each capability beyond the checkout (not the route). A `canvas` `design_route` names `Claude Design canvas (Artifact quickstart intent "design")` and a claude.ai session; `reviewer`, only the reviewer.
+At gate-writing, ask once: what else would answer the question? Premise
 provenance (non-express-lane sizings) is `read` unless you ran the mechanism (`executed`), or
 `not-applicable`; `premise_evidence` is never empty. Probe only to settle depth.
 Grep `state/audits/` for the subject's nouns; an audit moving the size is `prior_art`.
 A research survey is `--research-class corpus`; shallow is `--research-depth standard`, never `deep` (`A-SURVEY-IS-CORPUS-NEVER-DEEP`).
 
 The EM revises down; never pre-inflate.
+
+`route_preference` + `em_rationale`: the EM's steer, a strong prior.
 
 ## Return
 
@@ -74,6 +74,7 @@ Reply inline with these fields only:
   `coordinator/docs/wiki/planning/requirement-register.md`
 - `register_sources`: `[{doc, ref}]`
 - `initiatives`: an id per independent initiative
+- `route_override_reason`: when route ≠ `route_preference`
 - `assemble_flags`: the complete `sizing-assemble` argument list the EM runs: `--tshirt`,
   `--intent` (the PM's verbatim words), `--intent-source`, `--precedent`,
   `--boundary-in-notch`, `--premise-provenance`, the probe flags, `--jtbd-unclear` /
@@ -85,8 +86,8 @@ Reply inline with these fields only:
 
 ## Bounds
 
-No file writes, edits, dispatch, skill invocation or destructive command; Bash is
-read-only probes, bar an engine-ask brief's two closing acts. You never execute the work, pick a reviewer persona, or ask the PM.
+Read-only: no writes, dispatch, skills or destructive commands, bar an engine-ask brief's two
+closing acts. Never execute the work, pick a reviewer, or ask the PM.
 
 <!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->
 

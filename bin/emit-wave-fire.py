@@ -21,7 +21,8 @@ Claude-klabauter's `workflow.bind_args`, never composed here. The EM's remaining
 `Workflow({scriptPath})` per emitted file, with NO args.
 
 WHAT IT DOES NOT DO. It does not read `blocked_by`, derive a wave, decide candidacy, or
-re-check a gate — `roadmap.plan_gate` did all of that before the report was frozen, and
+re-check a gate — the frozen gate report (producer: `roadmap.plan_gate`,
+`coordinator_core/roadmap/gate_v2.py :: compute_gate_report`) carries all of that, and
 a second derivation here would be a second answer to a settled question. It does not
 fire: keeping that one call explicit is what makes a runaway chain impossible, the same
 boundary `mise-prep-entry.py` holds on the other side of the landing.
@@ -242,7 +243,7 @@ def _gate_payload(path: Path) -> dict:
 
 
 def _wave_id_lists(waves: list) -> list[list[str]]:
-    """`waves` as `roadmap.plan_gate` freezes it: lists of baton ids. Raises ValueError on a
+    """`waves` as the frozen gate report carries it: lists of baton ids. Raises ValueError on a
     wave that is not one."""
     for pos, wave in enumerate(waves):
         if not isinstance(wave, list) or not all(isinstance(i, str) for i in wave):
@@ -379,7 +380,7 @@ def _shared_wave_slots(payload: dict, wave_ids: list) -> list:
     collapsed = {i: paths for i, paths in seen.items() if len(paths) > 1}
 
     # Review (Kira revision, coordinator-overengineering-reviewer finding 3, applied-modified):
-    # the gate's real shape (`coordinator_core/roadmap/plan_gate.py :: assemble_plan_gate`, the
+    # the frozen gate report's real shape (producer: `roadmap.plan_gate`; the
     # `shared_wave_slot_rows` block) is {"id", "wave", "members": [{"path", "title"}, ...]} --
     # the bare-id and "paths" shapes
     # below were guessed and matched nothing the engine emits; reading them as bare strings fed
@@ -515,7 +516,7 @@ def _baton_arg(record: dict) -> dict:
             f"baton {record.get('id')!r} carries no `execution_gate.open` in the frozen "
             "report. `executionOpen` is REQUIRED and has no default — omitting it makes "
             "every XS fail the wave's dispatch test silently. Re-freeze the report from "
-            "a `roadmap.plan_gate` read that includes it."
+            "a gate report that includes it."
         )
     plan = record.get("plan") or {}
     return {
@@ -1427,7 +1428,7 @@ def main(argv=None) -> int:
         type=int,
         default=0,
         help="0-based index into the frozen gate's `waves` list, NOT the run's wave number "
-        "(use --wave-number for that). `roadmap.plan_gate` numbers `waves` from the READ, so "
+        "(use --wave-number for that). The frozen gate report numbers `waves` from the READ, so "
         "this is almost always 0; out of range is refused.",
     )
     ap.add_argument(
@@ -1869,7 +1870,7 @@ def main(argv=None) -> int:
         out = trail_dir / f"fire-{wave_number}-{n}.mjs"
         # An emitted script is on disk SO THAT the fire can be re-read, re-fired and
         # diffed, and so it archives with the trail. Silently overwriting one destroys
-        # exactly that. The collision is not hypothetical: `roadmap.plan_gate` numbers
+        # exactly that. The collision is not hypothetical: the frozen gate report numbers
         # `waves` from the READ, so every wave of a run comes back as `waves[0]`, and a
         # driver that emits the run's second wave into the same trail clobbers the
         # first's scripts while the trail SLOTS — keyed by baton set — stay correctly
@@ -1890,7 +1891,7 @@ def main(argv=None) -> int:
                     f"— it covers {sorted(archived_ids)}, this one covers "
                     f"{sorted(fresh_ids)}. Emitting over it would destroy the archived "
                     "fire, which is the reason these are written to disk at all. "
-                    "`roadmap.plan_gate` numbers waves from the read, so a run's second "
+                    "the frozen gate report numbers waves from the read, so a run's second "
                     "wave also arrives as wave 0: pass --wave-number matching this run's "
                     "own wave count, or --trail-dir a fresh directory for this wave."
                 )

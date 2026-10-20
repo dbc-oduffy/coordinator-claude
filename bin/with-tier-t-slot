@@ -2,7 +2,7 @@
 """with-tier-t-slot — acquiring wrapper for one slot of the machine-wide
 Tier-T semaphore (coordinator_core.testing.tier_t_slots).
 
-WHY THIS EXISTS: `check_test_suite_invocation`'s Tier-T legs can only ALLOW or
+WHY THIS EXISTS: check_test_suite_invocation's Tier-T legs can only ALLOW or
 DENY at the instant a command is submitted. A resource bound needs a third
 answer — "not yet, go ahead in a moment" — and a PreToolUse guard has no way to
 express it, because it is never told when a command it allowed has finished.
@@ -21,20 +21,20 @@ Usage:
 
     with-tier-t-slot -- python3 -m pytest path/test_x.py::test_case
 
-Every flag MUST appear before the `--` separator; nothing after it is
+Every flag MUST appear before the -- separator; nothing after it is
 interpreted, matching with-suite-mutex's and scoped-git-commit's hard split.
 
 Negative spec:
   - Does NOT parse, validate, or rewrite the wrapped command. It is not
     runner-aware and must not become so; whether the command deserves a slot is
     the guard's question, not this wrapper's.
-  - Does NOT impose a wall-clock ceiling on the child. `with-suite-mutex` needs
+  - Does NOT impose a wall-clock ceiling on the child. with-suite-mutex needs
     one because a wedged suite holds a fleet-wide mutex that nothing else can
-    break; here a wedged run's SLOT is reclaimed by `SLOT_STALE_TTL_SECS`
+    break; here a wedged run's SLOT is reclaimed by SLOT_STALE_TTL_SECS
     without touching the process, so the box keeps its K and the operator keeps
     their runaway to debug. Killing a scoped test run is not this tool's call.
   - On acquisition timeout it runs the command ANYWAY (fail OPEN) rather than
-    refusing, matching `suite_mutex`'s take-side posture. A semaphore that turns
+    refusing, matching suite_mutex's take-side posture. A semaphore that turns
     into an outage when the box is busy is worse than one that occasionally
     admits K+1.
   - Exit code is the child's, unmodified.

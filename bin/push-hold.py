@@ -34,6 +34,13 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--repo", type=Path, default=Path.cwd())
     args = ap.parse_args(argv)
 
+    from coordinator_core.argv_fidelity import ArgvFidelityError, refuse_newline_argv
+
+    try:
+        refuse_newline_argv(args.reason, flag_name="--reason", remedy="a hold reason is a single line.")
+    except ArgvFidelityError as exc:
+        ap.error(str(exc))
+
     if args.action == "list":
         holds = push_hold.list_holds(args.repo)
         allow = f" (allow {holds['repo_allow']})" if holds["repo_allow"] else ""

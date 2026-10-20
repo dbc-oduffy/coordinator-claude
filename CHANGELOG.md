@@ -4,6 +4,14 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.5.0] — 2026-10-20
+
+- **mise-prep** fires a residue-author stage; a new `plan-author-residue` agent amends approved plans in place.
+- **machine-local** gains `store` and `relocate-store` verbs over a stores registry.
+- **merging-to-main:** a patch or minor bump on a `ship` verdict is the EM's call; only a major bump needs a PM ruling.
+- **Review:** the Kira verdict guard is retired; small fan-out units batch by default.
+- **Fixed:** the skill-stage advisory no longer fires on mere mentions of stages.
+
 ## [4.4.27] — 2026-10-17
 
 - **Install:** a consumer install registers coordinator from the marketplace and plain `claude` loads it; nothing else changes for consumers.

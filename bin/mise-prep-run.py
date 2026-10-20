@@ -20,10 +20,17 @@ of them and this module never prints it:
   UNSTAMPED    never certified. Gate and stamp.
   MALFORMED    a hand-written stamp. Repair the frontmatter; do not stamp over it.
 
-WHAT IT DOES NOT DO. It does not decide what to fire, does not run a plan's `census[]`
-commands (that is the fire-time leg, and it belongs to the runner), and does not author
-anything into a plan. A plan that fails the bar is REPORTED with its failing classes and
-the upgrade command that writes the declarations derivable from the plan's own text —
+CENSUS LEG. After the seam pass and before any stamp, each plan this run is about to stamp (gate
+PREPPED, not SEAM-REFUSED, not already CERTIFIED) has its `census[]` commands re-run through the
+sibling `mise-census-revalidate` executor (`require_stamp=False`: the plan is not stamped yet). A
+DRIFT refuses the stamp and reads CENSUS-DRIFT; MATCH, UNDECIDABLE, REFUSED and UNRUNNABLE do not
+block, the same rule the fire-time leg uses. Other rows are never measured. It runs under
+`--dry-run` too, being read-only.
+
+WHAT IT DOES NOT DO. It does not decide what to fire, does not refresh a plan's recorded
+`result:` values, and does not author anything into a plan beyond the `depends_on_plan`
+edges `plan.seam_fix` writes. A plan that fails the bar is REPORTED with its failing
+classes and the upgrade command that writes the declarations derivable from the plan's own text —
 `mise-prep-upgrade` never invents one, and neither does this. `--upgrade` runs it for
 you and re-gates; without the flag nothing under `docs/plans/` is written except an
 attest the gate has just passed.
@@ -36,10 +43,27 @@ With no plan arguments the set is every APPROVED plan the engine's plan gate rep
 mise-prep's own entry set, taken from the same seam `mise-prep-entry.py` reads, never
 re-derived from plan frontmatter.
 
+Before any plan is gated, `plan.seam_fix` runs once over the set (`dry_run` under `--dry-run`),
+minting the `depends_on_plan` edges that order in-set writes collisions. It is the one op here that
+edits plan bodies, and it runs first so every stamp is computed over the edged body. Pairs it
+cannot order without a cycle come back as `skippedCycles` on the report.
+
 After every plan is gated, one seam check runs over the whole set (`plan.seam_record` at
 `phase: prep`; `plan.seam_check` under `--dry-run`, which writes no sidecar). A plan the check
 implicates is not stamped and reads SEAM-REFUSED with one `seam:` line per finding, each ending in
 its route. An op error is a refusal (exit 2), never a pass.
+
+RESIDUE WORKFLOW. After the report rows and the seam-fix reply exist (dry run or not),
+`mise_residue.residue_args` sorts what stayed short: plans to author go to Sonnet
+`coordinator:plan-author-residue` agents, up to 8 plans per agent; unscreenable census entries and
+`skippedCycles` go to one `coordinator:apm` agent. When either list is non-empty the run binds
+`workflows/mise-prep-residue.mjs` with those args (`workflow.bind_args`), validates it
+(`workflow.validate`) and writes `state/mise-workflows/<runId>.residue.mjs` plus its receipt, then
+prints a `Workflow({scriptPath})` line for the EM to fire (`--dry-run` still writes the script
+and receipt: it withholds stamps, not files). Nothing is fired from here; `--json`
+carries `residueWorkflow` (repo-relative path or null). A bind or validate refusal is exit 2, taken
+only AFTER the full report prints (`--json`: `residueWorkflow: null` plus `residueError`), because
+the stamps are already written and the report is the record of which plans they covered.
 
 Exit 0 when every plan in the set ends CERTIFIED, 1 when at least one does not (the
 report names which and why), 2 on a refusal that stopped the run.
@@ -60,13 +84,16 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import functools
 import importlib.util
 import json
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 EXIT_OK = 0
@@ -86,6 +113,22 @@ def _load_entry():
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
+
+
+@functools.cache
+def _revalidator():
+    """The census leg, loaded from its sibling file so prep, certify and fire share one executor."""
+    path = _HERE / "mise-census-revalidate.py"
+    spec = importlib.util.spec_from_file_location("mise_census_revalidate", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+_CENSUS_ROUTE = (
+    "route: the premise moved — re-plan the census and the body resting on it; a format-only or "
+    "benign-growth ruling is coordinator:apm's, never a hand edit of result:"
+)
 
 
 def _default_engine_root() -> Path | None:
@@ -155,7 +198,7 @@ def _invoke(repo_root: Path, op: str, params: dict) -> dict:
 _SEAM_SPELLING = {"REFUSED": "SEAM-REFUSED", "DRIFT": "SEAM-DRIFT"}
 _SEAM_OPS = {False: "plan.seam_record", True: "plan.seam_check"}
 #: Each refusal carries its own route: the engine and the command text publish separately.
-_ROUTE_AUTHOR = "route: plan-author, declare capabilities"
+_ROUTE_AUTHOR = "route: coordinator:plan-author-residue, declare capabilities"
 _ROUTE_APM = "route: coordinator:apm, scope"
 _FINDING_FIELDS = ("capability", "missing_consumer", "counterpart_plan", "path", "row", "detail")
 
@@ -178,6 +221,84 @@ def _seam_call(repo_root: Path, plans: list[str], phase: str, named_set: bool, r
     if not isinstance(reply.get("verdict"), str) or not isinstance(reply.get("per_plan"), dict):
         raise ValueError(f"{op} returned a reply without `verdict` and `per_plan`")
     return reply
+
+
+def _seam_fix(repo_root: Path, plans: list[str], dry_run: bool) -> dict:
+    """One `plan.seam_fix` call over the set, normalized to the report's `seamFix` shape.
+
+    Runs before any gate so every stamp is computed over the edged body. The reply is returned
+    once for the report and the downstream APM stage; callers never re-call the op. Raises
+    `ValueError` on an op error.
+    """
+    reply = _invoke(repo_root, "plan.seam_fix", {"plans": list(plans), "dry_run": dry_run})
+    return {
+        "edgesAdded": list(reply.get("edges_added") or []),
+        "skippedCycles": list(reply.get("skipped_cycles") or []),
+        "converged": bool(reply.get("converged")),
+        "files": list(reply.get("files") or []),
+    }
+
+
+_RESIDUE_SOURCE_NAME = "mise-prep-residue.mjs"
+_RESIDUE_DIR = ("state", "mise-workflows")
+
+
+def _emit_residue(repo_root: Path, rows: list[dict], seam_fix: dict) -> Path | None:
+    """Build, bind, validate and write the residue workflow for this round; `None` when no
+    plan needs authoring and no census or seam-fix item needs a ruling.
+
+    Contract: writes `state/mise-workflows/<runId>.residue.mjs` and its emission receipt; fires
+    nothing, spawns nothing of its own. Raises `ValueError` on a bind or validate refusal, so the
+    caller exits 2 rather than printing a path to a script that would not run.
+    """
+    try:
+        import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
+        import cc_invoke
+
+        cc_invoke.require_engine_on_path(__file__)
+        from coordinator_core.ops.dispatch_emit import emit
+        from coordinator_core.ops.dispatch_emit.emission_receipt import _write_emission_receipt
+        from coordinator_core.roadmap import mise_residue
+    except Exception as exc:
+        raise ValueError(f"residue workflow: coordinator_core unresolvable: {exc}")
+
+    run_id = (
+        datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + secrets.token_hex(4)
+    )
+    args = mise_residue.residue_args(
+        rows,
+        {"skipped_cycles": seam_fix["skippedCycles"]},
+        repo_root=repo_root,
+        run_id=run_id,
+        gate_command=f"mise-prep-gate --repo-root {repo_root.as_posix()}",
+        residue_agent_type=mise_residue.RESIDUE_AGENT_TYPE,
+        residue_model=emit.resolve_agent_model(mise_residue.RESIDUE_AGENT_TYPE),
+        apm_model=emit.resolve_agent_model(mise_residue.APM_AGENT_TYPE),
+    )
+    if not mise_residue.has_work(args):
+        return None
+
+    source = Path(mise_residue.__file__).resolve().parent / "workflows" / _RESIDUE_SOURCE_NAME
+    script = _invoke(
+        repo_root, "workflow.bind_args", {"script_path": str(source), "args": args}
+    ).get("script")
+    if not isinstance(script, str) or not script:
+        raise ValueError("workflow.bind_args returned no script text")
+
+    out_dir = repo_root.joinpath(*_RESIDUE_DIR)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / f"{run_id}.residue.mjs"
+    path.write_text(script, encoding="utf-8", newline="\n")
+
+    verdict = _invoke(repo_root, "workflow.validate", {"script_path": str(path)})
+    if not verdict.get("ok"):
+        messages = "; ".join(str(f.get("message")) for f in verdict.get("findings") or [])
+        raise ValueError(f"workflow.validate refused {path.name}: {messages}")
+
+    _write_emission_receipt(
+        path, None, {}, extras={"batches": len(args["batches"]), "apmItems": len(args["apmItems"])}
+    )
+    return path
 
 
 def _seam_spell(verdict: str | None) -> str | None:
@@ -474,6 +595,10 @@ def main(argv=None) -> int:
         "only the declarations derivable from the plan's own text; it invents none, so a "
         "plan needing real authoring still comes back NOT-PREPPED with its classes named.",
     )
+    ap.add_argument(
+        "--census-timeout", type=int, default=30,
+        help="seconds one census command may run before it reads UNRUNNABLE (default 30)",
+    )
     ap.add_argument("--dry-run", action="store_true", help="gate and report; stamp nothing")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
@@ -515,6 +640,11 @@ def main(argv=None) -> int:
             # --json owns stdout: a prose line ahead of the document makes it unparseable.
             file=sys.stderr if args.json else sys.stdout,
         )
+
+    try:
+        seam_fix = _seam_fix(repo_root, plans, args.dry_run)
+    except ValueError as exc:
+        return refuse(f"seam fix: {exc}")
 
     rows = []
     gates: dict[str, dict] = {}
@@ -574,9 +704,26 @@ def main(argv=None) -> int:
         if _seam_implicated(seam, plan):
             row["outcome"] = "SEAM-REFUSED"
 
+    # Census leg: runs only on rows about to be stamped. A stamped, refused or non-PREPPED row
+    # writes no stamp, and the fire-time leg owns already-certified plans. Only DRIFT blocks, the
+    # same rule the fire leg uses: an UNDECIDABLE or UNRUNNABLE census is not evidence of movement.
+    for row in rows:
+        row["census"] = None
+        if (
+            row["outcome"] is None
+            and row["verdict"] == "PREPPED"
+            and row["stamp_state"] != "CERTIFIED"
+        ):
+            rep = _revalidator().revalidate(
+                repo_root / row["plan"], repo_root, args.census_timeout, require_stamp=False
+            )
+            row["census"] = rep
+            if rep.get("state") == "DRIFT":
+                row["outcome"] = "CENSUS-DRIFT"
+
     for row in rows:
         plan, gate = row["plan"], gates[row["plan"]]
-        if row["outcome"] == "SEAM-REFUSED":
+        if row["outcome"] in ("SEAM-REFUSED", "CENSUS-DRIFT"):
             continue
         if gate.get("verdict") == "PREPPED" and not args.dry_run:
             try:
@@ -606,6 +753,12 @@ def main(argv=None) -> int:
     certified = [r for r in rows if r["outcome"] in passing]
     short = [r for r in rows if r not in certified]
 
+    residue_path, residue_error = None, None
+    try:
+        residue_path = _emit_residue(repo_root, rows, seam_fix)
+    except (ValueError, OSError) as exc:
+        residue_error = str(exc)
+
     if args.json:
         print(
             json.dumps(
@@ -614,6 +767,11 @@ def main(argv=None) -> int:
                     "certified": len(certified),
                     "dryRun": args.dry_run,
                     "seam": _seam_spell(seam["verdict"]),
+                    "seamFix": seam_fix,
+                    "residueWorkflow": (
+                        residue_path.relative_to(repo_root).as_posix() if residue_path else None
+                    ),
+                    **({"residueError": residue_error} if residue_error else {}),
                 },
                 indent=2,
             )
@@ -624,6 +782,13 @@ def main(argv=None) -> int:
         pending = sum(1 for r in rows if r["outcome"] == "would-stamp")
         work = f" — {pending} would be written" if args.dry_run else ""
         print(f"mise-prep-run: {len(certified)} of {len(rows)} plan(s) {verb}{mode}{work}")
+        n_edges = len(seam_fix["edgesAdded"])
+        print(
+            f"seam-fix: {n_edges} edge(s) {'would be added' if args.dry_run else 'added'}; "
+            f"converged={seam_fix['converged']}"
+        )
+        for c in seam_fix["skippedCycles"]:
+            print(f"seam-fix: skipped cycle {c.get('plans')} path={c.get('path')} — {c.get('detail')}")
         for r in rows:
             if r in certified:
                 held = r.get("mise_prepped_findings") or []
@@ -643,22 +808,57 @@ def main(argv=None) -> int:
                     print(f"                     {_repair_line(r['failing'], r['plan'])}")
                 for f in r.get("seam") or []:
                     print(f"                     {_seam_line(f)}")
+                if r["outcome"] == "CENSUS-DRIFT":
+                    for e in (r["census"] or {}).get("entries") or []:
+                        if e.get("state") == "DRIFT":
+                            print(
+                                f"                     census: DRIFT {str(e.get('command'))[:110]} "
+                                f"— {e.get('basis')}"
+                            )
+                    print(f"                     {_CENSUS_ROUTE}")
+
+    if residue_path:
+        sys.stdout.flush()
+        print(
+            f"\nmise-prep-run: residue workflow written — "
+            f"{residue_path.relative_to(repo_root).as_posix()}\n"
+            f'Workflow({{scriptPath: "{residue_path.as_posix()}"}})',
+            file=sys.stderr if args.json else sys.stdout,
+        )
+
+    if residue_error:
+        sys.stdout.flush()
+        return refuse(f"residue workflow: {residue_error}")
 
     if short:
         refused = [r for r in short if r["outcome"] == "SEAM-REFUSED"]
-        unprepped = len(short) - len(refused)
+        drifted = [r for r in short if r["outcome"] == "CENSUS-DRIFT"]
+        unprepped = len(short) - len(refused) - len(drifted)
         lines = []
         if unprepped:
             lines.append(
                 f"\nmise-prep-run: {unprepped} plan(s) are not certified. A plan that fails the "
-                "bar needs authoring, not a stamp — the classes above name where. Author it via "
-                "/mise-prep: one coordinator:plan-author per plan, then re-run."
+                "bar needs authoring, not a stamp — the classes above name where. "
+                + (
+                    "Fire the residue workflow printed above, then re-run."
+                    if residue_path
+                    else "Author it via /mise-prep, then re-run."
+                )
             )
         if refused:
             lines.append(
                 f"\nmise-prep-run: {len(refused)} plan(s) are SEAM-REFUSED. Follow each "
                 "finding's own `route:` line above; re-authoring does not clear them."
             )
+        if drifted:
+            lines.append(
+                f"\nmise-prep-run: {len(drifted)} plan(s) are CENSUS-DRIFT. The premise moved — "
+                "re-plan the census and the body resting on it; a format-only or benign-growth "
+                "ruling is coordinator:apm's, never a hand edit of result:."
+            )
+        # stdout is block-buffered on a pipe while stderr is line-buffered, so without this the
+        # summary overtakes the report on a shared stream.
+        sys.stdout.flush()
         print("\n".join(lines), file=sys.stderr)
         return EXIT_NOT_ALL_CERTIFIED
     return EXIT_OK

@@ -13,8 +13,8 @@
 # Exit codes (this trampoline):
 #   0 — claude-klabauter-link (transport) failure: the engine root unresolved or
 #       coordinator_core.ops.workday_complete_backfill_scan not importable.
-#       This scanner only ever feeds a nudge (`/workday-start` Step 1.85) or
-#       an auto-backfill fan-out (`/workday-complete` Step 3.5) — never a hard
+#       This scanner only ever feeds an auto-backfill fan-out
+#       (`/workday-complete` Step 3.5) — never a hard
 #       ceremony gate — so a transport failure degrades to exit 0, loud on
 #       stderr, per the porter addendum's best-effort/never-block posture
 #       (rule 3b). Distinct from the op's own business exit codes below.

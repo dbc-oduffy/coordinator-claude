@@ -11,8 +11,13 @@ Logic (all silent allow unless stated):
     `model:` line (only the first `---` block is read; no YAML load).
   - Either side maps to no tier family (first of opus|sonnet|haiku found as a
     lowercase substring), or both map to the same family.
-  - Different families deny, upgrade and downgrade alike. Fires whether or not
-    the call is nested. No override env var: the remedy is another agent type.
+  - Different families deny, upgrade and downgrade alike, OR reroute: when the
+    pinned agent declares `<passed family>-sibling: <bare-agent-name>` and that
+    sibling's own file exists with a `model:` pin in the passed family, the
+    guard emits `updatedInput` (subagent_type -> coordinator:<sibling>, `model`
+    dropped so the sibling's pin governs) plus `additionalContext`, no
+    permissionDecision. Fires whether or not the call is nested. No override
+    env var: the remedy is a declared sibling or another agent type.
 
 Workflow `agent()` dispatch never traverses PreToolUse(Agent) (branch A of the
 plan's AC 12; see coordinator-tripwires/a-workflow-agent-call-bypasses-agent-
@@ -69,8 +74,8 @@ def _resolve_name(raw: object) -> Optional[str]:
     return raw
 
 
-def _read_pin(name: str) -> Optional[str]:
-    """The frontmatter `model:` value of coordinator/agents/<name>.md, or None."""
+def _read_frontmatter_value(name: str, key: str) -> Optional[str]:
+    """The first-frontmatter-block `<key>:` value of coordinator/agents/<name>.md, or None."""
     try:
         text = (_AGENTS_DIR / f"{name}.md").read_text(encoding="utf-8")
     except Exception:
@@ -81,10 +86,38 @@ def _read_pin(name: str) -> Optional[str]:
     for line in lines[1:]:
         if line.strip() == "---":
             return None
-        key, sep, val = line.partition(":")
-        if sep and key.strip() == "model":
+        line_key, sep, val = line.partition(":")
+        if sep and line_key.strip() == key:
             return val.strip().strip("\"'") or None
     return None
+
+
+def _read_pin(name: str) -> Optional[str]:
+    """The frontmatter `model:` value of coordinator/agents/<name>.md, or None."""
+    return _read_frontmatter_value(name, "model")
+
+
+def _declared_sibling(name: str, passed_family: str) -> Optional[str]:
+    """Bare sibling agent name when `name` declares a usable `<passed_family>-sibling`, else None.
+
+    Usable: the value passes `_resolve_name`, its own .md exists, and its `model:` pin maps
+    to `passed_family`.
+    """
+    sibling = _resolve_name(_read_frontmatter_value(name, f"{passed_family}-sibling"))
+    if sibling is None:
+        return None
+    sibling_pin = _read_pin(sibling)
+    if sibling_pin is None or _family(sibling_pin) != passed_family:
+        return None
+    return sibling
+
+
+def _compose_reroute(name: str, sibling: str, passed: str):
+    return compose(
+        f"{name} is pinned to another tier than the {passed} the call passed; "
+        f"rerouted to coordinator:{sibling}, whose own pin now governs.",
+        anchor=_WIKI_ANCHOR,
+    )
 
 
 def _compose_deny(name: str, pin: str, passed: str):
@@ -116,6 +149,19 @@ def main() -> int:
         return 0
     pin_family, passed_family = _family(pin), _family(passed)
     if pin_family is None or passed_family is None or pin_family == passed_family:
+        return 0
+    sibling = _declared_sibling(name, passed_family)
+    if sibling is not None:
+        rerouted = {k: v for k, v in tool_input.items() if k != "model"}
+        rerouted["subagent_type"] = f"coordinator:{sibling}"
+        out = {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "updatedInput": rerouted,
+                "additionalContext": render(_compose_reroute(name, sibling, passed)),
+            }
+        }
+        sys.stdout.write(json.dumps(out, ensure_ascii=False, separators=(",", ":")) + "\n")
         return 0
     out = {
         "hookSpecificOutput": {
