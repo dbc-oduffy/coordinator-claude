@@ -4,6 +4,10 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.5.1] — 2026-10-20
+
+- **Research:** the research command documents the NotebookLM notebooks list (`--research-target notebooklm=<id>` or `--list notebooks=A,B`), that `--context` takes a real file, and the build flags `sizing-assemble` still requires on a research sizing.
+
 ## [4.5.0] — 2026-10-20
 
 - **mise-prep** fires a residue-author stage; a new `plan-author-residue` agent amends approved plans in place.

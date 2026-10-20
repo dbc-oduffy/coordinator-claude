@@ -46,7 +46,10 @@ Contract (cap, grammar, probe allowlist, close params): `coordinator/contract/sc
 
 ## Sizing the research
 
-The EM sizes the research itself; no sizing-scout is needed to pick a class. A research ask enters
+The EM sizes the research itself; no sizing-scout is needed to pick a class, but `sizing-assemble`
+still requires the build-sizing flags (`--tshirt`, `--intent`, `--no-doc-consumers`,
+`--no-ask-conflicts`) beside the research ones; a research sizing takes `--tshirt S` unless the
+work says otherwise. A research ask enters
 through `coordinator:sizing` (Step 3 flags: `--research-class`, `--research-source`,
 `--research-appetite`, `--research-depth`, `--research-target <source>=<ref>`, each target
 repeatable) and the sizing is written with `--write state/sizings/<date>-<slug>.yaml`. A pickup
@@ -87,7 +90,12 @@ files or 1.5 MB per chunk) is sized at `deeper` or `deepest`; Haiku scouts fail 
 
 `emit-dispatch-workflow --from-sizing <path>` accepts `--list NAME=a,b,c`, `--flag NAME=value`
 and `--context <file>` (each repeatable) and `--scratch-dir`. Lists default to what the scope
-templates fix (repo `chunks=A,B,C,D` and `haiku_scouts=1,2`, web `topics=a,b,c,d`); a `--flag`
+templates fix (repo `chunks=A,B,C,D` and `haiku_scouts=1,2`, web `topics=a,b,c,d`). NotebookLM
+has no default: a `notebooklm` source needs its notebooks, recorded on the sizing with
+`--research-target notebooklm=<letter or id>` (one per notebook) or passed as
+`--list notebooks=A,B`; `--research-source notebooklm` alone is refused. `--context` takes a real
+file path; process substitution (`<(...)`) fails under Git Bash, so write the text to a scratch
+file first. A `--flag`
 goes to the pipeline that declares it (e.g. `compare=true`). The emit reply lists each segment's
 flags and lists, and reports every refusal in one error.
 

@@ -1,7 +1,7 @@
 {
   "paths": {
-    ".claude-plugin/marketplace.json": "60a9fa95532a170db4f8675770843dc05d863d99",
-    ".claude-plugin/plugin.json": "70593f3dc4b36af4ba20e0f96f442304e9a8a3e9",
+    ".claude-plugin/marketplace.json": "3962d6b7ecc9321fabd130bbd7250ba598d3eafd",
+    ".claude-plugin/plugin.json": "d642d8d99a74f8501e0ada93fef85276ea755994",
     ".gitattributes": "e601e3b4831fbad8558b4cf33c1d891e51bb4732",
     ".github/.persona-names-allowlist": "b192e993696d101230ee10c2cbe29faed29ea61f",
     ".github/ISSUE_TEMPLATE/bug_report.md": "0f541423ae94a7dd28b550bee94ce2babb50be4a",
@@ -34,11 +34,11 @@
     ".gitignore": "31886db36fd93b3817544f094188345777a5e87c",
     ".python-version": "e4fba2183587225f216eeada4c78dfab6b2e65f5",
     "AGENTS.md": "a88e4d5f37a62b3a64ab05156092552926c2cf0b",
-    "CHANGELOG.md": "299591c522c136cb037cd79f5012bd84625eecbf",
+    "CHANGELOG.md": "ad2bf2de3b864de56093b77e283c54d4cf525977",
     "CODE_OF_CONDUCT.md": "ba00a30d3950eb141f7ba5c969661e60c2f5c97a",
     "COMMERCIAL.md": "a8701144cfb16aedda57ec490159cafe170ff1d1",
     "CONTRIBUTING.md": "b0db3c04182459734d8871e93ab8a8165e2783a1",
-    "INSTALL.md": "683dc1dd2b11cb1a650f3a7ecfe4e27e354d6a67",
+    "INSTALL.md": "fda6327aec7b07fb83db146a3cd4bc0f2a6a64ac",
     "LICENSE": "3b18e59009725dee4caa2d7fdfc69901658941a7",
     "NOTICE.md": "948a7e83b38b7788383c20978444f50017a63f6a",
     "PRIVACY.md": "f66b9a72711beaaf52408052f34a0ba52392a39c",
@@ -1372,7 +1372,7 @@
     "commands/mise-en-place.md": "5e39412a4f1b820eb6e330ae175c416726ff0680",
     "commands/mise-prep.md": "7db9ad6bb62dc1e592aa090c7f94ee6ef9af2b32",
     "commands/notebooklm-research.md": "31d0e05f59db911a7c3e77e1ec9af1e0b13545cb",
-    "commands/research.md": "e4942e4e71568caf7045d46e1ffdfd25773713bc",
+    "commands/research.md": "c51756772a344dea105744bc84d3903e1778b643",
     "commands/review-code.md": "7249db1c9e3f1d2a9b63d08e7d7b2d7a3abd95e4",
     "commands/uninstall.md": "a3d807fbce4aecbf5705ef09a4720e38255fa437",
     "commands/update-docs.md": "1126274d1d5c2b6a11b09355d4e4b7ae67fc81b4",
@@ -2342,5 +2342,5 @@
     "workflows/workday-start.mjs": "b349b8cf44a9247aec5ff3e5a23689fc16eec9c5"
   },
   "schema": 1,
-  "source_head": "cef741a5f23dd750d263af73011071da02f98d0f"
+  "source_head": "aa323d01e16639fb71f77341c79ab661a04be3fb"
 }
