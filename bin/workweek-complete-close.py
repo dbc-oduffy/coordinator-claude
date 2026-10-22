@@ -250,29 +250,13 @@ def _bare_week_date(value: str) -> str | None:
     return m.group(1) if m else None
 
 
-def _own_week_folder(d: date | None, week_starting: str) -> str:
-    """Archive folder name for a daily file dated `d`: the closing week's
-    `week_starting` when `d` falls in its 7-day window (or is unparseable),
-    else the start of `d`'s own week on `week_starting`'s weekday chain.
+def _week_window(d: date, week_anchor: date) -> tuple[date, date]:
+    """`coordinator_core.cadence.period_mode.week_window`, imported through the
+    same lazy bootstrap as the other coordinator_core symbols this CLI needs."""
+    _ensure_claude_klabauter_root_on_path()
+    from coordinator_core.cadence.period_mode import week_window
 
-    Trap: anchor on `week_starting`'s weekday, never Monday — repos differ
-    (claude-klabauter's chain is Monday, DoE's is Tuesday) and a hardcoded weekday
-    splits one repo's archive across two chains."""
-    if d is None:
-        return week_starting
-    ws = date.fromisoformat(week_starting)
-    return (ws + timedelta(days=7 * ((d - ws).days // 7))).isoformat()
-
-
-def _in_week_window(d: date, week_starting: date, week_ending: date | None = None) -> bool:
-    """Membership in `[week_starting, week_starting + 7 days)`, optionally cut
-    short by `week_ending` — an INCLUSIVE last day, so a mid-week release can
-    close a partial week. A `week_ending` past the 7-day window changes
-    nothing: the bound only ever narrows."""
-    end = week_starting + timedelta(days=7)
-    if week_ending is not None:
-        end = min(end, week_ending + timedelta(days=1))
-    return week_starting <= d < end
+    return week_window(d, week_anchor)
 
 
 def _is_excluded(name: str, exclude: Sequence[str]) -> bool:
@@ -445,6 +429,11 @@ def perform_archive_files(
             f"archive: --week-ending {week_ending} precedes --week-starting {week_starting}"
         )
     exclude = exclude if week_only else ()
+    window_start = window_end = None
+    if week_starting_date is not None:
+        window_start, window_end = _week_window(week_starting_date, week_starting_date)
+        if week_ending_date is not None:
+            window_end = min(window_end, week_ending_date + timedelta(days=1))
 
     archive_dest = archive_week_root / week_starting
     archive_dest.mkdir(parents=True, exist_ok=True)
@@ -458,14 +447,17 @@ def perform_archive_files(
                 d = _parse_leading_date(f.name)
                 if (
                     d is None
-                    or not _in_week_window(d, week_starting_date, week_ending_date)
+                    or not (window_start <= d < window_end)
                     or _is_excluded(f.name, exclude)
                 ):
                     continue
             dest_dir = archive_dest
             if not week_only:
-                dest_dir = archive_week_root / _own_week_folder(
-                    _parse_leading_date(f.name), week_starting
+                d = _parse_leading_date(f.name)
+                dest_dir = archive_week_root / (
+                    week_starting
+                    if d is None
+                    else _week_window(d, date.fromisoformat(week_starting))[0].isoformat()
                 )
                 dest_dir.mkdir(parents=True, exist_ok=True)
             dest = dest_dir / f.name
@@ -514,7 +506,7 @@ def perform_archive_files(
                 d = _parse_leading_date(f.name)
                 if (
                     d is None
-                    or not _in_week_window(d, week_starting_date, week_ending_date)
+                    or not (window_start <= d < window_end)
                     or _is_excluded(f.name, exclude)
                 ):
                     # Unparseable, out-of-window, or excluded — fail-safe,
@@ -538,8 +530,10 @@ def perform_archive_files(
     # for this run to be closing), skip the rewrite — matching-only, no
     # special-casing needed since the sentinel never equals a real
     # YYYY-MM-DD week_starting value.
-    should_rewrite_header = True
-    if week_only:
+    # `--version none` is the catch-up directive for a missed week: no release
+    # happened, so HEADER carries no release record to write and stays untouched.
+    should_rewrite_header = version != "none"
+    if should_rewrite_header and week_only:
         currently_declared = _bare_week_date(derive_week_start(header_path))
         should_rewrite_header = (
             currently_declared is not None and currently_declared == week_starting
@@ -636,6 +630,13 @@ def push_current_branch(repo_root: Path) -> int:
 
 def _cmd_archive(args: argparse.Namespace) -> int:
     repo_root = Path(args.repo_root).resolve()
+    if (repo_root / ".generated-mirror").exists():
+        print(
+            "REFUSED: generated-mirror — changelog rituals do not run in a "
+            "generated-mirror repo; nothing moved",
+            file=sys.stderr,
+        )
+        return 1
     week_changelog_dir = repo_root / args.week_changelog_dir
     archive_week_root = repo_root / args.archive_root
     review_trail_dir = repo_root / args.review_trail_dir

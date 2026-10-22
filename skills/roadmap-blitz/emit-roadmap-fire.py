@@ -7,8 +7,8 @@ candidate plus its bound args, written BEFORE binding) and `roadmap-blitz.fire.m
 (`workflow.bind_args` output). A sweep or targeted run also writes `<trail-dir>/candidates.json`,
 the index of every candidate and skip. One `Workflow({ scriptPath })` line is printed per fire.
 
-`--resume <trailDir>` re-reads the frozen args, adds `approvalPath`, and re-binds; it refuses an
-absent `approval.json`, or one that is not an approved `pm` approval.
+`--resume <trailDir>` re-reads the frozen args and binds the recorded approval inline as
+`approval`; it refuses a missing or non-`pm`-approved `approval.json`, or a missing OVERVIEW.md.
 
 `interactionMode` defaults to the sizing's `interaction_mode`. No `approver` is bound here; the
 workflow's `approverFor` owns that mapping.
@@ -16,7 +16,7 @@ workflow's `approverFor` owns that mapping.
 Exit codes: 0 fires emitted; 2 bad input (missing or non-roadmap-routed sizing, invalid runId,
 no interaction mode, malformed frozen candidates, a --trail-dir outside `<repo-root>/scratch/`);
 3 sweep found no candidates; 4 bind failed;
-5 resume refused (approval.json absent, unreadable, not an approved pm approval).
+5 resume refused (approval.json absent, unreadable or unapproved; OVERVIEW.md absent).
 """
 
 from __future__ import annotations
@@ -33,6 +33,7 @@ MODES = ("hands-on", "pm", "ceo")
 FIRE_NAME = "roadmap-blitz.fire.mjs"
 CANDIDATES_NAME = "candidates.json"
 APPROVAL_NAME = "approval.json"
+APPROVAL_FIELDS = ("verdict", "approver", "utterance", "recorded_at")
 RUN_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
 
@@ -234,7 +235,7 @@ def emit_fire(invoke: Path, source: Path, run_dir: Path, args: dict, reemit: lis
     return f"Workflow({{ scriptPath: {json.dumps(str(fire))} }})"
 
 
-def check_approval(run_dir: Path) -> Path:
+def check_approval(run_dir: Path) -> dict:
     path = run_dir / APPROVAL_NAME
     if not path.is_file():
         raise Refusal(5, f"resume refused: {path} is absent")
@@ -246,7 +247,7 @@ def check_approval(run_dir: Path) -> Path:
         raise Refusal(5, f"resume refused: {path} is not a pm approval (approver: {doc.get('approver') if isinstance(doc, dict) else None!r})")
     if doc.get("verdict") != "approved":
         raise Refusal(5, f"resume refused: {path} verdict is {doc.get('verdict')!r}, not 'approved'")
-    return path
+    return doc
 
 
 def resume(run_dir: Path, invoke: Path, source: Path, reemit: list[str]) -> str:
@@ -259,7 +260,12 @@ def resume(run_dir: Path, invoke: Path, source: Path, reemit: list[str]) -> str:
     except (ValueError, KeyError, IndexError, TypeError):
         raise Refusal(2, f"resume refused: {cand_path} carries no frozen candidate args")
     approval = check_approval(run_dir)
-    args["approvalPath"] = str(approval)
+    if not RUN_ID_RE.match(str(args.get("runId", ""))) or "repoRoot" not in args:
+        raise Refusal(2, f"resume refused: {cand_path} frozen args lack a valid runId or repoRoot")
+    overview = Path(args["repoRoot"]) / "state" / "roadmap" / args["runId"] / "OVERVIEW.md"
+    if not overview.is_file():
+        raise Refusal(5, f"resume refused: {overview} is absent")
+    args["approval"] = {k: approval[k] for k in APPROVAL_FIELDS if k in approval}
     return emit_fire(invoke, source, run_dir, args, reemit)
 
 
@@ -268,7 +274,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--repo-root", required=True, type=_abs_dir)
     ap.add_argument("--trail-dir", required=True, type=_abs_dir, help="base dir for a fire; with --resume, the run's own trailDir")
     ap.add_argument("--sizing", default=None, help="targeted: repo-relative sizing path")
-    ap.add_argument("--resume", action="store_true", help="re-bind the frozen args in --trail-dir with approvalPath")
+    ap.add_argument("--resume", action="store_true", help="re-bind the frozen args in --trail-dir, approval inline")
     ap.add_argument("--interaction-mode", choices=MODES, default=None)
     ap.add_argument("--provision-sidecar-cli", type=_provision_sidecar_cli, default=None)
     ap.add_argument("--plugin-root", type=_abs_dir, default=Path(__file__).resolve().parents[2])

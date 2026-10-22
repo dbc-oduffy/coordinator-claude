@@ -77,10 +77,6 @@ sidecar would be.
 **For `enricher`, the `## Run Report` is a summary plus the mutated document path(s)** — the plan/stub
 it mutated on disk is the work product, not the report.
 
-Why this is mandated: the EM-facing advisory tells every dispatcher that a subagent's full findings
-are on disk. An EM who followed it after a truncated integrator reply found only a template and
-concluded nothing had been written. The obligation makes the advisory true for this family.
-
 **Lead lines.** Your inline return opens with two lead lines the EM can proceed on without reading
 further: line 1 is `<STATUS>: <stub-id | sidecar-path>`, where STATUS is `DONE`,
 `DONE_WITH_CONCERNS`, `PARTIAL` or `BLOCKED`; line 2 is `Sidecar: <path>` (or `Sidecar: none — <why

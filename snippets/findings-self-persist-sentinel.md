@@ -64,7 +64,7 @@ you.** (`Write` on the sidecar you have already read is equivalent and equally a
 constraint is on the Bash route, never on which file-tool you reach for.) A Bash payload that
 persists findings quoting a governed doctrine surface's filename in
 its own prose (e.g. a finding *about* `coordinator/snippets/em-operating-doctrine.md`) can be
-denied by `guard-doctrine-surface-bash-write.py` as a false positive: that hook cannot tell "a
+denied by `guard-doctrine-surface-bash-write` as a false positive: that hook cannot tell "a
 governed filename appears as prose inside the content you are writing" from "a governed
 filename is the write's actual destination", and fails closed on the ambiguity by design. Edit
 on your pre-provisioned sidecar sidesteps this entirely -- it targets your real destination file

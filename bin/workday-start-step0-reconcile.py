@@ -37,7 +37,9 @@ Exit codes (parity-critical, unchanged from the bash oracle / ported module):
         commit being refused (`RECONCILE-MERGE-COMMIT-REFUSED`, commonly a
         commit hook — not a PM A/B/C decision), or the merge never starting
         at all (`RECONCILE-MERGE-NOT-STARTED` — also not a PM A/B/C
-        decision). See the ported module's own docstring for the full
+        decision), or origin/main adding a machine-local path
+        (`RECONCILE-MACHINE-LOCAL-REFUSED`, refused before any merge starts).
+        See the ported module's own docstring for the full
         discrimination.
     1 — unexpected error (including this trampoline's own link failure).
 

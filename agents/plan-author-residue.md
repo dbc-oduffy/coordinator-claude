@@ -1,6 +1,6 @@
 ---
 name: plan-author-residue
-description: "Amends existing plans in place with capabilities and appends for /mise-prep residue; never authors a fresh plan."
+description: "Amends plans in place with /mise-prep capabilities and appends; never authors one."
 model: sonnet
 effort: medium
 color: cyan

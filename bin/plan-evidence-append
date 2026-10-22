@@ -4,12 +4,12 @@ plan-evidence-append — record per-row evidence for a plan WITHOUT editing the 
 
 A trampoline over claude-klabauter's plan.tasks.mutate 'evidence-append' verb
 (coordinator_core/ops/plan_tasks_mutate.py, _evidence_append). The evidence lands in
-`<plan-stem>.evidence.yaml` beside the plan, so the plan body bytes and `approved_body_sha`
+<plan-stem>.evidence.yaml beside the plan, so the plan body bytes and approved_body_sha
 never move (a body append would make dispatch.emit refuse "plan body changed since
 approval"). Cite the sidecar from the row's disposition_detail via plan-tasks-resolve.
 
 No shebang (POSIX-EXEC-ASSUMPTION-GUARD): invoked via plan-evidence-append.cmd on Windows or
-`python coordinator/bin/plan-evidence-append ...` on POSIX. Holds no domain logic; the verb
+"python coordinator/bin/plan-evidence-append ..." on POSIX. Holds no domain logic; the verb
 enforces every gate.
 
 Usage:

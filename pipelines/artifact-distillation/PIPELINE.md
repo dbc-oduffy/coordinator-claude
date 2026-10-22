@@ -130,7 +130,7 @@ Moved to [`cross-repo-archive-branch.md`](cross-repo-archive-branch.md) — read
 
 ## Clustering Interstitial (Coordinator or Haiku)
 
-Moved to [`clustering-and-consolidation.md`](clustering-and-consolidation.md) — read it in full before running this step.
+Moved to [`clustering-and-consolidation.md`](clustering-and-consolidation.md) — read it in full before running this step. The curated-clusters file the Workflow reads (`args.curatedFile`) is written by `distill.write_curated_clusters`, never composed by hand.
 
 ---
 

@@ -43,9 +43,10 @@ present in the synthesis with a pointer to where?
 
 ## Output
 
-**Write your coverage audit to:** `docs/research/[RUN_STEM]-coverage-audit.md`
+**Write your coverage audit to:** `[SCRATCH_DIR]/<segment>/[RUN_STEM]-coverage-audit.md`
 
-This is the durable output path (not a scratch path). The `[RUN_STEM]` must include the
+This is the run's destination under its scratch dir, never the bare `docs/research/` root
+(`research.close` flags a file there as a stray). The `[RUN_STEM]` must include the
 pipeline identifier (e.g., `my-topic-web`, `my-topic-repo`) so concurrent same-day runs
 on the same topic do not collide. No other writes permitted.
 
@@ -109,7 +110,7 @@ paraphrase them.
 
 ## Output Format
 
-Write the following to `docs/research/[RUN_STEM]-coverage-audit.md` (the durable path from your dispatch prompt):
+Write the following to `[SCRATCH_DIR]/<segment>/[RUN_STEM]-coverage-audit.md` (the path from your dispatch prompt):
 
 ---
 audited_synthesis: {SYNTHESIS_PATH}
@@ -165,7 +166,7 @@ present in the synthesis. No completeness gaps identified."}
 Do NOT:
 - Edit, amend, or comment on the synthesis prose
 - Delete or modify any `[UNFILLED GAP]` inline markers in the synthesis
-- Write to any path other than `docs/research/[RUN_STEM]-coverage-audit.md`
+- Write to any path other than `[SCRATCH_DIR]/<segment>/[RUN_STEM]-coverage-audit.md`
 - Assess whether the synthesis is well-written, coherent, or sufficiently detailed
 - Classify claims as "under-represented" — binary only
 - Include `[SWEEP ADDITION]` content in your denominator

@@ -223,16 +223,26 @@ class _EnterResult:
         self.stderr = stderr
 
 
-def _run_enter(script: Path, repo_root: str, session_id: str, prompt_id: str | None = None):
+def _run_enter(
+    script: Path,
+    repo_root: str,
+    session_id: str,
+    prompt_id: str | None = None,
+    home_start: bool = False,
+):
     """Run the entry CLI in-process through the engine forwarder with stdout/stderr captured.
     Rewrites `sys.path`, `sys.argv` and both std streams for the duration; all four are
     restored in `finally`. Returns None when the forward raises.
 
     `prompt_id` is the payload's own, never synthesised: the engine refuses entry without it
-    (exit 8) and verifies it against the transcript's human `/group-em` row at read time."""
+    (exit 8) and verifies it against the transcript's human `/group-em` row at read time.
+    `home_start` is the other proof: the engine verifies the session's own transcript began in
+    the group-em home (`session-start-group-em-autoenter.py`)."""
     argv = [str(script), "--repo", repo_root, "--session-id", session_id, "--json"]
     if prompt_id:
         argv += ["--prompt-id", prompt_id]
+    if home_start:
+        argv.append("--home-start")
     saved_path = list(sys.path)
     saved_argv = list(sys.argv)
     saved_out, saved_err = sys.stdout, sys.stderr
@@ -254,7 +264,11 @@ def _run_enter(script: Path, repo_root: str, session_id: str, prompt_id: str | N
 
 
 def render_additional_context(
-    payload: dict, exit_code: int, stderr: str, box_blocks: list[str] | None = None
+    payload: dict,
+    exit_code: int,
+    stderr: str,
+    box_blocks: list[str] | None = None,
+    budget: int = _CONTEXT_BUDGET_CHARS,
 ) -> str:
     """Render the injected turn context. A refusal renders as loudly as a success -- see the
     module docstring's refusal clause. Truncated from the tail to stay inside the budget; the
@@ -392,11 +406,11 @@ def render_additional_context(
     tail = "\n\n".join([*(box_blocks or []), arm_line, gate_line])
     head = "\n".join(lines)
     text = head + "\n\n" + tail
-    if len(text) > _CONTEXT_BUDGET_CHARS:
+    if len(text) > budget:
         # Truncation drops roster rows, never the tail: a session that loses the gate line is
         # the one the send gate exists to stop, and a session that loses the arm line stops
         # watching without noticing. Both are obligations, not listings.
-        keep = max(0, _CONTEXT_BUDGET_CHARS - len(tail) - 24)
+        keep = max(0, budget - len(tail) - 24)
         text = head[:keep] + "\n... (truncated)\n\n" + tail
     return text
 

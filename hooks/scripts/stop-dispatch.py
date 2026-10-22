@@ -1,11 +1,11 @@
 """Stop-event fan-in dispatcher -- the Stop registrations, one interpreter.
 
 Folds `runtime-tripwire-em-check.py`, `nudge-harness-directive-dispatch.py`,
-`nudge-unrouted-sizing.py`, `watchdog-undischarged-next-move.py`,
-`guard-manufactured-blocker.py`, and `stop-em-report-altitude.py` into ONE
-`python3` process on the Stop event, following the registry +
-lazy-scope-descriptor pattern `preuse-write-dispatch.py` / `_guard_runner.py`
-already ships (fan-in WITHIN one event, never pooling ACROSS events -- see
+`nudge-unrouted-sizing.py`, `watchdog-undischarged-next-move.py`, and
+`stop-em-report-altitude.py` into ONE `python3` process on the Stop event,
+following the registry + lazy-scope-descriptor pattern
+`preuse-write-dispatch.py` / `_guard_runner.py` already ships (fan-in WITHIN
+one event, never pooling ACROSS events -- see
 `test_bash_guard_hook_stays_per_event.py`, which this dispatcher does not
 touch).
 
@@ -22,10 +22,9 @@ otherwise.
 the first Stop of a chain while one of this session's Workflow runs is stalled,
 naming the exact resume call -- see that shim's own docstring.
 
-`guard-manufactured-blocker.py` also hosts the EM turn-intent step, so its
-precondition admits a re-entered stop (`stop_hook_active`) and a payload
-carrying `last_assistant_message`; the guard exits the altitude verdict itself
-on a re-entered stop.
+The manufactured-blocker guard and the EM turn-intent step are each their own
+engine Stop door (`hook-run hooks.guard_manufactured_blocker`,
+`hook-run hooks.guard_turn_intent`), not folded here.
 
 `group-em-park-spool.py` is the Group-EM wake's producer, registered LAST --
 see its own module docstring for the full contract, and the REGISTRY comment
@@ -231,14 +230,6 @@ def _pre_next_move(ctx: Ctx) -> bool:
     )
 
 
-def _pre_manufactured_blocker(ctx: Ctx) -> bool:
-    # Admits a re-entered stop (stop_hook_active): the turn-intent step counts
-    # its own blocks and the guard itself skips the altitude verdict then.
-    if ctx.agent_id:
-        return False
-    return bool(ctx.payload.get("last_assistant_message")) or bool(ctx.final_assistant_text())
-
-
 def _pre_drive_root_new_dir(ctx: Ctx) -> bool:
     # One scandir per drive root; it must see every writer (tests included), so
     # nothing narrower than "not a re-entered Stop" can gate it.
@@ -311,8 +302,6 @@ REGISTRY: Tuple[StopGuard, ...] = (
     StopGuard("nudge_unrouted_sizing", "nudge-unrouted-sizing.py", _pre_transcript_present),
     StopGuard("watchdog_undischarged_next_move",
               "watchdog-undischarged-next-move.py", _pre_next_move),
-    StopGuard("guard_manufactured_blocker",
-              "guard-manufactured-blocker.py", _pre_manufactured_blocker),
     StopGuard("stop_em_report_altitude",
               "stop-em-report-altitude.py", _pre_em_report_altitude),
     StopGuard("guard_drive_root_new_dir",

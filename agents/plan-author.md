@@ -31,26 +31,23 @@ a failed build returns PARTIAL.
 
 - Problem paragraph first; file scope; tests touched (no suite tier).
 - Acceptance criteria true/false against the tree; an **Anti-scope**.
-- Evidence: `plan.tasks.mutate` `evidence-append`, not the body.
-- Each `census:` command takes the engine's allowed form (`coordinator_core.roadmap.census.ALLOWED_FORM`):
+- `census:` takes `coordinator_core.roadmap.census.ALLOWED_FORM`:
   "one pipeline of read-only commands (grep, rg, find, ls, wc, sed, awk, jq, git <read>, ...) joined by | && || ; -- `python <script>` / `python -m <module>` only when the target is a literal git-tracked file of this repo (no $VAR, no glob, no untracked or site-packages target); no `python -c`, no `$( )` or backticks, no `for`/`while` loops, no redirect except to /dev/null; a loop over N things is N census entries, or one `grep -c`/`find | wc -l` over all of them".
-  A live check that cannot take that form (`node`, `npx`, `gh`, `claude`, a running service) is not a
-  census row: it is execution-time evidence, appended with `plan.tasks.mutate` `evidence-append`.
-- A user-facing capability's scope includes its nav entry and page, else an Anti-scope line
-  quoting the PM (`A-CAPABILITY-UNREACHABLE-FROM-THE-UI-IS-NOT-DELIVERED`); each is a frontmatter
-  `capabilities:` entry (id, statement, role, click_path, ui_consumer XOR ui_carve_out), `[]` if none; update the doc pinning a changed UI.
-- A row whose requirement no PM brief text or register row asks for carries `authorization`
-  (a PM/APM signoff it cites) or `{source: em-inferred, rationale}`.
+  Evidence, incl. a live check outside it (`node`, `gh`), is `plan.tasks.mutate` `evidence-append`.
+- A user-facing capability includes its nav entry and page, else a PM-quoting Anti-scope line
+  (`A-CAPABILITY-UNREACHABLE-FROM-THE-UI-IS-NOT-DELIVERED`); each is a `capabilities:` entry, `[]` if none.
+- A row no brief text or register row asks for carries `authorization` (a cited PM/APM signoff)
+  or `{source: em-inferred, rationale}`.
 - The baton's `deliverable_id`, copied.
 - Citations resolve to the tree at authoring time; a peer one names the ref it was read at.
-- `## PM brief` = sizing `pm_verbatims`, verbatim, else baton `summary:` +
-  `## What this covers`; `pm_brief: {source, ref}`; `traces_to_brief` quote per row.
-- An interface-first wave-0 chunk where a dependant can build against a landed contract.
+- `## PM brief` = sizing `pm_verbatims` verbatim (else baton `summary:` + `## What this covers`);
+  `pm_brief: {source, ref}`; a `traces_to_brief` quote per row.
+- An interface-first wave-0 chunk a dependant builds against.
 - Small disjoint chunks, file-level `writes` never UNDECLARED; `reads_at_head` for a ref read,
   `consumes` string paths, edge in `depends_on`, not legacy `reads`.
   Adding a set member writes every file enumerating the set, tests too.
-- `needs_slot: true` on a scarce-slot row; `blocked_on: {capability, probe}` on a row needing a
-  capability this host lacks.
+- Retiring a mechanism: `A-GREP-FINDS-MENTIONS-AN-UNCONDITIONAL-MECHANISM-HAS-DEPENDENTS`.
+- `needs_slot: true` on a scarce-slot row; `blocked_on: {capability, probe}` for a missing host capability.
 - Critical path <= ~1/3 of rows; `## Width rationale` when spine-check width < 3.
 - Tells: A-REFERENCE-READ-DECLARED-AS-AN-ORDERING-EDGE-SERIALISES-THE-PLAN,
   A-SPINE-THAT-CHAINS-EVERY-CHUNK-CANNOT-BE-SCHEDULED-WIDE.

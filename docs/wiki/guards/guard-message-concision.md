@@ -332,7 +332,7 @@ a blanket flag on the (much larger) set of legacy violations already sitting in 
 untouched. The actual enforcing gate is `coordinator/tests/test_prompt_surfaces_cite_resolvably.py`,
 a ratchet whose baseline may not be regenerated to launder a new violation.
 
-Two legitimate exits, in order of likelihood:
+Two general exits, in order of likelihood:
 
 - **Inline it.** If the dispatched agent genuinely needs the content to do its job, put the content
   itself in the prompt surface instead of a pointer to where it lives in your clone.
@@ -341,6 +341,14 @@ Two legitimate exits, in order of likelihood:
   a deliberate, ratified edit, not a quiet workaround -- and cite the promoted target via a
   settings-home-relative reference, never a bare repo-relative path (a repo-relative path is exactly
   the shape that resolves in your clone and nowhere else).
+
+A third exit applies ONLY when the target page does not exist in this clone and lives in a named
+sibling repo. After prose naming the root-resolution procedure the reader must already have run
+(for the engine: `machine-local get repos.claude_klabauter`), put the path in a fenced block,
+root-prefixed -- `<claude-klabauter-root>/docs/wiki/<page>.md`, never a bare repo-relative path. Fencing
+registers it as a path template completed at runtime, not a citation resolved in this clone. Fencing
+an in-clone citation to dodge the guard is a violation of this section: in-clone pages still take
+inline, seed-allowlist, or delete. Do not touch the detector or the ratchet baseline.
 
 If neither exit is worth taking, the pointer was not load-bearing in the first place -- delete it
 rather than leaving it for the next reader to trip over.

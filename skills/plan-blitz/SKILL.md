@@ -44,8 +44,6 @@ Invoke `coordinator-invoke` per the ladder in `${CLAUDE_PLUGIN_ROOT}/snippets/re
 
     `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" roadmap.plan_gate '{"roadmap_id":"<id>"}'`
 
-It returns both gates per baton, and reports, never refuses; refusal is yours.
-
 ---
 
 ## The flow — a loop with no judgment in it
@@ -99,7 +97,7 @@ clears when the peer answers. **An edge is a DISCOVERED dependency, never a way 
         --repo-root <abs> --trail-dir <abs> --wave-index N --wave-number N \
         --gate-report <trail-dir>/wave-N.gate-report.json
 
-It derives every per-baton field from the frozen report, splits the wave at the cap, and prints
+It derives every per-baton field from the frozen report, and prints
 one `Workflow({ scriptPath })` line per fire; fire each. Pass `--plugin-agents-available true`
 where `coordinator:*` types resolve. `workflows/plan-blitz.mjs` holds the args contract.
 
@@ -125,8 +123,6 @@ authoring tree carries `workflow.bind_args`). Tripwire: `A-PUBLISHED-MIRROR-OLDE
 Every baton carries `executionOpen` (from `execution_gate.open`; no default). **Resolve
 `${CLAUDE_PLUGIN_ROOT}`; never pass a repo-relative path** to a workflow.
 
-Then wait; don't read the trail mid-wave.
-
 ### 4. Run the wave's XS runs, then land — one call over every fire of the wave
 
     python3 "${CLAUDE_PLUGIN_ROOT}/skills/plan-blitz/land-wave.py" \
@@ -139,7 +135,7 @@ carries XS and no `--shipped-in` was given. It writes and commits `wave-<n>.land
 into the trail (`--no-commit` lists them). **Never redirect its stdout onto that path.**
 
 **Run each `xsRuns` entry before landing, one at a time** (each commits):
-`& "$env:COORDINATOR_SETTINGS_HOME\bin\emit-dispatch-workflow.exe" --sizing <sizingObject> --baton <record>`
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\emit-dispatch-workflow.exe" --sizing <sizingObject>` (no `--baton`: the xs arm mints none and refuses one)
 (POSIX: the settings-home `bin/` ladder), fire its printed `Workflow` line, then run its
 `terminal_commit_cli` line. Read `sha` and `close.kind`: expect `xs-s-run`; anything else is
 reported, not landed around. Pass `--shipped-in <batonId>=<sha>` per run. Never hand-commit XS work:
@@ -156,7 +152,7 @@ reported, not landed around. Pass `--shipped-in <batonId>=<sha>` per run. Never 
 | `spec-dispatch` | S | park the spec onto the baton, stamp execution-ready (`execution_authorized_*` + `handoff_phase: execution`) |
 | `dispatch` | XS | the driver's XS ask run does the work; landing stamps `shipped` with its terminal_commit SHA |
 
-An S plan stays `draft` by design (`needs_plan` keys off the execution stamp). **Never hand-stamp `status: approved`** — the op links before stamping.
+An S plan stays `draft` by design (`needs_plan` keys off the execution stamp). **Never hand-stamp `status: approved`.**
 
 **Read `refused[]` on every landing**; never route around one.
 
@@ -175,7 +171,7 @@ Override: `--waves <n>` with a one-line written EM justification in the trail; a
   (§ Three lanes). Tripwire: `AN-ALL-S-WAVE-APPROVES-NOTHING-AND-STILL-ADVANCES`.
   **A WAVE-level test:** sum the three lanes across every fire at this `waveIndex`.
   **Only a FINISHED wave counts** — check completion BEFORE reading the lanes. **Never land an unfinished fire**; resume it, or re-emit and re-fire,
-  closing a finished XS with `archive-stamp-cli ship-handoff <path> --sha <sha>`. Tripwire:
+  closing a finished XS with `archive-stamp-cli ship-handoff <path> --sha <sha> --archive`. Tripwire:
   `AN-UNFINISHED-WAVE-IS-NOT-A-WAVE-THAT-OPENED-NOTHING`.
 - The usage-limit advisory has fired — fire no further wave; land the current wave through step 4,
   then report and stop with the reset time (`coordinator/docs/wiki/skills-corpus/usage-limit-pause.md`); tripwire:
@@ -199,7 +195,7 @@ The driver escalates rather than decides: an unresolved blocker, a cycle, a `ref
 
 **No reviewer is prescribed in a plan file; its `review_signals` select them** → reviewer: front-end → `senior-front-end`, data-science → `staff-data-sci`, ux-flow → `staff-ux`, cross-repo-seam → `eng-director`; added to the sized reviewers.
 
-**The last reviewer's op verdict decides:** `judgment` with nothing blocking buys one resolver and one re-ask; a BLOCKED reviewer or failed resolve pulls, reason counting blocking vs advisory (`A-JUDGMENT-VERDICT-WITH-NO-BLOCKED-REVIEWER-IS-RESOLVED-NOT-PULLED`), a PIVOT replans, an op failure (retried once) is `errored`. The prep-gate enricher spawns only when the reply names mechanical repairs. Cross-plan seams are checked at /mise-prep Step 2e. Planners read the PM's Approve from the roadmap OVERVIEW's `approver`/`approval_utterance`; none means baton defaults, stated.
+**The last reviewer's op verdict decides:** `judgment` with nothing blocking buys one resolver and one re-ask; a BLOCKED reviewer or failed resolve pulls, reason counting blocking vs advisory (`A-JUDGMENT-VERDICT-WITH-NO-BLOCKED-REVIEWER-IS-RESOLVED-NOT-PULLED`), a PIVOT replans, an op failure (retried once) is `errored`. The prep-gate enricher spawns only for named mechanical repairs or a lone census-unscreenable failure.
 
 **`BLOCKED` and `PIVOT` are not a severity ladder.** `BLOCKED`: the reviewer applied its
 findings; the fixed plan is approved the same wave. `PIVOT`: no findings repair this direction; it

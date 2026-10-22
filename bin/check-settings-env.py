@@ -93,6 +93,16 @@ def _spec() -> tuple[_Row, ...]:
                 gates="TaskCreate/TaskGet/TaskList/TaskUpdate in a main session on v2.1.233+ models",
             ),
             _Row(
+                "FNM_LOGLEVEL",
+                required="error",
+                all_machines=True,
+                gates=(
+                    "fnm's use-on-cd hook printing `Using Node vX` to stdout on an agent's cd into a "
+                    "repo with package.json/.nvmrc/.node-version, which corrupts JSON captured from "
+                    "the same command; `error` keeps fnm errors visible (agent shells only)"
+                ),
+            ),
+            _Row(
                 "CLAUDE_CODE_USE_POWERSHELL_TOOL",
                 required=None,
                 all_machines=False,

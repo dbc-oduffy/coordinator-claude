@@ -99,7 +99,8 @@ Memo files use `plugins/coordinator-claude/coordinator/schemas/cross-repo-memo.s
 - `from:` / `to:` — author EM id and receiver EM id (e.g. `claude-central-em`, `project-rag-em`). **`from:` is derived automatically** from the repo the CLI runs in — the inverse of receiver resolution (cwd git root → `repos.<name>` → `<name>-em`; the doctrine repo (`repos.content_root`) is `claude-central-em`). It is never hardcoded and never an EM self-identify step.
 - `status:` — `open | actioned`
 - `decision:` — optional note on the receiver's action, added when flipping to `actioned`
-- `kind:` — optional sender-declared shape (`ask | consult | fyi | proposal | bug | notice`); absent is interpreted as `ask`. See § `kind` enum — sender-declared memo shape below.
+- `kind:` — optional sender-declared shape (`ask | consult | fyi | proposal | bug | notice | friction`; there is no `reply` kind); absent is interpreted as `ask`. See § `kind` enum — sender-declared memo shape below.
+- **Read the schema before hand-authoring.** The frontmatter guard reports one violated rule per edit, so a hand-authored memo takes one edit per rule (e.g. a transient `status: in_progress` requires `picked_up_by`). Use `cross-repo-memo draft`.
 - `to_repo:` — optional resolved receiver registry key. See § `to_repo` — resolvable-registry-key receiver field below.
 
 ## `to_repo` — resolvable-registry-key receiver field
@@ -162,6 +163,8 @@ The send verb is doctrine-repo-owned and lives **on PATH**, so it is deliberatel
 
 **`--to` values come from `cross-repo-memo --list-receivers`, not from the sibling repo's name or shortname.** Receiver IDs are CLI-owned identifiers gated by a frozenset and an alias map; not every plausible `<repo>-em` string resolves, and the doctrine repo's inbox is `claude-central-em`, NOT `coordinator-claude-em` (that's a publish target — rejected). Inventing a `--to` value from the receiving repo's slug ("we're sending to coordinator-claude, so `--to coordinator-claude-em`") hits the rejection at executor-time and stalls delivery.
 
+**A bare repo name is not a receiver id.** `cross-repo-memo draft --to <RepoName>` is refused with `UNKNOWN RECEIVER` (exit 1, nothing written); the refusal suggests the canonical `<name>-em` id. Accepting repo names is an engine-owned receiver-resolution gap, not something to work around with a hand-built id; take the id from `--list-receivers` or the refusal's suggestion.
+
 **Run the CLI at plan-write time.** When authoring a plan that includes a cross-repo memo chunk, run `cross-repo-memo --list-receivers` during plan-authoring and cite a value from its output verbatim in the brief. Neither the prior-art check nor the named-reviewer pass executes the CLI to verify the receiver enum — the only floor against an invented identifier is the plan-author dropping into a shell. (case: example-game-repo — Wave 1 executors hit frozenset rejection on `coordinator-claude-em` / `coordinator-claude-author`; canonical was `claude-central-em`.)
 
 ## `kind` enum — sender-declared memo shape
@@ -186,7 +189,7 @@ The optional `kind:` frontmatter field lets the sender declare what shape of res
 
 **`ack` is NOT a `kind` — it is receipt-state, not a sender-declared value.** An acknowledgement is the receiver flipping `status: open → actioned` (with `decision:` + note) in-place. `ack` is never a valid `kind:` value and never a return-memo. The same rule as "don't send an ack-of-ack when the inbound was a confirmation" (§ Memo content is hypothesis — verify before acting, item 8) applies here: the `status` flip IS the receipt; authoring a separate ack memo is ceremony with no value.
 
-**Inbound replies carrying a reply-flavored `kind` jam `archive-stamp-cli`'s `action-memo` cross-field validation — normalize on receipt.** The enum is `ask|consult|fyi|proposal|bug|notice` and nothing else; a sibling repo replying with `kind: consult-reply` (or `ask-reply`, `ack`) trips `archive-stamp-cli`'s `action-memo` cross-field validation, so the inbound memo cannot be transitioned `open → actioned` and stays stuck at `status: open` even though it was actioned in substance. Any cross-repo peer using a reply-flavored `kind` hits this. On receipt of such a memo, read the reply-flavored `kind` as its base kind (`consult-reply → consult`; `ack →` receipt-only) and flip the status by hand if the transition tool rejects the value; the sender-side fix is to reply with a valid enum value, since the `status` flip — not a `kind` — carries the reply semantics. *(case: the engine repo replied `kind: consult-reply`; the memo jammed at `status: open`.)*
+**Inbound replies carrying a reply-flavored `kind` jam `archive-stamp-cli`'s `action-memo` cross-field validation — normalize on receipt.** The enum is `ask|consult|fyi|proposal|bug|notice|friction` and nothing else (`reply` included: a memo carrying `kind: reply` is wrong, not the enum); a sibling repo replying with `kind: consult-reply` (or `ask-reply`, `ack`) trips `archive-stamp-cli`'s `action-memo` cross-field validation, so the inbound memo cannot be transitioned `open → actioned` and stays stuck at `status: open` even though it was actioned in substance. Any cross-repo peer using a reply-flavored `kind` hits this. On receipt of such a memo, read the reply-flavored `kind` as its base kind (`consult-reply → consult`; `ack →` receipt-only) and flip the status by hand if the transition tool rejects the value; the sender-side fix is to reply with a valid enum value, since the `status` flip — not a `kind` — carries the reply semantics. *(case: the engine repo replied `kind: consult-reply`; the memo jammed at `status: open`.)*
 
 **Absent `kind:` defaults to `ask` at the READER.** The CLI does not stamp a default — absence stays meaningful. Every reader (surfacing helper, `/pickup` branch) applies `ask` when the field is absent. This preserves back-compat: no pre-2026-05-30 memo is silently downgraded to a quiet `fyi` by the absence of a field it never had.
 
@@ -324,7 +327,7 @@ Mechanics:
 
    `resolve` is `open` → `actioned` in one locked write, so triage needs no separate claim, and `in_repo_capture` is what makes the close auditable and reversible rather than a silent drop. One obligation, one home: the baton owns the work, and `memo.blitz_buckets` stops counting a memo whose work is specified elsewhere.
 
-   Two memos do **not** close on routing: one whose capture could not be landed (stays `open`), and one carrying an unanswered question addressed to this repo's PM — a baton cannot discharge a decision, so a ruling-bearing memo stays `open` even when a baton names it.
+   Three memos do **not** close on routing: one whose capture could not be landed (stays `open`); one carrying an unanswered question addressed to this repo's PM — a baton cannot discharge a decision, so a ruling-bearing memo stays `open` even when a baton names it; and one whose work belongs to another repo — routing it into a baton outside the owning repo (including this repo's own handoff) realizes nothing, so it closes only when `realized_by` names the owning repo's queue row or plan, else it stays `open`. The open-memo count carries no carve-out for it: no new status, sub-bucket, or `blitz_buckets` exemption.
 
    When `/pickup` opens the memo itself, route-to-baton is the same Accept shape by the same mechanics.
 
@@ -458,7 +461,11 @@ mistake:
 - **`scoped_to.artifact` must name a surface in the RECEIVER's tree, not a sender-local one.** The
   field is resolved against the receiver's own clone by the send-time premise check — pinning an
   artifact that only exists on the sender's side makes that check report the premise as already
-  stale the moment the memo is delivered.
+  stale the moment the memo is delivered. Carry sender-side evidence inline in the body. A
+  sender-local pin belongs only on the `--scoped-to-version` arm, naming something reachable
+  through a publish mirror (`--scoped-to-version claude-klabauter@<sha>`).
+- **Read the send command's premise-check output before relaying the receiver path.** It names
+  which pins resolved; a NOT FOUND there is a pin to fix before the PM sees the memo.
 
 ## Verify a claim about the sender's own repo before adopting it — agreement is not evidence
 
@@ -481,7 +488,7 @@ Three concrete ways a memo can leave the sender's hands broken without the sende
   validator any hand-authored memo actually meets — by then it is already sitting in the
   receiver's inbox, whatever shape it is in.
   - **`kind` enum values.** Applies here as elsewhere: hand-authoring a `kind` outside
-    `ask | consult | fyi | proposal | bug | notice` produces a memo the receiver-side archive-stamp
+    `ask | consult | fyi | proposal | bug | notice | friction` produces a memo the receiver-side archive-stamp
     tooling cannot terminally flip (see § `kind` enum above).
 - **The legacy flag-form send arm silently loses the body when stdin is empty.** Never use it for
   an agent-authored body — use the `draft → compose → send` idiom (§ CLI above) every time. The

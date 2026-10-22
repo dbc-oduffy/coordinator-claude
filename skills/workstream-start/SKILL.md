@@ -58,7 +58,7 @@ independent, non-gating probes below:
   `coordinator-safe-commit --blanket --invoking-command workstream-start "chore:
   workstream-start sweep — pre-orientation capture"`.
 - **Setup-state self-heal**, silent: `coordinator-setup-state auto-record-if-source-is-live`.
-- **Outbox drafts:** `workday-start-cross-repo-memo-outbox-surface` — non-empty → surface
+- **Outbox drafts:** `coordinator_core/workday_start/outbox_drafts.py` — non-empty → surface
   verbatim; empty → skip.
 
 **Branch detection** stays its own call — it gates everything after: main is read-only. Stay on

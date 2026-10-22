@@ -45,6 +45,15 @@
 #                                                  grant (or another ceremony's, under
 #                                                  workweek->merge nesting) alone and still
 #                                                  exiting 0. bool->exit
+#   group-em-grant <grantee> <note> [--ttl-minutes N] [--repo <root>]
+#                                              -> suite_grant.issue_suite_grant(): the live
+#                                                  verified box Group EM authorizes one named
+#                                                  session's broad test run (scoped, expiring,
+#                                                  issuer = the calling session, never argv).
+#                                                  A refusal exits 1 with its reason.
+#   group-em-revoke <grantee>                  -> suite_grant.revoke_suite_grant(): withdraws
+#                                                  the caller's own grant to <grantee>;
+#                                                  idempotent.
 #
 # Exit codes: the mapped bool-returning function maps True->0, False->1
 # (matches session-liveness-cli's / session-claim-cli's convention). A
@@ -76,7 +85,11 @@ def _import_module():
     return _mod
 
 
-_SUBCOMMANDS = "subcommands: grant | read | check | revoke [--only-ceremony <name>]"
+_SUBCOMMANDS = (
+    "subcommands: grant | read | check | revoke [--only-ceremony <name>] | "
+    "group-em-grant <grantee> <note> [--ttl-minutes N] [--repo <root>] | "
+    "group-em-revoke <grantee>"
+)
 
 _CHECK_HELP = (
     "check answers suite authority (a live grant or the cloud-box basis), not grant "
@@ -132,7 +145,7 @@ def main(argv: list[str]) -> int:
         print(f"tier-u-grant-cli: coordinator_core.session.grant not importable: {exc}", file=sys.stderr)
         return _TRANSPORT_FAIL
 
-    if subcmd in ("grant", "revoke"):
+    if subcmd in ("grant", "revoke", "group-em-grant", "group-em-revoke"):
         try:
             directive = _grant_directive_module()
         except (RuntimeError, ImportError) as exc:

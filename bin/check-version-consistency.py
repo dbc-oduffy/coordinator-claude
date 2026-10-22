@@ -20,7 +20,7 @@ Carve-out (cross-repo — this wiki lives in the coordinator-content-repo repo, 
 here).
 
 Usage:
-  check-version-consistency.py [--root <dir>] [--check-tag] [--quiet]
+  check-version-consistency.py [--root <dir>] [--check-tag] [--strict] [--quiet]
   --root <dir>   bundle root containing .claude-plugin/marketplace.json
                  (default: auto-discover from cwd / git root)
   --check-tag    additionally compare the latest v* git tag (advisory: a
@@ -28,7 +28,8 @@ Usage:
   --quiet        suppress the OK line (failures always print)
 
 Exit: 0 = all surfaces agree; 1 = mismatch (or a required surface missing/
-unparseable — fail-loud, this is a gate); 2 = unrecognised CLI argument.
+unparseable — fail-loud, this is a gate); 2 = unrecognised CLI argument;
+3 = latest v* tag != plugin.json under --strict.
 
 Port of: coordinator/bin/check-version-consistency.py (coordinator-content-repo)
 Port backlink: docs/plans/2026-07-16-bash-clean-slate-residual-migration.md

@@ -1,7 +1,11 @@
 ### Entry Point B — Pickup from `kind: roadmap-seed` stub (goal-seeded)
 
+(a) Run `coordinator-invoke baton.awaiting_gate_recheck '{}'`; for this seed's row, if `machine_condition_met` is true, route the seed or clear the gate.
+(b) Read the seed's `origin_goal_id` goal file; the seed is PM-acked if a `goal_go` entry with `scope: goal` lists its `handoff_id`; an unlisted seed needs its own PM ack.
+(c) A seed mixing gated and gate-free work: run `baton.seed_split {seed, gate_free: [items]}`; the new seed carries `split_from` and is `ready_to_fire`; the original keeps `awaiting_gate` with `split_into`.
+
 1. Read `authoring_session` (goal artifact, problem-set, initiative); its boundaries are ratified.
-2. The stub body's scope is the Phase 1 cluster seed; Phase 1 refines it into sub-clusters.
+2. Stub scope = Phase 1 cluster seed; Phase 1 refines it into sub-clusters.
 3. `run-id` = the stub's `stub_id` (`rc-04` → `run-id: rc-04`).
 4. The 5+ items floor does NOT apply. Proceed to Phase 1 with the stub's scope as corpus anchor.
 
@@ -21,11 +25,10 @@ each seed is its own cluster seed; every baton's `covers:` traces to its seed st
 ### Entry Point D — Conform intake from a sizing-object (roadmap-routed)
 
 A `state/sizings/<id>.yaml` with `route: pm-decision` + `xl_exit: roadmap` (or legacy `route:
-roadmap`). Optional: absent one, this skill runs as today; the sizing lobby never gates a
-`roadmap-planning` invocation on it.
+roadmap`). Optional: the sizing lobby never gates a `roadmap-planning` invocation.
 
-1. Read `intent` (verbatim), `estimate`, `scout_evidence`, and `appetite` if present (read defensively).
-2. It is extra Phase 1.1 inventory input, not a pre-built cluster set; Steps 1.1–1.4 run unchanged.
+1. Read `intent` (verbatim), `estimate`, `scout_evidence`, `appetite` if present (read defensively).
+2. Extra Phase 1.1 inventory input, not a pre-built cluster set; Steps 1.1–1.4 run unchanged.
 3. Cite its path in `OVERVIEW.md`'s framing prose (Step 1.5.2); no new frontmatter field.
 4. If B or C also applies, take whichever of A/B/C matches the input shape; note the sizing-object alongside.
 

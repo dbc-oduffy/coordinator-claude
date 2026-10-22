@@ -116,15 +116,15 @@ path `coordinator-doc-new --type goal` printed — scaffolding alone does not em
 
 ### Step 5 — Spawn downstream stubs
 
-**5a. Roadmap-seed stubs** — one per roadmap-worth-of-work (one `/roadmap-planning` invocation,
-one coherent capability arc; in doubt, fewer/larger — the PM can split at pickup):
+**5a. Roadmap-seed stubs** — one per `/roadmap-planning` invocation (one coherent capability arc;
+in doubt, fewer/larger):
 
 `coordinator-doc-new --type roadmap-seed --goals "<goal-id>" --title "<roadmap-topic>"`.
 
 Each stub carries `kind: roadmap-seed`, `origin_goal_id:` FK (via `--goals`), `deployment_state:
 awaiting_gate`, a one-line title naming the capability arc. **Split on the gate:** work needing an
-unbuilt dependency gets its own seed carrying that gate; work that does not is a separate, ungated
-seed (`A-GATED-SEED-PARKS-ITS-UNBLOCKED-HALF`).
+unbuilt dependency gets its own gated seed; the rest is a separate, ungated seed
+(`A-GATED-SEED-PARKS-ITS-UNBLOCKED-HALF`). An already-scaffolded mixed seed: `baton.seed_split`.
 
 **5b. Goal-seed stubs (optional)** — for vision-slices out of scope this period, or KRs deferred
 rather than rewritten: `coordinator-doc-new --type goal-seed --title "<deferred-vision-slice>"`.
@@ -136,10 +136,11 @@ vision-slice verbatim — raw over polished.
 > _"Goal artifact and {N} roadmap-seed stub(s) scaffolded. Want me to chain into
 > `/roadmap-planning` now, or review the stubs first?"_
 
-**Wait for PM response.** Never invoke `/roadmap-planning` without explicit PM direction. A PM
-who already directed the goal through to done in this session ("throw it into the machine", "no
-more questions") HAS given it: quote those words and chain without asking. Name any un-chained
-seed in the DONE report as `awaiting PM ack` — never a silent park.
+**Wait for PM response.** Never invoke `/roadmap-planning` without explicit PM direction; a PM who
+directed the goal through to done has given it — quote those words and chain. On the go or
+an APM ruling, call `goal.record_go` with goal, who, and the PM's quote or `ruling_ref`; `seeds`
+defaults to every live seed. It dispatches nothing; chaining is still
+this step's call. Name any un-chained seed in the DONE report as `awaiting PM ack`.
 
 ### Step 7 — Commit goal + stubs
 

@@ -67,13 +67,13 @@ Friction: memo `project-rag-em` / `gh issue create -R dbc-oduffy/project-rag`.
 
 Research is read-and-cite: no package installs, no venvs (PER-REPO-VENVS-ARE-BANNED-FLEET-WIDE), no `pip --target` or scratch site-dirs, and no executing the researched repo's code. A runtime claim you cannot confirm by reading is marked `unconfirmed`.
 
-Assessment stands alone — analyze on its own merits first, comparison second. Lead with file:line references: every claim traceable. Challenge peers actively, not hostile, max 3 mailbox messages/peer.
+Assessment stands alone: own merits first, comparison second. Lead with file:line references; every claim traceable. Challenge peers actively, max 3 mailbox messages/peer.
 
 ## Counter-Evidence Pass (mandatory — run after positive analysis, before convergence)
 
 After Phase 1 Assessment (and Phase 2 Comparison if enabled), run an inverse-search pass for *recorded prior decisions* arguing against your working hypothesis — specialists surface, they do not adjudicate.
 
-Search all four, regardless of what the scout passed as inputs: **`state/lessons/`** (per-entry YAML, every entry), `docs/wiki/`, `docs/decisions/`, and **archived plans** in `archive/` whose successors superseded them (often hold the original rationale). Pair prohibition vocabulary ("avoid", "don't", "never", "removed", "superseded", "reversed", "prohibited", "deprecated", "rejected") with your hypothesis's key nouns.
+Search all four, whatever the scout passed: **`state/lessons/`** (per-entry YAML, every entry), `docs/wiki/`, `docs/decisions/`, and **archived plans** in `archive/` whose successors superseded them (often hold the original rationale). Pair prohibition vocabulary ("avoid", "don't", "never", "removed", "superseded", "reversed", "prohibited", "deprecated", "rejected") with your hypothesis's key nouns.
 
 ### Output Field
 
@@ -116,7 +116,7 @@ A `null` fails the type check and `claims-emit` rejects the whole batch on recor
 
 You never use `SendMessage`, to peers or the EM. Peers talk through `{SCRATCH_DIR}/mail/<role>.jsonl`; your role is `specialist-<chunk-letter>` and peers' role names are in your dispatch prompt. To message peer X, append one line `{"from": "<your role>", "text": "..."}` to X's file. Read your own file before you return, then append `{"read": true}`; lines after your last read marker are unread mail.
 
-With your assessment and claims on disk and your challenges to peers appended, return `DONE: <paths written>`. The synthesizer stage starts after every specialist returns, and the script dispatches a continuation agent for any specialist with unread mail; a continuation answers its mailbox from its predecessor's return value and its own prior outputs, revises them, and returns. Never address the EM.
+With assessment, claims and peer challenges on disk, return `DONE: <paths written>`. The synthesizer stage starts after every specialist returns, and the script dispatches a continuation agent for any specialist with unread mail; a continuation answers its mailbox from its predecessor's return value and its own prior outputs, revises them, and returns. Never address the EM.
 
 ### Mapping from assessment findings
 

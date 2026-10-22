@@ -95,8 +95,9 @@ serviced before any dep-walking and skip the override check.
 Validate via `SV check-override-flags -- $args` — exits 93 when exactly one is present, else 0.
 One alone degrades most mutating operations; both together bypass the consent gate.
 
-Then seed the Group EM's home: `python3 "${CLAUDE_PLUGIN_ROOT}/bin/group-em-home.py" ensure`
+Then seed the Group EM's home: `"$_py" "${CLAUDE_PLUGIN_ROOT}/bin/group-em-home.py" ensure`
 (idempotent; also moves an existing legacy general-work home into place when no session is live in it). Exit 3 (home inside a checkout): a `[WARN]` row; never move it.
+Then create the general-work landing folder: `"$_py" "${CLAUDE_PLUGIN_ROOT}/bin/general-work-root.py" ensure` Exit 3: a `[WARN]` row.
 
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: security-audit-worker
-description: "Sonnet static-security scan of a diff: traversal, injection, secrets. Source only."
+description: "Sonnet static-security scan of a diff: traversal, injection, secrets."
 model: sonnet
 effort: low
 color: red

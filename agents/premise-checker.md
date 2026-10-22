@@ -100,6 +100,17 @@ not cited, or not load-bearing gets no row.
 `UNCHECKABLE` is a first-class answer and costs you nothing. `RESOLVES` on a citation you did not
 open is the failure this pass exists to stop.
 
+## Refire carry
+
+Run `coordinator-invoke plan.premise_scope` first. On `first_pass`, run the full pass. Otherwise
+check only the citations on `changed_lines` lines and every `recheck` row: re-judge or retire each
+recheck citation, never drop one. Give each fresh row its 1-based `line`.
+
+On every pass, run `coordinator-invoke plan.premise_record` with the wire key `citations_skipped`.
+Return its reply's merged `rows` verbatim, plus `carry` `{firstPass, carried, fresh}`.
+
+If either op fails, run a full pass, omit `carry`, and never retry.
+
 ## Bounds
 
 You do not execute, do not fix, and do not edit the plan — a defect you find is something you

@@ -30,8 +30,8 @@ naked-Python hooks. The PostToolUse branch takes precedence: a payload
 carrying a non-string `tool_name` (e.g. `null`) alongside `transcript_path`
 still routes to Stop, matching what `_handle_post_tool_use` itself
 requires of `tool_name`. This mirrors the existing single-script,
-dual-matcher pattern used by `guard-manufactured-blocker.py`'s Stop-only
-sibling registrations elsewhere in `hooks.json`.
+dual-matcher pattern used by other Stop-only sibling registrations
+elsewhere in `hooks.json`.
 
 EMISSION -- a STATIC seam table (`_SEAM_TABLE` below), never an inference.
 Five obligations:
@@ -46,8 +46,9 @@ Five obligations:
   plan->review     opens on Skill(coordinator:plan) ONLY when the session's
                    newest sizing object's route is exactly "plan" (the FULL
                    terminal), found via the session's git `touch-record.jsonl`
-                   (same technique `guard-manufactured-blocker.py` uses to find
-                   "the session's routed sizing object", read through
+                   (the same technique the engine's
+                   `coordinator_core/hooks/guard_manufactured_blocker.py` uses
+                   to find "the session's routed sizing object", read through
                    `lib/frontmatter_scan.py`). A route of "spec-dispatch" does
                    NOT open this obligation -- its terminal is an executor
                    dispatch, not review.
@@ -94,8 +95,8 @@ resolved one, and `pm-decision` with `xl_exit: null` is additionally
 covered by the exemption predicate below regardless of table membership.
 
 EXEMPTIONS -- copied from `nudge-unrouted-sizing.py`'s own discipline (and
-reimplemented, self-contained, the same way `guard-manufactured-blocker.py`
-reimplements it): an unresolved appetite/post-size fork, or a
+reimplemented, self-contained, the same way the engine's
+`guard_manufactured_blocker.py` reimplements it): an unresolved appetite/post-size fork, or a
 `route: pm-decision` sizing object carrying `xl_exit: null`, is a
 legitimate PM-pending state and must NOT open an obligation.
 
@@ -477,8 +478,8 @@ def _handle_stop(payload: dict) -> int:
             )
         else:
             discharge_note = (
-                f"Could not record this fire (engine unresolvable or write failed) at "
-                f"state/block-discharge/{session_id}.jsonl.\n"
+                "Could not record this fire (engine unresolvable or write failed) in "
+                f"the machine-local, gitignored block-discharge spool (session {session_id}).\n"
                 "No nonce to discharge -- this failure is visible in stderr, not "
                 "laundered into a clean check.\n"
             )

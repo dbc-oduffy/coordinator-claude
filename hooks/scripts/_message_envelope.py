@@ -4,7 +4,7 @@ speaking) hook under `coordinator/hooks/scripts/` routes through.
 Purpose: the PM named a concrete failure mode -- guard prose growing without
 bound because doctrine alone never enforced a limit, and a static/lint check
 over source text cannot see prose assembled at emit time from `_`-prefixed
-helper templates (`guard-doctrine-surface-bash-write.py` measures 0 chars
+helper templates (`coordinator_core/bash_guards/guard_doctrine_surface_bash_write.py` measures 0 chars
 statically, 1,744 at runtime). This module gives every Category-A hook one
 place to compose its message so a runtime harness can measure it correctly,
 and gives every future hook author the 280-char ceiling and the fenced-

@@ -1,6 +1,6 @@
 ---
 name: roadmap-planner
-description: "Authors one roadmap's inventory, clusters, overview and stub bodies; never sizes, approves, stages, or executes."
+description: "Authors a roadmap's inventory, clusters, overview, stubs; never sizes, approves, executes."
 model: opus
 effort: medium
 color: cyan

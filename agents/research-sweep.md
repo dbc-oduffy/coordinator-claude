@@ -37,7 +37,7 @@ Before follow-up queries, load the MCP tool schemas (skip `notebook_delete`). Na
 3. **Cross-reference against `strategy.md`'s questions** for silent gaps; use `cross_notebook` flags as reinforcement/contradiction leads; weigh source quality (YouTube > Podcast > Article for depth); flag topics that SHOULD have been covered but weren't — often more important than what was.
 4. **Write a gap report to `{scratch-dir}/gap-report.md`** covering: cross-notebook contradictions; low-confidence clusters; `cross_notebook` leads and whether corroborated or contradicted; absent findings (seed from workers' `coverage_gaps` plus your own analysis); coverage balance across notebooks; transcription-suspect count and which notebooks.
 
-   **Durable gap-report:** also write the durable copy to `{output-path-base}-gap-report.md` (replace `.md` with `-gap-report.md`, e.g. `docs/research/2026-06-30-nlm-topic-gap-report.md`). Emit this frontmatter deterministically — the body stays agent-authored, no template:
+   **Durable gap-report:** also write the durable copy to `{output-path-base}-gap-report.md` (replace `.md` with `-gap-report.md`), where `{output-path-base}` is the run destination `{scratch_dir}/<segment>/` your dispatch prompt names — never the bare `docs/research/` root, where `research.close` flags the file as a stray. Emit this frontmatter deterministically — the body stays agent-authored, no template:
 
    ```yaml
    ---
@@ -155,7 +155,7 @@ name from frontmatter:
 
 ## Completion
 
-1. Write the final document to the output path (research-synthesis frontmatter prepended — Phase 3 step 1).
+1. Write the final document to the output path, under the run's `{scratch_dir}/<segment>/` destination, never the `docs/research/` root (research-synthesis frontmatter prepended — Phase 3 step 1).
 2. Write the merged claims array to `{scratch-dir}/merged-claims.json` (Phase 3 step 2) — writing it IS the `ran_at` stamp, via its mtime.
 3. Write advisory to `{output-path-advisory}` AND `{scratch-dir}/advisory.md` (if applicable — skip if nothing beyond scope).
 4. Do NOT delete notebooks (§ Notebook Cleanup) — list each notebook ID and name in the completion message.

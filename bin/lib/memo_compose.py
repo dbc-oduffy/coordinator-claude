@@ -39,7 +39,7 @@ import datetime
 # receiver-side cross-field rule (`schema_validate._memo_cf_summary_length_cap`)
 # and the emitted memo schema both read. If that constant moves, update this
 # one too. Both sides must stay in sync.
-_SUMMARY_MAX_CHARS = 120
+_SUMMARY_MAX_CHARS = 240
 
 
 def _yaml_quote(value: str) -> str:
@@ -67,7 +67,7 @@ def _derive_summary(body: str) -> str:
     """Derive a summary from the first non-empty line of the memo body.
 
     Truncates to _SUMMARY_MAX_CHARS with a '…' suffix so the composed memo
-    never violates the ≤120-char summary cross-field rule.
+    never violates the ≤240-char summary cross-field rule.
     """
     for line in body.splitlines():
         stripped = line.strip()
@@ -115,7 +115,7 @@ def compose_frontmatter(
         self_receipt: True when dispatcher is also the receiver.
         decision: Required when self_receipt=True (accepted|declined|partial|superseded).
         supersedes: Optional; set on a re-issued memo to chain the supersession.
-        summary: Explicit one-line tl;dr (≤120 chars); derived from first
+        summary: Explicit one-line tl;dr (≤240 chars); derived from first
                  non-empty body line when None. Truncated at _SUMMARY_MAX_CHARS.
         kind:    Optional sender-declared shape; see
                  `coordinator_core.ops.fleet.memo_kinds.VALID_KINDS`.

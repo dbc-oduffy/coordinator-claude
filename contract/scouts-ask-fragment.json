@@ -87,12 +87,35 @@
         "Windows": "cmdkey /list | findstr /i \"{ref}\"",
         "Linux": "secret-tool search --all service {ref} 2>/dev/null | grep -E '^(label|attribute\\.)'"
       }
+    },
+    {
+      "id": "p4-readonly",
+      "class": "cli",
+      "tool": "p4",
+      "reports": "counts and existence of Perforce depots, clients, streams, users, groups, labels and servers, plus whether the authenticated CLI reaches a server; never file contents, credentials, or workspace, host or user values",
+      "ref": "a verb from verbs, substituted for {ref}",
+      "verbs": {
+        "info": "whether the authenticated CLI reaches a server",
+        "depots": "which depots exist",
+        "clients": "which workspaces exist",
+        "streams": "which streams exist",
+        "users": "how many accounts exist",
+        "groups": "which groups exist",
+        "labels": "which labels exist",
+        "servers": "which servers are registered"
+      },
+      "commands": {
+        "macOS": "p4 {ref}",
+        "Windows": "p4 {ref}",
+        "Linux": "p4 {ref}"
+      }
     }
   ],
   "probe_rules": {
     "commands_run_verbatim": true,
     "output_filter_in_same_pipeline": true,
     "unknown_probe_id": "refused at emit",
+    "cli_class": "an entry with class 'cli' names a tool and a verbs map (verb to the question it answers); the ref is one listed verb, any other verb is refused, and no verb may mutate; a cli command declares no output filter, so the report is reduced to counts and presence by the shape rule",
     "never_report": ["value", "password", "token", "file body"]
   },
   "close": {

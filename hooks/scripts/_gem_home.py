@@ -69,7 +69,8 @@ def inside_checkout(path) -> str | None:
     """The checkout `path` lies in, else None: the first strict ancestor holding `.git`, or the
     first `repos.*` root equal to or containing it."""
     target = _norm(path)
-    cur = Path(target)
+    # Walk the real path, not the normcased one, so a refusal names the checkout as spelled.
+    cur = Path(os.path.realpath(str(path)))
     for anc in cur.parents:
         if (anc / ".git").exists():
             return str(anc)
@@ -161,9 +162,26 @@ def migrate_legacy_home() -> str:
         return "live"
 
 
+#: Machine-local runtime state the home never commits: memo-outbox sent copies and ledger,
+#: subagent share. The home's history records its own state only, so these stay untracked.
+_IGNORED = (".coordinator-local/",)
+
+
+def _ensure_ignored(home: Path) -> None:
+    """Append any missing `_IGNORED` line to the home's `.gitignore`; never rewrites a line."""
+    path = home / ".gitignore"
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        lines = []
+    missing = [entry for entry in _IGNORED if entry not in lines]
+    if missing:
+        path.write_text("\n".join([*lines, *missing]) + "\n", encoding="utf-8")
+
+
 def ensure_home(template: Path | None = None, refresh: bool = False) -> Path:
-    """Migrate a legacy home when safe, then create the home, `git init` it, add `state/`, seed
-    CLAUDE.md when absent (or on refresh)."""
+    """Migrate a legacy home when safe, then create the home, `git init` it, add `state/`, ignore
+    `.coordinator-local/`, seed CLAUDE.md when absent (or on refresh)."""
     migrate_legacy_home()
     home = resolve_home()
     home.mkdir(parents=True, exist_ok=True)
@@ -175,6 +193,7 @@ def ensure_home(template: Path | None = None, refresh: bool = False) -> Path:
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     (home / "state").mkdir(exist_ok=True)
+    _ensure_ignored(home)
     seed = home / "CLAUDE.md"
     src = template or _TEMPLATE
     # A missing template skips seeding silently; templates/group-em-home/home-CLAUDE.md must ship.

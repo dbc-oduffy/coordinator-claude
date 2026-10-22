@@ -343,26 +343,27 @@ def _spawn_forwarder_detached() -> bool:
     if not _FORWARDER_MODULE_PATH.is_file():
         return False
 
-    no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    detached = getattr(subprocess, "DETACHED_PROCESS", 0)
-    creationflags = no_window | detached
-
+    # Never DETACHED_PROCESS: a console-less child makes every console-subsystem process beneath
+    # it pop a visible window, and Win32 ignores CREATE_NO_WINDOW alongside it. CREATE_NO_WINDOW
+    # gives the forwarder a hidden console its children inherit; surviving the session is
+    # CREATE_BREAKAWAY_FROM_JOB's job, not detachment's.
+    argv = [sys.executable, str(_FORWARDER_MODULE_PATH)]
     kwargs = dict(
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         close_fds=True,
     )
-    if os.name == "nt":
-        kwargs["creationflags"] = creationflags
-    else:
-        kwargs["start_new_session"] = True
-
     try:
-        subprocess.Popen(
-            [sys.executable, str(_FORWARDER_MODULE_PATH)],
-            **kwargs,
-        )
+        if os.name == "nt":
+            flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+            try:
+                subprocess.Popen(argv, creationflags=flags | subprocess.CREATE_BREAKAWAY_FROM_JOB, **kwargs)
+            except OSError:
+                # The current job forbids breakaway; the forwarder may then die with the session.
+                subprocess.Popen(argv, creationflags=flags, **kwargs)
+        else:
+            subprocess.Popen(argv, start_new_session=True, **kwargs)
         return True
     except Exception:
         return False

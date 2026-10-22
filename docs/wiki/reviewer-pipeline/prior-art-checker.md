@@ -282,9 +282,19 @@ Polarity itself is a MECHANICAL field comparison, not inference:
 is the host, so there is no consume-from-sibling direction to offer. Genuine
 peer overlap (a different sibling also hosts the same capability, no clean
 consumer/host asymmetry) renders as `peer-overlap — coordinate`, a distinct
-classification from a directional consume offer. The plan's repo is always
-CONSUMER by construction (it is the one proposing to build); the sibling is
-always HOST; the offer only ever points consumer → host.
+classification from a directional consume offer. In the consume bucket the
+plan's repo is CONSUMER by construction (it is the one proposing to build);
+the sibling is HOST; the offer only ever points consumer → host.
+
+#### The copy-out bucket has no polarity
+
+Phase 2.6 of the agent (DR-201 (b)) is a second bucket in the same mechanism
+and does not inherit the consume polarity. An own-deliverable repo hosts no
+capability and is a legitimate source to copy a declared `shapes[]` entry
+from. `host_repo` is never read; only `source_repo == plan_repo` suppresses (a
+repo cannot copy from itself). Every offer is directed from a declared source
+to the plan's repo, so the bucket is not a symmetric overlap matcher. See
+`coordinator-tripwires/a-non-host-repo-is-still-a-source-to-copy-from.md`.
 
 ### The authored per-repo manifest substrate
 

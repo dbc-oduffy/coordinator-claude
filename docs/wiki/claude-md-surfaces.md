@@ -174,6 +174,14 @@ the job. This is the operative reading of the global file's own rule that past ~
 reference and operative rules front-load — apply it while writing, not just as a retrospective
 trim.
 
+**Route a new procedural rule to the narrowest surface that discharges it** — a guard, hook, op, test,
+agent contract, cited snippet or tripwire — before proposing a line in an always-loaded surface; a
+procedural rule never qualifies for one. A relationship or posture (disposition) rule passes this test
+because always-loaded prose is its narrowest surface
+(`coordinator/docs/wiki/claude-md-surfaces/invisible-doctrine.md` § The act/disposition boundary), so
+name why it is a disposition no narrower surface can carry. The rule governs adding lines; it licenses
+no removal of existing posture prose.
+
 ## Operator identity on install
 
 `~/.claude/CLAUDE.md` carries nothing posture-shaped — no `render-posture-overlay.py` managed

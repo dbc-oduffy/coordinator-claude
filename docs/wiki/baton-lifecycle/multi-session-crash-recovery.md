@@ -137,13 +137,16 @@ see `concurrent-em-hazards.md`.
   Body: crash context, what was in flight, current disk state, NUMBERED successor next-actions, gates. A successor
   must be able to `/pickup` it and resume without re-reading transcripts. Skip a handoff for trivial sessions
   (zero work written — just re-pickup the memo/task).
-- **Sibling repos: author the baton into THEIR `state/handoffs/`, and commit it there.** Same
+- **Sibling repos: the live Group EM authors the baton into THEIR `state/handoffs/`, and commits it
+  there.** A recovering session that is not the Group EM hands the slate to the live Group EM. With
+  no live Group EM, or with the setting off, start a session in the affected repo using the same
+  `--plugin-dir`; that repo's EM authors its own baton. Same
   `kind: recovery` shape as your own repo's, scaffolded the same way — run `coordinator-doc-new`
   with the sibling repo as cwd so its own conventions apply. Commit scoped to that one new file:
   `state/handoffs/<file>`, never `git add -A`, never a peer's dirty hunks, never a sweep of the
   crash-dirty tree. Nothing else in their tree is touched — not a fix the forensics noticed, not a
   test, not a config.
-  This is a named carve-out to `NO_STANDING_XREPO_GRANT`
+  See `RECOVERY_BATON_LANDS_IN_THE_AFFECTED_REPO`
   : bounded to a crash occasion, a
   recovery handoff, and that pathspec. Every other cross-repo commit still needs per-session PM
   assent.

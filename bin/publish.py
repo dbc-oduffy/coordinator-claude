@@ -150,6 +150,10 @@ _ENGINE_TOUCHING_PATHS = ("coordinator_core/", "coordinator/")
 
 _BOOTSTRAP_DONE = False
 
+#: Set by `main` under `--source-ref`: a sha-keyed export of the engine code at the ref;
+#: `_bootstrap_engine` imports from it instead of the working tree.
+_ENGINE_ROOT: "Optional[Path]" = None
+
 
 _BOOTSTRAPPED_NAMES = (
     "_INHERITED_LOCK_ROOTS_ENV",
@@ -200,14 +204,16 @@ def _bootstrap_engine() -> None:
     if _BOOTSTRAP_DONE:
         return
     try:
-        if str(_COORDINATOR_LIB) not in sys.path:
-            sys.path.insert(0, str(_COORDINATOR_LIB))
+        _engine_lib = (_ENGINE_ROOT or _REPO_ROOT) / "coordinator" / "lib"
+        if str(_engine_lib) not in sys.path:
+            sys.path.insert(0, str(_engine_lib))
         # percolate.targets resolves sibling modules via absolute `coordinator.lib.percolate.*`
         # imports, so the repo root must be importable too — else a bareword
         # `python coordinator/bin/publish.py` (the invocation docs + the /percolate skill now
         # point at) dies with ModuleNotFoundError before argparse runs.
-        if str(_REPO_ROOT) not in sys.path:
-            sys.path.insert(0, str(_REPO_ROOT))
+        _engine_root = _ENGINE_ROOT or _REPO_ROOT
+        if str(_engine_root) not in sys.path:
+            sys.path.insert(0, str(_engine_root))
 
         #: D1 fix — single source of truth shared with
         #: `percolate-round.py::_INHERITED_LOCK_ROOTS_ENV` (one wire contract
@@ -8377,6 +8383,58 @@ def _extract_git_archive(toplevel: Path, sha: str) -> Path:
 _source_ref_override = ""
 
 
+#: Code a `--source-ref` round imports; exported from the ref, never read from the working tree.
+_SOURCE_REF_IMPORTED_PATHS = ("coordinator_core", "coordinator/lib")
+
+
+def _source_ref_from_argv(argv: "Optional[Sequence[str]]") -> str:
+    args = list(sys.argv[1:] if argv is None else argv)
+    for i, a in enumerate(args):
+        if a == "--source-ref":
+            return args[i + 1] if i + 1 < len(args) else ""
+        if a.startswith("--source-ref="):
+            return a.split("=", 1)[1]
+    return ""
+
+
+def _export_engine_at_ref(repo_root: Path, ref: str) -> Path:
+    """Export the code a round imports at `ref` to a temp dir keyed by commit
+    sha, reused across rounds. Two git spawns cold, one warm; the working tree
+    is never read. Raises RuntimeError when `ref` does not resolve."""
+    def _git(*args: str) -> "subprocess.CompletedProcess[bytes]":
+        return subprocess.run(
+            ["git", "-C", str(repo_root), *args], capture_output=True,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+
+    rev = _git("rev-parse", "--verify", f"{ref}^{{commit}}")
+    if rev.returncode != 0:
+        raise RuntimeError(f"--source-ref {ref!r} does not resolve to a commit in {repo_root}")
+    sha = rev.stdout.decode().strip()
+    base = Path(tempfile.gettempdir()) / "claude-klabauter-publish-engine"
+    dest = base / sha
+    if (dest / "coordinator_core").is_dir():
+        return dest
+    base.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=f"{sha[:12]}-", dir=base))
+    try:
+        arc = _git("archive", "--format=tar", sha, "--", *_SOURCE_REF_IMPORTED_PATHS)
+        if arc.returncode != 0:
+            raise RuntimeError(f"git archive {sha} failed: {arc.stderr.decode(errors='replace').strip()}")
+        with tarfile.open(fileobj=io.BytesIO(arc.stdout)) as tar:
+            tar.extractall(path=staging, filter="tar")
+        try:
+            os.replace(staging, dest)
+        except OSError:
+            if not (dest / "coordinator_core").is_dir():
+                raise
+            shutil.rmtree(staging, ignore_errors=True)
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    return dest
+
+
 def _committed_portable_targets_file(setup_dir: Path) -> Optional[Path]:
     """`setup/publish-targets.portable` as committed at the round's source ref,
     written to a temp file, when the working copy differs from it; else None.
@@ -12396,6 +12454,7 @@ class _RootUnion:
     deletions: "list[str]"
     nonempty: bool
     door_ok: bool = True
+    converge: "list[Any]" = field(default_factory=list)
 
     @property
     def cold(self) -> bool:
@@ -12558,24 +12617,87 @@ def _is_round_derived(rel: str) -> bool:
     return rel.rsplit("/", 1)[-1] in _ROUND_DERIVED_BASENAMES or rel in _DOOR_ARTIFACT_RELS
 
 
+def _source_declared_modes(
+    sources: "Mapping[str, tuple[ResolvedTarget, str]]", round_pinned_shas: "dict[str, str]"
+) -> "dict[str, int]":
+    """`{union rel: git mode}` the source tree records at the round-pinned sha, for the root that fed
+    each entry (a `source_map` entry's own root, else the row's `source_dir`). Read in process from
+    git objects, never a disk bit. An entry with no source blob (renamed, round-derived, unpinnable)
+    is absent from the result."""
+    from coordinator_core.git.git_dir import resolve_git_common_dir  # noqa: PLC0415
+    from coordinator_core.git.git_state import read_commit  # noqa: PLC0415
+    from percolate.publish_delta import _lookup  # type: ignore[import-not-found]  # noqa: PLC0415
+
+    _bootstrap_engine()
+    maps: "dict[str, dict[str, Path]]" = {}
+    trees: "dict[str, Optional[tuple[Path, str, Path]]]" = {}
+    out: "dict[str, int]" = {}
+    for rel, (target, row_rel) in sources.items():
+        routes = maps.get(target.name)
+        if routes is None:
+            routes = maps[target.name] = _parse_source_map(target.source_map)
+        root = target.source_dir
+        best = -1
+        for entry, mapped in routes.items():
+            e = entry.rstrip("/")
+            if (row_rel == e or row_rel.startswith(e + "/")) and len(e) > best:
+                root, best = mapped, len(e)
+        source_path = root / row_rel
+        top = _resolve_show_toplevel(str(source_path.parent if source_path.parent.is_dir() else root))
+        if top is None:
+            continue
+        key = str(Path(top))
+        if key not in trees:
+            try:
+                sha = round_pinned_shas.get(key) or _round_pin_source_sha(
+                    Path(top), round_pinned_shas, out=io.StringIO(), late=True
+                )
+                info = read_commit(Path(top), sha)
+            except GitMaterializeError:
+                info = None
+            trees[key] = None if info is None else (resolve_git_common_dir(Path(top)), info.tree, Path(top).resolve())
+        resolved = trees[key]
+        if resolved is None:
+            continue
+        common, tree, toplevel = resolved
+        try:
+            source_rel = source_path.resolve().relative_to(toplevel).as_posix()
+        except ValueError:
+            continue
+        found = _lookup(common, tree, source_rel)
+        if found is not None and found[0] in (_GIT_FILE_MODE, _GIT_EXEC_MODE):
+            out[rel] = found[0]
+    return out
+
+
 def _surviving_writes(
-    repo_root: Path, entries: "Mapping[str, Path]", deletions: "Sequence[str]"
+    repo_root: Path,
+    entries: "Mapping[str, Path]",
+    deletions: "Sequence[str]",
+    declared_modes: "Optional[Mapping[str, int]]" = None,
+    unchanged_out: "Optional[list[Any]]" = None,
 ) -> "tuple[dict[str, Any], list[str]]":
-    """The union entries whose (mode, blob sha) differ from HEAD, and the deletions HEAD holds."""
+    """The union entries whose (mode, blob sha) differ from HEAD, and the deletions HEAD holds.
+    An entry's mode is its source tree's (`declared_modes`), else HEAD's, else the shebang guess.
+    Entries equal to HEAD are appended to `unchanged_out` so landing can converge their disk bit."""
     from coordinator_core.git.git_state import head_blobs  # noqa: PLC0415
     from percolate.diff_commit import DestWrite  # type: ignore[import-not-found]  # noqa: PLC0415
 
+    declared = declared_modes or {}
     head = head_blobs(repo_root, sorted(entries) + sorted(deletions))
     survivors: "dict[str, Any]" = {}
     for rel in sorted(entries):
         data, mode = _read_staged_entry(entries[rel])
         prior = head.get(rel)
-        # The shebang guess is for new paths only: an existing file keeps HEAD's exec bit, which
-        # the staged bytes cannot reveal on a filesystem without one.
-        if prior is not None and mode != _GIT_LINK_MODE and prior[0] in (_GIT_FILE_MODE, _GIT_EXEC_MODE):
-            mode = prior[0]
+        if mode != _GIT_LINK_MODE:
+            if rel in declared:
+                mode = declared[rel]
+            elif prior is not None and prior[0] in (_GIT_FILE_MODE, _GIT_EXEC_MODE):
+                mode = prior[0]
         if prior != (mode, _blob_sha1(data)):
             survivors[rel] = DestWrite(rel, data, mode)
+        elif unchanged_out is not None:
+            unchanged_out.append(DestWrite(rel, data, mode))
     return survivors, sorted(d for d in deletions if d in head)
 
 
@@ -12679,19 +12801,29 @@ def _rebuild_round_door(repo_root: Path, union_root: Path, *, warm: bool) -> "tu
     return True, {rel: union_root / rel for rel in _DOOR_ARTIFACT_RELS if (union_root / rel).is_file()}
 
 
+def _removal_source_root(target: "ResolvedTarget", rel: str) -> Path:
+    """The source root that feeds destination-relative `rel`: the `source_map` root whose entry
+    covers it (longest entry wins), else the row's `source_dir`."""
+    routed = _parse_source_map(getattr(target, "source_map", "") or "")
+    covering = [entry for entry in routed if _path_covers(entry, rel)]
+    return routed[max(covering, key=len)] if covering else target.source_dir
+
+
 def _source_deleted_paths(targets: "Iterable[ResolvedTarget]") -> "frozenset[str]":
-    """Every path this repo's history deleted under the rows' source dirs, repo-root-relative POSIX.
+    """Every path this repo's history deleted under the rows' source dirs and `source_map` entries,
+    repo-root-relative POSIX.
 
     Cold rounds only: a destination dir can hold another publisher's files (DoE publishes into the
     same klabauter dirs these rows mirror), so "in the destination, not in this row's payload" is
     not a removal. One spawn per cold round. `--no-renames`: a moved file must read as deleted.
     Empty on any git failure, so an unprovable removal is never taken."""
+    pathspecs: "set[Path]" = set()
+    for target in targets:
+        pathspecs.add(target.source_dir)
+        routed = _parse_source_map(getattr(target, "source_map", "") or "")
+        pathspecs.update(root / entry for entry, root in routed.items())
     specs = sorted(
-        {
-            target.source_dir.relative_to(_REPO_ROOT).as_posix()
-            for target in targets
-            if target.source_dir.is_relative_to(_REPO_ROOT)
-        }
+        {spec.relative_to(_REPO_ROOT).as_posix() for spec in pathspecs if spec.is_relative_to(_REPO_ROOT)}
     )
     if not specs:
         return frozenset()
@@ -12712,11 +12844,14 @@ def _removals_this_source_shipped(
     """The row's cold removals this repo once held at that path and since deleted, plus those its
     allowlist `!`-withholds; the rest are reported, kept."""
     removals = set(removals)
-    if not target.source_dir.is_relative_to(_REPO_ROOT):
-        kept: "set[str]" = set()
-    else:
-        prefix = target.source_dir.relative_to(_REPO_ROOT).as_posix()
-        kept = {r for r in removals if (r if prefix == "." else f"{prefix}/{r}") in shipped_then_deleted}
+    kept: "set[str]" = set()
+    for r in removals:
+        root = _removal_source_root(target, r)
+        if not root.is_relative_to(_REPO_ROOT):
+            continue
+        prefix = root.relative_to(_REPO_ROOT).as_posix()
+        if (r if prefix == "." else f"{prefix}/{r}") in shipped_then_deleted:
+            kept.add(r)
     if target.allowlist:
         _bootstrap_engine()
         _entries, exclusions = split_inclusion_exclusion(parse_allowlist_csv(target.allowlist))
@@ -12770,7 +12905,7 @@ def _assemble_root_union(
     union_root = _create_publish_staging_dir(repo_root)
     warm = plan.cold is None
     shipped_then_deleted = None if warm else _source_deleted_paths(target for target, _staged in staged_rows)
-    winners: "dict[str, tuple[int, Path]]" = {}
+    winners: "dict[str, tuple[int, Path, ResolvedTarget, str]]" = {}
     deletions: "set[str]" = set()
     for target, staged in staged_rows:
         rel_prefix = target.dest_dir.relative_to(repo_root)
@@ -12784,17 +12919,23 @@ def _assemble_root_union(
             rel = (rel_prefix / row_rel).as_posix()
             current = winners.get(rel)
             if current is None or rank >= current[0]:
-                winners[rel] = (rank, staged_path)
+                winners[rel] = (rank, staged_path, target, row_rel)
         removals = staged.row_removed_files
         if shipped_then_deleted is not None:
             removals = _removals_this_source_shipped(target, removals, shipped_then_deleted)
         unshipped = _paths_the_row_allowlist_denies(target, removals)
-        refuse_removals_with_live_source(
-            target.source_dir, [r for r in removals if r not in unshipped], target.name
-        )
+        by_root: "dict[Path, list[str]]" = {}
+        for r in removals:
+            if r not in unshipped:
+                by_root.setdefault(_removal_source_root(target, r), []).append(r)
+        for root, root_removals in by_root.items():
+            refuse_removals_with_live_source(root, root_removals, target.name)
         for row_rel in removals:
             deletions.add((rel_prefix / row_rel).as_posix())
-    entries = {rel: path for rel, (_rank, path) in winners.items()}
+    entries = {rel: win[1] for rel, win in winners.items()}
+    declared_modes = _source_declared_modes(
+        {rel: (win[2], win[3]) for rel, win in winners.items()}, round_pinned_shas
+    )
     head_paths: "Optional[dict[str, str]]" = None
     if not warm:
         head_paths = _head_tree_blob_shas(repo_root)
@@ -12815,11 +12956,12 @@ def _assemble_root_union(
     for rel, path in entries.items():
         _link_or_copy(path, union_root / rel)
 
-    survivors, dels = _surviving_writes(repo_root, entries, sorted(deletions))
+    unchanged: "list[Any]" = []
+    survivors, dels = _surviving_writes(repo_root, entries, sorted(deletions), declared_modes, unchanged)
     meaningful = any(not _is_round_derived(r) for r in survivors) or bool(dels)
     nonempty = bool(entries) or bool(deletions)
     if not meaningful:
-        return _RootUnion(repo_root, plan, union_root, staged_rows, {}, [], nonempty)
+        return _RootUnion(repo_root, plan, union_root, staged_rows, {}, [], nonempty, converge=unchanged)
 
     door_ok = True
     derived: "dict[str, Path]" = {}
@@ -12845,7 +12987,14 @@ def _assemble_root_union(
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(path, dst)
             entries[rel] = dst
-        survivors, dels = _surviving_writes(repo_root, entries, sorted(deletions))
+        unchanged = []
+        survivors, dels = _surviving_writes(repo_root, entries, sorted(deletions), declared_modes, unchanged)
+        unmapped = sum(1 for rel in entries if rel not in declared_modes)
+        if unmapped:
+            print(
+                f"  {repo_root}: {unmapped} union entr(ies) have no source-tree mode "
+                f"(HEAD's mode, then the shebang guess)."
+            )
 
         pinned = round_pinned_shas.get(_engine_toplevel_key())
         if pinned and _root_fully_published(repo_root, succeeded_row_names, rows_feeding_root):
@@ -12854,7 +13003,7 @@ def _assemble_root_union(
                 survivors[_EXPECTED_MANIFEST_REL] = DestWrite(_EXPECTED_MANIFEST_REL, manifest, _GIT_FILE_MODE)
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
-    return _RootUnion(repo_root, plan, union_root, staged_rows, survivors, dels, nonempty, door_ok)
+    return _RootUnion(repo_root, plan, union_root, staged_rows, survivors, dels, nonempty, door_ok, unchanged)
 
 
 def _declared_payload(u: "_RootUnion", written: "Sequence[str]") -> "frozenset[str]":
@@ -13362,7 +13511,7 @@ def _run_round(
                 stamped = fully and bool(head_sha) and bool(u.plan.signature)
                 outcome = None
                 land_exc: "Optional[Exception]" = None
-                if u.survivors or u.deletions:
+                if u.survivors or u.deletions or u.converge:
                     message = _sync_commit_message(
                         repo_root.name,
                         root_ok_names,
@@ -13377,7 +13526,7 @@ def _run_round(
                     try:
                         outcome = land_diff(
                             repo_root,
-                            list(u.survivors.values()),
+                            list(u.survivors.values()) + u.converge,
                             u.deletions,
                             message,
                             commit=commit_now,
@@ -13530,6 +13679,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     FAILED, and an end-of-run gate failure returned the same code (1) as a
     row failure, making the two indistinguishable from the exit code alone.
     """
+    global _ENGINE_ROOT
+    _source_ref_arg = _source_ref_from_argv(argv)
+    if _source_ref_arg and not _BOOTSTRAP_DONE:
+        try:
+            _ENGINE_ROOT = _export_engine_at_ref(_REPO_ROOT, _source_ref_arg)
+        except RuntimeError as exc:
+            print(f"publish: refused -- {exc}", file=sys.stderr)
+            return 1
+
     _bootstrap_engine()
 
     args = build_arg_parser().parse_args(argv)

@@ -72,9 +72,18 @@ Sections 1-3 govern a child process the operator must not *see*. This one govern
 operator *types into*, and it is the opposite constraint: not "hide the console" but "do not put
 anything between the shell and the process that owns it."
 
-**The rule.** On Windows the interactive `claude.exe` is spawned by the operator's shell and by
-nothing else. Any intermediate process — `cmd.exe`, `python.exe`, a `bash -c` hop — corrupts the
-console input mode of the operator's terminal. Not "eventually reached": directly spawned.
+**The rule.** On Windows the interactive `claude.exe` is a direct child of the operator's shell,
+except under the opt-in `--control-socket`, where it runs on its own ConPTY and the supervisor is
+the only reader of the real console. Otherwise any intermediate process — `cmd.exe`, `python.exe`,
+a `bash -c` hop — corrupts the console input mode of the operator's terminal. Not "eventually
+reached": directly spawned.
+
+**The supervised carve-out.** The ConPTY child is created with STARTF_USESTDHANDLES and NULL std
+handles (`test_create_process_contract`), so no real-console handle reaches it;
+`test_conpty_child_not_in_supervisor_console_process_list` (in
+`coordinator/bin/tests/test_claude_author_control_relay_windows.py`) pins that it is outside the
+supervisor's console process list. The flag lives in the engine-owned claude-author wrapper; the
+launcher templates' supervised-delegation class is the in-tree half.
 
 **The failure signature**, so an agent recognises it in one look: literal `[I` and `[O` text
 filling the terminal, keystrokes misrouting to a phantom row, and the host shell's own prompt left

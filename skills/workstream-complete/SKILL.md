@@ -23,10 +23,11 @@ This ceremony is computed end to end: directives ship as `directives[]`, what ca
 
 Shape W (PowerShell) shown; POSIX hosts take Shape A/B: `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`.
 
-`& "$env:COORDINATOR_SETTINGS_HOME\bin\workstream-complete-assemble.exe" brief [--decisions-file <path>]`
-**Prefer `--decisions-file` on both subcommands; `--decisions '<json>'` is for short payloads.** Prose on argv is mangled; supplying both channels fails loud.
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\workstream-complete-assemble.exe" brief --render instruction-set [--decisions-file <path>]`
+Work the rendered set top to bottom ([computed-skills](../../docs/wiki/skills-corpus/computed-skills.md)); on exit 2 (no `--render`) run plain `brief`.
+**Prefer `--decisions-file`;** `--decisions '<json>'` for short payloads; passing both fails loud.
 
-Returns `artifact`/`preflight`/`gates`/`directives`/`judgment_points`/`decisions`/`narration`/`next_move`. `preflight.session_shape` (= `gates.session_shape`) carries `sid`, `disposition` (`single-session`/`predecessor-consumed`: consumed a predecessor, not that a successor follows), `consumed_handoff`, detector diagnostics. `jp-session-shape` is the untrusted-gate point for an uncertain resolution.
+Plain `brief` returns `artifact`/`preflight`/`gates`/`directives`/`judgment_points`/`decisions`/`narration`/`next_move`. `preflight.session_shape` carries `sid`, `disposition` (`single-session`/`predecessor-consumed`), `consumed_handoff`, detector diagnostics. `jp-session-shape` is the untrusted-gate point for an uncertain resolution.
 
 ---
 
@@ -43,7 +44,7 @@ Returns `artifact`/`preflight`/`gates`/`directives`/`judgment_points`/`decisions
   performs it.
   1. Hand-stamp `deployment_state`/`shipped_in` on **only** the two batons § Apply's carve-out
      omits from the payload; **never re-stamp one the payload already stamped.**
-  2. **After** `apply`'s own disposal read, once every payload-stamped and hand-stamped baton carries a terminal `deployment_state`, run `sweep-terminal-handoffs` (idempotent no-op when nothing moves).
+  2. **After** `apply`'s own disposal read, once every payload-stamped and hand-stamped baton carries a terminal `deployment_state`, run `sweep-terminal-handoffs`.
   3. **Close condition: `state/handoffs/` holds no record carrying a terminal
      `deployment_state`** (`shipped`/`continued`/`closed` —
      `HANDOFF_TERMINAL_DEPLOYMENT`; `declined`/`superseded` are `status` values, never `deployment_state`) **when this ceremony reports complete.** Never
@@ -52,7 +53,7 @@ Returns `artifact`/`preflight`/`gates`/`directives`/`judgment_points`/`decisions
 
   `[[terminal-batons-are-swept-at-close-not-left-to-the-next-ceremony]]`
 - **Kira fires per the run's review tier** (L/XL/XXL in the engine-ask review wave; XS/S/M skip Kira by design), never on every close.
-- **An idle subagent has not failed.** Recover a review that never delivered its verdict from its transcript under `subagents/` (`stop_reason: end_turn` = finished); never replace it with `em-verified`, which overwrites an independent finding. `AN-IDLE-SUBAGENT-HAS-NOT-NECESSARILY-FAILED`.
+- **An idle subagent has not failed.** Recover a review that never delivered its verdict from its transcript under `subagents/`; never replace it with `em-verified`, which overwrites an independent finding. `AN-IDLE-SUBAGENT-HAS-NOT-NECESSARILY-FAILED`.
 
 ---
 
@@ -185,6 +186,8 @@ gate-specific reading says are worth naming. Readings:
 | Not worth doing | won't-do |
 | Worth doing, not now | backlog |
 | A distinct workstream someone else should pick up | spinoff |
+
+**Then append the changelog:** `& "$env:COORDINATOR_SETTINGS_HOME\bin\workday-complete-step9-append-changelog.exe" --no-push` (POSIX `$COORDINATOR_SETTINGS_HOME/bin/workday-complete-step9-append-changelog --no-push`).
 
 ---
 

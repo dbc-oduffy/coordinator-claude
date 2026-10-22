@@ -21,6 +21,12 @@
 #     READ-ONLY — mutates nothing (coordinator_core.workstream_complete
 #     never performs a mutating action itself; every mutation is returned as
 #     a directives[] entry naming an existing atomic CLI).
+#   apply --decisions <json> | --decisions-file <path>
+#     Applies the ceremony's decisions. Entry-surface keys: `title`, `prose`,
+#     `nature`, and the aliases `completion_title` / `completion_prose` /
+#     `completion_nature`, which win for the entry (`prose` also feeds the
+#     commit body). Any other `completion_*` key is refused under exit 1.
+#     The `subject` key gates the close commit.
 #
 # Exit codes (locally scoped to this CLI, NOT inherited — see the contract's
 # own § Exit-code contract):

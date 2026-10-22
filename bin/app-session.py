@@ -18,8 +18,15 @@ Usage:
     python3 app-session.py launch --key <k> [--repo-root <path>]
     python3 app-session.py census [--key <k>] [--repo-root <path>]
     python3 app-session.py teardown --key <k> [--repo-root <path>]
+    python3 app-session.py validate --key <k> [--variant <v>] [--out <dir>]
+                                    [--wait <seconds>] [--repo-root <path>]
 
-    launch/teardown require --key; census's --key is optional (omitted lists
+    validate calls app_session.validate, then polls the run dir's result.json
+    and prints it as indented, key-sorted JSON. --wait (integer seconds) re-calls the op every 2 s
+    while it refuses with stage "guard". On a poll lapse it tears down
+    "<key>@validate" and prints an ok:false stage "sweep" timeout result.
+
+    launch/teardown/validate require --key; census's --key is optional (omitted lists
     every persisted handle in the consuming repo — see the op's own
     docstring). --repo-root is optional on every verb; when omitted it
     defaults the same way advance-tracker-status.py's own <repo_root>
@@ -45,6 +52,9 @@ field):
         teardown, unrecognized verb/argument, or repo_root unresolvable).
     3 — transport/op failure (the engine root unresolvable, coordinator_core.
         invoke seam absent, or the op itself raised).
+    validate only:
+    4 — the sweep finished with defect_count > 0.
+    5 — the result is ok:false (refusal, incomplete run) or the wait lapsed.
 
 Spec backlink: cross-repo/inbox/2026-08-15-*-app-session-ops-need-a-cli-entrypoint.md
 Spec backlink: claude-klabauter coordinator_core/ops/app_session.py
@@ -63,6 +73,10 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
+
+_sleep = time.sleep
+_monotonic = time.monotonic
 
 _USAGE_FAIL = 2
 _TRANSPORT_FAIL = 3
@@ -116,8 +130,13 @@ _VERBS = {
     "launch": "app_session.launch",
     "census": "app_session.census",
     "teardown": "app_session.teardown",
+    "validate": "app_session.validate",
 }
-_KEY_REQUIRED_VERBS = ("launch", "teardown")
+_KEY_REQUIRED_VERBS = ("launch", "teardown", "validate")
+_VALIDATE_DEFECTS = 4
+_VALIDATE_INCOMPLETE = 5
+_GUARD_RETRY_S = 2
+_RESULT_POLL_S = 1
 
 
 def _resolve_repo_root(explicit: str | None) -> str | None:
@@ -140,10 +159,79 @@ def _usage(prog: str, stream=None) -> int:
     print(
         f"{prog}: usage: {prog} launch --key <k> [--repo-root <path>]\n"
         f"       {prog} census [--key <k>] [--repo-root <path>]\n"
-        f"       {prog} teardown --key <k> [--repo-root <path>]",
+        f"       {prog} teardown --key <k> [--repo-root <path>]\n"
+        f"       {prog} validate --key <k> [--variant <v>] [--out <dir>] [--wait <seconds>] [--repo-root <path>]",
         file=stream or sys.stderr,
     )
     return _USAGE_FAIL
+
+
+def _emit(result: dict) -> None:
+    print(json.dumps(result, indent=2, sort_keys=True))
+
+
+def _validate_exit(result: dict) -> int:
+    if result.get("ok") is False:
+        return _VALIDATE_INCOMPLETE
+    defects = result.get("defect_count")
+    if isinstance(defects, int) and defects > 0:
+        return _VALIDATE_DEFECTS
+    return 0
+
+
+def _run_validate(prog: str, params: dict, repo_root: str, key: str, wait_s: int) -> int:
+    """Call app_session.validate, poll its run_dir for result.json, map exit 0/4/5."""
+    op = _VERBS["validate"]
+    deadline = _monotonic() + wait_s
+    try:
+        while True:
+            result = cc_invoke.route(op, params, repo_root, _no_fallback)
+            refused_on_guard = (
+                result.get("ok") is False and result.get("stage") == "guard"
+            )
+            if not refused_on_guard or _monotonic() + _GUARD_RETRY_S > deadline:
+                break
+            _sleep(_GUARD_RETRY_S)
+
+        if not result.get("started"):
+            _emit(result)
+            return _validate_exit(result)
+
+        from coordinator_core.ops._app_session_validate_contract import read_result
+
+        run_dir = result["run_dir"]
+        poll_deadline = _monotonic() + float(result.get("wait_budget_s") or 0)
+        while True:
+            final = read_result(run_dir)
+            if final is not None:
+                _emit(final)
+                return _validate_exit(final)
+            if _monotonic() >= poll_deadline:
+                break
+            _sleep(_RESULT_POLL_S)
+
+        try:
+            cc_invoke.route(
+                _VERBS["teardown"],
+                {"repo_root": repo_root, "key": f"{key}@validate"},
+                repo_root,
+                _no_fallback,
+            )
+        except RuntimeError as exc:
+            print(f"{prog}: teardown of {key}@validate failed: {exc}", file=sys.stderr)
+        _emit(
+            {
+                "ok": False,
+                "configured": True,
+                "stage": "sweep",
+                "error": f"timeout: no result.json after {result.get('wait_budget_s')}s",
+                "run_dir": run_dir,
+            }
+        )
+        return _VALIDATE_INCOMPLETE
+    except RuntimeError as exc:
+        print(f"{prog}: {op} failed (transport error): {exc}", file=sys.stderr)
+        return _TRANSPORT_FAIL
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -166,6 +254,9 @@ def main(argv: list[str] | None = None) -> int:
 
     key = None
     repo_root_arg = None
+    variant = None
+    out_dir = None
+    wait_raw = None
     rest = argv[1:]
     i = 0
     unrecognized: list[str] = []
@@ -176,6 +267,15 @@ def main(argv: list[str] | None = None) -> int:
             i += 2
         elif tok == "--repo-root" and i + 1 < len(rest):
             repo_root_arg = rest[i + 1]
+            i += 2
+        elif verb == "validate" and tok == "--variant" and i + 1 < len(rest):
+            variant = rest[i + 1]
+            i += 2
+        elif verb == "validate" and tok == "--out" and i + 1 < len(rest):
+            out_dir = rest[i + 1]
+            i += 2
+        elif verb == "validate" and tok == "--wait" and i + 1 < len(rest):
+            wait_raw = rest[i + 1]
             i += 2
         else:
             unrecognized.append(tok)
@@ -194,9 +294,26 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{prog}: cannot resolve git repo root", file=sys.stderr)
         return _usage(prog)
 
+    wait_s = 0
+    if wait_raw is not None:
+        try:
+            wait_s = int(wait_raw)
+        except ValueError:
+            wait_s = -1
+        if wait_s < 0:
+            print(f"{prog}: --wait requires a non-negative integer", file=sys.stderr)
+            return _usage(prog)
+
     params: dict = {"repo_root": repo_root}
     if key:
         params["key"] = key
+
+    if verb == "validate":
+        if variant:
+            params["variant"] = variant
+        if out_dir:
+            params["out_dir"] = out_dir
+        return _run_validate(prog, params, repo_root, key, wait_s)
 
     op = _VERBS[verb]
     try:

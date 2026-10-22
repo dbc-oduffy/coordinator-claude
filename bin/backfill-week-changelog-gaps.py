@@ -43,6 +43,9 @@ Options:
         would be written, without writing anything. Forwarded to
         coordinator_core.ops.changelog_ops.main(), which resolves it into
         backfill_gaps(dry_run=True).
+    --through YYYY-MM-DD    Last day the backfill may write; days after it are
+        left open (catch-up runs pass the last missed day). Absent: bounded
+        by the coordinator local day. A malformed date exits 2 with no write.
 
 Exit codes:
     0 -- success or advisory-error. changelog_ops.main() never propagates an

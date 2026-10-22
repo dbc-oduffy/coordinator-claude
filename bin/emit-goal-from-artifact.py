@@ -98,6 +98,7 @@ _STATUS_MAP = {
     "active": "active",
     "achieved": "done",
     "abandoned": "dropped",
+    "closed": "dropped",
 }
 
 

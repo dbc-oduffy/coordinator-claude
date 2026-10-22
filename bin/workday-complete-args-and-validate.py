@@ -56,7 +56,8 @@ contain a single quote):
 
 Exit codes:
   parse-front-door:    0 ok; 1 `--only` without `--for-date`.
-  check-cross-machine: 0 ok or not-applicable (no `--for-date`, or no `--machine`); 1 mismatch.
+  check-cross-machine: 0 ok or not-applicable (no `--for-date`, or no `--machine`); 1 mismatch,
+                       or 1 with `REFUSED: generated-mirror` when `<cwd>/.generated-mirror` exists.
   run-step1:           forwards workday-complete-step1-validate.py's exit code verbatim.
 """
 from __future__ import annotations
@@ -118,6 +119,13 @@ def _current_machine() -> str:
 
 
 def cmd_check_cross_machine(arguments: str) -> int:
+    if os.path.exists(os.path.join(os.getcwd(), ".generated-mirror")):
+        _err(
+            "REFUSED: generated-mirror — changelog rituals do not run in a "
+            "generated mirror repo; run them in the source repo"
+        )
+        return 1
+
     if not _FOR_DATE_RE.search(arguments):
         return 0
 

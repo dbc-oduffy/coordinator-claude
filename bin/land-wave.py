@@ -130,7 +130,19 @@ def _stamped_nothing(lane: str, row) -> bool:
     Reading only the lane-named flag counted every `approved` row as a write, so a re-landed wave
     whose plans were all `already at status: approved` reported the same totals as a fresh one.
     """
-    return isinstance(row, dict) and (row.get(lane) is False or row.get("stamped") is False)
+    return (
+        isinstance(row, dict)
+        and not row.get("already_in_state")
+        and (row.get(lane) is False or row.get("stamped") is False)
+    )
+
+
+def _noop_count(reply: dict) -> int:
+    """Rows already in their landed state: a re-land of them is a no-op, never a refusal."""
+    n = len(reply.get("noop") or [])
+    for lane in _LANES:
+        n += sum(1 for r in (reply.get(lane) or []) if isinstance(r, dict) and r.get("already_in_state"))
+    return n
 
 
 def _lane_refusals(reply: dict) -> list[str]:
@@ -686,6 +698,7 @@ def main(argv=None) -> int:
 
     totals = {lane: 0 for lane in _LANES}
     landings, all_refused, all_surfaced, all_fell_back = [], [], [], []
+    noops = 0
     tracker_shipped: list[str] = []
     next_wave = None
 
@@ -723,10 +736,11 @@ def main(argv=None) -> int:
             lane: sum(
                 1
                 for row in (reply.get(lane) or [])
-                if not _stamped_nothing(lane, row)
+                if not _stamped_nothing(lane, row) and not (isinstance(row, dict) and row.get("already_in_state"))
             )
             for lane in _LANES
         }
+        noops += _noop_count(reply)
         for lane, n in counted.items():
             totals[lane] += n
 
@@ -754,6 +768,16 @@ def main(argv=None) -> int:
         )
 
     advanced = sum(totals.values())
+    # Nothing new and nothing refused: every baton was already landed. Exit clean and write
+    # nothing, so the prior landing's hand-forward record stays the record.
+    if advanced == 0 and noops > 0 and not all_refused:
+        if args.json:
+            print(json.dumps({"waveIndex": wave_index, "advanced": 0, "noop": noops,
+                              "refused": [], "landingCommit": None}, indent=2))
+        else:
+            print(f"land-wave: wave {wave_index} already landed — {noops} baton(s) already in "
+                  "state, nothing new; nothing written or committed")
+        return EXIT_OK
     uncommitted = _landing_pathspec(fires, [l["reply"] for l in landings], repo_root)
     # The declaration written just below is dirty by construction, and the scan above ran before
     # it existed — so it is named here rather than left for the next landing to find.

@@ -31,7 +31,7 @@ agent-dispatch.py` is DEREGISTERED from `hooks.json`'s `Agent` matcher
 entirely -- Agent was its only matcher, so once its decision is folded into
 `enforce-agent-dispatch-mode.py`'s single-emitter path there is no live
 matcher left where it is a legitimate standalone emitter (same reasoning
-Concern F applied to `guard-named-dispatch-tool-restriction.py`). The script
+Concern F applies to the named-dispatch strip). The script
 and the engine's own `coordinator_core.hooks.nudge_foreground_agent_dispatch`
 op stay on disk as the reference implementation of this exact algorithm and
 keep their own dedicated test suites exercising it via direct

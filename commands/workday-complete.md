@@ -35,19 +35,20 @@ Capture stdout+exit code of each; non-zero on either stops. A cross-machine `--f
 fails loud — stop and report; a pass prints nothing.
 
 No tool exports the variables — parse them from `$ARGUMENTS` yourself: `--for-date <YYYY-MM-DD>`
-sets `$FOR_DATE`; `--only` sets `$ONLY_MODE=1` and `$ONLY_FLAG=--only`; the remaining words are
+sets `$FOR_DATE`; `--only` sets `$ONLY_MODE=1` and `$ONLY_FLAG=--only`; `--catch-up` or `--conclude` sets `$PERIOD_FLAG` to that flag (mutually
+exclusive, each refused beside `--only`/`--for-date`; neither: empty, the clock decides); the remaining words are
 `$SCOPE_SUMMARY`. Anything absent is empty, and `$ONLY_MODE=0`. No arguments: all empty.
 
 ## Step 2: Compute the Ceremony
 
 POSIX hosts: Shape A, resolving `workday-complete-assemble brief
-${FOR_DATE:+--for-date "$FOR_DATE"} $ONLY_FLAG ${SCOPE_SUMMARY:+--scope-summary="$SCOPE_SUMMARY"}`.
+${FOR_DATE:+--for-date "$FOR_DATE"} $ONLY_FLAG $PERIOD_FLAG ${SCOPE_SUMMARY:+--scope-summary="$SCOPE_SUMMARY"}`.
 
 PowerShell hosts (rung 0, Shape W):
 
-    & "$env:COORDINATOR_SETTINGS_HOME\bin\workday-complete-assemble.exe" brief $(if ($FOR_DATE) { "--for-date", $FOR_DATE }) $ONLY_FLAG $(if ($SCOPE_SUMMARY) { "--scope-summary=$SCOPE_SUMMARY" })
+    & "$env:COORDINATOR_SETTINGS_HOME\bin\workday-complete-assemble.exe" brief $(if ($FOR_DATE) { "--for-date", $FOR_DATE }) $ONLY_FLAG $PERIOD_FLAG $(if ($SCOPE_SUMMARY) { "--scope-summary=$SCOPE_SUMMARY" })
 
-Splice `$ONLY_FLAG`/`${SCOPE_SUMMARY:+...}` exactly as shown (wiki).
+Splice `$ONLY_FLAG`/`$PERIOD_FLAG`/`${SCOPE_SUMMARY:+...}` exactly as shown (wiki).
 
 ## Step 3-4: RAG Nudge, Plugin Validation
 
@@ -79,7 +80,7 @@ Read each `judgment_points[]` entry verbatim — question/evidence/dispositions 
   owner, even where the tool labels it `peer-claim (needs PM)`; that label routes nowhere, and
   an orphan is adopt-commit. Everything left over is adopt-commit; Step 9e will not let the ceremony end while any of
   it is still dirty.
-- `jp_step3_5_backfill_cap`: backfill all, or bounded subset (default).
+- `jp_step3_5_backfill_cap`: a backfill disposition the PM already stated this session ("backfill any records we've missed") settles it as backfill all. The point is raised only when the scan exceeds the cap; the backfill-cap run rule resolves it to `backfill_all`.
 - `jp_step4b_analyst_dispatch`: dispatch unless `skip_no_new_work`. `jp_step4c_observer_dispatch`:
   never dispatch daily; the observer runs weekly (`/workweek-complete` Step 7b).
 - `jp_step4_5_clustering_dispatch`: dispatch per ≥2-entry chain; `skip_only_mode` under `$ONLY_MODE=1`.
@@ -89,17 +90,17 @@ Read each `judgment_points[]` entry verbatim — question/evidence/dispositions 
 ## Step 6: Apply
 
 POSIX hosts: Shape A, resolving `workday-complete-assemble apply --decisions-file <path>` (path to
-a file containing the json map of judgment_point_id -> {"disposition": "<value>"}) `${FOR_DATE:+--for-date "$FOR_DATE"} $ONLY_FLAG`.
+a file containing the json map of judgment_point_id -> {"disposition": "<value>"}) `${FOR_DATE:+--for-date "$FOR_DATE"} $ONLY_FLAG $PERIOD_FLAG`.
 
 PowerShell hosts (rung 0, Shape W):
 
-    & "$env:COORDINATOR_SETTINGS_HOME\bin\workday-complete-assemble.exe" apply --decisions-file <path> $(if ($FOR_DATE) { "--for-date", $FOR_DATE }) $ONLY_FLAG
+    & "$env:COORDINATOR_SETTINGS_HOME\bin\workday-complete-assemble.exe" apply --decisions-file <path> $(if ($FOR_DATE) { "--for-date", $FOR_DATE }) $ONLY_FLAG $PERIOD_FLAG
 
 Read `landed`/`blocked`/`failed`; `blocked` returns to Step 5; a `blocked` directive the decisions file set to `skip` is settled, never a return (exit codes: wiki).
 
 ## Step 6b-7: Daily-Summary Dispatch and Stitch
 
-Dispatch a Sonnet analyst (target day: `$FOR_DATE` under `$ONLY_MODE=1`, else today) writing
+Dispatch a Sonnet analyst (target day: `$FOR_DATE` under `$ONLY_MODE=1`, else today; under catch-up, gap-day analysts only) writing
 `archive/daily-summaries/<target-day>-<machine>.md` (analyst only; the strategic observer runs
 weekly in `/workweek-complete` Step 7b). Skip on `skip_no_new_work`. Each Step 6 backfill gap-row
 TSV entry (oldest-first) gets its own analyst dispatch, only after Step 6 completes (wiki).
@@ -112,12 +113,12 @@ for touched systems. Remove `tasks/daily-review-scratch`.
 
 ## Step 8: Completion-Log Clustering
 
-Skip `$ONLY_MODE=1`. Per `jp_step4_5_clustering_dispatch`: dispatch a `narrative:` synthesis
+Skip `$ONLY_MODE=1` or catch-up. Per `jp_step4_5_clustering_dispatch`: dispatch a `narrative:` synthesis
 worker per ≥2-entry chain lacking one (≤300 words, SHAs preserved, no editorial bucketing).
 
 ## Step 9: Completed Archive Audit
 
-Skip `$ONLY_MODE=1`. Add/fix entries from today's commits and the brief's receipts (see
+Skip `$ONLY_MODE=1` or catch-up. Add/fix entries from today's commits and the brief's receipts (see
 `release-and-distribution/completion-receipts.md`); an uncovered receipt goes into a meta-entry. Report: _"Archive audit: N verified, M added, K corrected; R receipts, U without
 a covering entry."_
 
@@ -131,7 +132,7 @@ PowerShell hosts (rung 0, Shape W), one command per line:
     & "$env:COORDINATOR_SETTINGS_HOME\bin\day-coverage-sweep.exe" <resolved day, YYYY-MM-DD>
     & "$env:COORDINATOR_SETTINGS_HOME\bin\baton-drift-sweep.exe"
 
-Skip both under `$ONLY_MODE=1`. Read counts straight off, never collapsed to one number
+Skip both under `$ONLY_MODE=1` or catch-up. Read counts straight off, never collapsed to one number
 (`foreign`/`sibling_homed` are not gaps; `stranded` must be zero, `held` need not be — wiki). Act on `orphaned`/`stranded`/non-terminal
 handoff counts by their category, not the raw total: a large unclaimed or non-terminal count is
 a backlog to triage by category, not one failure (wiki).
@@ -185,7 +186,7 @@ Clean: silent. Drifted: surface the generator's own stdout line, nothing more.
 
 ## Step 10: Final Summary
 
-Report by exception, ≤200 words — a clean wrap is the shortest run.
+Report by exception, ≤200 words — a clean wrap is the shortest run. Under catch-up, lead with the brief's narration line `Catch-up run: <missed periods> backfilled; <in_progress> left open`.
 
 ```
 ## Workday Complete
@@ -199,12 +200,13 @@ Append only if true: day summary / targeted wrap prefix; validate exit non-zero;
 non-zero; plugin-validation failures; archive-audit added/corrected; commit-coverage/baton-drift
 (`$ONLY_MODE=0` AND `orphaned`/`stranded` > 0); auto-memory disposition list (residue printed);
 weekly staleness STALE/MILD; post-ceremony hook line non-empty; spec-dispatch discharge (scoped
-reviewer verdict, integration commit, plan-reconciliation state). Never print
-consolidated/review/reconcile/changelog lines — the commit already records them.
+reviewer verdict, integration commit, plan-reconciliation state); the number of Step 6
+backfill gap rows dispatched, when > 0. Never print consolidated/review/reconcile lines or a
+changelog path — the commit already records them.
 
 **Negative-spec — these are gone, do not restore them.** `Branches consolidated`, `Daily review`,
-`Completion reconcile`, and `Week-changelog` are not printed at all. Each was a count or path the
-ceremony's own commit already records, carrying no PM decision. Their absence is not a signal the
+`Completion reconcile`, and the `Week-changelog` path/count line are not printed at all. Each was a count or path the
+ceremony's own commit already records, carrying no PM decision. The one changelog line that prints is the Step 6 backfill gap-row count when > 0. Their absence is not a signal the
 step was skipped — the directives still run, the commit is their record. Do not re-add any of them
 "for completeness": completeness of the *ceremony* is the assembler's job, completeness of the
 *report* is not the same thing.

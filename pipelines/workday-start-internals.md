@@ -372,7 +372,7 @@ Helper: the engine repo's `coordinator/bin/workday-start-cross-repo-memo-surface
 
 ## Step 1.46 — Outstanding Outbox Drafts (details)
 
-Helper: the engine repo's `coordinator/bin/workday-start-cross-repo-memo-outbox-surface.py`.
+Helper: the engine repo's `coordinator_core/workday_start/outbox_drafts.py`.
 
 **Query.** Glob `state/memo-outbox/*.md` (git-root-relative), filter to files with mtime older than `${COORDINATOR_OUTBOX_STALE_HOURS:-24}` hours. Distinct from Step 1.45 — this surfaces sender-side composition state (drafts staged but not sent), not receiver-side inbox state. Mtime-based (not `created:` frontmatter), so a draft repeatedly edited resets its staleness clock.
 

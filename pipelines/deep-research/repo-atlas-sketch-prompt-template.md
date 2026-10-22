@@ -60,10 +60,9 @@ Prefix with "Preliminary" in headers. Mark uncertain connections as [PRELIMINARY
 
 ## Timing
 
-**Clock:** run `date +%s` via Bash as your first action; that is your start time.
-**Ceiling:** 5 minutes — this is mechanical work from scout data. Begin wrapping up
-and write what you have.
-**How to check time:** Run `date +%s` via Bash every 2 file reads and compare with your start.
+**Gate:** work-based, not clock-based. This is mechanical work from scout data: you are done when
+all three artifacts are written from the inventories and repomap, with every inventory read. If
+inputs run short, write what you have and mark the gap `[PRELIMINARY]`.
 
 ## Phase 1: Read Scout Data
 

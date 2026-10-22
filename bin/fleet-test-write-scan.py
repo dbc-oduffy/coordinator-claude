@@ -123,8 +123,8 @@ _PATH_LIST = re.compile(r"^/[^:\s]*:/")
 
 
 def _is_abs_literal(s: str) -> bool:
-    # Absolute on every fleet OS only. `X:/foo` and `\\host\share` are relative on POSIX
-    # (they create an `X:` / `\\host` dir in cwd), and every test runs on POSIX somewhere.
+    # Absolute on every fleet OS only. `<drive>:/foo` and `\\host\share` are relative on POSIX
+    # (they create a `<drive>:` / `\\host` dir in cwd), and every test runs on POSIX somewhere.
     if not s.startswith(("/", "\\\\.\\", "\\\\?\\")) or "\n" in s or "\r" in s:
         return False
     return not _PATH_LIST.match(s)  # `/usr/bin:/bin` is a PATH value, never a directory

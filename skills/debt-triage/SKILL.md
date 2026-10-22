@@ -84,7 +84,7 @@ else in title/body, cut to two directories. The row's `system` field is free tex
 absent — never group on it.
 
 Present `## Triage Results` with four `###` tables, each headed `<label>: N items`:
-**Closed (no longer applicable)** (ID, Reason); **Recommended for immediate action** (ID, System,
+**Closed (not applicable)** (ID, Reason); **Recommended for immediate action** (ID, System,
 Severity, Description, Effort); **Can defer** (ID, System, Severity, Reason to defer); **Needs PM
 decision (YAGNI/scope)** (ID, System, Description, Question).
 

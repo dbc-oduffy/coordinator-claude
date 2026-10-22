@@ -131,8 +131,8 @@ This is the same config surface `fast_test_cmd:` already uses (see § Week-chang
   `AN-EXTENSIONLESS-FORWARDER-PROBE-FINDS-NOTHING-ON-WINDOWS`.
 - **Runs in the repo root**, resolved via `resolve_checked_repo_root` (falls back to `cwd`).
   One command per ceremony; a repo needing multiple actions wraps them in its own script.
-- **Skipped under `/workday-complete --only`** — a targeted past-date backfill is not a live
-  end-of-day settle, so the hook does not run in that mode.
+- **Skipped under `/workday-complete --only` and `--catch-up`** — a targeted past-date backfill
+  or a catch-up run is not a live end-of-day settle, so the hook does not run in those modes.
 
 **Output contract.** On stdout, exactly one line when a command was configured and run:
 
@@ -230,7 +230,11 @@ specific fields owed.
 
 ## /workweek-complete reads changelog as ground truth — HEADER + daily entries are hard preconditions
 
-`/workweek-complete` reads the week-changelog as ground truth — a missing `HEADER` or absent daily entries for days-with-commits is a precondition failure, not a thing to read past. Backfill before the ceremony; never reconstruct silently inside the skill body. Apply: before invoking `/workweek-complete`, verify `state/week-changelog/current.md` has a `HEADER` section and at least one daily entry per day that had commits.
+`/workweek-complete` reads the week-changelog as ground truth — a missing `HEADER` or absent daily entries for days-with-commits is a precondition failure, not a thing to read past. Backfill before the ceremony with `/workweek-complete --catch-up`, an explicit run; never reconstruct silently inside the skill body. Apply: before invoking `/workweek-complete`, verify `state/week-changelog/current.md` has a `HEADER` section and at least one daily entry per day that had commits.
+
+## A catch-up run never concludes the in-progress period
+
+A cadence run invoked early in its period backfills every missed prior period and leaves the in-progress one open. `--catch-up` and `--conclude` override the auto-detected mode; explicit always wins. The auto-detect thresholds are machine-local keys: `coordinator.cadence.day_conclude_after` (day ceremonies) and `coordinator.cadence.week_conclude_after_days` (week ceremonies). Tripwire: `A-CATCH-UP-RUN-NEVER-CONCLUDES-THE-IN-PROGRESS-PERIOD`.
 
 - `/workday-complete` is a branch wrap, not a release ceremony.
 - `/workweek-complete` is the release ceremony; it reads what the daily ceremony wrote.

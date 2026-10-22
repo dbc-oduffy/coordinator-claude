@@ -192,8 +192,10 @@ Every dev-install boot prints exactly one line on the boot banner, whatever the 
    <copy> <axis>: <detail> — remedy: <remedy>
 ```
 
-`<s>` is `current`, `drift` or `could-not-check`; one indented detail line follows each `drift` or
-`could-not-check`. No disable env var, no stderr-only degrade.
+`<s>` is `current`, `drift` or `could-not-check`. A `drift` axis prints its indented detail line in
+full; a `could-not-check` axis is counted in the `── Staleness:` line and prints its detail line in
+full under `COORDINATOR_BOOT_BANNER_FULL=1`. The head line prints on every dev-install boot. No
+disable env var, no stderr-only degrade.
 
 - **`could-not-check` is never clean.** `current` carries evidence of what was compared; an
   exception or unreachable source renders `could-not-check` with the reason.
@@ -215,9 +217,10 @@ Tripwire: `A-COPY-CHECK-THAT-COULD-NOT-RUN-SAYS-SO` in `docs/wiki/coordinator-tr
 
 ## Where a bare `coordinator/bin/` or `coordinator/lib/` citation resolves
 
-This repo ships no `coordinator/bin/` or `coordinator/lib/`. A bare `coordinator/(bin|lib)/<file>`
+No file under `coordinator/bin/` or `coordinator/lib/` is authored here; any file present is a
+manifest-dispositioned leftover that `test_doe_ships_no_bin_lib.py` ratchets. A bare `coordinator/(bin|lib)/<file>`
 citation in a doc here resolves against the engine root (the resolved `claude-klabauter` mirror,
-authored in `claude-klabauter`), never against this clone. Doe-clone-only tooling lives under
+authored in the engine authoring repo), never against this clone. Doe-clone-only tooling lives under
 `setup/doe-tools/`; a citation of it names that path.
 
 ## See also

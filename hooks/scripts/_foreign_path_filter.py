@@ -36,6 +36,7 @@ from pathlib import Path
 #: shipped).
 _PLANE_REGISTRY_KEYS = (
     "repos.content_root",
+    "repos.content_root",
     "repos.claude_klabauter",
     "repos.claude_klabauter",
 )

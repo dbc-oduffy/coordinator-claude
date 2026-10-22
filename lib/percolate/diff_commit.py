@@ -14,7 +14,7 @@ import time
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
-from typing import Dict, Optional, Sequence, Tuple
+from typing import Dict, Mapping, Optional, Sequence, Tuple
 
 from coordinator_core import _engine_landing as _landing
 from coordinator_core.git import commit as _gcommit
@@ -41,6 +41,7 @@ class LandOutcome:
     written: Tuple[str, ...]
     deleted: Tuple[str, ...]
     unchanged: Tuple[str, ...]
+    remoded: Tuple[str, ...] = ()
 
 
 class DestDirtyError(RuntimeError):
@@ -70,6 +71,56 @@ def refuse_removals_with_live_source(source_root: Path, removals: Sequence[str],
         + "".join(f"    ! {rel} (manifest.removed, row {row})\n" for rel in shown)
         + (f"    ... and {more} more\n" if more else "")
     )
+
+
+def converge_worktree_modes(root: Path, modes: Mapping[str, int]) -> Tuple[str, ...]:
+    """Make each regular file's disk exec bits match its declared mode; return the rels changed.
+
+    Only 0o100644 / 0o100755 entries are considered. Missing files are skipped. A chmod the
+    filesystem ignores (NTFS) is read back and not reported. No-op on Windows, which has no
+    disk exec bit. Zero subprocesses."""
+    if os.name == "nt":
+        return ()
+    converged = []
+    for rel, mode in modes.items():
+        if mode not in (0o100644, _EXEC):
+            continue
+        path = Path(root) / rel
+        want = mode == _EXEC
+        try:
+            st = os.stat(path)
+            if bool(st.st_mode & 0o111) == want:
+                continue
+            perm = st.st_mode & 0o7777
+            os.chmod(path, perm | 0o111 if want else perm & ~0o111)
+            if bool(os.stat(path).st_mode & 0o111) == want:
+                converged.append(rel)
+        except OSError:
+            continue
+    return tuple(sorted(converged))
+
+
+def _converge_unchanged(
+    root: Path, by_rel: Dict[str, DestWrite], unchanged: Sequence[str], head: Dict[str, Tuple[int, str]]
+) -> Tuple[str, ...]:
+    """Converge the disk bit of unchanged paths whose bytes still equal HEAD's.
+
+    Trap: a path with hand-edited bytes is dirty, not mode-drifted; it is left alone.
+    The disk bit is stat'ed first so only a drifted path pays the read-and-hash."""
+    if os.name == "nt":
+        return ()
+    clean = {}
+    for rel in unchanged:
+        mode = by_rel[rel].mode
+        if mode not in (0o100644, _EXEC):
+            continue
+        try:
+            drifted = bool(os.stat(root / rel).st_mode & 0o111) != (mode == _EXEC)
+        except OSError:
+            continue
+        if drifted and head[rel][1] in _worktree_shas(root / rel):
+            clean[rel] = mode
+    return converge_worktree_modes(root, clean)
 
 
 def _blob_sha(data: bytes) -> str:
@@ -205,7 +256,7 @@ def land_diff(
             todo[rel] = w
     dels = [d for d in dels if d in head]
     if not todo and not dels:
-        return LandOutcome(None, (), (), tuple(sorted(unchanged)))
+        return LandOutcome(None, (), (), tuple(sorted(unchanged)), _converge_unchanged(root, by_rel, unchanged, head))
 
     for rel in list(todo) + dels:
         entry = head.get(rel)
@@ -243,6 +294,7 @@ def land_diff(
         finally:
             if raised:
                 _landing.end_swap(root)
+        remoded = _converge_unchanged(root, by_rel, unchanged, head)
         if commit:
             try:
                 sha = _gcommit.commit_paths(
@@ -265,4 +317,4 @@ def land_diff(
     finally:
         for tmp in staged.values():
             tmp.unlink(missing_ok=True)
-    return LandOutcome(sha, tuple(sorted(todo)), tuple(dels), tuple(sorted(unchanged)))
+    return LandOutcome(sha, tuple(sorted(todo)), tuple(dels), tuple(sorted(unchanged)), remoded)

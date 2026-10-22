@@ -11,20 +11,22 @@ The stage between `plan-blitz` and `/mise-en-place`: gate every approved plan ag
 authoring bar and stamp the ones that pass. It stops at certification — it fires nothing.
 Certification is per plan; the seam check runs over the set (`lesson-triage/mise-seam-check.md`),
 and this command owns the seam pass: no EM step sits between a refusal and its fix.
-The stamp certifies the plan body's sha only and makes no census-freshness claim: prep never
-re-runs census commands or refreshes a `result:`, so a census row's age is adjudicated at fire
-(`/mise-en-place` Phase 0, benign-growth class), never refreshed here.
+Before stamping, prep re-runs each `census[]` command of the plan and refuses drift as
+`CENSUS-DRIFT`; it never rewrites a `result:`. The stamp certifies the plan body's sha only and
+makes no claim about census freshness at fire time, which `/mise-en-place` Phase 0 adjudicates
+(benign-growth class).
 
 ## 1. Run the seam-pass loop
 
-`python3 "<plugin root>/bin/mise-prep-run.py" --repo-root <this repo, absolute> --upgrade [--dry-run] [plan ...] [--roadmap-id <id>]`
+`mise-prep-run --repo-root <this repo, absolute> --upgrade [--dry-run] [plan ...] [--roadmap-id <id>]`
 
-**Resolve the plugin root to an absolute path yourself** — the directory holding this command's
-sibling `bin/`. `${CLAUDE_PLUGIN_ROOT}` is a POSIX expansion, unset in a PowerShell tool shell, so
-pasting it runs nothing and explains little.
+Run the settings-home launcher, resolved per `coordinator/snippets/resolve-coordinator-bin.md`;
+the plugin's `bin/mise-prep-run.py` run directly cannot import `coordinator_core`. A warm-engine
+`-32004` timeout on a large set re-runs cold with `COORDINATOR_WARM=0`.
 
 Pass on only the plan paths and flags the invocation names; free text is context, never a plan
-path. **No plan arguments means every plan the last landing left fireable — BOTH exits**, not only
+path. A free-text set ("the plans blitz approved") is the trail's fire results' `ready[].planPath`
+list. **No plan arguments means every plan the last landing left fireable — BOTH exits**, not only
 `status: approved`: the S lane parks its spec execution-ready and leaves the plan `draft` by
 design, and those certify too. `--upgrade` writes only the declarations derivable from a plan's
 own text; `plan.stamp_prepped`, inside the run, writes the stamp.
@@ -45,6 +47,8 @@ Route by row:
   an engine-root defect, never NOT-PREPPED.
 - `refused`, or a MALFORMED stamp → not authoring residue. Relay it; a MALFORMED stamp was
   hand-written, and its repair is the frontmatter, never a stamp over it.
+- `CENSUS-DRIFT` (exit 1) → the counted premise moved. Repair is a re-plan or an APM format-only /
+  benign-growth ruling, never the step 2 residue plan-author; relay it as a receipt line.
 - `NOT-PREPPED` with a `bar:` line → step 2.
 - `SEAM-REFUSED` with `seam:` lines, by class:
   - `capabilities-undeclared` (named or default set) → step 2.
@@ -69,7 +73,7 @@ Route by row:
 Residue the loop cannot fix mechanically is authorship: the bar asks what only a plan's author
 knows. `mise-prep-run` emits it as the **residue-author workflow stage** and prints a
 `Workflow({scriptPath})` line: **fire that line** — never compose the stage by hand, and never a
-hand-dispatched Opus `plan-author` Agent batch. The stage runs one Sonnet
+hand-dispatched Opus `plan-author` Agent batch. The stage runs at the Sonnet tier: one
 `coordinator:plan-author-residue` agent per up to 8 plans, in parallel, each plan file with one
 owner, over the default set too. Leftover census rows and seam_fix `skipped_cycles` go to the
 stage's own `coordinator:apm` step; the EM relays neither. Each stage agent is briefed with:

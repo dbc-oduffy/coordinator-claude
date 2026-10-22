@@ -36,6 +36,7 @@
         "closed_partial",
         "deferred",
         "abandoned",
+        "closed",
         "superseded"
       ]
     },
@@ -507,5 +508,5 @@
     "review_verified"
   ],
   "additionalProperties": false,
-  "version": "4.13.0"
+  "version": "4.15.0"
 }

@@ -109,8 +109,9 @@ has one place to find all known gaps.
 
 ## Sidecar Format
 
-Write the sidecar to the **durable path** `docs/research/<run-stem>-coverage-audit.md` (exact path
-provided in your dispatch prompt), queryable via `query-records --type coverage-audit`.
+Write the sidecar to the path your dispatch prompt names, `{scratch_dir}/<segment>/<run-stem>-coverage-audit.md`,
+never the bare `docs/research/` root (`research.close` flags a file there as a stray); `research.close` then
+promotes it to the durable record, queryable via `query-records --type coverage-audit`.
 `<run-stem>` MUST include the pipeline identifier — e.g. `my-topic-web`, `my-topic-notebooklm` —
 so concurrent same-day runs on the same topic don't collide; a bare topic slug is invalid.
 
@@ -167,7 +168,7 @@ For each claim record, one entry. Binary classification only.
 
 ## Completion
 
-1. Write the sidecar to `docs/research/<run-stem>-coverage-audit.md`.
+1. Write the sidecar to `{scratch_dir}/<segment>/<run-stem>-coverage-audit.md` (the dispatch-prompt path).
 2. Verify it exists (Read it back, confirm non-trivial size).
 3. Reply: `DONE: {sidecar-path} — {present_count} present, {absent_count} absent, {N} completeness map rows. {Degraded: yes/no.}` — no inline findings summary; the sidecar IS the deliverable.
 

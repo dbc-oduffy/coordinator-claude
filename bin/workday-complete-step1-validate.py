@@ -466,13 +466,13 @@ def _emit_test_red_record(ft_rc: int, ft_content: str, classify_rc: int, parsed=
 _DELTA_NEW_CAP = 50
 
 
-def _report_fast_red_delta(runner, failing, scope) -> None:
-    """Stderr-only new-vs-standing red report; never alters stdout or the exit code."""
+def _report_fast_red_delta(runner, failing, scope):
+    """Stderr-only new-vs-standing red report; returns the delta, or None when none was computed."""
     try:
         if runner != "pytest" or failing is None:
             reason = "no failing set" if failing is None else f"runner {runner!r} is not pytest"
             _err(f"[workday-complete-step1] fast-red delta: unavailable ({reason})")
-            return
+            return None
         delta = fast_red_registry.compute_delta(
             failing, fast_red_registry.load_registry(), platform=sys.platform, scope=scope
         )
@@ -485,11 +485,14 @@ def _report_fast_red_delta(runner, failing, scope) -> None:
             _err(f"  {nodeid}")
         if len(delta.new) > _DELTA_NEW_CAP:
             _err(f"  ... and {len(delta.new) - _DELTA_NEW_CAP} more new")
-    except Exception as exc:  # noqa: BLE001 -- must never affect the validate verdict/exit code
+        return delta if failing else None
+    except Exception as exc:  # noqa: BLE001 -- a failed report leaves the verdict to the classifier
         _err(f"[workday-complete-step1] fast-red delta: report failed ({exc!r}) — continuing.")
+        return None
 
 
-def _record_and_report(ft_rc: int, ft_content: str, classify_rc: int, scope, sha=None, failed_ids=None) -> None:
+def _record_and_report(ft_rc: int, ft_content: str, classify_rc: int, scope, sha=None, failed_ids=None):
+    """Records the red, reports the delta, and returns the delta (None when not computed)."""
     try:
         parsed = ("pytest", failed_ids) if failed_ids is not None else parse_failing_nodeids(ft_content)
     except Exception as exc:  # noqa: BLE001
@@ -497,7 +500,8 @@ def _record_and_report(ft_rc: int, ft_content: str, classify_rc: int, scope, sha
         parsed = None
     _emit_test_red_record(ft_rc, ft_content, classify_rc, parsed, sha)
     if parsed is not None and ft_rc != 0:
-        _report_fast_red_delta(parsed[0], parsed[1], scope)
+        return _report_fast_red_delta(parsed[0], parsed[1], scope)
+    return None
 
 
 def _finish(rc_ubt, ft_rc: int, ft_content: str, diff_paths) -> int:
@@ -509,8 +513,11 @@ def _finish(rc_ubt, ft_rc: int, ft_content: str, diff_paths) -> int:
         return 0
 
     classify_rc = _classify_fast_test_output(ft_content, ft_rc)
-    _record_and_report(ft_rc, ft_content, classify_rc, diff_paths)
+    delta = _record_and_report(ft_rc, ft_content, classify_rc, diff_paths)
     _emit(rc_ubt, rc_validate)
+    if classify_rc == 3 and delta is not None and not delta.new:
+        _err("[workday-complete-step1] fast-red delta: no new reds, only standing — passing.")
+        return 0
     return classify_rc
 
 

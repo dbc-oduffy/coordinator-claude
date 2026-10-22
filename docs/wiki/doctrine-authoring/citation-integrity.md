@@ -83,7 +83,8 @@ fail-open behaviour: the citation verifies clean, and the defect it causes annou
   is checking citations" is not a discharge either — a pre-flight is a relay like any other, and can
   catch one citation error while introducing a second in the same run. Cheapest sufficient act: open
   the cited file and read the line — for a decision record, its title and `## Decision`; for a
-  statistic, the sentence it was extracted from. For a class of error the author structurally cannot
+  statistic, the sentence it was extracted from (a pre-flight's "missed over 50%, 17 of 27 files" was
+the inverse: 17 covered, ten missed, a 37% miss rate). For a class of error the author structurally cannot
   see from inside their own document, add a reader (a dispatched pre-flight, a peer opening the same
   source independently) — being more careful is the response that feels proportionate and does
   nothing, because carelessness was never the mechanism.

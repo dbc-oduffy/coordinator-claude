@@ -42,7 +42,8 @@
         "active",
         "done",
         "superseded",
-        "dropped"
+        "dropped",
+        "lapsed"
       ]
     },
     "provenance": {
@@ -360,5 +361,5 @@
     "parent_goal_id"
   ],
   "additionalProperties": false,
-  "version": "4.13.0"
+  "version": "4.15.0"
 }

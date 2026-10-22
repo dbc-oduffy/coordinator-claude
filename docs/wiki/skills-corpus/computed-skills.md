@@ -600,6 +600,49 @@ contract doctrine, not a pickup-local nicety.
 and arrives as an unexplained wall of resolved JSON has traded one failure for
 another — it discharged the mechanics and left the orientation on the operator.
 
+## Rendered instruction set
+
+The render is a pure projection of one decision object into the text an arriving EM
+reads. It adds no classification, no I/O and no state; every line it prints is a field
+the envelope already carries.
+
+**Input and output.** Input is exactly one decision-object envelope (the eight
+`ENVELOPE_KEYS`, § Decision-Object Schema-of-Record). Output is plain text only.
+
+**Projection rule.** The render reads contract fields and nothing else, in this order:
+
+1. Open `judgment_points`, in dependency order. Each prints its `question`, its
+   `dispositions` menu, and its `recommendation` as a labelled offer. A `null`
+   recommendation prints its `reason` in the offer's place.
+2. `directives` gated by `depends_on` on a point listed in step 1, printed under that
+   point.
+3. Every remaining directive collapses to one line: `N steps run by apply, M already
+   satisfied` (`already_satisfied` counts toward M).
+4. `next_move`, when present.
+
+The render never matches a ceremony name, a step id or a judgment id; a new ceremony
+renders with no render change.
+
+**Offer, not selection.** Nothing rendered resolves a point. A recommendation is
+labelled as an offer, and no disposition appears chosen, defaulted or pre-ticked.
+
+**Degraded envelope.** When `next_move` is present on a blocked gate, the render prints
+`next_move` first, then the rest; § Arrival legibility's priority list governs.
+
+**Gap map.** Each problem in the ratified oracle
+(`docs/problems/2026-07-08-session-specific-instruction-set-emitter.md`) is served by
+a named envelope field, or by the rendered output itself.
+
+| Oracle problem | Served by |
+|---|---|
+| 1. Encoded-but-unrendered itinerary | rendered output: the pruned order of steps 1-3 above, over `judgment_points`, `directives`, `already_satisfied` |
+| 2. Re-derivation of already-logged facts | `preflight`, `gates`, `narration`, `artifact` (pulled once by the engine, read by the render) |
+| 3. Open reasoning where a bounded choice would do | `judgment_points[].dispositions` and `recommendation` |
+| 4. No reusable ceremony primitive | rendered output: one id-blind projection shared by every ceremony |
+
+**Test surface.** This heading exists, and a grep over its body for ceremony names,
+step ids and judgment ids returns nothing.
+
 ## Lineage-aware liveness — a handover is not contention
 
 Every liveness-bearing verdict a computed skill returns — a competing-claim scan, a

@@ -187,20 +187,20 @@ const READINESS_SCHEMA = {
 // ride the result as `incidents`. Rejections are re-thrown so each caller keeps its own handling.
 const agentIncidents = []
 
-// Deliberately not wrapped in trackAgent: trackAgent calls this, and wrapping it would recurse. A
-// failure degrades to a null tldr, a lost summary line and never a lost dispatch.
-async function tldrFallback(label, sidecarPath) {
+// A role that returned no tldr gets a code-built WARN tldr that points at its own sidecar, which is
+// the record; an agent restatement of it adds nothing a reader of the sidecar lacks, and a recovered
+// fallback never flips a leg's completion. No sidecar path means no tldr (null) and an incident.
+function tldrFallback(label, sidecarPath) {
   if (!sidecarPath) return null
-  return Promise.resolve(agent(`Read the file this agent already wrote, at exactly this path,
-and change nothing about it: ${sidecarPath}
-
-Return ONLY a \`return-tldr\` summary of what it already says: \`verdict\` (its own verdict word,
-mapped onto OK/WARN/BLOCKED/PIVOT/FAILED), up to 5 \`decisions\` ({item, anchor}) naming its most
-load-bearing findings or calls, \`counts\` of whatever it enumerates, and \`sidecar\` set to the
-path above. Do not re-run the check, do not open anything else, and do not edit the file.
-${REPO_ROOT_RULE}`,
-    { label: `tldr-fallback:${label}`, model: 'haiku', effort: 'low', schema: RETURN_TLDR_SCHEMA },
-  )).catch(() => null)
+  return {
+    verdict: 'WARN',
+    decisions: [{
+      item: `${label} returned no tldr; read its sidecar`.slice(0, 200),
+      anchor: String(sidecarPath).slice(0, 240),
+    }],
+    counts: {},
+    sidecar: sidecarPath,
+  }
 }
 
 function trackAgent(label, call) {
@@ -217,15 +217,15 @@ function trackAgent(label, call) {
       if (typeof result === 'object' && !result.tldr) {
         const path = typeof result.sidecarPath === 'string' ? result.sidecarPath
           : typeof result.draftPath === 'string' ? result.draftPath : null
-        const fallbackTldr = await tldrFallback(label, path)
+        const fallbackTldr = tldrFallback(label, path)
         if (fallbackTldr === null) {
           agentIncidents.push({
             role: label,
             kind: 'missing-tldr',
-            detail: 'the agent returned no parsable `tldr`, and the Haiku fallback over its record also failed',
+            detail: 'the agent returned no parsable `tldr` and named no sidecar to point a code tldr at',
           })
         }
-        return { ...result, tldr: fallbackTldr, assembled_by: 'fallback' }
+        return { ...result, tldr: fallbackTldr, assembled_by: 'code-fallback' }
       }
       return result
     },

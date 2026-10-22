@@ -31,8 +31,8 @@ a `**`-unpacked list) is treated the SAME as read-only -- fails toward NOT
 advising, consistent with an offer rather than a deny: an unresolvable
 shape is not confidently fixture-construction-shaped, and a guard that
 nags on every uncertain case gets disabled by the first person it annoys
-(the exact failure mode `guard-doctrine-surface-bash-write.py`'s own
-module docstring names for a Bash-surface guard; the same reasoning
+(the exact failure mode the module docstring of
+`coordinator_core/bash_guards/guard_doctrine_surface_bash_write.py` names for a Bash-surface guard; the same reasoning
 applies here for a write-time advisory).
 
 SURFACING -- only the FIRST fixture-construction hit in a proposed edit is

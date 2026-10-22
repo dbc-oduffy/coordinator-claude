@@ -152,8 +152,8 @@ would sneak back in at one remove, just for the shape decision instead of the to
 | XXL | `goal-setting` | a terminal room, entered directly — the ask resolves an OKR-scale programme, not a plan |
 
 `roadmap` stays in the enum even though it is not a *base* route for any single t-shirt: it
-remains one of the three currently-offered exits the PM can select at `pm-decision` (`split` being
-the fourth enum value), and a sizing-object records it there via `xl_exit`,
+remains one of the four offered exits the PM can select at `pm-decision` (`split`, `shape`,
+`roadmap`, `accept_multi_session`), and a sizing-object records it there via `xl_exit`,
 not via `route`.
 
 The § Shape-is-a-conditional-room D5 gate above is unaffected by this table and still wins over
@@ -800,7 +800,7 @@ Skill Step 0 carries the dispatch; this section carries the reasons.
   a mounted store, or an operator at a keyboard; Step 1a). No t-shirt, lean, guess, or route: a
   scout handed a size anchors on it.
 - **The run's sizing stage keeps `--write`, never the scout.** `pm_verbatims` is read from the EM session's own PM-turn log; a
-  subagent's write may silently omit it. The EM no longer hand-dispatches the scout: the engine refuses it. The scout returns the complete `sizing-assemble` flag set
+  subagent's write may silently omit it. The EM never hand-dispatches the scout: the engine refuses it. The scout returns the complete `sizing-assemble` flag set
   (never `--write`, `--premise-evidence`, `--interaction-mode`, `--express-lane`, or an unquoted
   `--appetite`), and the EM re-runs it.
 - **The confident-XS predicate is mechanical.** The scout is skipped only when every condition

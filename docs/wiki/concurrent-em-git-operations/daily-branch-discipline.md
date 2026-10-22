@@ -227,7 +227,7 @@ This is what produces empty branches and orphan stashes by construction. The hoo
 **`COORDINATOR_OVERRIDE_BRANCH` has one live reader and one dead channel.**
 
 - **The inline-prefix form** — `COORDINATOR_OVERRIDE_BRANCH=1 git commit ...`, typed as the literal
-  leading text of the command — is read by the claude-klabauter Bash guard (`block_topic_branch`) from the
+  leading text of the command — is read by the engine Bash guard (`block_topic_branch`) from the
   *command text*, not from subprocess env. It lifts the refusal of `git commit` on a remote-backed
   `main`. The value must be exactly `1`; an occurrence inside a quoted argument does not count.
   The engine commit routes (`commit_v2`, `safe_commit_offer`) take `on_main_reason` instead.

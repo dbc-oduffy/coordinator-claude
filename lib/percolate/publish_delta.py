@@ -138,7 +138,9 @@ def _lookup(common: Path, tree_sha: str, rel: str) -> Optional[Tuple[int, str]]:
     parts = rel.split("/")
     for i, name in enumerate(parts):
         obj = read_object(common, cur)
-        if obj is None or obj[0] != "tree":
+        if obj is None:
+            raise RuntimeError(f"publish_delta: tree {cur} on the path to {rel} unreadable")
+        if obj[0] != "tree":
             return None
         entries = _parse_tree_entries(obj[1])
         entry = entries.get(name) if entries else None

@@ -342,7 +342,7 @@ def build_decisions(permission_mode: str | None = None) -> list[Decision]:
         Decision(
             "settings_env",
             "Apply the required settings.json env values?",
-            "Sets CLAUDE_CODE_ENABLE_TODO_TOOLS (Task tools) and removes the retired CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS if present. Lands next session.",
+            "Sets CLAUDE_CODE_ENABLE_TODO_TOOLS (Task tools) and FNM_LOGLEVEL=error (keeps fnm version-switch output off agent stdout) and removes the retired CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS if present. Lands next session.",
             ("apply", "skip"), "apply", "recommended",
         ),
         Decision(

@@ -588,6 +588,23 @@ def _excerpt(line: str) -> str:
     return " ".join(line.split())[:90]
 
 
+_WINDOW_CAP = 40
+
+
+def _match_window(line: str, start: int, end: int) -> str:
+    """The match plus the whitespace-delimited run touching it, each side
+    capped at `_WINDOW_CAP` characters. Text separated from the match by
+    whitespace never enters the window, so words appended or edited elsewhere
+    on the line leave the identity unchanged."""
+    s = start
+    while s > 0 and start - s < _WINDOW_CAP and not line[s - 1].isspace():
+        s -= 1
+    e = end
+    while e < len(line) and e - end < _WINDOW_CAP and not line[e].isspace():
+        e += 1
+    return line[s:e]
+
+
 # ---------------------------------------------------------------------------
 # Position lens for .py files — ast + tokenize, never a text regex
 # ---------------------------------------------------------------------------
@@ -1128,8 +1145,6 @@ def iter_violations(
                 in_snippet_fence = False
             continue
 
-        fingerprint = " ".join(line.split())
-
         for m in WINDOWS_DRIVE_PATH.finditer(line):
             if is_python and _is_escaped_drive_path_match(
                 line, m.start(), m.end(), literal_spans.get(line_no) if literal_spans else None
@@ -1138,7 +1153,13 @@ def iter_violations(
             if _is_well_known_system_root(line, m.end()):
                 continue
             violations.append(
-                Violation(path_str, line_no, "drive-rooted windows path", _excerpt(line), fingerprint)
+                Violation(
+                    path_str,
+                    line_no,
+                    "drive-rooted windows path",
+                    _excerpt(line),
+                    _match_window(line, m.start(), m.end()),
+                )
             )
 
         if sibling_pattern is None:
@@ -1187,7 +1208,7 @@ def iter_violations(
                     line_no,
                     "private sibling-repo-name attribution",
                     _excerpt(line),
-                    fingerprint,
+                    _match_window(line, m.start(), m.end()),
                 )
             )
 
@@ -1195,9 +1216,11 @@ def iter_violations(
 
 
 def _violation_key(v: Violation) -> tuple:
-    """Identity for the before/after multiset diff — kind + full normalized
-    line, deliberately not line number, for the same line-shift-safety
-    reason `_prompt_surface_citations._violation_key` gives."""
+    """Identity for the before/after multiset diff — kind + the match's own
+    window (`_match_window`: the match and its touching non-whitespace run,
+    capped at 40 characters per side), deliberately neither line number nor
+    the whole line: line shifts and unrelated edits elsewhere on a violating
+    line keep the key, while a new match on that line adds a key."""
     return (v.kind, v.fingerprint)
 
 

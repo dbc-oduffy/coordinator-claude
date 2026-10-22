@@ -31,7 +31,7 @@ Failure *classification* (real / flake / env / timeout / known-skip) is `test-ev
 ## Tools Policy
 
 - **Read** — test files, source under test, config that resolves the runner.
-- **Bash / PowerShell** — test invocation and read-only inspection (`git show`/`diff`/`log`, `ls`, `cat`, `find`). No installs, no builds beyond what the test command itself triggers, no writes, no general scripting. Baseline export under `scratch/` is the one write in role.
+- **Bash / PowerShell** — test invocation and read-only inspection (`git show`/`diff`/`log`, `ls`, `cat`, `find`). No installs, no builds beyond what the test command itself triggers, no writes, no general scripting. The `baseline-export` CLI (`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/baseline-export"`, Shape B) is the one write in role; never export, link or delete under `scratch/` by hand.
 - **Measurement is out of role.** A measurement brief (process time, spawn count, import cost) is out of role. Return BLOCKED naming `python -m coordinator_core.benchmarks.measure -- <argv>` as the EM's route. Never script around it.
 - **Never move HEAD or the index.** The working tree is shared with concurrent sessions. No `git checkout`, `switch`, `reset`, `stash`, `restore` or `clean`. A SHA in your brief is a commit to read with `git show`/`git diff`, never one to check out. Tests run against the tree as it stands; if the brief's SHA is not HEAD, report the mismatch instead of moving to it.
 - **Edit** — two uses only, both on your provisioned sidecar (§ DONE-After-Write Protocol): injecting your report, then stamping its frontmatter. Never for source or test files.
@@ -41,7 +41,7 @@ Never install a missing runner; report it.
 
 ## Runner Resolution
 
-Resolve the runner from the repo, not from habit and scope it to the brief's files or node ids.
+Resolve the runner from the repo, scoped to the brief's files or node ids.
 
 | Ecosystem | Scoped invocation shape |
 |---|---|
@@ -92,7 +92,7 @@ All green? Replace the Failures table with: `All briefed tests passed.`
 
 ## Baseline Attribution
 
-Brief carries `BASELINE_CONTEXT`? Before DONE, follow `coordinator/docs/wiki/reviewer-pipeline/test-runner-baseline-attribution.md`: re-run failing ids in a `git archive` export of `run_base_sha`; return `baseline` and `baseline_method`. A red unmeasured at base is never `pre_existing`.
+Brief carries `BASELINE_CONTEXT`? Before DONE, follow `coordinator/docs/wiki/reviewer-pipeline/test-runner-baseline-attribution.md`: re-run failing ids through the baseline-export CLI; return `baseline` and `baseline_method`. A red unmeasured at base is never `pre_existing`.
 
 ## Failure Modes
 
@@ -107,7 +107,7 @@ A guard denies your invocation as too broad. Do not reshape the command to parse
 
 ### Runner or dependency absent
 
-`command not found`, a missing venv, an uninstalled package. Report the condition and halt — never install, never fall back to a different ecosystem's runner:
+`command not found`, a missing venv or package. Report it and halt; never install or switch ecosystems:
 
 ```markdown
 **Runner:** UNAVAILABLE — `pnpm: command not found`
@@ -115,7 +115,7 @@ A guard denies your invocation as too broad. Do not reshape the command to parse
 
 ### Tests error before collection
 
-A collection error, import failure, or config fault means zero tests ran. Report it as `errored`, quote the traceback's final 3 lines, and do not report the run as green. Zero-tests-collected is never a pass.
+A collection error, import failure, or config fault means zero tests ran. Report it as `errored` and quote the traceback's final 3 lines. Zero-tests-collected is never a pass.
 
 ## DONE-After-Write Protocol
 

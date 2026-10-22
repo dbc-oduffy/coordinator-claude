@@ -197,6 +197,8 @@ count.
 Before filing a new improvement-queue entry, check whether a ratified roadmap already owns the
 work. A session once filed an entry for work a final-approved roadmap (eight clusters, seven
 minted batons) already covered, creating a duplicate entry against already-owned work.
+Grep `state/roadmap/*/OVERVIEW.md` titles and `state/goals/` for the subject. An empty `STUB-INDEX`
+is not evidence of no batons: batons live in `state/handoffs/` and carry `roadmap_id:`, so grep that.
 
 ## Cross-Links
 

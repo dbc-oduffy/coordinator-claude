@@ -4783,7 +4783,8 @@
               "active",
               "done",
               "superseded",
-              "dropped"
+              "dropped",
+              "lapsed"
             ]
           },
           "provenance": {
@@ -5142,6 +5143,7 @@
               "closed_partial",
               "deferred",
               "abandoned",
+              "closed",
               "superseded"
             ]
           },
@@ -8612,7 +8614,8 @@
                   "active",
                   "paused",
                   "shipped",
-                  "abandoned"
+                  "abandoned",
+                  "closed"
                 ]
               },
               {
@@ -8698,7 +8701,8 @@
                     "active",
                     "done",
                     "superseded",
-                    "dropped"
+                    "dropped",
+                    "lapsed"
                   ]
                 },
                 "provenance": {
@@ -11503,5 +11507,5 @@
     "malformed_records"
   ],
   "additionalProperties": false,
-  "version": "4.13.0"
+  "version": "4.15.0"
 }

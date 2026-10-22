@@ -77,6 +77,7 @@ maps to this pipeline's KEEP, same as the ripeness guard's absent-`status:` rule
      - KEEP if any `[ ]` items remain or unmerged lessons present.
      - **Fallback for dirs outside the all-`[x]` rule** (no `todo.md`, retired feature, legacy baselines): PRUNE if nothing live references the dir in code, tests, guides or active handoffs AND its owning plan is terminal; otherwise KEEP.
      - **Every inventoried candidate, of any class, ends PRUNE or KEEP with a named reason. No third state** — no "EM judgment call" survives this step, and no disposition is left for the PM.
+     - **`archive/completed/` is never age-pruned here.** A completion record is delete-eligible only once `/distill` has harvested it (`commands/distill.md` § Delete safety); an unharvested record is KEEP regardless of age. Deleting a harvested one is `/distill`'s disposal job, not this pipeline's (tripwire `A-HARVESTED-COMPLETION-RECORD-IS-DELETE-ELIGIBLE`).
      - **Never delete:** `state/lessons/` (global, structured-YAML dir store), `state/health-ledger.md`, `state/bug-backlog/` (structured-YAML dir store), `state/debt-backlog/` (structured-YAML dir store), `docs/architecture/`, `state/improvement-queue/` (structured-YAML dir store), `state/handoffs/` (active), `state/week-changelog/`.
    - **Cross-repo archive memos (`cross-repo/archive/*.md`):**
      - PRUNE if `status: actioned` AND file mtime > 90 days. Parse `status:` from YAML frontmatter; do NOT prune memos lacking a `status:` field (treat as open/unknown).

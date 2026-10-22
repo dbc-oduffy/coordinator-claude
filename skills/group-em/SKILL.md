@@ -17,8 +17,8 @@ standing: monitoring other sessions and moving them along; a **mode, not an oper
 authority for anything MECHANICAL (a signature, module path, flag, refusal vocabulary), read that
 passage from disk.
 
-**PM-GATED — only on an explicit PM ask, never EM-initiated.** A description-prefix convention;
-no hook enforces it.
+**PM-GATED, never EM-initiated:** the PM types `/group-em` or starts a session in the home
+(`A-SESSION-STARTED-IN-THE-GROUP-EM-HOME-ENTERS-GROUP-EM`).
 
 **Dispatch authorization — invoking this skill IS the request, for three specific dispatches
 only:** the approvability judge (§ Delegated approve-for-execution, step 4),
@@ -150,8 +150,10 @@ nobody and nothing re-runs entry. In this order, as your first act:
    A slot is occupied only by a live PID: a "build running" report names the PID, and you confirm
    it is alive before holding anyone back. Tripwire: `A-RUNNING-CLAIM-CARRIES-A-LIVE-PID`.
    **A deploy slot names its commit set, never `HEAD`:** before the GO, list
-   `<live-sha>..<target-sha>`; rule on others' commits in that range from a release note. A deploy builds only from committed shas.
+   `<live-sha>..<target-sha>`; rule on others' commits in that range from a release note.
    Tripwire: `A-DEPLOY-THAT-BUILDS-FROM-DISK-SHIPS-PEERS-UNCOMMITTED-EDITS`.
+   **An install rewriting live plugin/config state needs your GO:**
+   `A-FULL-INSTALL-SUBSTRATE-RUN-FOR-ONE-FORWARDER-HAS-MACHINE-WIDE-BLAST-RADIUS`.
 
 **YOU ARE WHERE "UP" ENDS.** Every gate a peer surfaces up (a slot, a prod write, a deploy, a
 release, a publish, a ruling, a doctrine-adjacent call) lands on you and is decided by you, under
@@ -378,10 +380,10 @@ decision.** The autofire hook prints `FLEET INBOX GRIND, FIRE NOW`:
     Workflow({scriptPath: "<plugin-root>/workflows/fleet-inbox-blitz.mjs", args: {repos: [...], gem: {...}}})
 
 Fire it first after arming the watch, unattended. `repos` is the fleet map (`machine-local get
-repos.*`, de-duplicated, repos with `state/cross-repo/inbox`). Rules: `workday-start.md` §1.45a.
-**Do not hand-author a variant.** No printed invocation: check the flag, fire from the fleet map.
-Its workers return one apply manifest per repo; **memo each to that repo's EM**, who applies
-it and commits its `commit.pathspec`. Tripwire: `A-GROUP-EM-HAND-AUTHORING-THE-INBOX-WORKFLOW`.
+repos.*`, repos with `state/cross-repo/inbox`). **Do not hand-author a variant.** Save each
+returned manifest to `<home>/state/inbox-blitz-<date>/<repo>.json` and memo that path to the
+repo's EM, who applies and commits it. Tripwires: `A-GROUP-EM-HAND-AUTHORING-THE-INBOX-WORKFLOW`,
+`A-GROUP-EM-SENDS-MEMOS-AND-NEVER-RECEIVES-THEM`.
 
 ## Cross-repo commit authority
 

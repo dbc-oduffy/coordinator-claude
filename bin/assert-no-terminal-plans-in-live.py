@@ -9,13 +9,17 @@ _LIB_DIR = os.path.join(_SCRIPT_DIR, "lib")
 
 _TERMINAL_PLAN_QUERY_LIMIT = 100000
 
+# Single source for both the terminal-path query and the live-ref scan filter.
+# Standalone script: deliberately narrower than lifecycle_constants.PLAN_TERMINAL_STATUS.
+_TERMINAL_PLAN_STATUSES = ("implemented", "superseded", "abandoned", "closed")
+
 
 def _query_terminal_paths() -> list[str]:
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from records_query import query_records  # noqa: E402  (sys.path-dependent)
 
     paths: list[str] = []
-    for status in ("implemented", "superseded", "abandoned"):
+    for status in _TERMINAL_PLAN_STATUSES:
         result = query_records(
             "plan",
             "status=%s" % status,
@@ -167,7 +171,7 @@ def main(argv: list[str]) -> int:
         if "." in stem:
             continue
         status = _read_frontmatter_status(lfile)
-        if status in ("implemented", "superseded", "abandoned"):
+        if status in _TERMINAL_PLAN_STATUSES:
             continue
         live_plan_refs += "\n" + _read_full(lfile)
 

@@ -422,7 +422,9 @@ def _renumbered_wave_hint(trail_dir: Path, wave_number: int, waves: list, wave_i
     return ""
 
 
-def _report_predates_a_landing(trail_dir: Path, wave_number: int, wave_ids: list) -> str:
+def _report_predates_a_landing(
+    trail_dir: Path, wave_number: int, wave_ids: list
+) -> str:
     """The report is SHAPE-RIGHT and TIME-WRONG: frozen before a landing this run
     has since made, so it proposes batons that landing already advanced.
 
@@ -479,16 +481,10 @@ def _report_predates_a_landing(trail_dir: Path, wave_number: int, wave_ids: list
     # Reported by example-game-workbench-repo-b8, who landed at the default 8 with `remaining: 21`,
     # was refused against a correctly-fresh 29-baton report, and read blitz_land source to find
     # out which side was wrong.
+    # The remainder is re-offered: the fresh report's extra batons are emitted.
     remaining = nxt.get("remaining")
     if isinstance(remaining, int) and remaining > 0:
-        return (
-            f"this report proposes {len(extra)} baton(s) that {prior.name} did not hand forward, "
-            f"and that landing declares `remaining: {remaining}` — it was LIMIT-CAPPED, so it "
-            f"handed forward {len(handed)} of a larger set and this report is not thereby stale. "
-            "Re-land the same wave-result files at a `--limit` above the remainder if you want "
-            "them all in one hand-forward; otherwise emit from a freshly frozen report and take "
-            "the extra batons deliberately."
-        )
+        return ""
     shown = extra[:8]
     tail = f" (and {len(extra) - len(shown)} more)" if len(extra) > len(shown) else ""
     return (
@@ -502,8 +498,36 @@ def _report_predates_a_landing(trail_dir: Path, wave_number: int, wave_ids: list
     )
 
 
-def _baton_arg(record: dict) -> dict:
+def _baton_route(record: dict, repo_root: "Path | None") -> "str | None":
+    """The effective route of the baton's first readable sizing, else None.
+
+    None for an unsized baton, an unreadable sizing, or no `repo_root`: an unknown route is
+    never defaulted to `plan`. One file read per sized baton, no spawn. With several sizings
+    the first readable one wins; disagreement between them is not detected.
+    """
+    if repo_root is None:
+        return None
+    import yaml
+
+    for rel in record.get("sizing_objects") or []:
+        if not isinstance(rel, str):
+            continue
+        try:
+            sizing = yaml.safe_load((repo_root / rel).read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError):
+            continue
+        if isinstance(sizing, dict):
+            route = _effective_route(sizing)
+            if isinstance(route, str) and route:
+                return route
+    return None
+
+
+def _baton_arg(record: dict, repo_root: "Path | None" = None) -> dict:
     """One `batons[]` entry, every field derived — never defaulted, never typed.
+
+    `route` is the sizing's effective route (a recorded `xl_exit: accept_multi_session`
+    turns `pm-decision` into `plan`), null when no sizing can be read.
 
     `executionOpen` has no default on purpose. A baton whose report carries no
     `execution_gate` is a report this script will not paper over: the wave's XS lane
@@ -526,7 +550,36 @@ def _baton_arg(record: dict) -> dict:
         "sized": bool(record.get("sized")),
         "planPath": plan.get("path"),
         "executionOpen": bool(gate["open"]),
+        "route": _baton_route(record, repo_root),
     }
+
+
+_SHELVED_PLAN_STATUSES = frozenset({"deferred", "abandoned", "closed", "superseded"})
+
+
+def _broken_link_reason(r: dict) -> str:
+    """One baton's broken-link cause, read from the gate record: an ambiguous tie carries the
+    gate's own `repair`; a present-but-unresolved `governing_plan` is named as not linking."""
+    amb = r.get("ambiguous_plan_link")
+    if amb:
+        repair = amb.get("repair") if isinstance(amb, dict) else None
+        return f"{r['id']}: " + (repair or "several plans tie; write `governing_plan:` to pick one")
+    claim = r.get("unlinked_plan_claim")
+    claim = claim if isinstance(claim, dict) else {"path": claim}
+    path = claim.get("path") or "(unnamed)"
+    status = claim.get("status")
+    cause = claim.get("cause")
+    if cause == "plan_absent":
+        why = f"{path} does not exist"
+    elif cause == "not_a_plan_record":
+        why = f"{path} is not a plan record"
+    elif cause == "no_back_link" and status in _SHELVED_PLAN_STATUSES:
+        why = f"{path} is status {status}, not linkable"
+    elif cause == "no_back_link" and status:
+        why = f"{path} is status {status}, with no back-link to this baton"
+    else:
+        why = f"declared plan {path} did not link"
+    return f"{r['id']}: {why}; check the plan, not the baton's field"
 
 
 def _unlinked_split_line(records: list[dict]) -> str:
@@ -555,10 +608,8 @@ def _unlinked_split_line(records: list[dict]) -> str:
         f"{len(buckets['held'])} held, {len(buckets['broken'])} broken link. "
     )
     if buckets["broken"]:
-        return (
-            split + f"Action: {buckets['broken']} name a plan no link basis resolves; "
-            "write `governing_plan:` onto each, re-freeze."
-        )
+        reasons = "; ".join(_broken_link_reason(r) for r in records if r["id"] in buckets["broken"])
+        return split + f"Action: {buckets['broken']} -- {reasons}"
     return split + "No action: the wave plans the rest."
 
 
@@ -1287,6 +1338,16 @@ def _emit_single_from_sizing(
         return _refuse_from_sizing(
             f"{sizing_rel} cannot be fired: " + "; ".join(refusals)
         )
+    plan_rel = sizing.get("plan")
+    plan_rel = plan_rel.replace("\\", "/") if isinstance(plan_rel, str) and plan_rel else ""
+    if plan_rel and (
+        plan_rel.startswith("/") or ".." in plan_rel.split("/") or ":" in plan_rel.split("/")[0]
+        or not (repo_root / plan_rel).is_file()
+    ):
+        return _refuse_from_sizing(
+            f"{sizing_rel} names plan {plan_rel}, which is not a file under {repo_root}. "
+            "Fix the sizing's plan: edge, or clear it to author a new plan."
+        )
     exit_criterion = sizing["exit_criterion"]
     interaction_mode = sizing["interaction_mode"]
     route = _effective_route(sizing)
@@ -1313,6 +1374,7 @@ def _emit_single_from_sizing(
         "path": minted["path"],
         "title": str(minted["title"]),
         "sized": True,
+        "planPath": plan_rel or None,
         "sizingObject": sizing_rel,
         "tshirt": tshirt,
         "route": route,
@@ -1367,7 +1429,7 @@ def _emit_single_from_sizing(
 
     out = trail_dir / f"fire-{wave_number}-1.mjs"
     out.write_text(text, encoding="utf-8", newline="\n")
-    _write_fire_receipt(out)
+    _write_fire_receipt(out, baton["planPath"])
     _stamp_fire_hold(baton_path, repo_root, out)
     if args.json:
         _report_pair(repo_root, baton, sizing_rel, deliverable_id or None, as_json=True)
@@ -1376,6 +1438,8 @@ def _emit_single_from_sizing(
         ]}, indent=2))
         return EXIT_OK
     print(f"emit-wave-fire: single-plan fire for {baton['id']} (mode=single).")
+    if baton["planPath"]:
+        print(f"  plan: {baton['planPath']} (revise in place)")
     _report_pair(repo_root, baton, sizing_rel, deliverable_id or None)
     print(f'\n  Workflow({{ scriptPath: "{out}" }})   # no args — they are bound')
     return EXIT_OK
@@ -1427,7 +1491,7 @@ def main(argv=None) -> int:
         "--wave-index",
         type=int,
         default=0,
-        help="0-based index into the frozen gate's `waves` list, NOT the run's wave number "
+        help="0-based index into the frozen gate's `waves` list, NOT this wave's label in the run "
         "(use --wave-number for that). The frozen gate report numbers `waves` from the READ, so "
         "this is almost always 0; out of range is refused.",
     )
@@ -1435,8 +1499,9 @@ def main(argv=None) -> int:
         "--wave-number",
         type=int,
         help=(
-            "this run's own wave count, used for `waveIndex` in the bound args, the fire "
-            "filename and the trail slot. Defaults to --wave-index. They are different "
+            "this wave's absolute label in the run (0-based), NOT the run's total number of "
+            "waves: --wave-number 6 emits fire-6-1.mjs with `waveIndex` 6 in the bound args "
+            "and the wave-6 trail slot. Defaults to --wave-index. They are different "
             "questions: --wave-index indexes the frozen report, which renumbers from 0 on "
             "every read, while the trail and the landing want the run's absolute wave. "
             "Without this the run's second wave emits over its first's archived fire, and "
@@ -1565,12 +1630,14 @@ def main(argv=None) -> int:
     # literally on wave 2 reads wave 0's report. `gate-report.json` stays the wave-0 name
     # so existing trails resolve, but a later wave with no report of its own REFUSES
     # rather than falling back — silently reading the previous wave's is the whole defect.
+    per_wave_resolved = False
     if args.gate_report:
         report_path = Path(args.gate_report)
     else:
         per_wave = trail_dir / f"wave-{wave_number}.gate-report.json"
         legacy = trail_dir / "gate-report.json"
         report_path = per_wave if per_wave.is_file() else legacy
+        per_wave_resolved = report_path is per_wave
         if report_path is legacy and wave_number > 0:
             # NOT a refusal. A run-wide path RE-FROZEN in place is legitimate and common,
             # and the name alone cannot tell that apart from wave 0's report left sitting
@@ -1625,19 +1692,28 @@ def main(argv=None) -> int:
     if not 0 <= args.wave_index < len(waves):
         return refuse(
             f"the frozen gate has {len(waves)} wave(s); --wave-index {args.wave_index} is a "
-            "0-based index into it, not the run's wave number. Use --wave-number for the run's "
-            "wave."
+            "0-based index into it, not this wave's label in the run. Use --wave-number for that "
+            "label."
+        )
+    if per_wave_resolved and args.wave_index != 0:
+        return refuse(
+            f"{report_path.name} is wave {wave_number}'s own fresh report, which renumbers "
+            f"from 0: its ready set is --wave-index 0, and --wave-index {args.wave_index} would "
+            f"fire a later dependent wave of it. Re-run with --wave-index 0 --wave-number "
+            f"{wave_number}, or pass --gate-report to index into a multi-wave report."
         )
     wave_ids = list(waves[args.wave_index])
     if not wave_ids:
         return refuse(f"wave {args.wave_index} is empty — nothing to fire")
 
-    stale = _report_predates_a_landing(trail_dir, wave_number, wave_ids)
-    if stale:
-        hint = _renumbered_wave_hint(trail_dir, wave_number, waves, args.wave_index)
-        if hint:
-            return refuse(hint)
-        return refuse(stale)
+    dupes = sorted({i for i in wave_ids if wave_ids.count(i) > 1})
+    if dupes:
+        print(
+            f"  NOTE: wave {args.wave_index} names {dupes} more than once; each is counted and "
+            "fired once.",
+            file=sys.stderr,
+        )
+        wave_ids = list(dict.fromkeys(wave_ids))
 
     if args.exclude:
         unmatched = [i for i in args.exclude if i not in wave_ids]
@@ -1652,6 +1728,13 @@ def main(argv=None) -> int:
             return refuse(
                 f"every baton in wave {args.wave_index} was excluded — nothing to fire"
             )
+
+    stale = _report_predates_a_landing(trail_dir, wave_number, wave_ids)
+    if stale:
+        hint = _renumbered_wave_hint(trail_dir, wave_number, waves, args.wave_index)
+        if hint:
+            return refuse(hint)
+        return refuse(stale)
 
     collapsed = _shared_wave_slots(payload, wave_ids)
     if collapsed:
@@ -1720,7 +1803,7 @@ def main(argv=None) -> int:
         )
 
     try:
-        entries = [_baton_arg(by_id[i]) for i in wave_ids]
+        entries = [_baton_arg(by_id[i], repo_root) for i in wave_ids]
     except ValueError as exc:
         return refuse(str(exc))
 
@@ -1892,8 +1975,8 @@ def main(argv=None) -> int:
                     f"{sorted(fresh_ids)}. Emitting over it would destroy the archived "
                     "fire, which is the reason these are written to disk at all. "
                     "the frozen gate report numbers waves from the read, so a run's second "
-                    "wave also arrives as wave 0: pass --wave-number matching this run's "
-                    "own wave count, or --trail-dir a fresh directory for this wave."
+                    "wave also arrives as wave 0: pass --wave-number set to this wave's "
+                    "absolute label in the run, or --trail-dir a fresh directory for this wave."
                 )
         # LF on every host: Windows newline translation writes a CR per line, and the harness
         # refuses a Workflow script carrying control characters its approval dialog would hide.

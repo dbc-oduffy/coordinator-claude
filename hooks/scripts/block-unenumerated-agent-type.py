@@ -19,19 +19,6 @@ is a worse failure than one unenumerated type slipping through a visible
 gap. Only a verdict the engine actually returned can deny. Rule:
 `coordinator/docs/wiki/coordinator-tripwires/an-unreachable-engine-passes-loudly-never-denies.md`.
 
-HARNESS-SHAPE CARVE-OUT (`_HARNESS_SHAPES_NOT_IN_ENGINE_ROSTER`).
-Harness-owned Agent dispatch shapes that the engine plane's roster does not
-yet enumerate. `fork` is a documented value of the Agent tool's own
-`subagent_type` schema and was MEASURED LIVE on this host reaching
-PreToolUse(Agent) as the literal string `"fork"` (observed in
-`.git/coordinator-sessions/<sid>/dispatched-agents.txt` column 3). Each
-entry in this set is PROVISIONAL: it is removed the moment the engine
-plane's own `_HARNESS_BUILTIN_TYPES` constant carries it -- the outbound memo
-requesting that addition is cross-repo/inbox/-side commit 787871452. This
-set is NOT a second roster and must NEVER grow to hold coordinator-authored
-or plugin agent types -- those belong in `subagent-sandbox-policy.yaml` or
-`coordinator/agents/`, never here.
-
 HONEST LIMITATION -- the shared `runpy` bootstrap in `hooks.json` (the
 `python3 -c ...; runpy.run_path(p, ...) if os.path.isfile(p) else
 sys.stderr.write('COORDINATOR HOOK SEAM: ... unreachable -- failing OPEN
@@ -52,13 +39,6 @@ import json
 import sys
 from pathlib import Path
 from typing import Optional
-
-
-#: See module docstring "HARNESS-SHAPE CARVE-OUT" -- harness-owned dispatch shapes the
-#: engine roster does not yet enumerate. Provisional; removed once the
-#: engine plane's `_HARNESS_BUILTIN_TYPES` carries the entry. NEVER grows to hold
-#: coordinator-authored or plugin agent types.
-_HARNESS_SHAPES_NOT_IN_ENGINE_ROSTER = frozenset({"fork"})
 
 
 _HOOKS_DIR = str(Path(__file__).resolve().parent)
@@ -115,13 +95,8 @@ def main() -> int:
     if not isinstance(tool_input, dict):
         return 0
 
-    # An omitted type is the harness default, not "nothing to check": the
-    # engine resolves it, and its model gate rewrites an inherited Opus tier.
-    subagent_type = tool_input.get("subagent_type")
-    subagent_type = subagent_type.strip() if isinstance(subagent_type, str) else ""
-
-    if subagent_type in _HARNESS_SHAPES_NOT_IN_ENGINE_ROSTER:
-        return 0
+    # Every type reaches the engine, `fork` included: a fork cannot be re-modelled, so
+    # the engine's Opus gate is the only thing that stops an execution brief forking.
 
     try:
         root = _resolve_claude_klabauter_root()

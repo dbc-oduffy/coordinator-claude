@@ -106,7 +106,7 @@
     },
     {
       "id": "settings-env",
-      "description": "The `env` block of `~/.claude/settings.json` carrying the all-machines values from templates/settings-manifest.md (CLAUDE_CODE_ENABLE_TODO_TOOLS). Values, not key presence, are what gate the tools.",
+      "description": "The `env` block of `~/.claude/settings.json` carrying the all-machines values from templates/settings-manifest.md (CLAUDE_CODE_ENABLE_TODO_TOOLS, FNM_LOGLEVEL). Values, not key presence, are what gate the tools.",
       "why": "A missing or wrong value removes the Task* task graph from every session on the box while the settings read as configured.",
       "tier": "semi-hard",
       "probe": {
@@ -142,7 +142,8 @@
     }
   ],
   "required_env_vars": [
-    "CLAUDE_CODE_ENABLE_TODO_TOOLS"
+    "CLAUDE_CODE_ENABLE_TODO_TOOLS",
+    "FNM_LOGLEVEL"
   ],
   "override_flags": {
     "skip_dep_check": "--skip-dep-check",

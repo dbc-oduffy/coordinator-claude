@@ -30,7 +30,7 @@ four entry conditions and route to the named remedy, no negotiating.
 | 4 | **Work is finished** — nothing in-flight for a successor | judgment | `/handoff`, only if context pressure genuinely forces the stop |
 
 **† `spec-dispatch`.** `close_gate.governing_plan.scope_mode == "spec-dispatch"` passes test 1 as a
-deferred obligation, conditional on step 2's reconciliation micro-step running and step 4 reporting
+deferred obligation, conditional on step 2's reconciliation micro-step running and step 5 reporting
 it. `dispatch`-routed sessions carry `governing_plan.present: false` and pass as before.
 
 **‡ A claimed baton closes here, with or without ancestors.** A chain-root baton (`predecessor:`
@@ -38,7 +38,7 @@ it. `dispatch`-routed sessions carry `governing_plan.present: false` and pass as
 with ancestors gets its Session Ledger row appended first.
 
 `close_gate.diff` already excludes relocated and doc-only lines; report gross and novel counts in
-step 4 when the carve-out drops the session under the line.
+step 5 when the carve-out drops the session under the line.
 
 ### The named routes past test 2
 
@@ -47,7 +47,7 @@ Test 2 failing means a review is owed. Route 1 is the default.
 **1. Scoped review, then wrap (the default).** (1) register the reviewed file list with
 `review-findings-ledger targets --add`, then dispatch a reviewer scoped to the risk surface —
 `Skill(coordinator:review-code)` diff-shaped, or a direct `coordinator:code-reviewer` when scope
-is narrow; (2) the reviewer applies and verifies its own ledger; (3) run the checklist below, verdict in step 4.
+is narrow; (2) the reviewer applies and verifies its own ledger; (3) run the checklist below, verdict in step 5.
 
 > **Do not ask whether to dispatch** — invoking this skill IS the request for the dispatch this
 > step names; it dissolves no gate this skill's own body names.
@@ -72,7 +72,7 @@ session, one closing ceremony; two different workstreams close separately, named
 
 ## The checklist
 
-Four steps; longer than a few minutes means the entry test was wrong.
+Five steps; longer than a few minutes means the entry test was wrong.
 
 **1. Commit.** Run the safe-commit mechanism — it computes this session's safe pathspec from its
 touch-list (minus anything a live peer also claims) and commits — publishing is the separate
@@ -84,7 +84,7 @@ operator (Shape W, `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` �
 
 `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" session.safe_commit_offer '{"cwd":"<repo-root>","session_id":"<this session's id>"}'`
 
-POSIX-host form (Shape A/B) dials the same op through the bare `coordinator-invoke` door.
+POSIX: the bare `coordinator-invoke` door.
 
 **Pass `session_id` explicitly — the op refuses without it** (`caller identity could not be established`); `cwd` only selects the tree scanned.
 
@@ -92,23 +92,23 @@ POSIX-host form (Shape A/B) dials the same op through the bare `coordinator-invo
 
 **Do not ask whether to commit.** Run it, report what the op's `rendered` field says landed. `"message": "<subject>"` for one group, the
 `groups` param (list of `{"paths": [...], "message": "..."}`) for several — mutually
-exclusive with `message`. A path outside the computed safe pathspec is silently dropped, never caller-widened.
+exclusive with `message`. Paths outside the safe pathspec drop silently.
 
 **2. Close loose ends.** The judgment step — sweep what this session actually touched:
 
 - A **queue entry** resolved this session: closure is a move, never in-place — `git mv state/<queue>/<slug>.yaml archive/<queue>/<YYYY-MM>/<slug>.yaml`, set
   `status: closed`, `closed_at:`, `closed_by:`.
 - An **inbound cross-repo memo** actioned this session → resolve it.
-- **A residual surfaced but not closed**, recorded only in prose: file it, one call each —
+- **An unclosed residual** in prose only: file it, one call each —
   `coordinator-queue-append --schema bug-backlog --status open --severity P0|P1|P2|P3 --title …
   --surface … --repro-steps … --evidence … --body …` (other queues: `--schema NAME --help`).
-  Naming it in step 4 alone is dumping it.
+  Naming it in step 5 alone is dumping it.
 - A `scope_mode: spec-dispatch` plan authored/executed this session: tick ACs, set `plan-tasks`
   dispositions; a met terminal judge stamps `status: implemented` inside `terminal_commit`
   ([terminal-judge](../../docs/wiki/reviewer-pipeline/terminal-judge.md)); verify, never restamp. Where it did not stamp, the `d-stamp-plan-implemented` directive owns it.
   `A-PLAN-SELF-COMPLETES-ONLY-ON-A-MET-TERMINAL-JUDGE`.
 - A plan this session executed whose `exit_criterion_met` is absent blocks the close.
-  `asserted: false` is a legitimate outcome and does not block; it routes to `/handoff` or a
+  `asserted: false` does not block; it routes to `/handoff` or a
   Phase-5 halt (`coordinator/skills/execute-plan/SKILL.md` § Phase 5).
 - **The baton this session claimed and finished.** If it has ancestors, first append the Session
   Ledger row through `coordinator-invoke handoff.append_session_ledger`
@@ -131,21 +131,19 @@ exclusive with `message`. A path outside the computed safe pathspec is silently 
 
 **Completion entry and lessons, before the drain.** Write the completion entry with
 `coordinator-complete-entry` (title, prose of eight sentences or fewer, nature) — once per session.
-Capture any lesson through the `lesson` CLI here, not afterwards.
+Capture lessons (`lesson` CLI) here.
 
 **Then drain — MANDATORY, and the last act of this step.** Run `sweep-terminal-handoffs` once,
-after every stamp above is written. A record stamped archivable and left in `state/handoffs/` is an
-unfinished close. **The close condition is checkable and you check it: `state/handoffs/` holds no
-record carrying a terminal `deployment_state` when you report.** The drain is an idempotent no-op
-when there is nothing to move; it drains other sessions' terminal residue too, by design.
+after every stamp above is written. **The close condition is checkable and you check it: `state/handoffs/` holds no
+record carrying a terminal `deployment_state` when you report.** Idempotent; it drains other sessions'
+residue too.
 `[[terminal-batons-are-swept-at-close-not-left-to-the-next-ceremony]]`
 
-Nothing to close is ordinary — say so; the drain still runs.
+**3. Refresh.** `regenerate-orientation-cache --invoker quick-wrap`.
 
-**3. Refresh.** `regenerate-orientation-cache --invoker quick-wrap` — batch into step 1's shell
-call when step 2 ran no CLI of its own; otherwise a separate call.
+**4. Changelog.** `& "$env:COORDINATOR_SETTINGS_HOME\bin\workday-complete-step9-append-changelog.exe" --no-push` (POSIX `$COORDINATOR_SETTINGS_HOME/bin/workday-complete-step9-append-changelog --no-push`). Rerun-safe.
 
-**4. Report.** Four lines: what landed (commit SHA), the completion entry path, what you closed,
+**5. Report.** Four lines: what landed (commit SHA), the completion entry path, what you closed,
 what's deliberately open. Six for `scope_mode: spec-dispatch`: add the `code-reviewer` verdict + ledger verified + one
 commit, and that the plan-reconciliation ran. Then stop.
 

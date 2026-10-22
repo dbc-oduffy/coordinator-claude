@@ -34,6 +34,11 @@
 # coordinator_core.session function):
 #   claim-artifact <class> <basename> [baton_repo_root] -> claims.claim_artifact(...)
 #   release-artifact <class> <basename> [baton_repo_root] -> claims.release_artifact(...)
+#   release-artifact-bulk (--all | --stdin | <path>...) -> claims._release_path_claims_bulk(...)
+#     Releases this session's own path-touch claims in one pass over the claim
+#     sinks (paths from argv and/or newline-delimited stdin; --all = every own
+#     claim). Same exit contract as release-artifact: 0 released/no-op, 1 refused
+#     or ValueError, 2 usage, 3 transport. A peer's claim is never released.
 #   clear-claim-if-dead <class> <basename> [baton_repo_root] -> claims.clear_claim_if_dead(...)
 #     AC5 (docs/plans/2026-08-13-liveness-stops-conflating-dead-with-
 #     elsewhere.md): for the three classed forms (handoff/memo/plan — NOT
@@ -471,6 +476,7 @@ def _sid_looks_valid(sid: str) -> bool:
 _SUBCOMMANDS = (
     "subcommands: claim-artifact <class> | release-artifact <class> | "
     "release-or-relinquish <class> | clear-claim-if-dead <class> | "
+    "release-artifact-bulk (--all | --stdin | <path>...) | "
     "claim-plan | take-over-claim plan | is-session-live | "
     "list-stale-claim-handoffs | list-claims-by-session | who-claims-path\n"
     "  <class>: handoff | memo | plan (basename-keyed claim records), row "
@@ -658,6 +664,7 @@ def _dispatch(argv: list[str]) -> int:
     _CLAIM_SUBCOMMANDS = (
         "claim-artifact", "release-artifact", "release-or-relinquish",
         "clear-claim-if-dead", "claim-plan", "list-claims-by-session",
+        "release-artifact-bulk",
     )
     if subcmd in _CLAIM_SUBCOMMANDS:
         try:
@@ -695,6 +702,22 @@ def _dispatch(argv: list[str]) -> int:
             if claim_dir is not None and not claim_dir.is_dir():
                 _emit_claim_not_found_note("release-artifact", class_, basename, claim_dir)
         return _call_claim_bool("release-artifact", mod.release_artifact, class_, basename, baton_repo_root)
+
+    if subcmd == "release-artifact-bulk":
+        _bulk_usage = "session-claim-cli release-artifact-bulk (--all | --stdin | <path>...)"
+        use_all = "--all" in rest
+        use_stdin = "--stdin" in rest
+        paths = [a for a in rest if a not in ("--all", "--stdin")]
+        unknown = [a for a in paths if a.startswith("--")]
+        if unknown or (use_all and (use_stdin or paths)) or not (use_all or use_stdin or paths):
+            return _usage(_bulk_usage)
+        if use_stdin:
+            paths += [ln.strip() for ln in sys.stdin.read().splitlines() if ln.strip()]
+        paths = [p for p in paths if p]  # drop empty argv strings (stdin lines already stripped)
+        return _call_claim_bool(
+            "release-artifact-bulk", mod._release_path_claims_bulk,
+            None if use_all else paths,
+        )
 
     if subcmd == "release-or-relinquish":
         if len(rest) < 2:

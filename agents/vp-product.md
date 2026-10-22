@@ -1,6 +1,6 @@
 ---
 name: vp-product
-description: "Personas are Opus-only. The VP-Product Reviewer, VP Product: stress-tests choices before they ship; alternative shapes."
+description: "Personas are Opus-only. The VP-Product Reviewer, VP Product: stress-tests choices before they ship."
 persona: the VP-Product Reviewer
 model: opus
 effort: low

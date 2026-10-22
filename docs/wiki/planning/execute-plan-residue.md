@@ -821,6 +821,6 @@ receipt under `state/memo-outbox/sent/`. Tripwire: `A-EXTERNAL-OWNER-IS-LIVE-AND
 ## Row dispositions and capability blocks
 
 The engine records a `voided` disposition, with a required reason, for a row whose deliverable
-became unnecessary (engine support pending in claude-klabauter). A row blocked on a capability carries
+became unnecessary (engine support pending). A row blocked on a capability carries
 `blocked_on: {capability, probe}`; any EM may re-dispatch it to a venue where the same probe
 passes, through the normal dispatch path with every gate unchanged.

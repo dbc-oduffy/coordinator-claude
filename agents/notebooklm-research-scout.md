@@ -19,11 +19,12 @@ Discover sources and check accessibility only. Workers handle content analysis a
 1. **Read `strategy.md`** from `{scratch-dir}/strategy.md` — the EM's search guidance per notebook. `Source strategy: scout-provided` → execute searches, vet sources, write a URL list. `Source strategy: research_start` → note this in sources.md; the worker handles discovery via NLM.
 2. **Execute searches** via WebSearch using each notebook's "Search guidance for scout." Start wide (broad topic + media type, e.g. "agent orchestration YouTube"), narrow only if the first pass is thin ("multi-agent Claude coordination talk 2025") — long specific queries upfront miss content with different titles.
 3. **Vet accessibility** via WebFetch for promising results: HTTP 200/no login wall, media type (YouTube/podcast/article), basic metadata (title, date), and SEO-farm indicators — mark `SEO-suspect: YES` if 3+ of: generic domain name, excessive ads/popups, keyword-stuffed/template content, no author attribution, clickbait title. If a WebFetch fails or times out, mark `Accessible: NO` and move on.
+   **Epic docs:** for a `dev.epicgames.com/documentation/...` page (NotebookLM gets a 403 shell), WebFetch it or read the docs mirror the brief names, write the text to `{scratch-dir}/text-sources/<notebook>-<n>.md`, and list it as `- text: <path> (from <url>) — Accessible: YES`, never a bare URL. A fetch that errors or returns under 500 chars is not listed.
 4. **Write `sources.md`** to `{scratch-dir}/sources.md` incrementally as you find sources, then return.
 
 ## What You Do NOT Do
 
-Deep-read sources (skim metadata only) or judge content quality (worker's job). Never message peers or the EM; return once sources.md is written.
+Deep-read sources (skim metadata only) or judge content quality (worker's job). Never message peers or the EM; return once sources.md is written. Write only sources.md and `text-sources/` in the scratch directory.
 
 ## Source Priorities for NotebookLM
 

@@ -1,6 +1,6 @@
 ---
 name: external-pattern-checker
-description: "Opt-in web research on plan claims prior-art-checker left Silent. Sidecar only."
+description: "Opt-in web research on plan claims prior-art-checker left Silent."
 model: sonnet
 effort: medium
 color: teal

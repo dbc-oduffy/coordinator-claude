@@ -1,8 +1,8 @@
 ---
 name: bug-blitz
-description: "Emit and fire a canonical bug-backlog queue grind; dispatch, don't defer."
+description: "Submit a bug-blitz as one coordinator:bug-blitz Workflow call."
 allowed-tools: ["Agent", "Read", "Write", "Edit", "Bash", "Grep", "Glob", "Skill", "TaskCreate", "TaskUpdate", "TaskGet", "TaskList"]
-argument-hint: "[--appetite=hunt|standard|sweep] [--max=N] [--budget-tokens=N]"
+argument-hint: "[--targets=<red-set dir|failing-tests file|backlog>] [--appetite=hunt|standard|sweep] [--max=N] [--budget-tokens=N]"
 ---
 
 # Bug Blitz — Grind the Bug Backlog and the Test Suite
@@ -11,12 +11,9 @@ Two work sources, one pass: `state/bug-backlog/` and the full test suite (Tier-U
 Phase 0.6). No separate triage step — failing tests mint `TF-*` items that ride the same
 triage → fix → verify path as backlog bugs, through the emitted grind. Green suite is part of
 done once Tier-U is granted; declined runs the backlog leg only. Empty/absent backlog never
-halts the run; suite leg still fires. `backlog-grind-assemble brief bug-blitz` emits
-`j-bug-blitz-commit-readiness` (resolve it before the emitted grind's first commit),
-`executor-dispatch-prompt-template`, and `spinoff-handoff-template` — read them, don't
-hand-narrate them. When the PM already authorized commit and/or the suite in the session
-prompt, pass it explicitly — `brief bug-blitz --standing-grant commit,tests` — and both asks
-land answered in `decisions` instead of re-raised; never infer a grant the PM did not state.
+halts the run; suite leg still fires. The submission is the commit authority and the emitted
+grind carries its own templates — read them, don't hand-narrate them. Never infer a suite grant
+the PM did not state.
 Rationale, worked examples, and full phase mechanics: wiki.
 
 **Announce:** "Running `/bug-blitz` — one authorization ask for the full test suite (baseline +
@@ -32,7 +29,8 @@ restate it.
 
 ## Arguments
 
-`--appetite=hunt|standard|sweep` (default `standard`) — passed through to the emitter; its
+`--targets=<red-set dir | failing-tests file | backlog>` — the submission's `targets` arg (required;
+`backlog` when none is named and no evidence exists). `--appetite=hunt|standard|sweep` (default `standard`) — passed through to the engine; its
 meaning is the profile's `appetite` block. `standard` stops at 40 agent calls and its `where`
 excludes P3: name `sweep` for a large TF set. `--max=N` → `--limit N`. `--budget-tokens=N` — passed through.
 To subset rows add `--where '<JSON DNF>'` (or `--where-file`) to the emit call: an OR of AND-lists
@@ -49,21 +47,27 @@ Note backlog presence/count; confirm `git branch --show-current` is the day bran
 as `BLITZ_BRANCH`: the `coordinator.dayBranch` designation when the repo has one (a cloud session
 records its harness-assigned branch there at SessionStart), else `work/{machine}/{date-or-span}`.
 Halt on anything else, always on `main`, the default branch, or a detached HEAD — fail-closed, no
-override. After `/merging-to-main` deleted the day branch, cut a fresh `work/{machine}/{date}` from main first. Mint run ID; the emitted script is a working file under `state/scratch/bug-blitz/{run-id}/`, cited evidence, including the engine's per-item `.done.md` and `.verify.md` records, goes to `state/queue-grind/bug/evidence/{run-id}/`. Mechanics: wiki.
+override. After `/merging-to-main` deleted the day branch, cut a fresh `work/{machine}/{date}` from main first. Cited evidence, including the engine's per-item `.done.md` and `.verify.md` records, goes to `state/queue-grind/bug/evidence/{run-id}/`. Mechanics: wiki.
 
 ## Phase 0.6 — Tier-U Authorization
 
-Ask once, before Phase 0.7: *"This run needs the full test suite — once now to baseline, once
-after fixes to confirm green. Authorize the full-suite tier for this run?"* Only an explicit
-affirmative naming its subject (or a terse "yes" in direct reply) qualifies — general blitz
-approval doesn't. Granted → `tier-u-grant-cli grant pm <note>`, proceed; the same session-scoped
+Compute the ask, then put it once, before Phase 0.7. Resolve the fast and full commands with
+`coordinator-resolve-validation-cmd --fast` and `--full`. Name each resolved command, and say
+"both tiers run `<cmd>`" when the two are byte-identical. Quote each tier's last duration from `tier-last-run read` or the measured
+note in `coordinator.local.md`, else the literal "no recorded duration". Ask: *"This run needs
+the suite — once now to baseline, once after fixes to confirm green. Fast runs `<cmd>`, last <duration>.
+Full runs `<cmd>`, last <duration>. Authorize the suite for this run?"* Only an
+explicit affirmative naming its subject (or a terse "yes" in direct reply) qualifies — general
+blitz approval doesn't. Granted → `tier-u-grant-cli grant pm <note>`, proceed; the same session-scoped
 token covers the confirm-green re-run (`tier-u-grant-cli check`, no second ask). Declined → write
 nothing, backlog-only leg, note the decline in the report.
 
-## Phase 0.7 — Suite Baseline (no-op unless granted)
+## Phase 0.7 — Choose Targets
 
-Take the baseline before any committing grind fires in this tree (including `/debt-triage`
-Step 1's) or wait for it to finish; a baseline straddling another run's commits misattributes.
+Targets are one of: existing evidence, a fresh `testing.suite_runs` record, a baseline taken when
+granted, or `backlog`. Take any baseline before a committing grind fires in this tree (including
+`/debt-triage` Step 1's) or wait for it to finish; a baseline straddling another run's commits
+misattributes.
 
 **Cloud session: no baseline.** The cloud environment bars every broad suite. Skip the grant ask and this phase, report
 `suite: not-run (cloud)`, and prove each fix with the tests covering its surface.
@@ -76,7 +80,7 @@ confirm-green suite when the lock frees.
 Otherwise `coordinator-resolve-validation-cmd --full` resolves `TEST_CMD`: exit 0 full suite; exit 3
 fast-tier fallback, report as `fast-fallback`, never call it the full suite; exit 2 unconfigured,
 continue backlog-only, name the remediation, never fabricate a command. EM runs it directly as
-`with-suite-mutex -- <TEST_CMD>` (subagents never run the suite); its `state/test-runs/<suite>-last.txt`
+`with-suite-mutex --collection full -- <TEST_CMD>` (`--collection fast` on exit 3) (subagents never run the suite); its `state/test-runs/<suite>-last.txt`
 is the `targets`.
 
 **Empty-backlog-and-green-suite short-circuit:** absent/empty backlog AND fully green resolved
@@ -84,13 +88,13 @@ suite → skip to a one-line all-clear, no commit. Not reachable under decline.
 
 ## Phase 1 — Submit the Run
 
-Resolve `j-bug-blitz-commit-readiness`, then submit — one call, the whole run:
+Submit — one call, the whole run:
 
 `Workflow({name: "coordinator:bug-blitz", args: {targets: "<red-set dir | failing-tests file | state/bug-backlog>", appetite?, limit?, budget_tokens?}})`
 
 The engine's PreToolUse hook parses the targets, mints one `TF-*` row per failing test file, emits
 the grind and fires it. Never parse, mint or emit by hand; a stub return of `halted: true` means the
-hook didn't run — report it. Submitting is the PM's standing approval for every safe fix,
+hook didn't run — report it. The run's committer lands the minted rows with the fixes; commit nothing before the fire. Submitting is the PM's standing approval for every safe fix,
 refute-confirmed close and plan-weight baton the run produces — no per-item ask.
 
 **Cost.** Report the spend in `state/queue-grind/bug/runs/<run-id>.json` beside the hand-back

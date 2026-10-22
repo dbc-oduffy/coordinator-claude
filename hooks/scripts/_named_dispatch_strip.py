@@ -1,39 +1,14 @@
 """_named_dispatch_strip.py -- shared library, NOT a registered hook.
 
-Single-emitter fix (2026-07-31, follow-up to the worktree/mode-elevation
-fold-in): `guard-named-dispatch-tool-restriction.py` used to independently
-build its own `hookSpecificOutput.updatedInput` (a `name` key strip) on the
-`Agent` matcher, racing `enforce-agent-dispatch-mode.py`'s own single merged
-`updatedInput` emission on the SAME matcher -- Claude Code runs same-event
-PreToolUse hooks in parallel with undefined completion order, and
-`updatedInput` is last-writer-wins, so on an Agent dispatch carrying BOTH a
-`name` key on a restricted subagent_type AND a mode-elevation/sidecar/
-role-framing/worktree-isolation trigger, exactly one hook's rewrite silently
-clobbered the other's. This is the same parallel-hook clobber class
-`_worktree_isolation_strip.py` closed for the worktree/mode-elevation pair;
-this module closes it for the `name`-strip too, using that fix as its
-precedent shape.
-
-Fix shape: the named-dispatch-strip COMPUTATION (this module) is now shared,
-pure, and side-effect-free (no stdout, no sys.exit). The only caller that may
-EMIT `updatedInput` for `Agent` is `enforce-agent-dispatch-mode.py` -- it
-folds this module's result into its own single merged `updatedInput` (mode
+The named-dispatch-strip COMPUTATION (this module) is shared, pure, and
+side-effect-free (no stdout, no sys.exit). The only caller that may EMIT
+`updatedInput` for `Agent` is `enforce-agent-dispatch-mode.py` -- it folds
+this module's result into its own single merged `updatedInput` (mode
 elevation + sidecar + contract-blocks + role-framing + worktree-strip +
-named-dispatch-strip, all layered onto ONE `merged` dict, ONE emission site).
-
-`guard-named-dispatch-tool-restriction.py` still imports and calls this
-module for its OWN standalone `main()` (its dedicated test suite,
-`coordinator/tests/test_guard_named_dispatch_tool_restriction.py`, drives
-that script directly via subprocess and must keep passing unmodified in
-intent), but it is deregistered from `hooks.json`'s `Agent` matcher entirely
--- `Agent` was its only matcher, so once its computation is folded into
-`enforce-agent-dispatch-mode.py`'s single-emitter path there is no live
-matcher left where it is the sole emitter (unlike
-`_worktree_isolation_strip.py`'s `strip-worktree-isolation.py` caller, which
-stays registered on `Workflow` because `Workflow`'s `tool_input` has no
-`prompt` key and cannot fold into the Agent-only merge path). Neither caller
-re-implements the restricted-type / unknown-key / deny logic -- both import
-`compute_named_dispatch_result` from here.
+named-dispatch-strip, all layered onto ONE `merged` dict, ONE emission site),
+so same-event PreToolUse hooks cannot clobber each other's rewrite. The strip
+decision lives here; its engine twin is
+`coordinator_core/hooks/guard_named_dispatch_tool_restriction.py`.
 
 Only a dispatch whose `subagent_type` falls in the full 32-type reporting
 roster (`_REPORTING_SUBAGENT_TYPES` below) is in scope, and only when `name`
@@ -72,10 +47,7 @@ once `tool_input` is established as a named Explore/Plan dispatch, an
 unrecognised `tool_input` key (outside `_KNOWN_AGENT_TOOL_INPUT_KEYS`) or any
 other internal failure while constructing the rewrite returns a `"deny"`
 result rather than `None` -- `None` is reserved for genuine "nothing to do"
-cases, never for "this module failed to decide". See
-`guard-named-dispatch-tool-restriction.py`'s original module docstring
-(preserved there) for the full FAIL-CLOSED rationale; this module implements
-that same contract, just as a pure function instead of a stdout emitter.
+cases, never for "this module failed to decide".
 """
 
 from __future__ import annotations
@@ -154,6 +126,7 @@ _REPORTING_SUBAGENT_TYPES = (
     "coordinator:overengineering-reviewer",
     "coordinator:plan-author",
     "coordinator:plan-author-residue",
+    "coordinator:residue-author",
     "coordinator:plan-reviewer",
     "coordinator:parallel-review-synthesizer",
     "coordinator:plan-coverage-checker",
@@ -282,11 +255,9 @@ def _compose_offer_message(subagent_type: str, reason: str) -> str:
     """Pure composer for the `strip` offer (docs/plans/2026-08-02-guard-
     message-character-cap.md § C6). The full rationale (read-only
     restriction, system prompt, and omitClaudeMd loss; the ~31k-token cost
-    breakdown) relocates to `_WIKI_ANCHOR` -- see this module's own
-    relocation fragment. Returns the flattened `render()` text (not a
-    `Message`) since both callers (`enforce-agent-dispatch-mode.py`,
-    `guard-named-dispatch-tool-restriction.py`) treat this as a plain
-    `additionalContext` string, not a `Message` they render themselves."""
+    breakdown) relocates to `_WIKI_ANCHOR`. Returns the flattened `render()`
+    text (not a `Message`) since the caller (`enforce-agent-dispatch-mode.py`)
+    treats this as a plain `additionalContext` string."""
     if reason == _REASON_DELIVERY:
         prose = (
             "[named-dispatch guard] `name:` stripped from {} -- naming it "

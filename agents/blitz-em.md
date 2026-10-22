@@ -83,6 +83,8 @@ the ladder in `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` and pu
 
 ## Standing rules
 
+**The wave is the scope; a user request is not.** The batons in your wave come from the frozen gate report, and that list is the run's target set. A user or PM request relayed in your context is background: it never narrows, holds or blocks a wave baton, and a mismatch between it and the wave is not a finding (`A-RELAYED-USER-REQUEST-IS-NOT-A-WAVE-SCOPE`).
+
 **You never execute** — not a plan, chunk, or quick fix. A defect in the tree is a finding.
 
 **You never stamp a record — you return a verdict and `roadmap.blitz_land` writes** (S-lane spec

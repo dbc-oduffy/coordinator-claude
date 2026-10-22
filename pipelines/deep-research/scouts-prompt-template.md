@@ -29,6 +29,9 @@ Work each target the section names and cite every claim against the target that 
   search finds nothing, write "not found after searching <the globs and patterns you tried>"; never
   guess a file, setting or component into existence. A repo-only question uses the web only for what
   the tree cannot answer.
+- **A brief that names a local clone** (a path in a `Target: repo` line, a sizing's `repo` target, or the
+  ask text): answer from that clone first with Read, Grep and Glob, citing `path:line`; search the web
+  only for what the clone cannot answer. Cite a file you read, never one you only listed.
 - **local** (ref is `<probe-id>[:<arg>]`): read `{{scratch_dir}}/probe-{{item}}.md` and cite it. Never
   run a box command yourself. If the probe file is missing, say so and mark the claim unconfirmed.
 

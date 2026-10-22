@@ -3,7 +3,7 @@ name: research-worker
 description: "Sonnet NotebookLM worker: ingests scout sources, queries, writes {letter}-claims.json."
 model: sonnet
 effort: low
-tools: ["Read", "Write", "Glob", "Edit", "Bash", "PowerShell", "ToolSearch", "mcp__notebooklm-mcp__notebook_create", "mcp__notebooklm-mcp__notebook_get", "mcp__notebooklm-mcp__notebook_query", "mcp__notebooklm-mcp__tag", "mcp__notebooklm-mcp__source_add", "mcp__notebooklm-mcp__source_get_content", "mcp__notebooklm-mcp__research_start", "mcp__notebooklm-mcp__research_status", "mcp__notebooklm-mcp__research_import", "mcp__notebooklm-mcp__studio_create", "mcp__notebooklm-mcp__studio_status", "mcp__notebooklm-mcp__download_artifact", "mcp__notebooklm-mcp__chat_configure", "mcp__notebooklm-mcp__refresh_auth", "mcp__notebooklm-mcp__batch", "mcp__notebooklm-mcp__source_sync_drive", "mcp__notebooklm-mcp__source_list_drive"]
+tools: ["Read", "Write", "Glob", "Edit", "Bash", "PowerShell", "ToolSearch", "mcp__notebooklm-mcp__notebook_create", "mcp__notebooklm-mcp__notebook_get", "mcp__notebooklm-mcp__notebook_query", "mcp__notebooklm-mcp__tag", "mcp__notebooklm-mcp__source_add", "mcp__notebooklm-mcp__source_get_content", "mcp__notebooklm-mcp__source_delete", "mcp__notebooklm-mcp__research_start", "mcp__notebooklm-mcp__research_status", "mcp__notebooklm-mcp__research_import", "mcp__notebooklm-mcp__studio_create", "mcp__notebooklm-mcp__studio_status", "mcp__notebooklm-mcp__download_artifact", "mcp__notebooklm-mcp__chat_configure", "mcp__notebooklm-mcp__refresh_auth", "mcp__notebooklm-mcp__batch", "mcp__notebooklm-mcp__source_sync_drive", "mcp__notebooklm-mcp__source_list_drive"]
 color: orange
 access-mode: read-write
 ---
@@ -19,7 +19,7 @@ then return.
 
 1. `sources.md` is complete when you start; the script orders you after the scout.
 2. Bootstrap MCP tools:
-   - Try exact names: `ToolSearch("select:mcp__notebooklm-mcp__notebook_create,mcp__notebooklm-mcp__tag,mcp__notebooklm-mcp__source_add,mcp__notebooklm-mcp__notebook_query,mcp__notebooklm-mcp__notebook_get,mcp__notebooklm-mcp__source_get_content,mcp__notebooklm-mcp__studio_create,mcp__notebooklm-mcp__studio_status,mcp__notebooklm-mcp__download_artifact,mcp__notebooklm-mcp__research_start,mcp__notebooklm-mcp__research_status,mcp__notebooklm-mcp__research_import,mcp__notebooklm-mcp__batch,mcp__notebooklm-mcp__source_sync_drive,mcp__notebooklm-mcp__source_list_drive,mcp__notebooklm-mcp__chat_configure,mcp__notebooklm-mcp__refresh_auth")`.
+   - Try exact names: `ToolSearch("select:mcp__notebooklm-mcp__notebook_create,mcp__notebooklm-mcp__tag,mcp__notebooklm-mcp__source_add,mcp__notebooklm-mcp__notebook_query,mcp__notebooklm-mcp__notebook_get,mcp__notebooklm-mcp__source_get_content,mcp__notebooklm-mcp__source_delete,mcp__notebooklm-mcp__studio_create,mcp__notebooklm-mcp__studio_status,mcp__notebooklm-mcp__download_artifact,mcp__notebooklm-mcp__research_start,mcp__notebooklm-mcp__research_status,mcp__notebooklm-mcp__research_import,mcp__notebooklm-mcp__batch,mcp__notebooklm-mcp__source_sync_drive,mcp__notebooklm-mcp__source_list_drive,mcp__notebooklm-mcp__chat_configure,mcp__notebooklm-mcp__refresh_auth")`.
    - No results → `ToolSearch("+notebooklm notebook_create", max_results=15)`, use whatever names it finds.
    - Still no results → notebooklm MCP is unavailable. **Do NOT fall back to the `nlm` CLI or any
      workaround** — it breaks the structured output contract. Write a failure note to your output
@@ -42,11 +42,16 @@ then return.
    (403, 404, Forbidden, Access Denied, "Just a moment", captcha) or body under 500 chars is a
    failed ingestion — `source_delete` it, log the failure, don't count it toward the quota. A source marked `SEO-suspect: YES` is corroboration-only: if it's
    your only source for a claim, set confidence LOW and note the flag in evidence_excerpt.
+   A `text: <path> (from <url>)` entry in sources.md is added with `source_add` in its text form (the
+   file's content), then read back the same way. Any `dev.epicgames.com` source that fails is
+   reported in the summary by URL.
 5. **Drive sources are opt-in only** (`source_sync_drive`/`source_list_drive`) — use only when
    strategy.md/sources explicitly calls for them; otherwise plain `source_add`.
 6. **research_start:** `research_start(query, source="web", mode=...)` — `fast` (default,
    ~10 sources/~30s) vs `deep` (web only, ~40 sources + AI report, 3-5 min; use for breadth). Poll
-   `research_status`, `research_import(notebook_id, task_id, cited_only=True)`. **Discard the
+   `research_status`, `research_import(notebook_id, task_id, cited_only=True)`; after the import,
+   `source_get_content` each imported source and apply the same failure test (`source_delete`,
+   log, out of the quota; a failed `dev.epicgames.com` source is reported by URL). **Discard the
    deep-mode AI report itself** — import only its sources; extract claims via your own
    query/`source_get_content`, never by consuming the canned report.
 7. `notebook_get` to verify processing, then query "List all sources and their main topics" to

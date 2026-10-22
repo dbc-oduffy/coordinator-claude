@@ -3308,6 +3308,27 @@ class RouteMutationError(RuntimeError):
         self.op_stderr = op_stderr
 
 
+def distinct_refusal_stderr(text: str) -> str:
+    """`text` with repeated lines collapsed to their first occurrence and the
+    `[invoke] ... FAILED in-band` restatement of an earlier line dropped.
+
+    The refusing op reaches stderr through its logger and a direct write, and the
+    invoke wrapper then restates the last line as its own note: one reason
+    arrives as three lines, and a caller shows every one of them.
+    """
+    seen: set[str] = set()
+    kept: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped in seen:
+            continue
+        if stripped.startswith("[invoke]") and "FAILED in-band" in stripped:
+            continue
+        seen.add(stripped)
+        kept.append(stripped)
+    return "\n".join(kept)
+
+
 def mutation_refusal_message(op: str, result: Any, *, op_stderr: str = "") -> str | None:
     """Return route_mutation's refusal message for `result`, or None if `result`
     carries no in-envelope refusal.
@@ -3324,6 +3345,7 @@ def mutation_refusal_message(op: str, result: Any, *, op_stderr: str = "") -> st
     if not isinstance(result, dict):
         return None
 
+    op_stderr = distinct_refusal_stderr(op_stderr)
     exit_code = result.get("exit_code")
     exit_code_int: int | None
     exit_code_uncastable = False
@@ -3447,7 +3469,7 @@ def route_mutation(
     _stderr_sink: list[str] = []
     result = route(op, params, repo_root, legacy_fn, _stderr_sink=_stderr_sink)
 
-    op_stderr = "\n".join(s.strip() for s in _stderr_sink if s.strip())
+    op_stderr = distinct_refusal_stderr("\n".join(_stderr_sink))
     message = mutation_refusal_message(op, result, op_stderr=op_stderr)
     if message is not None:
         raise RouteMutationError(message, cast(dict, result), op_stderr=op_stderr)

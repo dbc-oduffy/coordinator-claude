@@ -233,6 +233,13 @@ def resolve_machine_local_bin(root: Path) -> Optional[str]:
 # running process, not to skip re-reading the registry on the next process.
 _dump_cache: dict[str, dict[str, str]] = {}
 
+#: Wall-clock bound on the one `machine-local dump` spawn: 2.0s cost term (an
+#: interpreter start plus a small registry read) + 10.0s scheduling headroom.
+#: Must equal `percolate-round.py :: _REGISTRY_CLI_TIMEOUT_SECS`, which this
+#: self-contained library cannot import (pinned by
+#: `test_percolate_round.py :: test_resolve_target_dump_bound_matches_round_family`).
+_REGISTRY_CLI_TIMEOUT_SECS = 2.0 + 10.0
+
 
 def _dump_registry(machine_local_bin: str) -> dict[str, str]:
     """Resolve EVERY key `machine-local` knows about, in one process, and
@@ -266,7 +273,18 @@ def _dump_registry(machine_local_bin: str) -> dict[str, str]:
             capture_output=True,
             text=True,
             check=False,
+            timeout=_REGISTRY_CLI_TIMEOUT_SECS,
         )
+    except subprocess.TimeoutExpired as exc:
+        raise ResolveError(
+            f"resolve-publish-target: machine-local invocation failed — "
+            f"'{machine_local_bin} dump' did not finish within "
+            f"{_REGISTRY_CLI_TIMEOUT_SECS}s. This is a TRANSPORT failure (the "
+            "CLI hung), NOT an unset registry key — the keys it would have "
+            "read may already be set correctly. The engine may still be "
+            "running it; rerun `machine-local dump` by hand to check.",
+            4,
+        ) from exc
     except OSError as exc:
         raise ResolveError(
             f"resolve-publish-target: machine-local invocation failed — "

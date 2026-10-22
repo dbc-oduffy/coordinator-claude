@@ -242,6 +242,7 @@ class _FidelitySnapshot:
 
     def __init__(self, repo_root: Path, engine_root: "Path | None") -> None:
         self.repo_root = repo_root
+        self.engine_root = engine_root
         self.git_before = _git_snapshot(repo_root)
         self.plans_dir = repo_root / "docs" / "plans"
         self.plans_before = _listing_snapshot(self.plans_dir)
@@ -311,8 +312,71 @@ def _build_fidelity_report(snapshot: "_FidelitySnapshot") -> dict:
         "plans": plans_report,
         "brief": brief_report,
         "diff_bearing": diff_bearing,
-        "terminal_gate": "pending-R8",
+        "terminal_gate": _terminal_gate_verdict(snapshot, git_after, diff_bearing),
     }
+
+
+def _load_terminal_review_op(engine_root: "Path | None"):
+    """The resolved engine's public `guard_terminal_review.op`, or `None`
+    when the engine is unresolved or the module cannot be imported. Monkeypatchable
+    in tests."""
+    if engine_root is None:
+        return None
+    try:
+        if str(engine_root) not in sys.path:
+            sys.path.insert(0, str(engine_root))
+        from coordinator_core.hooks import guard_terminal_review
+
+        return guard_terminal_review.op
+    except Exception:
+        return None
+
+
+def _child_session_ids(repo_root: Path, head_before: str) -> "list[str] | None":
+    """Distinct `Session-Id` trailers of the commits the child added since
+    `head_before`; `None` when git could not answer."""
+    try:
+        proc = _shared_run_git(
+            ["log", f"{head_before}..HEAD", "--format=%(trailers:key=Session-Id,valueonly,separator=%x0a)"],
+            repo_root,
+        )
+    except Exception:
+        return None
+    if proc.returncode != 0:
+        return None
+    seen: "list[str]" = []
+    for line in proc.stdout.splitlines():
+        sid = line.strip()
+        if sid and sid not in seen:
+            seen.append(sid)
+    return seen
+
+
+def _terminal_gate_verdict(snapshot: "_FidelitySnapshot", git_after: "dict | None", diff_bearing) -> dict:
+    """`{"verdict": refuse|pass|absent|unresolved|not-applicable, "reason": str}`.
+    `pass` only when the op was called for every child session and none refused."""
+    if diff_bearing is False:
+        return {"verdict": "not-applicable", "reason": "child left no diff"}
+    if diff_bearing is None or git_after is None:
+        return {"verdict": "unresolved", "reason": "git state unavailable"}
+    review_op = _load_terminal_review_op(snapshot.engine_root)
+    if review_op is None:
+        return {"verdict": "absent", "reason": "guard_terminal_review.op not loadable from the resolved engine"}
+    session_ids = _child_session_ids(snapshot.repo_root, snapshot.git_before["head"])
+    if not session_ids:
+        return {
+            "verdict": "unresolved",
+            "reason": "no child commit carrying a Session-Id trailer to judge",
+        }
+    for sid in session_ids:
+        try:
+            result = review_op({"session_id": sid, "cwd": str(snapshot.repo_root)})
+        except Exception as exc:
+            return {"verdict": "unresolved", "reason": f"guard_terminal_review.op raised {type(exc).__name__}"}
+        if result:
+            message = str(result.get("message") or "").strip()
+            return {"verdict": "refuse", "reason": message.splitlines()[0] if message else "terminal review refused"}
+    return {"verdict": "pass", "reason": f"op did not refuse {len(session_ids)} child session(s)"}
 
 
 def _fidelity_failed(report: dict) -> bool:

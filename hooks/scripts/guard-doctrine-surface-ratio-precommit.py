@@ -74,7 +74,8 @@ ADMISSION LEG (C7 hole #1, `state/bug-backlog/2026-08-29-tool-call-
 guards-are-blind-to-the-op-pa-3f8d21c07b45.yaml`, settled via
 `coordinator/docs/wiki/guards/guard-trigger-class-table.md` row #1)
 --------------------------------------------------------------------
-`guard-doctrine-surface-bash-write.py` (`PreToolUse Bash|PowerShell`) and
+`guard-doctrine-surface-bash-write` (`PreToolUse Bash|PowerShell`; body
+`coordinator_core/bash_guards/guard_doctrine_surface_bash_write.py`) and
 `check-claude-md-size.py` (`PreToolUse Write|Edit|MultiEdit`) are both
 TOOL-CALL guards: neither fires when an engine op rewrites a
 `_claude_md_ledger.GOVERNED_AUTHORING_SURFACES` file via a direct in-process

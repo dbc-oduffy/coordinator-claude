@@ -151,6 +151,7 @@ triage_policy: |
   reachable_target:
     - "A wiki-append/wiki-new target must be reachable from a surface an agent traverses (a wiki index, a skill step, a dispatch preamble)."
     - "An orphaned target is linked from its index in the same fix, or the row is rerouted to a linked wiki."
+    - "A wiki-new page also gets its classified row in state/audits/2026-09-06-doctrine-rule-class-register.yaml in the same fix; test_doctrine_rule_class_register.py fails on an unregistered wiki file."
 
   scope_routing:
     - "scope: universal or fleet with a central-wiki target is universal."
@@ -158,6 +159,11 @@ triage_policy: |
 
   dedupe:
     - "dedupe: the row restates an open row or a wiki rule in other words. The fix appends a recurrence note to the survivor and closes this row."
+
+  prior_art:
+    - "Before a wiki-append, wiki-new or 'uncaptured' claim, search for the lesson's rule (its mechanism, not its wording) across coordinator/docs/wiki and the tripwire index, and cite the strongest hit. A rule already stated generically elsewhere is dedupe or discard, never a narrower duplicate."
+    - "An 'absent from this tree' or 'no hits' claim names the command and its scope. The scope is the whole repo (docs/plans, archive/, state/ included), never coordinator/ alone."
+    - "A residual cited as 'the row's how_to_apply' must quote text that is in the row."
 
   never_fabricate_a_routing_id:
     - "Every record cites a manifest row id."
@@ -179,6 +185,7 @@ triage_policy: |
       - coordinator/tests/test_doctrine_surfaces_are_not_changelogs.py
       - coordinator/tests/test_doctrine_surface_weight.py
       - coordinator/tests/test_doctrine_surface_split_index_matches_corpus.py
+      - coordinator/tests/test_doctrine_rule_class_register.py
       - "the tests triage names for the row (required for a structural-kind fix)"
 
   every_row_ends_in_exactly_one_verdict: true

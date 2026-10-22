@@ -43,10 +43,12 @@ Every leg is idempotent and fail-loud on ambiguity.
 ## The judgment half
 
 This command is the mechanical half. Weighing an unexpected surface, when to stop, and the rule
-that uncertainty routes to **reported-and-untouched** (never a guessed reversal) lives at:
+that uncertainty routes to **reported-and-untouched** (never a guessed reversal) lives in
+the engine authoring repo's wiki, not this clone. Resolve `<claude-klabauter-root>` with `machine-local get
+repos.claude_klabauter`, then read:
 
 ```
-coordinator/docs/wiki/uninstall-agentic-judgment.md
+<claude-klabauter-root>/docs/wiki/uninstall-agentic-judgment.md
 ```
 
 Read it whenever a run turns up a surface nothing below covers.

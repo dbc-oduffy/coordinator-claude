@@ -126,8 +126,7 @@ _REPAIR = {
 }
 
 #: The authoring bar's bare, installed launcher name — resolvable on PATH / the settings-home
-#: `bin/` once installed, the same way `_resolve_upgrade_cli` in `mise-prep-run.py` resolves
-#: `mise-prep-upgrade`. Never a probed path: a probed `<plugin_root>/bin/mise-prep-gate.py`
+#: `bin/` once installed. Never a probed path: a probed `<plugin_root>/bin/mise-prep-gate.py`
 #: literal is not runnable by an operator's cold `python3 <path>` the way the repair text implies,
 #: and this module cannot resolve the reader's own shell for them
 #: (A-REMEDIATION-LINE-NAMES-A-PROBED-PATH).
@@ -180,7 +179,19 @@ def _load_rollup():
 def _engine_plan_gate():
     """SEAM 1's gate read: `gate_v2.compute_gate_report`, in process. A `GateReadRefused` becomes
     a `SeamError`: a read that cannot answer never yields a fire set, empty or otherwise."""
-    from coordinator_core.roadmap.gate_v2 import GateReadRefused, compute_gate_report
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_engine_on_path
+
+    root = None
+    try:
+        root = require_engine_on_path(__file__)
+        from coordinator_core.roadmap.gate_v2 import GateReadRefused, compute_gate_report
+    except (RuntimeError, ImportError) as exc:
+        raise SeamError(
+            f"engine root unresolved ({root or 'none found'}): {exc} — set "
+            "COORDINATOR_ENGINE_ROOT to the engine checkout or run the settings-home "
+            "`mise-prep-run` launcher"
+        )
 
     def read(repo_root, roadmap_id=None):
         try:

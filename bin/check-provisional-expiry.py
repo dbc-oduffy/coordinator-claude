@@ -68,6 +68,7 @@ _NOT_ACTIVELY_EXECUTING_STATUSES = {
     "closed_partial",
     "deferred",
     "abandoned",
+    "closed",
     "superseded",
 }
 

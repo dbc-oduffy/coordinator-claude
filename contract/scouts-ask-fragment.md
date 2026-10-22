@@ -46,6 +46,17 @@ with its output filter in the same pipeline, so the probe agent's tool output ne
 secret. A probe reports names, keys and sizes, never a value. A probe id outside the list is
 refused at emit. `{ref}` in a command is the target's arg.
 
+### CLI class
+
+An entry with `"class": "cli"` probes an authenticated local CLI read-only. It names the `tool` and
+a `verbs` map of each permitted subcommand to the one question it answers. A scout targets it as
+`local=<id>:<verb>`; the `ref` is exactly one listed verb, and any other verb is refused. No verb
+may mutate (no submit, edit, sync, delete, revert, obliterate). The commands keep the per-OS form
+and run inside the research trail, so grounding and close apply. The probe reports names and counts
+only, never file contents or credentials. `p4-readonly` is the first entry (`info`, `depots`,
+`clients`, `streams`, `users`, `groups`, `labels`, `servers`). Engine-side verb enforcement is
+sibling-repo work; until it ships, the prompt template and the verb list bind the scout.
+
 ## Close
 
 The scouts `next_action` carries `require_grounding: true`. `research.close` at tier scouts
@@ -55,6 +66,18 @@ refuses a run whose `grounding.md` is absent or empty, grades a claim `ungrounde
 `probe-*.md` is never archived. `grounding.md` holds one `## digest-<slug>.md` section per digest
 with claim lines `- **<grounded|ungrounded|contradicted>** <claim> — <evidence>` at line start,
 and one `## Contradictions` section of `- **<real|invented>** <ruling>` lines.
+
+### Re-ground after a digest fix
+
+`research.close` reads `grounding.md` as written, so fixing or dropping a claim in a `digest-<slug>.md`
+leaves the old verdict in force and the close refuses again. After any digest edit, re-ground before
+re-closing: run the grounding stage afresh against the edited digests so it rewrites `grounding.md`,
+then re-run `research.close`. A resume of the finished run does not re-ground; it replays the cached
+grounding because the stage prompt is unchanged. Hand-editing `grounding.md` is never the fix: the
+grader's verdict is not the EM's to write. No engine op re-grounds a run today; until the engine
+ships one (a gated engine-plane ask), re-fire the scouts Workflow so the grounding stage runs
+against the edited digests. A re-fire re-runs the scouts and can regenerate the digests; confirm the
+fix survives in each digest before re-closing.
 
 ## CLI and sizing
 

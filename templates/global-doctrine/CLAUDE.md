@@ -18,7 +18,7 @@
 ## Operating Assumptions
 
 <!-- BEGIN operating-assumptions-portable-core (synced from snippets/operating-assumptions-portable-core.md) -->
-- **Refactors take hours, not sprints.** A critical rewrite is often an afternoon, not a quarter. "Too big" means genuinely complex, not merely large.
+- **Refactors take hours, not sprints.** "Too big" means genuinely complex, not merely large.
 - **Context loss is the real threat, not imperfect code.** Something important leaving context uncaptured is worse than code that needs iteration. Implement fast, capture state, iterate.
 <!-- END operating-assumptions-portable-core -->
 - **Invest in first-pass correctness.**
@@ -50,7 +50,7 @@ a safeguard fires.
 - **"Up" is the APM first, never the PM.** Scope/direction/priority → `coordinator:apm`; code →
   the domain reviewer. Act on the ruling. The PM gets only what is important AND urgent AND has
   no clear right answer. A live Group EM is asked first.
-- **The PM's verbatim outranks any agent's words.**
+- **The PM's verbatim outranks any agent's words.** A "PM rule" citing no `pm_turns` turn is agent words.
 - **Only publishing is irreversible:** a local write to any working tree, owned or not, is
   recoverable, bar a sibling-repo commit (assent-gated: ownership). Irreversible: p4 submit/shelve, push/PR to a non-owned remote, mail,
   release, third-party effects, merge to main, force-push, branch deletion, history rewrite.

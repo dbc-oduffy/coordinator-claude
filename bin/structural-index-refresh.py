@@ -23,8 +23,11 @@ Usage: structural-index-refresh.py [--root DIR] [--timeout SECONDS]
 from __future__ import annotations
 
 import argparse
+import ctypes
+import ctypes.util
 import json
 import os
+import platform
 import subprocess
 import sys
 import time
@@ -133,21 +136,81 @@ def _write_record(root: Path, record: dict) -> None:
         pass
 
 
-def admit_launch(root: Path) -> tuple[bool, str]:
-    """Gate a launch on `post_close_admission.admit`; on admit post the START notice.
+def admit_launch(root: Path) -> tuple[Optional[object], str]:
+    """Gate a launch on `post_close_admission.admit`; posts nothing.
 
-    Returns ``(admitted, reason)``. Fail-closed: an unimportable or raising admission module defers.
+    Returns ``(verdict, reason)`` with ``verdict`` None when deferred. Fail-closed: an
+    unimportable or raising admission module defers. The START notice is `post_start`'s, after Popen.
     """
     try:
         from coordinator_core.ops.ceremony import post_close_admission as admission
 
         avail, trusted = admission.read_available()
         verdict = admission.admit(ADMISSION_LABEL, avail, trusted)
-        if verdict.admitted:
-            admission.notice(verdict, f"{ADMISSION_LABEL}:{int(time.time())}")
-        return verdict.admitted, verdict.reason
+        return (verdict if verdict.admitted else None), verdict.reason
     except Exception as exc:
-        return False, f"admission unavailable ({type(exc).__name__})"
+        return None, f"admission unavailable ({type(exc).__name__})"
+
+
+def post_start(verdict: object, pid: int) -> None:
+    """Post the one START notice for a spawned child, naming its PID; never raises."""
+    try:
+        from coordinator_core.ops.ceremony import post_close_admission as admission
+
+        admission.notice(verdict, f"{ADMISSION_LABEL}:{int(time.time())}", pids=[pid])
+    except Exception:
+        pass
+
+
+def _platform() -> str:
+    return sys.platform
+
+
+def _libc():
+    return ctypes.CDLL(ctypes.util.find_library("c") or None, use_errno=True)
+
+
+# Linux ioprio_set(2): syscall numbers by machine; IOPRIO_WHO_PROCESS=1, IOPRIO_CLASS_IDLE=3.
+_IOPRIO_SYSCALL = {"x86_64": 251, "aarch64": 30, "arm64": 30, "i386": 289, "i686": 289}
+_IOPRIO_WHO_PROCESS = 1
+_IOPRIO_CLASS_IDLE = 3
+_IOPRIO_CLASS_SHIFT = 13
+# macOS setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_PROCESS, IOPOL_THROTTLE).
+_IOPOL_TYPE_DISK = 1
+_IOPOL_SCOPE_PROCESS = 0
+_IOPOL_THROTTLE = 3
+
+
+def lower_io_priority_self() -> None:
+    """Best-effort low disk I/O priority for the calling process (Linux idle class, macOS throttle).
+
+    Runs in the forked child before exec. Any failure or missing API is skipped silently.
+    """
+    try:
+        plat = _platform()
+        if plat.startswith("linux"):
+            number = _IOPRIO_SYSCALL.get(platform.machine().lower())
+            if number is not None:
+                _libc().syscall(number, _IOPRIO_WHO_PROCESS, 0, _IOPRIO_CLASS_IDLE << _IOPRIO_CLASS_SHIFT)
+        elif plat == "darwin":
+            _libc().setiopolicy_np(_IOPOL_TYPE_DISK, _IOPOL_SCOPE_PROCESS, _IOPOL_THROTTLE)
+    except Exception:
+        pass
+
+
+def lower_io_priority_pid(pid: int) -> None:
+    """Best-effort very-low I/O priority for a spawned Windows child via psutil; skipped without psutil."""
+    try:
+        import psutil
+
+        psutil.Process(pid).ionice(psutil.IOPRIO_VERYLOW)
+    except Exception:
+        pass
+
+
+def _child_preexec() -> None:
+    os.nice(POSIX_NICE)
+    lower_io_priority_self()
 
 
 def spawn_ensure(rag: Path, root: Path) -> "Optional[subprocess.Popen]":
@@ -155,11 +218,13 @@ def spawn_ensure(rag: Path, root: Path) -> "Optional[subprocess.Popen]":
     outlives us; the wrapper runs `ensure` and records the outcome.
 
     Returns None, spawning nothing, when admission defers; the deferral lands in refresh-last.json.
-    The wrapper starts at below-normal priority and `ensure` inherits it.
+    The wrapper starts at below-normal CPU priority and low I/O priority; `ensure` inherits both.
+    The START notice posts only after a successful Popen, carrying the child's PID; a failed
+    Popen propagates and posts nothing.
     stdout/stderr go to DEVNULL: an inherited pipe would tie the child's life to ours.
     """
-    admitted, reason = admit_launch(root)
-    if not admitted:
+    verdict, reason = admit_launch(root)
+    if verdict is None:
         stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         _write_record(root, {"started_at": stamp, "finished_at": stamp, "exit_code": None,
                              "deferred": reason, "stderr_tail": []})
@@ -179,8 +244,12 @@ def spawn_ensure(rag: Path, root: Path) -> "Optional[subprocess.Popen]":
         )
     else:
         kwargs["start_new_session"] = True
-        kwargs["preexec_fn"] = lambda: os.nice(POSIX_NICE)
-    return subprocess.Popen(cmd, **kwargs)
+        kwargs["preexec_fn"] = _child_preexec
+    proc = subprocess.Popen(cmd, **kwargs)
+    if os.name == "nt":
+        lower_io_priority_pid(proc.pid)
+    post_start(verdict, proc.pid)
+    return proc
 
 
 def refresh(root: Path, timeout: float, env: Optional[dict] = None) -> Optional[str]:

@@ -60,18 +60,20 @@ whenever `root` resolves, regardless of whether either registry write below
 succeeds, since it shares no state with them. See that function's own
 docstring for the full contract gap it closes.
 
-Second key, `repos.content_root` (with its legacy twin `repos.content_root`, marked
-compat-fallback) — write-when-absent-only, not
-write-when-different: this is the engine's own canonical `content_root`
+Second key, `repos.content_root` — the only sibling-map key this hook writes;
+the legacy twin `repos.content_root` is read-only here. Write-when-absent-only,
+not write-when-different: this is the engine's own canonical `content_root`
 resolution anchor (`coordinator_core.trusted_root_guard._content_root`,
 `OperatorConfigError` on `''`), a SEPARATE namespace from
 `engine.working_repos.content_root` by design (DR-132 — do not merge them).
-Unlike the `engine.working_repos.*` key above, `repos.content_root` is
+Unlike the `engine.working_repos.*` key above, the content root is
 operator-set and a box may legitimately hold more than one doctrine-repo clone with
 the operator pointing the sibling map at whichever one they're using —
 this hook only fills the key in when it is absent or empty (the
-`baton-assemble brief` failure mode this hook exists to close); it never
-overwrites an operator's existing choice, however stale it looks. Gated by
+`baton-assemble brief` failure mode this hook exists to close), and not when
+the legacy twin names a different path; it never overwrites an operator's
+existing choice, however stale it looks. The other-clone guard reads
+`repos.content_root` first, then the legacy twin. Gated by
 the same wrong-repo guard and written through the same
 `_write_registry_value` seam as the first key.
 
@@ -175,7 +177,7 @@ except Exception:
 
 _REGISTRY_KEY = "engine.working_repos.content_root"
 _CONTENT_ROOT_REGISTRY_KEY = "repos.content_root"
-_REPOS_REGISTRY_KEY = "repos.content_root"  # compat-fallback: legacy registry key
+_REPOS_REGISTRY_KEY = "repos.content_root"  # legacy registry key: read-only, never written
 _SENTINEL_NAME = ".coordinator-dev-repo"
 _EXPECTED_SLUG = "coordinator-content-repo"
 
@@ -499,7 +501,7 @@ def main() -> int:
 
     if current == root_str:
         try:
-            _maybe_seed_repos_content_root(reg_dir, root_str)
+            _maybe_seed_content_root(reg_dir, root_str)
         except Exception:
             pass
         return 0  # engine key already correct — no write for it
@@ -513,7 +515,7 @@ def main() -> int:
         pass
 
     try:
-        _maybe_seed_repos_content_root(reg_dir, root_str)
+        _maybe_seed_content_root(reg_dir, root_str)
     except Exception:
         pass
 
@@ -528,7 +530,9 @@ def _registry_names_other_clone(reg_dir, root: Path) -> bool:
     self-heal holds.
     """
     try:
-        value = _engine_registry_value(reg_dir, _REPOS_REGISTRY_KEY)
+        value = _engine_registry_value(reg_dir, _CONTENT_ROOT_REGISTRY_KEY) or _engine_registry_value(
+            reg_dir, _REPOS_REGISTRY_KEY
+        )
         if not value:
             return False
         registered = Path(value)
@@ -539,21 +543,34 @@ def _registry_names_other_clone(reg_dir, root: Path) -> bool:
         return False
 
 
-def _maybe_seed_repos_content_root(reg_dir, root_str: str) -> None:
+def _same_path(a: str, b: str) -> bool:
+    try:
+        return os.path.normcase(str(Path(a).resolve())) == os.path.normcase(str(Path(b).resolve()))
+    except Exception:
+        return False
+
+
+def _maybe_seed_content_root(reg_dir, root_str: str) -> None:
     """Write-when-absent-only seed for `repos.content_root` — see module
-    docstring's "Second key" section. Never overwrites an operator-set
-    value, whatever it is; only an absent or empty value triggers a write.
+    docstring's "Second key" section. Never writes `repos.content_root`. A
+    non-empty content root is the operator's choice and is left alone; a
+    legacy value naming a different path also blocks the seed.
     """
-    for key in (_CONTENT_ROOT_REGISTRY_KEY, _REPOS_REGISTRY_KEY):
-        try:
-            current_repos_value = _engine_registry_value(reg_dir, key)
-        except Exception:
-            current_repos_value = None
+    try:
+        current = _engine_registry_value(reg_dir, _CONTENT_ROOT_REGISTRY_KEY)
+    except Exception:
+        current = None
+    if current:
+        return
 
-        if current_repos_value:  # already set, non-empty — operator's choice, leave it
-            continue
+    try:
+        legacy = _engine_registry_value(reg_dir, _REPOS_REGISTRY_KEY)
+    except Exception:
+        legacy = None
+    if legacy and not _same_path(legacy, root_str):
+        return
 
-        _write_registry_value(key, root_str)
+    _write_registry_value(_CONTENT_ROOT_REGISTRY_KEY, root_str)
 
 
 if __name__ == "__main__":

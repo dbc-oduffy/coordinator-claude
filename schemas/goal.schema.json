@@ -112,7 +112,7 @@
     "period": {
       "type": "string",
       "enum": ["day", "week", "repo", "quarter", "year"],
-      "description": "Time horizon this goal operates over. day=sprint/daily; week=weekly cadence; repo=workstream-scoped; quarter=quarterly OKR (e.g. Q3-2026); year=annual OKR. Required — no null branch (the Director of Engineering F2/D-C): emit-goal-from-artifact.py hard-requires period at emission time (SKIPs + _EMIT_FAIL=1 if absent), so a null/absent period must be rejected at authoring time, not silently SKIP'd later at emit."
+      "description": "Time horizon this goal operates over. day=sprint/daily; week=weekly cadence; repo=workstream-scoped; quarter=quarterly OKR (e.g. Q3-2026); year=annual OKR. Required — no null branch: emit-goal-from-artifact.py hard-requires period at emission time (SKIPs + _EMIT_FAIL=1 if absent), so a null/absent period must be rejected at authoring time, not silently SKIP'd later at emit."
     },
     "period_value": {
       "type": "string",

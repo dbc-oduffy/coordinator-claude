@@ -17,7 +17,7 @@
 #     "scope-derived" otherwise, matching the choke point's own default-shaped
 #     callers. An explicitly-supplied --kind is validated against the
 #     canonical enum, coordinator_core.ops.handoff_stamp._SHIPPED_IN_KIND_ENUM.)
-#   ship-handoff <handoff_path> [<SHA>] [--sha <SHA>] [--archive] [--force]
+#   ship-handoff <handoff_path> [<SHA>] [--sha <SHA>] [--no-archive] [--force]
 #   claim-handoff <handoff_path>
 #     (deprecated alias: consume-handoff — accepted, not advertised; DR-084
 #     renamed the verb to match the claimed/claimed_at/claimed_by frontmatter
@@ -196,7 +196,7 @@ _SUBCOMMAND_USAGE = {
     ),
     "ship-handoff": (
         "archive-stamp-cli ship-handoff <handoff_path> [<SHA>] "
-        "[--sha <SHA>] [--archive] [--force]"
+        "[--sha <SHA>] [--no-archive] [--force]"
     ),
     "claim-handoff": "archive-stamp-cli claim-handoff <handoff_path>",
     # Deprecated alias — retained-for-compat, not advertised in _SUBCOMMANDS.
@@ -409,6 +409,8 @@ def _reject_unknown_flags(subcmd: str, rest: list[str]) -> int | None:
     if _OPEN_FLAG_TAIL_RE.search(usage):
         return None
     known = set(_FLAG_RE.findall(usage))
+    if subcmd == "ship-handoff":
+        known.add("--archive")
     i = 0
     while i < len(rest):
         tok = rest[i]
@@ -739,8 +741,8 @@ def main(argv: list[str]) -> int:
         # guard) — cs_ship_handoff composes handoff.archive_transition so the
         # guard stays intact.
         #
-        # The prior parser took
-        # ONLY `rest[1:2] == ["--archive"]` and had NO sha-forwarding path at
+        # Archiving is the default; --no-archive opts out and --archive is an
+        # accepted no-op. The prior parser had NO sha-forwarding path at
         # all: a caller passing a positional sha (`ship-handoff <path> <sha>`)
         # or `--sha <sha>` had it silently swallowed, even though
         # cs_ship_handoff/handoff.archive_transition already accept and thread
@@ -749,7 +751,9 @@ def main(argv: list[str]) -> int:
         # calling — silently dropping it is what caused the incident.
         handoff_path = rest[0]
         tail = rest[1:]
-        archive = False
+        archive = True
+        saw_archive = False
+        saw_no_archive = False
         force = False
         sha_flag: str | None = None
         positional_sha: str | None = None
@@ -757,7 +761,11 @@ def main(argv: list[str]) -> int:
         while i < len(tail):
             tok = tail[i]
             if tok == "--archive":
-                archive = True
+                saw_archive = True
+                i += 1
+            elif tok == "--no-archive":
+                saw_no_archive = True
+                archive = False
                 i += 1
             elif tok == "--force":
                 force = True
@@ -776,6 +784,14 @@ def main(argv: list[str]) -> int:
                     return 2
                 positional_sha = tok
                 i += 1
+
+        if saw_archive and saw_no_archive:
+            print(
+                "archive-stamp-cli: ship-handoff: --archive and --no-archive "
+                "are mutually exclusive",
+                file=sys.stderr,
+            )
+            return 2
 
         if (
             positional_sha is not None

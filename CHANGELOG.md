@@ -4,6 +4,13 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.6.0] — 2026-10-22
+
+- **XS lane:** a confident XS ask is done by hand inside a budget the guard measures from the diff (2 files, about 30 changed lines); the first edit past it is denied and the work sizes S or larger.
+- **Executor:** a fix test pins both sides of the decision it encodes.
+- **Cockpit contract 4.15.0:** plan and initiative status gain `closed`; goal status gains `lapsed`.
+- **Fixed:** path citations, schema pins and doctrine phrases that drifted across merged work.
+
 ## [4.5.1] — 2026-10-20
 
 - **Research:** the research command documents the NotebookLM notebooks list (`--research-target notebooklm=<id>` or `--list notebooks=A,B`), that `--context` takes a real file, and the build flags `sizing-assemble` still requires on a research sizing.

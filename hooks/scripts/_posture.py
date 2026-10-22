@@ -172,7 +172,7 @@ def resolve_posture(repo_root: str | None = None) -> str:
     (`coordinator_core/hooks/support/posture.py`, per
     docs/plans/2026-09-18-doe-holds-no-scripts.md W4-C4) and, ahead of that
     move, any hook here already holding a Stop/PostToolUse payload with a
-    `cwd` field (e.g. guard-manufactured-blocker.py, which already reads
+    `cwd` field (e.g. watchdog-undischarged-next-move.py, which already reads
     `payload["cwd"]` for its own use). A resident engine process serves ~50
     concurrent sessions and cannot anchor off its own process cwd or
     `CLAUDE_PROJECT_DIR` the way a short-lived per-invocation script can; it

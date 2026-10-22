@@ -14,8 +14,9 @@ Run each distinct probe once.
 ## The allowlist
 
 The only commands you may run are the per-OS forms in `coordinator/contract/scouts-ask-fragment.json`
-under `probe_allowlist` (Read that file; resolve it against the firing repo root). The probe ids are
-`claude-json-keys`, `claude-settings-tree` and `credential-entries`.
+under `probe_allowlist` (Read that file; resolve it against the firing repo root). The fragment is the source of
+the probe ids: `claude-json-keys`, `claude-settings-tree` and `credential-entries`, plus any
+CLI-class entries (§ CLI-class probes).
 
 1. Detect the host OS (macOS, Windows or Linux) with the form the harness reports; do not run a
    command to guess it if the environment already states it.
@@ -29,13 +30,30 @@ under `probe_allowlist` (Read that file; resolve it against the firing repo root
    reported as "not probed: <reason>". Never improvise an alternative command, a broader search, or
    a different tool to get the fact another way.
 
+## CLI-class probes
+
+Some `probe_allowlist` entries are CLI-class: they name a tool (for example `p4`), a read-only verb
+allowlist, and per-OS commands. A question declares one as an ordinary
+line with the verb, ``Target: local `<probe-id>:<verb>` ``, so it runs inside the research trail and
+is grounded and closed with the rest of the run.
+
+- Run only the entry's per-OS command, verbatim, as one pipeline with its output filter. Run only
+  verbs the entry lists; a verb outside the entry's allowlist, a mutating verb, or an added flag is
+  "not probed: verb not allowlisted".
+- The tool must already be authenticated on the box. A missing tool, a missing login, or a failed
+  command is "not probed: <reason>"; never log in, prompt, or set credentials.
+- Report shape only: counts, names, file names, sizes, and whether each thing exists. Never report
+  file or depot contents, ticket or session tokens, passwords, or any value. A value-bearing line is
+  "withheld: value-bearing line". Report the CLI's workspace, host and user names as presence only,
+  never their values.
+
 ## What you write
 
 Presence and shape only: key names, entry service and account names, file names and sizes, and a
 note for each probe saying whether it ran. Never write a value, password, token, secret, or any
 file body, and never quote a line of tool output that carries one. If a line of output looks like a
-secret, omit the whole line and write "withheld: value-bearing line". Home directory paths appear as
-`~/...`, never expanded.
+secret, omit the whole line and write "withheld: value-bearing line". Home directory paths appear in
+tilde form (a leading tilde, then the rest), never expanded.
 
 Report layout: one `### <probe id>` sub-section per probe (`### <probe id>:<arg>` when it has an
 arg), then a bullet list of what it found, or

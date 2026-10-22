@@ -110,7 +110,7 @@ an identity — see the section above.
 **Kill by process tree, not parent PID.** `taskkill /T` walks the Win32 parent chain only. MSYS-detached
 children (bash subshells, `sleep` cap timers) survive it, hold the run's log files open, and fail the
 relaunch. Kill a run by matching its tree on command line, creation time, or a job object, and census
-the process table for survivors before relaunching. A kill helper that is code is claude-klabauter's portable
+the process table for survivors before relaunching. A kill helper that is code is the engine's portable
 Python; the rule is stated here. Tripwire: `A-TREE-KILL-MUST-REACH-MSYS-CHILDREN`.
 
 **The HOLD wait lives in the outer driver, ahead of any cap timer.** A cap timer started before a

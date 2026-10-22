@@ -1,6 +1,6 @@
 ---
 name: parallel-review-synthesizer
-description: "Folds chunk reviews + specialists into one verdict. Only via parallel-code-review."
+description: "Folds chunk reviews and specialists into one verdict; parallel-code-review only."
 model: sonnet
 effort: low
 access-mode: read-write

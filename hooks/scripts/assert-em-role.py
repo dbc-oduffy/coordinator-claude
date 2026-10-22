@@ -10,7 +10,7 @@ silently switched off is worse than none at all. This hook has exactly one
 job, unconditionally: tell the main session it is the EM. Cockpit-only, gated
 by `_cockpit_session.under_cockpit()`: the turn-intent instruction
 (`agent-role-em-cockpit.md`) and the per-session role marker
-(`_turn_intent.write_role_marker`, best-effort, after emission) that arms the
+(`coordinator_core.hooks.support.turn_intent.write_role_marker`, best-effort, after emission) that arms the
 turn-intent Stop block. The marker never alters stdout or the exit code.
 
 Why this needs to exist at all: the always-loaded doctrine corpus
@@ -519,8 +519,14 @@ def _write_role_marker(repo_root, session_id) -> None:
         if repo_root is None or not session_id:
             return
         sys.path.insert(0, str(_SCRIPTS_DIR))
-        import _turn_intent
+        import _engine_root
         from _git_common_dir import resolve_git_common_dir
+
+        root = _engine_root.resolve_claude_klabauter_root()
+        if not root:
+            return
+        _engine_root.place_engine_root_on_path(root)
+        from coordinator_core.hooks.support import turn_intent as _turn_intent
 
         common = resolve_git_common_dir(str(repo_root))
         if not common:

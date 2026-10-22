@@ -83,7 +83,10 @@ fallback only when no cache exists. An earlier draft of this port checked
 `--lightweight` fired even when a warm `orientation_cache.md` was present —
 diverging from the oracle, whose cache-present block ALWAYS short-circuited
 before reaching the lightweight check. That divergence has been removed;
-see `lightweight_branch()`'s docstring for detail. The full-mode
+see `lightweight_branch()`'s docstring for detail. Staleness-class and could-not-check
+lines from the banner block are not printed in place: `main()` collects them (`_w_fold`) and prints
+one `── Staleness: N folded (...) ──` line after the block, before the cache body;
+`COORDINATOR_BOOT_BANNER_FULL=1` restores each line in full. The full-mode
 (non-`--lightweight`) legacy path in `main()` is UNCHANGED — it still uses
 `resolve_repo_root()`/`handle_cache_present()`'s git-verified staleness
 banner; there is currently no production caller of that path (see Flags
@@ -121,6 +124,7 @@ from typing import Optional
 # Paths: this file is at <plugin_root>/hooks/scripts/project-orientation.py
 # ---------------------------------------------------------------------------
 _SCRIPTS_DIR = Path(__file__).resolve().parent
+_SCRIPTS_DIR_STR = str(_SCRIPTS_DIR)
 _HOOKS_DIR = _SCRIPTS_DIR.parent
 _PLUGIN_ROOT = _HOOKS_DIR.parent  # <plugin_root>/coordinator
 _BIN_DIR = _PLUGIN_ROOT / "bin"
@@ -184,6 +188,44 @@ def _w(text: str) -> None:
     re-emission passes no added newline, matching the oracle's `cat "$CACHE"`.
     """
     sys.stdout.buffer.write(text.encode("utf-8"))
+
+
+# Boot staleness collector. None = inactive (every `_w_fold` prints in full);
+# a list = `main()` is collecting `(category, label)` items for the counted line.
+_FOLD: Optional[list] = None
+
+
+def _w_fold(category: str, label: str, full_text: str, lead: str = "") -> None:
+    """Print `lead + full_text`, or record `(category, label)` while a collector is active.
+
+    `category` is "stale" or "not checked". A could-not-check item is never
+    counted as stale and never as fine.
+    """
+    if _FOLD is None:
+        if lead:
+            _w(lead)
+        _w(full_text)
+        return
+    _FOLD.append((category, label))
+
+
+def _fold_age(hours: int) -> str:
+    return f"{hours}h" if hours < 48 else f"{hours // 24}d"
+
+
+def _render_staleness_line(items: Optional[list]) -> str:
+    """One counted line naming every folded item by category; "" when none."""
+    if not items:
+        return ""
+    groups = []
+    for category in ("stale", "not checked"):
+        labels = [lbl for cat, lbl in items if cat == category]
+        if labels:
+            groups.append(f"{category} {len(labels)}: {', '.join(labels)}")
+    return (
+        f"── Staleness: {len(items)} folded ({'; '.join(groups)}) — "
+        "/workday-start refreshes most; COORDINATOR_BOOT_BANNER_FULL=1 shows each ──\n"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -536,10 +578,14 @@ def _staleness_banner(
     very_stale_threshold: int,
     stale_message,
     very_stale_message,
+    fold_label,
     generator_name: Optional[str] = None,
     unresolvable_artifact_desc: Optional[str] = None,
 ) -> None:
     """Table-driven core shared by every staleness banner below.
+
+    `fold_label(age_hours) -> str` names the row in the counted staleness line
+    when a collector is active (see `_w_fold`).
 
     One row per banner: `(artifact-age-getter, thresholds, message
     formatters, OPTIONAL generator rung)`. `generator_name` is deliberately
@@ -593,10 +639,14 @@ def _staleness_banner(
             return
 
     if age_hours >= very_stale_threshold:
-        _w("\n")
-        _w(very_stale_message(age_hours, generator_path))
+        _w_fold(
+            "stale",
+            f"{fold_label(age_hours)} (very stale)",
+            very_stale_message(age_hours, generator_path),
+            lead="\n",
+        )
     elif age_hours >= stale_threshold:
-        _w(stale_message(age_hours, generator_path))
+        _w_fold("stale", fold_label(age_hours), stale_message(age_hours, generator_path))
 
 
 def repomap_staleness_banner(repo_root: Optional[str]) -> None:
@@ -614,6 +664,7 @@ def repomap_staleness_banner(repo_root: Optional[str]) -> None:
         env_off_var="COORDINATOR_REPOMAP_STATUS_OFF",
         label="repomap staleness banner",
         get_age_hours=_get_age_hours,
+        fold_label=lambda h: f"repo map {_fold_age(h)}",
         stale_threshold=24,
         very_stale_threshold=168,
         generator_name="generate-repomap.py",
@@ -644,6 +695,7 @@ def exec_summary_staleness_banner(repo_root: Optional[str]) -> None:
         env_off_var="COORDINATOR_EXECSUMMARY_STATUS_OFF",
         label="exec-summary staleness banner",
         get_age_hours=_get_age_hours,
+        fold_label=lambda h: f"exec summary {_fold_age(h)}",
         stale_threshold=24,
         very_stale_threshold=168,
         generator_name="generate-exec-summary.py",
@@ -738,6 +790,7 @@ def peer_recheck_staleness_banner(repo_root: Optional[str]) -> None:
         env_off_var="COORDINATOR_PEER_RECHECK_STATUS_OFF",
         label="peer re-check staleness banner",
         get_age_hours=_get_age_hours,
+        fold_label=lambda h: f"peer set {_fold_age(h)}",
         stale_threshold=168,
         very_stale_threshold=720,
         generator_name=None,
@@ -1137,9 +1190,11 @@ def install_currency_banner(repo_root: Optional[str]) -> None:
     except Exception:
         # A fresh cloud container never has the cache; a line on every boot is noise.
         if not _is_cloud_container():
-            _w(
+            _w_fold(
+                "not checked",
+                "install currency absent",
                 "── Install currency: absent — no doctor-last-run.json cache found; "
-                "/workday-start populates it ──\n"
+                "/workday-start populates it ──\n",
             )
         return
 
@@ -1161,16 +1216,20 @@ def install_currency_banner(repo_root: Optional[str]) -> None:
             age_hours = None
 
     if not isinstance(parsed, dict) or age_hours is None:
-        _w(
+        _w_fold(
+            "not checked",
+            "install currency unparseable",
             "── Install currency: stale-unknown (verdict cache unparseable) — "
-            "/workday-start refreshes it ──\n"
+            "/workday-start refreshes it ──\n",
         )
         return
 
     if age_hours >= _CURRENCY_BANNER_STALE_HOURS:
-        _w(
+        _w_fold(
+            "not checked",
+            f"install currency {_fold_age(int(age_hours))} old",
             f"── Install currency: stale-unknown ({age_hours:.0f}h old, refresh window is "
-            f"{_CURRENCY_BANNER_STALE_HOURS}h) — /workday-start refreshes it ──\n"
+            f"{_CURRENCY_BANNER_STALE_HOURS}h) — /workday-start refreshes it ──\n",
         )
         return
 
@@ -1181,9 +1240,11 @@ def install_currency_banner(repo_root: Optional[str]) -> None:
         # is a string or a dict, and rendering that as silence would say "nothing to report" about
         # a cache we cannot actually read. Absent is different and stays silent below: a cache
         # with no advisories at all is a legitimate clean state.
-        _w(
+        _w_fold(
+            "not checked",
+            "install currency malformed",
             "── Install currency: stale-unknown (verdict cache malformed — advisory_notes is "
-            "not a list) — /workday-start refreshes it ──\n"
+            "not a list) — /workday-start refreshes it ──\n",
         )
         return
 
@@ -1393,7 +1454,11 @@ def structural_index_banner(repo_root: Optional[str]) -> None:
         'python "$(machine-local get repos.project_rag)/project_rag_scripts/'
         'structural_index_refresh.py" ensure'
     )
-    _w(f"── Structural index: {state} ({age}) — refresh from repo root: {remedy} ──\n")
+    _w_fold(
+        "not checked" if state == "missing" else "stale",
+        f"structural index {state}",
+        f"── Structural index: {state} ({age}) — refresh from repo root: {remedy} ──\n",
+    )
 
 
 def _load_tier_last_run_module():
@@ -1512,9 +1577,11 @@ def tier_currency_banner(repo_root: Optional[str]) -> None:
 
         record = state.get(name)
         if not isinstance(record, dict) or "ran_at" not in record:
-            _w(
+            _w_fold(
+                "not checked",
+                f"tier {name}",
                 f"── {name}: unknown — no run recorded; "
-                f"`tier-last-run record --entry {name} ...` records one ──\n"
+                f"`tier-last-run record --entry {name} ...` records one ──\n",
             )
             continue
 
@@ -1530,14 +1597,20 @@ def tier_currency_banner(repo_root: Optional[str]) -> None:
                 age_hours = None
 
         if age_hours is None:
-            _w(f"── {name}: stale (ran_at unparseable) — record a fresh run to clear ──\n")
+            _w_fold(
+                "stale",
+                f"tier {name}",
+                f"── {name}: stale (ran_at unparseable) — record a fresh run to clear ──\n",
+            )
             continue
 
         human_age = module._format_age(ran_at_raw)
         if age_hours < 0 or age_hours >= _CURRENCY_BANNER_STALE_HOURS:
-            _w(
+            _w_fold(
+                "stale",
+                f"tier {name}",
                 f"── {name}: stale ({human_age}, refresh window is "
-                f"{_CURRENCY_BANNER_STALE_HOURS}h) ──\n"
+                f"{_CURRENCY_BANNER_STALE_HOURS}h) ──\n",
             )
             continue
 
@@ -1840,7 +1913,14 @@ def copies_banner(
         *_copies_plugin_verdicts(cc, ctx, cache, now.timestamp()),
         cil.leg(claude_klabauter_root=lambda: ctx.authoring_root, now=now),
     ]
-    _w("\n".join(cc.render_copies_lines(verdicts)) + "\n")
+    lines = cc.render_copies_lines(verdicts)
+    _w(lines[0] + "\n")
+    non_current = [v for v in verdicts if v.state != cc.CURRENT]
+    for verdict, line in zip(non_current, lines[1:]):
+        if verdict.state == cc.COULD_NOT_CHECK:
+            _w_fold("not checked", f"copies {verdict.copy} {verdict.axis}", line + "\n")
+        else:
+            _w(line + "\n")
 
 
 def engine_resolution_banner() -> None:
@@ -2065,6 +2145,30 @@ def engine_resolution_banner() -> None:
                 f"── Publish mirror (not a peer repo): {mirror_path} — owned by "
                 f"{owner} ──\n"
             )
+
+
+def general_work_folders_banner() -> None:
+    """Name the general-work root and the group-em home; resolve only, never create.
+
+    Each folder drops its own line when its resolver refuses or fails; fail-open.
+    """
+    if _SCRIPTS_DIR_STR not in sys.path:
+        sys.path.append(_SCRIPTS_DIR_STR)
+    try:
+        import _general_work
+
+        _w(f"General-work folder (git-tracked landing for work that fits no project): {_general_work.resolve_root()}\n")
+    except Exception:
+        pass
+    try:
+        import _gem_home
+
+        _w(
+            f"Group-em folder: {_gem_home.resolve_home()} -- for role-based work: one Claude "
+            "overseeing multiple sessions, unblocking and queueing them.\n"
+        )
+    except Exception:
+        pass
 
 
 def _w_live_plugin_root_line() -> None:
@@ -2543,10 +2647,12 @@ def orientation_cache_staleness_banner(repo_root: Optional[str], cache_text: Opt
         # Emit a distinct banner rather than either "STALE" (a claim we can't back) or silence
         # (which would present the cache as current by omission -- see docstring).
         cli = _operator_actionable_generator("regenerate-orientation-cache", repo_root)
-        _w("\n")
-        _w(
+        _w_fold(
+            "not checked",
+            "orientation cache",
             "── Orientation cache freshness UNVERIFIABLE — refresh: "
-            f"{cli} --invoker workday-start ──\n"
+            f"{cli} --invoker workday-start ──\n",
+            lead="\n",
         )
         return
 
@@ -2585,10 +2691,12 @@ def orientation_cache_staleness_banner(repo_root: Optional[str], cache_text: Opt
     # reference, CLAUDE.md § Cross-repo write discipline) so the remedy is still actionable.
     cli = _operator_actionable_generator("regenerate-orientation-cache", repo_root)
 
-    _w("\n")
-    _w(
+    _w_fold(
+        "stale",
+        "orientation cache",
         f"── Orientation cache STALE: {cache_head}→{short_head} "
-        f"({generated_at}) — refresh: {cli} --invoker workday-start ──\n"
+        f"({generated_at}) — refresh: {cli} --invoker workday-start ──\n",
+        lead="\n",
     )
 
 
@@ -2969,6 +3077,25 @@ def full_mode(repo_root: Optional[str], state_root: str) -> None:
     _w(f"── Orientation: {found} document(s) available (not loaded — read on demand) ──\n")
 
 
+def _run_banners(banners: list) -> None:
+    """Run each banner fail-open, folding staleness-class lines into one counted line.
+
+    `COORDINATOR_BOOT_BANNER_FULL` non-empty skips the collector, so every banner prints in full.
+    """
+    global _FOLD
+    if not os.environ.get("COORDINATOR_BOOT_BANNER_FULL"):
+        _FOLD = []
+    try:
+        for banner in banners:
+            try:
+                banner()
+            except Exception:
+                pass
+        _w(_render_staleness_line(_FOLD))
+    finally:
+        _FOLD = None
+
+
 def main(argv: list) -> int:
     lightweight = "--lightweight" in argv
 
@@ -3006,54 +3133,23 @@ def main(argv: list) -> int:
         except Exception:
             cache_text = None
 
-        try:
-            repomap_staleness_banner(repo_root)
-        except Exception:
-            pass
-        try:
-            exec_summary_staleness_banner(repo_root)
-        except Exception:
-            pass
-        try:
-            peer_recheck_staleness_banner(repo_root)
-        except Exception:
-            pass
-        try:
-            harness_version_drift_banner(repo_root)
-        except Exception:
-            pass
-        try:
-            copies_banner(repo_root)
-        except Exception:
-            pass
-        try:
-            orientation_cache_staleness_banner(repo_root, cache_text)
-        except Exception:
-            pass
-        try:
-            engine_resolution_banner()
-        except Exception:
-            pass
-        try:
-            local_install_surface_banner(repo_root)
-        except Exception:
-            pass
-        try:
-            install_currency_banner(repo_root)
-        except Exception:
-            pass
-        try:
-            corpus_currency_banner(repo_root)
-        except Exception:
-            pass
-        try:
-            structural_index_banner(repo_root)
-        except Exception:
-            pass
-        try:
-            tier_currency_banner(repo_root)
-        except Exception:
-            pass
+        _run_banners(
+            [
+                lambda: repomap_staleness_banner(repo_root),
+                lambda: exec_summary_staleness_banner(repo_root),
+                lambda: peer_recheck_staleness_banner(repo_root),
+                lambda: harness_version_drift_banner(repo_root),
+                lambda: copies_banner(repo_root),
+                lambda: orientation_cache_staleness_banner(repo_root, cache_text),
+                engine_resolution_banner,
+                general_work_folders_banner,
+                lambda: local_install_surface_banner(repo_root),
+                lambda: install_currency_banner(repo_root),
+                lambda: corpus_currency_banner(repo_root),
+                lambda: structural_index_banner(repo_root),
+                lambda: tier_currency_banner(repo_root),
+            ]
+        )
 
         try:
             if handle_cache_present_boot(cache, cache_text=cache_text):
@@ -3077,50 +3173,22 @@ def main(argv: list) -> int:
     state_root = resolve_state_root(repo_root)
     cache = Path(state_root) / "orientation_cache.md"
 
-    try:
-        repomap_staleness_banner(repo_root)
-    except Exception:
-        pass
-    try:
-        exec_summary_staleness_banner(repo_root)
-    except Exception:
-        pass
-    try:
-        peer_recheck_staleness_banner(repo_root)
-    except Exception:
-        pass
-    try:
-        harness_version_drift_banner(repo_root)
-    except Exception:
-        pass
-    try:
-        copies_banner(repo_root)
-    except Exception:
-        pass
-    try:
-        engine_resolution_banner()
-    except Exception:
-        pass
-    try:
-        local_install_surface_banner(repo_root)
-    except Exception:
-        pass
-    try:
-        install_currency_banner(repo_root)
-    except Exception:
-        pass
-    try:
-        corpus_currency_banner(repo_root)
-    except Exception:
-        pass
-    try:
-        structural_index_banner(repo_root)
-    except Exception:
-        pass
-    try:
-        tier_currency_banner(repo_root)
-    except Exception:
-        pass
+    _run_banners(
+        [
+            lambda: repomap_staleness_banner(repo_root),
+            lambda: exec_summary_staleness_banner(repo_root),
+            lambda: peer_recheck_staleness_banner(repo_root),
+            lambda: harness_version_drift_banner(repo_root),
+            lambda: copies_banner(repo_root),
+            engine_resolution_banner,
+            general_work_folders_banner,
+            lambda: local_install_surface_banner(repo_root),
+            lambda: install_currency_banner(repo_root),
+            lambda: corpus_currency_banner(repo_root),
+            lambda: structural_index_banner(repo_root),
+            lambda: tier_currency_banner(repo_root),
+        ]
+    )
 
     try:
         if handle_cache_present(cache, repo_root):

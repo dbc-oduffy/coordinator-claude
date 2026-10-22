@@ -1,7 +1,7 @@
-# Scouts value class: one Sonnet scout per question (up to 8, in parallel), then one grounding agent that checks the digests against their cited sources.
+# Scouts value class: one Haiku scout per question (up to 8, in parallel), then one Sonnet grounding agent that checks the digests against their cited sources.
 schema_version: 1
 pipeline: scouts
-description: An optional Haiku probe stage runs allowlisted local probes when a question has a local target; then one Sonnet scout per question, up to 8, each writes a short sourced digest to scratch; one grounding agent then re-opens the cited sources and writes grounding.md; no claims JSON, no synthesis.
+description: An optional Haiku probe stage runs allowlisted local probes when a question has a local target; then one Haiku scout per question, up to 8, each writes a short sourced digest to scratch; one grounding agent then re-opens the cited sources and writes grounding.md; no claims JSON, no synthesis.
 inputs:
   brief: required
   scratch_dir: optional
@@ -27,7 +27,7 @@ stages:
   - id: scout
     phase: Scout
     agent_type: general-purpose
-    model: sonnet
+    model: haiku
     template: scouts-prompt-template.md
     depends_on: [probe]
     fan_out:

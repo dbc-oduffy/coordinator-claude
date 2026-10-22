@@ -1224,6 +1224,7 @@ def _stage_shebang_exec_bits(
     pathspec: "list[str]",
     *,
     reconciled_sink: "list[str] | None" = None,
+    converged_sink: "list[str] | None" = None,
 ) -> int:
     """Set mode `100755` IN THE DEST INDEX for every path in `pathspec` whose
     destination file opens with `#!`. Returns how many paths were named.
@@ -1320,6 +1321,17 @@ def _stage_shebang_exec_bits(
             for rel_path in reconciled_paths:
                 if rel_path not in reconciled_sink:
                     reconciled_sink.append(rel_path)
+        # Under core.fileMode=true an index 100755 over a 644 disk reads dirty
+        # forever; converge the disk bit with the mode just staged.
+        if str(_COORDINATOR_LIB) not in sys.path:
+            sys.path.insert(0, str(_COORDINATOR_LIB))
+        from percolate.diff_commit import converge_worktree_modes  # noqa: PLC0415
+
+        converged = converge_worktree_modes(
+            root, {rel_path: 0o100755 for rel_path in shebang_paths}
+        )
+        if converged_sink is not None:
+            converged_sink.extend(converged)
         return len(shebang_paths)
     except Exception as exc:  # noqa: BLE001 - a best-effort mode fix never ends a publish
         print(
@@ -2455,7 +2467,7 @@ def _extract_row_tally(stdout: str, stderr: str) -> Optional[str]:
     return None
 
 
-_CAUSE_LINE_RE = re.compile(r"^\s*(?:Error|FATAL)\b[:\s].*", re.IGNORECASE)
+_CAUSE_LINE_RE = re.compile(r"^\s*(?:\[[^\]\n]+\]\s*)?(?:Error|FATAL)\b[:\s].*", re.IGNORECASE)
 _REFUSED_LABEL_RE = re.compile(r"^\s*\[timing\]\s+(.+?):\s+(REFUSED:.+?):\s+[\d.]+s wall")
 _CAUSE_MAX_CHARS = 300
 
@@ -2467,6 +2479,7 @@ def _extract_failure_cause(stdout: str, stderr: str) -> Optional[str]:
     hundreds of lines above its own summary and interleaved with `[timing]`
     lines, so a tail of the round shows FAIL with no cause. The FIRST `Error:`
     line is the root cause; later ones are usually its downstream fallout.
+    A bracket-tagged line such as `[publish.py] FATAL: ...` counts too.
     A `[timing] <row>: REFUSED: <why>` label is the fallback for a refusal
     that printed no `Error:` line. `None` means neither was found; the caller
     says so rather than invent one.
@@ -3475,13 +3488,17 @@ def _cmd_round_default(
             # Before the pipeline stages: record 100755 for shebanged dest
             # files. The on-disk chmod `publish_sync` performs is inert under
             # `core.fileMode=false` -- see `_stage_shebang_exec_bits`.
+            disk_converged: List[str] = []
             executable_count = _stage_shebang_exec_bits(
-                repo_root, pathspec, reconciled_sink=present_paths
+                repo_root,
+                pathspec,
+                reconciled_sink=present_paths,
+                converged_sink=disk_converged,
             )
             if executable_count:
                 print(
                     f"percolate-round: staged {executable_count} shebanged path(s) "
-                    "as executable at dest."
+                    f"as executable at dest ({len(disk_converged)} disk bit(s) converged)."
                 )
 
             # `commit_paths` has no tolerant pre-stage: a missing or
@@ -3648,11 +3665,16 @@ def _cmd_round_default(
                 filter_drop_warning=filter_drop_warning,
             )
 
-            verdict = "PASS-WITH-WARNINGS" if round_warnings else "PASS"
+            if engine_import_failure:
+                verdict = "FAIL"
+            else:
+                verdict = "PASS-WITH-WARNINGS" if round_warnings else "PASS"
 
             print("")
             print(f"percolate-round {target} — {verdict}")
             print("  real-run:  exit 0")
+            if engine_import_failure:
+                print(f"  engine-import-gate:  {engine_import_failure}")
             print(f"  warnings:  {len(round_warnings)}")
             for warning in round_warnings:
                 print(f"    - {warning}")

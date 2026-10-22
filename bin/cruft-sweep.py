@@ -187,6 +187,7 @@ CHUNK BOUNDARY (2026-07-28 collapse addendum — duplicate-port unification):
 """
 from __future__ import annotations
 
+import errno
 import json
 import os
 import re
@@ -252,7 +253,16 @@ SELF_NAME = "cruft-sweep"
 _STATE_ROOT_FAILURES: dict[bool, str] = {}
 
 
-def _state_root_or_empty(*, central: bool = False) -> str:
+def _argv_repo_root(argv: List[str]) -> str:
+    """The value following `--repo-root` in argv, or "" — read before the full
+    parse so the default state roots can honour it."""
+    for idx, arg in enumerate(argv[:-1]):
+        if arg == "--repo-root":
+            return argv[idx + 1]
+    return ""
+
+
+def _state_root_or_empty(*, central: bool = False, git_root: str = "") -> str:
     """coordinator_state_root(...), folding StateRootError to "" — mirrors the
     bash oracle's `$(coordinator_state_root ...)` command-substitution
     semantics: a failing subshell contributes an empty string to the
@@ -267,7 +277,10 @@ def _state_root_or_empty(*, central: bool = False) -> str:
     from coordinator_core.state_root import StateRootError, coordinator_state_root
 
     try:
-        root = coordinator_state_root(central=central)
+        if git_root:
+            root = coordinator_state_root(git_root=git_root)
+        else:
+            root = coordinator_state_root(central=central)
         _STATE_ROOT_FAILURES.pop(central, None)
         return root
     except StateRootError as exc:
@@ -421,8 +434,9 @@ def _usage_error(message: str) -> "int":
 
 def parse_args(argv: List[str]) -> SweepConfig:
     cfg = SweepConfig()
-    central_state_root = _state_root_or_empty(central=True)
-    non_central_state_root = _state_root_or_empty(central=False)
+    target_root = _argv_repo_root(argv)
+    central_state_root = _state_root_or_empty(central=True, git_root=target_root)
+    non_central_state_root = _state_root_or_empty(central=False, git_root=target_root)
     cfg.handoffs_glob = f"{non_central_state_root}/handoffs/*.md"
     cfg.log_path = f"{central_state_root}/cruft-sweep-log.md"
     cfg.lock_dir = f"{central_state_root}/cruft-sweep.lock.d"
@@ -573,13 +587,21 @@ def _apply_machine_local_days_override(cfg: SweepConfig) -> None:
 
 
 def _acquire_lock(lock_dir: str) -> None:
-    """Exclusive lock via os.mkdir (atomic on POSIX and Windows). On ANY
-    mkdir failure (contention OR e.g. a missing parent directory), exit 0
-    silently — mirrors the bash oracle's `if ! mkdir "$LOCK_DIR"; then exit
-    0; fi` exactly (not narrowed to EEXIST-only; see module negative-spec)."""
+    """Exclusive lock via os.mkdir (atomic on POSIX and Windows). Contention
+    (EEXIST) names the held lock on stderr and exits 0; any other OSError
+    names itself on stderr and exits 0 — never silent."""
     try:
         os.mkdir(lock_dir)
-    except OSError:
+    except FileExistsError:
+        sys.stderr.write(
+            "cruft-sweep: another run holds the lock %s; nothing done.\n" % lock_dir
+        )
+        sys.exit(0)
+    except OSError as exc:
+        sys.stderr.write(
+            "cruft-sweep: cannot acquire lock %s (%s: %s); nothing done.\n"
+            % (lock_dir, errno.errorcode.get(exc.errno or 0, "OSError"), exc.strerror or exc)
+        )
         sys.exit(0)
 
 
@@ -803,6 +825,35 @@ def _write_run_marker(cfg: "SweepConfig", totals: "Totals", total_bytes: int) ->
         pass
 
 
+_PRUNE_FAILED_MARKER = "delete failed, not counted as pruned: "
+
+
+def _record_prune_failures() -> List[str]:
+    """Wrap the engine's banner sink so each failed-delete banner also lands in the
+    returned list, even under --quiet. Depends on every engine delete-failure site emitting
+    _PRUNE_FAILED_MARKER verbatim; only the scratch-clone site is pinned
+    (test_cruft_sweep_apply_prune_failure)."""
+    import coordinator_core.ops.cruft_sweep as engine
+
+    failures: List[str] = []
+    original = engine._banner
+
+    def banner(msg: str, *, quiet: bool) -> None:
+        if _PRUNE_FAILED_MARKER in msg:
+            failures.append(msg.split(_PRUNE_FAILED_MARKER, 1)[1])
+        original(msg, quiet=quiet)
+
+    banner._original = original  # type: ignore[attr-defined]
+    engine._banner = banner
+    return failures
+
+
+def _restore_banner() -> None:
+    import coordinator_core.ops.cruft_sweep as engine
+
+    engine._banner = getattr(engine._banner, "_original", engine._banner)
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     _bootstrap_engine()
     from coordinator_core.cli_entry import recording_declared_writes
@@ -814,7 +865,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     cfg = parse_args(args)
     _apply_machine_local_days_override(cfg)
 
+    if cfg.repo_root:
+        try:
+            os.makedirs(os.path.dirname(cfg.lock_dir), exist_ok=True)
+        except OSError:
+            pass
     _acquire_lock(cfg.lock_dir)
+    prune_failures = _record_prune_failures()
     try:
         with recording_declared_writes():
             totals = Totals()
@@ -846,8 +903,16 @@ def main(argv: Optional[List[str]] = None) -> int:
             if cfg.apply and not cfg.json_mode:
                 _write_run_marker(cfg, totals, total_bytes)
 
+        if prune_failures:
+            sys.stderr.write(
+                f"{SELF_NAME}: {len(prune_failures)} auto-prune(s) failed; "
+                "exiting nonzero. Not removed:\n"
+                + "".join(f"  {path}\n" for path in prune_failures)
+            )
+            return 1
         return 0
     finally:
+        _restore_banner()
         _release_lock(cfg.lock_dir)
 
 

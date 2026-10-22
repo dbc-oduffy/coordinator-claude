@@ -1,6 +1,6 @@
 ---
 name: atlas-clarity-reviewer
-description: "Clarity verdict for one atlas page — followability, ambiguity. Never accuracy; never rewrites."
+description: "Clarity verdict for one atlas page: followability, ambiguity. Never accuracy."
 model: sonnet
 effort: low
 color: teal

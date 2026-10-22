@@ -10,7 +10,7 @@ each of those plans' certification state is, so the next ceremony's entry is a q
 an EM assembly step. Tripwire: `A-HANDOFF-AN-EM-RETYPES-IS-NOT-A-SEAM`.
 
 Measured against this repo's real corpus (process time, not wall clock — `resource.getrusage`
-user+sys; measured 2026-09-08): `assemble_plan_gate` reports **9** batons
+user+sys; measured 2026-09-08, against the gate read since replaced by `gate_v2`): it reported **9** batons
 whose linked plan is at `status: approved`, in 0.07s process time; the four-state attest read over
 those 9 costs a further 0.02s; and `aggregate_execution` — the payload the run's Phase 0a consumes,
 schema-valid and required-keys since it shipped — exists **zero** times on disk. A shape no surface
@@ -30,7 +30,7 @@ what `plan-blitz`'s anti-scope permits. *"It reports; it never refuses. Refusal 
 
 THE TWO LEGS, and why neither is transcribed here:
 
-  SEAM 1  `coordinator_core.roadmap.plan_gate :: assemble_plan_gate` -> `batons[]`, filtered to
+  SEAM 1  `coordinator_core.roadmap.gate_v2 :: compute_gate_report` -> `batons[]`, filtered to
           the FIREABLE set: `plan.status == "approved"` (the M/L exit) OR the baton's
           `execution_authorized` (the S exit, whose plan stays at `draft` by design). Both arms,
           because plan-blitz has two exits — `constituents` reads "approved" nowhere in its own
@@ -71,19 +71,17 @@ Negative-spec:
     the bar's own resolved path as the diagnostic for its refusal — and stops at naming them.
     Naming a command is not running it; a repair naming only the read half promised a write no
     printed command performed.
-  - Does NOT re-derive the claimed / `in_flight` exclusion. `assemble_plan_gate` applies it; a
-    second exclusion vocabulary here would be a second answer to a settled question. Note that the
-    exclusion is inherited and NOT tuned for certification — see § A LIMIT WORTH NAMING.
+  - Does NOT re-derive the claimed / `in_flight` exclusion. `compute_gate_report` applies it; a
+    second exclusion vocabulary here would be a second answer to a settled question — see § THE
+    CANDIDATE SET IS THE WHOLE UNIVERSE.
   - Does NOT decide what to fire. It reports the set; invoking the run is the operator's act, and
     keeping that one call explicit is what makes a runaway chain impossible.
 
-A LIMIT WORTH NAMING, rather than discovered later. `assemble_plan_gate`'s candidate filter is a
-PLANNING filter: a baton at `status: claimed` or `deployment_state: in_flight` is excluded because
-handing it to a planning wave races its holder. A certification queue keyed on that filter
-inherits an exclusion that was never about certification, so a plan approved and then claimed
-drops out of this report silently. Correct immediately after a landing, where the batons are still
-`awaiting_gate`; a real gap for a queue re-read days later. Pass `--all-batons` to widen the
-report to every baton the engine resolved, at the cost of the race the filter exists to prevent.
+THE CANDIDATE SET IS THE WHOLE UNIVERSE, BY DESIGN. `compute_gate_report` reports candidates
+only: a baton at `status: claimed` or `deployment_state: in_flight` has a holder and is withdrawn,
+so an approved plan behind it never appears here. That is correct for mise-prep, which must not
+re-fire held work. `--all-batons` widens only to candidates the gate marks `candidate: false`
+(waiting on execution); it never reaches a held baton.
 
 Zero subprocess, stdlib plus PyYAML plus two pure readers already in the tree.
 
@@ -217,7 +215,7 @@ def _load_module(path: Path, name: str):
 
 
 def _engine_plan_gate():
-    """`assemble_plan_gate`, through the shared `_engine_root` seam.
+    """`compute_gate_report`, through the shared `_engine_root` seam.
 
     The SAME seam `mise-prep-gate.py` and `emit-dispatch-workflow.py` resolve through,
     deliberately: a second resolution order would let this read and the bar disagree about which
@@ -238,10 +236,10 @@ def _engine_plan_gate():
     if str(root) not in sys.path:
         sys.path.insert(0, str(root))
     try:
-        from coordinator_core.roadmap.plan_gate import assemble_plan_gate
+        from coordinator_core.roadmap.gate_v2 import compute_gate_report
     except Exception as exc:
-        raise SeamError(f"coordinator_core.roadmap.plan_gate unimportable from {root}: {exc}") from exc
-    return assemble_plan_gate
+        raise SeamError(f"coordinator_core.roadmap.gate_v2 unimportable from {root}: {exc}") from exc
+    return compute_gate_report
 
 
 def approved_plans(repo_root: Path, roadmap_id: Optional[str] = None,
@@ -271,14 +269,14 @@ def approved_plans(repo_root: Path, roadmap_id: Optional[str] = None,
     is not a composition, it is a double dispatch."""
     assemble = _engine_plan_gate()
     try:
-        # A runtime exception raised while `assemble_plan_gate` walks a malformed corpus record
+        # A refusal (`GateReadRefused`, fail-closed) or a runtime exception from the gate read
         # must be wrapped in `SeamError`, like `_engine_plan_gate()`'s two import-time failures;
         # uncaught it would exit 1 (== EXIT_PARTIAL_FIRE).
         report = assemble(repo_root, roadmap_id=roadmap_id)
     except SeamError:
         raise
     except Exception as exc:
-        raise SeamError(f"coordinator_core.roadmap.plan_gate.assemble_plan_gate failed: {exc}") from exc
+        raise SeamError(f"coordinator_core.roadmap.gate_v2.compute_gate_report failed: {exc}") from exc
     rows, seen = [], set()
     for baton in report["batons"]:
         if not all_batons and not baton.get("candidate", True):
@@ -458,7 +456,7 @@ def main(argv: list) -> int:
     parser.add_argument("--roadmap-id", default=None,
                         help="narrow the candidate set to one roadmap")
     parser.add_argument("--all-batons", action="store_true",
-                        help="include claimed/in_flight batons (see the module's LIMIT note)")
+                        help="include candidates waiting on execution (never held batons)")
     parser.add_argument("--json", action="store_true", help="emit the full report as JSON")
     parser.add_argument("--emit-block", action="store_true",
                         help="emit the aggregate_execution frontmatter block")

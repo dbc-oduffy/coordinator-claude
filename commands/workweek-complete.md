@@ -2,7 +2,7 @@
 name: workweek-complete
 description: "Weekly release ceremony — validate, docs, release notes, merge."
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent", "Skill"]
-argument-hint: ""
+argument-hint: "[--catch-up | --conclude]"
 ---
 
 # Workweek Complete — Weekly Release Ceremony
@@ -15,6 +15,12 @@ Shape W (rung 0): `& "$env:COORDINATOR_SETTINGS_HOME\bin\workweek-complete-brief
 Returns `directives[]` (render each `detail` verbatim), `judgment_points[]` (resolve every open
 one before its gated directive proceeds; never auto-pick a Tier-3 no-recommendation), `narration`
 (surface verbatim).
+
+**Flags.** `--catch-up` forces catch-up-only; `--conclude` forces a concluding run. They are
+mutually exclusive, and each is refused alongside `--only` or `--for-date`. Pass the flag the PM
+gave through to `workweek-complete-brief` unchanged; absent a flag, the brief resolves the mode
+from the week anchor and reports it in `period_mode`. Under catch-up the brief omits the
+concluding directives, and the release steps (Steps 7-15) and their PM gates do not run.
 
 **Hard-blocking:** reverse-drift merge, version-consistency drift, pcli-04 drift
 (hand-invoked, Step 5, no directive). Everything else advisory. Read disposition from each
@@ -39,6 +45,10 @@ a release blocker; proceed and hand-derive no UBT verdict.
 
 Render enumeration + gap-backfill `detail`s. Past-date synthesized blocks frozen; today's
 `-backfill.md` overwritable; human-curated daily blocks sacred. Name any backfilled dates.
+
+Under catch-up, name each missed week archived and state the in-progress week left open
+(`period_mode.missed`, `period_mode.in_progress`); surface the brief's leading `Catch-up run:`
+narration verbatim.
 
 Surface: week span, commit count/range, workstreams, blockers, priorities met. Priorities-met:
 `state/goals/*.yaml` (`period: week`, ISO-week match) canonical, read `status` directly.
@@ -290,7 +300,8 @@ HEADER.md `Prior week released:`.
 **`check-version-consistency --root <dir holding .claude-plugin/>` before Step 15** — `coordinator/`
 in the source repo, repo root in the mirror. **Omitting `--root` exits 0 having checked nothing**
 (it prints `could not locate ...`, then skips). Confirm the OK line names a version; the exit code
-alone does not.
+alone does not. Add `--strict`: exit 3 (latest tag does not match `plugin.json`) is a stop until the
+matching tag or CHANGELOG section exists.
 
 ---
 

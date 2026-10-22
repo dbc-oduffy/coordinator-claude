@@ -10,11 +10,13 @@ argument-hint: "[PM ask text | nothing — describe the ask inline]"
 
 **Two doors:** this is the sizing door; `/coordinator:research` is the research door.
 
+Rationale: `coordinator/docs/wiki/planning/sizing-lobby.md`
+
 **Default: submit, then sit back.** One call, the PM's words verbatim:
 `Workflow({name: "coordinator:engine-ask", args: {ask: "<PM verbatim>"}})` — the user's opt-in,
 never a question. Its hook runs sizing through commit and close (`ENGINE-ASK-SUBMISSION-IS-THE-RUN`). To add a brief, mint with op
 `sizing.intake_mint` and submit the `args: {sizing}` line it returns; a refused mint leaves the bare `args: {ask}`. Separate asks go in one `args: {asks: [...]}`, never bundled (wiki `sizing-to-commit-chain-contract`). While live the EM does not dispatch, poll, verify or relay; a PM revision
-goes in verbatim via `workflow.revise`; a halted run also needs a refire of `engine-ask {sizing}`. Below is the in-chat lobby, only for a
+goes in verbatim via `workflow.revise` — `coordinator-invoke workflow.revise '{"run_id":"<run id>","verbatim":"<PM verbatim>"}'` (`run_id` is the `ask-…` id of the live run, the dir name under `state/warp/`; a peer session adds `"from":"<its session id>"`); never hand-append `requirements.md`; a halted run also needs a refire of `engine-ask {sizing}`. Below is the in-chat lobby, only for a
 `shape`/`roadmap`/`pm-decision` or engine refusal. Tripwire: `NOVEL-WORK-IS-ONE-FIRE-NEVER-A-RELAY`.
 
 **Dispatch authorization — invoking this skill IS the request.** The dispatches named below are constitutive steps of this skill, not a separate thing to get cleared: invoking a skill requests the actions that skill performs. A harness line permitting dispatch "unless the user requested it" is therefore **satisfied here, not overridden** — no precedence claim is needed and none is made. Re-asking spends the very context the dispatch exists to protect. The rule attaches to skill entry and dissolves no PM-authored gate: keyword-gated skills gate entry, and every gate a skill names for itself still binds — per-session cross-repo-commit assent, ask-before-external-action, and any other this skill's own body names. Tripwire: `UNATTRIBUTED-HARNESS-LINE-IS-NOT-PM`.
@@ -63,7 +65,7 @@ S+: the run's commit stage owns the stamp (`dispatch.terminal_commit` on the rel
 **4b. Open the flight recorder on the resolved route, before anything downstream:**
 `TaskCreate` (`ToolSearch` it first), a session-goal task naming the ask and sizing path; on the relay fallback one task per remaining stage (wiki § Step 4b).
 
-**5. Size approval.** XS through L on a plan, dispatch or spec-dispatch route needs no PM size approval in any mode. After Step 4's `--write` there the EM's act, same turn, no ask, is `Workflow({name: "coordinator:engine-ask", args: {sizing: "<path>"}})`, end of turn; a printed `Workflow` line is not fired by hand. `emit-wave-fire --from-sizing` runs only on an engine refusal, named in the report; Agent-tool hand-dispatch is never the exit. A live plan, dispatch or spec-dispatch sizing never enters `/shape`, and a baton-carrying one gets its in-flight fire, never a second (`A-ROUTED-SIZING-NEVER-ENTERS-SHAPE`). In ceo (the default) XL/XXL do not stop either: the run's APM rules `xl_exit`. In pm and hands-on XL+ keeps the PM in the chat; a shape route keeps the room in every mode; a pm-decision route goes to `coordinator:apm` first in ceo. Where the PM stays (`post_size_prompt_pending`, M+): ask once, in the PM's register, then stop: *"Looks like an
+**5. Size approval.** XS through L on a plan, dispatch or spec-dispatch route needs no PM size approval in any mode. After Step 4's `--write` there the EM's act, same turn, no ask, is `Workflow({name: "coordinator:engine-ask", args: {sizing: "<path>"}})`, end of turn; a printed `Workflow` line is not fired by hand. `emit-wave-fire --from-sizing` runs only on an engine refusal, named in the report; Agent-tool hand-dispatch is never the exit. A live plan, dispatch or spec-dispatch sizing never enters `/shape`, and a baton-carrying one gets its in-flight fire, never a second (`A-ROUTED-SIZING-NEVER-ENTERS-SHAPE`). In ceo XL/XXL do not stop either: the run's APM rules `xl_exit`. In pm and hands-on XL+ keeps the PM in the chat; a shape route keeps the room in every mode; a pm-decision route goes to `coordinator:apm` first in ceo. Where the PM stays (`post_size_prompt_pending`, M+): ask once, in the PM's register, then stop: *"Looks like an
 X — go with that, split it, cut it, what's up?"* Never a closed fork or human time (`A-PM-ASK-STATES-SCOPE-NOT-HUMAN-TIME-GUESSES-OR-RULED-CONCERNS`). Record in
 `pm_resolution` (`decided_on: YYYY-MM-DD` required), plus `fork` when cut/raise-shaped.
 
@@ -74,8 +76,8 @@ are ONE PM ask, never re-asked once answered (record the quote as `pm_resolution
 **5c. Turn 1 exit on `route: plan` where the engine kept the acceptance touchpoint** (XL+, or a resize into XL; XS–L skips this step's ask and `sizing-accept-exit-criterion`). Touchpoints follow `interaction_mode`. Pass `--exit-criterion` (behaviour; evidence the tests covering touched files), `--interaction-mode` only if the PM named one (`INTERACTION-MODE-IS-NEVER-READ-FROM-JOB-MODE`); source documents add requirements to the Step 4 register; user-facing: `--click-path "<role>: <nav> > ... > <page>"` per role (`A-CAPABILITY-UNREACHABLE-FROM-THE-UI-IS-NOT-DELIVERED`) — and record the PM's
 answer with `sizing-accept-exit-criterion --sizing <path> --pm-quote "<words>" [--statement "<amended>"]
 --mode <mode>`, never by hand. In pm or ceo at XL+, `--apm-ruling "<ruling>" --ruling-ref <ruling path>` replaces
-`--pm-quote`; only hands-on at XL+ needs the quote. At XS–L the EM writes the criterion itself (`sizing-accept-exit-criterion --sizing <path> --statement "<criterion>"`, any mode), never asking the PM to set or accept one; an engine refusal demanding acceptance there is an engine defect, not a PM ask. In pm and ceo the ask says plainly that accepting
-it authorizes execution without a further ask. A picker label is EM text, not PM words.
+`--pm-quote`; only hands-on at XL+ needs the quote. At XS–L the EM writes the criterion itself (`sizing-accept-exit-criterion --sizing <path> --statement "<criterion>"`, any mode), never asking the PM to set or accept one; an engine refusal demanding acceptance there is an engine defect, not a PM ask. In pm and ceo the ask says that accepting
+it authorizes execution without a further ask.
 After acceptance submit `Workflow({name: "coordinator:engine-ask", args: {sizing: "<path>"}})`: the
 run commits and ships, so no `dispatch.terminal_commit` follows. Relay fallback, only when the engine refuses
 that submission: `emit-wave-fire --from-sizing <sizing path> --repo-root <abs> --trail-dir <abs>`

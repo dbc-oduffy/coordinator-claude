@@ -21,13 +21,15 @@ Cold path — one process, one call. Direct in-process import + call
 
 Exit codes:
   0 — Group-EM claimed (fresh, refreshed, or displacing any prior holder).
-  2 — usage error (no session id resolvable).
+  2 — usage error (no session id resolvable, or --prompt-id given with --home-start).
   5 — standing not claimed (the nomination leg failed or reported claimed=false);
       Group EM standing is taken, never refused over an incumbent, so a live or
       unregistered holder is displaced and reported in `standing.displaced_holder*`.
   6 — StaleEngineError: a digest arrived under an unclaimed standing.
   7 — engine unresolvable or the op raised; never falls back.
-  8 — GROUP-EM-NOT-HUMAN-ENTERED: the session transcript holds no human-typed /group-em.
+  8 — GROUP-EM-NOT-HUMAN-ENTERED: no entry proof -- neither a --prompt-id the transcript
+      confirms as a human-typed /group-em, nor a --home-start whose own transcript shows an
+      interactive start inside the group-em home.
 
 Negative spec: no send, no nudge, no transport — this assembles the digest
 and stops, exactly as the DoE reference's own negative spec states. No
@@ -137,10 +139,18 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--session-id", help="entering session; default $CLAUDE_SESSION_ID")
     parser.add_argument("--note", help="free-form note recorded on the nomination")
     parser.add_argument("--operator", help="operator recorded as nominated_by")
-    parser.add_argument(
+    evidence = parser.add_mutually_exclusive_group()
+    evidence.add_argument(
         "--prompt-id",
-        help="the human prompt's id; required, and verified later against the transcript -- "
-        "a forged one never verifies",
+        help="the human prompt's id; verified later against the transcript -- "
+        "a forged one never verifies. Required unless --home-start",
+    )
+    evidence.add_argument(
+        "--home-start",
+        action="store_true",
+        help="entry proof is a human start in the group-em home, in place of --prompt-id; "
+        "verified later from this session's own transcript start, which must lie inside "
+        "the group-em home",
     )
     parser.add_argument("--json", action="store_true", help="emit the payload as JSON")
     args = parser.parse_args(argv if argv is not None else sys.argv[1:])
@@ -167,16 +177,19 @@ def main(argv: Optional[list[str]] = None) -> int:
     except ArgvFidelityError as exc:
         parser.error(str(exc))
 
+    params: dict[str, Any] = {
+        "repo_root": repo_root,
+        "caller_session_id": session_id,
+        "note": args.note,
+        "operator": args.operator,
+    }
+    if args.home_start:
+        params["entry_evidence"] = "home-start"
+    else:
+        params["prompt_id"] = args.prompt_id
+
     try:
-        payload = handler(
-            {
-                "repo_root": repo_root,
-                "caller_session_id": session_id,
-                "note": args.note,
-                "operator": args.operator,
-                "prompt_id": args.prompt_id,
-            }
-        )
+        payload = handler(params)
     except Exception as exc:  # noqa: BLE001
         print(
             f"group-em-enter: engine path failed and this CLI does not silently fall back — {exc}",

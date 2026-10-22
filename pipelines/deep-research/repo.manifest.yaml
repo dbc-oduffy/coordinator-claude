@@ -102,7 +102,7 @@ stages:
   - id: stub
     phase: Gate
     agent_type: general-purpose
-    model: sonnet
+    model: haiku
     template: repo-stub-prompt-template.md
     when:
       nonempty: stage.regate.return.failed

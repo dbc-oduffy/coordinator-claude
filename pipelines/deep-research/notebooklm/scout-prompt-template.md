@@ -41,6 +41,7 @@ The `research_topic` field of the brief (frontmatter of {{brief}}).
    - **YouTube-first search pass:** For each notebook, run at least one search with `site:youtube.com` in the query to find direct video URLs. NLM can ingest YouTube videos and extract transcripts — but ONLY from `youtube.com/watch?v=...` URLs, NOT from forum pages, blog posts, or course aggregators that link to videos.
    - **URL validation:** When labeling a source as "Video talk", verify the URL matches `youtube.com/watch?v=`. Reject `forums.unrealengine.com`, `dev.epicgames.com/community`, `classcentral.com`, and similar pages that DESCRIBE talks but don't contain the video content. These pages give NLM only the title and comments, not the transcript.
    - Aim for 3-8 sources per notebook, with at least 50% being direct YouTube URLs when the topic has conference talk coverage
+   - **Epic docs pages:** NotebookLM cannot fetch `dev.epicgames.com/documentation/...` (it returns a 403 shell). For such a page, WebFetch it, or read the docs mirror the brief or strategy names when there is one; write the page text to `{{scratch_dir}}/text-sources/<notebook>-<n>.md`; list it in sources.md as `- text: <that path> (from <url>) — Accessible: YES`, never as a bare URL. A fetch that returns an error page or under 500 chars is not listed.
 3. For each notebook marked "research_start":
    - Note in sources.md that this notebook uses NLM discovery
    - Copy the search query from strategy.md's 'Search guidance for scout' into sources.md
@@ -53,5 +54,5 @@ The `research_topic` field of the brief (frontmatter of {{brief}}).
 - Prioritize YouTube videos (20-90 min, recent, credible channel), then podcasts, then articles
 - Write incrementally — don't wait until the end
 - Do NOT message anyone — your return starts the workers
-- Do NOT modify any project files — only write to sources.md in the scratch directory
+- Do NOT modify any project files — only write to sources.md and text-sources/ in the scratch directory
 ```

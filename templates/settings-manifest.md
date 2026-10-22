@@ -65,12 +65,24 @@ Both writes are merge-never-clobber: an existing entry for a marketplace name
 wins over the seeded default, and the seeder is idempotent (safe to re-run on
 every `coordinator:install`).
 
+The seeder never repairs an entry that already exists. When a sibling's checkout
+moves, `repos.<key>` changes but the old entries in `settings.local.json` and
+`known_marketplaces.json` still win. After a move: back up the settings files,
+delete the sibling's `extraKnownMarketplaces.<name>` key from `settings.json`
+and `settings.local.json`, and run `claude plugin marketplace remove <name>`
+(this clears `known_marketplaces.json`). Then re-run the seeder and reinstall
+the sibling's plugins. POSIX: `$COORDINATOR_SETTINGS_HOME/bin/seed-marketplace-enabledplugins`;
+PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\seed-marketplace-enabledplugins.exe"`.
+A hand-typed path in `settings.json` for a directory marketplace is a
+stale-in-waiting literal; the seeded `settings.local.json` entry is the derived one.
+
 ## Environment Variables
 
 | Variable | In `settings.json` | Purpose | Machine-specific? |
 |----------|--------------------|---------|--------------------|
 | `CLAUDE_CODE_ENABLE_TODO_TOOLS` | `"1"` | Makes Task* tools available to a main session on models that don't get them by default (v2.1.233+) | No — all machines |
 | `CLAUDE_CODE_USE_POWERSHELL_TOOL` | `"1"` on a Windows host under a no-Bash directive; unset elsewhere | Pin the PowerShell tool's availability instead of inheriting a progressive rollout | **Yes** — see the warning below. Never blanket-set `"0"` |
+| `FNM_LOGLEVEL` | `"error"` | Keeps fnm's Node-version banner off stdout so engine replies stay parseable | No — all machines |
 | `CLAUDE_HOME` | *(not in settings.json)* | Override the **home directory** the `.claude` root hangs off — resolvers join it with `.claude` themselves, so it is a `$HOME` override, not a path to `.claude` | Yes — every resolver in this tree honors it. Default: `$HOME`, giving `$HOME/.claude` |
 
 **These values are checked, not trusted.** `bin/check-settings-env.py` asserts this table's values

@@ -71,7 +71,7 @@ But a **top-level-array-additive** bump — a wholly new top-level array added t
 >
 > A **nested-field-additive** bump — a new field on an existing entity object — breaks `.strict()` consumers (row quarantined). It is **holding / bilateral-sequencing-required** (widen consumers first) UNTIL consumers adopt entity-level unknown-field tolerance. NOT free-emit. (see § Acceptance-readiness vs. branch-position for the named exception, gated on the identity-free consumer-capability census of `cockpit-contract-entity-addition-protocol.md` Step (g) — NOT on siblinghood — with the lockstep-cadence fact explaining only why the quarantine window is transient)
 >
-> Binding fleet envelope: **major 2, minor ≥ 2.3.0** — binding because of rag's floor alone (cockpit imposes no floor).
+> Binding fleet envelope as of 2026-07-07: **major 2, minor ≥ 2.3.0** — binding because of rag's floor alone (cockpit imposes no floor).
 
 **Mechanism, not version number.** The reason a top-level-array-additive bump is non-holding is structural, independent of the version bump itself: the consumer's ingest loop never reads unknown top-level arrays in the first place — it iterates the known, named top-level keys and is structurally blind to a new sibling array. The version bump is the *envelope* gate (dimension 2 above); the *structural* gate (dimension 1) is what actually makes the bump safe, and that gate is a property of the consumer's ingest-loop implementation, not of any version number the producer chooses. A producer must confirm the structural property is **declared** by each consumer, not infer it from the fact that the bump "looks additive."
 

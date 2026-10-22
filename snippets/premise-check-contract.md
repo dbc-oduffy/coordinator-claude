@@ -1,5 +1,6 @@
 <!-- canonical source for premise-check-contract — edit here, then run bin/verify-snippet-sync premise-check-contract --fix -->
 <!-- consumers: see bin/snippet-registry list-consumers premise-check-contract -->
+<!-- trap: this text is hand-copied into workflows/plan-blitz.mjs PREMISE_CHECK_CONTRACT, which PREMISE_BRIEF_VERSION hashes; re-copying an edit voids every plan's premise carry (plan.premise_scope / plan.premise_record), so every plan's next refire is a first pass -->
 
 <!-- BEGIN premise-check-contract (synced from snippets/premise-check-contract.md) -->
 ## Premise Check Contract — Classes 1-3 (Mechanical)

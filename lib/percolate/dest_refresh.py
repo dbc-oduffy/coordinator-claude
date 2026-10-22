@@ -82,6 +82,7 @@ class RefreshResult:
     behind: int = 0
     fast_forwarded: bool = False
     warnings: tuple = ()
+    dirty: bool = False
 
 
 def _git(repo_root: Path, args: List[str], *, remote: bool = False) -> GitResult:
@@ -452,6 +453,75 @@ def refresh_dest_from_origin(
         fast_forwarded=fast_forwarded,
         warnings=tuple(warnings),
     )
+
+
+def fast_forward_consumer(repo_root: Path) -> RefreshResult:
+    """Fetch, then fast-forward a clean mirror that is strictly behind its upstream.
+
+    INVARIANT: a dirty or diverged checkout is reported, never merged; ahead-only is
+    ok and left alone. After a fast-forward `behind` reads 0. Never raises.
+
+    TRAP: do not route this through `refresh_dest_from_origin` -- its source-stamp
+    refusal is publish semantics and would refuse exactly the stale-consumer case.
+    A dirty tree still fetches and counts: a fetch never touches the worktree.
+    """
+    repo_root = Path(repo_root)
+    try:
+        branch, upstream, name_err = _branch_and_upstream(repo_root)
+        if upstream is None or name_err is not None:
+            reason = (
+                "{0} is in detached HEAD".format(repo_root)
+                if branch == "HEAD"
+                else "{0}: {1}".format(repo_root, name_err or "no upstream tracking ref")
+            )
+            return RefreshResult(repo_root, ok=False, reason=reason, branch=branch)
+
+        status = _git(repo_root, ["status", "--porcelain", "--untracked-files=no"])
+        dirty_count = len([l for l in status.stdout.splitlines() if l.strip()])
+        dirty = dirty_count > 0
+
+        fetch = _git(repo_root, ["fetch", "--no-tags", "--prune", "origin"], remote=True)
+        fetch_err = (
+            None
+            if fetch.returncode == 0
+            else "could not fetch origin ({0})".format(_last_line(fetch.stderr, "git fetch failed"))
+        )
+
+        ahead, behind, count_err = _ahead_behind(repo_root, upstream)
+        if ahead is None or behind is None:
+            return RefreshResult(
+                repo_root,
+                ok=False,
+                reason="could not measure against {0}: {1}{2}".format(
+                    upstream, count_err, " ({0})".format(fetch_err) if fetch_err else ""
+                ),
+                branch=branch,
+                upstream=upstream,
+                dirty=dirty,
+            )
+
+        def result(ok: bool, reason: str = "", b: int = behind, ff: bool = False) -> RefreshResult:
+            return RefreshResult(
+                repo_root, ok=ok, reason=reason, branch=branch, upstream=upstream,
+                ahead=ahead, behind=b, fast_forwarded=ff, dirty=dirty,
+            )
+
+        if fetch_err is not None:
+            return result(False, fetch_err)
+        if dirty:
+            return result(False, "{0} has {1} modified tracked file(s); not merged".format(repo_root, dirty_count))
+        if ahead and behind:
+            return result(False, "{0}'s {1} has diverged from {2} ({3} ahead, {4} behind)".format(
+                repo_root, branch, upstream, ahead, behind))
+        if not behind:
+            return result(True)
+        merge = _git(repo_root, ["merge", "--ff-only", upstream])
+        if merge.returncode != 0:
+            return result(False, "could not fast-forward ({0})".format(
+                _last_line(merge.stderr or merge.stdout, "ff-only merge failed")))
+        return result(True, b=0, ff=True)
+    except Exception as exc:  # contract: never raises
+        return RefreshResult(repo_root, ok=False, reason="fast_forward_consumer failed: {0}".format(exc))
 
 
 def reconcile_dest_before_push(repo_root: Path, *, out: TextIO, err: TextIO) -> RefreshResult:

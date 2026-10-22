@@ -1,10 +1,10 @@
 {
   "x-effective-delivery": {
     "version": 1,
-    "generated_from_sha": "bb0fe66c3d26729599f426c87f86f50cea72c421",
-    "generated_at": "2026-10-17T10:54:45Z",
+    "generated_from_sha": "b952749469b58596ca2caac55bc7953e4226b7c5",
+    "generated_at": "2026-10-21T06:05:29Z",
     "generated_from_dirty_tree": true,
-    "engine_source_sha": "76f072ff99ac4c1c20bb2fc9809c7ae247c914af",
+    "engine_source_sha": "4f027d43bac38860ec896c54f1badef0e00d2e11",
     "engine_source_dirty_tree": false,
     "engine_source_resolution": "resolved-engine/published-target",
     "carriers": {
@@ -1530,11 +1530,6 @@
             "tool_names": []
           },
           {
-            "id": "guard_manufactured_blocker",
-            "script": "scripts/guard-manufactured-blocker.py",
-            "tool_names": []
-          },
-          {
             "id": "stop_em_report_altitude",
             "script": "scripts/stop-em-report-altitude.py",
             "tool_names": []
@@ -1754,6 +1749,16 @@
         "id": "runtime-tripwire-em-check.py",
         "script": "scripts/runtime-tripwire-em-check.py",
         "tool_names": []
+      },
+      {
+        "id": "session-start-group-em-autoenter.py",
+        "script": "scripts/session-start-group-em-autoenter.py",
+        "tool_names": [
+          "clear",
+          "compact",
+          "resume",
+          "startup"
+        ]
       },
       {
         "id": "subagent-zero-tool-use-detect.py",

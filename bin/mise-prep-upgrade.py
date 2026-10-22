@@ -30,6 +30,10 @@ wrong" class this fleet has already found instances of.
                                         claim at all. `[]` asserts the plan rests on
                                         no counted premise — a claim, so it is written
                                         only where the text supports it.
+  capabilities: []                      ONLY when the plan has a `yaml plan-tasks`
+                                        spine and its body (code fences stripped)
+                                        names no ui_consumer / ui_carve_out /
+                                        click_path. `[]` asserts no UI consumer.
   falsifier nesting                     a top-level `falsifier:` block moved, bytes
                                         intact, under `prime_exit_criterion:` — the
                                         author wrote the falsifier; only its address
@@ -126,6 +130,7 @@ _PAREN_TAIL = re.compile(r"\s*\((?:new|edit|new\|edit)\)\s*$", re.I)
 _COUNTISH = re.compile(r"(?<![\w./-])(\d{2,6})(?![\w./-])")
 _DATEISH = re.compile(r"\b20\d{2}-\d{2}-\d{2}\b")
 _CODEFENCE = re.compile(r"```.*?```", re.S)
+_UI_TOKEN = re.compile(r"\b(ui_consumer|ui_carve_out|click_path)\b")
 
 _PLAN_KINDS = frozenset({"plan"})
 
@@ -138,6 +143,9 @@ from coordinator_core.execute_plan_assemble.falsifier_shape import (  # noqa: E4
     _BASELINE_REF_CROSS_REPO_RE,
     _DISPOSITION_REF_SHA_RE,
 )
+
+from coordinator_core.frontmatter.body_blocks import LocateStatus  # noqa: E402
+from coordinator_core.ops.dispatch_emit import spine_read  # noqa: E402
 
 #: A sha-shaped token inside prose. An all-digit run still counts toward
 #: ambiguity (it may be a second sha) but is never itself taken as the sha.
@@ -175,12 +183,13 @@ Parsed = Tuple[Optional[Dict[str, Any]], str, Optional[str]]
 
 
 def parse_frontmatter(text: str) -> Parsed:
-    split = split_frontmatter(text)
+    split = spine_read.split_frontmatter_memo(text)
     if split is None:
         return None, "", "no frontmatter block"
-    fm_text, body = split
+    body = split.body_with_leading_newline
+    body = body[1:] if body.startswith("\n") else body
     try:
-        loaded = yaml.safe_load(fm_text) or {}
+        loaded = spine_read.load_frontmatter_doc(split.fm_text) or {}
     except yaml.YAMLError as exc:
         return None, body, f"frontmatter does not parse: {type(exc).__name__}"
     if not isinstance(loaded, dict):
@@ -226,12 +235,8 @@ def plan_repo(path: Path) -> Optional[str]:
     a stat per directory level, cached per plan directory — no spawn."""
     start = path.resolve().parent
     if start not in _repo_cache:
-        found: Optional[str] = None
-        for anc in (start, *start.parents):
-            if (anc / ".git").exists():
-                found = _REPO_ALIASES.get(anc.name.lower(), anc.name)
-                break
-        _repo_cache[start] = found
+        root = _repo_root_of(path)
+        _repo_cache[start] = _REPO_ALIASES.get(root.name.lower(), root.name) if root else None
     return _repo_cache[start]
 
 
@@ -370,6 +375,112 @@ def upgrade_falsifier(fm_text: str, derivable: Dict[str, Any]) -> str:
     return out
 
 
+#: The wording prep_gate states for an unscreenable census command; reported beside every entry
+#: this tool cannot rewrite.
+_CENSUS_REPAIR_LINE = (
+    "mechanical repair — rewrite each named census command into census.ALLOWED_FORM (pipe the "
+    "inner command, split loops, move live checks to execution-time evidence); never delete "
+    "the premise"
+)
+
+_SUBST_WRAPPER = re.compile(
+    r'^\s*echo\s+(?:"\$\((?P<a>.*)\)"|\$\((?P<b>.*)\)|"`(?P<c>[^`]*)`"|`(?P<d>[^`]*)`)\s*$',
+    re.S,
+)
+_WC_FILELIST = re.compile(
+    r"^\s*(?P<head>wc(?:\s+-[A-Za-z]+)*)\s+(?:\$\((?P<a>[^()`]*)\)|`(?P<b>[^`$]*)`)\s*$"
+)
+_COMMAND_LINE = re.compile(r"^(?P<prefix>[ \t]*(?:-[ \t]+)?command:[ \t]*)(?P<value>\S.*?)[ \t]*$", re.M)
+
+
+def _repo_root_of(path: Path) -> Optional[Path]:
+    start = path.resolve().parent
+    for anc in (start, *start.parents):
+        if (anc / ".git").exists():
+            return anc
+    return None
+
+
+def rewrite_census_command(command: str, screen) -> Optional[str]:
+    """The deterministic rewrite of an unscreenable `command`, or None. The result is returned
+    only when `screen` (census.screen bound to the plan's repo) passes it clean."""
+    candidate: Optional[str] = None
+    m = _SUBST_WRAPPER.match(command)
+    if m:
+        inner = next(g for g in m.group("a", "b", "c", "d") if g is not None)
+        candidate = inner.strip()
+    else:
+        m = _WC_FILELIST.match(command)
+        if m:
+            inner = (m.group("a") or m.group("b") or "").strip()
+            if inner:
+                candidate = f"{inner} | {m.group('head').strip()}"
+    if not candidate or candidate == command or screen(candidate) is not None:
+        return None
+    return candidate
+
+
+def census_report(
+    fm: Dict[str, Any], repo_root: Optional[Path]
+) -> Tuple[Dict[int, Tuple[str, str]], List[str]]:
+    """({entry index: (old, new)} rewrites, residue lines) for every stated census command."""
+    from coordinator_core.roadmap import census
+
+    entries = fm.get("census")
+    if not isinstance(entries, list):
+        return {}, []
+    commands = {
+        i: e["command"]
+        for i, e in enumerate(entries)
+        if isinstance(e, dict) and not census.is_typed(e) and isinstance(e.get("command"), str)
+    }
+    cands = [c for cmd in commands.values() for c in census.python_candidates(cmd, repo_root)] if repo_root else []
+    tracked = census.tracked_targets(repo_root, cands) if repo_root and cands else None
+
+    def screen(cmd: str) -> Optional[str]:
+        return census.screen(cmd, repo_root, tracked)
+
+    rewrites: Dict[int, Tuple[str, str]] = {}
+    residue: List[str] = []
+    for i, cmd in commands.items():
+        reason = screen(cmd)
+        if reason is None:
+            continue
+        new = rewrite_census_command(cmd, screen)
+        if new is not None:
+            rewrites[i] = (cmd, new)
+        else:
+            residue.append(f"census[{i}].command: {reason} — {_CENSUS_REPAIR_LINE}")
+    return rewrites, residue
+
+
+def rewrite_census_commands(fm_text: str, rewrites: Dict[int, Tuple[str, str]]) -> str:
+    """Replace each rewritten command's single-line `command:` value; an entry whose line is not
+    uniquely found, or whose reparse differs from the intended change, stays as authored."""
+    out = fm_text
+    for index, (old, new) in sorted(rewrites.items()):
+        hits = []
+        for m in _COMMAND_LINE.finditer(out):
+            try:
+                value = yaml.safe_load(m.group("value"))
+            except yaml.YAMLError:
+                continue
+            if value == old:
+                hits.append(m)
+        if len(hits) != 1:
+            continue
+        m = hits[0]
+        candidate = out[: m.start()] + m.group("prefix") + yaml.safe_dump(new, default_flow_style=True, width=10**6).split("\n")[0] + out[m.end() :]
+        try:
+            before, after = yaml.safe_load(out), yaml.safe_load(candidate)
+            before["census"][index]["command"] = new
+        except (yaml.YAMLError, KeyError, IndexError, TypeError):
+            continue
+        if before == after:
+            out = candidate
+    return out
+
+
 def body_rests_on_a_count(body: str) -> List[str]:
     prose = _CODEFENCE.sub(" ", body)
     prose = _DATEISH.sub(" ", prose)
@@ -408,6 +519,11 @@ def plan_report(
             )
         else:
             derivable["census"] = []
+    else:
+        c_rewrites, c_residue = census_report(fm, _repo_root_of(path))
+        if c_rewrites:
+            derivable["census.commands"] = c_rewrites
+        residue.extend(c_residue)
 
     # --- PRIME_EXIT -------------------------------------------------------
     criterion = fm.get("prime_exit_criterion")
@@ -428,6 +544,20 @@ def plan_report(
 
     targets = write_targets(body)
     spine_rows = raw_spine_rows(text)
+    if "capabilities" not in fm:
+        if spine_rows is None:
+            residue.append(
+                "capabilities: no `yaml plan-tasks` block — no spine to read ui_consumer rows from"
+            )
+        else:
+            ui_tokens = sorted(set(_UI_TOKEN.findall(_CODEFENCE.sub(" ", body))))
+            if ui_tokens:
+                residue.append(
+                    f"capabilities: body names a UI consumer ({', '.join(ui_tokens)}) — "
+                    "declare entries, or an argued `capabilities: []`"
+                )
+            else:
+                derivable["capabilities"] = []
     if spine_rows is None:
         residue.append("spine: no `yaml plan-tasks` block — inventing rows would invent scope")
     else:
@@ -454,14 +584,13 @@ def plan_report(
 
 
 def raw_spine_rows(text: str) -> Optional[List[Any]]:
-    match = re.search(r"```yaml plan-tasks\n(.*?)```", text, re.S)
-    if not match:
+    """Authored spine rows: None when no block, [] when malformed. Shared memo; read-only."""
+    result = spine_read.load_rows_memo(text)
+    if result.status is LocateStatus.ABSENT:
         return None
-    try:
-        rows = yaml.safe_load(match.group(1))
-    except yaml.YAMLError:
+    if result.status is LocateStatus.MALFORMED:
         return []
-    return rows if isinstance(rows, list) else []
+    return result.rows
 
 
 def apply_derivable(path: Path, derivable: Dict[str, Any]) -> bool:
@@ -471,11 +600,18 @@ def apply_derivable(path: Path, derivable: Dict[str, Any]) -> bool:
         return False
     fm_text, _ = split
     new_fm = upgrade_falsifier(fm_text, derivable)
+    if derivable.get("census.commands"):
+        new_fm = rewrite_census_commands(new_fm, derivable["census.commands"])
 
     if "census" in derivable:
         new_fm = new_fm.rstrip("\n") + (
             "\ncensus: []  # no counted premise found in the body at conversion time;"
             "\n            # a claim a reviewer can falsify. Bar: mise-prep-gate.py.\n"
+        )
+    if "capabilities" in derivable:
+        new_fm = new_fm.rstrip("\n") + (
+            "\ncapabilities: []  # no ui_consumer/ui_carve_out/click_path token in the plan body at conversion time;"
+            "\n               # a claim a reviewer can falsify. Bar: mise-prep-gate.py.\n"
         )
     derived_from = derivable.get("prime_exit_criterion.derived_from")
     if derived_from:
@@ -516,6 +652,36 @@ def apply_derivable(path: Path, derivable: Dict[str, Any]) -> bool:
         return False
     path.write_text(out, encoding="utf-8", newline="\n")
     return True
+
+
+def upgrade_plan(
+    path: Path,
+    *,
+    check: bool,
+    text: Optional[str] = None,
+    parsed: Optional[Parsed] = None,
+) -> Dict[str, Any]:
+    """One plan's upgrade as data, never printed: `derived` (sorted derivable
+    field names), `residue`, `error`, and `changed` — True when it wrote
+    (check=False) or would write (check=True, derivable non-empty)."""
+    report = plan_report(path, text, parsed)
+    if report["error"]:
+        return {
+            "plan": path,
+            "error": report["error"],
+            "derived": [],
+            "residue": report["residue"],
+            "changed": False,
+        }
+    derivable = report["derivable"]
+    changed = bool(derivable) if check else (bool(derivable) and apply_derivable(path, derivable))
+    return {
+        "plan": path,
+        "error": None,
+        "derived": sorted(derivable),
+        "residue": report["residue"],
+        "changed": changed,
+    }
 
 
 def main(argv: List[str]) -> int:
@@ -559,27 +725,22 @@ def main(argv: List[str]) -> int:
     with_residue = 0
     errors = 0
     for path, text, parsed in targets:
-        report = plan_report(path, text, parsed)
-        if report["error"]:
+        result = upgrade_plan(path, check=args.check, text=text, parsed=parsed)
+        if result["error"]:
             errors += 1
             if not args.quiet:
-                print(f"  ERROR    {path.name}: {report['error']}")
+                print(f"  ERROR    {path.name}: {result['error']}")
             continue
-        derivable, residue = report["derivable"], report["residue"]
-        did = False
-        if derivable and not args.check:
-            did = apply_derivable(path, derivable)
-            if did:
-                changed += 1
-        elif derivable:
+        derived, residue = result["derived"], result["residue"]
+        if result["changed"]:
             changed += 1
         if residue:
             with_residue += 1
-        if not args.quiet and (derivable or residue):
-            verb = "would derive" if args.check else ("derived" if did else "no change")
+        if not args.quiet and (derived or residue):
+            verb = "would derive" if args.check else ("derived" if result["changed"] else "no change")
             print(f"  {path.name}")
-            if derivable:
-                print(f"    {verb}: {', '.join(sorted(derivable))}")
+            if derived:
+                print(f"    {verb}: {', '.join(derived)}")
             for item in residue:
                 print(f"    AUTHOR: {item}")
 

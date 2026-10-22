@@ -23,7 +23,9 @@ prints one `Workflow` line. Value classes and the tier-to-manifest map:
 Sizing is the door for build work (one `coordinator:engine-ask` submission); this command is the
 door for research. The EM enters it when the PM says "research" or "spike", when the ask is
 multifaceted and likely to break up, or when it is uncharted territory. The EM's sizing is the
-authority; neither door gates or refuses the other's arrival. Research need not end with code, and
+authority; neither door gates or refuses the other's arrival. An engine-ask of a research sizing
+halts with route `research` and a one-entry `fire` list; the EM runs that one `fire` call unedited
+and never re-sizes or re-fires by hand. Research need not end with code, and
 every class ends with a committed artifact and trail (Step 4).
 
 `deep` is the unblock team, not "more depth". A comprehension ask ("understand this repo", "survey
@@ -59,9 +61,10 @@ its `next_move` names the research fire and `research.close`. Questions go in wi
 `--research-question "<q>"` (repeatable), written to `research.questions`. `--research-target`
 takes an absolute path for a repo outside this checkout (`repo=<absolute path>`); the
 concrete-path guard's warning on it is expected. A scouts run over a local clone keeps
-`--research-source` at web and names the clone with `--research-target repo=<absolute path>` (or a
-bare `--research --ask` naming the path). To change only the research block, run
-`sizing-assemble --amend-research <sizing> --research-<flag> <value>`.
+`--research-source` at web, since a `repo` source floors scouts to corpus (claude-klabauter
+`research_shape` and `_research_contract` `FLOOR_SOURCES`); name the clone with
+`--research-target repo=<absolute path>` or a bare `--research --ask` naming it. To change only
+the research block, run `sizing-assemble --amend-research <sizing> --research-<flag> <value>`.
 
 **Seed URLs.** A URL the run must ingest goes in with `--research-seed <kind>=<url>` (repeatable),
 written to `research.seeds`, never in a `--context` file. Each kind routes to one pipeline and adds
@@ -99,6 +102,12 @@ file first. A `--flag`
 goes to the pipeline that declares it (e.g. `compare=true`). The emit reply lists each segment's
 flags and lists, and reports every refusal in one error.
 
+**Fan-out.** A sizing with several independent topic groups (many notebooks or targets) emits
+one run per group with `--per-group`, or a subset with `--group <letter>` (repeatable). The reply
+is the fan-out plan: groups in priority order, each with its own run id and `Workflow` line. Fire
+them in waves; each run closes on its own `research.close`, and the sizing's research block is
+held until the last sibling closes. One failing group never stalls the others.
+
 A repo run takes every `repo` target from one sizing: the first is the primary, each further one a
 secondary folded into one chunk (`**Secondary:**` in the scope header). A secondary too large to
 fold (the scope stage notes `secondary too large to fold`), or a peer of equal weight, is its own
@@ -129,12 +138,14 @@ one EM-authored step; scoping, prior-art and coverage are manifest stages.
 ## Step 3: Fire
 
 Resolve the engine CLI per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`, then run
-`emit-dispatch-workflow --from-sizing <path>`, or `emit-dispatch-workflow --research --ask "<question>"`
+`emit-dispatch-workflow --from-sizing <path>` (the direct path; a sizing that carries a `research`
+block can also be fired as one `coordinator:engine-ask` submission `{sizing: <path>}`, and the
+engine emits the research run), or `emit-dispatch-workflow --research --ask "<question>"`
 for scouts; a multi-question, mixed-target ask is
 `emit-dispatch-workflow --research --ask "<q1>" --target web --target repo=coordinator/hooks --ask "<q2>" --target local=<probe-id> --split`.
 Fire the one printed `Workflow` line as a background Workflow (`run_in_background: true`).
 Never hand-fill a script. Worker briefs (scout, specialist, synth) are composed from the sizing's
-frozen intent only; never put baton or `pm_turns` mid-turn instructions into one. On a corpus or deep fire, run `em_watch` (`_py=$(command -v python3 || command -v python) || exit 1; "$_py" -m coordinator_core.workflow_watch.mailbox_line <box>`) in the background the same turn; it returns on an escalation: act, then `em_rewatch`. When `sources[]` holds `notebooklm`, the engine prepends the preflight
+frozen intent only; never put baton or `pm_turns` mid-turn instructions into one. On a corpus or deep fire, run `em_watch` (the module `-m coordinator_core.workflow_watch.mailbox_line <box>`, under the interpreter resolved per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` § Portability) in the background the same turn; it returns on an escalation: act, then `em_rewatch`. When `sources[]` holds `notebooklm`, the engine prepends the preflight
 stage and halts before spend if the NotebookLM MCP is unregistered; its remedy strings are the
 exact commands to relay.
 
@@ -146,16 +157,27 @@ Every class closes on a committed artifact and trail
 repo-relative paths only.
 
 - **Scouts:** the Workflow returns `{results, next_action}`; run `next_action` (`research.close`,
-  `require_grounding`) unedited, as corpus and deep do. The close refuses a run whose grounding
+  `require_grounding`) unedited, as corpus and deep do; the close commits the trail record in the
+  same step. The close refuses a run whose grounding
   report grades a claim ungrounded or contradicted or rules a contradiction invented; the refusal
-  names the claims to fix or drop before re-closing.
+  names the claims to fix or drop before re-closing. Clear a refusal in order: fix or drop the
+  claim in the digest, re-ground against the edited digest, then re-run `research.close`. The
+  close re-reads `grounding.md`, so a fix alone leaves the stale grade in place, and a resume
+  replays grounding from cache on an unchanged prompt; never hand-edit `grounding.md`. The
+  re-ground mechanism is in `coordinator/contract/scouts-ask-fragment.md` `## Close`.
 - **Corpus and deep:** the Workflow returns `{results, next_action}`; run `next_action`
-  (`research.close` with its params) unedited: it archives and commits the outputs. Commit the
-  trail record beside them by the ordinary scoped commit path.
+  (`research.close` with its params) unedited: it archives and commits the outputs together with
+  the trail record.
+- **Halted run (any class):** a return carrying `halted`, or `segment_halts` with no `next_action`
+  (every leg halted), is not closed: relay each `decision_required` remedy and stop. A return with
+  a `next_action` whose `params.halted_segments` is set: run `next_action` unedited; the close
+  excuses those segments, and the report names them.
 - **Spike:** follow `coordinator/skills/spike/SKILL.md`; the committed artifact is the verdict
-  record at `docs/research/spike-verdicts/`, and the trail record names it.
-- **Local-only (any class):** the outputs stay under `research.local_root`; commit the trail
-  record alone, with no excerpt of the output content.
+  record at `docs/research/spike-verdicts/`, and the trail record names it. The engine has no
+  spike pipeline, so the EM commits the trail record beside the verdict record by the ordinary
+  scoped commit path.
+- **Local-only (any class):** the outputs stay under `research.local_root`; `research.close`
+  commits only the trail record, with no excerpt of the output content.
 - **NotebookLM:** the sweep never deletes notebooks. Once the coverage-audit sidecar exists, if the
   sizing asked for cleanup, read each `{letter}-summary.md`'s `notebook_id` and call `notebook_delete`
   for each, logging failures; otherwise report the preserved notebook names to the PM. The NotebookLM

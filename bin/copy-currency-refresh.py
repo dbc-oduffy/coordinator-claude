@@ -5,7 +5,9 @@ The boot banner (`project-orientation.py::copies_banner`) only reads
 computes what the cache holds: the engine-mirror `publish_lag` answer and the
 plugin-mirror commit times and hooks.json registration parity, each keyed by the HEADs
 read in-process before computing. It stores refresh inputs only, never a time-based
-verdict. Spawns: 2 inside `publish_lag`, 2 for the plugin-mirror commit times.
+verdict. The engine mirror is first fetched and, when clean and strictly behind, fast-forwarded
+(`engine_origin`). Spawns: at most 5 for that pull, 2 inside `publish_lag`, 2 for the
+plugin-mirror commit times.
 
 Usage: copy-currency-refresh.py [--cache PATH]
 """
@@ -78,14 +80,60 @@ def find_import_origin() -> dict:
     return {"package_dir": str(locations[0]), "executable": sys.executable}
 
 
-def _engine_entry(po, ctx, publish_lag: Optional[Callable], now_epoch: float, origin: Optional[Callable] = None) -> dict:
+def default_fast_forward(repo_root: Path):
+    """`percolate.dest_refresh.fast_forward_consumer`, imported lazily from the sibling `lib` dir."""
+    lib = str(Path(__file__).resolve().parents[1] / "lib")
+    if lib not in sys.path:
+        sys.path.insert(0, lib)
+    from percolate.dest_refresh import fast_forward_consumer
+
+    return fast_forward_consumer(repo_root)
+
+
+def _origin_record(result) -> tuple:
+    """(engine_origin dict | None, error str | None) from a RefreshResult-shaped object."""
+    upstream = getattr(result, "upstream", None)
+    reason = getattr(result, "reason", "") or ""
+    if not upstream or reason.startswith("could not measure"):
+        return None, reason or "ahead/behind not measured"
+    return {
+        "upstream": str(upstream),
+        "ahead": int(getattr(result, "ahead", 0) or 0),
+        "behind": int(getattr(result, "behind", 0) or 0),
+        "fetched": not reason.startswith("could not fetch origin"),
+        "fast_forwarded": bool(getattr(result, "fast_forwarded", False)),
+        "dirty": bool(getattr(result, "dirty", False)),
+        "detail": reason,
+    }, None
+
+
+def _engine_entry(
+    po,
+    ctx,
+    publish_lag: Optional[Callable],
+    now_epoch: float,
+    origin: Optional[Callable] = None,
+    fast_forward: Optional[Callable] = None,
+) -> dict:
     cc = po._copies_mod("_copy_currency")
     eml = po._copies_mod("_copy_leg_engine_mirror")
-    key = po.copies_engine_key(ctx)
-    entry: dict = {"key": key, "computed_at": now_epoch, "lag": None}
+    entry: dict = {"computed_at": now_epoch, "lag": None}
     # `authoring_root` is the contract name: the publish transform renames codename identifiers.
     authoring_root = getattr(ctx, "authoring_root", None)
-    if ctx.live_tree or not authoring_root or not ctx.engine_root or not key["stamp"]:
+    if ctx.live_tree or not authoring_root or not ctx.engine_root:
+        return {"key": po.copies_engine_key(ctx), **entry}
+    # TRAP: the pull precedes the key read, or the key names the pre-pull HEAD and the next boot misses.
+    try:
+        record, error = _origin_record((fast_forward or default_fast_forward)(Path(ctx.engine_root)))
+    except Exception as exc:  # noqa: BLE001 -- recorded; never stops the cache write
+        record, error = None, f"{type(exc).__name__}: {exc}"
+    if record is not None:
+        entry["engine_origin"] = record
+    else:
+        entry["engine_origin_error"] = error
+    key = po.copies_engine_key(ctx)
+    entry["key"] = key
+    if not key["stamp"]:
         return entry
     entry["import_origin"] = (origin or find_import_origin)()
     try:
@@ -144,13 +192,15 @@ def compute_cache(
     commit_times: Optional[Callable] = None,
     now_epoch: Optional[float] = None,
     import_origin: Optional[Callable] = None,
+    fast_forward: Optional[Callable] = None,
 ) -> dict:
     """The full cache document. HEADs are read before the git work so a commit landing
-    mid-refresh makes the next boot a miss, never a false hit."""
+    mid-refresh makes the next boot a miss, never a false hit; the engine mirror is
+    pulled first so its key names the post-pull HEAD."""
     now_epoch = time.time() if now_epoch is None else now_epoch
     eml = po._copies_mod("_copy_leg_engine_mirror")
     pml = po._copies_mod("_copy_leg_plugin_mirror")
-    cache: dict = {"schema": po._COPIES_CACHE_SCHEMA, eml.COPY: _engine_entry(po, ctx, publish_lag, now_epoch, import_origin)}
+    cache: dict = {"schema": po._COPIES_CACHE_SCHEMA, eml.COPY: _engine_entry(po, ctx, publish_lag, now_epoch, import_origin, fast_forward)}
     plugin = _plugin_entry(po, ctx, commit_times, now_epoch)
     if plugin is not None:
         cache[pml.COPY] = plugin
@@ -181,11 +231,12 @@ def refresh(
     commit_times: Optional[Callable] = None,
     now_epoch: Optional[float] = None,
     import_origin: Optional[Callable] = None,
+    fast_forward: Optional[Callable] = None,
 ) -> dict:
     """Recompute and write the cache; returns the document written."""
     po = po or load_orientation()
     ctx = ctx or po.default_copies_context()
-    data = compute_cache(po, ctx, publish_lag, commit_times, now_epoch, import_origin)
+    data = compute_cache(po, ctx, publish_lag, commit_times, now_epoch, import_origin, fast_forward)
     write_cache_atomic(cache_path or po.copies_cache_path(), data)
     return data
 
@@ -196,7 +247,14 @@ def _summary(data: dict, path: Path) -> str:
         if not isinstance(entry, dict):
             continue
         bad = entry.get("error") or entry.get("times_error") or entry.get("parity_error")
-        parts.append(f"{copy} {'could-not-compute: ' + str(bad) if bad else 'ok'}")
+        text = f"{copy} {'could-not-compute: ' + str(bad) if bad else 'ok'}"
+        eo = entry.get("engine_origin")
+        if isinstance(eo, dict):
+            if eo.get("fast_forwarded"):
+                text += " fast-forwarded"
+            elif eo.get("behind"):
+                text += f" origin behind {eo['behind']}"
+        parts.append(text)
     return f"copy-currency-refresh: wrote {path} ({'; '.join(parts)})"
 
 

@@ -69,7 +69,10 @@ Severity: HIGH (changes conclusions), MEDIUM (adds meaningful depth), LOW (cosme
 `absent_claim`, `contradiction`, `uncorroborated`, `contested`, `coverage_imbalance`.
 
 **Also write a durable copy** to `docs/research/{run-stem}-gap-report.md` (`{run-stem}` per
-§ Completion) — enumerated by `query-records --type gap-report`.
+§ Completion) — enumerated by `query-records --type gap-report` — only when your brief's write
+allowlist names that path. A brief that forbids new `docs/research/` paths makes
+`{scratch-dir}/gap-report.md` the one gap-report: write it there, skip the durable copy, and say so
+in your return value.
 
 ### Phase 2: Fill Negative Space
 
@@ -227,7 +230,7 @@ stripping its `docs/research/` prefix and `.md` suffix (e.g. `2026-06-30-topic-w
 | Record | Path | Content |
 |---|---|---|
 | Synthesis | `{run-stem}.md` | Phase 3 prose, `research-synthesis` frontmatter (§ Output Format) — frontmatter IS the index |
-| Durable gap-report | `{run-stem}-gap-report.md` | Same content as Phase 1's `gap-report.md` — confirm/write; what `query-records --type gap-report` enumerates |
+| Durable gap-report | `{run-stem}-gap-report.md` | Same content as Phase 1's `gap-report.md` — confirm/write when your brief's allowlist names the path (else the scratch copy stands alone); what `query-records --type gap-report` enumerates |
 
 **You never write `docs/research/{run-stem}.claims.json` or its `.claims.meta.json` sidecar** —
 that pair has exactly one writer, invoked by the EM after you report. You write the merged array

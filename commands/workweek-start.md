@@ -56,7 +56,8 @@ freshness check: its
   P1 lines first.
 - **`judgment_points[]`** — genuine EM/PM calls the op cannot resolve (inbound memo dispositions,
   non-benign worktree/reconcile findings, the week-marker reset call). Present each to the PM
-  before proceeding past it — never auto-pick a disposition.
+  before proceeding past it — never auto-pick a disposition. A missed-week finding is offered as
+  a PM call routing to `/workweek-complete --catch-up`; never auto-fire it.
 - **`narration`** / **`next_move`** — surface verbatim as the digest's lead when non-empty.
 
 **The day-branch is asserted here, not just its span.** Tree on `main` → the day branch is cut
@@ -191,10 +192,11 @@ disposition to the PM before acting on it.
 **`reset_week`** — a `/workweek-complete` occurred since the last `/workweek-start`:
 
 1. Read `Week starting:` from HEADER.md for the archive path.
-2. Move all daily files and priorities fragments to `archive/week-changelogs/<prior-week-start>/`.
+2. Archive each missed week separately to `archive/week-changelogs/<that-week-start>/`, moving
+   its daily files and priorities fragments. Keep the in-progress week's files in place.
    Do NOT move HEADER.md.
-3. Write a fresh HEADER.md (Step 0 template, today's date, prior `Prior week released:` value
-   carried over).
+3. Write a fresh HEADER.md (Step 0 template, `Week starting:` set to the anchor date, prior
+   `Prior week released:` value carried over).
 4. Write this session's priorities fragment (Step 7 format).
 5. For each priority's goal artifact, emit the weekly goal event — sourced FROM the artifact's
    `period_value`/`objective` fields so the emitted event and the on-disk goal agree byte-for-byte:

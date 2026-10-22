@@ -29,7 +29,7 @@ higher threshold. Manual serial `Agent` dispatch is the fallback only for genuin
 work — a single ad-hoc scout or a hand confirmation outside a plan run, never a substitute for
 scope size. See `coordinator/docs/wiki/em-operating-model/workflow-orchestration.md` for the general doctrine this instantiates
 and `pipelines/artifact-distillation/PIPELINE.md` for this pipeline's own Workflow phase mechanics.
-The Workflow's two input channels (`args.inputFile` with its list counts; `args.curatedFile` or inline `args.curatedTags`) are specified in `pipelines/artifact-distillation/phase-0-scoping.md` § Call contract and `pipelines/artifact-distillation/clustering-and-consolidation.md` § Curated-input channels.
+The curated file behind `args.curatedFile` is written by the `distill.write_curated_clusters` op, not by hand. The Workflow's two input channels (`args.inputFile` with its list counts; `args.curatedFile` or inline `args.curatedTags`) are specified in `pipelines/artifact-distillation/phase-0-scoping.md` § Call contract and `pipelines/artifact-distillation/clustering-and-consolidation.md` § Curated-input channels.
 
 **PM gate applies to deletions only.** Additive knowledge writes (wiki/DR harvest, distillation-log
 rows) go direct, no PM checkpoint. Only the irreversible `git rm` at Phase 5 — governed by the
@@ -136,7 +136,7 @@ at all) — this gate is defense-in-depth regardless of whether resume ran.
 handoff eligibility list is retired with the cohort. Archived-handoff pruning is owned by
 `/update-docs` Phase 8b (`pipelines/update-docs/artifact-pruning.md`).
 
-**Completion records (`archive/completed/**`) and archived plans (`archive/specs/**`) are delete-eligible once harvested.** A record still cited from `docs/` or `tasks/` is first repointed to the wiki page that absorbed its content (`pipelines/artifact-distillation/phase-3d-deletion-manifest.md` § Citation repoint). Each class carries its own guard set; none of the memo-shaped guards (`shipped_in:`, `realized_by`, commitment-closure, `distill_fate` frontmatter) apply:
+**Completion records (`archive/completed/**`) and archived plans (`archive/specs/**`) are delete-eligible once harvested; an unharvested one is not.** A record still cited from `docs/` or `tasks/` is first repointed to the wiki page that absorbed its content (`pipelines/artifact-distillation/phase-3d-deletion-manifest.md` § Citation repoint). Each class carries its own guard set; none of the memo-shaped guards (`shipped_in:`, `realized_by`, commitment-closure, `distill_fate` frontmatter) apply:
 
 | Class | Eligible when |
 |---|---|

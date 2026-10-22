@@ -71,29 +71,18 @@ Agent-only merge path and stays a standalone hook for that tool). This is
 now the sole `updatedInput` emitter on the Agent matcher for mode-elevation
 AND worktree-isolation stripping.
 
-Concern F -- named-dispatch (`name` key) strip (single-emitter fold-in,
-2026-07-31, follow-up to Concern E): this hook used to race
-`guard-named-dispatch-tool-restriction.py` for `updatedInput` on a named
-Explore/Plan Agent dispatch that ALSO carried a mode-elevation/sidecar/
-role-framing/worktree-isolation trigger -- the identical parallel-hook
-clobber class Concern E closed for the worktree/mode-elevation pair, now
-closed here too. Fix: this hook now ALSO computes the named-dispatch strip
-itself, via `_named_dispatch_strip.compute_named_dispatch_result` (the same
-pure computation `guard-named-dispatch-tool-restriction.py` used inline,
-extracted so neither call site re-implements the restricted-type / unknown-
-key / deny logic), and layers a "strip" result onto the SAME `merged` dict /
-SAME single emission as every other concern here. A "deny" result (the
-guard's own fail-closed leg for an unrecognised `tool_input` key or an
-internal failure) short-circuits this hook's `main()` immediately, BEFORE
-any other concern is merged in -- the guard's fail-closed contract must win
+Concern F -- named-dispatch (`name` key) strip: this hook is the only
+`updatedInput` emitter on the Agent matcher, so a named Explore/Plan dispatch
+that also carries a mode-elevation/sidecar/role-framing/worktree-isolation
+trigger gets one merged rewrite. It computes the strip via
+`_named_dispatch_strip.compute_named_dispatch_result` (the engine twin is
+`coordinator_core/hooks/guard_named_dispatch_tool_restriction.py`) and layers
+a "strip" result onto the SAME `merged` dict / SAME single emission as every
+other concern here. A "deny" result (the fail-closed leg for an unrecognised
+`tool_input` key or an internal failure) short-circuits this hook's `main()`
+immediately, BEFORE any other concern is merged in -- the deny must win
 outright, not get silently folded into an "allow" that also happens to
-strip `name`. `guard-named-dispatch-tool-restriction.py` is deregistered
-from `hooks.json`'s `Agent` matcher entirely (it was its only matcher, so
-unlike `strip-worktree-isolation.py` there is no distinct matcher left where
-it is a legitimate standalone emitter); the script itself stays on disk,
-still delegating to the same shared module, so its own dedicated test suite
-(coordinator/tests/test_guard_named_dispatch_tool_restriction.py) keeps
-exercising the real decision logic via direct subprocess invocation.
+strip `name`.
 
 Concern G -- foreground-dispatch reroute (single-emitter fold-in, RE-LAND,
 2026-07-31, follow-up to Concern F): `nudge-foreground-agent-dispatch.py`

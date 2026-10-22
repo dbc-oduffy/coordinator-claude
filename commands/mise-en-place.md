@@ -278,8 +278,8 @@ paths out of every commit, record them as residue in the continuance or tail rec
 
 **Then stay awake while it runs — on a managed-remote host, ending the turn to wait kills the
 run** (the container is reclaimed on inactivity; `resumeFromRunId` is same-session-only). Hold the
-turn with a `Monitor` on a poll interval, re-armed at expiry; checkpoint pushes land per row. File/commit
-counts cannot see a stall; size the Monitor per `[[a-compaction-can-kill-a-background-workflow]]`,
+turn with a keep-alive `Monitor` at the widest interval under reclaim threshold; a tick ends
+the turn, no status call. Checkpoints push per row; size per `[[a-compaction-can-kill-a-background-workflow]]`,
 and check for a compaction kill after any `/compact`. Detail: wiki.
 `a-quiet-session-gets-its-container-reclaimed-under-running-work`,
 `A-COMPACTION-CAN-KILL-A-BACKGROUND-WORKFLOW`.

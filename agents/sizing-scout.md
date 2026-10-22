@@ -40,28 +40,29 @@ Size ENGINEERING COMPLEXITY ONLY, from the substrate: not worth, urgency or dura
 
 **Never call an artifact ABSENT from a live-tree grep alone**: first run
 `git log --all --diff-filter=A -- '<glob>'`; a hit means it existed and moved: say so.
+Check before calling a dependency unnegotiated.
 
 ## Checklist
 
 Follow Steps 1a, 1b, 2 of `coordinator/skills/sizing/SKILL.md`; rationale:
-`coordinator/docs/wiki/planning/sizing-lobby.md` (§ Step 1a, 1b, The newer guard flags).
-`held_capabilities`: each capability beyond the checkout (not the route). A `canvas` `design_route` names `Claude Design canvas (Artifact quickstart intent "design")` and a claude.ai session; `reviewer`, only the reviewer.
-At gate-writing, ask once: what else would answer the question? Premise
+`coordinator/docs/wiki/planning/sizing-lobby.md`.
+`held_capabilities`: each capability beyond the checkout (not the route). `canvas` `design_route`: `Claude Design canvas (Artifact quickstart intent "design")` and a claude.ai session; `reviewer`: only the reviewer.
+At gate-writing, ask once: what is the question, and what else would answer it? Premise
 provenance (non-express-lane sizings) is `read` unless you ran the mechanism (`executed`), or
 `not-applicable`; `premise_evidence` is never empty. Probe only to settle depth.
 Grep `state/audits/` for the subject's nouns; an audit moving the size is `prior_art`.
-A research survey is `--research-class corpus`; shallow is `--research-depth standard`, never `deep` (`A-SURVEY-IS-CORPUS-NEVER-DEEP`).
+Survey: `--research-class corpus`, `standard`, never `deep` (`A-SURVEY-IS-CORPUS-NEVER-DEEP`).
 
 The EM revises down; never pre-inflate.
 
-`route_preference` + `em_rationale`: the EM's steer, a strong prior.
+`route_preference` and `em_rationale` are advisory: never the steer.
 
 ## Return
 
 Reply inline with these fields only:
 
 - `tshirt` (XS..XXL)
-- `estimated_horizon`: from `tshirt`: `session` XS..L, `week` XL, `initiative` XXL; no duration
+- `estimated_horizon`: from `tshirt`: `session` XS..L, `week` XL, `initiative` XXL; never a quoted duration
 - `touchpoints`, `unknown_mechanisms`, `prior_art`, `cross_team_dependency`, `held_capabilities`
 - `design_route`: `canvas` (large design ask, or PM allows the canvas), `reviewer` (small one), `none`
 - `doc_consumers`: doc lines restating the changed rule (grep the old literal)
@@ -74,7 +75,7 @@ Reply inline with these fields only:
   `coordinator/docs/wiki/planning/requirement-register.md`
 - `register_sources`: `[{doc, ref}]`
 - `initiatives`: an id per independent initiative
-- `route_override_reason`: when route ≠ `route_preference`
+- `route_override_reason`: when route ≠ `route_preference`, plainly why
 - `assemble_flags`: the complete `sizing-assemble` argument list the EM runs: `--tshirt`,
   `--intent` (the PM's verbatim words), `--intent-source`, `--precedent`,
   `--boundary-in-notch`, `--premise-provenance`, the probe flags, `--jtbd-unclear` /

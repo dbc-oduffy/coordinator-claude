@@ -1,6 +1,6 @@
 ---
 name: plan-reviewer
-description: "Sonnet plan-body reviewer: assumes gaps, runs the coverage checklist. Edits only as plan-blitz's XS/S reviewer."
+description: "Sonnet plan-body reviewer: assumes gaps, runs the coverage checklist; edits only as XS/S reviewer."
 model: sonnet
 effort: low
 color: orange

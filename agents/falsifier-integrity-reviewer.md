@@ -50,8 +50,9 @@ The criterion's words bound a region — a symbol, a function, a file region, a 
 branch. `how`'s matcher operates over a strictly wider one and never narrows, so it passes by
 construction.
 
-Name both regions and compare: `read ⊋ claim` fires; `read ⊊ claim` (false negatives) is reported
-under the same token, direction named.
+Name both regions and compare: `read ⊋ claim` fires. `read ⊊ claim` fires only when the
+criterion's own words bound a region the `how` provably skips; `read = claim` is CLEAR. A compound
+criterion is reported once, under this token, never again under CANNOT-PRODUCE.
 
 ### CANNOT-PRODUCE-A-RED-RESULT
 
@@ -66,13 +67,14 @@ No world exists in which `how` yields the criterion's negation. Four sub-shapes:
    output (a verdict word such as "met" or "prior" appearing inside an indeterminate report).
    Name the token and the output that would contain it either way.
 
-Mirror: a FALSE baseline says nothing about whether the instrument could recognise the criterion
-holding. Report both directions here. **An instrument that cannot produce a red result is BROKEN regardless of aim.**
+FIRED requires naming one sub-shape and stating why the baseline and expected outputs are not
+distinguishable; without both it is CLEAR or UNREVIEWABLE. **An instrument that cannot produce a red result is BROKEN regardless of aim.**
 
 ### WRONG-DENOMINATOR
 
 A count/ratio/coverage figure over a population other than the criterion's. The record must state
-the population and its enumeration. **An unnamed denominator fires on its own.** A file count in a
+the population and its enumeration. **An unnamed denominator fires on its own.** A pass tally over
+named probes (`N/M PASS`) is not a population ratio and does not fire. A file count in a
 store is not a count of objects declaring the property.
 
 ### VERDICT-NOT-WIRED-TO-EXIT-PATH
@@ -105,8 +107,8 @@ One verdict for the instrument, plus a per-tell line.
 ## Tells
 
 - **SCOPE-WIDER-THAN-CLAIM** — CLEAR | FIRED | UNREVIEWABLE. <claim region vs read region, named>
-- **CANNOT-PRODUCE-A-RED-RESULT** — CLEAR | FIRED | UNREVIEWABLE. <which sub-shape, and the world
-  that would have produced red>
+- **CANNOT-PRODUCE-A-RED-RESULT** — CLEAR | FIRED | UNREVIEWABLE. <FIRED names the sub-shape and why
+  baseline and expected outputs are indistinguishable; else CLEAR or UNREVIEWABLE>
 - **WRONG-DENOMINATOR** — CLEAR | FIRED | UNREVIEWABLE | N/A (no count or ratio in the output).
   <the population named, and the population the criterion names>
 - **VERDICT-NOT-WIRED-TO-EXIT-PATH** — CLEAR | FIRED | UNREVIEWABLE | N/A (no code to walk).

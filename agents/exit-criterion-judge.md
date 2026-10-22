@@ -1,6 +1,6 @@
 ---
 name: exit-criterion-judge
-description: "Terminal judge of an execute run: is the prime exit criterion met, not_met, indeterminate."
+description: "Terminal judge: is a run's prime exit criterion met, not_met or indeterminate."
 model: sonnet
 effort: low
 color: red

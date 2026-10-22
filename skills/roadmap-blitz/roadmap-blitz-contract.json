@@ -1,5 +1,5 @@
 {
-  "$comment": "Pinned contract for roadmap-blitz: roadmap-blitz.mjs, emit-roadmap-fire.py and SKILL.md build against it; tests load it as their shape oracle. The five seam args (repoRoot, sizing, interactionMode, approver, trailDir) are the ones warp passes; the rest are DoE-side optionals. `approver`, when supplied, must equal approverFor(interactionMode). `trailDir` is absolute or repo-relative and must resolve under `scratch/`. `stageCall` is the roadmap.blitz_stage request and `stage` its reply (coordinator_core/ops/roadmap_blitz_stage.py); approval carries exactly one of utterance | ruling (+ ruling_ref). Values are examples; alternatives are in `_enums`.",
+  "$comment": "Pinned contract for roadmap-blitz: roadmap-blitz.mjs, emit-roadmap-fire.py and SKILL.md build against it; tests load it as their shape oracle. The five seam args (repoRoot, sizing, interactionMode, approver, trailDir) are the ones warp passes; the rest are DoE-side optionals. `approver`, when supplied, must equal approverFor(interactionMode). `trailDir` is absolute or repo-relative and must resolve under `scratch/`. `stageCall` is the roadmap.blitz_stage request and `stage` its reply; approval carries exactly one of utterance | ruling (+ ruling_ref).",
   "_enums": {
     "interactionMode": ["hands-on", "pm", "ceo"],
     "approver": ["pm", "apm"],
@@ -13,7 +13,7 @@
     "trailDir": "/abs/path/to/repo/scratch/roadmap-blitz/2026-10-02-example",
     "corpus": ["state/handoffs/2026-10-02-example.md"],
     "runId": "2026-10-02-example",
-    "approvalPath": "/abs/path/to/repo/scratch/roadmap-blitz/2026-10-02-example/approval.json",
+    "approval": {"verdict": "approved", "approver": "pm", "utterance": "The approver's verbatim words approving or declining the roadmap.", "recorded_at": "2026-10-02T18:00:00Z"},
     "pluginAgentsAvailable": true,
     "pluginRoot": "/abs/path/to/coordinator-plugin-root",
     "provisionSidecarCli": "/abs/path/to/coordinator-doc-new"
