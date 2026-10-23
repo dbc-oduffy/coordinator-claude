@@ -41,7 +41,7 @@ Never an unscoped `git commit` — no pathspec, `-a`/`-A`/`--all`, `git add -A`/
 **Shape 1 — the door, and your default:** resolve per `snippets/resolve-coordinator-bin.md` — bare
 `coordinator-invoke` first, `.exe` only as a Windows fallback.
 <!-- VERBATIM -->
-`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-invoke" ceremony.commit_v2 --repo <worktree-root> '{"paths":["a.py","b.py"],"deleted_paths":[],"message":"<subject>"}'` (PowerShell: `coordinator-invoke.exe`). A multi-paragraph message does not go on argv: pass the body through the op's body-file channel rather than embedding a newline in `message`.
+`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-invoke" ceremony.commit_v2 --repo <worktree-root> '{"paths":["a.py","b.py"],"deleted_paths":[],"message":"<subject>"}'` (PowerShell: `coordinator-invoke.exe`). A multi-paragraph message does not go on argv: pipe the JSON through `--params-file -`, whose `message` may carry blank-line paragraphs.
 
 **`--repo` is mandatory:** it alone anchors the commit (a params `repo_root` only asserts). Omitted,
 the commit lands in the dispatcher's cwd repo.
@@ -61,7 +61,7 @@ Denied: a missing `--`, any pathspec the guard can't read as literal argv. Both 
 report per item 4 and stop.
 
 **A run's commit stage — one call, the run's last.** A `phase: commit` brief hands you one
-`coordinator-invoke dispatch.terminal_commit '<params>'` line carrying `run_id` and `run_token`. Run
+`coordinator-invoke dispatch.land_run '<params>'` line carrying `run_id` and `run_token`. Run
 it once, unchanged, as its own Bash call — no `cd &&`, wrapper, env prefix or `--repo`; the token
 admits that bare call only; one landed commit spends it, and a failed, refused, empty or raising
 commit releases it for a retry. The op verifies, so § Verify does not apply. Return the reply's
@@ -80,13 +80,15 @@ A claim refuses its own path only, and only while a holder is live. Per claim-de
 
 ## Verify before committing — the pathspec is a claim, not a fact
 
-- No dry-run mode exists; use read-only git.
+- No dry-run mode; use read-only git.
   1) Enumerate what would stage: `git status --porcelain -- <paths>` and
   `git diff --name-only -- <paths>`. 2) Compare against the exact paths you were handed — an extra
   path is a STOP-and-report (see refusals table); an absent or unchanged one is not, and in a
   preflight/verify-only dispatch it is expected, never BLOCKED. **A path already inside the handed
-  set can still carry a peer's uncommitted hunk mixed into that file's diff** — a handed path
-  holding changes you don't recognize as your executor's is the same STOP-and-report. 3) Only on an exact match, commit per the route above.
+  set can still carry a peer's uncommitted hunk mixed into that file's diff** — changes there you
+  don't recognize are the same STOP-and-report. 3) Only on an exact match, commit per the route above.
+- **Step 1 is the snapshot.** A change on a handed path after it, even post-commit, is outside
+  this dispatch: report, not commit. Tripwire: `DIRT-AFTER-THE-SNAPSHOT-IS-NOT-THIS-DISPATCHS-TO-COMMIT`.
 - **A terse return is not silence.** A
   dirty handed path no return names → reconcile the reports the returns DO name first. Accounted
   for = the wave's, commit it; unaccounted = the peer case, STOP-and-report. Tripwire:

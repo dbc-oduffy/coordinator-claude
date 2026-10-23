@@ -140,17 +140,24 @@ def read_noticed_pids(path: Optional[Path], procs: list[Proc]) -> frozenset:
         return frozenset()
 
 
+def _place_engine_on_path() -> bool:
+    """Put the resolved engine checkout on `sys.path`; False when it is unresolvable."""
+    hooks = Path(__file__).resolve().parents[1] / "hooks" / "scripts"
+    if str(hooks) not in sys.path:
+        sys.path.insert(0, str(hooks))
+    import _engine_root  # type: ignore
+    root = _engine_root.resolve_claude_klabauter_root()
+    if not root:
+        return False
+    _engine_root.place_engine_root_on_path(root)
+    return True
+
+
 def resolve_notice_path() -> Optional[Path]:
     """The engine's admission channel path, or None when the engine is unresolvable."""
     try:
-        hooks = Path(__file__).resolve().parents[1] / "hooks" / "scripts"
-        if str(hooks) not in sys.path:
-            sys.path.insert(0, str(hooks))
-        import _engine_root  # type: ignore
-        root = _engine_root.resolve_claude_klabauter_root()
-        if not root:
+        if not _place_engine_on_path():
             return None
-        _engine_root.place_engine_root_on_path(root)
         from coordinator_core.group_em.admission_post import admission_path  # type: ignore
         return Path(admission_path())
     except Exception:  # fail open: no notice input, behaviour unchanged
@@ -238,8 +245,8 @@ def footprint_mb_from_rusage(buf: bytes) -> float:
 def _darwin_footprints(top_n: int = _TOP_N) -> dict[int, float]:
     """Spawn-free: libproc proc_listallpids + proc_pid_rusage, the largest `top_n` by footprint."""
     import ctypes
-    import ctypes.util
-    lib = ctypes.CDLL(ctypes.util.find_library("proc") or "/usr/lib/libproc.dylib", use_errno=True)
+    # Trap: ctypes.util.find_library spawns /sbin/ldconfig on Python 3.15; the dyld shared cache serves the absolute path.
+    lib = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
     count = lib.proc_listallpids(None, 0)
     if count <= 0:
         return {}
@@ -288,10 +295,49 @@ def signal_tree(pids: list[int], stop: bool) -> None:
             pass
 
 
+_PIDFILE_NAME = "group-em-memory-governor.frozen.json"
+
+
+def _temp_layout():
+    """The engine's `temp_layout` module, or None when the engine is unresolvable.
+
+    The waiter loads this module without the engine on `sys.path`, so a failed import places the
+    engine and retries.
+    """
+    try:
+        from coordinator_core import temp_layout  # type: ignore
+    except ImportError:
+        if not _place_engine_on_path():
+            return None
+        from coordinator_core import temp_layout  # type: ignore
+    return temp_layout
+
+
+def _managed_dir() -> Path:
+    """The fleet-scoped managed Temp dir; the stdlib `cli_shared` mirror when the engine is
+    unresolvable, so the governor and the waiter always agree on the directory."""
+    layout = _temp_layout()
+    if layout is not None:
+        return layout.managed_tempdir()
+    lib = str(Path(__file__).resolve().parent / "lib")
+    if lib not in sys.path:
+        sys.path.insert(0, lib)
+    import cli_shared  # type: ignore
+    return Path(cli_shared.managed_temp_root())
+
+
 def default_pidfile() -> Path:
-    """Where the governor records the pids it holds frozen; one file per OS user temp dir."""
-    import tempfile
-    return Path(tempfile.gettempdir()) / "group-em-memory-governor.frozen.json"
+    """Where the governor records the pids it holds frozen: the fleet-scoped managed Temp dir."""
+    return _managed_dir() / _PIDFILE_NAME
+
+
+def legacy_pidfile() -> Path:
+    """The pre-managed-layout pidfile (top level of the OS Temp dir), read so an upgrade over an
+    outstanding freeze still thaws what the old governor stopped."""
+    layout = _temp_layout()
+    if layout is not None:
+        return layout.legacy_top_level_path(_PIDFILE_NAME)
+    return _managed_dir().parent.parent / _PIDFILE_NAME  # <tmp>/coordinator/_fleet -> <tmp>
 
 
 START_TIME_TOLERANCE_S = 2.0
@@ -381,12 +427,12 @@ def _same_process(pid: int, recorded: object,
     return now is not None and abs(now - float(recorded)) <= START_TIME_TOLERANCE_S
 
 
-def thaw_leftovers(pidfile: Optional[Path],
+def _thaw_one(pidfile: Optional[Path],
                    signal_fn: Callable[[list[int], bool], None] = signal_tree,
                    start_time_fn: Callable[[int], Optional[float]] = process_start_time) -> list[int]:
     """Resume the pids a DEAD governor recorded in `pidfile`, then clear it.
 
-    Entry point for the governor's own start and the waiter's. A live recorded governor (pid exists
+    A live recorded governor (pid exists
     and start time matches) owns the file: nothing is thawed and the file is kept. With a dead owner
     only recorded pids whose start time still matches are signalled; a reused pid is skipped. A
     missing, legacy or malformed file thaws nothing and is cleared. Returns the pids signalled.
@@ -411,6 +457,20 @@ def thaw_leftovers(pidfile: Optional[Path],
     except OSError:
         pass
     return pids
+
+
+def thaw_leftovers(pidfile: Optional[Path],
+                   signal_fn: Callable[[list[int], bool], None] = signal_tree,
+                   start_time_fn: Callable[[int], Optional[float]] = process_start_time) -> list[int]:
+    """Thaw `pidfile` (see `_thaw_one`); for the default managed pidfile, also the legacy one.
+
+    The legacy file is what a pre-managed-layout governor wrote, so an upgrade over an outstanding
+    freeze still resumes its pids. An injected `pidfile` reads nothing else.
+    """
+    thawed = _thaw_one(pidfile, signal_fn, start_time_fn)
+    if pidfile is not None and Path(pidfile) == default_pidfile():
+        thawed += _thaw_one(legacy_pidfile(), signal_fn, start_time_fn)
+    return thawed
 
 
 def cache_trim_hint(bin_dir: Path) -> str:

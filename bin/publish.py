@@ -8411,7 +8411,9 @@ def _export_engine_at_ref(repo_root: Path, ref: str) -> Path:
     if rev.returncode != 0:
         raise RuntimeError(f"--source-ref {ref!r} does not resolve to a commit in {repo_root}")
     sha = rev.stdout.decode().strip()
-    base = Path(tempfile.gettempdir()) / "claude-klabauter-publish-engine"
+    from coordinator_core.temp_layout import managed_tempdir  # noqa: PLC0415
+
+    base = managed_tempdir() / "claude-klabauter-publish-engine"
     dest = base / sha
     if (dest / "coordinator_core").is_dir():
         return dest

@@ -45,6 +45,18 @@ then return.
    A `text: <path> (from <url>)` entry in sources.md is added with `source_add` in its text form (the
    file's content), then read back the same way. Any `dev.epicgames.com` source that fails is
    reported in the summary by URL.
+   **Rejected YouTube source:** a YouTube URL whose `source_add` errors, or whose read-back fails
+   the test above, is not dropped. Use the scout's `Fallback: text: <path>` entry for it when listed; else obtain that video's transcript (the page's transcript via
+   `WebFetch`, or any transcript text you can retrieve), `source_add` it as text, and read it back.
+   Record `{original URL} -> {transcript source title}` under Metadata `Substitutions`. No
+   obtainable transcript: record the URL in `sources_failed` as `no transcript obtainable`.
+   **YouTube rate-limiting:** on the first YouTube `source_add` failure, run `yt-dlp --simulate
+   --no-warnings <url>` once when `yt-dlp` is installed. `HTTP Error 429` (or `source-gate.json`
+   `checks.ingest_probe.youtube` of `rate_limited`) means this IP is rate-limited and every YouTube
+   add will fail the same generic way: do not retry or add further YouTube URLs. Record each
+   skipped URL in `sources_failed` as `youtube rate-limited (HTTP 429)` and name it in
+   `coverage_gaps`. Proceed with the non-YouTube and `text:` sources; with none left, STOP per
+   Stuck Detection and report the 429 in the summary.
 5. **Drive sources are opt-in only** (`source_sync_drive`/`source_list_drive`) — use only when
    strategy.md/sources explicitly calls for them; otherwise plain `source_add`.
 6. **research_start:** `research_start(query, source="web", mode=...)` — `fast` (default,
@@ -127,6 +139,7 @@ coverage_gaps:
 - **Claims extracted:** {total count across all queries}
 - **Artifacts generated:** {list or "none"}
 - **Failures:** {list or "none"}
+- **Substitutions:** {rejected YouTube URL -> transcript source, one per line, or "none"}
 
 ## Sources
 | # | URL | Type | Status | Title/Description |
@@ -172,6 +185,7 @@ Unless noted, each case ends the same way: **write partial output and proceed to
 | Source processing failure | Log, continue with remaining sources (record in sources_failed) — no exit |
 | research_start failure | Retry once; persistent → try alt URLs via `source_add`, else failure note |
 | Rate limiting | Write partial output immediately, note in coverage_gaps — do NOT retry |
+| YouTube `source_add` fails and `yt-dlp` shows HTTP 429 | See step 4 "YouTube rate-limiting": skip YouTube, report the 429, do NOT retry |
 | Query failure | Retry once; persistent → log, continue with remaining questions |
 
 ## Stuck Detection

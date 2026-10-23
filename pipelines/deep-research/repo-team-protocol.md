@@ -48,7 +48,7 @@ Scout 2 (chunks C, D) ─┘                                                    
 **Why all specialists start after all scouts return:** Cross-subsystem connections. Scout 1's chunks may have data flow into scout 2's chunks. Specialists need the COMPLETE inventory across all chunks to understand these connections. The latency cost is minimal — Haiku scouts have a 5-minute ceiling.
 
 - **Ordering, not gating.** The script starts stage N+1 when stage N's `agent()` calls return (`await`, or `parallel()` for a fan-out). No task list, `blockedBy`, or task status gates anything.
-- **Wake = continuation dispatch.** A returned agent cannot be resumed. Any hand-off that needs a finished agent's attention — a challenge, a fidelity relay — is a mailbox line plus a fresh continuation agent dispatched by the script after the writers have returned.
+- **Wake = continuation dispatch.** A returned agent cannot be resumed (`wake_mechanism: continuation`, harness 2.1.308: `docs/research/spike-verdicts/2026-10-22-returned-workflow-agent-resume-reprobe.md`). Any hand-off that needs a finished agent's attention — a challenge, a fidelity relay — is a mailbox line plus a fresh continuation agent dispatched by the script after the writers have returned.
 
 ## Scout Protocol
 

@@ -92,7 +92,7 @@ The relay runs **before** the synthesizer's final pass returns, so the Workflow'
 
 ### Relay locus — between the synthesizer's passes, pre-Step-7
 
-**The relay executes as stages of the one Workflow, not as a separate post-synthesis dispatch.** The synthesizer's pass 1 returns its draft; the script dispatches a fresh continuation agent per specialist (the specialists have returned, and a wake is a dispatch, never a resume); then the script dispatches the synthesizer's pass 2. The authors whose content the relay protects are represented by their continuations, which name each specialist's own output files and predecessor return value. Atlas refinement (Step 7.5) runs after the Workflow completes and is unrelated to the relay.
+**The relay executes as stages of the one Workflow, not as a separate post-synthesis dispatch.** The synthesizer's pass 1 returns its draft; the script dispatches a fresh continuation agent per specialist (the specialists have returned, and a wake is a dispatch, never a resume: `docs/research/spike-verdicts/2026-10-22-returned-workflow-agent-resume-reprobe.md`); then the script dispatches the synthesizer's pass 2. The authors whose content the relay protects are represented by their continuations, which name each specialist's own output files and predecessor return value. Atlas refinement (Step 7.5) runs after the Workflow completes and is unrelated to the relay.
 
 ### Relay sequence (script-driven; summarized for EM debuggability)
 

@@ -132,7 +132,9 @@ never `Write`. **Named dispatch?** Also `SendMessage` the pointer to `"main"`.
 
 **A scope or direction ruling also lands as a file:** `Write` it to
 `state/apm-rulings/<YYYY-MM-DD>-<slug>.md` in the repo whose plan you ruled on, and name that path
-in your report. It is the `ruling_ref` the EM cites.
+in your report. It is the `ruling_ref` the EM cites. The file opens with frontmatter carrying
+`kind: apm-ruling`, `date`, `subject`, and `plan` when the ruling is about a plan, with field names
+from `coordinator/schemas/ruling.schema.json`.
 
 **Delta:** top-level `escalate_to_pm` (direction-class only, empty when none); per-finding
 `challenge_type` from the six challenges, plus `claim_type` (`yagni | yagnwi | not-yet | n/a`) where

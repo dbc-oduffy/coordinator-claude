@@ -97,7 +97,7 @@ One alone degrades most mutating operations; both together bypass the consent ga
 
 Then seed the Group EM's home: `"$_py" "${CLAUDE_PLUGIN_ROOT}/bin/group-em-home.py" ensure`
 (idempotent; also moves an existing legacy general-work home into place when no session is live in it). Exit 3 (home inside a checkout): a `[WARN]` row; never move it.
-Then create the general-work landing folder: `"$_py" "${CLAUDE_PLUGIN_ROOT}/bin/general-work-root.py" ensure` Exit 3: a `[WARN]` row.
+The installer's general-work step converges the root into a full coordinator repo (manifest tree, `coordinator.local.md`, `archive/`, seed commit on `main`); re-check it with `"$_py" "${CLAUDE_PLUGIN_ROOT}/bin/general-work-root.py" ensure` (idempotent). Exit 3: a `[WARN]` row.
 
 ---
 

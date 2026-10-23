@@ -167,14 +167,14 @@ def migrate_legacy_home() -> str:
 _IGNORED = (".coordinator-local/",)
 
 
-def _ensure_ignored(home: Path) -> None:
-    """Append any missing `_IGNORED` line to the home's `.gitignore`; never rewrites a line."""
+def _ensure_ignored(home: Path, entries: tuple[str, ...] = _IGNORED) -> None:
+    """Append any missing `entries` line (default `_IGNORED`) to the home's `.gitignore`; never rewrites a line."""
     path = home / ".gitignore"
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except FileNotFoundError:
         lines = []
-    missing = [entry for entry in _IGNORED if entry not in lines]
+    missing = [entry for entry in entries if entry not in lines]
     if missing:
         path.write_text("\n".join([*lines, *missing]) + "\n", encoding="utf-8")
 

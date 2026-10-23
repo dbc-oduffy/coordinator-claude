@@ -4,6 +4,15 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.6.1] — 2026-10-23
+
+- **Schemas:** `delivery-verdict.schema.json` and `ruling.schema.json` ship with fixtures and contract tests; every APM ruling file opens with minimal frontmatter.
+- **Memo outbox:** sent memos are recorded under `memo-outbox/sent-records/`.
+- **Box-memory CLIs:** six canonical forwarders in `coordinator/bin`; the governor and its waiter become forwarders.
+- **git-commit-agent:** multi-paragraph messages go through `--params-file -`, and dirt that appears after the snapshot is left uncommitted.
+- **General work:** the default folder is `0-general-work`, registered as `repos.general_work`, and setup converges the full tree.
+- **Fixed:** the foreign-platform-paths guard skips ignored directories; the hook latency harness keeps exec-form program paths intact; research agents fall back to a transcript when a YouTube source is rejected.
+
 ## [4.6.0] — 2026-10-22
 
 - **XS lane:** a confident XS ask is done by hand inside a budget the guard measures from the diff (2 files, about 30 changed lines); the first edit past it is denied and the work sizes S or larger.

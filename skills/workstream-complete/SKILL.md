@@ -15,7 +15,7 @@ This ceremony is computed end to end: directives ship as `directives[]`, what ca
 
 `$ARGUMENTS` folds into Final Summary and completion-entry prose.
 
-**Fallback close:** an `emit-dispatch-workflow` run closes in-run; this is the relay fallback's last turn, every mode (hands-on, pm, ceo), fired with `dispatch.terminal_commit` once the PM accepts the execute digest. It never commits the run's product changes; it is bookkeeping. The § Final Summary output IS the `close` wake digest: verdict → `outcome`, exceptions → `decision_required` and `deviations`.
+**Fallback close:** an `emit-dispatch-workflow` run closes in-run; this is the relay fallback's last turn, every mode (hands-on, pm, ceo), fired with `dispatch.land_run` once the PM accepts the execute digest. It never commits the run's product changes; it is bookkeeping. The § Final Summary output IS the `close` wake digest: verdict → `outcome`, exceptions → `decision_required` and `deviations`.
 
 ---
 
@@ -23,9 +23,9 @@ This ceremony is computed end to end: directives ship as `directives[]`, what ca
 
 Shape W (PowerShell) shown; POSIX hosts take Shape A/B: `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`.
 
-`& "$env:COORDINATOR_SETTINGS_HOME\bin\workstream-complete-assemble.exe" brief --render instruction-set [--decisions-file <path>]`
-Work the rendered set top to bottom ([computed-skills](../../docs/wiki/skills-corpus/computed-skills.md)); on exit 2 (no `--render`) run plain `brief`.
-**Prefer `--decisions-file`;** `--decisions '<json>'` for short payloads; passing both fails loud.
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\workstream-complete-assemble.exe" brief [--decisions-file <path>]`
+Work its output top to bottom ([computed-skills](../../docs/wiki/skills-corpus/computed-skills.md)).
+**Prefer `--decisions-file`;** `--decisions '<json>'` for short payloads (argv mangles prose); passing both fails loud.
 
 Plain `brief` returns `artifact`/`preflight`/`gates`/`directives`/`judgment_points`/`decisions`/`narration`/`next_move`. `preflight.session_shape` carries `sid`, `disposition` (`single-session`/`predecessor-consumed`), `consumed_handoff`, detector diagnostics. `jp-session-shape` is the untrusted-gate point for an uncertain resolution.
 
@@ -80,7 +80,7 @@ keys off *measured* `gross_loc`/`commit_count`/`surface_count`; L+ keys off the 
 
 **The review record is the plan's `review_stamp`; this ceremony neither runs nor dispatches it.**
 For a plan-bearing close, review ran as stages of the emitted execute-plan workflow and
-`review-stamp mint` recorded it via `terminal_commit` (never re-minted by hand);
+`review-stamp mint` recorded it via `land_run` (never re-minted by hand);
 `gates.review_receipt` reads it. Where that stamp exists, this ceremony reads the gate and
 writes no trail.
 **Review absent at close → this ceremony dispatches review; there is no skip.** No governing plan,
@@ -144,7 +144,7 @@ Order is transition, dispose, archive: `continued` needs `deployment_state` alre
 `d-baton-chain-closure`, `d-structural-index-refresh`, `d-ceremony-reindex`, then a release of
 every touch claim the session holds. Read outcomes off `post_close[]`.
 
-**A run-stamped plan already carries `implemented`; the ceremony verifies it, never restamps.** Where `terminal_commit` did not stamp, `d-stamp-plan-implemented` is gated engine-side (a blocked stamp is not a failed one) with three empty-`resolves` judgment points on its `depends_on`: `jp-open-spine-rows-block-stamp` (unwaived `open` rows, or `indeterminate`), `jp-landed-reconciliation-block-stamp` (plan `landed` with unticked ACs), `jp-review-receipt-block-stamp`. An unresolved one lands in `report["blocked"]` under `HALTED_AT_JUDGMENT` — a close exits non-failing with no stamp. That covers the stamp leg only, never an open census gate (§ Completion verdict). `waived_open_spine_row_ids` clears leg 1's `applicable` arm only. Never build a doctrine gate beside these. Tripwire: `AN-HONEST-INCOMPLETE-DOES-NOT-EARN-THE-WRAP-OFFER`.
+**A run-stamped plan already carries `implemented`; the ceremony verifies it, never restamps.** Where `land_run` did not stamp, `d-stamp-plan-implemented` is gated engine-side (a blocked stamp is not a failed one) with three empty-`resolves` judgment points on its `depends_on`: `jp-open-spine-rows-block-stamp` (unwaived `open` rows, or `indeterminate`), `jp-landed-reconciliation-block-stamp` (plan `landed` with unticked ACs), `jp-review-receipt-block-stamp`. An unresolved one lands in `report["blocked"]` under `HALTED_AT_JUDGMENT` — a close exits non-failing with no stamp. That covers the stamp leg only, never an open census gate (§ Completion verdict). `waived_open_spine_row_ids` clears leg 1's `applicable` arm only. Never build a doctrine gate beside these. Tripwire: `AN-HONEST-INCOMPLETE-DOES-NOT-EARN-THE-WRAP-OFFER`.
 
 **A stamp line can carry a failed archival move** (`N of M moves failed`): move the remainder, or the plan's sidecars stay orphaned.
 
@@ -187,7 +187,7 @@ gate-specific reading says are worth naming. Readings:
 | Worth doing, not now | backlog |
 | A distinct workstream someone else should pick up | spinoff |
 
-**Then append the changelog:** `& "$env:COORDINATOR_SETTINGS_HOME\bin\workday-complete-step9-append-changelog.exe" --no-push` (POSIX `$COORDINATOR_SETTINGS_HOME/bin/workday-complete-step9-append-changelog --no-push`).
+**Then append the changelog:** `& "$env:COORDINATOR_SETTINGS_HOME\bin\workday-complete-step9-append-changelog.exe" --no-push` (POSIX `$COORDINATOR_SETTINGS_HOME/bin/workday-complete-step9-append-changelog --no-push`). Rerun-safe.
 
 ---
 

@@ -782,7 +782,7 @@ because nothing re-read the row before acting. The emitter therefore re-reads ea
 disposition at fire and skips a `coded` row. That covers re-delivery of in-tree work. It does not
 cover a side effect already sent outside the tree, because the spine records the row and not the
 effect. So a row with an irreversible external side effect also carries a skip-if-delivered check
-keyed on that effect's own receipt (a memo's sent-ledger entry, a release tag, a remote ref). The
+keyed on that effect's own receipt (a memo's sent record via `memo_sent_records.iter_view`, a release tag, a remote ref). The
 mechanism is engine-side (`dispatch.emit`); the skill states the contract the emitter owes.
 
 ## Reverify a delivery FAIL that fix-forward commits repaired

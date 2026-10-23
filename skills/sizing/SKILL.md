@@ -60,7 +60,7 @@ the Step 1b/2 flags (from `assemble_flags`, plus `--interaction-mode`, `--premis
 **Every written sizing carries the PM's instructions as a requirement register, at every size.** The engine derives it: pipe the scout's report into the Step 4 write (`sizing-assemble ... --write <path> --scout-register -`) for one row per PM instruction; only scout rows quoted verbatim are kept, the rest go under `unrelated_turns`. Read the register back; amend only what it got wrong with `sizing-assemble --register - --write <the same path>` (body `{sources: [{doc, ref}], rows}`; rows merge by id, `drop: [ids]`; each row carries `status` and an enum `surface`; wiki `requirement-register`), never a scratch file. Every plan claims its rows (`register_claims`); the terminal stamp refuses `implemented` until each is met and wired or ruled. Splitting an ask never sheds a row. Tripwire: `THE-PM-INSTRUCTIONS-ARE-REGISTER-ROWS-AT-EVERY-SIZE`.
 
 **`status`.** XS: the quick-wrap close stamps `shipped`; hand-stamp (cite the commit) only on `j-dispatch-sizing-ship-failed` or an uncommitted sizing file.
-S+: the run's commit stage owns the stamp (`dispatch.terminal_commit` on the relay fallback), gated on a met judge (`A-PLAN-SELF-COMPLETES-ONLY-ON-A-MET-TERMINAL-JUDGE`); never pre-empt or hand-stamp it. Read `status` back (never `acted`). Tripwire: `ACTED-IS-BLIND-TO-THE-DELIVERABLE-CASCADE`.
+S+: the run's commit stage owns the stamp, gated on a met judge (`A-PLAN-SELF-COMPLETES-ONLY-ON-A-MET-TERMINAL-JUDGE`); between ceremonies `plan-status-transition stamp-implemented` cascades it; never hand-stamp. Read `status` back (never `acted`). Tripwire: `ACTED-IS-BLIND-TO-THE-DELIVERABLE-CASCADE`.
 
 **4b. Open the flight recorder on the resolved route, before anything downstream:**
 `TaskCreate` (`ToolSearch` it first), a session-goal task naming the ask and sizing path; on the relay fallback one task per remaining stage (wiki § Step 4b).
@@ -79,7 +79,7 @@ answer with `sizing-accept-exit-criterion --sizing <path> --pm-quote "<words>" [
 `--pm-quote`; only hands-on at XL+ needs the quote. At XS–L the EM writes the criterion itself (`sizing-accept-exit-criterion --sizing <path> --statement "<criterion>"`, any mode), never asking the PM to set or accept one; an engine refusal demanding acceptance there is an engine defect, not a PM ask. In pm and ceo the ask says that accepting
 it authorizes execution without a further ask.
 After acceptance submit `Workflow({name: "coordinator:engine-ask", args: {sizing: "<path>"}})`: the
-run commits and ships, so no `dispatch.terminal_commit` follows. Relay fallback, only when the engine refuses
+run commits and ships, so no `dispatch.land_run` follows. Relay fallback, only when the engine refuses
 that submission: `emit-wave-fire --from-sizing <sizing path> --repo-root <abs> --trail-dir <abs>`
 (never /spinoff or /handoff); name the refusal.
 

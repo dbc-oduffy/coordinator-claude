@@ -42,7 +42,7 @@ schema = 1
 "repos.experiments"            = ""
 # G-EM group-em home; empty means <settings-home>/group-em. Must lie outside every repo.
 "coordinator.group_em_home" = ""
-# empty means [general-work] beside the registered repos (else under the user home), created on demand; must lie outside every repo and the group-em home.
+# empty means 0-general-work beside the registered repos (else under the user home), created on demand; must lie outside every repo and the group-em home.
 "coordinator.general_work_root" = ""
 # tasks/2026-07-14-install-dogfood-friction.md § F8 — on-disk sibling repos
 # registered during the 2026-07-14 cold-install dogfood that had no tracked

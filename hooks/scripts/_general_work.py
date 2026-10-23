@@ -1,10 +1,13 @@
 """Machine-local general-work root: the landing folder for work that fits no project.
 
-Resolves `coordinator.general_work_root` (default `<workspace>/[general-work]`, beside the
+Resolves `coordinator.general_work_root` (default `<workspace>/0-general-work`, beside the
 registered `repos.*` checkouts), refuses a root inside a checkout or overlapping the group-em home,
 and creates it on demand; `ensure_root` git-inits it (one `git init` spawn, only when `.git` is
-absent). TRAP: the brackets are glob
-metacharacters, so the root is never handed to glob/fnmatch and is quoted in any shell line.
+absent), pins the key, converges the full coordinator-repo tree and commits only the paths it seeded. The root is
+the `general-work-em` memo identity and is registered as `repos.general_work`, which
+`resolve_root` exempts from the checkout refusal and the repos section omits. TRAP: the legacy `[general-work]`
+brackets are glob metacharacters wherever it resolves, so the root is never handed to glob/fnmatch
+and is quoted in any shell line.
 Contract: gem-cockpit-contract.md.
 """
 
@@ -16,10 +19,16 @@ from pathlib import Path
 
 import _engine_root
 import _gem_home
+import _general_work_tree
 
 KEY = "coordinator.general_work_root"
-DEFAULT_DIRNAME = "[general-work]"
-_TEMPLATE = Path(__file__).resolve().parent.parent.parent / "templates" / "general-work-home" / "home-CLAUDE.md"
+REPOS_KEY = "repos.general_work"
+DEFAULT_DIRNAME = "0-general-work"
+# Legacy fallback: resolve_root returns it only when the default is absent and it exists. Code never
+# creates or renames it, though `ensure` still seeds an existing legacy root in place.
+LEGACY_DIRNAME = "[general-work]"
+_PLUGIN_ROOT = Path(__file__).resolve().parents[2]
+_TEMPLATE = _PLUGIN_ROOT / "templates" / "general-work-home" / "home-CLAUDE.md"
 
 
 class RootRefused(Exception):
@@ -45,10 +54,31 @@ def _overlaps(a, b) -> bool:
     return _gem_home._under(a, b) or _gem_home._under(b, a)
 
 
+def _inside_checkout(root: Path) -> str | None:
+    """`_gem_home.inside_checkout` for the root: a strict `.git` ancestor or a `repos.*` root
+    containing it refuses; a `repos.*` root equal to the root (its own registration) does not."""
+    target = _gem_home._norm(root)
+    cur = Path(os.path.realpath(str(root)))
+    for anc in cur.parents:
+        if (anc / ".git").exists():
+            return str(anc)
+    for repo in _gem_home._repo_roots():
+        r = _gem_home._norm(repo)
+        if target != r and target.startswith(r.rstrip(os.sep) + os.sep):
+            return repo
+    return None
+
+
 def resolve_root() -> Path:
     configured = _engine_root._registry_value(_engine_root._settings_home_registry_dir(), KEY)
-    root = Path(configured) if configured else workspace_dir() / DEFAULT_DIRNAME
-    hit = _gem_home.inside_checkout(root)
+    if configured:
+        root = Path(configured)
+    else:
+        base = workspace_dir()
+        root = base / DEFAULT_DIRNAME
+        if not root.exists() and (base / LEGACY_DIRNAME).exists():
+            root = base / LEGACY_DIRNAME
+    hit = _inside_checkout(root)
     if hit:
         raise RootRefused(str(root), hit)
     try:
@@ -86,9 +116,15 @@ END = "<!-- END generated: repos -->"
 def named_repos() -> list[tuple[str, str]]:
     """Registered `repos.*` as (key, path) sorted by key; the local layer wins over the shared one."""
     found: dict[str, str] = {}
+    try:
+        own = _gem_home._norm(resolve_root())
+    except RootRefused:
+        own = None
     for layer in _gem_home._registry_layers():
         for k, v in layer.items():
-            if k.startswith("repos.") and isinstance(v, str) and v:
+            if k.startswith("repos.") and isinstance(v, str) and v and (
+                own is None or _gem_home._norm(v) != own
+            ):
                 found.setdefault(k[len("repos."):], v)
     return sorted(found.items())
 
@@ -126,40 +162,152 @@ def _merge(existing: str, section: str) -> str:
     return existing.rstrip("\n") + "\n\n" + section + "\n"
 
 
-def _git_init(root: Path) -> None:
-    """`git init` the root once; an existing `.git` is never touched, and a missing or failing git
-    binary leaves the root untracked (a later `ensure` retries)."""
-    if (root / ".git").exists():
-        return
+_SEED_IDENTITY = ("-c", "user.name=general-work-root", "-c", "user.email=general-work-root@localhost")
+
+
+def _git(root: Path, *args: str, pre: tuple[str, ...] = ()):
+    """Run git in `root`; None when git is missing or fails to spawn, so callers stay non-fatal."""
     try:
-        subprocess.run(
-            ["git", "init", "-q", str(root)],
+        return subprocess.run(
+            ["git", *pre, "-C", str(root), *args],
             capture_output=True,
             check=False,
             timeout=30,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except (OSError, subprocess.SubprocessError):
-        pass
+        return None
+
+
+def _git_init(root: Path) -> None:
+    """`git init` the root once; an existing `.git` is never touched, and a missing or failing git
+    binary leaves the root untracked (a later `ensure` retries)."""
+    if (root / ".git").exists():
+        return
+    _git(root, "init", "-q")
+
+
+def _move_unborn_to_main(root: Path) -> None:
+    """Point an unborn HEAD at `main` (`symbolic-ref` works on every git version, unlike `init -b`);
+    a branch with commits is never renamed."""
+    unborn = _git(root, "rev-parse", "--verify", "-q", "HEAD")
+    if unborn is not None and unborn.returncode != 0:
+        _git(root, "symbolic-ref", "HEAD", "refs/heads/main")
+
+
+_IGNORE_ENTRIES = (".coordinator-local/", "scratch/")
+_OLD_HEADING = "## No ceremony here"
+_NEW_HEADING = "## Working state and memos"
+
+
+def _section(text: str, heading: str) -> tuple[int, int] | None:
+    """Span of the `heading` section: its line through the char before the next `## ` heading or the
+    repos fence (or end of text); None when the heading line is absent."""
+    start = None
+    pos = 0
+    for line in text.splitlines(keepends=True):
+        if start is None:
+            if line.rstrip("\r\n") == heading:
+                start = pos
+        elif line.startswith("## ") or line.startswith(BEGIN):
+            return start, pos
+        pos += len(line)
+    return None if start is None else (start, len(text))
+
+
+def _retire_no_ceremony(current: str, template_text: str) -> str:
+    """Swap a `## No ceremony here` section for the template's `## Working state and memos` one;
+    text outside the section is untouched, and a text without the old heading comes back as is."""
+    old = _section(current, _OLD_HEADING)
+    new = _section(template_text, _NEW_HEADING)
+    if old is None or new is None or _section(current, _NEW_HEADING) is not None:
+        return current
+    body = template_text[new[0]:new[1]]
+    if not body.endswith("\n"):
+        body += "\n"
+    if old[1] < len(current) and not body.endswith("\n\n"):
+        body += "\n"
+    return current[:old[0]] + body + current[old[1]:]
+
+
+def _pin_identity(root: Path) -> None:
+    """Pin `coordinator.general_work_root` and `repos.general_work` to `root` when each is unset; a
+    set value is never overwritten."""
+    for key in (KEY, REPOS_KEY):
+        try:
+            if _engine_root._registry_value(_engine_root._settings_home_registry_dir(), key):
+                continue
+            import _registry_write
+
+            _registry_write.machine_local_set(key, str(root))
+        except Exception:
+            # Best-effort: an unwritable registry leaves the key unset; the next ensure retries.
+            continue
+
+
+def _seed_tree(root: Path) -> list[str]:
+    """Converge the full coordinator tree via `seed_full_tree` and return the commit set: its paths
+    plus `.gitignore` and `CLAUDE.md` when they exist (posix, root-relative)."""
+    try:
+        paths = _general_work_tree.seed_full_tree(root, _PLUGIN_ROOT)
+        _gem_home._ensure_ignored(root, _IGNORE_ENTRIES)
+    except OSError:
+        paths = []
+    return sorted({*paths, *(rel for rel in (".gitignore", "CLAUDE.md") if (root / rel).is_file())})
+
+
+def _commit_seed(root: Path, paths: list[str]) -> None:
+    """Stage and commit exactly `paths`, each named explicitly, skipping any path git reports as
+    ignored or excluded; a no-op when none differs from HEAD. Supplies a fallback identity only
+    when the box has none."""
+    use = []
+    for rel in paths:
+        res = _git(root, "check-ignore", "-q", "--", rel)
+        if res is None or res.returncode > 1:
+            return
+        if res.returncode == 1:
+            use.append(rel)
+    if not use:
+        return
+    _git(root, "add", "--", *use)
+    dirty = _git(root, "status", "--porcelain", "--", *use)
+    if dirty is None or not dirty.stdout.strip():
+        return
+    ident = _git(root, "config", "user.email")
+    pre = () if ident is not None and ident.returncode == 0 and ident.stdout.strip() else _SEED_IDENTITY
+    _git(root, "commit", "-q", "-m", "general-work root: seed coordinator state tree", "--", *use, pre=pre)
 
 
 def ensure_root(template: Path | None = None) -> Path:
-    """Create the root, git-init it when it has no `.git`, seed CLAUDE.md when absent, and refresh
-    its generated repos section. No `state/`; history is never touched on a repeat call."""
+    """Create the root, git-init it when it has no `.git`, pin `coordinator.general_work_root` and
+    `repos.general_work` when unset, converge the full coordinator-repo tree (the canonical-structure
+    eager `state/` dirs, `docs/plans`, `archive/`, `tasks/`, `coordinator.local.md`, the canonical
+    `.gitignore` block, `state/orientation_cache.md`) and CLAUDE.md when absent, retire a `## No ceremony here` section,
+    refresh the generated repos section, put an unborn HEAD on `main`, and commit only those seed
+    paths by explicit pathspec (excluded or ignored paths are skipped, never forced). A repeat call
+    with unchanged content adds no commit; best-effort, never raises on git or registry failure."""
     root = resolve_root()
     root.mkdir(parents=True, exist_ok=True)
     _git_init(root)
+    _pin_identity(root)
     seed = root / "CLAUDE.md"
     src = template or _TEMPLATE
     section = render_repos_section()
+    tpl_text = src.read_text(encoding="utf-8") if src.is_file() else None
+    # A missing template skips CLAUDE.md seeding silently; templates/general-work-home/home-CLAUDE.md must ship.
     if seed.exists():
         current = seed.read_text(encoding="utf-8")
-    # A missing template skips seeding silently; templates/general-work-home/home-CLAUDE.md must ship.
-    elif src.is_file():
-        current = src.read_text(encoding="utf-8")
+        if tpl_text is not None:
+            current = _retire_no_ceremony(current, tpl_text)
+    elif tpl_text is not None:
+        current = tpl_text
     else:
-        return root
-    merged = _merge(current, section)
-    if not seed.exists() or merged != current:
-        seed.write_text(merged, encoding="utf-8", newline="\n")
+        current = None
+    if current is not None:
+        merged = _merge(current, section)
+        if not seed.exists() or merged != seed.read_text(encoding="utf-8"):
+            seed.write_text(merged, encoding="utf-8", newline="\n")
+    paths = _seed_tree(root)
+    _move_unborn_to_main(root)
+    _commit_seed(root, paths)
     return root

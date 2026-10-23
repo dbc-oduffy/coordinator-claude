@@ -32,11 +32,11 @@ revision: it races the run's scoped commits and records no ledger row. Open engi
 revise against a held, not-yet-emitted run refuses ("no ledger-bearing run ... emit it first").
 
 **The run commits itself.** The in-run commit is the user's commit request: its last stage is one
-`coordinator:git-commit-agent` call to `dispatch.terminal_commit` under the run token. The commit
+`coordinator:git-commit-agent` call to `dispatch.land_run` under the run token. The commit
 ships the sizing and carries the run's delivery note, `docs/delivery/<run_id>.md`
-(`A-RUNS-DELIVERY-NOTE-IS-COMMITTED-UNDER-DOCS-DELIVERY`). The EM runs no `dispatch.terminal_commit` after a run that committed. Only a run that exits
+(`A-RUNS-DELIVERY-NOTE-IS-COMMITTED-UNDER-DOCS-DELIVERY`). The EM runs no `dispatch.land_run` after a run that committed. Only a run that exits
 uncommitted (a halt before the commit stage, or a non-`none` `next_action`) gets `coordinator-invoke
-dispatch.terminal_commit` with its `params`, unedited; the run token admits one landed commit, and a failed, refused, empty or raising commit releases it for a retry. A run that hits a usage
+dispatch.land_run` with its `params`, unedited; the run token admits one landed commit, and a failed, refused, empty or raising commit releases it for a retry. A run that hits a usage
 limit reports `halted_by: usage_limit` with `resets_at`: `TaskStop` it, then `Workflow({ scriptPath,
 resumeFromRunId })`; a dead run is committed by that op with its `script_path`.
 

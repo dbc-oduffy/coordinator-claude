@@ -1830,6 +1830,12 @@ def _copies_engine_verdicts(cc, ctx: CopiesContext, cache: Optional[dict]) -> li
             stamp_sha=data.get("stamp_sha") or "",
         )
 
+    def origin_behind():
+        eo = entry.get("engine_origin") if isinstance(entry, dict) and not moved else None
+        if not isinstance(eo, dict) or eo.get("fast_forwarded"):
+            return None
+        return eo.get("behind")
+
     def compute():
         try:
             return eml.check_engine_mirror(
@@ -1838,6 +1844,8 @@ def _copies_engine_verdicts(cc, ctx: CopiesContext, cache: Optional[dict]) -> li
                 lag,
                 ctx.live_tree,
                 entry.get("import_origin") if entry and not moved else eml.UNCHECKED,
+                origin_behind(),
+                _copies_refresh_remedy(),
             )
         except _CopiesUnavailable as exc:
             return [cc.could_not_check(eml.COPY, cc.CURRENCY, exc.reason, exc.remedy), eml._completeness()]
@@ -1914,6 +1922,17 @@ def copies_banner(
         cil.leg(claude_klabauter_root=lambda: ctx.authoring_root, now=now),
     ]
     lines = cc.render_copies_lines(verdicts)
+    eml = _copies_mod("_copy_leg_engine_mirror")
+    for v in verdicts:
+        if (
+            v.copy == eml.COPY
+            and v.axis == cc.CURRENCY
+            and v.state == cc.DRIFT
+            and v.detail.startswith(eml.ORIGIN_BEHIND_PREFIX)
+        ):
+            lines[0] = lines[0].replace(
+                f"{eml.COPY} currency={cc.DRIFT}", f"{eml.COPY} currency={v.detail}", 1
+            )
     _w(lines[0] + "\n")
     non_current = [v for v in verdicts if v.state != cc.CURRENT]
     for verdict, line in zip(non_current, lines[1:]):

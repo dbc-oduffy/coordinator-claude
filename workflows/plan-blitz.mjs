@@ -115,6 +115,9 @@
  *                             //  still passes through the blitz-em, which may revise it.
  *       planPath: string|null,// an existing plan, when the baton already has one. Non-null
  *                             //  means this wave REVISES rather than authors.
+ *       sizingBaton: string|null, // OPTIONAL. The cited sizing's on-disk `baton:` value. An XS whose
+ *                             //  value equals this baton's `path` needs no em echo to be handed
+ *                             //  to the driver as an `xsRuns` entry.
  *       executionOpen: boolean// REQUIRED, from `roadmap.plan_gate`'s `execution_gate.open`
  *                             //  for this baton. An XS is handed to the driver
  *                             //  (`xsRuns`) only when its EXECUTION gate is open — blockers
@@ -155,7 +158,7 @@
  * (`surfacedToPm` is the PM residue: only entries an adjudicator marked `pm_only`, each carrying
  * its `adjudication`; `adjudicated` holds the PM-bound entries an adjudicator ruled on; `xsRuns`
  * is one `{ batonId, record, sizingObject, deliverableId }` per execution-open, sized XS, handed
- * to the driver to run as an ask run closed by dispatch.terminal_commit — the wave executes no XS,
+ * to the driver to run as an ask run closed by dispatch.land_run — the wave executes no XS,
  * and `dispatched` stays `[]`.) — see WAVE RESULT below.
  */
 
@@ -2544,7 +2547,9 @@ batons you let into it, not by how thinly you staff the authoring of one.
     BATON KEY. The sizing you return for a baton on the 'dispatch' route MUST carry a top-level
     \`baton:\` key whose value is that baton's record path exactly as listed in "Batons in this
     wave" above (the bracketed path). Set it in the scaffold, or with Edit on an already-sized
-    baton's cited sizing-object when it lacks the key. \`emit-dispatch-workflow --sizing <sizing>
+    baton's cited sizing-object when it lacks the key. When the baton already has a sizing match,
+    run \`sizing-link-baton --baton <record> --write\` instead: it stamps the sizing's \`baton:\` and
+    the baton's sizing citation (a dry run without \`--write\`). \`emit-dispatch-workflow --sizing <sizing>
     --baton <record>\` refuses a pair where neither the baton's \`sizing_object\` nor the sizing's
     \`baton:\` names the other, and the baton's own \`sizing_object\` may name an older sizing. Echo
     the path you wrote in the decision's \`sizingBaton\`.
@@ -2760,19 +2765,87 @@ const dispatchable = decisions.filter(
 // the baton arg's.
 const xsSizingFor = (d) => repoRelativeCitation(d.sizingObject || batonFor(d).sizingObject) || null
 // emit-dispatch-workflow refuses a pair whose sizing `baton:` and baton `sizing_object:` name
-// neither the other, so an XS leaves as an xsRun only when the em echoed that it stamped
-// `baton:` with this baton's record path.
-const xsBatonStamped = (d) =>
-  !!d.sizingBaton && repoRelativeCitation(d.sizingBaton) === repoRelativeCitation(batonFor(d).path)
+// neither the other, so an XS leaves as an xsRun only when this baton's record path is attested:
+// by the em's `sizingBaton` echo, by the args baton's `sizingBaton` (the cited sizing's on-disk
+// `baton:` value, carried by the caller), or by the in-wave link pass below.
+const xsBatonStamped = (d) => {
+  const record = repoRelativeCitation(batonFor(d).path)
+  return [d.sizingBaton, batonFor(d).sizingBaton].some((v) => !!v && repoRelativeCitation(v) === record)
+}
+const xsRunOf = (d) => ({
+  batonId: d.batonId,
+  record: repoRelativeCitation(batonFor(d).path),
+  sizingObject: xsSizingFor(d),
+  deliverableId: batonFor(d).deliverableId || null,
+})
 const xsRuns = dispatchable
   .filter((d) => xsSizingFor(d) && xsBatonStamped(d))
-  .map((d) => ({
-    batonId: d.batonId,
-    record: repoRelativeCitation(batonFor(d).path),
-    sizingObject: xsSizingFor(d),
-    deliverableId: batonFor(d).deliverableId || null,
-  }))
+  .map(xsRunOf)
+// The link pass below appends to `xsRuns` and `xsRunIds`; routedElsewhere reads both after it.
 const xsRunIds = new Set(xsRuns.map((r) => r.batonId))
+
+const XS_LINK_SCHEMA = {
+  type: 'object',
+  required: ['batonId', 'linked', 'sizingBaton', 'sidecarPath'],
+  properties: {
+    batonId: { type: 'string' },
+    linked: { type: 'boolean' },
+    sizingBaton: { type: ['string', 'null'] },
+    sidecarPath: { type: 'string' },
+    tldr: RETURN_TLDR_SCHEMA,
+  },
+}
+
+// An execution-open XS whose cited sizing lacks the `baton:` echo is linked in this wave rather
+// than routed away to wait for a later wave to re-size it. A failed link falls through to
+// `routedElsewhere`, which still names the missing echo.
+function xsLinker(d) {
+  const baton = batonFor(d)
+  return trackAgent(`xs-link:${d.batonId}`, agent(
+    `phase: xs-baton-link
+
+${ROLE_CONTRACTS['blitz-em']}
+
+Baton ${baton.id} — "${baton.title}" is an execution-open XS routed \`dispatch\`. Its sizing object
+${xsSizingFor(d)} carries no \`baton:\` key naming the record ${baton.path}, and
+\`emit-dispatch-workflow --sizing <sizing> --baton <record>\` refuses a pair neither side names.
+
+${CLI_RESOLUTION_RULE}
+1. Run \`sizing-link-baton --baton ${baton.path} --write\`. It stamps the sizing's \`baton:\` and the baton's
+   sizing citation. If it refuses or finds no match, Edit ONLY the sizing object above so its top-level
+   \`baton:\` is exactly \`${baton.path}\`. Touch nothing else.
+2. Return \`linked\` true and \`sizingBaton\` as the \`baton:\` value now on disk in ${xsSizingFor(d)}; if you could
+   not link it, \`linked\` false, \`sizingBaton\` null, and the refusal text in your sidecar.
+${REPO_ROOT_RULE}
+${MID_RUN_DIRECTION_RULE}
+${TRAIL_RULE(sidecarFor(trailDir, d.batonId, 'xs-baton-link'))}`,
+    { model: 'sonnet', ...withRole('coordinator:blitz-em'),
+      label: `xs-link:${d.batonId}`,
+      phase: 'Size',
+      effort: 'low',
+      schema: XS_LINK_SCHEMA,
+    },
+  ))
+}
+
+await Promise.all(
+  dispatchable
+    .filter((d) => xsSizingFor(d) && !xsBatonStamped(d))
+    .map((d) =>
+      xsLinker(d).then(
+        (r) => {
+          if (r && r.linked === true && r.sizingBaton
+            && repoRelativeCitation(r.sizingBaton) === repoRelativeCitation(batonFor(d).path)) {
+            d.sizingBaton = r.sizingBaton
+            xsRuns.push(xsRunOf(d))
+            xsRunIds.add(d.batonId)
+          }
+        },
+        // A rejected link agent leaves the baton out of xsRuns; routedElsewhere then names the missing echo.
+        () => {},
+      ),
+    ),
+)
 const UNSIZED_XS_REASON = 'XS/dispatch, but no sizing object — the ask run that reaches terminal_commit needs one'
 // Routed somewhere other than a plan. NOT dropped: a baton that vanishes between
 // waves is one nobody notices, so each leaves the wave carrying the reason.
@@ -2891,6 +2964,18 @@ const chains = await pipeline(
   plannable,
   (decision) => {
     const baton = batons.find((b) => b.id === decision.batonId)
+    // An em decision can name a baton the wave never carried; `planner()` dereferences the baton,
+    // so that case is a blocked entry here, not a pipeline failure.
+    if (!baton) {
+      return Promise.resolve({
+        decision,
+        baton: { id: String(decision.batonId || '(no baton id)'), title: '(baton not in the args)', path: null },
+        plan: {
+          status: 'blocked',
+          blockedReason: `the em decided baton "${decision.batonId}", which is not among this wave's args batons; nothing was planned`,
+        },
+      })
+    }
     const singleContext = SINGLE_MODE
       ? {
           exitCriterionStatement: baton.exitCriterion,
@@ -3086,7 +3171,7 @@ const chains = await pipeline(
 
 // Phase 5b — Dispatch hands each XS to the driver (`xsRuns`, built above) and executes none:
 // a Workflow agent may never commit, so the driver runs the ask run that ends in
-// `dispatch.terminal_commit`.
+// `dispatch.land_run`.
 
 // Each reviewer applies and verifies its own findings now, so there is no separate integration
 // pass to render — a reviewer's own line already carries its verdict and sidecar, and the trail
@@ -3370,7 +3455,9 @@ ${CLI_RESOLUTION_RULE}
 
    Change it only so (the op trusts these inputs; dropping a review you did not settle makes the ready false): send ${coverageRule}; drop from \`reviews\` only a WARN review every one of whose
    uncleared ledger rows you list in \`resolved\`; leave \`premise\` and every other \`reviews\` entry
-   as shown.
+   as shown. A premise row the reason above lists as an "intended correction the resolver may take"
+   (covered by the plan's \`corrects:\`/\`fixed_by\`) is yours to take: settle it in the plan and list
+   it in \`resolved\`. It is not a blocking finding.
 3. Record the reply's \`verdict\` as \`afterVerdict\`, its \`pull_class\` as \`afterPullClass\` and its
    \`reason\` as \`afterReason\`, and its \`blocking\` array verbatim as \`afterBlocking\` when the reply
    carries one. If it fails (non-zero exit, no JSON reply, or an \`error\` envelope),
@@ -4057,7 +4144,7 @@ return {
   // the same keys; a frozen fire's own executor may still fill it.
   dispatched: [],
   // Execution-open, sized XS batons handed to the driver, one ask run each, which closes them
-  // through `dispatch.terminal_commit`: { batonId, record, sizingObject, deliverableId }.
+  // through `dispatch.land_run`: { batonId, record, sizingObject, deliverableId }.
   xsRuns,
   // Sized and routed, but neither planned nor handed off as an XS run — including an
   // XS whose EXECUTION gate is shut or that has no sizing object. Each names the room it belongs in.

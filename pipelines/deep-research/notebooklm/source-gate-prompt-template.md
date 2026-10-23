@@ -18,12 +18,14 @@ You are the NotebookLM source-gate stage. Decide whether the scout left every sc
    On PowerShell 7 the same step is `& (Join-Path ($env:COORDINATOR_SETTINGS_HOME ?? (Join-Path ($env:CLAUDE_HOME ?? $HOME) ".coordinator-claude-settings")) "bin\resolve-coordinator-clone.exe") --content-root`. It prints one line, the plugin root, called `<plugin-root>`. Then run the gate script, where `<python>` is the interpreter resolved per `resolve-coordinator-bin.md` § Portability (`python3`, else `python`):
 
    ```bash
-   <python> "<plugin-root>/pipelines/deep-research/notebooklm/nlm-run-gate.py" sources --strategy "{{brief}}" --sources "{{scratch_dir}}/sources.md"
+   <python> "<plugin-root>/pipelines/deep-research/notebooklm/nlm-run-gate.py" sources --strategy "{{brief}}" --sources "{{scratch_dir}}/sources.md" --probe-ingest
    ```
 
-   On PowerShell 7 the run step is `python (Join-Path "<plugin-root>" "pipelines\deep-research\notebooklm\nlm-run-gate.py") sources --strategy "{{brief}}" --sources "{{scratch_dir}}/sources.md"`.
+   On PowerShell 7 the run step is `python (Join-Path "<plugin-root>" "pipelines\deep-research\notebooklm\nlm-run-gate.py") sources --strategy "{{brief}}" --sources "{{scratch_dir}}/sources.md" --probe-ingest`.
 
    A `text: <path> (from <url>)` entry marked `Accessible: YES` counts as an accessible source; the script counts the marker, not the URL.
+
+   `--probe-ingest` fetches one YouTube URL from strategy.md or sources.md. HTTP 429 means this IP is rate-limited, so every YouTube `source_add` fails with a generic error: the script then fails any notebook whose sources are all YouTube and records `checks.ingest_probe.youtube: "rate_limited"`. Other probe outcomes never fail the gate.
 
 2. When the resolve step fails (non-zero exit or empty output), or the script printed anything other than one JSON object, the gate fails closed: ok is false, remedy is one line naming what happened. For a failed resolve step: "unresolved plugin root — resolve-coordinator-clone --content-root failed: <its stderr line>", with checks {"plugin_root": "unresolved"}. For a script error: the script's error text as the remedy. Never return ok true unless the script printed ok true.
 

@@ -1,6 +1,7 @@
 """NotebookLM run gates: deterministic halts between scout, workers and sweep.
 
-`sources` answers "does every scout-provided notebook have an accessible source?";
+`sources` answers "does every scout-provided notebook have an accessible source?" and, with
+`--probe-ingest`, whether YouTube ingest is rate-limited (HTTP 429) for this IP;
 `claims` answers "did exactly worker_count in-strategy workers run, and did they produce a claim?".
 Prints one JSON object {ok, remedy, checks} and always exits 0 on a decided result; the calling
 stage reads `ok`. Any unreadable input is ok:false, never a pass.
@@ -9,9 +10,13 @@ stage reads `ok`. Any unreadable input is ok:false, never a pass.
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import re
 import sys
+import urllib.error
+import urllib.request
+from collections.abc import Callable
 from pathlib import Path
 
 _FRONTMATTER = re.compile(r"\A---\s*\n(.*?)\n---\s*(?:\n|\Z)", re.S)
@@ -22,6 +27,8 @@ _SOURCE_STRATEGY = re.compile(r"Source\s+strategy:\s*`?([A-Za-z_\-]+)", re.I)
 _URL = re.compile(r"https?://\S+")
 _ACCESSIBLE_OK = re.compile(r"Accessible:\s*\**\s*(?:YES|PARTIAL)\b", re.I)
 _ANY_HEADING = re.compile(r"^##\s", re.M)
+_YOUTUBE_URL = re.compile(r"https?://(?:www\.|m\.)?(?:youtube\.com|youtu\.be)/[^\s)>\]]+", re.I)
+_TEXT_ENTRY = re.compile(r"\btext:\s*\S")
 
 
 def _sections(text: str, heading: re.Pattern[str]) -> dict[str, str]:
@@ -42,7 +49,28 @@ def parse_worker_count(strategy_text: str) -> int | None:
     return int(m.group(1)) if m else None
 
 
-def gate_sources(strategy_text: str | None, sources_text: str | None) -> dict:
+def probe_youtube(url: str, timeout: float = 10.0) -> str:
+    """Fetch one YouTube page; "rate_limited" only on HTTP 429, "unreachable" on any other failure.
+
+    A rate-limited IP makes every YouTube `source_add` fail with a generic error, so 429 is the one
+    status the gate names; other failures stay non-blocking because they say nothing about ingest.
+    """
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout):
+            return "ok"
+    except urllib.error.HTTPError as exc:
+        return "rate_limited" if exc.code == 429 else "unreachable"
+    except (OSError, ValueError, http.client.HTTPException):
+        return "unreachable"
+
+
+def gate_sources(
+    strategy_text: str | None,
+    sources_text: str | None,
+    probe: Callable[[str], str] | None = None,
+) -> dict:
+    """`probe` (url -> status) is run once on the first YouTube URL; None skips the ingest probe."""
     remedy: list[str] = []
     checks: dict = {"sources_md": "absent" if sources_text is None else "present", "notebooks": {}}
     if strategy_text is None:
@@ -53,6 +81,15 @@ def gate_sources(strategy_text: str | None, sources_text: str | None) -> dict:
     if not notebooks:
         remedy.append("strategy.md has no '## Notebook <L>' section: re-run the scope stage")
     scouted = _sections(sources_text, _SOURCES_SECTION) if sources_text is not None else {}
+    probe_status = "skipped"
+    if probe is not None:
+        probe_status = "no_youtube_urls"
+        first = _YOUTUBE_URL.search(strategy_text) or _YOUTUBE_URL.search(" ".join(scouted.values()))
+        if first:
+            probe_status = probe(first.group(0))
+            checks["ingest_probe"] = {"youtube": probe_status, "url": first.group(0)}
+    if "ingest_probe" not in checks:
+        checks["ingest_probe"] = {"youtube": probe_status}
     for letter, body in notebooks.items():
         m = _SOURCE_STRATEGY.search(body)
         strategy = m.group(1).lower().replace("-", "_") if m else "unknown"
@@ -61,6 +98,20 @@ def gate_sources(strategy_text: str | None, sources_text: str | None) -> dict:
         checks["notebooks"][letter] = {"strategy": strategy, "accessible": accessible, "strategy_urls": urls}
         if strategy == "research_start":
             continue
+        if probe_status == "rate_limited" and accessible == 0:
+            section = scouted.get(letter, "")
+            all_urls = _URL.findall(body) + _URL.findall(section)
+            youtube_only = bool(all_urls) and not _TEXT_ENTRY.search(section) and all(
+                _YOUTUBE_URL.match(u) for u in all_urls
+            )
+            checks["notebooks"][letter]["youtube_rate_limited"] = True
+            if youtube_only:
+                remedy.append(
+                    f"Notebook {letter} is scout-provided with YouTube sources only and YouTube answered "
+                    "HTTP 429 (this IP is rate-limited, so every YouTube source_add will fail): wait and re-run, "
+                    "re-run scout for non-YouTube sources or text: transcripts, or switch the notebook to research_start"
+                )
+                continue
         if urls > 0 or accessible > 0:
             continue
         if sources_text is None:
@@ -174,6 +225,11 @@ def main(argv: list[str] | None = None) -> int:
     p_src = sub.add_parser("sources")
     p_src.add_argument("--strategy", required=True)
     p_src.add_argument("--sources", required=True)
+    p_src.add_argument(
+        "--probe-ingest",
+        action="store_true",
+        help="fetch one YouTube URL and fail YouTube-only notebooks on HTTP 429",
+    )
     p_clm = sub.add_parser("claims")
     p_clm.add_argument("--strategy", required=True)
     p_clm.add_argument("--scratch", required=True)
@@ -181,7 +237,7 @@ def main(argv: list[str] | None = None) -> int:
 
     strategy = _read(args.strategy)
     if args.cmd == "sources":
-        result = gate_sources(strategy, _read(args.sources))
+        result = gate_sources(strategy, _read(args.sources), probe_youtube if args.probe_ingest else None)
     else:
         result = gate_claims(strategy, Path(args.scratch))
     print(json.dumps(result))

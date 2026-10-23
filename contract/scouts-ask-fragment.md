@@ -71,13 +71,12 @@ and one `## Contradictions` section of `- **<real|invented>** <ruling>` lines.
 
 `research.close` reads `grounding.md` as written, so fixing or dropping a claim in a `digest-<slug>.md`
 leaves the old verdict in force and the close refuses again. After any digest edit, re-ground before
-re-closing: run the grounding stage afresh against the edited digests so it rewrites `grounding.md`,
-then re-run `research.close`. A resume of the finished run does not re-ground; it replays the cached
-grounding because the stage prompt is unchanged. Hand-editing `grounding.md` is never the fix: the
-grader's verdict is not the EM's to write. No engine op re-grounds a run today; until the engine
-ships one (a gated engine-plane ask), re-fire the scouts Workflow so the grounding stage runs
-against the edited digests. A re-fire re-runs the scouts and can regenerate the digests; confirm the
-fix survives in each digest before re-closing.
+re-closing: run `research.reground` with `{run_id}`. It moves the stale `grounding.md` aside,
+re-grades only the digests changed since the last basis, and emits
+`scratch/warp/<run_id>.reground-<n>.workflow.mjs`; fire that fresh, then re-run `research.close`.
+A resume of the finished run does not re-ground; it replays the cached grounding because the stage
+prompt is unchanged. Hand-editing `grounding.md` or the emitted script's prompt is never the fix:
+the grader's verdict is not the EM's to write.
 
 ## CLI and sizing
 

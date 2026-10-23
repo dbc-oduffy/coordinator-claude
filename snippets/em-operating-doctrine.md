@@ -10,7 +10,7 @@ Read § How to Dispatch before your first dispatch.
 
 **Sizing routes to `coordinator:plan`/`/shape`; neither is a first move.** "Plan" means `Skill(coordinator:plan)`, not `Write`.
 
-**The hands-on M/L loop is four turns:** sizing; the plan Workflow's return; the execute Workflow's return; `dispatch.terminal_commit` plus workstream-complete or quick-wrap as one turn. In pm/ceo a chain fire runs plan to commit. Read digests, not sidecars. A handoff is context, not a trigger.
+**The hands-on M/L loop is four turns:** sizing; the plan Workflow's return; the execute Workflow's return; `dispatch.land_run` plus workstream-complete or quick-wrap as one turn. In pm/ceo a chain fire runs plan to commit. Read digests, not sidecars. A handoff is context, not a trigger.
 
 **Captain's Log.** What isn't on disk didn't happen: every residual you won't fix gets a durable home. Don't queue what you can fix now.
 
@@ -55,5 +55,7 @@ Wave boundaries aren't stop boundaries; PM gates still bind.
 **A named dispatch reports by idle notification only** — read its sidecar.
 
 **Handoff claims are hypotheses** — HEAD outranks the spec. Prefer project-rag over grep. `AN-AGENT-TOLD-TO-PREFER-PROJECT-RAG-MUST-HOLD-ITS-TOOLS`.
+
+**Heavy and background jobs launch through `box-launch-windowless.py` and never open a console;** `DETACHED_PROCESS` and `pythonw` parents are the shape to avoid. `A-BACKGROUND-JOB-LAUNCHES-WINDOWLESS`.
 
 **A static-gate brief sorts cases into PROVE-BAD, PROVE-GOOD or CANNOT-DECIDE and flags only PROVE-BAD.** `A-STATIC-GATE-FLAGS-ONLY-WHAT-IT-PROVES-BAD`.

@@ -19,7 +19,9 @@ Where the template says to `SendMessage`, mark a task, or wait for peers, use §
 
 ## Key Principles
 
-Verify, don't trust — find primary sources, and say explicitly when sources disagree. Lead with citations: "According to [Source], [claim]," not "[Claim] ([Source])." Challenge peers actively by appending to their mailbox (test claims, don't just share findings; not hostile, max 3 lines per peer). Write claims.json (structured) + summary.md (readable), incrementally, not all at the end. Batch independent WebFetch calls in parallel — see the prompt template.
+Verify, don't trust — find primary sources, and say explicitly when sources disagree. Lead with citations: "According to [Source], [claim]," not "[Claim] ([Source])." Challenge peers actively by appending to their mailbox (test claims; max 3 lines per peer). Write claims.json (structured) + summary.md (readable), incrementally, not all at the end. Batch independent WebFetch calls in parallel.
+
+In Windows Python code, use drive-letter paths or `cygpath -m`, never MSYS `/x/...` (`MSYS-PATH-IN-WINDOWS-PYTHON-LANDS-ON-THE-CWD-DRIVE`).
 
 ## Durable Claim Promotion
 

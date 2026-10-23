@@ -35,7 +35,7 @@ REFUSALS, all before any landing is attempted:
 
 `--shipped-in` is repeatable and takes two forms: a bare 40-hex SHA (the commit carrying a frozen
 fire's `dispatched` XS work; also the SHA of the single `xsRuns` entry when there is exactly one),
-or `<batonId>=<40-hex SHA>` naming the `dispatch.terminal_commit` SHA of one `xsRuns` entry. Per
+or `<batonId>=<40-hex SHA>` naming the `dispatch.land_run` SHA of one `xsRuns` entry. Per
 fire, `xsRuns` is transformed on the payload sent to `roadmap.blitz_land` (the archived copy keeps
 it): a mapped entry becomes a ready dispatch row with the SHA as `priorShippedIn`; one whose baton
 already reads `shipped` at a prefix of that SHA, or an unmapped one, becomes a `routedElsewhere`
@@ -290,8 +290,8 @@ def _transform_xs_runs(result: dict, mapping: dict[str, str], repo_root: Path) -
     """Replace `xsRuns` on `result` with `ready` / `routedElsewhere` rows, then drop the key.
 
     A mapped entry becomes a ready dispatch row carrying the SHA as `priorShippedIn`, unless the
-    baton already reads `shipped` at a `shipped_in` prefix-matching that SHA (terminal_commit's
-    baton-ship leg stamps the 8-char prefix), in which case `close_dispatched` would refuse it and
+    baton already reads `shipped` at a `shipped_in` prefix-matching that SHA (land_run's
+    close_background baton-ship leg stamps the 8-char prefix), in which case `close_dispatched` would refuse it and
     it is routed elsewhere. An unmapped entry is routed elsewhere and returns as a candidate.
     Returns one stderr line per entry.
     """
@@ -302,14 +302,14 @@ def _transform_xs_runs(result: dict, mapping: dict[str, str], repo_root: Path) -
         baton = run["batonId"]
         sha = mapping.get(baton)
         if not sha:
-            reason = "XS run landed no terminal_commit SHA; returns as a candidate"
+            reason = "XS run landed no land_run SHA; returns as a candidate"
             result.setdefault("routedElsewhere", []).append(
                 {"batonId": baton, "route": "dispatch", "reason": reason})
             lines.append(f"land-wave: xsRun {baton}: not landed — {reason}")
             continue
         state, stamped = _baton_ship_state(repo_root, run.get("record") or "")
         if state == "shipped" and len(stamped) >= _MIN_SHIPPED_PREFIX and sha.lower().startswith(stamped.lower()):
-            reason = f"closed by terminal_commit's baton-ship leg at {sha[:8]}"
+            reason = f"closed by land_run's baton-ship leg at {sha[:8]}"
             result.setdefault("routedElsewhere", []).append(
                 {"batonId": baton, "route": "dispatch", "reason": reason})
             lines.append(f"land-wave: xsRun {baton}: closed-by-baton-ship at {sha[:8]}")
@@ -317,7 +317,7 @@ def _transform_xs_runs(result: dict, mapping: dict[str, str], repo_root: Path) -
         result.setdefault("ready", []).append({
             "batonId": baton, "verdict": "ready", "route": "dispatch", "planPath": None,
             "reviewVerdicts": [], "priorShippedIn": sha,
-            "reason": f"XS run closed by dispatch.terminal_commit {sha[:8]}",
+            "reason": f"XS run closed by dispatch.land_run {sha[:8]}",
         })
         lines.append(f"land-wave: xsRun {baton}: closed at {sha[:8]}")
     return lines
@@ -813,7 +813,7 @@ def main(argv=None) -> int:
         default=[],
         help="Repeatable. Either a bare 40-hex SHA of the commit carrying this wave's XS work "
         "(required when any fire dispatched; also maps to the single `xsRuns` entry when there "
-        "is exactly one), or <batonId>=<40-hex SHA> naming the dispatch.terminal_commit SHA of "
+        "is exactly one), or <batonId>=<40-hex SHA> naming the dispatch.land_run SHA of"
         "one `xsRuns` entry. Each mapped entry lands as a ready dispatch row carrying the SHA "
         "as priorShippedIn; one already shipped at that SHA is routed elsewhere; an unmapped "
         "entry is routed elsewhere and returns as a candidate.",
@@ -926,7 +926,7 @@ def main(argv=None) -> int:
         if any(r.get("dispatched") for _, r in fires):
             return refuse(
                 "a bare --shipped-in cannot be both the hand commit for a frozen fire's `dispatched` "
-                "lane and the terminal_commit SHA of an `xsRuns` entry. Pass the XS SHA as "
+                "lane and the land_run SHA of an `xsRuns` entry. Pass the XS SHA as "
                 "<batonId>=<sha>."
             )
         if len(xs_ids) > 1:
@@ -1120,7 +1120,7 @@ def main(argv=None) -> int:
         for entry in all_surfaced:
             print(f"  pm       {entry}")
         if adjudicated:
-            print(f"  adjudicated {adjudicated} PM-bound entr(ies) ruled by an agent; the PM reads them at the receipt")
+            print(f"  adjudicated {adjudicated} PM-bound entr(ies) closed by an agent ruling; not PM-facing")
         for entry in all_fell_back:
             print(f"  fellback {entry}")
         for entry in still_errored:

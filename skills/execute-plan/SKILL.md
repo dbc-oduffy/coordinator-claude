@@ -165,7 +165,7 @@ headless path a named fire-leg refusal (`ScriptNotFoundError`, `PluginDirResolut
 
 **A fifth state: fired-then-died.** A handle with `log_size_bytes: 0` stalled past startup: report and stop.
 
-**A sixth state: returned `incomplete`, nothing halted.** Not a resume. Run `dispatch.terminal_commit`, then `emit-dispatch-workflow --plan <plan> --only-incomplete <task-output>` and fire; never hand-dispatch. A row partial only on a break outside its files is re-graded by `terminal_commit`; any other is re-verified (`--reverify-delivery <run-record>`, fire, `reverify-delivery record --run-record <that same run-record>`, never the `.emitted.json`). Hand-committing its files refuses the stamp.
+**A sixth state: returned `incomplete`, nothing halted.** Not a resume. Run `dispatch.land_run`, then `emit-dispatch-workflow --plan <plan> --only-incomplete <task-output>` and fire; never hand-dispatch. A row partial only on a break outside its files is re-graded by `land_run`; any other is re-verified (`--reverify-delivery <run-record>`, fire, `reverify-delivery record --run-record <that same run-record>`, never the `.emitted.json`). Hand-committing its files refuses the stamp.
 
 **A brief never asks an executor to commit** and never dictates code: it carries intent, the PM verbatims and constraints (wiki `dispatch-briefing.md` § Field rules).
 
@@ -183,7 +183,7 @@ resume. A second `emit-dispatch-workflow` narrows to a one-wave script; re-emit 
 **No watching:** the completion notification is the wake; never `Monitor` or poll.
 
 **Completion — the driver's first act on return is the terminal commit, not a phase inside the workflow.** The
-review wave runs inside the workflow; nothing commits mid-run. The driver runs `coordinator-invoke dispatch.terminal_commit` with `script_path` and
+review wave runs inside the workflow; nothing commits mid-run. The driver runs `coordinator-invoke dispatch.land_run` with `script_path` and
 `task_output_path`, the task file carrying `next_action.params` (script gone: `plan_path` and `run_id`): the run's ONE commit, carrying the
 `Inline-Review:` trailer. `implemented` means a met terminal verdict stamped it and Phase 4 steps 2.5 to 4 ran inside
 it. Still `executing`: read the reason; Phase-5-halted. That commit writes one
@@ -279,7 +279,7 @@ join was deleted, not narrowed; do not restore it as an oversight. Two sha-ances
    do this? A roster's judge stage (`coordinator:exit-criterion-judge`) is this reader; no second. **THE DENIAL LIST IS THE MECHANISM AND MUST BE EXPLICIT IN THE DISPATCH:**
    no agent's account of the run: no run reports, reviewer sidecars or executor output.
 3.7. **Reachability re-check, before the stamp.** The judge's `reachability` block (`review.reachability`, wiki `judge-reachability-check`) is the re-check; unreachable is its not_met. No block: caller-grep at `HEAD`. Unconfirmed → Phase-5-halted, no stamp.
-3.8. **`review-stamp mint`, by hand only when `dispatch.terminal_commit` did not report
+3.8. **`review-stamp mint`, by hand only when `dispatch.land_run` did not report
    `review_stamp: minted`:** `review-stamp mint --plan "$ARGUMENTS" --build-test <wake digest's
    tests.sidecar>` (not required when the spine wrote nothing testable and the criterion is `met`). Any refusal is Phase-5-halted: report, skip step 4. Tripwire:
    `A-PLAN-REACHES-IMPLEMENTED-ONLY-THROUGH-A-REVIEW-STAMP`.

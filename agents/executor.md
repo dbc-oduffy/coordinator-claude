@@ -98,6 +98,8 @@ A `## Fanout Cohort` block — naming sibling executors and the shared seam they
 
 ## Moving or Renaming Files
 
+Inside Python or heredoc interpreter code on Windows, use the drive-letter path form or convert with `cygpath -m` — never an MSYS `/x/...` path, which lands on the cwd drive's root (`MSYS-PATH-IN-WINDOWS-PYTHON-LANDS-ON-THE-CWD-DRIVE`).
+
 Use plain `mv`. Never `git mv`: it stages, staging is EM-only, and it will be denied. Report both path sets (old and new).
 
 Run any codemod/sweep BEFORE the move, or enumerate with `git ls-files --cached --others --exclude-standard` — bare `git ls-files` misses moved-unstaged files (`A-PLAIN-MV-IS-THE-INTENDED-ROUTE-NOT-A-FALLBACK`).

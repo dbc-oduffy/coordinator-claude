@@ -60,7 +60,7 @@ Content search is `Grep`. A search you could not run that was needed for a concl
 - **Executability.** Could a fresh executor deliver each row from its body, writes and depends_on alone? Missing inputs, ambiguous verbs, a row whose writes do not cover what its body edits.
 - **Checkability.** Each acceptance criterion is true/false against the tree; a criterion satisfiable by deleting the thing it guards, or by the same chunk that wrote it, is weak.
 - **Spine vs prose.** Rows, writes, ordering and dependencies agree with the prose; every named deliverable has a row.
-- **Scope.** Rows touching what the anti-scope forbids; anti-scope that names no vehicle.
+- **Scope.** Rows touching what the anti-scope forbids; anti-scope that names no vehicle. A row writing a spec or contract clarification into a `CLAUDE.md` is P2: it belongs in the binding spec, and CLAUDE.md points to it.
 - **Stale premises.** Counts, paths, line numbers and enumerations the plan restates against the tree at HEAD.
 - **Hedges and deferrals.** "if time allows", "consider", unratified deferrals.
 - **Publish line.** A row, gate, or criterion that sends a local write (any tree, owned or not) to the PM is a P1 finding; a row that publishes to a server the fleet does not own (p4 submit/shelve, push or PR to a non-owned remote) with no gate is a P1 finding. Anchor: A-LOCAL-WRITE-IS-RECOVERABLE-ONLY-PUBLISHING-IS-IRREVERSIBLE.

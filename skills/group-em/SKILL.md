@@ -131,10 +131,10 @@ nobody and nothing re-runs entry. In this order, as your first act:
    <home>/scratch/governor.log 2>&1` once, `run_in_background`, for the whole standing; the wake is a
    second background run, `<plugin-root>/bin/group-em-memory-governor-wait.py <that log>`, which
    exits on the first new line. Relaunch only the waiter; never filter its line, never wrap either in
-   a `Monitor` (its expiry kills the governor). At
-   `CRITICAL` kernel pressure it suspends the youngest heavy command, never a deploy or language
-   server, and resumes it when the box calms. On a PAUSED line, tell its owner. You send no hold or clear messages: `WARN` and swap-out hold nothing. Admit a heavy command when peak + min(50%, 8 GiB) <= kernel-available; check `CacheBytes`
-   first; floor 2.5 GiB. Copies: queued `robocopy /J`. Tripwire:
+   a `Monitor`. On a PAUSED line, tell its owner. You send no hold or clear messages: `WARN` and swap-out hold nothing. Admit a heavy command when peak + min(25% of peak, 8 GiB) <= kernel-available AND commit + peak <= commit limit:
+   `<plugin-root>/bin/box-memory-snapshot.py --admit-peak <GiB>` (HOLD is exit 4); floor 2.5 GiB. Also on demand:
+   `trim-file-cache` (the PM runs it elevated; the governor's `GOVERNOR CACHE-TRIM-HINT` line prints it),
+   `box-memory-trim-ws`, `box-memory-tree`, `box-memory-wait-pid`. Copies: queued `robocopy /J`. Tripwire:
    `A-BOX-MEMORY-IS-THE-KERNEL-VERDICT-NOT-A-FREE-PAGES-FLOOR`. The GPU is one slot: embedding writes
    and UE GPU work never overlap (`A-GPU-IS-ONE-SLOT-EMBED-SIDECARS-AND-UE-GPU-WORK-NEVER-OVERLAP`).
    A `CronCreate` poll over an event surface is a poll where an event exists
@@ -152,6 +152,9 @@ nobody and nothing re-runs entry. In this order, as your first act:
    **A deploy slot names its commit set, never `HEAD`:** before the GO, list
    `<live-sha>..<target-sha>`; rule on others' commits in that range from a release note.
    Tripwire: `A-DEPLOY-THAT-BUILDS-FROM-DISK-SHIPS-PEERS-UNCOMMITTED-EDITS`.
+   **A prod-migrate GO names every migration the command applies:** list
+   `<ledger-tail>..<pending-head>`, and check a constraint-replacing migration against the
+   deployed revision's writers. Tripwire: `A-PROD-MIGRATE-GO-NAMES-LESS-THAN-THE-COMMAND-APPLIES`.
    **An install rewriting live plugin/config state needs your GO:**
    `A-FULL-INSTALL-SUBSTRATE-RUN-FOR-ONE-FORWARDER-HAS-MACHINE-WIDE-BLAST-RADIUS`.
 

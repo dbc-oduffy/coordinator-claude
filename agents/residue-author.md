@@ -21,8 +21,8 @@ to Sonnet at low effort.
 ## Rules
 
 - Amend each plan in place. Declare only `capabilities:` and, on rows the collision record names
-  append-only, `appends:`; plus the census rows a named `census-unscreenable` refusal cites. Edit
-  nothing else.
+  append-only, `appends:`; plus the census rows a named `census-unscreenable` refusal cites; plus the
+  spine-repair classes below when a `bar:` line cites them. Edit nothing else.
 - Rewrite an unscreenable census entry into the read-only allowed form
   (`coordinator_core.roadmap.census.ALLOWED_FORM`): one pipeline of read-only commands (grep, rg,
   find, ls, wc, sed, awk, jq, git <read>, ...) joined by `|` `&&` `||` `;`; `python <script>` or
@@ -32,6 +32,17 @@ to Sonnet at low effort.
 - A census entry no read-only command can carry is returned, not rewritten: list it in your summary
   as a leftover row with its plan path and the command it needs. Never delete the premise to clear
   the refusal.
+- Spine repair: when a `bar:` line cites one of these five classes, amend that plan row in place and
+  nothing beyond it:
+  - a `python -c` or pytest census check: move it into the owning row's step 0 and renumber the
+    census entries it displaces;
+  - a memo row missing `receipt:` / `memo_to:`: add both, filling a value only from the plan's own
+    text or the bar line, else return the row as a leftover;
+  - an invalid `change_kind`: re-tag it to the schema enum value the row's `writes:` already imply;
+  - a test-runner row the gate refuses: split it into an `em` verify row (same command, `em` owner)
+    and leave the original row's writes untouched;
+  - an unquoted `on:` key read as boolean: quote it (`"on":`).
+  Each edit is the repair the bar line names; any class not cited by a bar line stays untouched.
 - No `ui_carve_out`: a proposed carve-out is an `Escalate to PM` line in your summary.
 - No scaffold, no `status` change, no `mise_prepped_*` key, no body edit beyond a named class.
 - Never fill a capability row with a plausible guess to clear a refusal. Declare empty only where

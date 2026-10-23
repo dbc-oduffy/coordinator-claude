@@ -16,7 +16,7 @@ not ship — its absence from an installed or mirrored tree is expected, not a m
 
 1. **Declared** — the leg's `external_gate` entry names `owner_repo` and carries
    `closure_key: {kind: memo-thread, id: <basename of the memo we sent>}`.
-2. **Addressed** — that memo has a `state/memo-outbox/sent-ledger.jsonl` row with a non-null
+2. **Addressed** — that memo has a sent record (`memo_sent_records.iter_view`) with a non-null
    `delivery_commit_sha`, a `delivered_to` under the receiver's `cross-repo/inbox/`, a `--list-receivers`
    receiver id, and `kind: ask` or `consult`.
 3. **Answered** — an inbox or archive memo `from: <owner_repo>` whose `in_reply_to` names that
@@ -31,7 +31,7 @@ not ship — its absence from an installed or mirrored tree is expected, not a m
   whether a leg may *rest while still blocked*.
 - **It grants no commit right.** No standing cross-repo grant survives, in either
   direction. An answered "no" ends the exchange, not the boundary.
-- **It builds no channel.** The inbox, the outbox, and the sent-ledger carry it.
+- **It builds no channel.** The inbox, the outbox, and the sent records carry it.
 
 ## Where it goes when unanswered
 

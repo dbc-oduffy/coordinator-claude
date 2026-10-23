@@ -154,6 +154,22 @@ _EM_SNIPPET_MANIFEST = [
 _REPO_SNIPPET_SOFT_CAP_BYTES = 815
 
 
+_GENERAL_WORK_ROLE_SNIPPET = "agent-role-em-general-work.md"
+
+
+def _is_general_work_root(repo_root: Path | None) -> bool:
+    if repo_root is None:
+        return False
+    try:
+        if str(_SCRIPTS_DIR) not in sys.path:
+            sys.path.insert(0, str(_SCRIPTS_DIR))
+        import _general_work
+
+        return _general_work.is_general_work(repo_root)
+    except Exception:
+        return False  # SessionStart must exit 0; an unresolvable root keeps the standard role
+
+
 def _consumer_repo_root(payload: dict) -> Path | None:
     """Resolve the CONSUMER repo's root -- the anchor for _ROOT_REPO entries.
 
@@ -553,8 +569,11 @@ def main(argv: list) -> int:
 
     repo_root = _consumer_repo_root(payload)
 
+    general_work = _is_general_work_root(repo_root)
     _w("\n")
     for root, rel_path in _EM_SNIPPET_MANIFEST:
+        if general_work and root == _ROOT_PLUGIN and rel_path == "agent-role-em.md":
+            rel_path = _GENERAL_WORK_ROLE_SNIPPET
         if root == _ROOT_PLUGIN:
             snippet_path = _SNIPPETS_DIR / rel_path
         else:

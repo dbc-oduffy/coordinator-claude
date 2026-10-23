@@ -123,8 +123,8 @@ The bands, in the order they were reasoned about:
 | `execution` | `medium` | Writes to the tree against a spec; a miss lands in the repository. |
 | `review` | `medium` | Reads a diff and decides what to surface. |
 | `deep-specialist` | `medium` | Deep-reads an inventory and challenges peer claims; analysis is the deliverable. |
-| `persona` | `medium` | The Opus reviewer personas. Judgment is the whole deliverable. |
-| `orchestrator` | `low` | Opus synthesizers and sweeps reconciling many workers into one artifact. |
+| `persona` | `low` | The Opus reviewer personas. Judgment is the whole deliverable; `low` is a cost-and-latency call, held because the measured medium gain was small (~0.06) and noisy. |
+| `orchestrator` | `medium` | Opus synthesizers and sweeps reconciling many workers into one artifact. Measured: `opus/medium` recall 0.640 vs `opus/low` 0.493 (n=2 per arm, one task), at ~1.7x wall-clock; re-measure if the band's cost becomes material. |
 
 Which agents sit in which band is the registry's business, not this page's. None above `medium`.
 
@@ -148,7 +148,7 @@ per-row reasons: `docs/research/2026-09-11-opus-model-tier-measurement.md`.
 
 **`orchestrator` band — measured, STAYS on `opus`.** All three rows
 (`research-synthesizer`, `structured-synthesizer`, `research-sweep`) share one band-level
-result: `opus/low` (production config) beats both `sonnet` arms at matched effort on a real
+result: `opus/low` beats both `sonnet` arms at matched effort on a real
 reconciliation task, `opus/medium` is the ceiling, and blind judging ranks `opus/medium`
 unanimous #1 on both surfaces measured. No `sonnet` arm is competitive at any effort tested.
 This is a measured STAY, not an unexamined default.

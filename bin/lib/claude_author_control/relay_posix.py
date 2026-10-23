@@ -267,7 +267,7 @@ def spawn(argv: list[str], env: dict[str, str], observers, *,
         def _ctty() -> None:
             fcntl.ioctl(0, termios.TIOCSCTTY, 0)
 
-        proc = subprocess.Popen(
+        proc = subprocess.Popen(  # popup-intentional-last-resort: POSIX-only module (fcntl/pty/termios)
             argv, stdin=slave, stdout=slave, stderr=slave, env=env,
             start_new_session=True, preexec_fn=_ctty, close_fds=True)  # popup-intentional-last-resort — POSIX pty child owns the console, no conhost
     except BaseException:

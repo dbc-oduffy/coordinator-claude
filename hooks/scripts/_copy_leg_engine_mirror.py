@@ -38,6 +38,7 @@ PUBLISH_LAG_SYMBOL = cc.ENGINE_CONSUMED_SYMBOLS[0]
 STAMP_RELPATH = "coordinator_core/_engine_stamp"
 
 UNCHECKED = object()
+ORIGIN_BEHIND_PREFIX = "behind origin by "
 
 _NO_CLONE = "no claude-klabauter clone registered"
 _LIVE_TREE_EVIDENCE = "session executes the live tree; no copy in play"
@@ -161,8 +162,15 @@ def check_engine_mirror(
     publish_lag: Callable[[Path, Path], object] | None = None,
     live_tree: Callable[[], bool] | bool | None = None,
     import_origin: object = UNCHECKED,
+    origin_behind: object = None,
+    origin_remedy: str = "",
 ) -> list[cc.CopyVerdict]:
-    """[currency, completeness] verdicts; any argument left None resolves from the registry."""
+    """[currency, completeness] verdicts; any argument left None resolves from the registry.
+
+    `origin_behind` is the cached count of commits the mirror trails origin by; a positive int
+    turns a non-drift currency verdict into drift reading `behind origin by N`. Anything else
+    leaves the verdict untouched.
+    """
     is_live = live_tree() if callable(live_tree) else live_tree
     if live_tree is None:
         is_live = _default_live_tree()
@@ -184,7 +192,22 @@ def check_engine_mirror(
             cc.could_not_check(COPY, cc.CURRENCY, "no published engine root resolved"),
             _completeness(),
         ]
-    return [check_currency(engine, claude_klabauter, publish_lag, import_origin), _completeness(engine)]
+    currency = check_currency(engine, claude_klabauter, publish_lag, import_origin)
+    n = origin_behind
+    if (
+        isinstance(n, int)
+        and not isinstance(n, bool)
+        and n > 0
+        and currency.state == cc.CURRENT
+    ):
+        currency = cc.CopyVerdict(
+            COPY,
+            cc.CURRENCY,
+            cc.DRIFT,
+            detail=f"{ORIGIN_BEHIND_PREFIX}{n}",
+            remedy=origin_remedy or _remedy(),
+        )
+    return [currency, _completeness(engine)]
 
 
 def legs(

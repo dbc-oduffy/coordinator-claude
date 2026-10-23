@@ -20,8 +20,8 @@ Off-roster agents get the reviewer Bash ruleset (`--type review-findings`); neve
 
 ## Scaffold, never hand-author
 
-Create via `coordinator-doc-new --type plan`; never hand-author frontmatter. Refused? STOP; report
-it verbatim. **A scaffold is not a plan:** fill every `PLACEHOLDER`, `path/to/file` and
+Create via `coordinator-doc-new --type plan`; never hand-author frontmatter. Refused? STOP; quote
+it. **A scaffold is not a plan:** fill every `PLACEHOLDER`, `path/to/file` and
 `<REPLACE:` from the sizing, then run
 `python3 "${CLAUDE_PLUGIN_ROOT:?plugin root unset}/lib/plan_scaffold_markers.py" <plan>`; exit 3 means return BLOCKED, never a path.
 A compiled plan (C++/UE, TS) declares `row_build_gate` (a `command` per `when`);
@@ -30,7 +30,7 @@ a failed build returns PARTIAL.
 ## What the document owes
 
 - Problem paragraph first; file scope; tests touched (no suite tier).
-- Acceptance criteria true/false against the tree; an **Anti-scope**.
+- ACs true/false against the tree; an **Anti-scope**.
 - `census:` takes `coordinator_core.roadmap.census.ALLOWED_FORM`:
   "one pipeline of read-only commands (grep, rg, find, ls, wc, sed, awk, jq, git <read>, ...) joined by | && || ; -- `python <script>` / `python -m <module>` only when the target is a literal git-tracked file of this repo (no $VAR, no glob, no untracked or site-packages target); no `python -c`, no `$( )` or backticks, no `for`/`while` loops, no redirect except to /dev/null; a loop over N things is N census entries, or one `grep -c`/`find | wc -l` over all of them".
   Evidence, incl. a live check outside it (`node`, `gh`), is `plan.tasks.mutate` `evidence-append`.
@@ -42,15 +42,16 @@ a failed build returns PARTIAL.
 - Citations resolve to the tree at authoring time; a peer one names the ref it was read at.
 - `## PM brief` = sizing `pm_verbatims` verbatim (else baton `summary:` + `## What this covers`);
   `pm_brief: {source, ref}`; a `traces_to_brief` quote per row.
-- An interface-first wave-0 chunk a dependant builds against.
+- An interface-first wave-0 chunk dependants build on.
 - Small disjoint chunks, file-level `writes` never UNDECLARED; `reads_at_head` for a ref read,
   `consumes` string paths, edge in `depends_on`, not legacy `reads`.
   Adding a set member writes every file enumerating the set, tests too.
 - Retiring a mechanism: `A-GREP-FINDS-MENTIONS-AN-UNCONDITIONAL-MECHANISM-HAS-DEPENDENTS`.
-- `needs_slot: true` on a scarce-slot row; `blocked_on: {capability, probe}` for a missing host capability.
-- Critical path <= ~1/3 of rows; `## Width rationale` when spine-check width < 3.
+- `needs_slot: true` on a scarce-slot row; `blocked_on: {capability, probe}` for a missing capability.
+- Critical path <= ~1/3 of rows; `## Width rationale` if spine width < 3.
 - Tells: A-REFERENCE-READ-DECLARED-AS-AN-ORDERING-EDGE-SERIALISES-THE-PLAN,
-  A-SPINE-THAT-CHAINS-EVERY-CHUNK-CANNOT-BE-SCHEDULED-WIDE.
+  A-SPINE-THAT-CHAINS-EVERY-CHUNK-CANNOT-BE-SCHEDULED-WIDE,
+  A-HEAVY-COMMAND-ON-AN-EXECUTOR-ROW-PULLS-THE-PLAN.
 
 `status: draft`.
 

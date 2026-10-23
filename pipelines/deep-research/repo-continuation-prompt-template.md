@@ -1,6 +1,6 @@
 # Repo Continuation Prompt Template
 
-> Used by the `repo` pipeline manifest (`repo.manifest.yaml`) for the `rebuttal` stage and, in deepest mode, the `relay` stage. A continuation is a fresh agent standing in for a returned specialist: a wake is a dispatch, never a resume.
+> Used by the `repo` pipeline manifest (`repo.manifest.yaml`) for the `rebuttal` stage and, in deepest mode, the `relay` stage. A continuation is a fresh agent standing in for a returned specialist: a wake is a dispatch, never a resume. Re-probed on harness 2.1.308, `SendMessage` to a returned workflow agent still fails "No transcript found", so `wake_mechanism: continuation` (`docs/research/spike-verdicts/2026-10-22-returned-workflow-agent-resume-reprobe.md`; earlier evidence `state/audits/2026-09-30-chatty-workflow-demo/README.md` Findings 1).
 
 ## Template
 

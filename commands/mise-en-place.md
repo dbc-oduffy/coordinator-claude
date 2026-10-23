@@ -53,7 +53,7 @@ rung 2 404s. Open every fence below with the fence in
 **Stranded-run sweep — before anything else on a resume.** For each emitted
 `state/mise-inventory/*.workflow.mjs` whose run has no completion receipt (its run died: usage limit,
 container reclaim): settled waves are already landed by their wave commits. A run that reached review lands through
-`dispatch.terminal_commit` with `script_path` and `task_output_path` (the digest carries
+`dispatch.land_run` with `script_path` and `task_output_path` (the digest carries
 `inline_review`). One that died before review: same session, resume with `resumeFromRunId`; new
 session, land its DONE rows with `emit-dispatch-workflow --inventory <inv> --review-only --rows <ids>
 --run-base <sha>` (fire it; its digest yields the `terminal_commit_cli` line), then re-emit the
@@ -125,6 +125,8 @@ already read → inline instead. Template/sources: wiki.
 **Chunk-table grammar** (the emitter refuses anything else, naming the row):
 - `disposition`: live `pending` / `queued` / `in_progress`; withheld `routed-out: <reason>`; closed
   `already-fixed`, `landed`, `dropped`. `deferred` is refused — write `routed-out: <reason>`.
+  A row deferred on another plan in the same set is `pending` (its `depends_on_plan` orders it);
+  `routed-out: <reason>` is only for a row leaving the set.
 - `footprint`: backticked repo-relative file paths. A directory whose filenames are minted at run
   time is written ``writes_under: `dir/` ``; a bare directory or glob is refused.
 - `deps`: row ids of this table, never a plan's own chunk ids (a plan row expands into
@@ -245,7 +247,7 @@ that wave's DONE rows via `ceremony.commit_v2`; the next wave does not wait (wav
 among themselves), and a wave with no DONE rows emits no leg. A failed wave commit is named at run
 end. After each landed wave commit a non-awaited `git push origin HEAD:refs/heads/<branch>` follows
 (never forced, one ref, no retry; skipped on main/master/detached HEAD; failures named in the final
-log line). The EM's `dispatch.terminal_commit` still lands receipts, review stamps, `coded` flips,
+log line). The EM's `dispatch.land_run` still lands receipts, review stamps, `coded` flips,
 prefix-claimed files and rows declaring over 20 paths — scoped (`snippets/scoped-commit-route.md`),
 never the wave union, never `git add -A`.
 

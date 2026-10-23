@@ -33,7 +33,7 @@ No scout phase — debaters read the EM's scope document and the codebase direct
 
 ## Ordering
 
-Ordering replaces `blockedBy`: round 2 starts after every round-1 `agent()` call returns; synthesis starts after round 2 returns. A wake is a continuation dispatch, never a resume — `SendMessage` cannot resume a returned workflow agent.
+Ordering replaces `blockedBy`: round 2 starts after every round-1 `agent()` call returns; synthesis starts after round 2 returns. A wake is a continuation dispatch, never a resume — `SendMessage` cannot resume a returned workflow agent (`wake_mechanism: continuation`, harness 2.1.308: `docs/research/spike-verdicts/2026-10-22-returned-workflow-agent-resume-reprobe.md`).
 
 ## Mailbox Protocol — Debate
 

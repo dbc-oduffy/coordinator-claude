@@ -51,7 +51,8 @@ Route by row:
   benign-growth ruling, never the step 2 residue plan-author; relay it as a receipt line.
 - `NOT-PREPPED` with a `bar:` line → step 2.
 - `SEAM-REFUSED` with `seam:` lines, by class:
-  - `capabilities-undeclared` (named or default set) → step 2.
+  - `capabilities-undeclared` → one `coordinator:plan-author-residue` dispatch over those plans,
+    step 2's charter; the stage covers NOT-PREPPED only.
   - `writes-collision` where every writing row only adds an entry to a shared registry file → step 2
     declares that path in the row's `appends:`. A collision between two already-certified plans is
     never fixed by `plan.seam_fix` (the edge is a body edit and voids the stamp): its ordering is
@@ -63,8 +64,8 @@ Route by row:
     `universe: true` (non-blocking `missing-seam`); a flag handling cannot resolve goes to
     `seam.mint_batons` (staged, at most 5 plus a rollup, deduped on `class|plan|path`). Never
     hand-roll an edge writer, a seam-baton minter, or an out-of-set scanner here.
-  - `capability-without-ui-consumer`, `unpromised-export`, a cycle → `coordinator:apm`, which
-    writes `pm_ruling:` on the plan. A no-correct-answer item goes in the receipt's
+  - `capability-without-ui-consumer`, `unpromised-export`, a cycle → `coordinator:apm`; the stage's
+    Persist phase writes its `pm_ruling:`. A no-correct-answer item goes in the receipt's
     `Escalate to PM` section and its row stays unresolved. Never dispatch a plan-author to add a
     consumer.
 
@@ -74,7 +75,7 @@ Residue the loop cannot fix mechanically is authorship: the bar asks what only a
 knows. `mise-prep-run` emits it as the **residue-author workflow stage** and prints a
 `Workflow({scriptPath})` line: **fire that line** — never compose the stage by hand, and never a
 hand-dispatched Opus `plan-author` Agent batch. The stage runs at the Sonnet tier: one
-`coordinator:plan-author-residue` agent per up to 8 plans, in parallel, each plan file with one
+`coordinator:residue-author` agent per up to 8 plans, in parallel, each plan file with one
 owner, over the default set too. Leftover census rows and seam_fix `skipped_cycles` go to the
 stage's own `coordinator:apm` step; the EM relays neither. Each stage agent is briefed with:
 
@@ -82,12 +83,16 @@ stage's own `coordinator:apm` step; the EM relays neither. Each stage agent is b
 - the bar's own refusal, naming each missing declaration and its declared-empty form:
   `mise-prep-gate --repo-root <repo> <plan>` (resolve per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`);
 - the charter: amend each plan in place, declaring only `capabilities:` and, on rows the collision
-  record names as append-only, `appends:`. Nothing else: no `ui_carve_out` (a proposed carve-out is
-  an `Escalate to PM` line), no scaffold, no `status` change, no `mise_prepped_*` key, no body edit
+  record names as append-only, `appends:`, plus the spine repair below. Nothing else: no
+  `ui_carve_out` (a proposed carve-out is an `Escalate to PM` line), no scaffold, no `status` change, no `mise_prepped_*` key, no body edit
   beyond a named class. Never fill a capability row with a plausible guess to clear a refusal.
   Declared-empty only where true. A matter that is scope, direction or priority goes to
-  `coordinator:apm` (code, to `coordinator:staff-eng`), which writes `pm_ruling:` on the plan; only
+  `coordinator:apm` (code, to `coordinator:staff-eng`), whose ruling Persist writes as `pm_ruling:`; only
   a `pm_only` matter (important, urgent, no clear answer) goes in the summary, class left undeclared.
+- spine repair, a sanctioned stage job when a `bar:` line cites it: a `python -c` or pytest census
+  check moved into the owning row's step 0 with the displaced census entries renumbered; a memo row
+  missing `receipt:` / `memo_to:`; an invalid `change_kind`; a test-runner row the gate refuses,
+  split into an `em` verify row; an unquoted `on:` key quoted. The charter is the agent's.
 
 Not `coordinator:enricher` — it gathers facts and never decides, and a `prime_exit_criterion` is
 carried from the sizing's accepted `exit_criterion`; plan-author authors it only when the sizing

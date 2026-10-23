@@ -103,7 +103,7 @@ where `coordinator:*` types resolve. `workflows/plan-blitz.mjs` holds the args c
 
 - **Never hand-type an args object.** Tripwire: `A-HAND-TYPED-WAVE-ARG-IS-AN-UNARCHIVED-FIRE`.
 - **An emitted fire is a SNAPSHOT — RE-EMIT after any workflow fix.** Never retro-patch a fire that ran.
-- **Pass `--wave-number` with the run's own wave count**; omit on a one-wave run.
+- **`--wave-number` is this wave's absolute label**; else `--wave-index`.
 - **At most 8 batons per fire**; the emitter splits a larger wave, sharing the `waveIndex`.
 - **`--exclude <baton-id>` narrows what is FIRED, never what the gate computed.**
 - **Search the trail RECURSIVELY; order slots by INTEGER wave index.**
@@ -135,7 +135,7 @@ carries XS and no `--shipped-in` was given. It writes and commits `wave-<n>.land
 into the trail (`--no-commit` lists them). **Never redirect its stdout onto that path.**
 
 **Run each `xsRuns` entry before landing, one at a time** (each commits):
-`& "$env:COORDINATOR_SETTINGS_HOME\bin\emit-dispatch-workflow.exe" --sizing <sizingObject>` (no `--baton`: the xs arm mints none and refuses one)
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\emit-dispatch-workflow.exe" --sizing <sizingObject> --baton <record>` (the entry's `sizingObject` and `record`; the sizing's `baton:` key names the record, and the CLI refuses a pair where neither side names the other)
 (POSIX: the settings-home `bin/` ladder), fire its printed `Workflow` line, then run its
 `terminal_commit_cli` line. Read `sha` and `close.kind`: expect `xs-s-run`; anything else is
 reported, not landed around. Pass `--shipped-in <batonId>=<sha>` per run. Never hand-commit XS work:
@@ -158,9 +158,8 @@ An S plan stays `draft` by design (`needs_plan` keys off the execution stamp). *
 
 ### 5. Loop
 
-**`--waves` defaults to 1.** The run stops after wave 0 lands. A non-empty `next_wave.batons` at that
-stop is reported to the EM as the remaining work, to be fired as separate runs — never auto-chained.
-Override: `--waves <n>` with a one-line written EM justification in the trail; a linear `blocked_by` chain is the standing case. Then fire `next_wave` and land it, under the stop conditions below. Tripwire: `A-MULTI-WAVE-BLITZ-IS-NOT-THE-DEFAULT`.
+**`--waves` runs until `next_wave.batons` is empty.** Fire `next_wave`, land it, repeat, under the stop conditions below.
+A single wave is the opt-in: `--waves 1` stops after wave 0 lands and reports a non-empty `next_wave.batons` as remaining work. `--waves <n>` caps the run at `n`. Tripwire: `A-MULTI-WAVE-BLITZ-IS-NOT-THE-DEFAULT`.
 
 **Stop conditions, all mechanical:**
 
@@ -178,7 +177,7 @@ Override: `--waves <n>` with a one-line written EM justification in the trail; a
   `A-DRIVER-PAST-ITS-USAGE-THRESHOLD-FIRES-NOTHING-NEW`.
 - `refused[]` is non-empty — report and stop.
 - `land-wave` exits 4 (still `errored`) — report each `opError` verbatim, stop.
-- `surfacedToPm` is non-empty — each is `pm_only`; **never re-queue one.** Report `adjudicated` by count.
+- `surfacedToPm` is non-empty — each is `pm_only`; **never re-queue one.** `adjudicated` entries are APM-closed and never PM-facing; only `surfacedToPm` reaches the PM. Report `adjudicated` by count.
 
 The driver escalates rather than decides: an unresolved blocker, a cycle, a `refused` entry, `surfacedToPm` residue, an empty wave.
 
@@ -195,7 +194,7 @@ The driver escalates rather than decides: an unresolved blocker, a cycle, a `ref
 
 **No reviewer is prescribed in a plan file; its `review_signals` select them** → reviewer: front-end → `senior-front-end`, data-science → `staff-data-sci`, ux-flow → `staff-ux`, cross-repo-seam → `eng-director`; added to the sized reviewers.
 
-**The last reviewer's op verdict decides:** `judgment` with nothing blocking buys one resolver and one re-ask; a BLOCKED reviewer or failed resolve pulls, reason counting blocking vs advisory (`A-JUDGMENT-VERDICT-WITH-NO-BLOCKED-REVIEWER-IS-RESOLVED-NOT-PULLED`), a PIVOT replans, an op failure (retried once) is `errored`. The prep-gate enricher spawns only for named mechanical repairs or a lone census-unscreenable failure.
+**The last reviewer's op verdict decides:** `judgment` with nothing blocking buys one resolver and one re-ask; a BLOCKED reviewer or failed resolve pulls, reason counting blocking vs advisory (`A-JUDGMENT-VERDICT-WITH-NO-BLOCKED-REVIEWER-IS-RESOLVED-NOT-PULLED`), a PIVOT replans, an op failure (retried once) is `errored`. The prep-gate enricher spawns only for named mechanical repairs or a lone census-unscreenable failure. `EXECUTOR_HEAVY` is repaired in-wave, never pulled: move the command to a `coordinator:test-runner` V row (`A-HEAVY-COMMAND-ON-AN-EXECUTOR-ROW-PULLS-THE-PLAN`).
 
 **`BLOCKED` and `PIVOT` are not a severity ladder.** `BLOCKED`: the reviewer applied its
 findings; the fixed plan is approved the same wave. `PIVOT`: no findings repair this direction; it
