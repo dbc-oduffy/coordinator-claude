@@ -142,15 +142,11 @@ def read_noticed_pids(path: Optional[Path], procs: list[Proc]) -> frozenset:
 
 def _place_engine_on_path() -> bool:
     """Put the resolved engine checkout on `sys.path`; False when it is unresolvable."""
-    hooks = Path(__file__).resolve().parents[1] / "hooks" / "scripts"
-    if str(hooks) not in sys.path:
-        sys.path.insert(0, str(hooks))
-    import _engine_root  # type: ignore
-    root = _engine_root.resolve_claude_klabauter_root()
-    if not root:
-        return False
-    _engine_root.place_engine_root_on_path(root)
-    return True
+    lib = str(Path(__file__).resolve().parent / "lib")
+    if lib not in sys.path:
+        sys.path.insert(0, lib)
+    import cc_invoke  # type: ignore
+    return cc_invoke.ensure_engine_on_path(__file__) is not None
 
 
 def resolve_notice_path() -> Optional[Path]:

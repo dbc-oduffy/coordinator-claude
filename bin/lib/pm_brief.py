@@ -348,9 +348,10 @@ def _collapse_whitespace(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def trace_ok(trace: Optional[str], brief_text: str) -> bool:
-    """True when `trace` is non-empty and its whitespace-collapsed form is a substring of the
-    whitespace-collapsed brief text."""
-    if not trace or not trace.strip():
+def trace_ok(trace: object, brief_text: str) -> bool:
+    """True when `trace` is a non-empty string and its whitespace-collapsed form is a substring
+    of the whitespace-collapsed brief text. A non-string (a YAML list authored for the field) is
+    never a trace."""
+    if not isinstance(trace, str) or not trace.strip():
         return False
     return _collapse_whitespace(trace) in _collapse_whitespace(brief_text)

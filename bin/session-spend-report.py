@@ -11,10 +11,9 @@ from pathlib import Path
 
 
 def main(argv: list[str]) -> int:
-    # Import-time inert: lib and hooks dirs join sys.path only when the CLI actually runs.
+    # Import-time inert: the lib dir joins sys.path only when the CLI actually runs.
     here = Path(__file__).resolve().parent
     sys.path.insert(0, str(here / "lib"))
-    sys.path.insert(0, str(here.parent / "hooks" / "scripts"))
     import session_spend
 
     if len(argv) != 2:
@@ -26,9 +25,10 @@ def main(argv: list[str]) -> int:
         return 2
     root, provenance = None, None
     try:
-        import _engine_root
+        import cc_invoke
 
-        root, *provenance = _engine_root.resolve_claude_klabauter_root_with_provenance()
+        root = cc_invoke.resolve_engine_root(__file__)
+        provenance = list(cc_invoke.provenance_against(root=root))
     except Exception:  # an unresolved engine yields mode "unknown", not a failed report
         pass
     print(json.dumps(session_spend.build_report(transcript, root, provenance), indent=2))

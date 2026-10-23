@@ -6,8 +6,8 @@ Claude-klabauter; DoE consumes it.
 """
 import argparse
 import json
+import os
 import sys
-from pathlib import Path
 
 _HOLDER_FIELDS = ("session_id", "peer_name", "repo_root", "nominated_at", "live")
 _REFUSAL_TOKEN = "A-GROUP-EM-HOME-INSIDE-A-CHECKOUT-IS-REFUSED-NOT-MOVED"
@@ -22,10 +22,28 @@ def _blocked_text(outcome: str, legacy: str, target: str) -> str:
     }.get(outcome, "")
 
 
+def _place_engine_on_path() -> str:
+    """Resolve the engine root through the claude-klabauter bin resolver and put it on `sys.path`."""
+    lib = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+    if lib not in sys.path:
+        sys.path.insert(0, lib)
+    from engine_bootstrap import _resolve_engine_root
+
+    root = _resolve_engine_root(os.path.abspath(__file__))
+    if not root:
+        raise RuntimeError("engine root unresolved")
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    return root
+
+
 def main(argv=None) -> int:
-    # Import-time inert: the hooks dir joins sys.path only when the CLI actually runs.
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "hooks" / "scripts"))
-    import _gem_home
+    try:
+        _place_engine_on_path()
+        from coordinator_core.group_em import gem_home as _gem_home
+    except Exception as exc:
+        print(f"group-em-home: engine gem_home unresolvable: {exc}", file=sys.stderr)
+        return 2
 
     ap = argparse.ArgumentParser(prog="group-em-home")
     ap.add_argument("verb", choices=("path", "ensure", "holder", "migrate"))
@@ -38,21 +56,25 @@ def main(argv=None) -> int:
     )
     args = ap.parse_args(argv)
     outcome = None
+    seed = None
     try:
         if args.verb == "migrate":
             outcome = _gem_home.migrate_legacy_home()
             if outcome == "moved" and args.refresh:
-                home = _gem_home.ensure_home(refresh=True)
+                home, seed = _gem_home.ensure_home_outcome(refresh=True)
             else:
                 home = _gem_home.resolve_home()
         elif args.verb == "ensure":
-            home = _gem_home.ensure_home(refresh=args.refresh)
+            home, seed = _gem_home.ensure_home_outcome(refresh=args.refresh)
         else:
             home = _gem_home.resolve_home()
     except _gem_home.HomeRefused as exc:
         print(f"group-em-home: refused: {exc.home} is inside a checkout ({_REFUSAL_TOKEN})", file=sys.stderr)
         print(exc.checkout)
         return 3
+    if seed == "no-template":
+        print("group-em-home: no CLAUDE.md seed template resolved; set CLAUDE_PLUGIN_ROOT or "
+              "machine-local repos.content_root", file=sys.stderr)
     if args.verb == "holder":
         rec = _gem_home.gem_holder()
         holder = {k: rec.get(k) for k in _HOLDER_FIELDS} if rec else None

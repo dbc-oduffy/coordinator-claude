@@ -1,6 +1,6 @@
 ---
 name: group-em
-description: "PM-GATED. Box-wide: monitor peer sessions; never plan or author for them."
+description: "PM-GATED. Box-wide: monitor peers; never plan or author for them."
 allowed-tools: ["Read", "Bash", "Glob", "Grep", "Agent", "SendMessage", "Monitor", "TaskStop"]
 argument-hint: "[no arguments — invoke from the group-em home to take box-wide G-EM standing]"
 ---

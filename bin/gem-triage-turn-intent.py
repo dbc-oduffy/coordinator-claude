@@ -16,20 +16,26 @@ import sys
 import time
 
 
-def main(argv: list[str] | None = None) -> int:
-    # Import-time inert: the hooks dir joins sys.path only when the CLI actually runs.
-    hooks = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "hooks", "scripts")
-    if hooks not in sys.path:
-        sys.path.insert(0, hooks)
-    import _gem_home
-    import _git_common_dir
-    import _engine_root
+def _place_engine_on_path() -> str:
+    """Resolve the engine root through the claude-klabauter bin resolver and put it on `sys.path`."""
+    lib = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+    if lib not in sys.path:
+        sys.path.insert(0, lib)
+    from engine_bootstrap import _resolve_engine_root
 
+    root = _resolve_engine_root(os.path.abspath(__file__))
+    if not root:
+        raise RuntimeError("engine root unresolved")
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    return root
+
+
+def main(argv: list[str] | None = None) -> int:
     try:
-        root = _engine_root.resolve_claude_klabauter_root()
-        if not root:
-            raise RuntimeError("engine root unresolved")
-        _engine_root.place_engine_root_on_path(root)
+        _place_engine_on_path()
+        from coordinator_core.group_em import gem_home as _gem_home
+        from coordinator_core.hooks.support import git_common_dir as _git_common_dir
         from coordinator_core.hooks.support import turn_intent as _turn_intent
     except Exception as exc:
         print(f"gem-triage-turn-intent: engine turn_intent helper unresolvable: {exc}", file=sys.stderr)

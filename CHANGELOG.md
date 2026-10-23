@@ -4,6 +4,11 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.6.2] — 2026-10-23
+
+- **EM role:** a denied XS hand edit re-sizes the work rather than handing it to a subagent; XS hand edits match the surrounding comment density.
+- **Plan-blitz:** the XS lane names `land_run` in place of `terminal_commit`, and a ready re-ask counts only when its prep gate is `PREPPED`.
+
 ## [4.6.1] — 2026-10-23
 
 - **Schemas:** `delivery-verdict.schema.json` and `ruling.schema.json` ship with fixtures and contract tests; every APM ruling file opens with minimal frontmatter.

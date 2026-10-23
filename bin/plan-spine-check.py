@@ -777,6 +777,8 @@ def _check_spine(path: Path, text: str, for_execution: bool) -> dict:
                         "error": (
                             "missing traces_to_brief"
                             if not trace
+                            else "traces_to_brief must be a string"
+                            if not isinstance(trace, str)
                             else "traces_to_brief is not a substring of the plan's `## PM brief` section"
                         ),
                         "at": "traces_to_brief",

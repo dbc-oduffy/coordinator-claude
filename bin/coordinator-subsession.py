@@ -23,7 +23,7 @@ explicit path.
 This module resolves its own root from `__file__`, never from cwd -- it can
 be invoked from anywhere. Preflight itself performs ZERO subprocess spawns:
 it composes `_hook_plane_probe.hook_plane_verdict` (a stdlib-only static
-resolvability probe, C2) with an in-process `_engine_root.resolve_claude_klabauter_root`
+resolvability probe, C2) with an in-process `cc_invoke.resolve_engine_root`
 call. The second condition mirrors `experiments/naked-vs-coordinator/
 arms.py::_require_engine`'s check WITHOUT that function's `python3` subprocess
 round trip -- same predicate (the resolved root contains `coordinator_core`),
@@ -84,7 +84,7 @@ class _PreflightFailure(Exception):
 
 
 def _hooks_scripts_dir() -> Path:
-    # The hook plane (`_hook_plane_probe`, `_engine_root`) is DoE-owned; run from claude-klabauter or
+    # The hook plane (`_hook_plane_probe`) is DoE-owned; run from claude-klabauter or
     # klabauter it lives under the doctrine plugin root, not beside this script.
     local = _REPO_ROOT / "coordinator" / "hooks" / "scripts"
     if local.is_dir():
@@ -106,13 +106,34 @@ def _load_hook_plane_probe():
     return _hook_plane_probe
 
 
-def _load_engine_root():
-    hooks_scripts_dir = _hooks_scripts_dir()
-    if str(hooks_scripts_dir) not in sys.path:
-        sys.path.insert(0, str(hooks_scripts_dir))
-    import _engine_root  # type: ignore
+class _EngineRoot:
+    """Module-shaped shim (callers and tests monkeypatch `_load_engine_root`); engine-root resolution over `coordinator/bin/lib/cc_invoke.resolve_engine_root`;
+    no DoE-plane `_engine_root` import, so it works from the published mirror."""
 
-    return _engine_root
+    @staticmethod
+    def resolve_claude_klabauter_root():
+        bin_dir = str(Path(__file__).resolve().parent)
+        if bin_dir not in sys.path:
+            sys.path.insert(0, bin_dir)
+        import lib  # noqa: F401  (puts coordinator/bin/lib on sys.path)
+        import cc_invoke
+
+        try:
+            return cc_invoke.resolve_engine_root(__file__)
+        except RuntimeError:
+            return None
+
+    @classmethod
+    def resolve_engine_bin_script(cls, name: str):
+        root = cls.resolve_claude_klabauter_root()
+        if not root:
+            return None
+        path = Path(root) / "coordinator" / "bin" / name
+        return str(path) if path.is_file() else None
+
+
+def _load_engine_root():
+    return _EngineRoot
 
 
 def _check_guard_plane(config_dir: Path, project_dir: Path, plugin_dir: "Path | None") -> None:

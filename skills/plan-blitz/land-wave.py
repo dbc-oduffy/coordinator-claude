@@ -291,8 +291,8 @@ def _transform_xs_runs(result: dict, mapping: dict[str, str], repo_root: Path) -
 
     A mapped entry becomes a ready dispatch row carrying the SHA as `priorShippedIn`, unless the
     baton already reads `shipped` at a `shipped_in` prefix-matching that SHA (land_run's
-    close_background baton-ship leg stamps the 8-char prefix), in which case `close_dispatched` would refuse it and
-    it is routed elsewhere. An unmapped entry is routed elsewhere and returns as a candidate.
+    close_background baton-ship leg stamps the 8-char prefix), in which case `close_dispatched`
+    would refuse it and it is routed elsewhere. An unmapped entry is routed elsewhere and returns as a candidate.
     Returns one stderr line per entry.
     """
     lines = []
@@ -813,7 +813,7 @@ def main(argv=None) -> int:
         default=[],
         help="Repeatable. Either a bare 40-hex SHA of the commit carrying this wave's XS work "
         "(required when any fire dispatched; also maps to the single `xsRuns` entry when there "
-        "is exactly one), or <batonId>=<40-hex SHA> naming the dispatch.land_run SHA of"
+        "is exactly one), or <batonId>=<40-hex SHA> naming the dispatch.land_run SHA of "
         "one `xsRuns` entry. Each mapped entry lands as a ready dispatch row carrying the SHA "
         "as priorShippedIn; one already shipped at that SHA is routed elsewhere; an unmapped "
         "entry is routed elsewhere and returns as a candidate.",

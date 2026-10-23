@@ -475,6 +475,9 @@ const JUDGMENT_RESOLVE_SCHEMA = {
     afterReason: { type: 'string' },
     afterBlocking: { type: 'array', items: { type: 'string' } },
     afterError: { type: 'string' },
+    // The re-ask reply's `prep_gate.verdict`. The ready op is gated on PREPPED here exactly as
+    // readinessStep gates it (honouredReadiness rejects a ready reply whose gate is not PREPPED).
+    afterPrepGate: { type: 'string', enum: ['PREPPED', 'NOT-PREPPED', 'REFUSED', 'ENGINE-ERROR'] },
     // The ready op, run by this leg when its re-ask is the final ready call: the reviewer's ready op
     // skipped a judgment plan, so without these a resolved-ready plan reaches the caller with no reply.
     readyOpReply: READY_OP_REPLY_SCHEMA,
@@ -2669,7 +2672,7 @@ const PLANNABLE_ROUTES = new Set(['plan', 'spec-dispatch'])
 // who wants it done has structural pressure to size it M so it does not, and sizing that bends
 // toward its downstream route is corrupted sizing. The wave does not execute it either: an
 // execution-open, sized XS leaves as an `xsRuns` entry the driver runs and closes through
-// terminal_commit.
+// land_run.
 const DISPATCHABLE_ROUTES = new Set(['dispatch'])
 
 // Why each excluded route leaves the wave, so a reader does not have to infer it
@@ -2761,7 +2764,7 @@ const dispatchable = decisions.filter(
     batonFor(d).executionOpen === true,
 )
 // An execution-open XS is handed to the driver only when it carries a sizing object: the ask
-// run that reaches `terminal_commit` is composed from one. The decision's own citation wins over
+// run that reaches `land_run` is composed from one. The decision's own citation wins over
 // the baton arg's.
 const xsSizingFor = (d) => repoRelativeCitation(d.sizingObject || batonFor(d).sizingObject) || null
 // emit-dispatch-workflow refuses a pair whose sizing `baton:` and baton `sizing_object:` name
@@ -2846,7 +2849,7 @@ await Promise.all(
       ),
     ),
 )
-const UNSIZED_XS_REASON = 'XS/dispatch, but no sizing object — the ask run that reaches terminal_commit needs one'
+const UNSIZED_XS_REASON = 'XS/dispatch, but no sizing object — the ask run that reaches land_run needs one'
 // Routed somewhere other than a plan. NOT dropped: a baton that vanishes between
 // waves is one nobody notices, so each leaves the wave carrying the reason.
 const routedElsewhere = decisions
@@ -3266,7 +3269,7 @@ function readyOpRepairStep(planPath) {
 // answer, so the resolver's ready is not final and the op must not stage a plan the re-check may pull.
 function readyOpResolveStep(planPath, premiseRan) {
   if (!READY_OP) return ''
-  return `4. If \`afterVerdict\` is "ready" and \`unresolved\` is empty${premiseRan ? ' and \`touched\` is empty' : ''}, run exactly once, with this JSON as the
+  return `4. If \`afterVerdict\` is "ready", \`afterPrepGate\` is "PREPPED" and \`unresolved\` is empty${premiseRan ? ' and \`touched\` is empty' : ''}, run exactly once, with this JSON as the
    single argument (quote it for your shell):
 
        coordinator-invoke ${READY_OP.op} '${JSON.stringify({ ...READY_OP.params, plan_path: planPath }).split("'").join("'\\''")}'
@@ -3458,9 +3461,9 @@ ${CLI_RESOLUTION_RULE}
    as shown. A premise row the reason above lists as an "intended correction the resolver may take"
    (covered by the plan's \`corrects:\`/\`fixed_by\`) is yours to take: settle it in the plan and list
    it in \`resolved\`. It is not a blocking finding.
-3. Record the reply's \`verdict\` as \`afterVerdict\`, its \`pull_class\` as \`afterPullClass\` and its
-   \`reason\` as \`afterReason\`, and its \`blocking\` array verbatim as \`afterBlocking\` when the reply
-   carries one. If it fails (non-zero exit, no JSON reply, or an \`error\` envelope),
+3. Record the reply's \`verdict\` as \`afterVerdict\`, its \`pull_class\` as \`afterPullClass\`, its
+   \`reason\` as \`afterReason\` and its \`prep_gate.verdict\` as \`afterPrepGate\`, and its \`blocking\`
+   array verbatim as \`afterBlocking\` when the reply carries one. If it fails (non-zero exit, no JSON reply, or an \`error\` envelope),
    run the identical command exactly once more. If that fails too, leave \`afterVerdict\` empty and
    put that run's own output VERBATIM (stderr, else stdout, prefixed \`exit <n>: \`, never summarised)
    in \`afterError\`. Never resolve or re-ask a second time, whatever it says.
@@ -3630,7 +3633,10 @@ function standingReadiness(chain) {
   }
   const ans = rc || res
   const unresolved = res.unresolved || []
-  if (unresolved.length === 0 && ans.afterVerdict === 'ready') {
+  // A ready re-ask whose gate the resolver reported as anything but PREPPED is not ready, as
+  // honouredReadiness treats the reviewer's reply; an absent gate (the re-check leg) is not a refusal.
+  const gateHeld = ans.afterPrepGate === undefined || ans.afterPrepGate === 'PREPPED'
+  if (unresolved.length === 0 && ans.afterVerdict === 'ready' && gateHeld) {
     const { blocking: _staleSet, ...carriedNoSet } = carried
     return {
       ...carriedNoSet,
@@ -3643,7 +3649,9 @@ function standingReadiness(chain) {
   }
   const cause = unresolved.length
     ? `the resolver left ${unresolved.length} finding(s) unresolved`
-    : `the op re-ask answered ${ans.afterVerdict || 'nothing'}${ans.afterReason ? `: ${ans.afterReason}` : ''}`
+    : !gateHeld && ans.afterVerdict === 'ready'
+      ? `the op re-ask answered ready but plan.prep_gate was ${ans.afterPrepGate}`
+      : `the op re-ask answered ${ans.afterVerdict || 'nothing'}${ans.afterReason ? `: ${ans.afterReason}` : ''}`
   // A resolver re-ask that answered is the standing reply, so its set replaces the first reply's.
   const { blocking: _firstSet, ...unset } = carried
   const standingSet = ans.afterVerdict
