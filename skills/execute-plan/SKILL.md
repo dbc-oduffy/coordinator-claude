@@ -7,7 +7,7 @@ argument-hint: <plan-path>
 
 # Execute Plan — End-to-End Plan Execution
 
-Run a PM-approved plan end-to-end without stopping for permission between tasks. Invoking `/execute-plan` on a plan IS the PM's authorizing act; frontmatter
+Run a PM-approved plan end-to-end without stopping for permission between tasks. Fire with context, own the swimlanes (`THE-EM-TIME-AND-COST-SPENT-IS-A-RED-FLAG`). Invoking `/execute-plan` on a plan IS the PM's authorizing act; frontmatter
 `execution_authorized_at` records it; it is no precondition. **It also
 satisfies a chunk body's own "needs PM assent at execution dispatch" clause.** Never re-ask per
 chunk or offer to halt a fired run at its wave. A chunk gate the invocation does
@@ -17,9 +17,8 @@ that dispatch) or an external-facing action. No chain into branch disposition (t
 Executing a plan is restructure-then-dispatch: build the dispatch-gate graph, decompose into
 per-chunk dispatches — parallel where gates allow, serial where not, via a background Workflow. A serial chain is N fresh
 dispatches with EM-verify between. No per-chunk reviewer gate —
-code review is the emitted workflow's own review wave (every reviewer applies its own findings;
-partitioned into file slices at or above `review-brightline-gate`), run once per plan after every
-row has written, at every size. The EM never hand-dispatches a reviewer afterward. Tripwire: `CODE-REVIEW-IS-A-STAGE-OF-THE-EXECUTE-WORKFLOW`. **A chunk that
+code review is the emitted workflow's own review (reviewers apply their own findings),
+per executor group as rows land (`review-roster-fragment.md` § Stages), at every size. The EM never hand-dispatches a reviewer. Tripwire: `CODE-REVIEW-IS-A-STAGE-OF-THE-EXECUTE-WORKFLOW`. **A chunk that
 registers an op is verified with the registry-completeness tests, never the full suite**
 (`execute-plan-residue.md` § Op-registering chunk). **EM-verify means the EM itself runs the chunk's
 tests (scoped paths), never trusts an executor's pass claim**; "PASS (by inspection)" is not verification. A

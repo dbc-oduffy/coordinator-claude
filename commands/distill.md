@@ -61,7 +61,12 @@ outcome from `plan-completeness status <plan-path>` — rows-resolved, chunks-re
 divergence rollup, straight off disk. The ledger is the read path this harvest step consumes, per
 `coordinator/docs/wiki/planning/plan-tasks-mutate-cli.md`. A plan predating the spine, or lacking a
 `## Tasks` block at all, falls back to the prior git-log/handoff reconstruction — the ledger
-answers nothing there.
+answers nothing there. Before Phase 5 the EM runs
+`${CLAUDE_PLUGIN_ROOT}/bin/deferral-prose-audit.py --plan <path>` (report-only; the operator adds `--seed` only for hits they confirm) for each implemented plan
+in the harvest cohort that carries a `## Tasks` spine (`--plan` bypasses the `--since` cut, and a
+pre-spine plan would scan whole and is out of scope as a back-fill), because out-of-spine deferral
+prose is lost once the plan is archived; exit 2 is reported as missing coverage and never blocks
+the harvest.
 
 **Emitted workflow scripts.** `docs/plans/*.workflow.mjs`, `state/**/fire-*.mjs` and their
 receipts (`*.mjs.emitted.json`, `state/**/*.mjs.emitted.json`) are pruned, script and receipt together, by the engine op

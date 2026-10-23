@@ -105,7 +105,7 @@ The failure mode is importing enterprise-grade deprecation pacing into a two-con
 
 "Mostly lift," "small," "mechanical substitution" — these describe effort, not integration complexity. Hidden complexity clusters at substitution seams, integration boundaries between workstreams, and concurrent-EM bleed-through (invisible to per-workstream review by construction). The doctrine table fires on "any executor dispatched OR shared schema seam touched," not LoC threshold. When a workstream feels small or mechanical, that is the signal to look harder at the seams — not less hard. (Surfaced by an 80%-lift workstream that had 6 Sonnet findings invisible to per-W' mechanical gates.)
 
-Small framing is not a discount lens on review doctrine. A workstream may be small in line-count but lift-heavy (touches a load-bearing constant, refactors a hot seam) — review depth tracks lift, not size. Default sequential review still applies.
+Small framing is not a discount lens on review doctrine. A workstream may be small but lift-heavy (touches a load-bearing constant, refactors a hot seam) — review depth tracks lift, not size. Default review (chatty or not, § A.3) still applies.
 
 ## Inline triage as scout-failure fallback
 

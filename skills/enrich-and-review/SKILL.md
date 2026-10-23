@@ -8,7 +8,7 @@ argument-hint: "[stub-ids|directory-path|'all']"
 # Enrich and Review — Enrichment Pipeline for Plan Stubs
 
 Run the enrichment-review pipeline on a chunk directory: dispatch Sonnet enricher agents, then
-Opus reviewers, sequentially. Every phase below is a manual EM procedure; worked detail: wiki.
+Opus reviewers (review § A.3). Every phase below is a manual EM procedure; worked detail: wiki.
 
 Never a stage of an engineering ask's one submission or its relay fallback: it serves backlog runs
 and hands-on re-plans.
@@ -100,13 +100,12 @@ brief carries its `state/subagent-share/<session>/<provision_key>.md` path
 (`provision_report`-injected); the reviewer writes ReviewOutput there and returns `DONE:
 <sidecar-path> | verdict: <OK|WARN|BLOCKED> | findings: <N>` (detail: wiki).
 
-Sequential with a fix-application gate: dispatch Reviewer 1 (scope = all enriched stubs) → STOP,
-Reviewer 1 applies and verifies its ledger against the returned sidecar path (every finding,
-spot-checked diff) → only then dispatch Reviewer 2 on the corrected stubs (fresh sidecar path) →
-STOP, Reviewer 2 applies and verifies the same way. A single reviewer skips the second pass but
-keeps the fix-application step. Conflicting feedback: apply unless it conflicts with stated
-requirements or PM direction, document overrides with rationale in the stub, escalate genuine
-uncertainty.
+A chatty run reviews in one parallel wave (review § A.3); this manual procedure runs in order
+with a fix-application gate: Reviewer 1 (all enriched stubs) → STOP, applies and verifies its
+ledger against the returned sidecar path (every finding, spot-checked diff) → only then
+Reviewer 2 on the corrected stubs → STOP, same. A single reviewer skips the second pass but
+keeps fix-application. Conflicting feedback: apply unless it conflicts with stated requirements
+or PM direction, document overrides in the stub, escalate genuine uncertainty.
 
 **The enriched-artifact duty is contract, not brief text.** The contract is injected at dispatch
 for every `REVIEWER_ROSTER` member. A resolved reviewer whose `contract_blocks:` row in

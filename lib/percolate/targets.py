@@ -54,8 +54,9 @@ import os
 import re
 import stat
 import sys
+from dataclasses import dataclass
 from pathlib import Path
-from typing import IO, List, Optional
+from typing import IO, List, Optional, Sequence
 
 from coordinator_core.win_portability import is_executable
 from coordinator.lib.percolate.resolve_target import (
@@ -316,6 +317,95 @@ def raw_dest_sigil_by_name(
             continue
         result[fields[0]] = fields[2]
     return result
+
+
+PUBLISH_DEST_ROOT_OVERRIDE_FLAG = "--dest-root-override"
+PUBLISH_DEST_ROOT_LIVE_FLAG = "--dest-root-live"
+
+
+def _canon(path: "str | os.PathLike[str]", pathmod=os.path) -> str:
+    """`path` as a realpath. Callers `normcase` it only for comparison:
+    `normcase` preserves length, so a prefix length measured on the folded
+    string indexes this case-preserving one."""
+    return pathmod.realpath(os.fspath(path))
+
+
+def _relative_under(path, root, pathmod=os.path) -> "Optional[str]":
+    """Relative remainder of `path` below `root` ('' when equal), or None when
+    `path` is not at or under `root`. Compared on realpath+normcase; the
+    remainder keeps the realpath's own case."""
+    real_path = _canon(path, pathmod)
+    real_root = _canon(root, pathmod)
+    norm_path = pathmod.normcase(real_path)
+    norm_root = pathmod.normcase(real_root)
+    if norm_path == norm_root:
+        return ""
+    prefix = norm_root if norm_root.endswith(pathmod.sep) else norm_root + pathmod.sep
+    if not norm_path.startswith(prefix):
+        return None
+    return real_path[len(prefix):]
+
+
+@dataclass(frozen=True)
+class DestRootOverride:
+    """One round's mapping between a live mirror checkout and a scratch clone
+    of it. Build with `of`; both roots are realpaths and neither contains the
+    other."""
+
+    live_root: Path
+    clone_root: Path
+
+    @classmethod
+    def of(cls, live_root, clone_root) -> "DestRootOverride":
+        live = _canon(live_root)
+        clone = _canon(clone_root)
+        if (
+            _relative_under(live, clone) is not None
+            or _relative_under(clone, live) is not None
+        ):
+            raise ValueError(
+                f"dest-root override: live root {live} and clone root {clone} "
+                "must be distinct and not nested"
+            )
+        return cls(Path(live), Path(clone))
+
+    def relocate(self, path) -> "Optional[Path]":
+        """`path` at or under `live_root` mapped to the same place under
+        `clone_root`; None when `path` is not under `live_root`."""
+        rel = _relative_under(path, self.live_root)
+        if rel is None:
+            return None
+        return self.clone_root / rel if rel else self.clone_root
+
+    def to_live(self, path) -> Path:
+        """Inverse of `relocate`: a path at or under `clone_root` mapped under
+        `live_root`; any other path returned unchanged."""
+        rel = _relative_under(path, self.clone_root)
+        if rel is None:
+            return Path(path)
+        return self.live_root / rel if rel else self.live_root
+
+
+def rewrite_rows_dest_root(
+    rows: Sequence[str], override: DestRootOverride
+) -> List[str]:
+    """Re-root field 3 (`ABSdest`) of each resolved `name|mode|ABSsource|ABSdest...`
+    row whose dest lies under `override.live_root`; every other row and field
+    passes through byte-identical.
+
+    Field-3 algorithm of `coordinator/bin/percolate-full-payload-proof.py ::
+    _rewrite_rows_dest_root`, except the live root is explicit and non-member
+    rows pass through instead of raising."""
+    out: List[str] = []
+    for row in rows:
+        fields = row.split("|")
+        if len(fields) > 3:
+            moved = override.relocate(fields[3])
+            if moved is not None:
+                fields[3] = str(moved)
+                row = "|".join(fields)
+        out.append(row)
+    return out
 
 
 def load_targets(

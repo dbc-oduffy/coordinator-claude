@@ -13,8 +13,8 @@ order: 30
 
 | Situation | Correct tier |
 |---|---|
-| Single-subsystem code change (one feature, one bug fix, one refactor) | One reviewer. **Sonnet-tier (post-implementation, mid-session, no architectural call):** `code-reviewer`. **Opus-tier (domain-flagged, architectural, named-persona match):** dispatch the matching persona at Opus. For known-target single-reviewer cases, direct `Agent(subagent_type=...)` dispatch is an acceptable shortcut; routing table is preferred for routing intelligence. **Never** dispatch a persona with `model: "sonnet"` — that is the violation `code-reviewer` exists to replace. |
-| Cross-subsystem code change (e.g., UE + Python pipeline; front-end + auth backend) | Two sequential reviewers: `--reviewers "<domain>,the Staff Engineer"` |
+| Single-subsystem code change (one feature, one bug fix, one refactor) | One reviewer. **Sonnet-tier (post-implementation, mid-session, no architectural call):** `code-reviewer`. **Opus-tier (domain-flagged, architectural, named-persona match):** dispatch the matching persona at Opus. For known-target single-reviewer cases, direct `Agent(subagent_type=...)` dispatch is an acceptable shortcut; routing table is preferred for routing intelligence. **Never** dispatch a persona with `model: "sonnet"` — the violation `code-reviewer` replaces. |
+| Cross-subsystem code change (e.g., UE + Python pipeline; front-end + auth backend) | Two reviewers (chatty: § A.3 wave): `--reviewers "<domain>,the Staff Engineer"` |
 | Contested architectural code change with ≥2 valid implementations AND PM authorized | `/staff-session` review-mode |
 | "This is important, I want it done right" | One reviewer (auto-detects domain) |
 | Code touches auth, security, billing — high stakes but clear approach | One reviewer (auto-detects domain) |

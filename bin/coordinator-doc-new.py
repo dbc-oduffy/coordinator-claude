@@ -5872,7 +5872,7 @@ def _scaffold_sizing(
     only the sizing skill (operator judgment) ever sets it non-null. `xl_exit`
     is the identical shape for the XL decision point: it scaffolds `null`, the
     engine never sets it, and only the sizing skill fills it once the PM has
-    actually picked among split / shape / roadmap / accept_multi_session. A
+    actually picked among split / shape / roadmap / accept_multi_session / fan_out. A
     `null` there means NOT YET CHOSEN — never that the multi-session exit was
     accepted by default. Both fields are required-and-nullable in the schema,
     so both must be emitted here even when null.
@@ -5918,7 +5918,7 @@ def _scaffold_sizing(
         f"route: {route or 'dispatch'}  # dispatch | spec-dispatch | shape | plan | roadmap | pm-decision | goal-setting",
         f"detents: [{', '.join(detents or [])}]  # boundary detents crossed while sizing (e.g. appetite_exceeded); [] if none",
         "fork: null  # cut_to_fit | raise_appetite | null — set ONLY on genuine appetite/estimate divergence; never auto-resolved",
-        "xl_exit: null  # split | shape | roadmap | accept_multi_session | null — the PM's pick at a pm-decision route; null means NOT YET CHOSEN, never 'accepted'",
+        "xl_exit: null  # split | shape | roadmap | accept_multi_session | fan_out | null — the PM's pick at a pm-decision route; null means NOT YET CHOSEN, never 'accepted'",
         f"status: {'sized' if tshirt and route else 'draft'}  # draft | sized | routed | shipped | declined | superseded",
         "premise:",
         f"  provenance: {premise or 'unrecorded'}  # executed | read | not-applicable | unrecorded — how the premise was verified; ADVISORY, never blocks a route",

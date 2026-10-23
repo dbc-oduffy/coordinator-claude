@@ -7,11 +7,11 @@ does not select a roster; every plan is reviewed, at every t-shirt size.
 
 ## Consumer version
 
-`schema_version: 5` carries a single `execute_review` block and no top-level `tiers` (v4's
+`schema_version: 6` carries a single `execute_review` block and no top-level `tiers` (v4's
 size-keyed shape stays gone). The stage-aware consumer is the engine's
-`review_mint/execute_review.py :: compose_execute_review`, which turns `stages` into: one
-mechanical prep call, one `parallel()` review wave; the engine's `bookkeep_wave` then writes the
-wave record. A v4-shaped reader (`list(tier)`) has nothing to key on here.
+`review_mint/execute_review.py :: compose_execute_review`, which turns `stages` into: a
+mechanical prep call, the review wave, an integration call; the engine's
+`bookkeep_wave` then writes the wave record. A v4-shaped reader (`list(tier)`) has nothing to key on here.
 
 A stage agent entry may carry one optional `tiers` array (values `lightweight`, `standard`,
 `full`); absent means every tier, and `compose_execute_review` filters the entry on the plan's
@@ -20,9 +20,9 @@ only the JSON shape). No entry carries one today. The per-slice code-reviewer re
 Delivery claims are checked by that reviewer's brief-conformance rows, not by a separate wave
 member.
 
-Kira carries `min_tshirt: "L"`: Kira runs on a plan sized L or above; a plan whose size cannot be
-derived (a grind row) does not run Kira. `tiers` cannot express L-and-above, because the engine maps M and L to one
-tier; do not simplify `min_tshirt` to a `tiers` array.
+Kira carries `min_tshirt: "L"`: the integration stage runs on a plan sized L or above; a plan whose
+size cannot be derived (a grind row) does not run Kira. `tiers` cannot express L-and-above, because
+the engine maps M and L to one tier; do not simplify `min_tshirt` to a `tiers` array.
 
 ## Required on every code-landing emit
 
@@ -36,17 +36,21 @@ Review is guaranteed by the emitted script, never by an EM or a ceremony remembe
 
 ## Stages
 
-`execute_review.stages` is an ORDERED list of exactly three kinds: `prep`, `review-wave`, then
-`judge`. Prep runs first (it partitions the diff and provisions every sidecar the rest read).
-The review wave is **one parallel stage**: every agent in it — the per-slice code reviewers, Kira,
-and each signal-named persona — runs concurrently. There is no second
-review round and no sequential ordering among reviewers; that already-parallel invariant from v4
-("two or more agents in one stage run in parallel — that is what a stage means") carries over
-unchanged. Each slice reviewer applies and verifies its own slice's findings (`applies: own-slice`). Kira
-applies whole-diff (`applies: whole-diff`) with exact-text Edits: a stale Edit fails rather than
-clobbers, so Kira re-reads and re-applies. The signal personas
-(`applies: none`) report only. No `integration` stage exists, and
-`tests/test_review_roster_fragment.py` enforces that.
+`execute_review.stages` is an ORDERED list of exactly four kinds: `prep`, `review-wave`,
+`integration`, then `judge`. Prep runs first (it partitions the diff and provisions every sidecar
+the rest read). The review wave holds only the per-slice code reviewers; each
+applies and verifies its own slice's findings (`applies: own-slice`). In a plan-path run an
+**executor group** is one emit wave: its slice reviewers start once every row writing any of its
+files has landed, while other rows still run; undeclared surface joins the last group, which waits
+on every row. The scoped verify leg overlaps whole-diff review and re-verify; re-verify reruns
+tests over every group's edits and governs any test covering a review-edited file. Each verify
+call is bounded at 300 s (`VERIFY_WALL_BUDGET_S`); an overrun reads `indeterminate`/`error`, never
+a pass. Chatty, `writes_under` and review-only runs keep the serial review (all slices after the
+last row). The integration stage holds Kira alone, the final Opus pass over the whole diff after
+the last row (`applies: whole-diff`): it may change code and must ensure the plan's target is met. Its
+exact-text Edits fail rather than clobber a stale read, so it re-reads and re-applies. Named-signal
+personas (`review-signals.json`) are not rostered; they stay reachable through manual
+`/review --surface diff`. `tests/test_review_roster_fragment.py` enforces the stage order.
 
 `judge` is last and holds exactly one agent, `coordinator:exit-criterion-judge`, returning
 `terminal-judge-result`. It reads the plan's prime exit criterion against the tree and the PM's
@@ -60,15 +64,12 @@ list at run time — the fragment names one entry, the run dispatches one call p
 ## `executor_rows_per_reviewer`
 
 The `coordinator:code-reviewer` entry carries `executor_rows_per_reviewer: {"min": 3, "max": 4}`,
-both integers >= 1 with `min <= max`: one slice reviewer per 3-4 executor rows. A composer that
-reads it dispatches `ceil(rows / max)` reviewers. A composer that does not read it keeps the
-`per: slice` fan-out above, which stays on the entry.
+both integers >= 1 with `min <= max`: one slice reviewer per 3-4 executor rows. In grouped review
+the ratio applies to each group's rows (`compose_execute_review`'s `review_groups`). A composer
+that does not read it keeps the `per: slice` fan-out above.
 
 Every stage entry that carries an `agentType` also carries `model` and `effort`: the roster is
 the one place that pins per-call cost for a review dispatch, so a consumer never has to guess.
-An `accepts_signals` entry carries neither `agentType`, `model` nor `effort` — it has no fixed
-identity of its own. At run time it inherits whichever persona a `review_signals` name resolves
-to (`review-signals.json`), including that persona's own frontmatter `model`/`effort`.
 
 ## `brightline`
 
@@ -81,7 +82,7 @@ could drift.
 ## `blocking_verdicts`
 
 Same purpose as v4: it maps every `agentType` an execute-review stage may dispatch — whether
-roster-fixed or signal-selected — to the exact verdict string its own charter declares blocking,
+roster-fixed or reached by manual `/review` — to the exact verdict string its own charter declares blocking,
 so a consumer never hardcodes agent names or normalises their vocabulary. `code-reviewer` blocks
 on `BLOCKED`; `overengineering-reviewer` and every
 signal-selectable persona (`staff-eng`, `staff-data-sci`, `senior-front-end`, `staff-ux`) block on
@@ -93,29 +94,17 @@ reviewers, and this fragment now names code review only. `coordinator:prior-art-
 `coordinator:docs-checker` are also absent: both were v4's plan-altitude preflight gate, and
 `execute_review` has no preflight stage for them to ride along in.
 
-## What a review_signals entry can put in the wave
+## Unrostered by design
 
-Any persona `review-signals.json` marks `"stage": "named"` — `staff-eng` (architecture, backend,
-security), `staff-data-sci` (data-science), `senior-front-end` (front-end), `staff-ux` (ux-flow) —
-can be merged into the review-wave's `accepts_signals: "named"` entry when the plan's own
-`review_signals` selects it. A plan selecting no named signal dispatches the wave's fixed
-agents (per-slice code-reviewer, plus Kira at L and above) and nothing extra; a mechanical plan is
-never charged a domain specialist it didn't ask for. `coordinator:vp-product` stays PM-directed,
-never signal-matched, and is not part of this fragment.
-
-## `plan-reviewer` is unrostered
-
-`coordinator:plan-reviewer` is deliberately unrostered in `review-roster-fragment.json`. It is a
-plan-altitude lens dispatched by the plan lanes (accepted-XL ahead of the named persona; `spec-dispatch`
-ahead of emit-and-dispatch), and this fragment names execute-review code review only. Nothing here
-dispatches it, and rostering it would put a plan-stage agent into a diff-review wave. A later session
-that finds an unrostered plan-stage reviewer here should not roster it, and should not conclude the
-doctrine is fiction: `plan-reviewer` is live, wired in `skills/plan/residue/plan-corpus.md` and
-`skills/plan/residue/spec-dispatch-corpus.md`. The `.json` carries no entry for it by design.
+The named-signal personas (`review-signals.json` `"stage": "named"`) stay in `blocking_verdicts`
+for manual `/review --surface diff`; a plan's `review_signals` does not add them to the wave.
+`coordinator:vp-product` stays PM-directed. `coordinator:plan-reviewer` is a plan-altitude lens
+dispatched by the plan lanes (`skills/plan/residue/plan-corpus.md`,
+`spec-dispatch-corpus.md`), live though absent here; do not roster it into a diff-review wave.
 
 ## Changing it
 
 Every entry carrying an `agentType` must be a real dispatchable one — a name that does not
 resolve to `agents/<name>.md` composes a stage that dispatches nobody, and the run reads as
 reviewed when it wasn't. `tests/test_review_roster_fragment.py` pins each name against `agents/`,
-the stage-kind/order constraints above, and that no integration stage exists.
+and the stage-kind/order constraints above.

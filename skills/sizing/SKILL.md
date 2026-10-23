@@ -12,7 +12,7 @@ argument-hint: "[PM ask text | nothing — describe the ask inline]"
 
 Rationale: `coordinator/docs/wiki/planning/sizing-lobby.md`
 
-**Default: submit, then sit back.** One call, the PM's words verbatim:
+**Default: submit, then sit back.** Fire with context, own the swimlanes (`THE-EM-TIME-AND-COST-SPENT-IS-A-RED-FLAG`). Submit before any repo survey; discovery is sizing-scout's (`THE-EM-FIRES-ENGINE-ASK-WITHOUT-A-PREFIRE-SURVEY`). One call, the PM's words verbatim:
 `Workflow({name: "coordinator:engine-ask", args: {ask: "<PM verbatim>"}})` — the user's opt-in,
 never a question. Its hook runs sizing through commit and close (`ENGINE-ASK-SUBMISSION-IS-THE-RUN`). To add a brief, mint with op
 `sizing.intake_mint` and submit the `args: {sizing}` line it returns; a refused mint leaves the bare `args: {ask}`. Separate asks go in one `args: {asks: [...]}`, never bundled (wiki `sizing-to-commit-chain-contract`). While live the EM does not dispatch, poll, verify or relay; a PM revision

@@ -4,6 +4,12 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.6.3] — 2026-10-23
+
+- **EM role:** a refusal halt is not re-fired as the same ask; when it left a reviewed plan, the EM fires the emitted script itself. `workflow-maker` now returns the emitted script and wave map instead of firing headless.
+- **Review roster:** the integration reviewer runs on plans sized L and above (`min_tshirt`, schema v6).
+- **Deferral-prose audit:** `bin/deferral-prose-audit.py` reports deferral-shaped prose outside a plan's task spine; seeding the improvement queue is opt-in.
+
 ## [4.6.2] — 2026-10-23
 
 - **EM role:** a denied XS hand edit re-sizes the work rather than handing it to a subagent; XS hand edits match the surrounding comment density.

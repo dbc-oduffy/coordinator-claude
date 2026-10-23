@@ -12,7 +12,7 @@ status: active
 This wiki is the single authoritative source for the phases that run identically for plan reviews (`/review`) and code reviews (`/review-code`). Both skills reference these phases inline — they are not optional. Walk them in order as directed by the invoking skill.
 
 <!-- distilled: run 2026-08-06-14h38; source nugget: c7-025 -->
-**Skill consolidation note.** `/review` and `/review-code` are a single skill, internally `--surface`-branched (plan-shaped vs code-shaped). The phase content this wiki hosts applies identically to both surfaces; only the invoking-skill packaging differs, not the phase numbering or content described above.
+**Skill consolidation note.** `/review` and `/review-code` are a single skill, internally `--surface`-branched (plan-shaped vs code-shaped). The phase content here applies identically to both surfaces; only the skill packaging differs.
 
 **Scope boundary:** This wiki carries numbered phases with their inline framing prose (rationale paragraphs, EM Decision Step tables, On-failure clauses, write-ahead status). It does NOT carry:
 
@@ -149,7 +149,7 @@ _Last calibrated: 2026-05-03 against Claude Opus 4.7 (1M context) training distr
 
 ## Phase 2.7b: Prior-Art Verification (prior-art-checker pre-flight)
 
-**The prior-art-checker is a recall pre-flight, not a reviewer. It does not participate in the sequential-review HARD RULE — it runs once before any reviewer is dispatched and its output is consumed by all downstream reviewers.**
+**The prior-art-checker is a recall pre-flight, not a reviewer. It does not participate in reviewer sequencing — it runs once before any reviewer is dispatched and its output is consumed by all downstream reviewers.**
 
 Before dispatching expensive Opus reviewers, decide whether to run the **prior-art-checker** agent (Sonnet) as a suggested pre-flight. While docs-checker verifies factual claims about external APIs, prior-art-checker cross-references the plan's claims against **what we've already learned** — the full corpus is enumerated in `agents/prior-art-checker.md` § Bootstrap: corpus inventory (that file is the source of truth for the corpus list; not restated here). Reviewers receive a sidecar showing where the plan conflicts with prior art, where it should cite established patterns, and where it touches unprecedented ground.
 
@@ -192,7 +192,7 @@ Before dispatching expensive Opus reviewers, decide whether to run the **prior-a
 
 ## Phase 2.7d: Plan Coverage Verification (plan-coverage-checker pre-flight)
 
-**The plan-coverage-checker is a completeness pre-flight, not a reviewer. It does not participate in the sequential-review HARD RULE — it runs once before any reviewer is dispatched and its output is consumed by all downstream reviewers.**
+**The plan-coverage-checker is a completeness pre-flight, not a reviewer. It does not participate in reviewer sequencing — it runs once before any reviewer is dispatched and its output is consumed by all downstream reviewers.**
 
 **Trigger (skill-internal — no EM opt-out):**
 
@@ -227,7 +227,7 @@ Before dispatching expensive Opus reviewers, decide whether to run the **prior-a
 
 ## Phase 2.7c: External Pattern Verification (external-pattern-checker, opt-in)
 
-**The external-pattern-checker is a triage pre-flight, not a reviewer. It does not participate in the sequential-review HARD RULE — it runs once before any reviewer is dispatched and its output is consumed as ad-hoc context in the Opus reviewer's dispatch prompt.**
+**The external-pattern-checker is a triage pre-flight, not a reviewer. It does not participate in reviewer sequencing — it runs once before any reviewer is dispatched and its output is consumed as ad-hoc context in the Opus reviewer's dispatch prompt.**
 
 Before dispatching expensive Opus reviewers, decide whether to run the **external-pattern-checker** agent (Sonnet) as an opt-in pre-flight. Where docs-checker verifies facts and prior-art-checker recalls internal doctrine, external-pattern-checker asks a different question: *"Is there enough external signal on this topic that we should dispatch deeper research before the Opus reviewer sees this plan?"*
 
@@ -365,9 +365,10 @@ finding and logged it — there is no separate integration dispatch. The EM:
 
 **Reviewer 2 (Generalist) — if routing calls for one:**
 
-4. Dispatch Reviewer 2 with the artifact as Reviewer 1 left it (findings already applied)
-5. Reviewer 2 catches novel issues AND regressions from Reviewer 1's applied findings, applies and
-   logs its own findings the same way
+Non-chatty (a chatty run dispatches Reviewer 2 in Reviewer 1's wave and the reviewers mail shifted ground, `review/SKILL.md` § A.3):
+
+4. Dispatch Reviewer 2 with the artifact as Reviewer 1 left it (findings applied)
+5. Reviewer 2 catches novel issues AND regressions from Reviewer 1's findings, applies and logs its own
 6. EM runs the same verify/spot-check/reject steps against Reviewer 2's ledger
 
 ---
@@ -456,9 +457,9 @@ Within the layer-5 envelope, the three roles divide the work:
 
 All three are needed on architecturally-loaded stubs. Dropping any one of them produces a known failure class.
 
-### Sequential two-reviewer on architecturally-loaded stubs
+### Two-reviewer on architecturally-loaded stubs
 
-For plan stubs that are architecturally-loaded but not full-spec scope, the minimum viable shape is **sequential two-reviewer (generalist the Staff Engineer + domain reviewer)** plus the layer-2/2.7b pre-flights. Single-pass review on this surface has a documented miss rate — the second lens routinely surfaces issues the first missed at lower cost than fixing the bug in execution. Sequential, not parallel: integrate Reviewer 1's findings before dispatching Reviewer 2 (the merge-gate parallel carve-out in CLAUDE.md does not apply to plan/stub review).
+For plan stubs that are architecturally-loaded but not full-spec scope, the minimum viable shape is **two-reviewer (generalist the Staff Engineer + domain reviewer)** plus the layer-2/2.7b pre-flights. Single-pass review on this surface has a documented miss rate — the second lens routinely surfaces issues the first missed at lower cost than fixing the bug in execution. They run in order (integrate Reviewer 1 first), or in a chatty run as one wave that mails shifted ground (§ A.3).
 
 ### Two-pipeline review on shared artifacts: per-stub + per-cohort + docs-check
 
@@ -644,10 +645,10 @@ diff. Triage happens at plan-time (plan-or-just-do-it). → `agents/plan-reviewe
 `coordinator/docs/wiki/plan-reviewer.md`.
 
 **4. Parallel dispatch exception is merge-gate-only.** The carve-out from the sequential-dispatch
-HARD RULE applies exactly when: (a) artifact is a frozen diff at a merge boundary, (b) all
+rule applies exactly when: (a) artifact is a frozen diff at a merge boundary, (b) all
 reviewers are orthogonal lenses, (c) a synthesizer with strict no-rewrite contract assesses
-combined output. Plan/stub/doc review remains sequential. The exception sentence names all
-three conditions to prevent scope creep.
+combined output. Plan/stub/doc review is outside this carve-out: in order, or one chatty wave
+(`review/SKILL.md` § A.3). The exception sentence names all three conditions to prevent scope creep.
 
 **5. code-reviewer lens hardening is cumulative, not a fixed prompt.** Defect classes that
 escaped review get named explicitly in `agents/code-reviewer.md` as they're discovered — e.g.
@@ -656,8 +657,8 @@ classes after a 2026-05 cleanup wave surfaced them escaping review. Treat "the r
 X" as a signal to add X as a named lens, not just a one-off fix. <!-- src: plan11-045, plan11-049 -->
 
 **6. `coordinator:review` routing calibration is not one-size.** A single-domain refactor does
-not always need two Opus passes — sequential two-reviewer is a floor for architecturally-loaded
-stubs (see § Sequential two-reviewer below), not a blanket default for every diff. Pre-flight
+not always need two Opus passes — two-reviewer is a floor for architecturally-loaded
+stubs (see § Two-reviewer on architecturally-loaded stubs above), not a blanket default for every diff. Pre-flight
 re-runs on amended plans are delta-scoped — re-run docs-checker / prior-art-checker / plan-coverage-checker
 against what changed, not the whole plan again. <!-- src: plan11-047 -->
 
@@ -777,7 +778,7 @@ new trail record after it, so this walk answers nothing about recent commits' re
 2. **Code-reality oracle** — run typed-prefix tests (grep/cited/bats/pytest) against `HEAD`.
 3. **Review oracle (archive-aware)** — range-membership check: `git merge-base --is-ancestor C B && ! git merge-base --is-ancestor C A`, walked directly across `state/review-trail/**` AND `archive/review-trail/**` (no lister CLI survives — see above).
 
-**Five delivery buckets** the audit sorts every plan into: **DELIVERED+REVIEWED** (claim=shipped, code green, review covers the range), **DELIVERED-UNREVIEWED** (claim=shipped, code green, no covering review record), **PARTIAL** (claim=shipped, code partially failing), **IN-FLIGHT** (claim not yet shipped), **ABANDONED** (claim=abandoned/superseded).
+**Five delivery buckets** the audit sorts every plan into: **DELIVERED+REVIEWED** (claim=shipped, code green, review covers the range), **DELIVERED-UNREVIEWED** (claim=shipped, code green, no covering review record), **PARTIAL** (claim=shipped, code partially failing), **IN-FLIGHT** (claim not yet shipped), **ABANDONED** (claim=closed/abandoned/superseded).
 
 ---
 

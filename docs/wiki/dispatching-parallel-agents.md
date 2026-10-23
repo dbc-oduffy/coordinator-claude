@@ -770,9 +770,7 @@ For chunks that are too large for any single executor but have natural seam boun
 
 1. **Dispatch a dedicated Opus agent as tech lead** — not the coordinator itself. The coordinator's context is the scarcest resource in the system; don't fill it with sub-task orchestration for one deliverable. Think of it like an EM delegating to a senior technical lead rather than managing individual contributors directly.
 2. The tech lead holds the full enriched spec and owns the deliverable:
-   - Decomposes into sequential sub-tasks at seam boundaries
-   - Dispatches Sonnet executors one at a time for each sub-task
-   - Verifies each executor's output against the master spec before dispatching the next
+   - Decomposes at seams, dispatches Sonnet executors concurrently (held back only by a shared file or unpinned interface), verifies each against the master spec as it returns
    - Makes micro-decisions within the spec's intent without escalating
    - Can handle a complex sub-task directly if a Sonnet executor would struggle
 3. The tech lead reports back to the coordinator with a single completion report

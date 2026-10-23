@@ -7,7 +7,7 @@ argument-hint: "[handoff-file-path | memo-file-path]"
 
 # Pickup — Resume from Handoff or Action a Memo
 
-A baton, not a menu — read it, run with it; no summarizing back for approval.
+A baton, not a menu — read it, run with it; no summarizing back for approval. Build work in it is fired, not hand-done: fire with context, own the swimlanes (`THE-EM-TIME-AND-COST-SPENT-IS-A-RED-FLAG`).
 
 **The cross-repo memo inbox does not move without a deliberate act.** Every memo leaves by being
 actioned here.

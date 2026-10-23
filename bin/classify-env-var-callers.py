@@ -240,15 +240,22 @@ _REVIEWED_DISPOSITIONS: dict[str, tuple[str, str]] = {
 
 
 def _iter_candidate_files(root: Path):
+    # Prune excluded trees at descent time. Reading and regex-scanning every file
+    # under `scratch/` and `.coordinator-local/` before discarding it by prefix
+    # made the census take minutes on a box with live runs; the files were never
+    # going to be bucketed.
+    root_str = str(root)
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d not in _EXCLUDE_DIR_NAMES]
+        rel_dir = os.path.relpath(dirpath, root_str).replace(os.sep, "/")
+        prefix = "" if rel_dir == "." else rel_dir + "/"
+        dirnames[:] = [
+            d for d in dirnames
+            if d not in _EXCLUDE_DIR_NAMES
+            and not (prefix + d + "/").startswith(_EXCLUDE_PREFIXES)
+        ]
         for name in filenames:
             if Path(name).suffix in _SCAN_EXTENSIONS:
                 yield Path(dirpath) / name
-
-
-def _excluded(rel: str) -> bool:
-    return rel.startswith(_EXCLUDE_PREFIXES)
 
 
 def _axis_use_sites(text: str) -> tuple[list[str], list[str]]:
@@ -316,7 +323,6 @@ def classify(root: Path) -> dict:
     }
     raw_hit_count = 0
     raw_file_count = 0
-    skipped_historical = 0
 
     for path in sorted(_iter_candidate_files(root)):
         try:
@@ -332,9 +338,6 @@ def classify(root: Path) -> dict:
             continue
 
         rel = path.relative_to(root).as_posix()
-        if _excluded(rel):
-            skipped_historical += 1
-            continue
 
         raw_hit_count += hits
         raw_file_count += 1
@@ -368,7 +371,6 @@ def classify(root: Path) -> dict:
         "root": str(root),
         "raw_hit_count": raw_hit_count,
         "raw_file_count": raw_file_count,
-        "skipped_historical": skipped_historical,
         "buckets": {
             "b-writer": {
                 "label": "WRITER — exports the variable to child processes",
@@ -457,7 +459,7 @@ def render_markdown(table: dict) -> str:
         " `docs/plans/2026-08-20-an-engine-root-is-not-named-for-the-repo.md`.",
         "",
         f"Measured: **{table['raw_hit_count']}** hits across **{table['raw_file_count']}**"
-        f" live files ({table['skipped_historical']} historical-record files excluded).",
+        f" live files (trees under {', '.join(_EXCLUDE_PREFIXES)} are never walked).",
         "",
         "## Buckets",
         "",

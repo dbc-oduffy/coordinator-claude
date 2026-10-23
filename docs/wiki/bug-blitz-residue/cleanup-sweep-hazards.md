@@ -480,7 +480,7 @@ The canonical sizing guideline: the cap must exceed the longest plausible legiti
 ## 44. Terminal-Stamp → Immediately-Sweepable Window
 
 
-A plan becomes archival-eligible the instant its frontmatter is stamped a terminal status (`implemented` / `superseded` / `abandoned`) — not at the next commit, not at the end of the ceremony that stamped it. The engine repo's `coordinator/bin/sweep-terminal-plans.py` fires asynchronously from session-init on *every* session start, and it only reads the plan's on-disk `status:` field; it has no notion of "mid-ceremony" or "close-out review still pending."
+A plan becomes archival-eligible the instant its frontmatter is stamped a terminal status (`implemented` / `superseded` / `abandoned` / `closed`) — not at the next commit, not at the end of the ceremony that stamped it. The engine repo's `coordinator/bin/sweep-terminal-plans.py` fires asynchronously from session-init on *every* session start, and it only reads the plan's on-disk `status:` field; it has no notion of "mid-ceremony" or "close-out review still pending."
 
 **Concrete failure:** `/workstream-complete` stamped a plan `implemented`, its close-out code-review produced findings, and while the review-integrator's plan edits were still sitting uncommitted in the working tree, a concurrent session's session-init fired the sweep and `git mv`'d the plan from `docs/plans/` to `archive/specs/` out from under the in-flight edits. The `wsc_commit` stage then looked for the plan at its pre-sweep path, found nothing, and silently skipped it — the edits survived only because `git mv` happens to carry working-tree content along with the path move, not because anything caught the race.
 

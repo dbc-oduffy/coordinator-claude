@@ -41,27 +41,25 @@ Reviewer selection (routing-table match, tier precedence, effort) is a signal-lo
 - `--reviewers "name1,name2"` skips auto-detection; report "PM-directed review: [name1] then [name2]."
 - **Tier vs. complexity, not importance:** one reviewer suffices unless a second would likely *contradict*.
 
-**Pipeline phases** (docs-checker, prior-art-checker/plan-coverage-checker, external-pattern-checker, backstop, report) aren't optional — walk them inline per the surface's assembled phase list. The reviewer applies its own findings; there is no separate integrate phase.
+**Pipeline phases** (docs-checker, prior-art-checker/plan-coverage-checker, external-pattern-checker, backstop, report) aren't optional — walk them inline per the surface's assembled phase list.
 
 **Persist findings on the pre-provisioned sidecar** (`state/subagent-share/<session>/<provision_key>.md`, already in the dispatch brief — `staff-eng-review` for personas, `review-findings` for `code-reviewer`) via **Edit**, not a Bash redirect or hand-scaffold.
 
-**Persona/Opus reviewer** applies every finding in place, writes the `## Findings Ledger` to its sidecar, runs `review-findings-ledger verify --sidecar <path>`, and returns `DONE: <sidecar-path> | verdict: <OK|WARN|BLOCKED> | findings: <N>`; the EM reads the applied diff and the verified ledger. `code-reviewer`'s diff-only Sonnet pattern is assembled by the op.
+**Persona/Opus reviewer** applies every finding in place, writes the `## Findings Ledger` to its sidecar, runs `review-findings-ledger verify --sidecar <path>`, and returns `DONE: <sidecar-path> | verdict: <OK|WARN|BLOCKED> | findings: <N>`; the EM reads the applied diff and the verified ledger.
 
 **Multi-reviewer chain:** each reviewer gets its own provisioned sidecar and verifies its own ledger. A trivial/unfilled returned sidecar fails loud (BLOCKED) at intake.
 
 ### A.3 — Sequencing
 
-**Code review (a diff) is one parallel wave, and every reviewer applies its own findings.**
+**Code review (a diff) is per executor group in plan runs; reviewers apply own findings.**
 Slice owners, Kira and the named personas all apply in place with exact-text `Edit`s, including
-findings outside their own slice (no write against stale text: an exact-text `Edit` fails rather
-than clobbers). Kira (`overengineering-reviewer`) is the execute review wave's
-whole-diff editor of shipped code, never of plans; Kira fires per the run's review tier (L/XL/XXL in the engine-ask review wave; XS/S/M skip Kira by design). Only a rebuild verdict goes back to the EM; there is no second review round. This
-runs inside the execute workflow's review stage (`coordinator/skills/execute-plan/SKILL.md`); a
+findings outside their own slice. Kira (`overengineering-reviewer`) is the execute review's
+whole-diff editor of shipped code, never of plans; runs at L and above. Only a rebuild verdict goes back to the EM; there is no second review round. This
+runs inside the execute workflow's review stage; a
 diff reviewed ad hoc (`/review-code`) applies and verifies its own ledger before a second
 reviewer touches it.
 
-**Plan review over one plan artifact stays ordered.** Reviewer 1 applies and verifies its own findings in place on
-the plan body before Reviewer 2 is dispatched; only code review over a diff runs as a parallel wave.
+**Plan review over one artifact:** a chatty run reviews in one parallel wave, regions claimed by mail (`CLAIM <region>`; review-integration-doctrine.md); otherwise Reviewer 1 applies first.
 
 **Pre-flight sidecars are consumed alongside the plan**, never inserted into that chain; on a non-XL plan the Sonnet pre-flights (`docs-checker`, `prior-art-checker`, `plan-coverage-checker`) gate before the Opus reviewer; on the accepted-XL lane a `plan-reviewer` pass runs ahead of them, so four Sonnet-tier passes precede the Opus persona. `plan-coverage-checker` has no EM opt-out.
 
@@ -108,7 +106,7 @@ turn, without waiting to be asked.
 
 ## Cross-reference exit
 
-After Branch B for a multi-reviewer review and Reviewer 1's findings are applied and verified, return to A.2 for Reviewer 2 — this skill is re-entrant.
+Outside a chatty run, after Branch B for a multi-reviewer review and Reviewer 1's findings are applied, return to A.2 for Reviewer 2.
 
 Execution-authorization gate, stamp-op invocation, and prior-art mutability/reviewer-elevation (plan-only) are assembled by `review-assemble brief`.
 

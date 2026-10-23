@@ -36,7 +36,7 @@ id: goal-<slug>                 # required; stable canonical identity key
                                  # per-repo), not id-string-scoped — see Peer-Repo
                                  # Percolation § below.
 title: <human-readable name>
-status: active                  # active | achieved | abandoned
+status: active                  # active | achieved | abandoned | superseded | closed
 objective: >-                   # prose — the aspiration / why
   One-paragraph description of what we are trying to achieve.
 key_results:
@@ -465,6 +465,8 @@ Field column.
 | `id` | `coordinator-doc-new --type goal` scaffolder | Scaffold time | No — stable canonical identity key |
 | `title` | `coordinator-doc-new --type goal` scaffolder | Scaffold time | Goal-setting ceremony, at authoring time |
 | `status` (goal-level) | `coordinator-doc-new --type goal` scaffolder writes `active` | Scaffold time (initial); PM/EM thereafter | `/workweek-complete` **reads only** — never writes `status` |
+| `closed_reason` (goal-level) | PM/EM closing the goal (`status: closed`); the required-when-`closed` cross-field rule is the engine's | Close time | No |
+| `closed_at` (goal-level) | PM/EM closing the goal (`status: closed`); the required-when-`closed` cross-field rule is the engine's | Close time | No |
 | `objective` | **Collision cell 1** — goal-setting ceremony OR `/workweek-start` Step 7; see § Collision cell 1 below | Authoring time | See below — two authoring actors, arbitrated, not merged |
 | `key_results` (array) | Goal-setting ceremony / scaffolder, at KR-authoring time | Authoring time | No independent writer of the container itself — see the seven `key_results[].*` rows for its items (`reassessment_proposal` is its own row) |
 | `created` | `coordinator-doc-new --type goal` scaffolder | Scaffold time | No — stamped once |

@@ -1,6 +1,6 @@
 # Global Development Principles
 
-> Rules for ALL agents, EM and worker. Project `CLAUDE.md` extends, never weakens, this.
+> Rules for ALL agents, EM and worker. Project `CLAUDE.md` extends, never weakens, this, and links fleet rules rather than copying them.
 > Deeper reference: `coordinator/docs/wiki/`, grep by topic.
 
 ## Starfleet Officer Doctrine

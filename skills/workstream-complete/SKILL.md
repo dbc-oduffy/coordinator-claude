@@ -79,17 +79,16 @@ keys off *measured* `gross_loc`/`commit_count`/`surface_count`; L+ keys off the 
 `sizing_object:` citation and read `estimate.tshirt` off the artifact it names. Fires at `L` or `XL`; never answer it from Scale's measured figures.
 
 **The review record is the plan's `review_stamp`; this ceremony neither runs nor dispatches it.**
-For a plan-bearing close, review ran as stages of the emitted execute-plan workflow and
+For a plan-bearing close, review ran per executor group in the emitted execute-plan workflow and
 `review-stamp mint` recorded it via `land_run` (never re-minted by hand);
-`gates.review_receipt` reads it. Where that stamp exists, this ceremony reads the gate and
-writes no trail.
+`gates.review_receipt` reads it; this ceremony reads the gate and writes no trail.
 **Review absent at close → this ceremony dispatches review; there is no skip.** No governing plan,
 or no `review_stamp` (mise-en-place included): run `/review-code` over the close's diff before
 `apply`, at least one reviewer, partitioned when PARTITION-MANDATORY. That clears this gate but
 mints no stamp: a stampless hand-worked plan reaches `implemented` only via
 `emit-dispatch-workflow --plan <p> --rejudge`, fired, then `reverify-delivery record --result-json
 <task output>`, then `review-stamp mint`; no hand-dispatched judge or `record-superseding-review`
-substitutes. Never dispose the gap with `proceed-unresolved` or any other skip; an absent review is no EM confirmation to give.
+substitutes. Never dispose the gap with `proceed-unresolved` or any skip.
 The terminal-review Stop gate holds regardless.
 
 **Hand-measuring the brightline is a last resort** — only once `stage_paths` is supplied and `review_scale` still returns `resolved: false`. **Sum per-owned-commit diffs** (`<sha>~1..<sha>`, never `^`), **never an `oldest..newest` range**, and **count code only** (`.md`/`.yaml`/`.yml` excluded). Method: `coordinator/docs/wiki/ceremony-calibration/workstream-complete-review.md` § Hand-measuring the brightline.

@@ -749,6 +749,77 @@ def _resolve_dest(target: str, percolate_root: str) -> Optional[str]:
     return result.stdout.strip()
 
 
+def _normalize_remote_url(url: str, repo: str) -> str:
+    """A local-path remote URL as normcase(realpath) (relative paths resolve
+    against `repo`); any other URL unchanged."""
+    import os  # noqa: PLC0415
+
+    if "://" in url or re.match(r"^[\w.-]+@[\w.-]+:", url):
+        return url
+    path = url if os.path.isabs(url) else os.path.join(repo, url)
+    return os.path.normcase(os.path.realpath(path))
+
+
+def _resolve_dest_override(
+    live_dest: str, clone: str
+) -> "Tuple[Optional[str], Optional[DestRootOverride]]":
+    """`--dest-root` validation: `(relocated dest, override)`, or `(None, None)`
+    after printing `percolate-round: refused: <reason>`. Four read-only git
+    spawns; the live checkout is only asked for its toplevel and remote URL."""
+    import os  # noqa: PLC0415
+
+    _bootstrap_engine()
+    from percolate.targets import DestRootOverride  # type: ignore[import-not-found]  # noqa: PLC0415
+
+    def refuse(reason: str):
+        print(f"percolate-round: refused: {reason}", file=sys.stderr)
+        return None, None
+
+    live_root = _resolve_repo_root(live_dest)
+    if live_root is None:
+        return refuse(f"cannot resolve the live mirror checkout from '{live_dest}'")
+    try:
+        override = DestRootOverride.of(live_root, clone)
+    except ValueError as exc:
+        return refuse(str(exc))
+
+    top = _run(
+        ["git", "-C", clone, "--no-optional-locks", "rev-parse",
+         "--show-toplevel", "--is-shallow-repository"],
+        timeout=_GIT_PLUMBING_TIMEOUT_SECS,
+    )
+    lines = top.stdout.split("\n") if top.returncode == 0 else []
+    if len(lines) < 2 or not lines[0].strip():
+        return refuse(f"--dest-root '{clone}' is not a git worktree")
+    norm = os.path.normcase
+    if norm(os.path.realpath(lines[0].strip())) != norm(os.path.realpath(clone)):
+        return refuse(f"--dest-root '{clone}' is not the root of its git worktree")
+    if lines[1].strip() == "true":
+        return refuse(
+            f"--dest-root '{clone}' is a shallow clone; the publish base needs the full history"
+        )
+
+    urls = []
+    for repo in (clone, str(override.live_root)):
+        got = _run(
+            ["git", "-C", repo, "--no-optional-locks", "ls-remote", "--get-url"],
+            timeout=_GIT_PLUMBING_TIMEOUT_SECS,
+        )
+        url = got.stdout.strip() if got.returncode == 0 else ""
+        if not url:
+            return refuse(f"cannot read the remote URL of '{repo}'")
+        urls.append(_normalize_remote_url(url, repo))
+    clone_url, live_url = urls
+    if clone_url != live_url:
+        return refuse(
+            f"--dest-root '{clone}' has a different origin than the live mirror ({clone_url} vs {live_url})"
+        )
+    relocated = override.relocate(live_dest)
+    if relocated is None:
+        return refuse(f"dest '{live_dest}' is not under the live checkout")
+    return str(relocated), override
+
+
 def _resolve_repo_root(dest: str) -> Optional[str]:
     """`dest` (§ `_resolve_dest`) may itself be a subdirectory of the
     mirror's git worktree — e.g. a `dest_subdir` row's `<mirror>/coordinator_core`
@@ -2175,19 +2246,34 @@ def _changelog_lag_line(
     return f"CHANGELOG predates {n} carried source commit(s) since {parts[1]}"
 
 
-def _round_changelog_lag_line(percolate_root: str, target: str, source_head: str) -> str:
-    """`_changelog_lag_line` over the registered rows; `""` on any resolution failure."""
+def _round_changelog_lag_line(
+    percolate_root: str,
+    target: str,
+    source_head: str,
+    *,
+    override: "Optional[DestRootOverride]" = None,
+) -> str:
+    """`_changelog_lag_line` over the registered rows (re-rooted under `override`
+    when set); `""` on any resolution failure."""
     try:
         _bootstrap = str(_COORDINATOR_LIB)
         if _bootstrap not in sys.path:
             sys.path.insert(0, _bootstrap)
-        from percolate.targets import load_targets  # type: ignore[import-not-found]  # noqa: PLC0415
+        from percolate.targets import (  # type: ignore[import-not-found]  # noqa: PLC0415
+            load_targets,
+            rewrite_rows_dest_root,
+        )
 
         setup_dir = Path(percolate_root) / "setup"
         err = io.StringIO()
+        target_rows = load_targets(setup_dir, target_filter=target, err=err)
+        all_rows = load_targets(setup_dir, target_filter="", err=err)
+        if override is not None:
+            target_rows = rewrite_rows_dest_root(target_rows, override)
+            all_rows = rewrite_rows_dest_root(all_rows, override)
         return _changelog_lag_line(
-            load_targets(setup_dir, target_filter=target, err=err),
-            load_targets(setup_dir, target_filter="", err=err),
+            target_rows,
+            all_rows,
             _REPO_ROOT,
             source_head,
         )
@@ -2756,7 +2842,9 @@ def _round_warnings(
     return warnings
 
 
-def _print_push_notice(target: str, *, refusal_reason: Optional[str] = None) -> None:
+def _print_push_notice(
+    target: str, *, refusal_reason: Optional[str] = None, clone_root: Optional[str] = None
+) -> None:
     """`--no-publish` and gate-refused terminal step. Prints the short push
     command; never runs it. Names `percolate-push.py` (coordinator/bin/),
     not a raw `git -C <abs-path> push` line — the entry point resolves the
@@ -2766,8 +2854,21 @@ def _print_push_notice(target: str, *, refusal_reason: Optional[str] = None) -> 
     `refusal_reason` is set only on the gate-refused path (a PASS-WITH-
     WARNINGS round whose review warnings `_round_refusal_reason` reads as
     refusing) — named here so the message reads as an explained refusal,
-    not a silent failure to publish."""
+    not a silent failure to publish.
+
+    `clone_root` is set only under `--dest-root`: `percolate-push` resolves the
+    LIVE dest and would push nothing, so a clean verdict names the clone's own
+    push, and a refusal names no push at all."""
     print("")
+    if clone_root is not None:
+        if refusal_reason:
+            print(f"Publish refused — {refusal_reason}.")
+            print(f"{clone_root} holds an uncertified commit; do not push it.")
+        else:
+            print("Publish committed in the scratch clone. Push is the operator's step:")
+            print("")
+            print(f"    git -C {clone_root} -c credential.interactive=never push")
+        return
     if refusal_reason:
         print(f"Publish refused — {refusal_reason}. Push is the operator's step:")
     else:
@@ -2980,6 +3081,8 @@ def _cmd_round_default(
     source_dir: str,
     dest: str,
     tmp: Path,
+    *,
+    override: "Optional[DestRootOverride]" = None,
 ) -> int:
     """The round, PM ruling 2026-08-15: one sync, not two. Step 2's dry run
     is dropped entirely -- Step 1 IS the real `publish.py` run, and it
@@ -3011,6 +3114,7 @@ def _cmd_round_default(
     dry-run-optional dispatch).
     """
     _bootstrap_engine()
+    _notice_kwargs = {"clone_root": str(override.clone_root)} if override is not None else {}
     real_stdout_path = tmp / "real-stdout.txt"
     scan_files_path = tmp / "scan-files.txt"
 
@@ -3040,6 +3144,18 @@ def _cmd_round_default(
             ]
             if not args.delta:
                 real_cmd.append("--no-delta")
+            if getattr(args, "source_ref", None):
+                real_cmd += ["--source-ref", args.source_ref]
+            if override is not None:
+                from percolate.targets import (  # type: ignore[import-not-found]  # noqa: PLC0415
+                    PUBLISH_DEST_ROOT_LIVE_FLAG,
+                    PUBLISH_DEST_ROOT_OVERRIDE_FLAG,
+                )
+
+                real_cmd += [
+                    PUBLISH_DEST_ROOT_OVERRIDE_FLAG, str(override.clone_root),
+                    PUBLISH_DEST_ROOT_LIVE_FLAG, str(override.live_root),
+                ]
             import os as _os
 
             real_env = dict(_os.environ)
@@ -3443,6 +3559,7 @@ def _cmd_round_default(
                 percolate_root,
                 target,
                 (manifest.source_sha if manifest is not None else "") or "HEAD",
+                **({"override": override} if override is not None else {}),
             )
             if _lag_line:
                 print(f"percolate-round: {_lag_line}")
@@ -3684,13 +3801,14 @@ def _cmd_round_default(
             elif engine_import_failure:
                 _write_round_failure_marker(target, percolate_root, "engine-import-failed", sha)
                 print(f"percolate-round: {engine_import_failure}", file=sys.stderr)
-                _print_push_notice(target, refusal_reason=refusal_reason)
+                _print_push_notice(target, refusal_reason=refusal_reason, **_notice_kwargs)
                 return _EXIT_FAIL
 
             if args.no_publish or refusal_reason is not None:
                 _print_push_notice(
                     target,
                     refusal_reason=None if args.no_publish else refusal_reason,
+                    **_notice_kwargs,
                 )
                 return _EXIT_OK
 
@@ -3708,12 +3826,13 @@ def _cmd_round_default(
         return _EXIT_LOCK_BUSY
 
 
-def _field7_preflight(target: str) -> Optional[str]:
+def _field7_preflight(target: str, source_ref: str = "") -> Optional[str]:
     """Refusal text when the field-7 declaration validator is red for a round
     that publishes a generator-owned row, else None. Judged at the source
     repo's HEAD, the commit the round ships; an unknown owned set refuses.
     Memoised by publish.py, so the generator runs once per process."""
     publish = _sibling_cli(_PUBLISH)
+    publish._source_ref_override = source_ref
     try:
         pinned = publish._round_pin_source_sha(_REPO_ROOT, {})
     except Exception:  # an unresolvable HEAD falls back to the checkout; the validator still judges it
@@ -3744,28 +3863,44 @@ def _cmd_round(args: argparse.Namespace) -> int:
     if dest is None:
         return _EXIT_USAGE
 
+    override = None
+    if getattr(args, "dest_root", None):
+        dest, override = _resolve_dest_override(dest, args.dest_root)
+        if dest is None:
+            return _EXIT_USAGE
+
     # Before the dest lock and before anything is staged: the mirror stamps the
-    # source HEAD, so that HEAD must already be on origin or consumers are stranded.
+    # shipped commit: with no --source-ref that is the source HEAD, which must have an
+    # upstream and is pushed; with --source-ref it must already be held by a remote
+    # branch, and nothing is pushed.
     _bootstrap_engine()
     from coordinator_core.percolate.source_preflight import (  # type: ignore[import-not-found]  # noqa: PLC0415
         check_source_published as _check_source_published,
     )
 
+    source_ref = getattr(args, "source_ref", None) or ""
     refusal = _check_source_published(
-        Path(source_dir), Path(dest), allow_rollback=getattr(args, "allow_source_rollback", False)
+        Path(source_dir),
+        Path(dest),
+        allow_rollback=getattr(args, "allow_source_rollback", False),
+        source_ref=source_ref,
     )
     if refusal is not None:
         print(f"percolate-round: refused: {refusal}", file=sys.stderr)
         return _EXIT_FAIL
 
-    field7_refusal = _field7_preflight(target)
+    field7_refusal = (
+        _field7_preflight(target, source_ref) if source_ref else _field7_preflight(target)
+    )
     if field7_refusal is not None:
         print(f"percolate-round: refused, nothing synced: {field7_refusal}", file=sys.stderr)
         return _EXIT_FAIL
 
     with tempfile.TemporaryDirectory(prefix="percolate-round-") as tmpdir:
         tmp = Path(tmpdir)
-        return _cmd_round_default(args, target, percolate_root, source_dir, dest, tmp)
+        return _cmd_round_default(
+            args, target, percolate_root, source_dir, dest, tmp, override=override
+        )
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -3774,6 +3909,17 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Sequence a single-target percolate publish round: real sync through commit, CI smoke, and (on a clean round) push. --no-publish stops before the push instead.",
     )
     parser.add_argument("target", help="Single registered percolate target name.")
+    parser.add_argument(
+        "--source-ref",
+        default=None,
+        help=(
+            "Committed ref (branch, tag or sha) whose content the round publishes; "
+            "default HEAD. The ref must be held by a remote branch (e.g. pushed to "
+            "<remote>/candidate-source from a private clone); the source checkout's branch "
+            "is not pushed. The working tree is never read: uncommitted edits and "
+            "untracked files do not ship. The pinned sha is stamped [source-head <sha12>]."
+        ),
+    )
     parser.add_argument(
         "--percolate-root",
         required=False,
@@ -3820,6 +3966,16 @@ def _build_parser() -> argparse.ArgumentParser:
             "that never skips the end-of-run verification checks, which still "
             "scan the full destination unconditionally every round regardless "
             "of this flag (§ publish.py --delta help text)."
+        ),
+    )
+    parser.add_argument(
+        "--dest-root",
+        default=None,
+        metavar="PATH",
+        help=(
+            "Run the round into this clone of the target's mirror instead of the live "
+            "checkout; every row of the mirror re-roots under it. Push (unless "
+            "--no-publish) goes from the clone."
         ),
     )
     parser.set_defaults(func=_cmd_round)

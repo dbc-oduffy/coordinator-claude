@@ -177,6 +177,10 @@ _BOOTSTRAPPED_NAMES = (
     "_is_structural_build_artifact",
     "TargetsError",
     "load_targets",
+    "DestRootOverride",
+    "rewrite_rows_dest_root",
+    "PUBLISH_DEST_ROOT_OVERRIDE_FLAG",
+    "PUBLISH_DEST_ROOT_LIVE_FLAG",
     "raw_dest_sigil_by_name",
     "_iter_portable_rows",
     "_resolve_portable_file",
@@ -186,6 +190,10 @@ _BOOTSTRAPPED_NAMES = (
     "_resolve_show_toplevel",
     "_native_resolve_git_dir",
     "_native_resolve_git_common_dir",
+    "DestRootOverride",
+    "rewrite_rows_dest_root",
+    "PUBLISH_DEST_ROOT_OVERRIDE_FLAG",
+    "PUBLISH_DEST_ROOT_LIVE_FLAG",
 )
 
 
@@ -251,6 +259,10 @@ def _bootstrap_engine() -> None:
         from percolate.targets import (  # noqa: E402  (path setup must precede this import)
             TargetsError,
             load_targets,
+            DestRootOverride,
+            rewrite_rows_dest_root,
+            PUBLISH_DEST_ROOT_OVERRIDE_FLAG,
+            PUBLISH_DEST_ROOT_LIVE_FLAG,
             raw_dest_sigil_by_name,
             _iter_portable_rows,
             _resolve_portable_file,
@@ -7696,11 +7708,9 @@ def _write_expected_manifest(
     `paths` is the tree this round commits at `repo_root` (HEAD's tree via one `ls-tree -r`, plus
     `present_paths`, minus `deleted_paths`), each mapped to the git blob sha1 of the bytes as
     written to the worktree. The manifest never lists itself. Returns True when the bytes changed."""
-    import hashlib  # noqa: PLC0415
-    import json  # noqa: PLC0415
-
     _bootstrap_engine()
     from coordinator_core.git.run import run_git as _run_git  # noqa: PLC0415
+    from percolate.round_derived import blob_sha, manifest_bytes  # noqa: PLC0415
 
     paths: "dict[str, str]" = {}
     ls = _run_git(["ls-tree", "-r", "-z", "HEAD"], cwd=str(repo_root))
@@ -7714,13 +7724,9 @@ def _write_expected_manifest(
     for rel in present_paths:
         full = repo_root / rel
         data = os.readlink(full).encode() if full.is_symlink() else full.read_bytes()
-        paths[rel] = hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
-    paths.pop(_EXPECTED_MANIFEST_REL, None)
-    body = json.dumps(
-        {"schema": 1, "source_head": source_head, "paths": paths}, sort_keys=True, indent=2
-    ) + "\n"
+        paths[rel] = blob_sha(data)
     target = repo_root / _EXPECTED_MANIFEST_REL
-    raw = body.encode("utf-8")
+    raw = manifest_bytes(paths, source_head)
     if target.is_file() and target.read_bytes() == raw:
         return False
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -8179,7 +8185,7 @@ def _required_pathspec_for_toplevel(
         # to `sys.stderr` once per run; this pathspec-scoping call re-runs
         # the same 4-tier resolution and would otherwise print the exact
         # same diagnostics a second time on the first archive extraction.
-        rows = load_targets(setup_dir, target_filter="", err=io.StringIO())
+        rows = _load_rows(setup_dir, target_filter="", err=io.StringIO())
     except TargetsError:
         rows = []
     for row in rows:
@@ -8382,6 +8388,20 @@ def _extract_git_archive(toplevel: Path, sha: str) -> Path:
 #: where a round pins its source sha, so every row of one round sees one commit.
 _source_ref_override = ""
 
+#: Set by `main` from `--dest-root-override`/`--dest-root-live`; None outside a
+#: scratch-clone round and reset on every exit. Read by `_load_rows` and
+#: `_publish_mirror_key_for_repo_root`.
+_DEST_ROOT_OVERRIDE: "Optional[Any]" = None
+
+
+def _load_rows(setup_dir: Path, **kwargs: Any) -> List[str]:
+    """`load_targets`, with every dest under the live root re-rooted onto the
+    clone while `_DEST_ROOT_OVERRIDE` is set. Every load site goes through here."""
+    rows = load_targets(setup_dir, **kwargs)
+    if _DEST_ROOT_OVERRIDE is None:
+        return rows
+    return rewrite_rows_dest_root(rows, _DEST_ROOT_OVERRIDE)
+
 
 #: Code a `--source-ref` round imports; exported from the ref, never read from the working tree.
 _SOURCE_REF_IMPORTED_PATHS = ("coordinator_core", "coordinator/lib")
@@ -8411,9 +8431,15 @@ def _export_engine_at_ref(repo_root: Path, ref: str) -> Path:
     if rev.returncode != 0:
         raise RuntimeError(f"--source-ref {ref!r} does not resolve to a commit in {repo_root}")
     sha = rev.stdout.decode().strip()
-    from coordinator_core.temp_layout import managed_tempdir  # noqa: PLC0415
+    # Runs before bootstrap: importing coordinator_core here would fail, or cache the
+    # working-tree package over the export. temp_layout is stdlib-only; load it by path.
+    import importlib.util  # noqa: PLC0415
+    spec = importlib.util.spec_from_file_location(
+        "_publish_temp_layout", Path(__file__).resolve().parents[2] / "coordinator_core" / "temp_layout.py")
+    temp_layout = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(temp_layout)
 
-    base = managed_tempdir() / "claude-klabauter-publish-engine"
+    base = temp_layout.managed_tempdir() / "claude-klabauter-publish-engine"
     dest = base / sha
     if (dest / "coordinator_core").is_dir():
         return dest
@@ -9810,6 +9836,8 @@ def _publish_mirror_key_for_repo_root(repo_root: Path) -> Optional[str]:
     merged: dict = {}
     for fname in ("registry.toml", "registry.local.toml"):
         merged.update(_flatten(_load_toml(Path(reg_dir) / fname)))
+    if _DEST_ROOT_OVERRIDE is not None:
+        repo_root = _DEST_ROOT_OVERRIDE.to_live(repo_root)
     norm_root = os.path.realpath(str(repo_root))
     for key, value in merged.items():
         if not key.startswith(_PUBLISH_MIRRORS_PREFIX) or not key.endswith(_PUBLISH_MIRROR_PATH_SUFFIX):
@@ -10920,8 +10948,47 @@ def _discard_publish_staging_dir(staging_dir: Optional[Path]) -> None:
     or once the round has consumed it; the real destination is never touched. Goes through
     `_rmtree_clear_readonly_onerror`: a Windows read-only attribute under a bare
     `ignore_errors=True` leaves the directory only partially removed."""
-    if staging_dir is not None:
+    if staging_dir is not None and staging_dir.exists():
         shutil.rmtree(staging_dir, onerror=_rmtree_clear_readonly_onerror)
+
+
+def _remove_minted_staging_dirs() -> None:
+    """Best-effort removal of every staging dir this process minted and still holds."""
+    for staging_dir in list(_MINTED_STAGING_DIRS):
+        try:
+            _discard_publish_staging_dir(staging_dir)
+        except OSError:
+            pass
+
+
+def _install_staging_signal_cleanup() -> "Callable[[], None]":
+    """Makes SIGTERM/SIGHUP remove this process's minted staging dirs before exiting 128+signum
+    (a default-disposition signal skips every `finally`). Returns the restorer. Main thread only;
+    elsewhere installs nothing."""
+    import signal
+
+    names = [n for n in ("SIGTERM", "SIGHUP") if hasattr(signal, n)]
+    previous: "dict[int, Any]" = {}
+
+    def _handler(signum, _frame):
+        _remove_minted_staging_dirs()
+        raise SystemExit(128 + int(signum))
+
+    for name in names:
+        signum = getattr(signal, name)
+        try:
+            previous[signum] = signal.signal(signum, _handler)
+        except (ValueError, OSError):
+            pass
+
+    def _restore() -> None:
+        for signum, prior in previous.items():
+            try:
+                signal.signal(signum, prior)
+            except (ValueError, OSError):
+                pass
+
+    return _restore
 
 
 # `process_target` performs no destination write in either run mode, so a real run and a dry run
@@ -12125,6 +12192,24 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "resolved per source repo) instead of its HEAD. Overrides the "
             "published-engine pin. Uncommitted edits never ship either way."
         ),
+    )
+    _bootstrap_engine()
+    p.add_argument(
+        PUBLISH_DEST_ROOT_OVERRIDE_FLAG,
+        dest="dest_root_override",
+        default=None,
+        help=(
+            "Scratch clone of the live mirror checkout to sync and commit into "
+            "instead of it. Requires " + PUBLISH_DEST_ROOT_LIVE_FLAG + "."
+        ),
+    )
+    p.add_argument(
+        PUBLISH_DEST_ROOT_LIVE_FLAG,
+        dest="dest_root_live",
+        default=None,
+        help="The live mirror checkout the clone stands in for. Requires "
+        + PUBLISH_DEST_ROOT_OVERRIDE_FLAG
+        + ".",
     )
     p.add_argument(
         "--no-delta",
@@ -13650,7 +13735,10 @@ def _run_round(
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    """Exit-code contract (state/bug-backlog/2026-08-10-coordinator-publish-s-
+    """Runs one publish round; `_main` holds the body so `_DEST_ROOT_OVERRIDE`
+    resets on every exit, an exception included.
+
+    Exit-code contract (state/bug-backlog/2026-08-10-coordinator-publish-s-
     exit-code-is-not-a-542c9750e55a.yaml): a caller may trust the exit code
     alone to distinguish these four outcomes, without parsing the "Rows
     succeeded"/"Rows FAILED" summary or scanning stdout for FATAL text —
@@ -13681,6 +13769,16 @@ def main(argv: Optional[List[str]] = None) -> int:
     FAILED, and an end-of-run gate failure returned the same code (1) as a
     row failure, making the two indistinguishable from the exit code alone.
     """
+    global _DEST_ROOT_OVERRIDE
+    restore_signals = _install_staging_signal_cleanup()
+    try:
+        return _main(argv)
+    finally:
+        restore_signals()
+        _DEST_ROOT_OVERRIDE = None
+
+
+def _main(argv: Optional[List[str]] = None) -> int:
     global _ENGINE_ROOT
     _source_ref_arg = _source_ref_from_argv(argv)
     if _source_ref_arg and not _BOOTSTRAP_DONE:
@@ -13693,6 +13791,23 @@ def main(argv: Optional[List[str]] = None) -> int:
     _bootstrap_engine()
 
     args = build_arg_parser().parse_args(argv)
+
+    global _DEST_ROOT_OVERRIDE
+    if bool(args.dest_root_override) != bool(args.dest_root_live):
+        print(
+            f"publish: {PUBLISH_DEST_ROOT_OVERRIDE_FLAG} and "
+            f"{PUBLISH_DEST_ROOT_LIVE_FLAG} must be given together",
+            file=sys.stderr,
+        )
+        return 2
+    if args.dest_root_override:
+        try:
+            _DEST_ROOT_OVERRIDE = DestRootOverride.of(
+                args.dest_root_live, args.dest_root_override
+            )
+        except ValueError as exc:
+            print(f"publish: {exc}", file=sys.stderr)
+            return 2
 
     # § C1 (docs/plans/2026-08-16-percolate-round-timing-and-changed-only.md)
     # — round wall clock starts here, before any argv-driven work, so the
@@ -13775,7 +13890,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 args.target = ",".join(siblings)
 
     try:
-        rows = load_targets(
+        rows = _load_rows(
             setup_dir,
             target_filter=args.target,
             portable_targets_file=_committed_portable_targets_file(setup_dir),
@@ -13984,7 +14099,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     # `load_targets` call above already printed once this run).
     all_rows: "List[ResolvedTarget]" = []
     try:
-        for _row in load_targets(setup_dir, target_filter="", err=io.StringIO()):
+        for _row in _load_rows(setup_dir, target_filter="", err=io.StringIO()):
             try:
                 all_rows.append(parse_target_row(_row))
             except TargetsError:

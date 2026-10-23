@@ -29,10 +29,9 @@ reviewer who returns them at this altitude has reviewed the wrong artifact — r
 downstream rather than integrating them here. The reciprocal also binds: a plan-altitude
 review does not re-litigate which clusters became stubs.
 
-**Sequencing (HARD RULE):**
-- Default → sequential. Reviewer 1 applies and verifies its own findings ledger BEFORE
-  Reviewer 2 is dispatched. Roadmap artifacts are never parallelized; the
-  merge-gate parallel carve-out is diff-only.
+**Sequencing:**
+- `coordinator/skills/review/SKILL.md` § A.3 governs: a chatty run reviews in one parallel
+  wave with mailbox messaging; otherwise in order.
 - **Two PM rounds bracket the reviewers, and they are not interchangeable.** Round 1 is
   shape approval and runs BEFORE any reviewer (`status: shape-approved`). Round 2 is final
   approval and carries a diff against the shape-approved body (`status: final-approved`).

@@ -7,7 +7,7 @@
 
 **SUPERSEDED for plan-bearing closes.** `/workstream-complete` no longer dispatches, scales, or
 trail-records code review — code review runs as stages of the emitted `/execute-plan` workflow
-(one parallel review wave; each reviewer applies its own findings), and the close's review record is the plan's
+(per executor group; each reviewer applies its own findings), and the close's review record is the plan's
 `review_stamp` (`coordinator/skills/workstream-complete/SKILL.md` § Resolve judgment points, "The
 review record is the plan's `review_stamp`"). For a close with no governing plan, the ad-hoc route
 is `/review-code`. The sections below describing a WSC-dispatched Scale/brightline/trampoline

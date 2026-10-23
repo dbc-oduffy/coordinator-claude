@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""box-memory-snapshot.py [--top N] [--admit-peak GIB] -- one-screen box memory snapshot (Windows only).
+"""box-memory-snapshot.py [--top N] [--admit-peak GIB] -- one-screen box memory snapshot (Windows and macOS).
 
-Prints Available, commit used vs limit, system cache working set, standby, nonpaged pool and the
+On macOS available is the kernel figure, commit limit is physical + swap capacity, nonpaged pool
+and cache fields print `unavailable`, and top consumers rank by `ri_phys_footprint` (resident +
+compressed + swapped), which can far exceed `ps` RSS. Prints Available, commit used vs limit, system cache working set, standby, nonpaged pool and the
 top N consumers by private commit. A counter that fails to read prints `unavailable` for that
 field alone. `--admit-peak GIB` adds one line, `ADMIT ...` (exit 0) or `HOLD ...` naming the
 failed clause (exit 4); the figure is net of `reserved=`, the sum over live START pids without an
-END in admission.jsonl of max(0, declared_peak_mb - tree RSS). `--json` emits the same fields. Non-Windows host: exit 6.
+END in admission.jsonl of max(0, declared_peak_mb - tree RSS). `--json` emits the same fields. Other hosts: exit 6.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Callable, Optional
 
 PROG = "box-memory-snapshot"
@@ -131,16 +134,21 @@ def main(
 
     host = _load("box_memory_host")
     plat = platform if platform is not None else sys.platform
-    if plat != "win32":
-        return host.unsupported(PROG, plat, "reads Windows memory counters")
+    if plat not in ("win32", "darwin"):
+        return host.unsupported(PROG, plat, "reads Windows or macOS memory counters")
     if governor is None:
         missing = host.require_psutil(PROG)
         if missing is not None:
             return missing
 
     status_fn = status_fn or host.read_memory_status
-    nonpaged_fn = nonpaged_fn or host.nonpaged_pool_bytes
-    cache_host_fn = cache_host_fn or _load_cache_host
+    if plat == "darwin":
+        # No nonpaged pool or file-cache counters on macOS: those fields print `unavailable`.
+        nonpaged_fn = nonpaged_fn or (lambda: None)
+        cache_host_fn = cache_host_fn or (lambda: SimpleNamespace(read_memory=lambda: None))
+    else:
+        nonpaged_fn = nonpaged_fn or host.nonpaged_pool_bytes
+        cache_host_fn = cache_host_fn or _load_cache_host
     gov_fn = (lambda: governor) if governor is not None else host.load_governor
 
     status = _try(status_fn)

@@ -174,12 +174,12 @@
 
 export const meta = {
   name: 'plan-blitz',
-  description: 'One planning wave: sonnet scouts size the batons, an Opus EM finalises, Opus planners write, a sonnet pass resolves each plan\'s citations against the tree, resolved reviewers run in sequence over each plan applying and verifying their own findings, and the readiness op\'s verdict, mapped in the script, decides each plan.',
+  description: 'One planning wave: sonnet scouts size the batons, an Opus EM finalises, Opus planners write, a sonnet pass resolves each plan\'s citations against the tree, resolved reviewers run over each plan, in sequence or as one chatty wave when the run enables it, each applying and verifying its own findings, and the readiness op\'s verdict, mapped in the script, decides each plan.',
   phases: [
     { title: 'Size', detail: 'One sonnet sizing-scout per unsized baton — substrate read, touchpoint inventory, prior art, and a proposed t-shirt with its evidence. Skipped for a baton that already cites a sizing-object. Then one Opus blitz-em over the whole wave interrogates every proposed size (revising down by default), finalises the route via sizing-assemble, and emits the per-baton dispatch spec the Plan phase reads; it is skipped in single-plan mode and when every baton already carries an accepted sizing.' },
     { title: 'Plan', detail: 'One Opus planner per baton, on every route and at every size — authoring is not a lane the wave economises on. Writes the plan doc through coordinator:plan / scaffold-plan; never hand-authors frontmatter. In single-plan mode the prior-art pre-flight starts beside the planner and is awaited before the premise check.' },
     { title: 'Premise check', detail: 'One sonnet pass per drafted L-or-above plan (below L it does not fire), dispatched once its plan path is trusted and before any reviewer fires. Resolves the load-bearing citations in that plan against the tree — paths, symbols, refs, whether its falsifier can report red, and whether a named thing means what the plan says. It reports per-class ROWS and never a plan-level verdict; the seam after it translates those rows onto REVIEW_SCHEMA so they reach the reviewers that already apply every finding themselves. A premise miss routes BLOCKED; the class-5 rows with no writable fix are NAMED for the reviewers, who own the separating test.' },
-    { title: 'Review', detail: 'Reviewers resolved per baton from the EM dispatch spec, never prescribed in the plan file, then fixed by the finalised size ladder: XS/S one sonnet plan-reviewer, M staff-eng alone on opus, L staff-eng + apm, XL and above adds eng-director; a domain signal replaces staff-eng. No persona runs on sonnet; the overengineering lens reviews shipped code, never a plan. Fires unconditionally — the EM is not consulted about whether a plan deserves review. Same plan means sequential: each reviewer applies its own findings in place and runs `review-findings-ledger verify` on its own sidecar before the next reviewer starts. A PIVOT/REJECTED verdict applies nothing and suspends every finding under it, with co-reviewer findings still logged. The last reviewer runs plan.readiness_verdict; a prep-gate enricher runs concurrently with other plans reviewers, only when that reply names mechanical_repairs, none came back, or its only failure is census-unscreenable, repairs what the engine marks mechanical plus the Mechanical rows of the plan-coverage pre-flight, and re-asks the op once. A judgment verdict with no BLOCKED reviewer buys one opus plan-author resolver and one op re-ask; the plan is ready only if the re-ask is, and a BLOCKED reviewer or a failed resolve pulls with a reason leading "<n> blocking, <m> advisory". The script maps the standing op verdict to ready, pulled or replan, and a PIVOT routes to a replan baton rather than halting the wave. Host availability on the executing box is never a pull reason.' },
+    { title: 'Review', detail: 'Reviewers resolved per baton from the EM dispatch spec, never prescribed in the plan file, then fixed by the finalised size ladder: XS/S one sonnet plan-reviewer, M staff-eng alone on opus, L staff-eng + apm, XL and above adds eng-director; a domain signal replaces staff-eng. No persona runs on sonnet; the overengineering lens reviews shipped code, never a plan. Fires unconditionally — the EM is not consulted about whether a plan deserves review. Same plan, two paths. Sequential: each reviewer applies its own findings in place and runs `review-findings-ledger verify` on its own sidecar before the next reviewer starts. Chatty wave (args.chatty with args.chattyReview, reviewers within the roster slots): an overseer registers, every reviewer runs concurrently claiming regions by mail, then a survey, one continuation per slot with unread mail, and a summary. A PIVOT/REJECTED verdict applies nothing and suspends every finding under it, with co-reviewer findings still logged. The last reviewer runs plan.readiness_verdict (a dedicated host after the wave does on the chatty path); a prep-gate enricher runs concurrently with other plans reviewers, only when that reply names mechanical_repairs, none came back, or its only failure is census-unscreenable, repairs what the engine marks mechanical plus the Mechanical rows of the plan-coverage pre-flight, and re-asks the op once. A judgment verdict with no BLOCKED reviewer buys one opus plan-author resolver and one op re-ask; the plan is ready only if the re-ask is, and a BLOCKED reviewer or a failed resolve pulls with a reason leading "<n> blocking, <m> advisory". The script maps the standing op verdict to ready, pulled or replan, and a PIVOT routes to a replan baton rather than halting the wave. Host availability on the executing box is never a pull reason.' },
     { title: 'Adjudicate', detail: 'One agent per entry that would reach the PM (`surfacedToPm`, `routedElsewhere` with route pm-decision). coordinator:apm rules scope, direction and priority; coordinator:staff-eng (or the domain reviewer the baton calls for) rules code. The adjudicator writes a `pm_ruling:` line on the baton and returns a verdict. Only an entry it marks `pm_only` — important AND urgent AND no clear right answer, or an external or irreversible action — stays in `surfacedToPm`; the rest move to `adjudicated`.' },
   ],
 }
@@ -406,6 +406,9 @@ const REVIEW_SCHEMA = {
         reason: { type: 'string' },
         // The premise-row keys the op counted as blocking; compared across pulls by the Ask composer.
         blocking: { type: 'array', items: { type: 'string' } },
+        // The op's own finding counts; a host that trims the reply to its schema keys drops them and findingCounts falls back to the wave.
+        blocking_findings: { type: 'integer' },
+        advisory_findings: { type: 'integer' },
       },
       // honouredReadiness drops a reply without prep_gate, and a host that trims the "verbatim"
       // reply to its headline keys loses a ready plan as unusable; the schema makes it unskippable.
@@ -2063,11 +2066,16 @@ const coverageForOp = (c) => (c
   ? { verdict: c.verdict, mechanicalFindings: c.mechanicalFindings || 0, judgmentFindings: c.judgmentFindings || 0 }
   : null)
 
-function reviewerAgent(baton, decision, planResult, reviewer, trailDir, premise, priorReviewers, hostReadiness, priorArt) {
+function reviewerAgent(baton, decision, planResult, reviewer, trailDir, premise, priorReviewers, hostReadiness, priorArt, chattyBrief) {
   const priorArtBlock = priorArt
     ? `\nPrior-art pre-flight over this baton's sizing intent: ${priorArt.verdict}, ${priorArt.conflicts || 0} conflict(s), sidecar ${priorArt.sidecarPath}. The planner may not have seen it: open it, and treat a CONFLICT bucket as a finding against the plan.\n`
     : ''
-  const sequencing = priorReviewers && priorReviewers.length
+  const sequencing = chattyBrief
+    ? `\nSame plan, but this baton's reviewers run CONCURRENTLY: peers are editing it while you review.
+Apply by exact-text Edit. Claim a region by mail before editing it and never edit a region a peer
+holds (the CHATTY RUN brief closing this prompt carries the full rule). Mail ground shifts before
+applying them.\n`
+    : priorReviewers && priorReviewers.length
     ? `\nSame plan, so this baton's reviewers run SEQUENTIALLY, never in parallel — you are not the
 first. ${priorReviewers.map((r) => `${r.reviewer} ran before you, returned ${r.verdict}, and its
 findings are already applied and verified in the plan on disk.`).join(' ')} Read their sidecar(s)
@@ -2174,13 +2182,161 @@ from inside your own dispatch. If you believe a finding should NOT have been app
 so in your summary; you do not revert your own edit outside the ledger's own record.
 ${readinessStep(hostReadiness, planResult.planPath, reviewer, READY_OP)}${REPO_ROOT_RULE}
 ${MID_RUN_DIRECTION_RULE}
-${REVIEW_SIDECAR_RULE(sidecarFor(trailDir, baton.id, `review-${reviewer}-pointer`), reviewer)}`,
+${REVIEW_SIDECAR_RULE(sidecarFor(trailDir, baton.id, `review-${reviewer}-pointer`), reviewer)}${chattyBrief || ''}`,
     { model: reviewerModel(reviewer), ...withRole(reviewer),
       label: `review:${baton.id}:${reviewer}`,
       phase: 'Review',
       schema: REVIEW_SCHEMA,
     },
   ))
+}
+
+// Chatty review wave: the template travels in `chattyReview`; `{BATON}` scopes one baton's roster,
+// mail and nonces, `{PEERS}` lists a member's peers.
+function fillBaton(value, batonId, slot) {
+  if (typeof value === 'string') return value.split(slot).join(batonId)
+  if (Array.isArray(value)) return value.map((v) => fillBaton(v, batonId, slot))
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, fillBaton(v, batonId, slot)]))
+  }
+  return value
+}
+
+// `{BATON}` is filled with `<baton id>-<pass tag>`, never the bare id: a baton reviewed twice
+// (first pass, plan-revise re-pass) must not put one nonce in two workflow transcripts, or the
+// overseer and summary cannot self-identify. The tag counts this invocation's passes per baton;
+// no clock or random source is available to a workflow script.
+function chattyPassId(batonId) {
+  chattyPassId.counts = chattyPassId.counts || {}
+  chattyPassId.counts[batonId] = (chattyPassId.counts[batonId] || 0) + 1
+  return `${batonId}-r${chattyPassId.counts[batonId]}`
+}
+
+function fillPeers(brief, slotTypes, peersSlot = '{PEERS}') {
+  return brief.split(peersSlot).join(slotTypes.map(([slot, type]) => `${slot} = ${type}`).join('\n'))
+}
+
+// `wave` is true only when chatty review is armed and every reviewer has a roster review slot;
+// otherwise `note` (set only on an armed run that fell back) goes to the trail.
+function chattyWavePick(reviewerList) {
+  if (parsedArgs.chatty !== true || !parsedArgs.chattyReview) return { wave: false, note: null }
+  const roster = parsedArgs.chattyReview.roster
+  const slots = ((roster && roster.members) || []).map((m) => m.role).filter((r) => /^review-\d+$/.test(r))
+  if (reviewerList.length <= slots.length) return { wave: true, note: null }
+  return {
+    wave: false,
+    note: `chatty review armed but ${reviewerList.length} reviewers exceed the ${slots.length} roster review slot(s): fell back to the sequential loop`,
+  }
+}
+
+const SURVEY_SCHEMA = {
+  type: 'object',
+  required: ['continuations', 'tldr'],
+  properties: {
+    continuations: {
+      type: 'array',
+      items: { type: 'object', required: ['role'], properties: { role: { type: 'string' }, agent_id: { type: 'string' } } },
+    },
+    tldr: RETURN_TLDR_SCHEMA,
+  },
+}
+
+const READINESS_HOST_SCHEMA = {
+  type: 'object',
+  properties: Object.fromEntries(
+    ['readinessVerdict', 'readinessReviews', 'readinessError', 'readinessAttempts', 'readyOpReply', 'readyOpError']
+      .map((k) => [k, REVIEW_SCHEMA.properties[k]]),
+  ),
+}
+READINESS_HOST_SCHEMA.properties.tldr = RETURN_TLDR_SCHEMA
+READINESS_HOST_SCHEMA.required = ['tldr']
+
+// One baton's reviewers as a wave: overseer, concurrent reviewers, survey, continuations, the
+// readiness host, summary. Returns the resolved reviews in reviewer order; the caller owns the rest.
+// Returns null when the overseer returned nothing: no reviewer ran, and the caller runs the
+// sequential loop.
+async function chattyReviewWave({ baton, decision, plan, trailDir, premise, priorArt, coverage, reviewers }) {
+  const template = parsedArgs.chattyReview
+  const passId = chattyPassId(baton.id)
+  const cfg = fillBaton(template, passId, template.batonSlot || '{BATON}')
+  const peersSlot = cfg.peersSlot || '{PEERS}'
+  const slotOf = (i) => `review-${i + 1}`
+  const slotTypes = reviewers.map((r, i) => [slotOf(i), r])
+  const phase = { phase: 'Review' }
+
+  const overseer = await trackAgent('chatty-overseer', agent(
+    `${cfg.overseerPrompt}${REPO_ROOT_RULE}`,
+    { model: 'sonnet', label: `chatty-overseer:${baton.id}`, ...phase },
+  ))
+  if (!overseer) {
+    agentIncidents.push({ role: `chatty-overseer:${baton.id}`, kind: 'wave-unavailable', detail: 'the overseer returned nothing; the reviewers run sequentially' })
+    return null
+  }
+
+  const settled = await Promise.all(reviewers.map(async (member, i) => {
+    const slot = slotOf(i)
+    const brief = fillPeers(cfg.memberBriefs[slot], slotTypes.filter(([s]) => s !== slot), peersSlot)
+    const result = await reviewerAgent(baton, decision, plan, member, trailDir, premise, null, null, priorArt, brief)
+    if (result) checkSidecarPath(baton.id, `review-${member}`, result.sidecarPath)
+    return result ? resolveVerdict({ ...result, reviewer: member }) : null
+  }))
+
+  const survey = await trackAgent('chatty-survey', agent(
+    `${cfg.surveyPrompt}${REPO_ROOT_RULE}`,
+    { model: 'sonnet', label: `chatty-survey:${baton.id}`, ...phase, schema: SURVEY_SCHEMA },
+  ))
+  const owed = new Set(((survey && survey.continuations) || []).map((c) => c.role))
+  const resolved = await Promise.all(reviewers.map(async (reviewer, i) => {
+    const prior = settled[i]
+    const slot = slotOf(i)
+    if (!prior || !owed.has(slot)) return prior
+    const brief = fillBaton(cfg.continuationBriefs[slot], `${passId}-${slot}-cont`, cfg.nonceSlot || '{NONCE}')
+    const result = await trackAgent('reviewer', agent(
+      `${ROLE_CONTRACTS.reviewer}
+
+You continue the review of the plan at ${plan.planPath} for baton ${baton.id} ("${baton.title}"): the
+mail your predecessor left unread is yours to act on. Keep its findings ledger ${prior.sidecarPath}, apply
+what the mail requires by exact-text Edit, verify the ledger with \`review-findings-ledger verify\`, and
+return the same structured result as a reviewer, with sidecarPath ${prior.sidecarPath}.
+${CLI_RESOLUTION_RULE}${REPO_ROOT_RULE}${brief}`,
+      { model: reviewerModel(reviewer), ...withRole(reviewer), label: `review-continuation:${baton.id}:${slot}`, ...phase, schema: REVIEW_SCHEMA },
+    ))
+    if (!result) return prior
+    checkSidecarPath(baton.id, `review-${reviewer}`, result.sidecarPath)
+    return resolveVerdict({ ...result, reviewer })
+  }))
+  const reviews = resolved.filter(Boolean)
+
+  // The readiness op needs a settled plan: a PIVOT sends it to replan, and a last reviewer that
+  // returned nothing leaves no entry to host the op for, as in the sequential loop.
+  let hostParams = null
+  const last = reviews[reviews.length - 1]
+  if (last && last.reviewer === reviewers[reviewers.length - 1] && !reviews.some((r) => r.pivot)) {
+    const hostInput = { reviews: opReviewList(reviews.slice(0, -1)), premise: premiseForOp(premise), coverage: coverageForOp(coverage) }
+    hostParams = readinessParams(plan.planPath, hostInput)
+    const hosted = await trackAgent('readiness-host', agent(
+      `phase: readiness
+
+The reviewers of baton ${baton.id} ("${baton.title}") have all returned and their ledgers are verified.
+You review nothing and edit nothing: you only run the readiness step below for them. Where it says "you"
+or "your", read the last reviewer, ${last.reviewer}: its verdict is ${last.raw}, its ledger ${last.sidecarPath},
+and its entry is {"reviewer":"${last.reviewer}","verdict":"${last.raw}","ledger":"${last.sidecarPath}"}. Return only the
+readiness fields.
+${readinessStep(hostInput, plan.planPath, last.reviewer, READY_OP)}${REPO_ROOT_RULE}`,
+      { model: 'sonnet', label: `readiness-host:${baton.id}`, ...phase, schema: READINESS_HOST_SCHEMA },
+    ))
+    if (hosted) {
+      for (const key of Object.keys(READINESS_HOST_SCHEMA.properties)) {
+        if (key !== 'tldr' && hosted[key] !== undefined) last[key] = hosted[key]
+      }
+    }
+  }
+
+  await trackAgent('chatty-summary', agent(
+    `${cfg.summaryPrompt}${REPO_ROOT_RULE}`,
+    { model: 'sonnet', label: `chatty-summary:${baton.id}`, ...phase },
+  ))
+  return { reviews, hostParams }
 }
 
 // ---------------------------------------------------------------------------
@@ -3072,7 +3228,11 @@ const chains = await pipeline(
 
     const { reviewers: resolvedReviewers, substitutions } = resolveReviewers(decision.reviewers, plan.reviewSignals)
     const laddered = planReviewers(decision.tshirt, resolvedReviewers, plan.reviewSignals)
-    const reviewers = laddered.reviewers
+    const ladderReviewers = laddered.reviewers
+    const chattyPick = chattyWavePick(ladderReviewers)
+    // The sequential loop below iterates `reviewers`: empty on the wave path, which runs after it.
+    let reviewers = chattyPick.wave ? [] : ladderReviewers
+    let reviewNote = chattyPick.note
     for (const dropped of laddered.dropped) {
       substitutions.push(`${dropped} -> (not dispatched: a ${decision.tshirt} plan's reviewer set is fixed by the size ladder)`)
     }
@@ -3090,6 +3250,14 @@ const chains = await pipeline(
     // it. `pipeline()` with one stage IS a sequential loop; used here (not `parallel()`) because
     // the review AFTER a PIVOT/REJECTED-resolved-to-PIVOT must apply nothing, which the loop
     // below enforces by not dispatching it.
+    let wave = null
+    if (chattyPick.wave) {
+      wave = await chattyReviewWave({ baton, decision, plan, trailDir, premise, priorArt, coverage, reviewers: ladderReviewers })
+      if (!wave) {
+        reviewers = ladderReviewers
+        reviewNote = 'chatty overseer returned nothing; fell back to the sequential loop'
+      }
+    }
     const reviews = []
     let pivoted = null
     for (const reviewer of reviewers) {
@@ -3114,12 +3282,16 @@ const chains = await pipeline(
         if (resolved.pivot) pivoted = resolved
       }
     }
+    if (wave) {
+      reviews.push(...wave.reviews)
+      hostParams = wave.hostParams
+    }
     // The op's reply, honoured only from the last reviewer and only when it was computed over the
     // reviews this script resolved itself. `opReviews` is the list the op saw (and is carried on
     // every verdict entry); the coverage pre-flight rides separately as the op's `coverage`.
     const opReviews = opReviewList(reviews)
     const host = reviews[reviews.length - 1]
-    const readinessReply = host && host.reviewer === reviewers[reviewers.length - 1]
+    const readinessReply = host && host.reviewer === ladderReviewers[ladderReviewers.length - 1]
       ? honouredReadiness(host, opReviewList(reviews.slice(0, -1)))
       : null
     // The reviewers above saw every premise row; the count that rides the review set is the op's.
@@ -3131,7 +3303,7 @@ const chains = await pipeline(
     // carry the host's own entry as its brief told it to append it, so a re-run needs nothing else;
     // they are kept whether or not the host's op failed, because a failed post-repair run also
     // surfaces as errored and must preserve the same review set.
-    const hostIsLast = host && host.reviewer === reviewers[reviewers.length - 1] && !host.pivot
+    const hostIsLast = host && host.reviewer === ladderReviewers[ladderReviewers.length - 1] && !host.pivot
     const readinessError = hostIsLast && typeof host.readinessError === 'string' && host.readinessError.trim()
       ? host.readinessError
       : null
@@ -3168,6 +3340,8 @@ const chains = await pipeline(
       readyOpError: host ? host.readyOpError : undefined,
       readyOpDishonoured: Boolean(host && host.readyOpReply !== undefined && !readinessReply),
       opReviews,
+      ...(wave ? { chattyWave: true } : {}),
+      ...(reviewNote ? { reviewNote } : {}),
     }
   },
 )
@@ -3397,6 +3571,9 @@ function findingCounts(chain, reply) {
   }
   const pRows = (chain.premise && chain.premise.rows) || []
   blocking += premiseBlockingRows(pRows, reply).length
+  for (const k of (reply && Array.isArray(reply.blocking)) ? reply.blocking : []) {
+    if (typeof k === 'string' && (k.startsWith('anchor-premise') || k.startsWith('anchor-premises-'))) blocking += 1
+  }
   const cov = chain.coverage
   if (cov) {
     const judged = cov.judgmentFindings || 0
@@ -3735,7 +3912,7 @@ const trailById = new Map(fireChains.map((chain) => {
       : ''
     const aliases = reviews.filter((r) => r.aliased)
     return [baton.id, `  - ${baton.id} "${baton.title}" [${decision.tshirt}, ${decision.route}]
-      plan: ${plan ? plan.planPath : '(not written)'}${plan && plan.status === 'blocked' ? ` — BLOCKED: ${plan.blockedReason}` : ''}${plan && plan.planPathCorrected ? `\n      planPath CORRECTED: planner returned ${plan.planPathCorrected} (a trail sidecar); the baton's own plan path was used instead` : ''}${substitutions && substitutions.length ? `\n      reviewer substitution: ${substitutions.join('; ')}  <-- the plan was NOT reviewed by whom the em named` : ''}
+      plan: ${plan ? plan.planPath : '(not written)'}${plan && plan.status === 'blocked' ? ` — BLOCKED: ${plan.blockedReason}` : ''}${plan && plan.planPathCorrected ? `\n      planPath CORRECTED: planner returned ${plan.planPathCorrected} (a trail sidecar); the baton's own plan path was used instead` : ''}${substitutions && substitutions.length ? `\n      reviewer substitution: ${substitutions.join('; ')}  <-- the plan was NOT reviewed by whom the em named` : ''}${chain.reviewNote ? `\n      review path: ${chain.reviewNote}` : ''}${chain.chattyWave ? '\n      review path: one chatty wave (concurrent reviewers; a dedicated host ran the readiness op)' : ''}
       premise-check: ${premiseCheckLine}
       reviews: ${verdicts}${pivots.length ? `  <-- PIVOT (${pivots.map((r) => r.reviewer).join(', ')})` : ''}${blockers.length && !pivots.length ? '  <-- BLOCKED, fixable' : ''}${mixed}${aliases.length ? `\n      alias resolved: ${aliases.map((r) => `${r.reviewer}: ${r.aliased}`).join('; ')}` : ''}
       ${reviews.map((r) => `sidecar: ${r.sidecarPath}${r.premiseFailure ? ` premise-failure: ${r.premiseFailure}` : ''}${r.alternativesConsidered ? ` alternatives: ${r.alternativesConsidered}` : ''}`).join('\n      ')}
@@ -3785,7 +3962,7 @@ function opVerdictFor(chain) {
   const pivots = reviews.filter((r) => r.pivot)
   if (pivots.length) {
     const who = pivots.map((r) => r.reviewer).join(', ')
-    return { ...base, verdict: 'replan', reason: `${who} returned PIVOT`, replanBrief: pivotReplanBrief(reviews) }
+    return { ...base, verdict: 'replan', reason: `${who} returned PIVOT`, replanBrief: pivotReplanBrief(reviews) + (chain.chattyWave ? '\nThe plan is peer-edited: concurrent reviewers may have applied edits before the PIVOT landed, and nothing reverts them.' : '') }
   }
   const standing = standingById.get(baton.id)
   if (standing && standing.verdict === 'errored') {

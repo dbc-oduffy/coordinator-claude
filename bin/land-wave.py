@@ -38,6 +38,17 @@ REFUSALS, all before any landing is attempted:
     commit that has not been made. The op validates each prior itself.
   - a file that is neither a wave result nor a task-output envelope carrying one.
 
+COLD, BY MEASUREMENT. This driver stays off `warm_entrypoint_allowlist.json`; each op goes
+out over `cc_invoke`, one bounded call under its own budget. Process time (user+sys) and
+spawns, Apple M5 Pro, HEAD ae2d1f7256: the driver costs ~53-56ms per landing, flat in the
+fire count (n=3 and n=7), 2 processes (the interpreter plus one `git status` in
+`_dirty_among`); ~41ms of that is the interpreter and compile before the first op, against
+DR-344's <50ms warm-reach bar. Served warm instead, a landing was 52-70ms on a fixture that
+stubs the gate, but the real cost is `gate_v2.compute_gate_report` called twice per fire
+(~390ms per fire on the real corpus, ~2.7s for 7 fires), which grows with fires and is what
+reached the 30s `DISPATCH_TIMEOUT_SECS` guard. A warm envelope therefore fails the
+500ms rule and the grows-with-n test, so the driver stays cold and the timeout is untouched.
+
 Usage:
 
     python3 land-wave.py --repo-root <abs> [--shipped-in <sha>] [--branch <name>]
@@ -344,24 +355,40 @@ def _archive_result(result: dict) -> Path | None:
 
 
 def _invoke(repo_root: Path, op: str, params: dict, live_engine_tree: bool = False) -> dict:
-    """Dispatch `op` through the engine's own JSON-RPC dispatcher, IN-PROCESS.
+    """One op call over the warm client transport — each fire's `roadmap.blitz_land`, each ship
+    and the closing commit is its own bounded op under its own budget.
 
-    Through 2026-09-18 this spawned a `coordinator-invoke` subprocess (a launcher at the
-    settings home, or a `--engine-root` checkout's own trampoline, run COLD under
-    `--live-engine-tree`), because this CLI lived in coordinator-content-repo and could not import the
-    engine directly. It now lives inside the engine repo itself
-    (`docs/plans/2026-09-18-doe-holds-no-scripts.md`) and is served by the warm door, so
-    that boundary is gone: `coordinator_core` is importable off this same tree
-    (`cc_invoke.require_colocated_engine_on_path`), and DR-344 forbids spawning a cold
-    interpreter per wave-result file — of which a `land-wave` run can carry several — when
-    one in-process `coordinator_core.ipc.dispatch_message` call does the same job with the
-    same envelope, the same stamp gate (`live_engine_tree` still opts out of it via
-    `allow_unstamped_dispatch`, exactly as `--allow-unstamped-dispatch` did), and the same
-    result/error translation, for zero spawns. `--engine-root`/`--live-engine-tree` still
-    gate whether the stamp gate is disarmed (see `_refuse_live_tree_on_a_stamped_engine`);
-    they no longer select WHICH engine answers, since there is only ever the one this
-    process is already running inside.
+    This CLI is a client-side driver (`door_exempt: client-driver`): it is OFF the warm-load
+    allowlist, so the door runs it cold and no single `invoke.from_argv` envelope wraps the
+    whole landing. `cc_invoke.cc_invoke` reaches the warm engine and only on a miss falls to
+    its own stamped in-process rung; any failure raises `ValueError`, so a refusal stays a
+    reply, never a crash.
+
+    `cc_invoke.cc_invoke` takes no unstamped-dispatch parameter, so `live_engine_tree` keeps
+    the engine's in-process `dispatch_message` path (`_invoke_in_process`) for that flag only.
     """
+    if live_engine_tree:
+        return _invoke_in_process(repo_root, op, params)
+    try:
+        import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
+        import cc_invoke
+    except Exception as exc:
+        raise ValueError(
+            f"{op}: client transport unresolvable: {exc} — set COORDINATOR_ENGINE_ROOT to the "
+            "engine checkout or run the settings-home `land-wave` launcher"
+        )
+    try:
+        result = cc_invoke.cc_invoke(op, params, str(repo_root))
+    except Exception as exc:
+        raise ValueError(f"{op} refused: {exc}") from exc
+    if not isinstance(result, dict):
+        raise ValueError(f"{op} returned a non-dict result: {result!r}")
+    return result
+
+
+def _invoke_in_process(repo_root: Path, op: str, params: dict) -> dict:
+    """`--live-engine-tree` only: dispatch through `coordinator_core.ipc.dispatch_message`
+    with the build-stamp gate disarmed, because the live tree carries no stamp."""
     import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_colocated_engine_on_path
 
@@ -371,8 +398,7 @@ def _invoke(repo_root: Path, op: str, params: dict, live_engine_tree: bool = Fal
 
     from coordinator_core.ipc import WORKTREE_SCOPED_OPS, allow_unstamped_dispatch, dispatch_message
 
-    if live_engine_tree:
-        allow_unstamped_dispatch()
+    allow_unstamped_dispatch()
 
     msg: dict = {"jsonrpc": "2.0", "id": 1, "method": op, "params": params}
     if op in WORKTREE_SCOPED_OPS:

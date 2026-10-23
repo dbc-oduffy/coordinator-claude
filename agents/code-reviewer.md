@@ -44,24 +44,24 @@ You **always** write findings to a sidecar and return a short pointer line only.
 DONE: <sidecar-path> | verdict: <OK|WARN|BLOCKED> | findings: <N> | executed: <yes|no>
 ```
 
-Never the findings body inline; the EM reads it from the sidecar on disk.
+Never the findings body inline; the EM reads the sidecar.
 
-**Dispatched inside the execute-review workflow** (a `schema:` naming `slice-review-result` from `review-stage.schema.json`): return the structured result the injected schema names — counts and sidecar anchors, never findings inline — instead of the `DONE:` line above.
+**Dispatched inside the execute-review workflow** (a `schema:` naming `slice-review-result` from `review-stage.schema.json`): return the structured result the injected schema names — counts and sidecar anchors, never findings inline — instead of the `DONE:` line above. In a plan-path run your slice belongs to an executor group and you start once that group's writing rows land, while other rows may still run: read only the frozen diff for your slice.
 
 ## HARD RULE: Open your sidecar, read everything, write last
 
 **In order, no exceptions.**
 1. **OPEN your provisioned sidecar** — `state/subagent-share/<session-id>/<provision_key>.md`, spawn-provisioned before you run and named in your brief as `sidecar_path:`/`SIDECAR_PATH`/equivalent. Don't `find` for another file.
 
-**No usable sidecar → scaffold, never stop.** Brief carries `sidecar_provisioning: missed`, names a path not on disk, or names none? Run the one scaffolder your allowlist permits — `coordinator-doc-new --type review-findings --slice <slice-id> --scope <comma-paths>`. The path it prints is your sidecar; your pointer names it. Note the miss in your Summary.
+**No usable sidecar → scaffold, never stop.** Brief carries `sidecar_provisioning: missed`, names a path not on disk, or names none? Run the one scaffolder your allowlist permits — `coordinator-doc-new --type review-findings --slice <slice-id> --scope <comma-paths>`. The path it prints is your sidecar; your pointer names it. Note it in the Summary.
 
-2. **READ AND REASON** across the entire diff. **The frozen file the dispatch brief injects a path to — typically `state/review-trail/diffs/<slice-id>.diff` — is the diff, read in full before any working-tree reading**; authoritative when present. The working tree is context — Read it freely. **Content search is `Grep`** (no shell, no allowlist); `grep` via Bash is a fallback — quote patterns containing `|`, `;`, `$(`, or a backtick. Do not Edit during this phase. If a search you couldn't run was needed to reach a conclusion, say so in the findings.
+2. **READ AND REASON** across the entire diff. **The frozen file the dispatch brief injects a path to — typically `state/review-trail/diffs/<slice-id>.diff` — is the diff, read in full before any working-tree reading**; authoritative when present. The working tree is context — Read it freely. **Content search is `Grep`**; `grep` via Bash is a fallback — quote patterns containing `|`, `;`, `$(`, or a backtick. Do not Edit during this phase. If a search you couldn't run was needed, say so in the findings.
 
 **`wasteReport`** -- a slice field naming an on-disk attributed waste JSON; cite its `attribution.status` (`measured` vs `not-measurable`, never treat the latter as zero) beside any severity/blocking call.
 
-**DEGRADED MODE — no diff path provided.** Recover the diff via `git show`/`git diff`/`git log`; on-disk read only if unrecoverable. State the degradation and what was lost in the Summary.
+**DEGRADED MODE — no diff path provided.** Recover the diff via `git show`/`git diff`/`git log`; on-disk read only if unrecoverable. State what was lost in the Summary.
 
-3. **APPLY, LEDGER, VERIFY**: Edit the reviewed artifact in place, per finding. Fill the sidecar's `## Findings` (and `## Exit interview` prompts) — no draft, no partial-then-final second Edit — plus a `## Findings Ledger`: one fenced ` ```json ` array, one row per finding: `{"id": "finding-<N>", "file": "<repo-relative>", "before": "<text replaced, or empty for insertion>", "after": "<text now present, or empty for deletion>"}`. `REJECTED`/`PIVOT`: apply nothing, log every row `"status": "suspended"`. Under `OK`/`WARN`, `suspended` does not exist: a finding you think the EM should weigh is still applied, in its narrowest form, with the alternative named in the finding. Then run `review-findings-ledger verify --sidecar <your sidecar>`; exit 0 is done, non-zero names failing rows.
+3. **APPLY, LEDGER, VERIFY**: Edit the reviewed artifact in place, per finding. Fill the sidecar's `## Findings` (and `## Exit interview` prompts) — no draft, no partial-then-final second Edit — plus a `## Findings Ledger`: one fenced ` ```json ` array, one row per finding: `{"id": "finding-<N>", "file": "<repo-relative>", "before": "<text replaced, or empty for insertion>", "after": "<text now present, or empty for deletion>"}`. `REJECTED`/`PIVOT`: apply nothing, log every row `"status": "suspended"`. Under `OK`/`WARN`, `suspended` does not exist: a finding you think the EM should weigh is still applied, in its narrowest form, with the alternative named in the finding. Run `review-findings-ledger verify --sidecar <your sidecar>`; exit 0 is done, non-zero names failing rows.
 
 **The findings Edit's `old_string` must consume the `## Findings` heading AND its placeholder comment** (`<!-- One entry per finding: … -->` spawn-provisioned, `<!-- FINDINGS -->` self-scaffolded) — surviving below your findings makes `verify` refuse the sidecar as unwritten.
 
@@ -78,14 +78,14 @@ Nits are first-class findings, not footnotes. Counts as a finding:
 - Dead code, commented-out blocks, unused imports/parameters/branches
 - A function having no comments is not itself a finding
 - Tests that exercise the implementation rather than the behavior, or pass without asserting the diff's actual change
-- Magic numbers, repeated literals, near-duplicated blocks that should be extracted (or premature abstractions that should be inlined)
+- Magic numbers, repeated literals, near-duplicated blocks to extract (or premature abstractions to inline)
 - Error handling that swallows, generalizes, or papers over root causes
 - Functions/modules/files doing more than one job or growing past coherent scope
-- Comments, docstrings, or docs that contradict or drifted from the code
+- Docs or docstrings that contradict the code
 - Style inconsistent with neighbors
 - Subtle correctness traps: off-by-one, signed/unsigned, TOCTOU, locale, encoding, integer overflow, race conditions, leaked handles, swallowed exceptions
 
-**No deferral or softening language** ("consider in a follow-up", "minor, but…"). A finding is stated directly or not at all; severity is a separate field.
+**No deferral or softening language** ("consider in a follow-up", "minor, but…"); severity is a separate field.
 
 ## Partitioned-dispatch hand-off note
 

@@ -41,7 +41,10 @@ NEGATIVE SPEC. This module never forces, resets, rebases, or discards: every
 update here is fast-forward-only, with one exception narrow enough to name. A
 landing branch that has diverged from its upstream is a human's call -- the
 round refuses and says so, and no code path here can turn a divergence into a
-silent overwrite. There is deliberately no override flag; a caller that wants
+silent overwrite. The one sanctioned abort outside a failed merge of our own is a
+MERGE_HEAD whose message names this module's peer-merge of the upstream, left by
+a killed round (`_recover_interrupted_op`); every other in-progress operation
+is refused untouched. There is deliberately no override flag; a caller that wants
 to publish from a stale clone has to make the clone not stale.
 
 THE ONE RECONCILED DIVERGENCE: A SUBSUMED PEER PUBLISH. Two boxes publish the
@@ -66,6 +69,12 @@ from pathlib import Path
 from typing import List, Optional, TextIO
 
 from coordinator_core.git.run import GitResult, run_git
+from percolate.interrupted_op import (
+    inspect_in_progress,
+    is_own_peer_merge,
+    peer_merge_message,
+)
+from percolate.peer_merge_regen import resolve_derived_after_merge
 
 _SOURCE_HEAD_STAMP = re.compile(r"\[source-head ([0-9a-f]{7,40})\]")
 
@@ -143,6 +152,55 @@ def _ahead_behind(
         return int(parts[0]), int(parts[1]), None
     except ValueError:
         return None, None, "unparseable rev-list output: {0!r}".format(proc.stdout)
+
+
+_ENDS_IN_PROGRESS = {
+    "merge": "merge --abort",
+    "cherry-pick": "cherry-pick --abort",
+    "revert": "revert --abort",
+    "rebase": "rebase --abort",
+    "bisect": "bisect reset",
+}
+
+
+def _recover_interrupted_op(
+    repo_root: Path, upstream: Optional[str], *, out: TextIO
+) -> Optional[str]:
+    """Round-start recovery: a refusal string, or None when the mirror is clear to use.
+
+    The one sanctioned abort: a MERGE_HEAD whose MERGE_MSG is this module's own
+    peer-merge of `upstream`, left by a round killed before its `merge --abort`.
+    Any other in-progress operation is a human's and is refused untouched.
+    """
+    op = inspect_in_progress(repo_root)
+    if op is None:
+        return None
+    if op.kind == "merge" and upstream and is_own_peer_merge(op.detail, upstream):
+        abort = _git(repo_root, ["merge", "--abort"])
+        if abort.returncode != 0:
+            return (
+                "{0} has an interrupted peer-merge of {1} that could not be aborted ({2})\n"
+                "  Fix: git -C {0} merge --abort".format(
+                    repo_root,
+                    upstream,
+                    _last_line(abort.stderr or abort.stdout, "merge --abort failed"),
+                )
+            )
+        print(
+            "[dest-refresh] {0}: aborted an interrupted peer-merge of {1} left by a "
+            "killed round".format(repo_root, upstream),
+            file=out,
+        )
+        return None
+    return (
+        "{0} has a {1} in progress ({2}); a round cannot run over it\n"
+        "  Fix: git -C {0} {3}".format(
+            repo_root,
+            op.kind,
+            op.detail or "no message",
+            _ENDS_IN_PROGRESS.get(op.kind, "status"),
+        )
+    )
 
 
 def _refresh_local_main(repo_root: Path, checked_out: Optional[str]) -> Optional[str]:
@@ -317,6 +375,10 @@ def refresh_dest_from_origin(
         if refusal is not None:
             return RefreshResult(repo_root, ok=False, reason=refusal, branch=branch)
 
+    stuck = _recover_interrupted_op(repo_root, upstream, out=out)
+    if stuck is not None:
+        return RefreshResult(repo_root, ok=False, reason=stuck, branch=branch, upstream=upstream)
+
     print(
         "[dest-refresh] {0}: fetching origin (landing branch {1})".format(repo_root, branch),
         file=out,
@@ -349,7 +411,10 @@ def refresh_dest_from_origin(
 
     subsumed = _subsumed_by_source(repo_root, upstream, source_root, source_ref) if ahead and behind else None
     if subsumed is not None:
-        merge = _git(repo_root, ["merge", "-s", "ours", "--no-edit", upstream])
+        merge = _git(
+            repo_root,
+            ["merge", "-s", "ours", "--no-edit", "-m", peer_merge_message(upstream, branch), upstream],
+        )
         if merge.returncode != 0:
             _git(repo_root, ["merge", "--abort"])
             subsumed = None
@@ -532,6 +597,10 @@ def reconcile_dest_before_push(repo_root: Path, *, out: TextIO, err: TextIO) -> 
         if refusal is not None:
             return RefreshResult(repo_root, ok=False, reason=refusal, branch=branch)
 
+    stuck = _recover_interrupted_op(repo_root, upstream, out=out)
+    if stuck is not None:
+        return RefreshResult(repo_root, ok=False, reason=stuck, branch=branch, upstream=upstream)
+
     fetch = _git(repo_root, ["fetch", "--no-tags", "--prune", "origin"], remote=True)
     if fetch.returncode != 0:
         return RefreshResult(
@@ -566,32 +635,80 @@ def reconcile_dest_before_push(repo_root: Path, *, out: TextIO, err: TextIO) -> 
         "round; merging before push".format(repo_root, branch, behind, upstream),
         file=out,
     )
-    merge = _git(
-        repo_root,
-        ["merge", "--no-edit", upstream],
-    )
-    if merge.returncode != 0:
-        detail = _last_line(merge.stdout or merge.stderr, "merge failed")
-        _git(repo_root, ["merge", "--abort"])
+    def refused(reason: str) -> RefreshResult:
         return RefreshResult(
             repo_root,
             ok=False,
-            reason=(
-                "{0}'s {1} and {2} both changed the same published paths and could not be "
-                "merged ({3}); the merge was aborted and nothing was pushed -- resolving "
-                "which box's source is right is a human's call".format(
-                    repo_root, branch, upstream, detail
-                )
-            ),
+            reason=reason,
             branch=branch,
             upstream=upstream,
             ahead=ahead,
             behind=behind,
         )
 
+    regenerated: tuple = ()
+    if not ahead:
+        merge = _git(repo_root, ["merge", "--no-edit", upstream])
+        if merge.returncode != 0:
+            detail = _last_line(merge.stdout or merge.stderr, "merge failed")
+            _git(repo_root, ["merge", "--abort"])
+            return refused(
+                "{0}'s {1} could not fast-forward to {2} ({3}); nothing was pushed".format(
+                    repo_root, branch, upstream, detail
+                )
+            )
+    else:
+        merge = _git(
+            repo_root,
+            [
+                "merge", "--no-commit", "--no-edit", "-m",
+                peer_merge_message(upstream, branch), upstream,
+            ],
+        )
+        if merge.returncode != 0 and inspect_in_progress(repo_root) is None:
+            return refused(
+                "git refused to start the peer merge of {0} into {1} in {2} ({3}); "
+                "nothing was pushed".format(
+                    upstream,
+                    branch,
+                    repo_root,
+                    _last_line(merge.stderr or merge.stdout, "merge failed"),
+                )
+            )
+        regen = resolve_derived_after_merge(repo_root, lambda a: _git(repo_root, a))
+        if not regen.ok:
+            _git(repo_root, ["merge", "--abort"])
+            return refused(
+                "{0}'s {1} and {2} both changed the same published paths and could not be "
+                "merged ({3}); the merge was aborted and nothing was pushed -- resolving "
+                "which box's source is right is a human's call".format(
+                    repo_root,
+                    branch,
+                    upstream,
+                    ", ".join(regen.unmerged_other) or _last_line(merge.stdout or merge.stderr, "merge failed"),
+                )
+            )
+        commit = _git(repo_root, ["commit", "--no-edit"])
+        if commit.returncode != 0:
+            _git(repo_root, ["merge", "--abort"])
+            return refused(
+                "could not commit the peer merge of {0} into {1} in {2} ({3}); the merge "
+                "was aborted and nothing was pushed".format(
+                    upstream,
+                    branch,
+                    repo_root,
+                    _last_line(commit.stderr or commit.stdout, "git commit failed"),
+                )
+            )
+        regenerated = regen.regenerated
+
     print(
-        "[dest-refresh] {0}: merged {1} ({2} peer commit(s)) into {3}".format(
-            repo_root, upstream, behind, branch
+        "[dest-refresh] {0}: merged {1} ({2} peer commit(s)) into {3}{4}".format(
+            repo_root,
+            upstream,
+            behind,
+            branch,
+            " (regenerated: {0})".format(", ".join(regenerated)) if regenerated else "",
         ),
         file=out,
     )

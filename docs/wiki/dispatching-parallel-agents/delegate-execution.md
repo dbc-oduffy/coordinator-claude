@@ -91,7 +91,7 @@ Vague specs invite hallucinated completion — agents with vague instructions wi
 
 **For dependent stubs** (shared files or sequential prerequisites):
 
-- Dispatch a **fresh executor per stub/chunk**, one at a time, waiting for completion before starting the next — never one long-lived agent handed chunk after chunk (the overload in slow motion: context accumulation, growing blast radius, degrading judgment).
+- Dispatch a **fresh executor per stub/chunk**, waiting on a predecessor only across a shared-file edge — never one long-lived agent handed chunk after chunk (the overload in slow motion: context accumulation, growing blast radius, degrading judgment).
 - **Distinguish the two dependency kinds before serializing.** A *shared-file* dependency is genuinely serial — file-overlap is the unconditional gate. But a *pure sequential-prerequisite* dependency (B consumes A's output/contract, disjoint files) only gates B's **verification**, not its **authoring**: if A's interface is pinned (full signature written down, authorable-against without asking the producer), B can be authored concurrently with verification concentrated at merge. **By default, author pinned-interface consumers concurrently** — serialize into a predecessor wave only when the interface can't be confidently pinned, or per-chunk blast-radius isolation is worth the serialization on a high-stakes surface. → `docs/wiki/dispatching-parallel-agents.md` § Dispatch-Gate Taxonomy (Author vs. verify).
 - Pass any relevant context from the previous executor's output
 - **A single coupled stub that exceeds the per-executor budget (~5-10 min / one coherent surface, 15 min hard ceiling) is itself decomposed into a sequence of fresh-agent dispatches with EM verify-between.** "Can't parallelize" ≠ "one dispatch" — coupling removes concurrency, not decomposition. This is lighter than the Opus-tech-lead pattern below; reserve that for genuinely large stubs needing a dedicated coordinating context. → `docs/wiki/dispatching-parallel-agents.md` § Coupling Rules Out Concurrency, Not Decomposition.
@@ -100,9 +100,7 @@ Vague specs invite hallucinated completion — agents with vague instructions wi
 
 - **Dispatch a dedicated Opus agent as tech lead** — do NOT supervise from the coordinator session directly. The coordinator's context is the scarcest resource in the system; filling it with sub-task orchestration for one large stub wastes capacity that should be reserved for cross-stub decisions, PM conversations, and portfolio-level orchestration.
 - The Opus tech lead receives the full enriched stub spec and owns the deliverable end-to-end:
-  - Decomposes the stub into sequential sub-tasks at seam boundaries
-  - Dispatches Sonnet executors one at a time for each sub-task
-  - Verifies each executor's output against the master spec before dispatching the next
+  - Decomposes at seams, dispatches Sonnet executors concurrently (held back only by a shared file or unpinned interface), verifies each against the master spec as it returns
   - Makes micro-decisions within the spec's intent without escalating to the coordinator
   - Can chip in directly on a complex sub-task if a Sonnet executor would struggle with it
 - The tech lead reports back to the coordinator with a single completion report (DONE/DONE_WITH_CONCERNS/BLOCKED), not a stream of per-sub-task updates

@@ -61,7 +61,7 @@ session-scoped test-invocation grant, same as Tier U — a chained `fast_test_cm
 denied as Tier U today by a guard equality-check limitation; configure `fast_test_cmd` as a single
 command instead) run per wave; Tier U (full suite / unscoped runner) is reserved for the cadence
 gate at the end — N waves must not mean N full-suite runs. Code review is the emitted workflow's
-own review stages (one parallel review wave; each reviewer applies its own findings), run once at the end of the
+own review stages (per executor group; each reviewer applies its own findings), run once at the end of the
 run, never per chunk and never sequential; `/workstream-complete` is bookkeeping (plan status,
 lessons, docs, commit/merge hygiene, handoff) and carries no reviewer dispatch of its own.
 

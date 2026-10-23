@@ -129,6 +129,12 @@
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/track-dispatched-agents.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
+          },
+          {
+            "type": "command",
+            "command": "COORDINATOR_DOOR_STDIN_MODE=hook \"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/hook-run\" --advisory hooks.workflow_step_dispatch 2>/dev/null; rc=$?; [ $rc -eq 2 ] && rc=0; exit $rc",
+            "shell": "bash",
+            "timeout": 1
           }
         ]
       }
@@ -148,6 +154,12 @@
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/subagent-zero-tool-use-detect.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
+          },
+          {
+            "type": "command",
+            "command": "COORDINATOR_DOOR_STDIN_MODE=hook \"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/hook-run\" --advisory hooks.workflow_step_dispatch 2>/dev/null; rc=$?; [ $rc -eq 2 ] && rc=0; exit $rc",
+            "shell": "bash",
+            "timeout": 1
           }
         ]
       }

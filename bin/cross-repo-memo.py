@@ -2830,10 +2830,11 @@ def _cmd_draft(args: argparse.Namespace) -> int:
     )
 
     if body_text is not None:
+        compose_params = {"dry_run": False, "topic": topic, "body": body_text}
+        if summary is not None:
+            compose_params["summary"] = summary
         try:
-            composed = cc_invoke.route_mutation(
-                "memo.compose", {"dry_run": False, "topic": topic, "body": body_text}, sender_root, legacy_draft
-            )
+            composed = cc_invoke.route_mutation("memo.compose", compose_params, sender_root, legacy_draft)
         except RuntimeError as exc:
             print(f"cross-repo-memo draft: draft written, body NOT composed: {exc}", file=sys.stderr)
             _print_route_mutation_failure_reasons(exc)

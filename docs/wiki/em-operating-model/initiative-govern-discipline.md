@@ -250,7 +250,8 @@ Step 4.
 ## Cross-Links
 
 - **Initiative entity schema:** `coordinator/schemas/initiative.schema.json` — `id`, `label`,
-  `owner`, `status` (`active|paused|shipped|abandoned`), `target_date`.
+  `owner`, `status` (`active|paused|shipped|abandoned|closed`), `closed_reason`, `closed_at`,
+  `target_date`.
 - **CLI:** the engine repo's `coordinator/bin/coordinator-initiative` — `create` (fail-loud on
   collision), `attach` (FK-write to artifact frontmatter), `list-unattached` (thin wrapper over
   `query-records --unattached`).

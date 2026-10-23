@@ -241,6 +241,7 @@ before tc-1/tc-2 inherit the doctrine.
 | plan | status | implemented | DONE | implemented (tc-1) |
 | plan | status | deferred | BLOCKED | implemented (tc-1) |
 | plan | status | abandoned | DONE | implemented (tc-1) |
+| plan | status | closed | DONE | implemented (lvv-06) |
 | plan | status | superseded | DONE | implemented (tc-1) |
 | decision | status | proposed | LIVE | implemented (tc-1) |
 | decision | status | accepted | DONE (a decision record is terminal once in force) | implemented (tc-1) |

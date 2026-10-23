@@ -64,7 +64,7 @@ HEAVY = re.compile(
 PROTECTED_HARD = re.compile(
     r"(?:^|/)claude(?:\.exe)?(?:\s|$)|tsserver|language-server|firebase"
     r"|deploy-from-snapshot|deploy:"
-    r"|scratch/deploy-|group-em-memory-governor"
+    r"|scratch/deploy-|group-em-memory-governor|(?:^|[/\\])conhost(?:\.exe)?(?:\s|$)"
 )
 PROJECT_RAG = re.compile(r"project_rag")
 MIN_RSS_MB = 300
@@ -102,7 +102,9 @@ def choose_victim(procs: list[Proc], paused: set[int], self_pid: int,
     A worker whose parent is itself a candidate is never chosen alone; its parent's tree covers it.
     """
     heavy = {p.pid for p in procs if is_candidate(p, self_pid, noticed, tree)}
-    pool = [p for p in procs if p.pid in heavy and p.pid not in paused and p.ppid not in heavy]
+    rss = {p.pid: p.rss_mb for p in procs}
+    pool = [p for p in procs if p.pid in heavy and p.pid not in paused and p.ppid not in heavy
+            and sum(rss.get(t, 0.0) for t in descendants(p.pid, procs)) >= MIN_RSS_MB]
     return min(pool, key=lambda p: p.age_s) if pool else None
 
 

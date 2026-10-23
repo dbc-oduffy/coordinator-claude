@@ -19,7 +19,7 @@ any filename containing `.prior-art-check`, `.coverage-check`, `.docs-check`, `.
 `.check.`. They inherit their parent plan's `status:` and pollute the candidate set if left in.
 
 Rough-sort by frontmatter `status:`:
-- `superseded` / `abandoned` / `cancelled` → **ABANDONED**, no further oracle work.
+- `superseded` / `closed` / `abandoned` / `cancelled` → **ABANDONED**, no further oracle work.
 - `draft` / `in-progress` / `reviewed` → **IN-FLIGHT**, no further oracle work.
 - `implemented` / `shipped` → queue for Oracle 2 + 3.
 
@@ -76,7 +76,7 @@ unnamed in frontmatter or notes: identify them from the plan's ACs.
 | `implemented`/`shipped` | artifacts exist AND tests green | `UNAVAILABLE` (post-freeze) | **REVIEW-UNKNOWN** |
 | `implemented`/`shipped` | ≥1 artifact absent/wrong at HEAD, OR tests red, OR unverifiable | (any) | **PARTIAL** |
 | `in-progress`/`draft`/`reviewed` | (any) | (any) | **IN-FLIGHT** |
-| `superseded`/`abandoned`/`cancelled` | (any) | (any) | **ABANDONED** |
+| `superseded`/`closed`/`abandoned`/`cancelled` | (any) | (any) | **ABANDONED** |
 
 Tie-breaks: `implemented` with nothing independently checkable (no artifact claims, no test
 suite) → **PARTIAL**, not DELIVERED — self-assertion alone is not delivery. `draft` with

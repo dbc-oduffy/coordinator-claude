@@ -70,8 +70,43 @@ class MemoryStatus:
     commit_limit: int
 
 
+def memory_status_darwin(avail_mb_fn=None, vm_fn=None, swap_fn=None) -> MemoryStatus:
+    """macOS memory status; raises OSError when available memory is unreadable.
+
+    Available is the kernel figure from `host_sampler.avail_mb` (free + inactive + speculative
+    pages). macOS has no commit limit, so commit_limit is physical + current swap capacity and
+    commit_used is (physical - available) + swap in use; swap grows on demand, so the limit is a
+    floor, not a ceiling. Per-process footprint on macOS is `ri_phys_footprint` (resident +
+    compressed + swapped), read by the governor; it exceeds `ps` RSS for a compressed or swapped
+    process by design.
+    """
+    if avail_mb_fn is None:
+        from coordinator_core.telemetry import host_sampler
+
+        avail_mb_fn = host_sampler.avail_mb
+    if vm_fn is None or swap_fn is None:
+        import psutil
+
+        vm_fn = vm_fn or (lambda: psutil.virtual_memory().total)
+        swap_fn = swap_fn or (lambda: (lambda s: (s.total, s.used))(psutil.swap_memory()))
+    avail_mb, _total_mb = avail_mb_fn()
+    if avail_mb is None:
+        raise OSError("available physical memory unreadable")
+    total = int(vm_fn())
+    swap_total, swap_used = swap_fn()
+    avail = min(int(avail_mb) * 1048576, total)
+    return MemoryStatus(
+        avail_phys=avail,
+        total_phys=total,
+        commit_used=(total - avail) + int(swap_used),
+        commit_limit=total + int(swap_total),
+    )
+
+
 def read_memory_status() -> MemoryStatus:
-    """Read GlobalMemoryStatusEx. Windows only; raises OSError on API failure."""
+    """Read GlobalMemoryStatusEx (Windows) or the macOS equivalent; raises OSError on failure."""
+    if sys.platform == "darwin":
+        return memory_status_darwin()
     import ctypes
 
     class _MEMORYSTATUSEX(ctypes.Structure):

@@ -11,8 +11,8 @@
 | **Tiny edit** | Fix a typo, update a constant, rename a variable | Direct EM edit — no plan, no dispatch | None required | < 5 min | Commit + push |
 | **Small fix** | One-function bug fix, add a missing guard, tweak a config value | `coordinator:systematic-debugging` (for bugs) or direct edit | Optional: quick the Staff Engineer pass if the fix touches shared state | 5–20 min | Commit + push; reviewer finding if risky |
 | **Feature** | New command, new skill, new agent, new integration | `/execute-plan` after PM approves a plan | Domain reviewer first (e.g., the Staff Engineer (`coordinator:staff-eng`) for UE, the Front-End Reviewer (`web-dev:senior-front-end`) for web), then the Staff Engineer (`coordinator:staff-eng`) as generalist; the Director of Engineering (`coordinator:eng-director`) as backstop at High effort | 30 min – 2 hrs | PR via `/merging-to-main`; ship verdict required |
-| **Refactor** | Extract a subsystem, rename a core abstraction, restructure a plugin | `/staff-session plan` to align on approach first, then `/execute-plan` | the Staff Engineer (architecture lens) + the Director of Engineering (backstop mode) — sequential | 1–4 hrs | PR; architecture atlas update via `/update-docs` |
-| **System rewrite** | Replace core pipeline, migrate hook architecture, multi-plugin overhaul | `/staff-session plan` (multi-perspective debate) → chunked execution via `/delegate-execution` | Full sequential chain: domain specialist → the Staff Engineer → the Director of Engineering (backstop mode); regression suite required | Half day – full day | PM sign-off on plan + ship verdict; `/workweek-complete` gate |
+| **Refactor** | Extract a subsystem, rename a core abstraction, restructure a plugin | `/staff-session plan` to align on approach first, then `/execute-plan` | the Staff Engineer (architecture lens) + the Director of Engineering (backstop mode) — one wave when chatty (§ A.3), else in order | 1–4 hrs | PR; architecture atlas update via `/update-docs` |
+| **System rewrite** | Replace core pipeline, migrate hook architecture, multi-plugin overhaul | `/staff-session plan` (multi-perspective debate) → chunked execution via `/delegate-execution` | Full chain: domain specialist → the Staff Engineer → the Director of Engineering (backstop mode), one wave when chatty (§ A.3), else in order; regression suite required | Half day – full day | PM sign-off on plan + ship verdict; `/workweek-complete` gate |
 
 ---
 
@@ -36,8 +36,8 @@
 |------|------|
 | Tiny edit | Tell the EM → EM edits → commit |
 | Small fix | Describe the bug → EM reproduces and diagnoses → fix → optional reviewer → commit |
-| Feature | Describe intent → plan review → `/execute-plan` → sequential review → `/merging-to-main` |
-| Refactor | `/staff-session plan` → plan review → execution in chunks → sequential review → `/merging-to-main` |
+| Feature | Describe intent → plan review → `/execute-plan` → review wave → `/merging-to-main` |
+| Refactor | `/staff-session plan` → plan review → execution in chunks → review wave → `/merging-to-main` |
 | System rewrite | `/staff-session plan` → PM approves → `/delegate-execution` (chunked) → full review chain → PM ship verdict |
 
 ---
@@ -62,9 +62,7 @@ note to keep it honest.
 
 `fast_test_cmd` is ratified as a **single command** (PM ruling) — the fast tier is one shell
 invocation, not a chain. If your fast tier genuinely needs multiple chained commands, that's a
-sign it belongs on the Tier-F (full/system) route instead of being force-fit into
-`fast_test_cmd` — don't chain commands with `&&`/`;` inside `fast_test_cmd` to route around the
-single-command rule.
+sign it belongs on the Tier-F (full/system) route, not chained with `&&`/`;` inside `fast_test_cmd`.
 
 ---
 
@@ -81,4 +79,4 @@ single-command rule.
 | Cross-team / cross-repo seams, consumer-producer plug-in architecture, generic-substrate review | the Director of Engineering (`coordinator:eng-director`) standalone |
 | Product scope / user-visible behavior | the VP-Product Reviewer (`coordinator:vp-product`) |
 
-Dispatch via `/review-dispatch`. Always sequential: domain expert first, generalist (the Staff Engineer) second, the Director of Engineering as backstop at High effort, fixes integrated between each pass.
+Dispatch via `/review-dispatch`. When chatty, all reviewers run as one parallel wave messaging via the mailbox (§ A.3); else domain expert, then the Staff Engineer, then the Director of Engineering as backstop, fixes integrated between passes.

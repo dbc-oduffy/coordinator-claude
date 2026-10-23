@@ -140,6 +140,21 @@ def _is_entrypoint_call(node: ast.expr) -> bool:
     return False
 
 
+def _forwards_entrypoint(
+    expr: ast.AST, assigns: dict[str, list[ast.expr]], _seen: frozenset[str] = frozenset()
+) -> bool:
+    """True when an entrypoint call appears anywhere in `expr`, or in any flat binding of a Name
+    in it. Cycle-safe: a name already being followed is not followed again."""
+    for sub in ast.walk(expr):
+        if _is_entrypoint_call(sub):
+            return True
+        if isinstance(sub, ast.Name) and sub.id not in _seen:
+            seen = _seen | {sub.id}
+            if any(_forwards_entrypoint(v, assigns, seen) for v in assigns.get(sub.id, ())):
+                return True
+    return False
+
+
 def _reads_the_world(node: ast.AST) -> bool:
     """True when the expression's value could come from outside this file.
 
@@ -177,6 +192,8 @@ class _Scan(ast.NodeVisitor):
         # reports `0` reports `0` however many branches guard it. Whether a computed value
         # reaches the exit is a property of both.
         self.exits: list[tuple[int, list[ast.expr], list[ast.expr]]] = []
+        self.forwarding: list[int] = []
+        self._exit_calls: list[tuple[ast.Call, list[ast.expr]]] = []
         self._conditions: list[ast.expr] = []
         self._function_stack: list[str] = []
 
@@ -265,9 +282,23 @@ class _Scan(ast.NodeVisitor):
     def visit_Call(self, node: ast.Call) -> None:
         target = node.func
         name = target.attr if isinstance(target, ast.Attribute) else getattr(target, "id", "")
-        if name in {"exit", "_exit"} and not self._is_entrypoint_trampoline(node):
-            self.exits.append((node.lineno, list(node.args), list(self._conditions)))
+        if name in {"exit", "_exit"}:
+            self._exit_calls.append((node, list(self._conditions)))
         self.generic_visit(node)
+
+    def settle(self) -> None:
+        """Classify the recorded `exit()` calls once `assigns` is complete, so the split form
+        (`sys.exit(code)` before `code = main(...)` in source order) reads the same either way.
+        Plumbing is dropped; a call that forwards an entrypoint value through anything else lands
+        in `forwarding`; the rest are verdict sites."""
+        for node, conditions in self._exit_calls:
+            if self._is_entrypoint_trampoline(node):
+                continue
+            if any(_forwards_entrypoint(arg, self.assigns) for arg in node.args):
+                self.forwarding.append(node.lineno)
+                continue
+            self.exits.append((node.lineno, list(node.args), conditions))
+        self._exit_calls = []
 
     # The trampoline exclusion must recognize more than the literal `sys.exit(main(...))`:
     # CONSTANT_EXIT/SEALED_EXIT are each one verdict over the union of every exit site, so an
@@ -432,10 +463,11 @@ def verdict_reaches_exit(source: str, filename: str = "<instrument>") -> dict:
 
     scan = _Scan()
     scan.visit(tree)
+    scan.settle()
     findings: list[dict] = []
     reaching = _influencers(scan.exits, scan.assigns)
 
-    if not scan.exits:
+    if not scan.exits and not scan.forwarding:
         findings.append(
             {
                 "code": "NO_EXIT_PATH",
@@ -444,7 +476,7 @@ def verdict_reaches_exit(source: str, filename: str = "<instrument>") -> dict:
                 "status, so nothing here can report red",
             }
         )
-    else:
+    elif scan.exits:
         reported = [expr for _, values, _ in scan.exits for expr in values]
         # Every expression that can reach the exit: the sites' own, plus the right-hand side of
         # every name they follow back to. Reading only the sites' own expressions would call
@@ -479,6 +511,19 @@ def verdict_reaches_exit(source: str, filename: str = "<instrument>") -> dict:
                     "full — no call, no argv, no environ, no stdin reaches it",
                 }
             )
+
+    if scan.forwarding and (not scan.exits or findings):
+        # An unrecognised wrapper or comparison around an entrypoint call may vary the status, so
+        # neither "fixed" nor "no exit" can be certified; a computed verdict site elsewhere
+        # (no finding yet) still arms the file.
+        findings = [
+            {
+                "code": "UNCHECKABLE",
+                "line": scan.forwarding[0],
+                "detail": "an exit forwards an entrypoint's result through a wrapper or comparison "
+                "this reader cannot vouch for, and no computed verdict site arms it",
+            }
+        ]
 
     codes = {f["code"] for f in findings}
     verdict = next((v for v in VERDICTS if v in codes), "ARMED")

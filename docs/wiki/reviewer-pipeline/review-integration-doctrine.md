@@ -61,9 +61,9 @@ own run-report — the only remaining writer of `integrated_from`.
   run `reject` — a subagent invoking it is denied by a bash guard. When a later reviewer's edit
   has superseded an earlier row's `after`, that later row carries `superseded_by: finding-<earlier-id>`
   instead of leaving it unrelated; `verify` accepts a row carrying `superseded_by` as satisfying
-  its own row without re-deriving evidence for the finding it names. No separate adjudication lane
-  exists between sequential reviewers on one artifact — the EM reads each reviewer's ledger and
-  the `superseded_by` chain directly.
+  its own row without re-deriving evidence for the finding it names (a chatty peer's later edit counts).
+  No adjudication lane exists between reviewers on one artifact — the EM reads each ledger and the
+  `superseded_by` chain directly.
 - `targets --add <repo-relative path>...` appends the review target set to
   `<git_root>/.git/coordinator-sessions/<em_session_id>/review-targets.txt`, one repo-relative
   forward-slash path per line, de-duplicated. The EM runs it before dispatching a confined
@@ -81,18 +81,17 @@ the guard is sandbox-only: the reviewer cannot apply its findings, and `verify` 
 rather than the write landing somewhere unintended. The reviewer Bash allowlist stays — reviewers
 edit, they do not execute; `verify` is on that allowlist.
 
-## Same artifact means sequential; disjoint slices mean parallel
+## Same artifact: in order or one chatty wave; disjoint slices mean parallel
 
-Two reviewers editing one artifact would race. A plan's reviewers run in sequence — premise
-checker first, each verifying before the next starts. A plan's review-phase wall time is therefore
-the sum of its reviewers' durations, not the slowest one alone.
+Outside a chatty run a plan's reviewers run in order (premise checker first, each verifying before
+the next starts). In a chatty run they run as one wave: a reviewer mails `CLAIM <region>` (a `## `
+section, spine row or frontmatter) to every peer before editing it, skips regions a peer holds,
+mails `RELEASE <region>` once its edits verify, and mails any ground shift.
 
-Code review over a diff is different: it runs as one parallel wave, and every reviewer in it —
-slice owners, Kira (`coordinator:overengineering-reviewer`), and every named persona — applies
-every finding it logs, in place, with an exact-text `Edit`, including a finding outside its own
-slice. When an `Edit` misses because another writer moved the text first, re-read and re-apply.
-The EM sweeps `verify` over every sidecar once the wave finishes and lands one scoped commit for
-the whole wave, never one per slice.
+Code review over a diff runs per executor group, and every reviewer in it — slice owners, Kira
+(`coordinator:overengineering-reviewer`), and any named persona — applies every finding it logs
+in place with an exact-text `Edit`, including one outside its own slice; a missed `Edit` is
+re-read and re-applied. The EM sweeps `verify` over every sidecar and lands one scoped commit.
 
 ## No integration pass
 

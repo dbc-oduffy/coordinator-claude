@@ -8,7 +8,7 @@ argument-hint: "[task-description]"
 # Workstream Start — Preflight and Orientation
 
 Multiple agents may
-run concurrently on the same repo — this orients ONE. Unlike `/pickup` (artifact-first, for a PM
+run concurrently on the same repo — this orients ONE. Orientation is not research: a build ask is fired, not surveyed; fire with context, own the swimlanes (`THE-EM-TIME-AND-COST-SPENT-IS-A-RED-FLAG`). Unlike `/pickup` (artifact-first, for a PM
 already pointing you at work), this is general orientation.
 
 ---

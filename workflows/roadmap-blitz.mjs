@@ -33,6 +33,8 @@
  *     runId: string,                // default derived from the sizing stem; ^[a-z0-9][a-z0-9-]*$
  *     approval: object,             // The hands-on resume: the recorded PM approval, bound inline by the emitter.
  *     pluginAgentsAvailable: bool,  // defaults true; only an explicit false disables coordinator:* types.
+ *     chatty: bool,                 // with chattyReview: reviewers run as one concurrent wave.
+ *     chattyReview: object,         // the engine's review-wave template; {BATON} is filled with runId.
  *     provisionSidecarCli: string,  // optional resolved `coordinator-doc-new` invocation.
  *     pluginRoot: string            // ABSOLUTE plugin root; emit-roadmap-fire.py binds it. The briefs
  *                                   // cite doctrine files under it, because a consumer repo has no
@@ -52,7 +54,7 @@ export const meta = {
   phases: [
     { title: 'Synthesize', detail: 'One roadmap-planner over the corpus writes inventory, clusters, reconciliation and any resolutions into the roadmap directory.' },
     { title: 'Substantiate', detail: 'One haiku scout per batch of up to 4 KEEP or MERGE-target clusters, at most 8 scouts at once, then the planner authors OVERVIEW and peer-team asks.' },
-    { title: 'Review', detail: 'Fires unconditionally. Staff or director reviewer, then a domain reviewer when a flavor maps to one. Each applies its own findings.' },
+    { title: 'Review', detail: 'Fires unconditionally. A staff or director reviewer and a domain reviewer when a flavor maps to one, in order, or as one concurrent chatty wave when args.chatty and args.chattyReview are set. Each applies its own findings.' },
     { title: 'Approve', detail: 'The single gate. The APM clears it for pm and ceo modes; hands-on returns awaitingApproval for the skill driver to ask the PM.' },
     { title: 'Stage', detail: 'The planner runs roadmap.blitz_stage, which records the approval, scaffolds, numbers, audits and freezes the gate report, then writes each staged stub summary and body from its OVERVIEW section, plus STUB-INDEX.' },
   ],
@@ -369,6 +371,108 @@ this brief and over anything you read earlier, and name it in your return.`
 
 const COMMON = `${REPO_ROOT_RULE}\n${CLI_RESOLUTION_RULE}${PLUGIN_ROOT_RULE}${FRICTION_RULE}\n${MID_RUN_DIRECTION_RULE}`
 
+// Chatty review wave (args.chatty and args.chattyReview): the roadmap reviewers run concurrently
+// on one roster. Self-contained twin of plan-blitz's wave; workflow scripts import nothing.
+const fillBaton = (value, batonId, slot) => {
+  if (typeof value === 'string') return value.split(slot).join(batonId)
+  if (Array.isArray(value)) return value.map((v) => fillBaton(v, batonId, slot))
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, fillBaton(v, batonId, slot)]))
+  }
+  return value
+}
+const fillPeers = (brief, peersSlot, slotTypes) =>
+  brief.split(peersSlot).join(slotTypes.map(([slot, type]) => `${slot} = ${type}`).join('\n'))
+
+const WAVE_STAGE_SCHEMA = { type: 'object', properties: { done: { type: 'boolean' } } }
+const SURVEY_SCHEMA = {
+  type: 'object',
+  required: ['continuations'],
+  properties: {
+    continuations: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['role'],
+        properties: { role: { type: 'string' }, agent_id: { type: ['string', 'null'] } },
+      },
+    },
+  },
+}
+
+// The wave twin of the sequential review prompt. It must not repeat the sequential prompt's
+// phrasing: the contract tests count those phrases in this file.
+const chattyReviewBrief = (role) => `You are reviewing a roadmap authored inside one roadmap-blitz run. Read ${ROADMAP_DIR}/OVERVIEW.md,
+peer-team-asks.md, clusters.md and reconciliation.md, plus the research files they cite. Peer reviewers
+review these same files concurrently; the CHATTY RUN and REVIEW WAVE sections below govern every edit.
+
+Judge the roadmap on its own merits: coverage of the sizing ${SIZING}, cluster boundaries, ordering,
+and whether any cluster is a unit of dispatch masquerading as a unit of coverage. Then APPLY your
+own findings to the roadmap files yourself, because nothing downstream reads a finding that is only
+in your summary. Findings you cannot resolve go in OVERVIEW under the cluster's \`### Contested\`
+heading. blitz_stage parses every id on a \`**blocked_by:**\` line in clusters.md as an edge, so that
+line holds cluster ids or none, and a dependency note goes on a separate line. You never approve,
+never stage, and never write outside ${ROADMAP_DIR}/ and your sidecar.
+
+${SIDECAR_RULE(role)}
+${COMMON}
+${SIDECAR_HEREDOC_RULE(`review:${role}`)}
+Also write a copy of your review record to EXACTLY this path, where the Approve gate reads it, and
+return the provisioned findings sidecar path as \`sidecarPath\`:
+
+    ${reviewPathFor(role)}`
+
+async function chattyStage(label, prompt, schema) {
+  try {
+    return await agent(prompt, { model: 'opus', label, phase: 'Review', schema })
+  } catch (err) {
+    agentIncidents.push({ role: label, kind: 'errored', detail: String((err && (err.message || err.error)) || err).slice(0, 500) })
+    return null
+  }
+}
+
+// Returns the settled review per reviewer (null where a reviewer returned nothing), or null when
+// the wave does not apply (not chatty, more reviewers than slots, overseer failed): the caller then
+// runs the sequential loop.
+async function chattyReviewWave(reviewers) {
+  const raw = parsedArgs.chatty === true ? parsedArgs.chattyReview : null
+  if (!raw || typeof raw !== 'object' || !raw.roster || !Array.isArray(raw.roster.members)) return null
+  const slots = raw.roster.members.map((m) => m.role).filter((r) => /^review-\d+$/.test(r))
+  if (!reviewers.length || reviewers.length > slots.length) return null
+
+  const wave = fillBaton(raw, RUN_ID, raw.batonSlot || '{BATON}')
+  const peers = reviewers.map((r, i) => [slots[i], r])
+  const brief = (i) => {
+    const role = reviewers[i].split(':')[1]
+    return chattyReviewBrief(role) + fillPeers(wave.memberBriefs[slots[i]], wave.peersSlot || '{PEERS}', peers)
+  }
+  const dispatch = (i, text) => trackAgent(`review:${reviewers[i].split(':')[1]}`, agent(text, {
+    model: 'opus', ...withRole(reviewers[i]), label: `chatty-review:${reviewers[i].split(':')[1]}`, phase: 'Review', schema: REVIEW_SCHEMA,
+  })).catch((err) => {
+    agentIncidents.push({ role: `chatty-review:${reviewers[i].split(':')[1]}`, kind: 'errored', detail: String((err && (err.message || err.error)) || err).slice(0, 500) })
+    return null
+  })
+
+  if (!(await chattyStage('chatty-overseer', wave.overseerPrompt, WAVE_STAGE_SCHEMA))) {
+    agentIncidents.push({ role: 'chatty-overseer', kind: 'wave-unavailable', detail: 'the overseer returned nothing; the reviewers run sequentially' })
+    return null
+  }
+  const settled = await parallel(reviewers.map((_, i) => () => dispatch(i, brief(i))))
+
+  const survey = await chattyStage('chatty-survey', wave.surveyPrompt, SURVEY_SCHEMA)
+  const owed = ((survey && survey.continuations) || [])
+    .map((c) => slots.indexOf(c.role))
+    .filter((i) => i >= 0 && i < reviewers.length)
+  await parallel(owed.map((i) => async () => {
+    const nonce = `${RUN_ID}-${slots[i]}-cont`
+    const next = await dispatch(i, brief(i) + String(wave.continuationBriefs[slots[i]]).split(wave.nonceSlot || '{NONCE}').join(nonce))
+    if (next) settled[i] = next
+  }))
+
+  await chattyStage('chatty-summary', wave.summaryPrompt, WAVE_STAGE_SCHEMA)
+  return settled
+}
+
 function emptyResult(extra) {
   return {
     gate_report_path: null,
@@ -541,6 +645,15 @@ ${SIDECAR_HEREDOC_RULE('roadmap-planner:overview')}`,
 
   const missingReviews = []
   const blockedReviews = []
+  // A settled wave drains `reviewers`, so the sequential loop below runs only when it did not.
+  const waveReviews = await chattyReviewWave(reviewers)
+  if (waveReviews) {
+    reviewers.splice(0).forEach((reviewer, i) => {
+      const role = reviewer.split(':')[1]
+      if (!waveReviews[i]) missingReviews.push(role)
+      else if (waveReviews[i].verdict === 'BLOCKED') blockedReviews.push(role)
+    })
+  }
   for (const reviewer of reviewers) {
     const role = reviewer.split(':')[1]
     const review = await trackAgent(`review:${role}`, agent(

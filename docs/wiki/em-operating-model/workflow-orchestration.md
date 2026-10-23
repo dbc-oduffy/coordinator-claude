@@ -321,33 +321,29 @@ and never deferred to `/workstream-complete`. The order, fixed by the roster fra
 1. **Prep** (mechanical, `coordinator:test-runner`) partitions the working-tree diff into
    file-disjoint slices at or above `review_brightline_gate`'s threshold, and freezes a
    worktree diff per slice plus the whole diff.
-2. **Review wave — one `parallel()`.** One `code-reviewer` per slice applies its own findings
-   inside its slice's files only, logging anything outside its slice under `## Out-of-Slice
-   Findings` rather than applying it. `overengineering-reviewer` (Kira, L and above) runs over the whole
-   diff and applies whole-diff with exact-text `Edit`s (`applies: whole-diff`); every
-   `review_signals`-resolved persona runs over the whole diff **report-only**
-   (`applies: none`), because its lens spans every slice and a same-file write race is exactly
-   what disjoint slices exist to prevent. `delivery-verifier` is not a wave member; it runs
-   only on the reverify path.
-3. **Bookkeeping — the engine's `bookkeep_wave`, not an agent.** There is no integration commit
-   and no integrate remit: each slice reviewer applies and verifies its own findings, Kira
-   applies their own, and the signal personas report only. There is no second review round; a finding no reviewer can
+2. **Slice reviewers per executor group; Kira's integration stage after the last row.** One
+   `code-reviewer` per slice applies its own findings inside its slice's files only, logging
+   anything outside it under `## Out-of-Slice Findings`. `overengineering-reviewer` (Kira, L and
+   above) holds the `integration` stage alone, runs over the whole diff and applies whole-diff
+   with exact-text `Edit`s (`applies: whole-diff`). Named-signal personas are not rostered.
+   `delivery-verifier` is not a wave member; it runs only on the reverify path.
+3. **Bookkeeping — the engine's `bookkeep_wave`, not an agent.** There is no integrate remit:
+   each slice reviewer applies and verifies its own findings, and Kira
+   applies Kira's own. There is no second review round; a finding no reviewer can
    resolve goes to the PM (`review-integration-doctrine.md` § No integration pass). A partitioned
    close needs no N+1 integration pass from this stage, because execute-review has no integration
    commit to budget for.
-4. The build/test gate runs after the review wave, then the workflow returns; the EM's terminal
+4. The scoped verify overlaps whole-diff review and re-verify, each call bounded at 300 s; the
+   judge follows re-verify, then the workflow returns; the EM's terminal
    commit and `review-stamp mint` follow (`skills/execute-plan/SKILL.md`).
 
 **Safety condition — this is what licenses "parallel reviewers, not sequential".** Slices are
 file-disjoint by construction (the prep partition), so two reviewers never write the same file at
-once; the signal personas stay report-only in this stage for the same reason, since their span
-crosses every slice, and Kira's whole-diff edits are exact-text; and the engine's bookkeeping — the only step after the wave — writes no
-source file. This supersedes the
-per-wave-review target shape once described here and the "named second exception to the
-sequential-review rule" it required: the execute-review stage is not an exception carved out of a
+once; Kira runs after the slice reviewers and Kira's whole-diff edits are exact-text; and the engine's bookkeeping — the only step after the wave — writes no
+source file. The execute-review stage is not an exception to a
 sequential-by-default rule, it is disjoint-slice parallelism with one bounded serial residue-writer
 (the engine's bookkeeping), stated once. `coordinator/skills/review/SKILL.md` § A.3 states the same rule for the general
-code-review case; plan review over one artifact stays ordered.
+code-review case; plan review over one artifact is one parallel wave when chatty (§ A.3), ordered otherwise.
 
 For the stage's per-agent-call catering payload and its structured returns, see
 `workflow-emitter-contract.md` §11 — this subsection does not restate that shape.
