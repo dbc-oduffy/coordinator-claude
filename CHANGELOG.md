@@ -4,6 +4,11 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.6.4] — 2026-10-24
+
+- **EM role:** the EM judges XS from the ask and never reads to fill `em_context`. After a run lands, it reads the receipt and runs one spot-check, the exit-criterion falsifier or the receipt's named test, with no probe scripts or suite re-runs.
+- **Tripwires:** `THE-EM-FIRES-ENGINE-ASK-WITHOUT-A-PREFIRE-SURVEY` and its contract page for the engine's prefire-survey guard.
+
 ## [4.6.3] — 2026-10-23
 
 - **EM role:** a refusal halt is not re-fired as the same ask; when it left a reviewed plan, the EM fires the emitted script itself. `workflow-maker` now returns the emitted script and wave map instead of firing headless.

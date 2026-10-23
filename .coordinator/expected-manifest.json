@@ -1,7 +1,7 @@
 {
   "paths": {
-    ".claude-plugin/marketplace.json": "407cbf959be8a4e761866ea90ba8b0ecdc23c426",
-    ".claude-plugin/plugin.json": "b0dae562436262a584c7f1eaa65ba27f1661a17f",
+    ".claude-plugin/marketplace.json": "b634833d054bbca44c59e921df90f756e9c3f180",
+    ".claude-plugin/plugin.json": "9350444066185a755b96f5c2931d01df73de633d",
     ".gitattributes": "e601e3b4831fbad8558b4cf33c1d891e51bb4732",
     ".github/.persona-names-allowlist": "b192e993696d101230ee10c2cbe29faed29ea61f",
     ".github/ISSUE_TEMPLATE/bug_report.md": "0f541423ae94a7dd28b550bee94ce2babb50be4a",
@@ -34,7 +34,7 @@
     ".gitignore": "31886db36fd93b3817544f094188345777a5e87c",
     ".python-version": "e4fba2183587225f216eeada4c78dfab6b2e65f5",
     "AGENTS.md": "a88e4d5f37a62b3a64ab05156092552926c2cf0b",
-    "CHANGELOG.md": "2d5450922b6453988b24f3b237a2e4e2e1c9a934",
+    "CHANGELOG.md": "022c1219665193c194bc1f3b1e08e5a03bea6a78",
     "CODE_OF_CONDUCT.md": "ba00a30d3950eb141f7ba5c969661e60c2f5c97a",
     "COMMERCIAL.md": "a8701144cfb16aedda57ec490159cafe170ff1d1",
     "CONTRIBUTING.md": "b0db3c04182459734d8871e93ab8a8165e2783a1",
@@ -2279,7 +2279,7 @@
     "snippets/agent-role-dispatched.md": "b9934a27765c7131f08d71818c464f9112fc1e77",
     "snippets/agent-role-em-general-work.md": "95fe69e796316a0be2fe2ca74ae7fabe45fe984d",
     "snippets/agent-role-em-opticon.md": "6877d3a5d59e840ffab3fb95a287a045a6b569b5",
-    "snippets/agent-role-em.md": "56bda80951d6f86702d0aa706b9eecabe351292f",
+    "snippets/agent-role-em.md": "cc1aa2f659ddfd33732af6ad52e327607fc1813d",
     "snippets/assess-before-proceeding.md": "5c262877aedd59be4d6c6818c46d380617f244a4",
     "snippets/bounded-enumeration-preamble.md": "a6e5c1e61dbf63d6fe22ae604c118ad2c98275fa",
     "snippets/context7-lazy-load-bootstrap.md": "3827ed9b1d5f2a8f6e295d76f6dc6be1c8282a5b",
@@ -2380,7 +2380,7 @@
     "tests/templates/tests/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
     "version.txt": "30de726ef9937f6f9411ab18679ef29e6a876de1",
     "workflows/bug-blitz.js": "8d44a9f50d6770737aa8829b8fc507a87cc168fd",
-    "workflows/engine-ask.js": "7440cd0d057e863ed8974667e368a4c3601daf66",
+    "workflows/engine-ask.js": "2258b6d1ac5677ea74d08e786654c3a62daacb9a",
     "workflows/fleet-inbox-blitz.mjs": "2596f5453d84ad1bc392ba466099968a05d9d7d7",
     "workflows/goal-blitz.mjs": "3397feef2739a22c941421db2a2d25943b36071e",
     "workflows/plan-blitz.mjs": "44e10afac84a8a2915e885cecc0c7c8b3e3d74cc",
@@ -2390,5 +2390,5 @@
     "workflows/workday-start.mjs": "b349b8cf44a9247aec5ff3e5a23689fc16eec9c5"
   },
   "schema": 1,
-  "source_head": "6aeafddd1404eb6341fa5430a3f174f0fcd6c4ab"
+  "source_head": "ab5c58468f519e3c68a8cd3fef1ba346d4a94faf"
 }
