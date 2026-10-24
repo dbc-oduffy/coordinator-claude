@@ -11,6 +11,9 @@ from pathlib import Path
 
 
 def main(argv: list[str]) -> int:
+    if argv[1:2] in (["--help"], ["-h"]):
+        print(__doc__)
+        return 0
     # Import-time inert: the lib dir joins sys.path only when the CLI actually runs.
     here = Path(__file__).resolve().parent
     sys.path.insert(0, str(here / "lib"))

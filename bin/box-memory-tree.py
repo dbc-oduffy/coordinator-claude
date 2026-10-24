@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import sys
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -29,11 +30,32 @@ def _load_host():
     return module
 
 
+def _win_procs(gov, root_pid: int, proc_table_fn, cmdline_fn) -> list:
+    """Windows process list from one table read; a command line is read only for the root's tree.
+
+    Every row is built with cmd="", the tree is walked on pid/ppid alone, then each tree member is
+    rebuilt with its real command line so is_protected sees it. Rows outside the tree keep cmd="".
+    """
+    now = time.time()
+    procs = [
+        gov.Proc(r.pid, r.ppid, max(0.0, now - r.create_time) if r.create_time else 0.0,
+                 r.working_set_bytes / 1048576, "")
+        for r in proc_table_fn()
+    ]
+    members = set(gov.descendants(root_pid, procs))
+    return [
+        gov.Proc(p.pid, p.ppid, p.age_s, p.rss_mb, cmdline_fn(p.pid)) if p.pid in members else p
+        for p in procs
+    ]
+
+
 def main(
     argv: Optional[list] = None,
     *,
     governor=None,
     platform: Optional[str] = None,
+    proc_table_fn=None,
+    cmdline_fn=None,
 ) -> int:
     parser = argparse.ArgumentParser(prog=PROG, description="Suspend or resume a process tree.")
     parser.add_argument("action", choices=["suspend", "resume"])
@@ -48,7 +70,15 @@ def main(
             return missing
     gov = governor if governor is not None else host.load_governor()
 
-    procs = gov.list_procs()
+    if plat == "win32":
+        procs = _win_procs(
+            gov,
+            args.pid,
+            proc_table_fn if proc_table_fn is not None else host.proc_table,
+            cmdline_fn if cmdline_fn is not None else host.proc_cmdline,
+        )
+    else:
+        procs = gov.list_procs()
     by_pid = {p.pid: p for p in procs}
     root = by_pid.get(args.pid)
     if root is None:

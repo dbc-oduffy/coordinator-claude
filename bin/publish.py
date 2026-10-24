@@ -8161,6 +8161,11 @@ def _required_pathspec_for_toplevel(
     Coverage against `sha` costs exactly ONE extra `git ls-tree` spawn per
     (toplevel, sha) — never one per contributing root or inject src (§
     `_tracked_paths_at_sha`).
+
+    Trap: the percolate root comes from `_PERCOLATE_ROOT_OVERRIDE` (the CLI's
+    `--percolate-root`); without it a round launched from a different checkout
+    resolves another tree's roots, scopes the archive to them, and every row's
+    shadow comes out empty.
     """
     _bootstrap_engine()
     resolved_sha = sha if sha is not None else (_git_rev_parse(toplevel, "HEAD") or "HEAD")
@@ -8173,7 +8178,7 @@ def _required_pathspec_for_toplevel(
         _REQUIRED_PATHSPEC_CACHE[key] = ()
         return ()
 
-    percolate_root, _rung = _resolve_percolate_root_and_rung()
+    percolate_root, _rung = _resolve_percolate_root_and_rung(override=_PERCOLATE_ROOT_OVERRIDE)
     setup_dir = percolate_root / "setup"
 
     tracked = _tracked_paths_at_sha(toplevel, resolved_sha)
@@ -8387,6 +8392,9 @@ def _extract_git_archive(toplevel: Path, sha: str) -> Path:
 #: Set by `main` from `--source-ref`; empty means the toplevel's HEAD. Read only
 #: where a round pins its source sha, so every row of one round sees one commit.
 _source_ref_override = ""
+
+#: Set by `_main` from `--percolate-root`; `_required_pathspec_for_toplevel` scopes the archive to it.
+_PERCOLATE_ROOT_OVERRIDE: "Optional[str]" = None
 
 #: Set by `main` from `--dest-root-override`/`--dest-root-live`; None outside a
 #: scratch-clone round and reset on every exit. Read by `_load_rows` and
@@ -13769,13 +13777,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     FAILED, and an end-of-run gate failure returned the same code (1) as a
     row failure, making the two indistinguishable from the exit code alone.
     """
-    global _DEST_ROOT_OVERRIDE
+    global _DEST_ROOT_OVERRIDE, _PERCOLATE_ROOT_OVERRIDE
     restore_signals = _install_staging_signal_cleanup()
     try:
         return _main(argv)
     finally:
         restore_signals()
         _DEST_ROOT_OVERRIDE = None
+        _PERCOLATE_ROOT_OVERRIDE = None
 
 
 def _main(argv: Optional[List[str]] = None) -> int:
@@ -13824,8 +13833,9 @@ def _main(argv: Optional[List[str]] = None) -> int:
     # `_inherited_roots_token`; PID-binding/verification happens there.
     _inherited_roots_token = os.environ.pop(_INHERITED_LOCK_ROOTS_ENV, "")
 
-    global _source_ref_override
+    global _source_ref_override, _PERCOLATE_ROOT_OVERRIDE
     _source_ref_override = args.source_ref or ""
+    _PERCOLATE_ROOT_OVERRIDE = args.percolate_root or None
 
     # Capture the rung that actually
     # resolved `percolate_root`/`setup_dir` here, once, and thread it into

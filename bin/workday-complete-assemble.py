@@ -21,7 +21,7 @@ verbatim — it does not parse or reinterpret `--decisions` itself.
 
 Usage:
     python3 workday-complete-assemble.py brief
-    python3 workday-complete-assemble.py apply [--decisions <json>]
+    python3 workday-complete-assemble.py apply [--decisions <json>] [--result-file <path>]
 
 Exit codes (locally scoped to this CLI, NOT inherited — see the contract's
 own § Exit-code contract):

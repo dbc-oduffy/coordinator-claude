@@ -256,6 +256,20 @@ def _probe_failed_row(plan: str, error: str, upgraded: str | None = None) -> dic
 
 
 def _emit_residue(repo_root: Path, rows: list[dict], seam_fix: dict) -> tuple[list[Path], int]:
+    """`_write_residue` with every file it writes declared to the session scope-touch."""
+    try:
+        import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
+        import cc_invoke
+
+        cc_invoke.require_engine_on_path(__file__)
+        from coordinator_core.cli_entry import recording_declared_writes
+    except Exception as exc:
+        raise ValueError(f"residue workflow: coordinator_core unresolvable: {exc}")
+    with recording_declared_writes(cwd=str(repo_root)):
+        return _write_residue(repo_root, rows, seam_fix)
+
+
+def _write_residue(repo_root: Path, rows: list[dict], seam_fix: dict) -> tuple[list[Path], int]:
     """Build, bind, validate and write the residue workflow for this round: `([], 0)` when no
     plan needs authoring and no census or seam-fix item needs a ruling.
 
@@ -274,6 +288,7 @@ def _emit_residue(repo_root: Path, rows: list[dict], seam_fix: dict) -> tuple[li
         cc_invoke.require_engine_on_path(__file__)
         from coordinator_core.ops.dispatch_emit import emit
         from coordinator_core.ops.dispatch_emit.emission_receipt import _write_emission_receipt
+        from coordinator_core.session.declared_writes import declare_write
         from coordinator_core.roadmap import mise_residue
     except Exception as exc:
         raise ValueError(f"residue workflow: coordinator_core unresolvable: {exc}")
@@ -324,6 +339,7 @@ def _emit_residue(repo_root: Path, rows: list[dict], seam_fix: dict) -> tuple[li
             target = repo_root / rel
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(text, encoding="utf-8", newline="\n")
+            declare_write(target)
             written.append(target)
 
         batches = args["batches"]
@@ -371,6 +387,7 @@ def _emit_residue(repo_root: Path, rows: list[dict], seam_fix: dict) -> tuple[li
             name = f"{run_id}.residue.mjs" if len(scripts) == 1 else f"{run_id}-p{n}.residue.mjs"
             path = out_dir / name
             path.write_text(script, encoding="utf-8", newline="\n")
+            declare_write(path)
             written.append(path)
             verdict = _invoke(repo_root, "workflow.validate", {"script_path": str(path)})
             if not verdict.get("ok"):

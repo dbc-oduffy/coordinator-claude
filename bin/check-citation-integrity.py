@@ -277,16 +277,41 @@ def wiki_live_edges(
     return edges
 
 
+def tombstone_pages(wiki_root: Path) -> "frozenset[str]":
+    """Wiki-relative paths of every `status: tombstone` page (fence-bound read)."""
+    out: "set[str]" = set()
+    for path in sorted(wiki_root.rglob("*.md")):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except Exception:
+            continue
+        if read_frontmatter_status(text) == "tombstone":
+            out.add(_relpath(path, wiki_root))
+    return frozenset(out)
+
+
 def structural_health(
-    report: "cg.CorpusReport", wiki_root: Path, wiki_files: "list[Path]"
+    report: "cg.CorpusReport",
+    wiki_root: Path,
+    wiki_files: "list[Path]",
+    tombstones: "frozenset[str]" = frozenset(),
 ) -> dict:
     """Orphan (no inbound edge) and dead-end (no outbound edge) reports over
     the corrected link graph -- counted across ALL resolving citation forms
     (bare basename, pathed, markdown link; wikilinks extract separately but
     resolve as bare_basename, see `citation_graph.py`). Dead-ends are ranked
-    by INBOUND citation count, never byte size."""
+    by INBOUND citation count, never byte size.
+
+    `tombstones` (wiki-relative pages): every edge whose citing page is a
+    tombstone is dropped -- its H1 self-citation and its successor citation
+    must not count as inbound -- and tombstones are left out of `dead_ends`.
+    Tombstones stay in `orphans`: an uncited tombstone is the retirement signal."""
     all_kinds = ("bare_basename", "pathed", "markdown_link")
-    all_edges = wiki_live_edges(report, wiki_root, kinds=all_kinds)
+    all_edges = {
+        edge
+        for edge in wiki_live_edges(report, wiki_root, kinds=all_kinds)
+        if edge[0] not in tombstones
+    }
 
     all_pages = {_relpath(p, wiki_root) for p in wiki_files}
     inbound_all = {page: 0 for page in all_pages}
@@ -299,7 +324,11 @@ def structural_health(
 
     orphans_all = sorted(page for page in all_pages if inbound_all[page] == 0)
     dead_ends_all = sorted(
-        (page for page in all_pages if outbound_all[page] == 0),
+        (
+            page
+            for page in all_pages
+            if outbound_all[page] == 0 and page not in tombstones
+        ),
         key=lambda page: (-inbound_all[page], page),
     )
 
@@ -333,6 +362,7 @@ def guide_drift(wiki_root: Path, *, guide_relpath: str = "DIRECTORY_GUIDE.md") -
       input). A page whose frontmatter `status:` is `deprecated` (read
       fence-bound, see `read_frontmatter_status`) is excluded from this
       count -- an intentionally-retired page is not a completeness gap.
+      A `tombstone` page is excluded the same way.
     """
     guide_path = wiki_root / guide_relpath
     if not guide_path.is_file():
@@ -359,7 +389,7 @@ def guide_drift(wiki_root: Path, *, guide_relpath: str = "DIRECTORY_GUIDE.md") -
             text = path.read_text(encoding="utf-8")
         except Exception:
             continue
-        if read_frontmatter_status(text) == "deprecated":
+        if read_frontmatter_status(text) in ("deprecated", "tombstone"):
             continue
         tracked_pages.add(_relpath(path, wiki_root))
 
@@ -379,7 +409,7 @@ def all_partitions_current(report: "cg.CorpusReport", wiki_root: Path) -> "dict[
     gated (see `guide_drift` docstring)."""
     current = partition_current(report)
     wiki_files = sorted(wiki_root.rglob("*.md"))
-    health = structural_health(report, wiki_root, wiki_files)
+    health = structural_health(report, wiki_root, wiki_files, tombstone_pages(wiki_root))
     drift = guide_drift(wiki_root)
     current["orphan"] = set(health["orphans"])
     current["dead_end"] = set(health["dead_ends"])
@@ -535,7 +565,7 @@ def run(
     through argv/stdout."""
     report = _cg().scan_corpus(wiki_root=wiki_root, repo_root=repo_root)
     wiki_files = sorted(wiki_root.rglob("*.md"))
-    health = structural_health(report, wiki_root, wiki_files)
+    health = structural_health(report, wiki_root, wiki_files, tombstone_pages(wiki_root))
     drift = guide_drift(wiki_root)
     baseline = load_baseline(baseline_path)
     current = partition_current(report)

@@ -424,7 +424,7 @@ return the provisioned findings sidecar path as \`sidecarPath\`:
 
 async function chattyStage(label, prompt, schema) {
   try {
-    return await agent(prompt, { model: 'opus', label, phase: 'Review', schema })
+    return await agent(prompt, { model: 'opus', label: `chatty-stage:${label}`, phase: 'Review', schema })
   } catch (err) {
     agentIncidents.push({ role: label, kind: 'errored', detail: String((err && (err.message || err.error)) || err).slice(0, 500) })
     return null

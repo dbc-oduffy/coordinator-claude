@@ -327,9 +327,9 @@ def _subsumed_by_source(
 
 
 def _stamps_missing_from_source(
-    repo_root: Path, upstream: str, source_root: Optional[Path]
+    repo_root: Path, upstream: str, source_root: Optional[Path], source_ref: str
 ) -> List[str]:
-    """Upstream-only `[source-head]` stamps `source_root`'s HEAD does not contain.
+    """Upstream-only `[source-head]` stamps the source ref in `source_root` does not contain.
 
     TRAP: a fast-forward over a peer's publish is not safe on its own. The round
     then writes this source's whole surface over the peer's bytes, so a source
@@ -343,7 +343,7 @@ def _stamps_missing_from_source(
     missing: List[str] = []
     for match in _SOURCE_HEAD_STAMP.finditer(log.stdout):
         stamp = match.group(1)
-        probe = _git(Path(source_root), ["merge-base", "--is-ancestor", stamp, "HEAD"])
+        probe = _git(Path(source_root), ["merge-base", "--is-ancestor", stamp, source_ref])
         if probe.returncode != 0 and stamp not in missing:
             missing.append(stamp)
     return missing
@@ -454,16 +454,21 @@ def refresh_dest_from_origin(
             behind=behind,
         )
 
-    missing = _stamps_missing_from_source(repo_root, upstream, source_root) if behind else []
+    missing = (
+        _stamps_missing_from_source(repo_root, upstream, source_root, source_ref) if behind else []
+    )
     if missing:
         return RefreshResult(
             repo_root,
             ok=False,
             reason=(
-                "{0} carries a peer publish of source {1} that {2} HEAD does not contain; "
+                "{0} carries a peer publish of source {1} that {3} in {2} does not contain; "
                 "publishing now reverts it.\n"
-                "  Fix: fetch and merge the branch holding {1} into {2}, then re-run".format(
-                    upstream, ", ".join(missing), source_root
+                "  Fix: fetch and merge the branch holding {1} into {2}, then re-run; or, "
+                "without touching the worktree, build a commit containing {1} "
+                "(git merge-tree --write-tree + git commit-tree) and re-run with "
+                "--source-ref <that commit>".format(
+                    upstream, ", ".join(missing), source_root, source_ref
                 )
             ),
             branch=branch,

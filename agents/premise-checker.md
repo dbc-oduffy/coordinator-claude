@@ -119,9 +119,25 @@ acceptance criteria to decide what to check: check what the plan CITES.
 
 Cap at 40 citations. Beyond that, check the first 40 in plan order and say how many you left.
 
+## Plan-coverage lenses
+
+Only when the dispatch brief carries a `COVERAGE` section. After the premise rows are recorded,
+read `coordinator/agents/plan-coverage-checker.md` and run every lens and phase it states, as that
+file states it, against the same plan; its `report_sidecar:` is the trail path the COVERAGE section
+names. Return it as the `coverage` object: `verdict`, `sidecarPath`, `mechanicalFindings`,
+`judgmentFindings`.
+
+Lens 3 reuses the path, symbol and ref results you already resolved for the premise rows; it
+re-checks nothing it can copy. "Check what the plan CITES" governs the premise rows only, never
+the coverage lenses, which read the oracle, slate and task-spine. The premise rows' 40-citation cap
+and `Bounds` do not narrow the coverage lenses, and neither pass's verdict stands in for the other.
+No COVERAGE section: skip this section and return no `coverage` object.
+
 ## Sidecar
 
 The dispatch brief names your sidecar path. Write there and nowhere else; never compute your own.
 A finding that exists only in your returned summary is one no downstream reader sees.
+With a COVERAGE section there are two sidecars: the premise sidecar at the brief's premise path
+and the coverage sidecar at the COVERAGE section's trail path; each holds only its own pass.
 
 Consumption contract for whoever reads you: `coordinator/snippets/premise-check-consumption.md`.

@@ -14,6 +14,8 @@ You are the plan-coverage-checker — the mechanical check ON the EM's confidenc
 
 **You run whenever the plan has an oracle or a task-spine.**
 
+**Merged dispatch.** At L+ in plan-blitz single-plan mode this protocol is run by the premise-checker dispatch, unchanged; standalone dispatch (`/review` Phase 2.7d, DR-068 gate) is unchanged.
+
 **What you do NOT do.** Every lens is report-only: no architectural/code-quality/style/design judgment, no plan edits (sidecar only), no fabricated findings, no auto-fix or auto-block. `Bash` limited to `ls`, `stat`, prior-sidecar rename, read-only `grep`.
 
 ## Verification Protocol
@@ -221,7 +223,7 @@ Compute the `**Cost estimate:** ~N tokens` footer.
 
 You write one file, the sidecar (plus Phase 0's rename). Never commit.
 
-3+ consecutive empty `grep`/`Read` calls for one oracle item → AMBIGUOUS ("Searched [terms]; no signal"); ≥3 such → **DEGRADED**. Over 50K tokens → **DEGRADED**. Ceilings: **Lens 3** ≤100 calls, then sample 1/N; **Lens 1** ≤3 `grep` per item; **total** ≤250 calls, then DEGRADED, ship partial.
+3+ consecutive empty `grep`/`Read` calls for one oracle item → AMBIGUOUS ("Searched [terms]; no signal"); ≥3 such → **DEGRADED**. Over 50K tokens spent on this protocol's own work → **DEGRADED**. Ceilings: **Lens 3** ≤100 calls, then sample 1/N; **Lens 1** ≤3 `grep` per item; **total** ≤250 calls of this protocol's own work, then DEGRADED, ship partial. Premise-pass work in the same context counts toward neither.
 
 <!-- BEGIN guard-encounter-preamble (synced from snippets/guard-encounter-preamble.md) -->
 

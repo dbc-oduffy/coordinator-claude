@@ -4,6 +4,12 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.6.7] — 2026-10-24
+
+- **Hooks:** the search door matches `Read|Grep|Glob`, so the engine's pre-fire survey guard counts Read calls; an EM's exploratory calls before its first engine-ask fire are capped.
+- **Code review:** one slice reviewer per 3-6 executor rows (was 3-4); reviewers stay parallel.
+- **Plan blitz:** at L and above the premise and plan-coverage checks run as one checker dispatch.
+
 ## [4.6.6] — 2026-10-24
 
 - **Plan review:** an L plan is reviewed by `staff-eng` alone; `apm` reviews at XL and above.

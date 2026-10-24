@@ -288,8 +288,9 @@ def main(argv: list[str]) -> int:
         rewrite_verdict, rewrite_ok = _resolve_rewrite_verdict()
         if rewrite_ok:
             _err(
-                f"[step3] DRY-RUN: would push origin/{current_branch} "
-                "with --force-with-lease (reconcile rewrote history)"
+                f"[step3] DRY-RUN: would push origin/{current_branch} with "
+                "--force-with-lease only if the reconcile rebases pushed history, "
+                "otherwise via push_outstanding()"
             )
         else:
             _err(
@@ -299,7 +300,15 @@ def main(argv: list[str]) -> int:
         push_summary = "skipped (--dry-run)"
     else:
         rewrite_verdict, rewrite_ok = _resolve_rewrite_verdict()
-        if rewrite_ok:
+        remote_tip_diverged = (
+            rewrite_ok
+            and reconcile_status == "rebased"
+            and wc.git_ok("rev-parse", "--verify", f"origin/{current_branch}")
+            and not wc.git_ok(
+                "merge-base", "--is-ancestor", f"origin/{current_branch}", "HEAD"
+            )
+        )
+        if remote_tip_diverged:
             _err(
                 f"[step3] reconcile rewrote history -- pushing to "
                 f"origin/{current_branch} with --force-with-lease"

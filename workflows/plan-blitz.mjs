@@ -431,10 +431,11 @@ const REVIEW_SCHEMA = {
   },
 }
 
-// PRE-FLIGHT SCHEMAS — single-plan mode's two pre-flights (§ Pinned interfaces / C4 body item 2).
-// Both are report-only checkers (never edit, never refuse): the wave reads their verdict and
-// rows the same way it reads a reviewer's, through `planCoverageAsReview` below for the second
-// one. Kept loose on purpose, same rung as PREMISE_SCHEMA — an agent whose structured-output call
+// PRE-FLIGHT SCHEMAS — the L+ pre-review dispatch is one premise-checker agent; in single-plan
+// mode it also returns the plan-coverage verdict (`PRE_REVIEW_SCHEMA`). Both are report-only
+// (never edit, never refuse): the wave reads their verdict and rows the same way it reads a
+// reviewer's, through `planCoverageAsReview` below for the coverage one. Kept loose on purpose,
+// same rung as PREMISE_SCHEMA — an agent whose structured-output call
 // is forced into a narrower shape than its own report format degrades its answer to fit the field.
 const PREP_GATE_REVISE_SCHEMA = {
   type: 'object',
@@ -542,6 +543,23 @@ const PLAN_COVERAGE_SCHEMA = {
     mechanicalFindings: { type: 'integer' },
     judgmentFindings: { type: 'integer' },
     tldr: RETURN_TLDR_SCHEMA,
+  },
+}
+
+// The merged L+ pre-review dispatch's schema in single-plan mode: the premise result stays the
+// top-level shape and the plan-coverage verdict rides as `coverage`. The top-level `tldr` serves both.
+const PRE_REVIEW_SCHEMA = {
+  ...PREMISE_SCHEMA,
+  required: [...PREMISE_SCHEMA.required, 'coverage'],
+  properties: {
+    ...PREMISE_SCHEMA.properties,
+    coverage: {
+      type: 'object',
+      required: PLAN_COVERAGE_SCHEMA.required.filter((k) => k !== 'tldr'),
+      properties: Object.fromEntries(
+        Object.entries(PLAN_COVERAGE_SCHEMA.properties).filter(([k]) => k !== 'tldr'),
+      ),
+    },
   },
 }
 
@@ -949,9 +967,9 @@ sizing intent's claims against wikis, decisions and lessons, and report Conflict
 Compatible-but-relevant / Silent per its § Verification Protocol. You never edit the plan, never
 refuse it, and never judge architecture — report, and let the planner and reviewers act on it.`,
 
-  'plan-coverage-checker': `You are the plan-coverage-checker pre-flight for single-plan mode. Read
-\`agents/plan-coverage-checker.md\` in full and follow its protocol exactly — this line names your
-role, it does not restate the eight lenses. Every lens is report-only: no inline plan edits, no
+  'plan-coverage-checker': `Inside this dispatch, after the premise rows are recorded, you also run the
+plan-coverage lenses for single-plan mode. Read \`agents/plan-coverage-checker.md\` in full and follow
+its protocol exactly — this line names the role, it does not restate the eight lenses. Every lens is report-only: no inline plan edits, no
 auto-fix, no auto-block — the EM and reviewers own every disposition. Report clean if clean; a
 review finding none is not itself suspicious the way an under-inspected human review would be,
 because your checks are mechanical.`,
@@ -1646,7 +1664,7 @@ ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'planning-report'))}`,
 // the reviewers read what it returns. Nothing here reads a phase index or assumes what runs on
 // either side of it.
 
-function premiseChecker(baton, planResult, trailDir) {
+function premiseChecker(baton, planResult, trailDir, withCoverage) {
   // Function-form replacement: a `$` in the CLI path must not be read as a replacement pattern.
   const renderedClassList = PREMISE_CLASS_LIST.split('${ARMING_CHECK_CLI}').join(ARMING_CHECK_CLI)
   return trackAgent('planner', agent(
@@ -1757,7 +1775,23 @@ ${REVIEW_SIDECAR_RULE(
       // `coordinator:premise-checker` is not in `_REVIEWER_AGENT_TYPES`, and widening that
       
       'review-findings',
-    )}`,
+    )}${withCoverage ? `
+
+COVERAGE. This dispatch also owes the plan-coverage verdict for the same plan, so you run both
+checks in this one context. Order: record the premise rows first, then run the coverage lenses.
+"Do not read the plan's acceptance criteria" above governs the premise rows only.
+
+${ROLE_CONTRACTS['plan-coverage-checker']}
+
+Run every lens of \`agents/plan-coverage-checker.md\` over ${planResult.planPath} exactly as that file
+states it. Lens 3 (substrate drift) may be answered from the class 1-3 rows you already opened,
+applying Lens 3's own match rule (within 50 lines, the excerpt, or a \`§ Heading\`); report the result
+in the coverage sidecar's Substrate-drift count.
+
+Return the verdict as the \`coverage\` object (\`verdict\`, \`sidecarPath\`, \`mechanicalFindings\`,
+\`judgmentFindings\`). The coverage sidecar is a second sidecar: its path is \`coverage.sidecarPath\`,
+and the top-level \`sidecarPath\` stays the premise one provisioned above.
+${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'plan-coverage-check')).replace('return it verbatim as \`sidecarPath\`', 'return it verbatim as \`coverage.sidecarPath\`')}` : ''}`,
     { model: 'sonnet', ...withRole('coordinator:premise-checker'),
       label: `premise:${baton.id}`,
       phase: 'Premise check',
@@ -1768,7 +1802,7 @@ ${REVIEW_SIDECAR_RULE(
       // Low. The judgment is "did I open the thing", not "is this a good plan" — and raising it
       // invites exactly the plan-level opinion the schema refuses to carry.
       effort: 'low',
-      schema: PREMISE_SCHEMA,
+      schema: withCoverage ? PRE_REVIEW_SCHEMA : PREMISE_SCHEMA,
     },
   ))
 }
@@ -1939,28 +1973,6 @@ ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'prior-art-check'))}`,
       phase: 'Plan',
       effort: 'low',
       schema: PRIOR_ART_SCHEMA,
-    },
-  ))
-}
-
-function planCoveragePreflight(baton, planResult, trailDir) {
-  return trackAgent('plan-coverage-checker', agent(
-    `phase: plan-coverage-preflight
-
-${ROLE_CONTRACTS['plan-coverage-checker']}
-
-Run your eight lenses over the plan at ${planResult.planPath} (baton ${baton.id}), in the same pass
-as this plan's premise check — you never gate on it and it never gates on you, you just both read
-the same freshly-written plan.
-${NO_EXECUTION_RULE}
-${REPO_ROOT_RULE}
-${MID_RUN_DIRECTION_RULE}
-${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'plan-coverage-check'))}`,
-    { model: 'sonnet', ...withRole('coordinator:plan-coverage-checker'),
-      label: `plan-coverage:${baton.id}`,
-      phase: 'Premise check',
-      effort: 'low',
-      schema: PLAN_COVERAGE_SCHEMA,
     },
   ))
 }
@@ -3194,28 +3206,29 @@ const chains = await pipeline(
     // the whole saving is that they do not spend their pass resolving citations, and a check
     // racing them arrives too late to buy that.
     //
-    // SINGLE-PLAN MODE's second pre-flight (§ Pinned interfaces / body item 2) runs in the SAME
-    // `parallel()` as the premise check, the way `premiseChecker()` and `plan-coverage-checker`
-    // are told to here — the two read one freshly-written plan and neither gates the other.
-    // Dispatched CONCURRENTLY, never sequenced: the coverage preflight is fired first, without
-    // awaiting it, so it runs alongside the premise check the way § Pinned interfaces asks for —
-    // "the same `parallel()`" — rather than after it.
+    // In single-plan mode the same dispatch also runs the plan-coverage lenses and returns their
+    // verdict as `coverage` (`premiseChecker`'s `withCoverage`); prior-art still starts beside the
+    // planner and is awaited here.
     //
-    // Both are gated to L and above (`preReviewCheckersOwed`): below L neither dispatches and
-    // both results are null, which every consumer tolerates; `checkersSkipped` lets the trail's
-    // premise-check line render the skip distinctly from "did not run" (the coverage result has no
-    // trail line of its own).
+    // The dispatch is gated to L and above (`preReviewCheckersOwed`): below L it does not fire and
+    // `premise` and `coverage` are null, which every consumer tolerates; `checkersSkipped` lets the
+    // trail's premise-check line render the skip distinctly from "did not run" (the coverage
+    // result has no trail line of its own).
     const priorArt = priorArtPromise ? await priorArtPromise : null
     const checkersOwed = preReviewCheckersOwed(decision.tshirt)
     const checkersSkipped = !checkersOwed
-    const coveragePreflightPromise = SINGLE_MODE && checkersOwed ? planCoveragePreflight(baton, plan, trailDir) : null
-    // Attach a handler at creation, not at the `await` below: a rejection surfacing while the
-    // premise check is still in flight would otherwise be unhandled for that whole span, and
-    // Node's default policy can kill the process on it. The real handling (the throw) still
-    // happens at the `await` — this no-op catch only stops it from being unobserved meanwhile.
-    if (coveragePreflightPromise) coveragePreflightPromise.catch(() => {})
-    const premise = checkersOwed ? await premiseChecker(baton, plan, trailDir) : null
-    const coverage = coveragePreflightPromise ? await coveragePreflightPromise : null
+    const preReview = checkersOwed ? await premiseChecker(baton, plan, trailDir, SINGLE_MODE) : null
+    const { coverage = null, ...premiseOnly } = preReview ?? {}
+    const premise = preReview ? premiseOnly : null
+    if (SINGLE_MODE && checkersOwed && !coverage) {
+      agentIncidents.push({
+        role: 'premise',
+        kind: 'missing-coverage',
+        detail: preReview
+          ? 'the merged pre-review dispatch returned no coverage object'
+          : 'the merged pre-review dispatch returned nothing, so no coverage verdict exists',
+      })
+    }
     // The seam. Rows in, one REVIEW_SCHEMA entry out, so the report reaches every reviewer
     // through the channel they already read. The checker took no route; this did.
     if (premise) checkSidecarPath(baton.id, PREMISE_REVIEWER, premise.sidecarPath)

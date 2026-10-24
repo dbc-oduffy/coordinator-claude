@@ -54,7 +54,7 @@ def _try(fn: Callable):
         return None
 
 
-def _top_consumers(gov, top: int) -> Optional[list]:
+def _top_consumers_gov(gov, top: int) -> list:
     foot = gov.footprints()
     cmds = {p.pid: p.cmd for p in gov.list_procs()}
     ranked = sorted(foot.items(), key=lambda kv: kv[1], reverse=True)[:top]
@@ -64,10 +64,23 @@ def _top_consumers(gov, top: int) -> Optional[list]:
     ]
 
 
-def build_snapshot(status, nonpaged_fn, cache_host_fn, gov_fn, top: int) -> dict:
+def _top_consumers_table(proc_table_fn: Callable, cmdline_fn: Callable, top: int) -> list:
+    """Rank the one process-table read by private bytes; read a cmdline for the top N rows only."""
+    ranked = sorted(proc_table_fn(), key=lambda r: r.private_bytes, reverse=True)[: max(top, 0)]
+    return [
+        {
+            "pid": r.pid,
+            "private_commit_mb": round(r.private_bytes / 1024**2, 1),
+            "cmd": (cmdline_fn(r.pid) or "")[:100],
+        }
+        for r in ranked
+    ]
+
+
+def build_snapshot(status, nonpaged_fn, cache_host_fn, consumers_fn: Callable, top: int) -> dict:
     cache = _try(lambda: cache_host_fn().read_memory())
     nonpaged = _try(nonpaged_fn)
-    consumers = _try(lambda: _top_consumers(gov_fn(), top))
+    consumers = _try(lambda: consumers_fn(top))
     return {
         "available_gib": _gib(status.avail_phys) if status else _UNAVAILABLE,
         "commit_used_gib": _gib(status.commit_used) if status else _UNAVAILABLE,
@@ -122,6 +135,8 @@ def main(
     governor=None,
     rss_fn: Optional[Callable] = None,
     alive_fn: Optional[Callable] = None,
+    proc_table_fn: Optional[Callable] = None,
+    cmdline_fn: Optional[Callable] = None,
 ) -> int:
     parser = argparse.ArgumentParser(prog=PROG, description="One-screen box memory snapshot.")
     parser.add_argument("--top", type=int, default=10, help="top N consumers (default 10)")
@@ -136,7 +151,7 @@ def main(
     plat = platform if platform is not None else sys.platform
     if plat not in ("win32", "darwin"):
         return host.unsupported(PROG, plat, "reads Windows or macOS memory counters")
-    if governor is None:
+    if governor is None and proc_table_fn is None:
         missing = host.require_psutil(PROG)
         if missing is not None:
             return missing
@@ -149,10 +164,16 @@ def main(
     else:
         nonpaged_fn = nonpaged_fn or host.nonpaged_pool_bytes
         cache_host_fn = cache_host_fn or _load_cache_host
-    gov_fn = (lambda: governor) if governor is not None else host.load_governor
+    if plat == "win32":
+        table_fn = proc_table_fn or host.proc_table
+        cmd_fn = cmdline_fn or host.proc_cmdline
+        consumers_fn = lambda top: _top_consumers_table(table_fn, cmd_fn, top)
+    else:
+        gov_fn = (lambda: governor) if governor is not None else host.load_governor
+        consumers_fn = lambda top: _top_consumers_gov(gov_fn(), top)
 
     status = _try(status_fn)
-    snap = build_snapshot(status, nonpaged_fn, cache_host_fn, gov_fn, args.top)
+    snap = build_snapshot(status, nonpaged_fn, cache_host_fn, consumers_fn, args.top)
     code = 0
     admit_line = None
     if args.admit_peak is not None:

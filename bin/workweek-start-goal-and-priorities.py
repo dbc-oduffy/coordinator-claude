@@ -145,6 +145,10 @@ def _iso_week(now: datetime | None = None) -> str:
     return f"{iso_year}-W{iso_week:02d}"
 
 
+def _bad_date(value: str) -> str:
+    raise argparse.ArgumentTypeError(f"expected YYYY-MM-DD, got {value!r}")
+
+
 def _today(now: datetime | None = None) -> str:
     now = now or datetime.now(timezone.utc)
     return now.strftime("%Y-%m-%d")
@@ -436,9 +440,9 @@ def cmd_commit_priorities(args: argparse.Namespace) -> int:
 
 def cmd_commit_archive_reset(args: argparse.Namespace) -> int:
     week_dir = Path("state/week-changelog/")
-    archive_dir = Path(f"archive/week-changelogs/{args.prior_week_start}/")
+    archive_dirs = [Path(f"archive/week-changelogs/{w}/") for w in args.prior_week_start]
 
-    paths = [p for p in [week_dir, archive_dir] if p.exists()]
+    paths = [p for p in [week_dir, *archive_dirs] if p.exists()]
     if not paths:
         print("workweek-start-goal-and-priorities.py: commit-archive-reset: nothing to stage", file=sys.stderr)
         return 1
@@ -448,7 +452,7 @@ def cmd_commit_archive_reset(args: argparse.Namespace) -> int:
         sys.stderr.write(add_proc.stderr)
         return add_proc.returncode
 
-    message = args.message or f"chore(workweek-start): archive prior week, reset changelog {_today()}"
+    message = args.message or f"chore(workweek-start): archive prior week(s), reset changelog {_today()}"
     commit_proc = _git(["commit", "-m", message])
     if commit_proc.returncode != 0:
         sys.stderr.write(commit_proc.stderr)
@@ -533,7 +537,9 @@ def _build_parser() -> argparse.ArgumentParser:
     cp.set_defaults(func=cmd_commit_priorities)
 
     car = sub.add_parser("commit-archive-reset", help="Step 6 full-reset branch: archived changelog commit+push")
-    car.add_argument("--prior-week-start", required=True, help="YYYY-MM-DD prior week start date (archive dir name)")
+    car.add_argument("--prior-week-start", required=True, action="append",
+                     type=lambda v: v if re.fullmatch(r"\d{4}-\d{2}-\d{2}", v) else _bad_date(v),
+                     help="YYYY-MM-DD prior week start date (archive dir name); repeat per archived week")
     car.add_argument("--message", default=None, help="commit message; mutually exclusive with --message-file")
     car.add_argument("--message-file", default=None, help="lossless file transport for --message (a '-' argument reads stdin)")
     car.set_defaults(func=cmd_commit_archive_reset)

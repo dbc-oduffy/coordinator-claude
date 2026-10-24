@@ -56,7 +56,15 @@ Output contract (stdout):
   All human-readable detail (the command's own stdout/stderr, WARN lines)
   streams to stderr uncaptured — never mixed into the one-line stdout contract.
 
-Exit codes: ALWAYS 0. A non-zero command exit, a missing command, or an
+Check mode: `coordinator-ceremony-hook.py --check <ceremony>` runs nothing and prints
+  nothing to stdout. It reads the key and applies the same W1, parse and empty-argv steps as
+  run mode, then asks `coordinator_core.ceremony_config.launchability.check` whether the OS can
+  exec the first token. Exit 0: no key, or launchable. Exit 1: unparseable, not argv-only
+  conformant, empty, not launchable, or a helper module needed for the check is unavailable
+  (stderr carries the same WARN text run mode prints).
+  Exit 2: unknown or missing ceremony.
+
+Exit codes (run mode): ALWAYS 0. A non-zero command exit, a missing command, or an
   unknown ceremony arg all WARN to stderr and still exit 0 — the hook must
   NEVER fail or block the calling ceremony.
 
@@ -132,8 +140,62 @@ _KNOWN_CEREMONIES = (
 )
 
 
+def _warn_w1(ceremony: str, key: str, detail: str) -> None:
+    print(
+        f"[coordinator-ceremony-hook] WARN: {ceremony} post-command "
+        f"('{key}') is not argv-only conformant: {detail} "
+        "Skipping.",
+        file=sys.stderr,
+    )
+
+
+def _warn_unparseable(ceremony: str, key: str, exc: object) -> None:
+    print(
+        f"[coordinator-ceremony-hook] WARN: {ceremony} post-command ('{key}') "
+        f"could not be parsed as an argv-only command ({exc}) — {key} must be a "
+        "single argv-shaped command (shlex-style tokens only: no pipes, &&/||, "
+        "redirects, globs, or VAR=value prefixes); use a wrapper script for "
+        "shell semantics. Skipping.",
+        file=sys.stderr,
+    )
+
+
+def _warn_empty_argv(ceremony: str, key: str) -> None:
+    print(
+        f"[coordinator-ceremony-hook] WARN: {ceremony} post-command ('{key}') "
+        f"parsed to an empty argv — {key} must be a single argv-shaped command. "
+        "Skipping.",
+        file=sys.stderr,
+    )
+
+
+def _warn_launch_failure(ceremony: str, key: str, redacted: str, detail: object, shim: bool) -> None:
+    shim_note = ""
+    if shim:
+        shim_note = (
+            " On Windows the test is launchability, not PATH resolution: a "
+            "`.cmd`/`.bat`/extensionless shim (pnpm, npm, yarn) is found by "
+            "`where` and by shutil.which, and CreateProcess still cannot launch "
+            "it. Name the executable the shim would have called — e.g. "
+            "`node scripts/publish.mjs`, not `pnpm publish:fleet`."
+        )
+    print(
+        f"[coordinator-ceremony-hook] WARN: {ceremony} post-command failed to "
+        f"launch (non-fatal): {redacted} ({detail}) — {key} is argv-only: its first "
+        "token must be an executable on PATH (or an absolute/relative path to "
+        "one); pipes, &&/||, redirects, globs, and VAR=value prefixes are not "
+        f"supported. Use a wrapper script for shell semantics.{shim_note}",
+        file=sys.stderr,
+    )
+
+
 def main(argv: list[str]) -> int:
+    check_mode = bool(argv) and argv[0] == "--check"
+    if check_mode:
+        argv = argv[1:]
     ceremony = argv[0] if argv else ""
+    # Check mode reports a failure by exit 1; run mode never fails the ceremony.
+    fail = 1 if check_mode else 0
 
     if ceremony not in _KNOWN_CEREMONIES:
         print(
@@ -142,7 +204,7 @@ def main(argv: list[str]) -> int:
             "workweek-complete",
             file=sys.stderr,
         )
-        return 0
+        return 2 if check_mode else 0
 
     key = ceremony.replace("-", "_") + "_post_command"
 
@@ -158,7 +220,7 @@ def main(argv: list[str]) -> int:
             f"({exc}) — skipping hook",
             file=sys.stderr,
         )
-        return 0
+        return fail
 
     try:
         if not os.path.isfile(_RVC_PATH):
@@ -177,7 +239,7 @@ def main(argv: list[str]) -> int:
             f"({exc}) — skipping hook",
             file=sys.stderr,
         )
-        return 0
+        return fail
 
     try:
         from repo_identity import resolve_checked_repo_root
@@ -187,7 +249,7 @@ def main(argv: list[str]) -> int:
             f"({exc}) — skipping hook",
             file=sys.stderr,
         )
-        return 0
+        return fail
 
     repo_root, verdict = resolve_checked_repo_root(explicit_root=None)
     if repo_root is None:
@@ -228,35 +290,40 @@ def main(argv: list[str]) -> int:
     else:
         verdict = check_argv_only(cmd)
         if not verdict.conformant and verdict.rule == "W1-assignment-prefix":
-            print(
-                f"[coordinator-ceremony-hook] WARN: {ceremony} post-command "
-                f"('{key}') is not argv-only conformant: {verdict.detail} "
-                "Skipping.",
-                file=sys.stderr,
-            )
-            return 0
+            _warn_w1(ceremony, key, verdict.detail)
+            return fail
 
     try:
         post_argv = win_safe_shlex_split(cmd)
     except ValueError as exc:
-        print(
-            f"[coordinator-ceremony-hook] WARN: {ceremony} post-command ('{key}') "
-            f"could not be parsed as an argv-only command ({exc}) — {key} must be a "
-            "single argv-shaped command (shlex-style tokens only: no pipes, &&/||, "
-            "redirects, globs, or VAR=value prefixes); use a wrapper script for "
-            "shell semantics. Skipping.",
-            file=sys.stderr,
-        )
-        return 0
+        _warn_unparseable(ceremony, key, exc)
+        return fail
 
     if not post_argv:
-        print(
-            f"[coordinator-ceremony-hook] WARN: {ceremony} post-command ('{key}') "
-            f"parsed to an empty argv — {key} must be a single argv-shaped command. "
-            "Skipping.",
-            file=sys.stderr,
+        _warn_empty_argv(ceremony, key)
+        return fail
+
+    if check_mode:
+        try:
+            from coordinator_core.ceremony_config import launchability
+        except ImportError as exc:
+            print(
+                f"[coordinator-ceremony-hook] WARN: launchability module unavailable "
+                f"({exc}) — cannot check {ceremony} post-command: {redacted}",
+                file=sys.stderr,
+            )
+            return fail
+        reason = launchability.check(post_argv)
+        if reason is None:
+            return 0
+        resolved = launchability.resolve(post_argv[0])
+        shim = (
+            sys.platform == "win32"
+            and resolved is not None
+            and launchability.is_unlaunchable_windows_suffix(resolved)
         )
-        return 0
+        _warn_launch_failure(ceremony, key, redacted, reason, shim)
+        return 1
 
     print(f"[coordinator-ceremony-hook] {ceremony}: running: {redacted}", file=sys.stderr)
 
@@ -286,22 +353,12 @@ def main(argv: list[str]) -> int:
         )
         return 0
     except OSError as exc:
-        shim_note = ""
-        if sys.platform == "win32" and getattr(exc, "winerror", None) == 2:
-            shim_note = (
-                " On Windows the test is launchability, not PATH resolution: a "
-                "`.cmd`/`.bat`/extensionless shim (pnpm, npm, yarn) is found by "
-                "`where` and by shutil.which, and CreateProcess still cannot launch "
-                "it. Name the executable the shim would have called — e.g. "
-                "`node scripts/publish.mjs`, not `pnpm publish:fleet`."
-            )
-        print(
-            f"[coordinator-ceremony-hook] WARN: {ceremony} post-command failed to "
-            f"launch (non-fatal): {redacted} ({exc}) — {key} is argv-only: its first "
-            "token must be an executable on PATH (or an absolute/relative path to "
-            "one); pipes, &&/||, redirects, globs, and VAR=value prefixes are not "
-            f"supported. Use a wrapper script for shell semantics.{shim_note}",
-            file=sys.stderr,
+        _warn_launch_failure(
+            ceremony,
+            key,
+            redacted,
+            exc,
+            sys.platform == "win32" and getattr(exc, "winerror", None) == 2,
         )
         rc = 1
 

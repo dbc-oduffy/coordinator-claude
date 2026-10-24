@@ -63,8 +63,8 @@ list at run time — the fragment names one entry, the run dispatches one call p
 
 ## `executor_rows_per_reviewer`
 
-The `coordinator:code-reviewer` entry carries `executor_rows_per_reviewer: {"min": 3, "max": 4}`,
-both integers >= 1 with `min <= max`: one slice reviewer per 3-4 executor rows. In grouped review
+The `coordinator:code-reviewer` entry carries `executor_rows_per_reviewer: {"min": 3, "max": 6}`,
+both integers >= 1 with `min <= max`: one slice reviewer per 3-6 executor rows. In grouped review
 the ratio applies to each group's rows (`compose_execute_review`'s `review_groups`). A composer
 that does not read it keeps the `per: slice` fan-out above.
 

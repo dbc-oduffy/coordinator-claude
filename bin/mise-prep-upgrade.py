@@ -144,7 +144,9 @@ from coordinator_core.execute_plan_assemble.falsifier_shape import (  # noqa: E4
     _DISPOSITION_REF_SHA_RE,
 )
 
+from coordinator_core.cli_entry import recording_declared_writes  # noqa: E402
 from coordinator_core.frontmatter.body_blocks import LocateStatus  # noqa: E402
+from coordinator_core.session.declared_writes import declare_write  # noqa: E402
 from coordinator_core.ops.dispatch_emit import spine_read  # noqa: E402
 
 #: A sha-shaped token inside prose. An all-digit run still counts toward
@@ -651,6 +653,7 @@ def apply_derivable(path: Path, derivable: Dict[str, Any]) -> bool:
     if out == text:
         return False
     path.write_text(out, encoding="utf-8", newline="\n")
+    declare_write(path)
     return True
 
 
@@ -725,7 +728,8 @@ def main(argv: List[str]) -> int:
     with_residue = 0
     errors = 0
     for path, text, parsed in targets:
-        result = upgrade_plan(path, check=args.check, text=text, parsed=parsed)
+        with recording_declared_writes(cwd=str(_repo_root_of(path) or Path.cwd())):
+            result = upgrade_plan(path, check=args.check, text=text, parsed=parsed)
         if result["error"]:
             errors += 1
             if not args.quiet:

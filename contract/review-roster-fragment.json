@@ -22,7 +22,7 @@
       {
         "kind": "review-wave",
         "agents": [
-          { "agentType": "coordinator:code-reviewer", "model": "sonnet", "effort": "low", "per": "slice", "executor_rows_per_reviewer": { "min": 3, "max": 4 }, "applies": "own-slice", "schema": "slice-review-result" }
+          { "agentType": "coordinator:code-reviewer", "model": "sonnet", "effort": "low", "per": "slice", "executor_rows_per_reviewer": { "min": 3, "max": 6 }, "applies": "own-slice", "schema": "slice-review-result" }
         ]
       },
       {

@@ -11,6 +11,7 @@ Family exit codes: 0 ok, 1 operational failure, 2 usage, 3 not elevated, 4 admis
 from __future__ import annotations
 
 import importlib.util
+import struct
 import sys
 import types
 from dataclasses import dataclass
@@ -58,6 +59,110 @@ def load_governor(path: Path | None = None) -> types.ModuleType:
         sys.modules.pop(spec.name, None)
         raise
     return module
+
+
+@dataclass(frozen=True)
+class ProcRow:
+    """One process from the system process table; `private_bytes` is PrivatePageCount."""
+
+    pid: int
+    ppid: int
+    create_time: float
+    working_set_bytes: int
+    private_bytes: int
+    image: str
+
+
+_SPI_NEXT = struct.Struct("<I")
+_SPI_CREATE_TIME = struct.Struct("<q")
+_SPI_IMAGE = struct.Struct("<HHxxxxQ")
+_SPI_IDS = struct.Struct("<QQ")
+_SPI_SIZE = struct.Struct("<Q")
+_SPI_OFF_CREATE = 32
+_SPI_OFF_IMAGE = 56
+_SPI_OFF_PID = 80
+_SPI_OFF_WS = 144
+_SPI_OFF_PRIVATE = 200
+_SPI_MIN_LEN = 208
+_FILETIME_EPOCH_DELTA_S = 11644473600
+
+
+def parse_process_information(buf: bytes, base: int | None = None) -> list[ProcRow]:
+    """Parse a 64-bit SYSTEM_PROCESS_INFORMATION chain; pure, no I/O, any OS.
+
+    Walks `NextEntryOffset` until 0. `base` is the buffer's own address: the kernel stores each
+    image name as an absolute pointer into the same buffer, so without `base` every `image` is "".
+    A truncated or non-advancing chain ends the walk rather than raising.
+    """
+    rows: list[ProcRow] = []
+    size = len(buf)
+    off = 0
+    while off + _SPI_MIN_LEN <= size:
+        (nxt,) = _SPI_NEXT.unpack_from(buf, off)
+        (create,) = _SPI_CREATE_TIME.unpack_from(buf, off + _SPI_OFF_CREATE)
+        name_len, _max, name_ptr = _SPI_IMAGE.unpack_from(buf, off + _SPI_OFF_IMAGE)
+        pid, ppid = _SPI_IDS.unpack_from(buf, off + _SPI_OFF_PID)
+        (working_set,) = _SPI_SIZE.unpack_from(buf, off + _SPI_OFF_WS)
+        (private,) = _SPI_SIZE.unpack_from(buf, off + _SPI_OFF_PRIVATE)
+        image = ""
+        if base is not None and name_ptr and name_len:
+            start = name_ptr - base
+            if 0 <= start and start + name_len <= size:
+                image = bytes(buf[start : start + name_len]).decode("utf-16-le", "replace")
+        rows.append(
+            ProcRow(
+                pid=pid,
+                ppid=ppid,
+                create_time=create / 1e7 - _FILETIME_EPOCH_DELTA_S if create else 0.0,
+                working_set_bytes=working_set,
+                private_bytes=private,
+                image=image,
+            )
+        )
+        if nxt == 0 or off + nxt <= off:
+            break
+        off += nxt
+    return rows
+
+
+def proc_table() -> list[ProcRow]:
+    """Every process via one NtQuerySystemInformation(SystemProcessInformation) read. Windows only.
+
+    Opens no process. Retries with a larger buffer on STATUS_INFO_LENGTH_MISMATCH; raises OSError.
+    """
+    import ctypes
+
+    if struct.calcsize("P") != 8:
+        raise OSError("proc_table requires a 64-bit interpreter")
+    nt = ctypes.WinDLL("ntdll")
+    nt.NtQuerySystemInformation.restype = ctypes.c_long
+    nt.NtQuerySystemInformation.argtypes = [
+        ctypes.c_ulong,
+        ctypes.c_void_p,
+        ctypes.c_ulong,
+        ctypes.POINTER(ctypes.c_ulong),
+    ]
+    size = 1 << 21
+    for _ in range(8):
+        buf = ctypes.create_string_buffer(size)
+        needed = ctypes.c_ulong(0)
+        status = nt.NtQuerySystemInformation(5, buf, size, ctypes.byref(needed))
+        if status == 0:
+            return parse_process_information(buf.raw, ctypes.addressof(buf))
+        if (status & 0xFFFFFFFF) != 0xC0000004:
+            raise OSError(f"NtQuerySystemInformation failed: NTSTATUS {status & 0xFFFFFFFF:#x}")
+        size = max(size * 2, int(needed.value) + (1 << 16))
+    raise OSError("NtQuerySystemInformation: process table kept growing")
+
+
+def proc_cmdline(pid: int) -> str:
+    """Command line of one pid (one open); "" when unreadable or the process is gone."""
+    import psutil
+
+    try:
+        return " ".join(psutil.Process(pid).cmdline())
+    except psutil.Error:
+        return ""
 
 
 @dataclass(frozen=True)
