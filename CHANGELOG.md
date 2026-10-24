@@ -4,6 +4,10 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.6.9] — 2026-10-24
+
+- **EM role marker:** `assert-em-role` writes `em-role-asserted` in every EM session (not only under Cockpit), except on a compact SessionStart; it arms the engine's pre-fire survey guard. The turn-intent Stop block stays Cockpit-only. Pairs with claude-klabauter 7600c103a, which exempts the live Group EM nomination holder.
+
 ## [4.6.8] — 2026-10-24
 
 - **EM role:** after any halt the EM lands work only by re-fire or `workflow.revise`; it never commits a run's withheld diff or writes its delivery note.

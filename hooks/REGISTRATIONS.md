@@ -52,7 +52,7 @@ C5 manufactured-blocker guard (docs/plans/2026-08-10-posture-scaled-autonomous-d
 
 ## Stop · `*` · `hooks.guard_turn_intent`
 
-EM turn-intent guard, its own engine door inside the Stop block, never a leg of the STOP-DISPATCH FAN-IN above (BLOCKING-class). Native door, `hook-run --advisory hooks.guard_turn_intent`, same shape as the entry above. Armed by the `em-role-asserted` marker that assert-em-role.py writes through `coordinator_core.hooks.support.turn_intent`; counts its own blocks in `turn-intent-blocks.json` (`BLOCK_CAP = 2`), so no `stop_hook_active` precondition sits in front of it. A block answers the top-level `{"decision": "block", "reason": ...}` Stop envelope. Reads no `COORDINATOR_OVERRIDE_*` key.
+EM turn-intent guard, its own engine door inside the Stop block, never a leg of the STOP-DISPATCH FAN-IN above (BLOCKING-class). Native door, `hook-run --advisory hooks.guard_turn_intent`, same shape as the entry above. Armed by the `em-role-asserted` marker (assert-em-role.py writes it in every EM session through `coordinator_core.hooks.support.turn_intent`) AND the Cockpit signal, which its Stop step checks itself; counts its own blocks in `turn-intent-blocks.json` (`BLOCK_CAP = 2`), so no `stop_hook_active` precondition sits in front of it. A block answers the top-level `{"decision": "block", "reason": ...}` Stop envelope. Reads no `COORDINATOR_OVERRIDE_*` key.
 
 ## SubagentStop · `*` · `subagent-zero-tool-use-detect.py`
 

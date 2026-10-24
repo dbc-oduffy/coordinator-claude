@@ -1,7 +1,7 @@
 {
   "paths": {
-    ".claude-plugin/marketplace.json": "8504afb2085bcbf1eaa34fd95d7774ff14d2528e",
-    ".claude-plugin/plugin.json": "1c90efa114df9bc8621065a02533bb716f19c143",
+    ".claude-plugin/marketplace.json": "3e127000b676ba405b6ebe1039ec289822eea01b",
+    ".claude-plugin/plugin.json": "52eeae091c84f7acbd3e3d68943dadec350eb039",
     ".gitattributes": "e601e3b4831fbad8558b4cf33c1d891e51bb4732",
     ".github/.persona-names-allowlist": "b192e993696d101230ee10c2cbe29faed29ea61f",
     ".github/ISSUE_TEMPLATE/bug_report.md": "0f541423ae94a7dd28b550bee94ce2babb50be4a",
@@ -34,7 +34,7 @@
     ".gitignore": "31886db36fd93b3817544f094188345777a5e87c",
     ".python-version": "e4fba2183587225f216eeada4c78dfab6b2e65f5",
     "AGENTS.md": "a88e4d5f37a62b3a64ab05156092552926c2cf0b",
-    "CHANGELOG.md": "00c6eb78a13840134fc37e58c6fc5a3e65d42bcf",
+    "CHANGELOG.md": "cd1c63b769912657942b6ee84fb3e9175784f031",
     "CODE_OF_CONDUCT.md": "ba00a30d3950eb141f7ba5c969661e60c2f5c97a",
     "COMMERCIAL.md": "a8701144cfb16aedda57ec490159cafe170ff1d1",
     "CONTRIBUTING.md": "b0db3c04182459734d8871e93ab8a8165e2783a1",
@@ -554,7 +554,7 @@
     "bin/emit-guard-enforcement-join.py": "906dc036e81e3066dd77efa7646de618f964aa45",
     "bin/emit-wave-fire.cmd": "7815071f05c5c613037a23ab1bacb1ce74fc9ebe",
     "bin/emit-wave-fire.ps1": "4efe6c7f6babb806a9ced15380117453cdf53b8d",
-    "bin/emit-wave-fire.py": "ef51ef4524a2e5db1b1c774003178960137f07f4",
+    "bin/emit-wave-fire.py": "900ccd2a82c032e052dff64d774c6d945763d70d",
     "bin/engine-gap-lint.cmd": "99fd3996063b854524c13e29f629aa82a8a64486",
     "bin/engine-gap-lint.ps1": "15dbc0d2e2f1af3eb44101ac2fa2bc565a905da8",
     "bin/engine-gap-lint.py": "4f1da62895e9d3f3bd5174d83965637775bf3c4f",
@@ -780,7 +780,7 @@
     "bin/lib/read_mirrors.py": "f66ce991dbd849c19e7c913188b54b798f5e804d",
     "bin/lib/records_query.py": "aed04a4ed7a31e28edc4b79f531647f7633860b3",
     "bin/lib/repo_identity.py": "dc7907dea799a4d2e7a0cad8484f002d142b8992",
-    "bin/lib/session_registry.py": "be3cfa3ac7d80c5d1c02875eacb33cafd8e954e2",
+    "bin/lib/session_registry.py": "1691c2d82199a3ea3c6c6829367cf0ee789061ae",
     "bin/lib/session_spend.py": "1bf3727255d08a94a4ec37374dba4f1547a85dab",
     "bin/lib/subject_repo.py": "7998df58831c72792a30c73d90d6b7f58e82ac6f",
     "bin/lib/sweep_argv.py": "9ab6c799a72ae810b437eb3bc65f0d074a1e66a2",
@@ -921,7 +921,7 @@
     "bin/plan-task-brief.py": "7cc13ad6e92f5961be2ae6541fc4cd9f48acf548",
     "bin/plan-tasks-grouping-digest.cmd": "5a089b6f0be3076f292bd52997aed33590d1e606",
     "bin/plan-tasks-grouping-digest.py": "b6ea0759f7b3d0984a4fddb18e294aa502726c82",
-    "bin/plan-tasks-resolve": "9ef622c066140a1cee0e9c47a3bf8176cc6e0dc3",
+    "bin/plan-tasks-resolve": "27ce0888eaa83a4397f4302a7db84bb814f5ba20",
     "bin/plan-tasks-resolve.cmd": "4c505ce625c2e24ea9af28af22123d14f9448ce9",
     "bin/plan-tasks-stamp": "2334df7da8445ae8013036c3b930c75b9bb3b209",
     "bin/plan-tasks-stamp.cmd": "55b1873927a986c8f2ff7d062bb6befeada09306",
@@ -1683,7 +1683,7 @@
     "docs/wiki/test-design-discipline/test-driven-development.md": "44ed61d0ed9b86ce1b90916aea164365eecfdb86",
     "docs/wiki/test-design-discipline/test-environment-discipline.md": "08735643c9fe1d09944c8aed7d17d03ffbaef8db",
     "governed-authoring-surfaces.json": "09d44b5409b95a231dfcf12475a770e29839d565",
-    "hooks/REGISTRATIONS.md": "f39ac19499a1fcb0a7122965591a2aa474e744a7",
+    "hooks/REGISTRATIONS.md": "091f7c2fc49e098cf82916458889da3f6180a180",
     "hooks/effective-delivery.json": "81b0a47a50d5a5ca6a70b5407c439071347ad635",
     "hooks/fail_open_launcher.py": "5fdfd90875b73e1c477120316a47ad599d727d24",
     "hooks/forwardable-env-vars.json": "bca19668922f73edb5aead76e7040ef377b86d14",
@@ -1758,7 +1758,7 @@
     "hooks/scripts/_worktree_isolation_strip.py": "4a719ef2b513ddbd47ee470b5e56db136d44b9f7",
     "hooks/scripts/agent-completion-log.py": "5a265da7d6c7fe9c1a4f645c349665bdebb43db9",
     "hooks/scripts/allow-emitted-workflow-fire.py": "4a67271f0bdcf7fc1f15d9db65f18b6985546ba1",
-    "hooks/scripts/assert-em-role.py": "bdd5645d6e828683b6add26daa7deb5a67e0ec7f",
+    "hooks/scripts/assert-em-role.py": "b2ea00a94341ef8fd7064387497b06cc5161e2c4",
     "hooks/scripts/block-dispatch-suite-invocation.py": "928c0ed9639f6769efda285c00a1a6617f5d7139",
     "hooks/scripts/block-unenumerated-agent-type.py": "5e97a8f334ba0a9039d7ca25b04cdf22a69ab235",
     "hooks/scripts/block-unharvested-canvas-dispatch.py": "54e34604b4af483d3c386eb107bd5139946d99f6",
@@ -2398,5 +2398,5 @@
     "workflows/workday-start.mjs": "b349b8cf44a9247aec5ff3e5a23689fc16eec9c5"
   },
   "schema": 1,
-  "source_head": "6dbe69987490dcaad8e690e9d9e8b5bf88a6a9bb"
+  "source_head": "328254c734cae876202e3717f0094057cf22bb67"
 }

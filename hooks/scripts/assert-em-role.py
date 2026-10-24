@@ -7,11 +7,13 @@ suppressible (`COORDINATOR_REPOMAP_STATUS_OFF` et al., and the whole banner
 degrades quietly on a missing cache) — a role assertion riding the same
 channel would inherit that suppressibility, and a role assertion that can be
 silently switched off is worse than none at all. This hook has exactly one
-job, unconditionally: tell the main session it is the EM. Cockpit-only, gated
-by `_cockpit_session.under_cockpit()`: the turn-intent instruction
-(`agent-role-em-cockpit.md`) and the per-session role marker
-(`coordinator_core.hooks.support.turn_intent.write_role_marker`, best-effort, after emission) that arms the
-turn-intent Stop block. The marker never alters stdout or the exit code.
+job, unconditionally: tell the main session it is the EM. Every EM session gets
+the per-session role marker
+(`coordinator_core.hooks.support.turn_intent.write_role_marker`, best-effort, after emission);
+it arms the EM pre-fire survey guard. Only the turn-intent instruction
+(`agent-role-em-cockpit.md`) is Cockpit-only, gated by
+`_cockpit_session.under_cockpit()`; the turn-intent Stop step re-checks Cockpit itself.
+The marker never alters stdout or the exit code.
 
 Why this needs to exist at all: the always-loaded doctrine corpus
 (formerly `coordinator/CLAUDE.md`, retired 2026-07-27 and split into
@@ -529,7 +531,7 @@ def _compose_oversize_repo_banner(rel_path: str, byte_len: int) -> str:
 
 
 def _write_role_marker(repo_root, session_id) -> None:
-    """Best-effort, idempotent: arm the turn-intent Stop block for this session.
+    """Best-effort, idempotent: mark this session as an EM session.
     Never raises; a missing repo, git dir, or non-uuid4 session_id writes nothing."""
     try:
         if repo_root is None or not session_id:
@@ -632,7 +634,10 @@ def main(argv: list) -> int:
         except Exception:
             pass  # same degrade-and-continue contract as the pointer above
 
-    if cockpit:
+    # A compaction re-fires this hook; the marker written at the session's
+    # startup/resume/clear already survives it, so a compact must not arm a
+    # session that started before the marker was unconditional.
+    if payload.get("source") != "compact":
         _write_role_marker(repo_root, session_id)
     return 0
 

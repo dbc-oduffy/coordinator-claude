@@ -1415,6 +1415,8 @@ def _emit_single_from_sizing(
         wave_args["spineCheckCli"] = spine_check_cli
     if arming_check_cli:
         wave_args["armingCheckCli"] = arming_check_cli
+    if args.overseer:
+        wave_args["overseer"] = True
 
     if args.chain:
         return _emit_chain_from_sizing(
@@ -1572,6 +1574,11 @@ def main(argv=None) -> int:
         "pointer records are resolved from the latest wave slot of --trail-dir and bound as "
         "`repairBatons`. No gate report is read and no reviewer, planner or scout is "
         "dispatched — the one role a repair reaches is the integrator.",
+    )
+    ap.add_argument(
+        "--overseer",
+        action="store_true",
+        help="bind `overseer: true` into every wave_args dict for plan-blitz (absent means false)",
     )
     ap.add_argument("--json", action="store_true", help="emit the fire manifest as JSON")
     args = ap.parse_args(argv)
@@ -1945,6 +1952,8 @@ def main(argv=None) -> int:
             wave_args["spineCheckCli"] = spine_check_cli
         if arming_check_cli:
             wave_args["armingCheckCli"] = arming_check_cli
+        if args.overseer:
+            wave_args["overseer"] = True
         try:
             text = _bind(script_source, wave_args, args.live_engine_tree)
         except ValueError as exc:

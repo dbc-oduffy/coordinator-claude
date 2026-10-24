@@ -108,6 +108,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import json
 import os
 import subprocess
 import sys
@@ -181,14 +182,17 @@ _MULTI_ID_ONLY_FOR_CODED_MESSAGE = (
     "PER-ROW rationale (each row's case for and against is the whole point "
     "of this disposition), and a shared --disposition-detail/--case-against "
     "across multiple ids would silently launder distinct decisions into one. "
-    "Make one call per row instead."
+    "For an approved multi-row cut, pass --resolves-file PATH (a JSON list of "
+    "{{id, disposition, disposition_detail, case_against, ...}}) instead."
 )
 
 _EPILOG = """\
 Repeatable --id (--id C1 --id C2 ...) is accepted for --coded ONLY — "these
 rows are implemented" is genuinely one shared statement, sent as a single
 atomic batch. Every other exit needs PER-ROW rationale and refuses more than
-one --id; make one call per row instead.
+one --id; --resolves-file PATH carries an approved multi-row cut (a JSON list
+of {id, disposition, disposition_detail?, disposition_ref?, case_against?}) in
+one call, exclusive with --id and the exit flags.
 
 The five exits (2026-08-05 DoE ruling):
 
@@ -356,6 +360,16 @@ def _build_parser() -> argparse.ArgumentParser:
             "not a disposition: clear a row's external_gate (cleared: true + "
             "closure_evidence) via the clear-gate verb; needs --id, "
             "--owner-repo and --evidence"
+        ),
+    )
+    exits.add_argument(
+        "--resolves-file",
+        dest="resolves_file",
+        metavar="PATH",
+        help=(
+            "not an exit flag: a JSON list of {id, disposition, "
+            "disposition_detail?, disposition_ref?, case_against?} sent as the "
+            "op's `resolves` batch in one call; exclusive with --id and the exits"
         ),
     )
     exits.add_argument(
@@ -570,11 +584,69 @@ def _exit_code_from_route_mutation_error(exc: cc_invoke.RouteMutationError) -> i
     return code if code != 0 else 1
 
 
+def _run_resolves_file(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    """Send a JSON list of per-row resolutions as one `resolves` batch.
+
+    Only the list's shape is checked here; every gate stays in plan_tasks_mutate.
+    """
+    if args.task_ids:
+        parser.error("--resolves-file is exclusive with --id")
+    if (
+        args.disposition_detail is not None
+        or args.case_against is not None
+        or args.via is not None
+        or args.ref is not None
+        or args.owner_repo is not None
+        or args.evidence is not None
+    ):
+        parser.error(
+            "--resolves-file carries per-row rationale in the file; "
+            "--disposition-detail/--case-against/--via/--ref/--owner-repo/--evidence are refused"
+        )
+    try:
+        text = Path(args.resolves_file).read_text(encoding="utf-8")
+        resolves = json.loads(text)
+    except (OSError, ValueError) as exc:
+        parser.error(f"--resolves-file {args.resolves_file!r} is unreadable or not JSON: {exc}")
+    if not (
+        isinstance(resolves, list)
+        and resolves
+        and all(
+            isinstance(r, dict)
+            and isinstance(r.get("id"), str)
+            and isinstance(r.get("disposition"), str)
+            for r in resolves
+        )
+    ):
+        parser.error(
+            "--resolves-file must hold a non-empty JSON list of objects, each with "
+            "string `id` and `disposition`"
+        )
+    params = {"verb": "resolve", "plan_path": args.plan_path, "resolves": resolves}
+    try:
+        result = cc_invoke.route_mutation(_OP, params, _resolve_repo_root(), _no_legacy)
+    except cc_invoke.RouteMutationError as exc:
+        print(f"plan-tasks-resolve: {exc}", file=sys.stderr)
+        return _exit_code_from_route_mutation_error(exc)
+    except RuntimeError as exc:
+        print(f"plan-tasks-resolve: {exc}", file=sys.stderr)
+        return 2
+    message = result.get("message", "") if isinstance(result, dict) else ""
+    if message:
+        print(message)
+    for warning in (result.get("warnings") or []) if isinstance(result, dict) else []:
+        print(f"plan-tasks-resolve: warn: {warning}", file=sys.stderr)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv if argv is not None else sys.argv[1:])
 
     cc_invoke.require_engine_on_path(__file__)
+
+    if args.resolves_file is not None:
+        return _run_resolves_file(args, parser)
 
     if not args.task_ids:
         parser.error("--id is required")

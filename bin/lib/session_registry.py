@@ -50,6 +50,9 @@ def registry_dir() -> Path:
 
 
 def parse_row(path: Path) -> Optional[RegistryRow]:
+    # TRAP: a reader change made for a harness-shape change updates
+    # coordinator/bin/tests/fixtures/session_registry_key_variants.json and notifies
+    # example-cockpit-repo-em by memo (their vendored copy).
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
