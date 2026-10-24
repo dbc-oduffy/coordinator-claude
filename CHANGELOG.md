@@ -4,6 +4,15 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.6.6] — 2026-10-24
+
+- **Plan review:** an L plan is reviewed by `staff-eng` alone; `apm` reviews at XL and above.
+
+## [4.6.5] — 2026-10-24
+
+- **EM role:** the Confident-XS hand-fix applies only before a route has fired; after a fire, a red receipt, test, gap or halt goes back through `workflow.revise` or a follow-up ask.
+- **Plan author:** runs at effort `low` (band `authoring-lean`) to cut plan-chain cost.
+
 ## [4.6.4] — 2026-10-24
 
 - **EM role:** the EM judges XS from the ask and never reads to fill `em_context`. After a run lands, it reads the receipt and runs one spot-check, the exit-criterion falsifier or the receipt's named test, with no probe scripts or suite re-runs.

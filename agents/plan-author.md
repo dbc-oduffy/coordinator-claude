@@ -2,7 +2,7 @@
 name: plan-author
 description: "Authors one plan doc against a finalised size/route; never sizes, routes, or executes."
 model: opus
-effort: medium
+effort: low
 color: cyan
 tools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "PowerShell", "ToolSearch", "mcp__project-rag__project_staleness_check", "mcp__project-rag__project_symbol", "mcp__project-rag__project_symbol_callers", "mcp__project-rag__project_symbol_references", "mcp__project-rag__project_symbol_brief", "mcp__project-rag__project_referencers", "mcp__project-rag__project_semantic_search", "mcp__project-rag__project_rag_instructions", "mcp__project-rag__project_symbol_source", "mcp__project-rag__project_engine_document_symbols", "mcp__project-rag__project_engine_type_hierarchy", "mcp__project-rag__project_engine_symbol_graph", "mcp__project-rag__project_engine_list_modules"]
 access-mode: read-write

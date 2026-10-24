@@ -63,7 +63,7 @@ reviewer touches it.
 
 **Pre-flight sidecars are consumed alongside the plan**, never inserted into that chain; on a non-XL plan the Sonnet pre-flights (`docs-checker`, `prior-art-checker`, `plan-coverage-checker`) gate before the Opus reviewer; on the accepted-XL lane a `plan-reviewer` pass runs ahead of them, so four Sonnet-tier passes precede the Opus persona. `plan-coverage-checker` has no EM opt-out.
 
-**Angelique (apm) trigger — size-gated, plan-review-only.** plan-blitz's size ladder on `sizing_object` (`estimate.tshirt`): XS/S Sonnet `plan-reviewer`, M the Staff Engineer, L + Angelique, XL+ + the Director of Engineering. L is the APM floor; add no second threshold surface. Kira is on no rung and never gates: `blocking_verdicts` is `null`, like `coordinator:docs-checker`.
+**Angelique (apm) trigger — size-gated, plan-review-only.** plan-blitz's size ladder on `sizing_object` (`estimate.tshirt`): XS/S Sonnet `plan-reviewer`, M and L the Staff Engineer, XL+ adds Angelique and the Director of Engineering. XL is the APM floor; add no second threshold surface. Kira is on no rung and never gates: `blocking_verdicts` is `null`, like `coordinator:docs-checker`.
 
 ---
 

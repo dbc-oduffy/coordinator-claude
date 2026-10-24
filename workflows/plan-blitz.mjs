@@ -179,7 +179,7 @@ export const meta = {
     { title: 'Size', detail: 'One sonnet sizing-scout per unsized baton — substrate read, touchpoint inventory, prior art, and a proposed t-shirt with its evidence. Skipped for a baton that already cites a sizing-object. Then one Opus blitz-em over the whole wave interrogates every proposed size (revising down by default), finalises the route via sizing-assemble, and emits the per-baton dispatch spec the Plan phase reads; it is skipped in single-plan mode and when every baton already carries an accepted sizing.' },
     { title: 'Plan', detail: 'One Opus planner per baton, on every route and at every size — authoring is not a lane the wave economises on. Writes the plan doc through coordinator:plan / scaffold-plan; never hand-authors frontmatter. In single-plan mode the prior-art pre-flight starts beside the planner and is awaited before the premise check.' },
     { title: 'Premise check', detail: 'One sonnet pass per drafted L-or-above plan (below L it does not fire), dispatched once its plan path is trusted and before any reviewer fires. Resolves the load-bearing citations in that plan against the tree — paths, symbols, refs, whether its falsifier can report red, and whether a named thing means what the plan says. It reports per-class ROWS and never a plan-level verdict; the seam after it translates those rows onto REVIEW_SCHEMA so they reach the reviewers that already apply every finding themselves. A premise miss routes BLOCKED; the class-5 rows with no writable fix are NAMED for the reviewers, who own the separating test.' },
-    { title: 'Review', detail: 'Reviewers resolved per baton from the EM dispatch spec, never prescribed in the plan file, then fixed by the finalised size ladder: XS/S one sonnet plan-reviewer, M staff-eng alone on opus, L staff-eng + apm, XL and above adds eng-director; a domain signal replaces staff-eng. No persona runs on sonnet; the overengineering lens reviews shipped code, never a plan. Fires unconditionally — the EM is not consulted about whether a plan deserves review. Same plan, two paths. Sequential: each reviewer applies its own findings in place and runs `review-findings-ledger verify` on its own sidecar before the next reviewer starts. Chatty wave (args.chatty with args.chattyReview, reviewers within the roster slots): an overseer registers, every reviewer runs concurrently claiming regions by mail, then a survey, one continuation per slot with unread mail, and a summary. A PIVOT/REJECTED verdict applies nothing and suspends every finding under it, with co-reviewer findings still logged. The last reviewer runs plan.readiness_verdict (a dedicated host after the wave does on the chatty path); a prep-gate enricher runs concurrently with other plans reviewers, only when that reply names mechanical_repairs, none came back, or its only failure is census-unscreenable, repairs what the engine marks mechanical plus the Mechanical rows of the plan-coverage pre-flight, and re-asks the op once. A judgment verdict with no BLOCKED reviewer buys one opus plan-author resolver and one op re-ask; the plan is ready only if the re-ask is, and a BLOCKED reviewer or a failed resolve pulls with a reason leading "<n> blocking, <m> advisory". The script maps the standing op verdict to ready, pulled or replan, and a PIVOT routes to a replan baton rather than halting the wave. Host availability on the executing box is never a pull reason.' },
+    { title: 'Review', detail: 'Reviewers resolved per baton from the EM dispatch spec, never prescribed in the plan file, then fixed by the finalised size ladder: XS/S one sonnet plan-reviewer, M and L staff-eng alone on opus, XL and above adds apm and eng-director; a domain signal replaces staff-eng. No persona runs on sonnet; the overengineering lens reviews shipped code, never a plan. Fires unconditionally — the EM is not consulted about whether a plan deserves review. Same plan, two paths. Sequential: each reviewer applies its own findings in place and runs `review-findings-ledger verify` on its own sidecar before the next reviewer starts. Chatty wave (args.chatty with args.chattyReview, reviewers within the roster slots): an overseer registers, every reviewer runs concurrently claiming regions by mail, then a survey, one continuation per slot with unread mail, and a summary. A PIVOT/REJECTED verdict applies nothing and suspends every finding under it, with co-reviewer findings still logged. The last reviewer runs plan.readiness_verdict (a dedicated host after the wave does on the chatty path); a prep-gate enricher runs concurrently with other plans reviewers, only when that reply names mechanical_repairs, none came back, or its only failure is census-unscreenable, repairs what the engine marks mechanical plus the Mechanical rows of the plan-coverage pre-flight, and re-asks the op once. A judgment verdict with no BLOCKED reviewer buys one opus plan-author resolver and one op re-ask; the plan is ready only if the re-ask is, and a BLOCKED reviewer or a failed resolve pulls with a reason leading "<n> blocking, <m> advisory". The script maps the standing op verdict to ready, pulled or replan, and a PIVOT routes to a replan baton rather than halting the wave. Host availability on the executing box is never a pull reason.' },
     { title: 'Adjudicate', detail: 'One agent per entry that would reach the PM (`surfacedToPm`, `routedElsewhere` with route pm-decision). coordinator:apm rules scope, direction and priority; coordinator:staff-eng (or the domain reviewer the baton calls for) rules code. The adjudicator writes a `pm_ruling:` line on the baton and returns a verdict. Only an entry it marks `pm_only` — important AND urgent AND no clear right answer, or an external or irreversible action — stays in `surfacedToPm`; the rest move to `adjudicated`.' },
   ],
 }
@@ -679,7 +679,7 @@ const PLAN_REVIEW_LADDER = {
   XS: ['coordinator:plan-reviewer'],
   S: ['coordinator:plan-reviewer'],
   M: ['coordinator:staff-eng'],
-  L: ['coordinator:staff-eng', 'coordinator:apm'],
+  L: ['coordinator:staff-eng'],
   XL: ['coordinator:staff-eng', 'coordinator:apm', 'coordinator:eng-director'],
   XXL: ['coordinator:staff-eng', 'coordinator:apm', 'coordinator:eng-director'],
 }
@@ -1608,12 +1608,12 @@ ${TRAIL_RULE(sidecarFor(trailDir, baton.id, 'planning-report'))}`,
       // executor is held to, and on `spec-dispatch` it is stamped
       // `execution_authorized_*` and read by nobody in between. Reviewers apply
       // their own findings now, so the planner is never re-invoked to resolve one.
-      // Medium, not high: the planner is authoring against a size and a route the
+      // Low, not higher: the planner is authoring against a size and a route the
       // blitz-em already interrogated, over substrate a scout already inventoried.
       // The judgment it owes is the plan's shape, not a re-derivation of the wave's
       // decisions — and an unpinned planner inherits whatever the invoking session
       // was set to, which makes the wave's authoring depth an accident of who fired it.
-      effort: 'medium',
+      effort: 'low',
       schema: PLAN_SCHEMA,
     },
   ))
@@ -2752,8 +2752,8 @@ batons you let into it, not by how thinly you staff the authoring of one.
   - reviewers: resolve per baton from what the plan will actually need. Do NOT put the same
     reviewer on all of them — a reviewer named on every plan is a reviewer nobody chose.
 
-    The finalised size fixes the reviewer set (XS/S one sonnet plan-reviewer, M staff-eng, L adds
-    apm, XL and above adds eng-director), so name reviewers only to steer within it. These two
+    The finalised size fixes the reviewer set (XS/S one sonnet plan-reviewer, M and L staff-eng,
+    XL and above adds apm and eng-director), so name reviewers only to steer within it. These two
     strings are the ONLY legal values. It is a closed set, not a set of examples:
       'coordinator:staff-eng'                 general engineering rigour
       'coordinator:eng-director'              the baton crosses a repo or team boundary
