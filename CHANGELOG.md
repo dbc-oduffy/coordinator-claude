@@ -4,6 +4,11 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.6.8] — 2026-10-24
+
+- **EM role:** after any halt the EM lands work only by re-fire or `workflow.revise`; it never commits a run's withheld diff or writes its delivery note.
+- **Code reviewer:** hunks belonging to another run or ask are recorded as structured `out_of_ask` Findings Ledger rows with a status, for the engine's landing gate; a hunk another run already committed is not out-of-ask.
+
 ## [4.6.7] — 2026-10-24
 
 - **Hooks:** the search door matches `Read|Grep|Glob`, so the engine's pre-fire survey guard counts Read calls; an EM's exploratory calls before its first engine-ask fire are capped.
