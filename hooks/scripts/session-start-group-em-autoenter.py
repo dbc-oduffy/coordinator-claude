@@ -33,7 +33,7 @@ _HOOKS_DIR = Path(__file__).resolve().parent
 if str(_HOOKS_DIR) not in sys.path:
     sys.path.insert(0, str(_HOOKS_DIR))
 
-_PREVIEW_BUDGET_CHARS = 1_900
+_PREVIEW_BUDGET_CHARS = 1_400
 _REENTRY_SOURCES = frozenset({"resume", "clear", "compact"})
 _TYPE_IT_HINT = "Type `/group-em` to enter by hand."
 

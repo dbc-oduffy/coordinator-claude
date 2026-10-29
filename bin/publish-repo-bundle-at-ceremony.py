@@ -19,8 +19,10 @@ output rather than breaking it.
 docs/plans/2026-09-26-wire-repo-index-bundle-verbs.md -- Design SS Ceremony, row C2.
 
 Negative-spec:
-  - Does NOT kill `scip-rebuild` on the 3600s wait expiring -- the child keeps running
-    detached; this script prints one `skipped` line and never publishes that attempt.
+  - Does NOT leave a rebuild or publish child running past this process: the 3600s wait
+    expiring kills the child tree, a Windows kill-on-close job covers this process dying,
+    and a lease (`coordinator-sessions/scip-rebuild-lease.json`) lets the next sequencer
+    reap a dead one's rebuild and dedupes a concurrent one. Neither case publishes.
   - Does NOT publish unless the rebuild it just ran exited 0 -- exit 1, 2, or 3
     (rebuild lock held elsewhere) all skip the publish call.
   - Does NOT blind-retry a publish exit 4 at the same HEAD -- checks the last written
@@ -71,6 +73,9 @@ def _console_python() -> str:
 _CEREMONY_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 _REBUILD_WAIT_SECONDS = 3600
 _RECORD_NAME = "publish-repo-bundle-last.json"
+_REBUILD_ADMIT_KEY = "scip-rebuild"
+_REBUILD_PEAK_GIB = 4.0
+_ADMISSION_PREFIX = "admission: "
 
 _FIX_MAP: tuple[tuple[str, str], ...] = (
     ("older than head", "reindex --incremental"),
@@ -211,28 +216,228 @@ def _write_record(record_path: Path, exit_code: int, head: str | None, line: str
             pass
 
 
+_LEASE_NAME = "scip-rebuild-lease.json"
+_DEDUPE_PREFIX = "dedupe: "
+#: Keeps the Windows job handle alive for the sequencer's lifetime; closing it kills the job.
+_JOB_HANDLES: list = []
+
+
+def _pid_alive(pid) -> bool:
+    if not isinstance(pid, int) or pid <= 0:
+        return False
+    try:
+        import psutil
+
+        return psutil.pid_exists(pid)
+    except ImportError:
+        if os.name == "nt":  # os.kill(pid, 0) terminates the process on Windows
+            return False
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return False
+        return True
+
+
+def _proc_started(pid: int) -> float | None:
+    try:
+        import psutil
+
+        return psutil.Process(pid).create_time()
+    except Exception:  # noqa: BLE001 -- gone, denied, or no psutil: unknown
+        return None
+
+
+def _kill_tree(pid: int) -> None:
+    """Kill `pid` and every descendant; never raises."""
+    try:
+        import psutil
+
+        try:
+            root = psutil.Process(pid)
+            victims = root.children(recursive=True) + [root]
+        except psutil.Error:
+            return
+        for victim in victims:
+            try:
+                victim.kill()
+            except psutil.Error:
+                pass
+    except ImportError:
+        try:
+            os.kill(pid, 9)
+        except OSError:
+            pass
+
+
+def _bind_child_to_caller(proc) -> None:
+    """Windows: put the child in a kill-on-close job so it dies with this sequencer. Elsewhere
+    the lease sweep is the backstop. Best-effort, never raises."""
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+        job = kernel32.CreateJobObjectW(None, None)
+        if not job:
+            return
+
+        class _Basic(ctypes.Structure):
+            _fields_ = [
+                ("PerProcessUserTimeLimit", ctypes.c_int64), ("PerJobUserTimeLimit", ctypes.c_int64),
+                ("LimitFlags", wintypes.DWORD), ("MinimumWorkingSetSize", ctypes.c_size_t),
+                ("MaximumWorkingSetSize", ctypes.c_size_t), ("ActiveProcessLimit", wintypes.DWORD),
+                ("Affinity", ctypes.c_size_t), ("PriorityClass", wintypes.DWORD),
+                ("SchedulingClass", wintypes.DWORD),
+            ]
+
+        class _IoCounters(ctypes.Structure):
+            _fields_ = [(n, ctypes.c_uint64) for n in (
+                "ReadOps", "WriteOps", "OtherOps", "ReadBytes", "WriteBytes", "OtherBytes")]
+
+        class _Extended(ctypes.Structure):
+            _fields_ = [
+                ("BasicLimitInformation", _Basic), ("IoInfo", _IoCounters),
+                ("ProcessMemoryLimit", ctypes.c_size_t), ("JobMemoryLimit", ctypes.c_size_t),
+                ("PeakProcessMemoryUsed", ctypes.c_size_t), ("PeakJobMemoryUsed", ctypes.c_size_t),
+            ]
+
+        info = _Extended()
+        info.BasicLimitInformation.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        kernel32.SetInformationJobObject.argtypes = [
+            wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+        kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+        if not kernel32.SetInformationJobObject(job, 9, ctypes.byref(info), ctypes.sizeof(info)):
+            kernel32.CloseHandle(job)
+            return
+        if not kernel32.AssignProcessToJobObject(job, int(proc._handle)):  # noqa: SLF001
+            kernel32.CloseHandle(job)
+            return
+        _JOB_HANDLES.append(job)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _read_lease(path: Path) -> dict | None:
+    return _read_last_record(path)
+
+
+def _claim_lease(path: Path) -> str | None:
+    """Take the single-rebuild lease. None on success; else a one-line dedupe reason.
+
+    A lease whose sequencer is dead is swept: its orphaned rebuild tree is killed, the file
+    removed, and the claim retried once. O_EXCL makes two racing sequencers pick one winner."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    body = json.dumps({"sequencer_pid": os.getpid(), "child_pid": None, "child_started": None})
+    for _attempt in range(2):
+        try:
+            fd = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            held = _read_lease(path) or {}
+            owner = held.get("sequencer_pid")
+            if _pid_alive(owner) and owner != os.getpid():
+                return f"a rebuild is already running (sequencer pid {owner})"
+            _sweep_lease(path, held)
+            continue
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(body)
+        return None
+    return "lease contended"
+
+
+def _sweep_lease(path: Path, held: dict) -> None:
+    """Reap the rebuild of a dead sequencer (pid-reuse guarded by create_time) and drop the lease."""
+    child = held.get("child_pid")
+    started = held.get("child_started")
+    if _pid_alive(child):
+        actual = _proc_started(child)
+        if started is None or actual is None or abs(actual - started) < 2.0:
+            _kill_tree(child)
+    try:
+        path.unlink()
+    except OSError:
+        pass
+
+
+def _record_lease_child(path: Path, pid: int) -> None:
+    payload = {"sequencer_pid": os.getpid(), "child_pid": pid, "child_started": _proc_started(pid)}
+    try:
+        path.write_text(json.dumps(payload), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _release_lease(path: Path) -> None:
+    held = _read_lease(path)
+    if held is not None and held.get("sequencer_pid") != os.getpid():
+        return
+    try:
+        path.unlink()
+    except OSError:
+        pass
+
+
 def _run_and_wait(
     argv: list[str], cwd: Path, timeout: int
 ) -> tuple[int | None, str, str]:
     """Runs argv, waiting up to `timeout` seconds. Returns (returncode, stdout,
-    stderr); returncode is None on timeout expiry -- the child is NEVER killed,
-    it is left running detached and this attempt is simply reported as timed out."""
+    stderr); returncode is None on timeout expiry, after the child's tree is killed so
+    nothing outlives this sequencer.
+    A `scip-rebuild` argv takes the single-rebuild lease first (a live holder returns
+    (None, "", "dedupe: ...") without spawning), is admitted on measured memory (a hold
+    returns (None, "", "admission: HOLD ...")), and is bound to this process: a kill-on-close
+    job on Windows, the lease sweep by the next sequencer elsewhere."""
+    rebuild = len(argv) > 1 and argv[1] == "scip-rebuild"
+    admission = None
+    lease = None
+    if rebuild:
+        common = _git_common_dir(cwd) or cwd
+        lease = common / "coordinator-sessions" / _LEASE_NAME
+        duplicate = _claim_lease(lease)
+        if duplicate:
+            return None, "", f"{_DEDUPE_PREFIX}{duplicate}"
+        if str(_REPO_ROOT) not in sys.path:
+            sys.path.insert(0, str(_REPO_ROOT))
+        from coordinator_core.bash_guards._heavy_command_class import admit_before_spawn
+
+        admission = admit_before_spawn(_REBUILD_ADMIT_KEY, _REBUILD_PEAK_GIB)
+        if not admission.admitted:
+            _release_lease(lease)
+            return None, "", f"{_ADMISSION_PREFIX}{admission.reason}"
+    proc = None
     try:
-        proc = subprocess.Popen(
-            argv,
-            cwd=str(cwd),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            **no_console_creationflags(),
-        )
-    except OSError as exc:
-        return None, "", f"failed to spawn {argv!r}: {exc}"
-    try:
-        stdout, stderr = proc.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        return None, "", ""
-    return proc.returncode, stdout or "", stderr or ""
+        try:
+            proc = subprocess.Popen(
+                argv,
+                cwd=str(cwd),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                **no_console_creationflags(),
+            )
+        except OSError as exc:
+            return None, "", f"failed to spawn {argv!r}: {exc}"
+        if rebuild:
+            _bind_child_to_caller(proc)
+            _record_lease_child(lease, proc.pid)
+        if admission is not None:
+            from coordinator_core.bash_guards._heavy_command_class import register_spawn
+
+            register_spawn(admission.key, admission.peak_gib, proc.pid)
+        try:
+            stdout, stderr = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            return None, "", ""
+        return proc.returncode, stdout or "", stderr or ""
+    finally:
+        poll = getattr(proc, "poll", None)
+        if poll is not None and getattr(proc, "pid", None) and poll() is None:
+            _kill_tree(proc.pid)
+        if lease is not None:
+            _release_lease(lease)
 
 
 def _first_stderr_line(stderr: str) -> str:
@@ -288,6 +493,10 @@ def run(
     rebuild_code, _rebuild_out, rebuild_err = _run_and_wait(
         rebuild_argv, repo_root, _REBUILD_WAIT_SECONDS
     )
+    if rebuild_code is None and rebuild_err.startswith(_DEDUPE_PREFIX):
+        return f"publish-repo-bundle: skipped -- scip-rebuild deduped ({rebuild_err[len(_DEDUPE_PREFIX):]}), no publish"
+    if rebuild_code is None and rebuild_err.startswith(_ADMISSION_PREFIX):
+        return f"publish-repo-bundle: skipped -- scip-rebuild not admitted ({rebuild_err[len(_ADMISSION_PREFIX):]}), no publish"
     if rebuild_code is None:
         return "publish-repo-bundle: skipped -- scip-rebuild timed out, no publish"
     if rebuild_code == 3:

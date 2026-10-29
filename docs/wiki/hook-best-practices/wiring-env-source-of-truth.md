@@ -153,7 +153,7 @@ machine-scoped path is canonical.
 - **Conflict-fail-loud spec:** `2026-05-17-engine-rag-setup-doctor-catalog.md` L-5, under `docs/plans/`.
 - **Audit synthesis Theme E:** `tasks/comprehensive-audit-2026-05-18/SYNTHESIS.md`.
 - **Spinoff plan:** `2026-05-18-daemon-reads-wiring-env-directly.md` under `docs/plans/`.
-- **Operator-facing context:** `docs/wiki/project-rag-install-and-dogfood.md`
+- **Operator-facing context:** `<rag-root>/docs/wiki/project-rag/project-rag-install-and-dogfood.md` (`<rag-root>` = `repos.project_rag`)
   § wire-project-rag-server.
 
 ## Verify a config-key against its RESOLVER, not the first matching file

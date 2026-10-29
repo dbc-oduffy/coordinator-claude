@@ -171,7 +171,7 @@ _SESSION_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{4,}$")
 #:   - Sonnet-or-below.
 #:   - Single pass.
 #:   - Not in the ACCUMULATED class named in subagent-sandbox-policy.yaml's
-#:     dispatch_tier comment (doc-link-checker, code-reviewer, dep-cve-auditor
+#:     dispatch_tier comment (doc-link-checker, code-reviewer
 #:     are excluded on this ground: unbounded network checks, chunked review,
 #:     input-proportional payload growth).
 #:   - A result the EM consumes before its next decision.
@@ -183,7 +183,6 @@ SYNC_RETURN_TYPES = frozenset(
         "prior-art-checker",
         "plan-coverage-checker",
         "docs-checker",
-        "test-evidence-parser",
         "sizing-scout",
     }
 )

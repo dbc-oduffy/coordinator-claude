@@ -54,7 +54,7 @@ sets, so this dispatcher registers on their union
 HERE, per guard, on the harness's own SessionStart payload `source` field
 (confirmed present and enumerated exactly as
 `startup|resume|clear|compact|fork` by the vendored docs,
-`state/reference/anthropic-docs/claude-code/hooks.md` § SessionStart Input
+`state/reference/anthropic-docs/claude-code/hooks.md` § SessionStart input
 fields -- not inferred from the matcher strings) reproduces each guard's
 ORIGINAL firing set exactly, never wider. A guard whose `sources` frozenset
 does not contain the payload's `source` is skipped entirely (not imported,
@@ -129,6 +129,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -165,6 +166,9 @@ class StartGuard:
     #: None -> invoke bare main(); a list -> invoke main(that_list) explicitly (never relies on
     #: this dispatcher's own sys.argv).
     argv: Optional[List[str]] = None
+    #: True -> the leg still runs (its own durable log/side effect lands) but its stdout is
+    #: dropped instead of injected: the agent cannot act on it at boot.
+    log_only: bool = False
 
 
 #: Emitted when a non-empty `source` matches no guard's set at all -- the harness-drift tell.
@@ -213,7 +217,7 @@ REGISTRY: Tuple[StartGuard, ...] = (
     # -- it cannot change mid-session, so announcing again on resume/clear/compact/fork would
     # repeat a fact unchanged since boot.
     StartGuard("job_mode_announce", "session-start-announce-job-mode.py",
-               frozenset({"startup"})),
+               frozenset({"startup"}), log_only=True),
     # Every source: the boot payload is re-read on each of them, and the check is one in-process
     # tree walk. Silent unless uncommitted governed-surface text fails admission.
     StartGuard("governed_surface_drift", "session-start-governed-surface-drift.py",
@@ -357,6 +361,47 @@ def _snapshot_surfaces(ctx: Ctx) -> None:
         pass
 
 
+def _emit_disk_budget_notice() -> None:
+    """Tell the session to SendMessage the live Group EM when the last sweep ended over budget.
+
+    Once per record: the stamp lives in `over-budget-relayed.json` beside it, keyed on the record's
+    `ts`. Silent when free space is at or above the floor and no deletable bytes remain.
+
+    One small file read, no walk; a hook has no SendMessage transport, so the model discharges
+    the send. Fail-open.
+    """
+    try:
+        path = Path(os.path.expanduser("~")) / ".claude" / "disk-budget" / "over-budget.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return
+        free, floor, deletable = data.get("free_bytes"), data.get("floor_bytes"), data.get("deletable_bytes")
+        under_floor = isinstance(free, (int, float)) and isinstance(floor, (int, float)) and free < floor
+        has_deletable = not isinstance(deletable, (int, float)) or deletable > 0
+        if not (under_floor or has_deletable):
+            return
+        relayed = path.with_name("over-budget-relayed.json")
+        try:
+            if json.loads(relayed.read_text(encoding="utf-8")).get("ts") == data.get("ts"):
+                return
+        except (OSError, ValueError, AttributeError):
+            pass
+        tmp = relayed.with_name(relayed.name + ".tmp")
+        tmp.write_text(json.dumps({"ts": data.get("ts")}), encoding="utf-8")
+        os.replace(tmp, relayed)
+        gib = {k: round(v / 1024**3, 2) for k, v in (data.get("per_root") or {}).items() if isinstance(v, (int, float))}
+        msg = (
+            "DISK BUDGET: the last sweep of ~/.claude/projects and ~/.cache ended still over "
+            f"budget (freed GiB per root: {gib}). SendMessage the live Group EM now (enumerate "
+            "recipients with `claude agents --json`, as coordinator/bin/group-em-box-notice.py "
+            "does) naming the overage; details in ~/.claude/disk-budget/over-budget.json.\n"
+        )
+        sys.__stdout__.buffer.write(msg.encode("utf-8"))
+        sys.__stdout__.buffer.flush()
+    except Exception:
+        pass
+
+
 def main() -> int:
     raw = sys.stdin.read()
     ctx = Ctx(raw)
@@ -389,6 +434,8 @@ def main() -> int:
             if guard.module_key == _REPIN_KEY:
                 _purge_engine(path_snapshot)
         out = _unwrap_envelope(out) if out else out
+        if guard.log_only:
+            out = b""
         # INCREMENTAL FLUSH -- see module docstring. Written to the real
         # stdout/stderr immediately, never accumulated for a final join.
         # `out`/`err` are raw bytes (`_invoke`'s `combined_bytes()`); written
@@ -406,6 +453,9 @@ def main() -> int:
         # through the banner channel and is fail-open by design, so a nonzero exit from it never
         # signals a real failure to surface.
         del rc
+
+    if ctx.source in ("", "startup", "resume", "compact"):
+        _emit_disk_budget_notice()
 
     if skipped:
         sys.__stderr__.write(

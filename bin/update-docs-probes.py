@@ -173,7 +173,7 @@ def _cmd_repomap_gate(args: argparse.Namespace) -> int:
 
 
 def _cmd_queue_prune_sweep(args: argparse.Namespace) -> int:
-    """Delegates to `updatedocs_gates._gate_queue_prune_sweep`.
+    """Delegates to `updatedocs_sweeps._gate_queue_prune_sweep`.
 
     Exit codes (unchanged legacy contract):
       0 — every existing legacy queue file's prune invocation exited 0, and
@@ -188,7 +188,9 @@ def _cmd_queue_prune_sweep(args: argparse.Namespace) -> int:
         "queues": args.queue,
     }
     gates = _gates()
-    result = gates._gate_queue_prune_sweep(Path(args.repo_root), _BIN_DIR.parent, overrides)
+    import coordinator_core.ops.updatedocs_sweeps as sweeps
+
+    result = sweeps._gate_queue_prune_sweep(Path(args.repo_root), _BIN_DIR.parent, overrides)
     print(result.summary)
     for line in result.detail.get("lines", []):
         print(line, file=sys.stderr if result.severity == gates.Severity.BLOCKING else sys.stdout)

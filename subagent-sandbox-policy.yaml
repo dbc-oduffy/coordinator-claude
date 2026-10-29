@@ -49,6 +49,7 @@ report_sidecar:
   - coordinator:research-specialist
   - coordinator:notebooklm-research-scout
   - coordinator:research-worker
+  - coordinator:spike-worker
   - coordinator:code-reviewer
   - coordinator:docs-checker
   - coordinator:staff-eng
@@ -68,11 +69,8 @@ report_sidecar:
   - coordinator:research-sweep
   - coordinator:research-synthesizer
   - coordinator:structured-synthesizer
-  - coordinator:parallel-review-synthesizer
   - coordinator:security-audit-worker
   - coordinator:external-pattern-checker
-  - coordinator:dep-cve-auditor
-  - coordinator:test-evidence-parser
   - coordinator:test-runner
   - coordinator:atlas-clarity-reviewer
   
@@ -83,15 +81,12 @@ report_sidecar:
 report_type_map:
   coordinator:executor: run-report
   coordinator:enricher: run-report
+  coordinator:distill-writer: run-report
   coordinator:code-reviewer: review-findings
   coordinator:code-reviewer-weekly: review-findings
   coordinator:plan-coverage-checker: review-findings
   coordinator:plan-reviewer: review-findings
-  coordinator:parallel-review-synthesizer: review-findings
   coordinator:security-audit-worker: review-findings
-  coordinator:dep-cve-auditor: review-findings
-  coordinator:test-evidence-parser: review-findings
-  coordinator:delivery-verifier: review-findings
   
   
   coordinator:test-runner: run-report
@@ -128,12 +123,15 @@ report_type_map:
   coordinator:roadmap-planner: run-report
   coordinator:exit-criterion-falsifier: run-report
   coordinator:exit-criterion-judge: run-report
+  coordinator:objective-reacher: run-report
   coordinator:group-em-assistant: run-report
   coordinator:repo-scout: assessment
   coordinator:repo-specialist: assessment
   coordinator:research-scout: assessment
   coordinator:research-specialist: assessment
+  coordinator:research-brief-author: assessment
   coordinator:research-worker: assessment
+  coordinator:spike-worker: assessment
   coordinator:research-sweep: assessment
   coordinator:research-synthesizer: assessment
   coordinator:structured-synthesizer: assessment
@@ -201,7 +199,6 @@ report_type_map:
 # it) are transport/accumulated by construction. ACCUMULATED covers doc-link-checker
 
 
-# `<!-- FINDINGS -->` sentinel; dep-cve-auditor's Edit "fails loudly if the sidecar is
 
 
 dispatch_tier:
@@ -210,7 +207,6 @@ dispatch_tier:
   coordinator:code-reviewer: review-execution
   coordinator:code-reviewer-weekly: review-execution
   coordinator:coverage-auditor: review-execution
-  coordinator:parallel-review-synthesizer: review-execution
   coordinator:staff-eng: review-execution
   coordinator:staff-data-sci: review-execution
   coordinator:senior-front-end: review-execution
@@ -228,21 +224,22 @@ dispatch_tier:
   coordinator:repo-specialist: review-execution
   coordinator:research-scout: review-execution
   coordinator:research-specialist: review-execution
+  coordinator:research-brief-author: review-execution
   coordinator:research-sweep: review-execution
   coordinator:research-synthesizer: review-execution
   coordinator:research-worker: review-execution
+  coordinator:spike-worker: review-execution
   coordinator:notebooklm-research-scout: review-execution
   coordinator:structured-synthesizer: review-execution
   coordinator:security-audit-worker: review-execution
   coordinator:external-pattern-checker: review-execution
   coordinator:atlassian-worker: exploration
   coordinator:drive-worker: exploration
-  coordinator:test-evidence-parser: review-execution
   
   
   coordinator:test-runner: review-execution
   coordinator:exit-criterion-judge: review-execution
-  coordinator:dep-cve-auditor: review-execution
+  coordinator:objective-reacher: review-execution
   
   coordinator:git-commit-agent: exploration
   
@@ -257,6 +254,7 @@ dispatch_tier:
   
   
   coordinator:workflow-maker: exploration
+  coordinator:distill-writer: exploration
   
   
   coordinator:premise-checker: review-execution
@@ -272,7 +270,6 @@ dispatch_tier:
   
   coordinator:queue-grind-op-runner: exploration
   coordinator:op-relay: exploration
-  coordinator:delivery-verifier: exploration
   
   
   coordinator:blitz-em: exploration
@@ -294,153 +291,67 @@ dispatch_tier:
 contract_blocks:
   coordinator:staff-eng:
     - persona-dispatch-contract
-    - reviewer-calibration
-    - docs-checker-consumption
-    - prior-art-check-consumption
-    - plan-coverage-check-consumption
-    - sizing-object-consumption
-    - quota-self-detect-preamble
     - provisioned-scaffold-precedence
-    - sidecar-frontmatter-contract
     - persona-persisting-findings
-    - context7-lazy-load-bootstrap
     - enriched-artifact-review-contract
   coordinator:eng-director:
     - persona-dispatch-contract
-    - reviewer-calibration
-    - docs-checker-consumption
-    - prior-art-check-consumption
-    - plan-coverage-check-consumption
-    - sizing-object-consumption
-    - quota-self-detect-preamble
     - provisioned-scaffold-precedence
-    - sidecar-frontmatter-contract
     - persona-persisting-findings
-    - context7-lazy-load-bootstrap
     - enriched-artifact-review-contract
   coordinator:staff-data-sci:
     - persona-dispatch-contract
-    - reviewer-calibration
-    - docs-checker-consumption
-    - prior-art-check-consumption
-    - plan-coverage-check-consumption
-    - sizing-object-consumption
-    - quota-self-detect-preamble
     - provisioned-scaffold-precedence
-    - sidecar-frontmatter-contract
     - persona-persisting-findings
-    - context7-lazy-load-bootstrap
   coordinator:senior-front-end:
     - persona-dispatch-contract
-    - reviewer-calibration
-    - docs-checker-consumption
-    - prior-art-check-consumption
-    - plan-coverage-check-consumption
-    - sizing-object-consumption
-    - quota-self-detect-preamble
     - provisioned-scaffold-precedence
-    - sidecar-frontmatter-contract
     - persona-persisting-findings
-    - context7-lazy-load-bootstrap
-  
-  # Kira runs the fix-vs-ask rubric on the standard ReviewFinding shape, so
-  # reviewer-calibration is INCLUDED (the exclusion carries the burden of argument,
-  # and no behavioral reason exists here). Holds neither Grep nor Glob, and holds the
-  # context7 pair — same block list as staff-eng, verbatim.
-  
-  
   coordinator:overengineering-reviewer:
     - persona-dispatch-contract
-    - reviewer-calibration
-    - docs-checker-consumption
-    - prior-art-check-consumption
-    - plan-coverage-check-consumption
-    - quota-self-detect-preamble
     - provisioned-scaffold-precedence
-    - sidecar-frontmatter-contract
     - persona-persisting-findings
-    - context7-lazy-load-bootstrap
-    - enriched-artifact-review-contract
-
-
   coordinator:apm:
     - persona-dispatch-contract
-    - reviewer-calibration
-    - docs-checker-consumption
-    - prior-art-check-consumption
-    - plan-coverage-check-consumption
-    - quota-self-detect-preamble
     - provisioned-scaffold-precedence
-    - sidecar-frontmatter-contract
     - persona-persisting-findings
-    - context7-lazy-load-bootstrap
     - subagent-messaging-constraints
     - enriched-artifact-review-contract
   coordinator:staff-ux:
     - persona-dispatch-contract
-    - docs-checker-consumption
-    - prior-art-check-consumption
-    - plan-coverage-check-consumption
-    - sizing-object-consumption
-    - quota-self-detect-preamble
     - provisioned-scaffold-precedence
-    - sidecar-frontmatter-contract
     - persona-persisting-findings
-    - context7-lazy-load-bootstrap
   coordinator:vp-product:
     - persona-dispatch-contract
-    - docs-checker-consumption
-    - prior-art-check-consumption
-    - plan-coverage-check-consumption
-    - sizing-object-consumption
-    - quota-self-detect-preamble
     - provisioned-scaffold-precedence
-    - sidecar-frontmatter-contract
     - persona-persisting-findings
   coordinator:prior-art-checker:
     - provisioned-scaffold-precedence
     - sidecar-emission-contract
-    - quota-self-detect-preamble
-    - named-dispatch-relay
     - return-tldr
-    - sizing-object-consumption
   coordinator:plan-coverage-checker:
     - provisioned-scaffold-precedence
     - sidecar-emission-contract
-    - quota-self-detect-preamble
     - return-tldr
   coordinator:plan-reviewer:
     - provisioned-scaffold-precedence
     - sidecar-emission-contract
-    - quota-self-detect-preamble
     - return-tldr
     - enriched-artifact-review-contract
-
-
   coordinator:premise-checker:
     - provisioned-scaffold-precedence
     - sidecar-emission-contract
-    - quota-self-detect-preamble
     - return-tldr
   coordinator:docs-checker:
     - provisioned-scaffold-precedence
     - sidecar-emission-contract
-    - quota-self-detect-preamble
-    - named-dispatch-relay
   coordinator:external-pattern-checker:
     - provisioned-scaffold-precedence
     - sidecar-emission-contract
-    - quota-self-detect-preamble
-    - named-dispatch-relay
-  
-  
   coordinator:enricher:
     - provisioned-scaffold-precedence
     - run-report-citizenship
-    - quota-self-detect-preamble
-    - named-dispatch-class-3-backstop
     - return-tldr
-    - sizing-object-consumption
   coordinator:plan-author:
     - return-tldr
   coordinator:plan-author-residue:
@@ -451,87 +362,49 @@ contract_blocks:
     - inline-return-cap
   coordinator:roadmap-planner:
     - return-tldr
-  
-  # G3 (review-pipeline agents, 2nd pass) rows: quota-self-detect-preamble is
-  # the one universal-safe block these 8 already carry RESIDENT (pasted) in
-  # every agent file — no per-agent behavioral variance, same content
-  # everywhere, so it is the one candidate for blanket contract_blocks
-  # citizenship per the G3 second-pass executor's own recommendation
-  # (state/subagent-share/g3-second-pass/contract-block-requests.md Request
-  # 1). NOTE — transient duplication: the hot-file protocol for this pass
-  # forbids editing coordinator/agents/*.md, so these 8 files still ALSO
-  # carry the resident paste; a follow-up pass must strip it once this row
-  # exists, the same two-step G3 itself asked for ("land both halves... in
-  # the same EM-serial commit") but split across two dispatches because the
-  # wiring and the agent-file edit are on opposite sides of the hot-file
-  # boundary this wave. subagent-sandbox-preamble (Request 2, G3) is NOT
-  # added here — it is a separate resident-paste VARIANT mechanism (its own
-  # verify-subagent-sandbox-preamble-sync.py, not registry.toml/
-  # contract_blocks), and G3 itself flagged an unresolved injection-order
-  # caveat for 2 of these 8 (parallel-review-synthesizer, coverage-auditor
-  # carry a per-agent disambiguating override note above it) — left for a
-  # dedicated pass, not blanket-added here.
+
+  # G3 (review-pipeline agents, 2nd pass) rows. subagent-sandbox-preamble is a
+  # separate resident-paste VARIANT mechanism (not registry.toml/contract_blocks).
   
   
   coordinator:code-reviewer:
     - provisioned-scaffold-precedence
-    - quota-self-detect-preamble
     - review-findings-body-contract
-  
-  
+
+
   coordinator:code-reviewer-weekly:
     - provisioned-scaffold-precedence
-    - quota-self-detect-preamble
-  coordinator:parallel-review-synthesizer:
-    - provisioned-scaffold-precedence
-    - quota-self-detect-preamble
   coordinator:security-audit-worker:
     - provisioned-scaffold-precedence
-    - quota-self-detect-preamble
-  
-  
-  coordinator:dep-cve-auditor:
-    - provisioned-scaffold-precedence
-    - quota-self-detect-preamble
-  coordinator:test-evidence-parser:
-    - provisioned-scaffold-precedence
-    - quota-self-detect-preamble
+
+
   coordinator:test-runner:
     - provisioned-scaffold-precedence
     - run-report-citizenship
-    - quota-self-detect-preamble
   coordinator:exit-criterion-judge:
     - provisioned-scaffold-precedence
     - run-report-citizenship
-    - quota-self-detect-preamble
+  coordinator:objective-reacher:
+    - provisioned-scaffold-precedence
+    - run-report-citizenship
   coordinator:coverage-auditor:
     - provisioned-scaffold-precedence
-    - quota-self-detect-preamble
-    - named-dispatch-relay
   coordinator:doc-link-checker:
     - provisioned-scaffold-precedence
-    - quota-self-detect-preamble
-    - named-dispatch-relay
-  
-  
+
+
   coordinator:atlas-clarity-reviewer:
     - provisioned-scaffold-precedence
-    - quota-self-detect-preamble
-  
-  
+
+
   # G4 (execute-pipeline, 2nd pass) rows: the third contract_blocks
   # artifact-type family (run-report-citizenship — see that snippet's own
   # header for why it is not a shoehorn onto sidecar-frontmatter-contract or
-  # sidecar-emission-contract), plus the same universal-safe
-  # quota-self-detect-preamble both already carry RESIDENT (same transient-
-  # duplication note as the G3 rows above applies here too).
+  # sidecar-emission-contract).
   
   coordinator:executor:
     - provisioned-scaffold-precedence
     - run-report-citizenship
-    - quota-self-detect-preamble
-    - context7-lazy-load-bootstrap
-    - named-dispatch-class-3-backstop
 
 
   # RESIDENT (same transient-duplication note applies). No G2-style
@@ -543,55 +416,50 @@ contract_blocks:
   coordinator:research-scout:
     - provisioned-scaffold-precedence
     - disk-first-protocol
-    - quota-self-detect-preamble
     - named-dispatch-relay-named-scout
   coordinator:research-specialist:
     - provisioned-scaffold-precedence
     - disk-first-protocol
-    - quota-self-detect-preamble
     - named-dispatch-relay
+  coordinator:research-brief-author:
+    - inline-return-cap
   coordinator:research-sweep:
     - provisioned-scaffold-precedence
     - disk-first-protocol
-    - quota-self-detect-preamble
     - named-dispatch-relay
   coordinator:research-synthesizer:
     - provisioned-scaffold-precedence
     - disk-first-protocol
-    - quota-self-detect-preamble
     - named-dispatch-relay
   coordinator:research-worker:
     - provisioned-scaffold-precedence
     - disk-first-protocol
-    - quota-self-detect-preamble
+    - named-dispatch-relay
+  coordinator:spike-worker:
+    - provisioned-scaffold-precedence
+    - disk-first-protocol
     - named-dispatch-relay
   coordinator:repo-scout:
     - provisioned-scaffold-precedence
     - disk-first-protocol
-    - quota-self-detect-preamble
     - named-dispatch-relay-named-scout
   coordinator:repo-specialist:
     - provisioned-scaffold-precedence
     - disk-first-protocol
-    - quota-self-detect-preamble
     - named-dispatch-relay
   coordinator:structured-synthesizer:
     - provisioned-scaffold-precedence
     - disk-first-protocol
-    - quota-self-detect-preamble
     - named-dispatch-relay
   coordinator:notebooklm-research-scout:
     - provisioned-scaffold-precedence
     - disk-first-protocol
-    - quota-self-detect-preamble
     - named-dispatch-relay-named-scout
   
   
   coordinator:atlassian-worker:
-    - quota-self-detect-preamble
     - inline-return-cap
   coordinator:drive-worker:
-    - quota-self-detect-preamble
     - inline-return-cap
 
 
@@ -607,6 +475,8 @@ contract_blocks:
     - inline-return-cap
   coordinator:workflow-maker:
     - inline-return-cap
+  coordinator:distill-writer:
+    - inline-return-cap
   coordinator:falsifier-integrity-reviewer:
     - inline-return-cap
     - return-tldr
@@ -617,8 +487,6 @@ contract_blocks:
   coordinator:queue-grind-op-runner:
     - inline-return-cap
   coordinator:op-relay:
-    - inline-return-cap
-  coordinator:delivery-verifier:
     - inline-return-cap
 
 

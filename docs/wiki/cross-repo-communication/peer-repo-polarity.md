@@ -48,7 +48,11 @@ The shorthand that captures the mechanics/knowledge split, originally from the 2
 
 > **Knowledge without ability to act is toothless; acting without knowledge is dangerous.**
 
-This is the structural reason example-game-repo and ue-addon are *siblings with mutual dependency*, not host-and-consumer. The 22 chunkers + structural-extraction pipeline + schema-vendoring source were ported from example-game-repo to ue-addon (W7-mech.0-PORT) precisely to realign these axes; that port is what makes the polarity rule above tractable. Canonical doctrine in peer repos: `docs/wiki/triad-roles-doctrine.md`.
+This is the structural reason example-game-repo and ue-addon are *siblings with mutual dependency*, not host-and-consumer. The 22 chunkers + structural-extraction pipeline + schema-vendoring source were ported from example-game-repo to ue-addon (W7-mech.0-PORT) precisely to realign these axes; that port is what makes the polarity rule above tractable. Canonical doctrine in peer repos: resolve `<ue-addon-root>` with `machine-local get repos.project_rag_ue_addon`, then read the page `triad-roles-doctrine.md` in:
+
+```
+<ue-addon-root>/docs/wiki/
+```
 
 ## Repo capsules — what each owns (post-carve-out)
 

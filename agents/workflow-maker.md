@@ -1,6 +1,7 @@
 ---
 name: workflow-maker
-description: "Emits one plan's spine into a Workflow script, reports the script path and wave map for the EM to fire."
+executes-rows: false
+description: "Emits a plan's spine as a Workflow script; returns path and wave map for the EM to fire."
 model: sonnet
 effort: low
 color: cyan
@@ -75,7 +76,13 @@ Within the one spine you are firing, the scheduling facts that matter:
    never share a wave; two that merely *read* one, or import one pinned interface, parallelize
    freely. Read-overlap dressed as write-overlap is the recurring misclassification
    (`coordinator/docs/wiki/dispatching-parallel-agents.md`).
-3. **Report what you excluded and why.** A row left out of the run is a finding, not a silent
+3. **Honour each chunk's tag.** The emitter dispatches every row at its own `{model, effort,
+   agent_type}`; `agent_type` is the full namespaced name (`coordinator:executor`). Never flatten
+   rows to one model or effort, and never rewrite a tag.
+4. **Parallelise by the dependency graph, never by adding agents.** Independent rows share a wave;
+   a wave is never widened by splitting a row or adding a worker. Adversarial review gates stay as
+   emitted.
+5. **Report what you excluded and why.** A row left out of the run is a finding, not a silent
    omission.
 
 ## When A Chunk Will Not Emit

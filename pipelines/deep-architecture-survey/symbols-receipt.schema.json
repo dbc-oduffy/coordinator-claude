@@ -1,0 +1,59 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "deep-architecture-survey symbols receipt",
+  "type": "object",
+  "required": [
+    "ok",
+    "halt",
+    "artifact_path",
+    "chunk_table_path",
+    "total_files",
+    "requested_files",
+    "unavailable_count",
+    "unsupported_count",
+    "unavailable_sample",
+    "unsupported_extensions",
+    "coverage_note"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "ok": { "type": "boolean" },
+    "halt": {
+      "enum": [
+        "symbol-extract-missing",
+        "symbols-artifact-preexists",
+        "symbols-producer-failed",
+        "symbols-coverage-truncated",
+        "symbols-extractor-unavailable",
+        null
+      ]
+    },
+    "artifact_path": { "type": "string" },
+    "chunk_table_path": { "type": "string" },
+    "total_files": { "type": "integer", "minimum": 0 },
+    "requested_files": { "type": "integer", "minimum": 0 },
+    "unavailable_count": { "type": "integer", "minimum": 0 },
+    "unsupported_count": { "type": "integer", "minimum": 0 },
+    "unavailable_sample": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string" },
+          "reason": { "type": "string" }
+        }
+      }
+    },
+    "unsupported_extensions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "ext": { "type": "string" },
+          "count": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "coverage_note": { "type": ["string", "null"] }
+  }
+}

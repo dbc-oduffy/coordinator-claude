@@ -172,7 +172,7 @@ Each of these codifies a specific install surface or specific failure shape. Thi
 
 ## For trio repos (project-rag / project-rag-ue-addon / example-game-workbench-repo)
 
-The trio shares an unusually entangled install surface — host runtime, addon corpus, downstream consumer. Trio-specific discipline lives in the `project-rag` repo's `docs/wiki/trio-install-surface-coupling.md` (resolve the repo root via `repos.project_rag`; project-rag is the install-surface keystone). Trio CLAUDE.md files reference both this universal wiki and the trio-specific one.
+The trio shares an unusually entangled install surface — host runtime, addon corpus, downstream consumer. Trio-specific discipline lives in the `project-rag` repo's `<rag-root>/docs/wiki/installation/trio-install-surface-coupling.md` (resolve `<rag-root>` via `repos.project_rag`; project-rag is the install-surface keystone). Trio CLAUDE.md files reference both this universal wiki and the trio-specific one.
 
 ## Code-reviewer enforcement (always-on lens)
 

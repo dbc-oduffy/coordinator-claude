@@ -390,15 +390,29 @@ def run_pytest_json(
             else str(tmp_path)
         )
 
-        subprocess.run(
+        admission = None
+        if capped is not None:
+            if str(REPO_ROOT) not in sys.path:
+                sys.path.insert(0, str(REPO_ROOT))
+            from coordinator_core.bash_guards._heavy_command_class import admit_before_spawn
+
+            admission = admit_before_spawn("red-set-report-pytest-xdist", 0.5 + capped * 150 / 1024)
+            if not admission.admitted:
+                raise RuntimeError(f"red-set-report not admitted: {admission.reason}")
+        proc = subprocess.Popen(
             cmd,
             cwd=REPO_ROOT,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            check=False,
             env=env,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
+        if admission is not None:
+            from coordinator_core.bash_guards._heavy_command_class import register_spawn
+
+            register_spawn(admission.key, admission.peak_gib, proc.pid)
+        proc.communicate()
         if not report_path.exists():
             raise RuntimeError(
                 f"red-set-report collector plugin did not write {report_path} "

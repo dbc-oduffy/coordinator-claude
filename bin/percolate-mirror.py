@@ -516,17 +516,28 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     joined = ",".join(targets)
 
+    from coordinator_core.percolate import (  # noqa: PLC0415
+        publish_lease as _publish_lease_mod,
+        publish_slot as _publish_slot_mod,
+    )
+
     try:
         with _round._round_held_lock(
             Path(repo_root),
             holder_label=f"percolate-mirror:{Path(mirror_root).name}",
             timeout=_round.publish_contention_wait_secs(),
-        ):
+        ), _publish_slot_mod.held_slot(Path(repo_root), label="percolate-mirror") as slot_token:
             print(f"=== percolate-mirror {mirror_root} — publish ({len(targets)} rows, one invocation) ===")
             real_env = dict(os.environ)
             real_env[_round._INHERITED_LOCK_ROOTS_ENV] = (
                 f"{os.getpid()}={os.path.realpath(mirror_root)}"
             )
+            if slot_token is not None:
+                real_env[_publish_slot_mod.PUBLISH_SLOT_INHERITED_ENV] = (
+                    _publish_slot_mod.encode_inherited(
+                        {os.path.realpath(repo_root): slot_token}
+                    )
+                )
             real_cmd = [
                 sys.executable,
                 str(_round._PUBLISH),
@@ -659,11 +670,21 @@ def main(argv: Optional[List[str]] = None) -> int:
                 f"{_round._source_sha_suffix()}"
             )
 
+            lost = _publish_slot_mod.lost_reason(Path(repo_root), slot_token)
+            if lost:
+                print(f"percolate-mirror: {lost}; not committing.", file=sys.stderr)
+                return _round._EXIT_FAIL
+            commit_message = compose_message(subject=subject)
+            if slot_token is not None:
+                commit_message = _publish_slot_mod.append_slot_trailers(
+                    commit_message, holder=slot_token
+                )
+
             try:
                 outcome = commit_paths(
                     repo_root,
                     present_paths,
-                    compose_message(subject=subject),
+                    commit_message,
                     deleted_paths=deletion_paths,
                     blob_fallback=partial(hash_worktree_blobs_via_spawn, cwd=repo_root),
                 )
@@ -682,6 +703,10 @@ def main(argv: Optional[List[str]] = None) -> int:
                 print(f"percolate-mirror {mirror_root} — committed, push skipped (--no-publish).")
                 return _round._EXIT_OK
 
+            lost = _publish_slot_mod.lost_reason(Path(repo_root), slot_token)
+            if lost:
+                print(f"percolate-mirror: {lost}; not pushing.", file=sys.stderr)
+                return _round._EXIT_FAIL
             push = _round._push_dest(repo_root)
             if push.returncode != 0:
                 print("percolate-mirror: push failed:", file=sys.stderr)
@@ -702,6 +727,12 @@ def main(argv: Optional[List[str]] = None) -> int:
             file=sys.stderr,
         )
         return _round._EXIT_LOCK_BUSY
+    except _publish_slot_mod.PublishSlotHeldError as exc:
+        print(f"percolate-mirror: BUSY: {exc}", file=sys.stderr)
+        return _round._EXIT_LOCK_BUSY
+    except _publish_lease_mod.PublishLeaseError as exc:
+        print(f"percolate-mirror: publish slot unavailable: {exc}", file=sys.stderr)
+        return _round._EXIT_FAIL
 
 
 if __name__ == "__main__":

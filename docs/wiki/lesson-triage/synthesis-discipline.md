@@ -1,8 +1,8 @@
 # Synthesis Discipline
 
-<!-- Purpose: Extended doctrine for synthesizer-role constraints and gap-audit mechanics. The one-liner contract ("Synthesizers assess, fill, and frame — never re-author specialist content") is enforced directly in `coordinator/agents/parallel-review-synthesizer.md` and `coordinator/agents/research-synthesizer.md`; this wiki carries refinements and application rules. -->
+<!-- Purpose: Extended doctrine for synthesizer-role constraints and gap-audit mechanics. The one-liner contract ("Synthesizers assess, fill, and frame — never re-author specialist content") is enforced directly in `coordinator/agents/research-synthesizer.md`; this wiki carries refinements and application rules. -->
 
-**Synthesizers assess, fill, and frame — never re-author specialist content.** Output reading like condensed specialist prose = pipeline failure. Enforced at dispatch in the synthesizer agent prompts — `parallel-review-synthesizer.md`, `research-synthesizer.md`.
+**Synthesizers assess, fill, and frame — never re-author specialist content.** Output reading like condensed specialist prose = pipeline failure. Enforced at dispatch in the synthesizer agent prompt — `research-synthesizer.md`.
 
 ---
 
@@ -20,6 +20,6 @@ Apply at: any synthesizer pass that includes a tier-drift check, a coverage-audi
 
 ## Related
 
-- `coordinator/agents/parallel-review-synthesizer.md` / `coordinator/agents/research-synthesizer.md` — canonical one-liner contract, enforced directly in prompt.
+- `coordinator/agents/research-synthesizer.md` — canonical one-liner contract, enforced directly in prompt.
 - `docs/wiki/dispatching-parallel-agents.md` — synthesizer dispatch mechanics (reads specialist output from disk, does not re-author).
 - `docs/wiki/reviewer-pipeline/review-integration-doctrine.md` — integrator-side analogue (integrators assess findings, do not rewrite the review).

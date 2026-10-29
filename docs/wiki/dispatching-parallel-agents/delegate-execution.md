@@ -352,7 +352,7 @@ From the live bug-blitz smoke run, two defects were discovered in the original d
 2. **Scope sweep** — coordinator-safe-commit consulted touched-files from the long-lived session, absorbing 46 unrelated dirty files from concurrent workstreams.
 
 **Fix pattern (now canonical):** Executors **edit-and-report only** (no self-commit). EM serializes
-commits at wave gate by invoking the `ceremony.commit_v2` op — `repo` (the repo root), the
+commits at wave gate by invoking the `ceremony.commit_v2` op from the repo's own worktree (it takes no `repo` key) — the
 wave's `paths` (plus `deleted_paths` for removals), and the commit `message` — rather than
 hand-rolling git. This pattern prevents both absorption and scope sweep. The op needs no mechanism
 selection at all: it builds the commit's tree from the named paths and never reads the shared

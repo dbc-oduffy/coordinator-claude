@@ -1,5 +1,6 @@
 ---
 name: residue-author
+executes-rows: false
 description: "Authors /mise-prep residue: capabilities, appends, census rewrites; never decides scope."
 model: sonnet
 effort: low

@@ -21,10 +21,8 @@ distilled_run: 2026-05-06-13h00
 
 | Worker | Tools | Named by | Job |
 |--------|-------|----------|-----|
-| `test-evidence-parser` | Read, Edit | the Staff Engineer, the Game Dev Reviewer | Classify *captured* failures: real / flake / env / timeout / known-skip. Executes nothing — pair with `test-runner` when nobody has run the tests yet |
 | `test-runner` | Read, Bash, PowerShell, Edit | the Staff Engineer, the Game Dev Reviewer, EM (alongside any reviewer) | Run the Tier-T scoped tests for the diff, report raw pass/fail evidence. Never the fast or full suite |
 | `security-audit-worker` | Read, Grep, Glob, restricted Bash (semgrep, bandit, gitleaks, trufflehog) | the Staff Engineer | Path traversal, validation traps, injection, secrets in source |
-| `dep-cve-auditor` | Bash, Read | the Staff Engineer / EM (periodic + on-demand) | npm/pip-audit normalize |
 | `doc-link-checker` | Bash, Read, WebFetch | EM (opportunistic from `/update-docs`); plan-author (default on path-move plans, subject to the substrate precondition § doc-link-checker Substrate Precondition) | Markdown link validation; sleep 1s, cap 100 external URLs |
 
 ### Worker spec requirements
@@ -50,16 +48,12 @@ The reviewer preserves its own `Worker Dispatch Recommendations` block verbatim 
 
 Each replay's worker output must (a) surface an issue not in the original review, (b) confirm with stronger mechanical evidence, or (c) cleanly rule out a class of concern. Three failed replays → reconsider the worker before percolating.
 
-### Boundary: security-audit-worker vs dep-cve-auditor
+### Boundary: security-audit-worker vs weekly-gate-deps.py
 
 - `security-audit-worker` reads **code** (path traversal, injection, secrets in source).
-- `dep-cve-auditor` reads **dependency manifests** (`package.json`, `requirements.txt`).
+- `bin/weekly-gate-deps.py` reads **dependency manifests** (`package.json`, `requirements.txt`) and runs `pip-audit`/`npm audit`; it is a script run before the weekly Workflow, not a dispatched worker.
 
 No overlap.
-
-### Periodic dispatch via /workweek-complete (change-aware)
-
-`dep-cve-auditor` runs both periodically and the Staff Engineer-named. The periodic cadence is owned by `/workweek-complete` Step 4h — change-aware: it dispatches the auditor only when a tracked dependency manifest (`package.json`, `requirements.txt`, `pyproject.toml`, `Cargo.toml`, `go.mod`, or their lock files) actually changed in the last 7 days. Repos with no dep surface (e.g. the `~/.claude` meta-repo's scripts-only `package.json`) skip silently every week. The worker does not schedule its own re-runs and does not drop recheck-marker files — the marker mechanism is retired because for low-no-op-cost surfaces it produced ceremony with no signal.
 
 ## Phase 2 (deferred): /merging-to-main 5-step gate
 
@@ -90,7 +84,7 @@ Refines `coordinator/skills/review/SKILL.md` § Branch B — Incoming, the Worke
 
 **A reviewer never runs the tests. When a review needs test evidence, dispatch `test-runner` alongside it — do not ask the reviewer to execute.**
 
-At `/workstream-complete` and any gate where a review wants test evidence, the pairing is `code-reviewer` (judgment, static) **+** `test-runner` (execution, no judgment) **+** `test-evidence-parser` (classification of what test-runner captured). Three remits; none collapses into another.
+At `/workstream-complete` and any gate where a review wants test evidence, the pairing is `code-reviewer` (judgment, static) **+** `test-runner` (execution, no judgment) **+** `bin/weekly-gate-tests.py` (classification of what test-runner captured). Three remits; none collapses into another.
 
 `code-reviewer` is static-only by construction. The pull is to brief it to execute anyway, because the review plainly needs evidence it cannot produce — that brief buys a spawn that declines at runtime.
 
@@ -98,9 +92,9 @@ At `/workstream-complete` and any gate where a review wants test evidence, the p
 
 ## Specialist workers as routine post-implementation lens
 
-**Specialist worker lenses catch what generalist reviewer lenses miss — route security-audit/dep-cve/doc-link/test-evidence post-implementation as a routine pass, not only on the Staff Engineer recommendation.**
+**Specialist worker lenses catch what generalist reviewer lenses miss — route security-audit/doc-link workers and the deps/tests scripts post-implementation as a routine pass, not only on the Staff Engineer recommendation.**
 **Why:** Two the Staff Engineer architectural review passes on one plan caught 16 findings but missed a bare `-e .` editable-install anchor in a recovery script. The security-audit-worker caught it next pass because the security lens forces the question "what if the runtime invocation is hostile?" the Staff Engineer's correctness-of-design and the specialist's correctness-of-deployment are different lenses.
-**How to apply:** after each post-implementation review, dispatch the specialist roster (security-audit-worker, dep-cve-auditor, doc-link-checker, test-evidence-parser) as a bundle, not just on explicit the Staff Engineer recommendation — subject to each worker's own substrate precondition (e.g. `doc-link-checker` § Substrate Precondition above: skip on private-repo absolute self-URLs). The bundle default doesn't override a worker's own skip condition. The costs are mechanical; the catches are structural.
+**How to apply:** after each post-implementation review, dispatch the specialist roster (security-audit-worker, doc-link-checker) as a bundle, not just on explicit the Staff Engineer recommendation — subject to each worker's own substrate precondition (e.g. `doc-link-checker` § Substrate Precondition above: skip on private-repo absolute self-URLs). The bundle default doesn't override a worker's own skip condition. The costs are mechanical; the catches are structural.
 
 *Source: example-game-repo `state/lessons/` (example-game-repo-L153).*
 
@@ -122,7 +116,7 @@ This sharpens the § Gotchas bullet "Validate worker findings independently — 
 
 **Rule.** When introducing a new reviewer-routed worker, exercise it on a representative target as part of Phase 1 validation **even if no reviewer named it on the diffs you happened to run.** The delta-vs-baseline criterion (surface a new issue / confirm with stronger evidence / cleanly rule out a class) applies to the *worker*, not only to the routing protocol. Do not treat correct reviewer suppression as a substitute for an independent worker exercise.
 
-**Why.** *reviewer-routed-workers Phase 1:* the `test-evidence-parser` worker, run independently against a representative target, surfaced 13 failures that the Staff Engineer's focused (correctly-scoped) review never named — the Staff Engineer's suppression was right for the diff, and the worker still found real signal the review lens missed. Suppression-correct and worker-valuable were both true at once.
+**Why.** *reviewer-routed-workers Phase 1:* the test-classification worker (now `bin/weekly-gate-tests.py`), run independently against a representative target, surfaced 13 failures that the Staff Engineer's focused (correctly-scoped) review never named — the Staff Engineer's suppression was right for the diff, and the worker still found real signal the review lens missed. Suppression-correct and worker-valuable were both true at once.
 
 ## security-audit-worker — test-contract blind spot
 

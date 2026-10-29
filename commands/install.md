@@ -3,7 +3,6 @@ name: install
 description: "Installs the coordinator plugin: prereqs, project config."
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep", "AskUserQuestion"]
 argument-hint: "[--check-only] [--non-interactive] [--accept-no-git-auth]"
-disable-model-invocation: true
 ---
 
 # Coordinator Install
@@ -14,11 +13,11 @@ Guided install — agent runs mechanism, operator decides shape. Re-run anytime;
 
 The install is a script with declared choices, `${CLAUDE_PLUGIN_ROOT}/lib/install/coordinator_install.py`. Run it bare (`python3 "${CLAUDE_PLUGIN_ROOT}/lib/install/coordinator_install.py" ...`); the phases further down are the reference for what each step wraps.
 
-1. **Track.** `--plan` reports `environment.track`: `fresh`, `update` or `repair`. The installer decides it; never pick a track by hand. All three continue through steps 2-7, because the installer runs the track's own steps ahead of the configure steps: `fresh` runs `plugin_install`; `update` runs `plugin_update`, `engine_setup`, `engine_check` (with `track_reason: already current`, `plugin_update` drops and the engine steps still run); `repair` runs `engine_setup`, `engine_check`. On `repair`, surface `track_reason` to the operator. Never route `update` to `/coordinator:coordinator-update` or a hand-run `claude plugin update`; the installer performs the update. An agent outside this command may run only `--plan` and `setup.py --i-am-agent` (`engine_setup`/`engine_check`); `plugin_update` belongs to this human-typed command.
-2. **Orientation first.** Order: machine wiring, then the tour in a throwaway session, then opt-in repo onboarding (Phase 8). Read the plan's `orientation` text to the operator before asking anything. The posture question below only means something after it.
+1. **Track.** `--plan` reports `environment.track`: `fresh`, `update` or `repair`. The installer decides it; never pick a track by hand. All three continue through steps 2-7, because the installer runs the track's own steps ahead of the configure steps: `fresh` runs `plugin_install`; `update` runs `plugin_update`, `engine_setup`, `engine_check` (with `track_reason: already current`, `plugin_update` drops and the engine steps still run); `repair` runs `engine_setup`, `engine_check`. On `repair`, surface `track_reason` to the operator. Never route `update` to `/coordinator:coordinator-update` or a hand-run `claude plugin update`; the installer performs the update. A model may run this command when the PM's own turn states install intent; it need not be human-typed. `plugin_update` stays gated: a model-invoked run answers `plugin_update` SKIPPED and tells the operator to type `/coordinator:install` for it.
+2. **Orientation first.** Order: machine wiring, then the tour inline in this session, then opt-in repo onboarding (Phase 8). Read the plan's `orientation` text to the operator before asking anything. The posture question below only means something after it.
 3. **Plan.** `python3 ".../coordinator_install.py" --plan --permission-mode <mode>` mutates nothing and prints one JSON document: every decision with `id`, `question`, `why`, `options`, `default`, `level`. Pass the session's `permission_mode` from hook input; it adapts defaults (auto, bypass and plan presume the recommended extras and list them at the end as added; default and acceptEdits ask per change and pre-install nothing). Outside auto and bypass, mention shift-tab to auto mode once.
 4. **Ask once.** Human path: `--express` takes every recommended default; `--custom` walks the decisions one at a time on stdin, in plain language, and both print the same RAN/SKIPPED/INHERITED/FAILED block. Ask the `question` text verbatim (never paraphrase the posture options) in ONE block, not one prompt per item. `--i-am-agent` (no answers) returns the full plan for an agent to answer on the operator's behalf.
-5. **Execute.** `... --answers answers.json` (or inline JSON; `--non-interactive` for declared defaults). One structured block reports every step `RAN`, `SKIPPED` (by answer), `INHERITED` (already true) or `FAILED`; nothing is passed over silently. `--check-drift` fails when the install manifest and the steps disagree.
+5. **Execute.** `... --answers answers.json` (or inline JSON; `--non-interactive` for declared defaults). The answers document is one flat JSON object keyed by the decision `id`s from `--plan`'s output (never the question or option text); each value is one of that decision's `options` (for `posture`, the option id before the colon), or free text where the options are `<free text>`. Omitted ids take their `default`; an unknown id or an out-of-set value is reported as a problem and nothing runs. One structured block reports every step `RAN`, `SKIPPED` (by answer), `INHERITED` (already true) or `FAILED`; nothing is passed over silently. `--check-drift` fails when the install manifest and the steps disagree.
 6. **Report and tour.** Show the block as the status table, list `added_extras`, then run the tour in this session: the block's `tour` array (the plan carries the same text) holds Movements 2-4 (make it yours, take it for a spin, point it at a project). Movement 1 is the `orientation` text already read before the posture question. Speak each movement in plain language, condensed, and work through it with the operator; take the wording from the array and do not paraphrase what it prescribes. An empty `tour` means the operator deferred it. Record `orientation_completed` at the end. `restart_needed` only defers settings env values and MCP registrations to the next session; it never blocks the tour. Run `bin/needs-restart.py`: it prints `none`, `/reload-plugins` or `restart`; act on that verdict, never on a standing mandate.
 7. **Show the files.** The `open_claude_home` step opens `~/.claude` in the file manager (`open`, `explorer`, `xdg-open`); a session started from any directory can reach it.
 
@@ -26,7 +25,7 @@ Canonical posture text comes from the script, never from memory. `docs/coordinat
 
 Reverses via `coordinator/commands/uninstall.md`, which stays in lockstep: a write surface added here gets its disposition there in the same change.
 
-Fences below name the engine root as `<engine-root>` and the settings-home forwarders by path. Resolve the engine root once with `python3 "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_engine_root.py"` and substitute the printed path literally; an empty line means the engine clone is missing (`INSTALL.md` § Step 1e). Forwarders live under `$COORDINATOR_SETTINGS_HOME/bin` (default `~/.coordinator-claude-settings/bin`; `.exe`/`.cmd` on Windows). No fence needs an interpreter variable or command substitution.
+Fences below name the engine root as `<engine-root>` and the settings-home forwarders by path. Resolve the engine root once with `python3 "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_engine_root.py"` and substitute the printed path literally; exit 2 with stderr naming the missing registry key means the engine clone is unregistered (`INSTALL.md` § Step 1e); stop and report it, never guess a path. Forwarders live under `$COORDINATOR_SETTINGS_HOME/bin` (default `~/.coordinator-claude-settings/bin`; `.exe`/`.cmd` on Windows). No fence needs an interpreter variable or command substitution.
 
 
 
@@ -36,7 +35,8 @@ Fences below name the engine root as `<engine-root>` and the settings-home forwa
 
 - bash: no version floor — macOS's stock 3.2 is fine.
 - git, Python 3, jq.
-- uv (Pipeline D), scc (optional), PowerShell 7+ / Windows Terminal (default-on, not hard blockers).
+- uv (Pipeline D), scc (optional), Windows Terminal (default-on, not a hard blocker).
+- Windows: PowerShell 7 is a prerequisite (see the pwsh 7 check below).
 - Engine repo cloned (hard, not auto-discovered).
 - **Sequence, exactly:** (1) install the coordinator plugin; (2) clone the engine repo — a clone, **not** an install; (3) load the plugin into a session (`needs-restart.py` says whether `/reload-plugins` or a restart is needed) — what makes this command exist; (4) run this coordinator install; (5) only then run the engine repo's own installer, from a shell started after (4) so the `machine-local` resolver this command deposits is on PATH. Steps 2 and 5 read as circular only if "clone" and "install" are conflated — they are not the same step, and the engine's installer legitimately depends on coordinator already being installed. Matches `INSTALL.md` § Step 1e / Step 2 / Step 3 / Step 4 exactly; if the two ever disagree, `INSTALL.md` is the source of truth.
 
@@ -80,7 +80,7 @@ Git-LFS: opt-in per repo. A repo uses it only when its root `.gitattributes` has
 
 **Python3.** Resolves and runs `--version`: ready. Not on PATH: fail-loud. Resolves but errors on `--version` (Windows App-Execution-Alias stub): warn — Phase 3 places a real interpreter.
 
-**scc** (optional), **jq** (`command -v jq` — required for JSON output, else text fallback), **pwsh 7+**/**Windows Terminal** (offer install per-platform if absent, interactive only; commands: wiki) — presence checks only, no branch beyond offer-or-skip.
+**scc** (optional), **jq** (`command -v jq` — required for JSON output, else text fallback), **Windows Terminal** (offer install if absent, interactive only; commands: wiki) — presence check only, no branch beyond offer-or-skip. **pwsh 7 (Windows prerequisite):** check for `%ProgramFiles%\PowerShell\7\pwsh.exe`; when missing, print `winget install --id Microsoft.PowerShell --source winget --scope machine --installer-type wix`.
 
 **NotebookLM (Pipeline D).** Check whether `notebooklm-mcp` is registered in `~/.claude/settings.json` / `~/.claude.json` / `.mcp.json`. Not registered, interactive, `uv` present: offer to walk:
 
@@ -120,7 +120,14 @@ Read `~/.claude/coordinator-identity.yaml`. `operator_name` present: use it. Abs
 
 PowerShell host (rung 0): `& "$env:COORDINATOR_SETTINGS_HOME\bin\write-identity-file.exe" --claude-home "$HOME" --operator-name "$OPERATOR_NAME"`
 
-Skip under `--check-only`. Then seed the global CLAUDE.md:
+Skip under `--check-only`. Then back up any existing global CLAUDE.md that lacks the seed sentinel, no-clobber, so only the first pre-install copy is kept (a later hand edit is not re-backed-up; `--guard-sentinel` below refuses to rewrite a file lacking the seed sentinel):
+```bash
+"${COORDINATOR_SETTINGS_HOME:?COORDINATOR_SETTINGS_HOME unset — run the POSIX preamble above first}/bin/backup-global-claude-md" --claude-home "${CLAUDE_HOME:-$HOME}"
+```
+
+PowerShell host (rung 0): `& "$env:COORDINATOR_SETTINGS_HOME\bin\backup-global-claude-md.exe" --claude-home "$HOME"`
+
+Then seed the global CLAUDE.md:
 ```bash
 "${COORDINATOR_SETTINGS_HOME:?COORDINATOR_SETTINGS_HOME unset — run the POSIX preamble above first}/bin/render-template" "${CLAUDE_PLUGIN_ROOT}/templates/CLAUDE.md.tmpl" -o "${CLAUDE_HOME:-$HOME}/.claude/CLAUDE.md" --guard-sentinel "coordinator:claude-md-seed:v1" PM_NAME="${OPERATOR_NAME}"
 ```
@@ -258,13 +265,24 @@ without `--check` to run **elevated** — `/etc/profile` is inside the Git insta
 step cannot self-elevate and is never reported as done. Re-offer every run; a Git update
 removes the block silently.
 
+**BoxCacheTrim (Windows, opt-in).** Windows only; default **not installed**. Freeing the file
+cache needs an elevated `trim-file-cache --apply`; this registers a trigger-less, highest-run-level
+scheduled task `BoxCacheTrim` so a non-elevated session starts it with `schtasks /Run /TN BoxCacheTrim`.
+
+    `& python "$env:CLAUDE_PLUGIN_ROOT\templates\bin\install-box-cache-trim-task.py" --check`
+
+Exits 0 installed, 1 absent or stale, 2 not Windows. `--check-only`/`--non-interactive`: report
+only. Interactive on rc 1: ask "Install BoxCacheTrim? [y/N]" (default N). On Y hand the operator
+the same command with `--install` in place of `--check` to run **elevated**; rc 3 means "re-run elevated", never
+"done". Never offered on N or on a non-Windows host.
+
 **Percolation setup.** A `coordinator/bin/publish.py` file in the repo under setup AND a `setup/` dir both present → percolation source; else skip. No targets registered: walk detect/scaffold → register target → author `.percolate-ignore` → scaffold hook dirs, interactively.
 
 ## Phase 7 — Status Report
 
 The engine installer writes the `setup_concluded` receipt at the end of a completed run; this phase records nothing for it.
 
-Present the script block as the status table, one row per step. Status vocabulary: `RAN` | `SKIPPED` (mode-gated, e.g. `--check-only`) | `DISABLED` (a deliberate operator opt-out marker, e.g. `~/.claude/.coordinator-hooks-disabled` — distinct from a failure) | `INHERITED` (the step's target already held the right value before this run, rather than being freshly written by it — never collapse this into a bare pass: presence is not provenance, and a crashed writer that left a correct pre-existing value must read differently from one that actually ran). Not `--check-only`: offer a guided walkthrough (four movements — Orient, make `~/.claude/CLAUDE.md` yours, test-drive in a throwaway directory, then opt-in onboarding of a chosen repo via `/coordinator:repo-setup` or `/coordinator:new-project`; text: the script block's `tour` array, narrated by `coordinator/docs/wiki/install-playbook-rationale/getting-started.md`):
+Present the script block as the status table, one row per step. Status vocabulary: `RAN` | `SKIPPED` (mode-gated, e.g. `--check-only`) | `DISABLED` (a deliberate operator opt-out marker, e.g. `~/.claude/.coordinator-hooks-disabled` — distinct from a failure) | `INHERITED` (the step's target already held the right value before this run, rather than being freshly written by it — never collapse this into a bare pass: presence is not provenance, and a crashed writer that left a correct pre-existing value must read differently from one that actually ran). Not `--check-only`: offer a guided walkthrough (four movements — Orient, make `~/.claude/CLAUDE.md` yours, test-drive inline in this session against `repos.general_work` or a repo the operator picks, then opt-in onboarding of a chosen repo via `/coordinator:repo-setup` or `/coordinator:new-project`; text: the script block's `tour` array, narrated by `coordinator/docs/wiki/install-playbook-rationale/getting-started.md`):
 
 ```bash
 "${COORDINATOR_SETTINGS_HOME:?COORDINATOR_SETTINGS_HOME unset — run the POSIX preamble above first}/bin/coordinator-setup-state" record orientation_started

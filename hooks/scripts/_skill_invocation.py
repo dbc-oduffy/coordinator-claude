@@ -29,7 +29,7 @@ Provenance for the two payload shapes:
     `nudge-workflow-authoring-trampoline.py::_extract_skill_name` already
     does: `tool_input.skill`, falling back to `tool_input.command`. `agent_id`
     is read directly off the payload -- present only inside a dispatched
-    subagent (`state/reference/anthropic-docs/claude-code/hooks.md:201-203`),
+    subagent (`state/reference/anthropic-docs/claude-code/hooks.md:743-747`),
     absent (`None`) on the EM's own turn.
 
 This module owns `normalize_command_name` (the "segment after the last `:`"

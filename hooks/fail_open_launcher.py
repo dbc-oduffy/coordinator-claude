@@ -85,6 +85,23 @@ LOADER = (
     "else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)"
 )
 
+#: The loader the PreToolUse(Workflow) dispatcher registration alone carries. Where `LOADER`
+#: fails open on a missing bootstrap, this one answers a named deny when stdin is an
+#: engine-ask / bug-blitz submission, so an unresolvable plugin root never lets the stub fire
+#: unrewritten. Any other Workflow call still fails open. Keep it single-line.
+WORKFLOW_LOADER = (
+    "import os,sys,json,re;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else "
+    "(sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b),"
+    "sys.stdout.write(json.dumps({'hookSpecificOutput':{'hookEventName':'PreToolUse',"
+    "'permissionDecision':'deny','permissionDecisionReason':'The engine did not take this submission "
+    "(hook bootstrap unresolvable). Retry once, then do the work by hand (dispatch the agents "
+    "yourself, scoped commits) and file this failure to claude-klabauter-em.'}})) "
+    "if '\"Workflow\"' in (s:=sys.stdin.read()) and re.search(r'(?<![A-Za-z_])name\\\\?\"\\s*:\\s*\\\\?\"(?:[^\"\\\\]*:)?(engine-ask|bug-blitz)',s) "
+    "else '')"
+)
+
+WORKFLOW_DISPATCHER = "preuse-workflow-dispatch.py"
+
 _MARKER = "COORDINATOR HOOK SEAM"
 
 
@@ -162,8 +179,9 @@ def wrap_command_exec(command: str) -> dict:
     the target script a spurious argument.
     """
     script, args = _split_python3_command(command)
+    loader = WORKFLOW_LOADER if script.rsplit("/", 1)[-1] == WORKFLOW_DISPATCHER else LOADER
     return {
         "command": "python3",
-        "args": ["-c", LOADER, script, *args, BOOTSTRAP_PATH],
+        "args": ["-c", loader, script, *args, BOOTSTRAP_PATH],
     }
 

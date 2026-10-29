@@ -34,7 +34,7 @@ Three requirements define a conforming instantiation:
    was in scope. Dispatch-point: after synthesis completes, before archive/cleanup.
 2. **Sidecar-only output.** The auditor emits one artifact: a coverage-audit sidecar adjacent to
    the synthesis output. It **never writes the synthesis output path**. This is the no-edit/no-bloat
-   contract, upstream, enforced directly in `coordinator/agents/parallel-review-synthesizer.md` and `coordinator/agents/research-synthesizer.md` (not in coordinator/CLAUDE.md, which does not carry a § Synthesis Discipline section — that would have been a pure duplicate):
+   contract, upstream, enforced directly in `coordinator/agents/research-synthesizer.md` (not in coordinator/CLAUDE.md, which does not carry a § Synthesis Discipline section — that would have been a pure duplicate):
    > "Synthesizers don't rewrite — they assess, fill, and frame. … Never re-author specialist
    > content."
 3. **Non-teammate Agent.** Dispatched as a plain `Agent(...)` — spawned outside any team context.

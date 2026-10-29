@@ -268,7 +268,8 @@ def detect_profile() -> str:
 
 
 def default_guard_level(profile: str) -> str:
-    return "strict" if profile == "author" else "warn"
+    """`warn` for every profile; `profile` is kept for caller-signature stability."""
+    return "warn"
 
 
 def _git_user() -> str:
@@ -318,7 +319,7 @@ def build_decisions(permission_mode: str | None = None) -> list[Decision]:
         Decision(
             "guard_level",
             "How strict should non-destructive guards be?",
-            "strict denies; warn allows with a one-line advisory (cross-repo writes warn once per session); off is silent. Destructive-action guards stay hard. Change later: machine-local set coordinator.guard_level <level>.",
+            "warn is the default: a guard outside the irreversible-act floor never denies and adds at most one advisory line per event; off is silent. Irreversible-act guards stay hard. Change later: machine-local set coordinator.guard_level <level>.",
             ("strict", "warn", "off"), default_guard_level(profile), "recommended",
         ),
         Decision(

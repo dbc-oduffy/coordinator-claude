@@ -805,19 +805,25 @@ def main() -> int:
     # path, by design (Finding 1). A bare retry of the identical commit
     # must see the same accumulator state it saw the first time, not a
     # zeroed/incremented one from the rejected attempt.
+    # The byte denials (new-file admission cap, sub-floor accumulator) are
+    # advisory: a byte ceiling never blocks a commit. Only the governed
+    # per-heading admission denials still refuse.
     for reason in (admission_denials + floor_denials):
-        print(f"[guard-doctrine-surface-ratio-precommit] {reason}", file=sys.stderr)
-    _emit_governed_admission_denials(governed_admission_denials)
-    if admission_denials or floor_denials:
         print(
-            "Reasoned-growth escape: add a commit trailer "
-            f"`{_REASON_TRAILER_KEY} <reason>` naming a sanctioned reason "
-            "(see _doctrine_surface_netting.REASONED_GROWTH_MARKERS) to "
-            "exempt this growth -- silence is not an exception, and an "
-            "out-of-enum value fails the same way.",
+            f"[guard-doctrine-surface-ratio-precommit] advisory: {reason}",
             file=sys.stderr,
         )
-    return 1
+    if admission_denials or floor_denials:
+        print(
+            f"A `{_REASON_TRAILER_KEY} <reason>` commit trailer naming a "
+            "sanctioned reason (see _doctrine_surface_netting."
+            "REASONED_GROWTH_MARKERS) silences this advisory.",
+            file=sys.stderr,
+        )
+    _emit_governed_admission_denials(governed_admission_denials)
+    if governed_admission_denials:
+        return 1
+    return 0
 
 
 if __name__ == "__main__":

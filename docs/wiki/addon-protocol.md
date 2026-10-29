@@ -31,7 +31,7 @@ extraction to `example-game-workbench-repo` is Wave 2b.
     * `2 → 3` (tc-4): `AddonDiagnostic` + `AddonReconciledDiagnostic`
       façades added for the F-L4 three-layer (UHT + Redpoint Clang + tree-sitter)
       reconciliation host. New façades = surface-shape change. Reconciler module
-      + policy wiki: `project_rag_mcp/tools/reconciler.py`, `docs/wiki/f-l4-reconciliation-policy.md`.
+      + policy wiki: `project_rag_mcp/tools/reconciler.py`, `<project-rag-root>/docs/wiki/coordination/f-l4-reconciliation-policy.md` (`<project-rag-root>` = `machine-local get repos.project_rag`).
     * `4 → 5` (WS-1 Step 3): Five new hookspecs for multi-language
       core-spine, each with a new façade dataclass in `core/addon_dataclasses.py`:
       `project_rag_register_cpp_source_roots` → `AddonCppSourceRootsResult`;
@@ -377,7 +377,7 @@ drift raises `AddonManifestError` as before. The probe runs strict validation
 across all installed addons, cross-references declared `registered_producers` /
 `registered_chunkers` / `registered_mcp_tools` against actual hookimpl returns,
 and surfaces the full drift picture in one place — without blocking boot.
-See [`docs/wiki/doctor-as-remediation-surface.md`](../../../../project-rag/docs/wiki/doctor-as-remediation-surface.md)
+See `<project-rag-root>/docs/wiki/doctor-probes/doctor-as-remediation-surface.md`
 for the doctrine placing strict validation in `/doctor`, not the boot path.
 
 ### Rationale — type-confusion problem and motivating incident
@@ -468,7 +468,7 @@ doctor probe step id. Field-level documentation lives in `core/addon_protocol.py
 
 The embed sidecar dogfoods this seam: `BUILTIN_EMBED_SIDECAR_SPEC` in
 `embed_sidecar/builtin_spec.py` is registered by the host directly (no addon
-required for built-in subprocesses). See `docs/wiki/embed-sidecar.md §Built-in spec`.
+required for built-in subprocesses). See `<project-rag-root>/docs/wiki/embedding-model-selection/embed-sidecar.md` §Built-in spec.
 
 ### `project_rag_register_producer`
 
@@ -478,7 +478,7 @@ constant has since been bumped to v3 by tc-4 for unrelated façade additions
 (`AddonDiagnostic` + `AddonReconciledDiagnostic`), and to v4 by tc-5
 for the `AddonDiagnostic.anchor_line` AC-8 dedup key — `canonical_id`
 derivation in `project_rag_mcp/tools/reconciler.py` now keys on `anchor_line` when set, falls
-back to `line_range` when None. See [`f-l4-reconciliation-policy.md`](../../../../project-rag/docs/wiki/f-l4-reconciliation-policy.md) §2.
+back to `line_range` when None. See `<project-rag-root>/docs/wiki/coordination/f-l4-reconciliation-policy.md` §2.
 — no version bump because `AddonProducerSpec` (the façade it wires) was already
 declared at v1 (PR-1). Authority: tc-6 precedent (`refine_scope_ranges`, additive
 hookspec with pre-existing façade, no bump).
@@ -966,7 +966,7 @@ registered entry-points, or when an addon's `setup()` raises, the host degrades 
 completes, UE-shaped tools return `extraction_skipped` (never a stack trace), and a `DEGRADED`
 doctor probe verdict is registered with an actionable install hint. Full doctrine — including the
 three implementation rules (probe at the seam, loud warnings, degrade not fail) and the canonical
-probe-site table — lives in [`docs/wiki/thin-wrapper-graceful-fail.md`](../../../../project-rag/docs/wiki/thin-wrapper-graceful-fail.md).
+probe-site table — lives in `<project-rag-root>/docs/wiki/artifact-shape-conformance/thin-wrapper-graceful-fail.md`.
 
 ## Facade discipline — tripwire allowlist exceptions
 

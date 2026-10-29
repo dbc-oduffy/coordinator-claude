@@ -128,7 +128,7 @@ stages name them.
 ## Structural Orientation
 
 **Entry points:** the main files, CLI entry, request handlers
-**Key directories:** the top five
+**Key directories:** every directory that matters to the research
 **Architecture pattern:** the pattern
 **Material dependencies:** the external dependencies relevant to the research
 **LLM context files:** the files found, or "none"

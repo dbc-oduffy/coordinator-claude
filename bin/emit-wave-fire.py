@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """emit-wave-fire — turn a frozen gate report into fireable plan-blitz wave scripts.
 
 WHY THIS EXISTS. `plan-blitz`'s § Fire the wave used to end at a `Workflow({...})`
@@ -98,6 +97,29 @@ def _resolve_plugin_root():
 
 EXIT_OK = 0
 EXIT_REFUSED = 2
+
+_ROSTER_FRAGMENT = "review-roster-fragment.json"
+
+
+def _plan_review_block(plugin_root: Path) -> tuple[dict | None, str | None]:
+    """`(block, None)` or `(None, refusal)`: the `plan_review` block of the PLUGIN root's fragment.
+
+    Read from the plugin root, never the planned repo, which may carry no fragment. Probes
+    `<plugin_root>/contract/` (the resolved root is the `coordinator` dir) then
+    `<plugin_root>/coordinator/contract/` (repo-root layout). A missing file or an absent,
+    non-mapping or empty block is a refusal naming the path.
+    """
+    candidates = [plugin_root / "contract" / _ROSTER_FRAGMENT,
+                  plugin_root / "coordinator" / "contract" / _ROSTER_FRAGMENT]
+    path = next((p for p in candidates if p.is_file()), candidates[0])
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return None, f"cannot read the plan_review roster at {path}: {exc}"
+    block = data.get("plan_review") if isinstance(data, dict) else None
+    if not isinstance(block, dict) or not block:
+        return None, f"the plan_review block in {path} is missing or empty"
+    return block, None
 
 
 # The planning report states the plan it wrote in its own first lines. It is the per-baton record
@@ -956,6 +978,9 @@ def _emit_repair(args, repo_root: Path, trail_dir: Path, plugin_root: Path, engi
         return refuse(f"no plan-blitz.mjs at {script_source} — pass --plugin-root")
     if not trail_dir.is_dir():
         return refuse(f"trail dir {trail_dir} does not exist — a repair reads its records")
+    plan_review, plan_review_why = _plan_review_block(plugin_root)
+    if plan_review is None:
+        return refuse(plan_review_why)
     pba = _plan_blitz_args()
     plugin_agents, plugin_agents_why = pba._plugin_agents_available(plugin_root, args.plugin_agents_available)
     print(f"  agent identities: {'declared' if plugin_agents else 'OMITTED'} — {plugin_agents_why}", file=sys.stderr)
@@ -987,6 +1012,7 @@ def _emit_repair(args, repo_root: Path, trail_dir: Path, plugin_root: Path, engi
         # guess a repo-relative substitute, so spine validation simply never ran on a repair while
         # every wave fire got it.
         "pluginAgentsAvailable": plugin_agents,
+        "plan_review": plan_review,
     }
     spine_check_cli = args.spine_check_cli or pba._default_spine_check_cli(plugin_root)
     if spine_check_cli:
@@ -1338,6 +1364,10 @@ def _emit_single_from_sizing(
         return _refuse_from_sizing(
             f"{sizing_rel} cannot be fired: " + "; ".join(refusals)
         )
+    # Read before the mint: a refusal after it would leave a minted baton with no fire.
+    plan_review, plan_review_why = _plan_review_block(plugin_root)
+    if plan_review is None:
+        return _refuse_from_sizing(plan_review_why)
     plan_rel = sizing.get("plan")
     plan_rel = plan_rel.replace("\\", "/") if isinstance(plan_rel, str) and plan_rel else ""
     if plan_rel and (
@@ -1405,6 +1435,7 @@ def _emit_single_from_sizing(
         "waveIndex": wave_number,
         "trailDir": str(trail_dir),
         "mode": "single",
+        "plan_review": plan_review,
         "pluginAgentsAvailable": plugin_agents,
         "engineRef": engine_ref,
         "batons": [baton],
@@ -1889,6 +1920,9 @@ def main(argv=None) -> int:
             file=sys.stderr,
         )
 
+    plan_review, plan_review_why = _plan_review_block(plugin_root)
+    if plan_review is None:
+        return refuse(plan_review_why)
     sidecar_cli = args.provision_sidecar_cli or pba._default_sidecar_cli(
         engine_root, plugin_root
     )
@@ -1934,6 +1968,7 @@ def main(argv=None) -> int:
             "trailDir": str(trail_dir),
             "gateReportPath": str(report_path),
             "pluginAgentsAvailable": plugin_agents,
+            "plan_review": plan_review,
             # The code this fire will actually run, stamped where it is knowable. A fire is a
             # FROZEN COPY of `plan-blitz.mjs` with its args bound in, so a wave fired an hour ago
             # runs the workflow as it stood an hour ago — and nothing in the result said which.

@@ -29,7 +29,7 @@ site.
 
 Usage (extended from the pre-port bash body — zero caller repoints for the
 pre-existing flags, AC8; --status is new, see below):
-    append-goal-event.sh --period <day|week|repo> --period-value <v>
+    append-goal-event.sh --period <day|week|repo|quarter|year> --period-value <v>
                           (--text <s> | --text-file <path>) [--repo <r>] [--root <p>]
                           [--weekly-perceptible <true|false>] [--parent-goal-id <id>]
                           [--key-results-status <json-array>] [--goal-id <id>]

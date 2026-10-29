@@ -2,7 +2,7 @@
 # Topic letters are lowercase: {{item}} is bound verbatim into role names and file names.
 schema_version: 1
 pipeline: web
-description: Scout builds a corpus, specialists research and challenge through mailboxes, a rebuttal round answers challenges, an Opus sweep synthesizes.
+description: Scout surveys sources, a brief author writes the research brief, specialists research and challenge through mailboxes, a rebuttal round answers challenges, an Opus sweep synthesizes.
 inputs:
   brief: required
   scratch_dir: optional
@@ -33,6 +33,13 @@ stages:
     web_caller: true
     depends_on: [scope]
     output: "{{scratch_dir}}/source-corpus.md"
+  - id: brief-author
+    phase: Brief
+    agent_type: coordinator:research-brief-author
+    model: sonnet
+    template: brief-author-prompt-template.md
+    depends_on: [scout]
+    output: "{{scratch_dir}}/research-brief.md"
   - id: specialists
     phase: Specialists
     agent_type: coordinator:research-specialist
@@ -41,7 +48,7 @@ stages:
     fan_out:
       over: inputs.topics
     web_caller: true
-    depends_on: [scout]
+    depends_on: [brief-author]
     output: "{{scratch_dir}}/{{item}}-claims.json"
     schema:
       type: object

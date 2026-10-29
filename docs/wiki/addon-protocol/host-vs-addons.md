@@ -4,10 +4,11 @@ created: 2026-05-15
 status: active
 relates_to:
   - docs/wiki/addon-protocol.md
-  - docs/wiki/standalone-vs-ue-augmented.md
+  # sibling pages: <project-rag-root> = `machine-local get repos.project_rag`, <project-rag-ue-addon-root> = `machine-local get repos.project_rag_ue_addon`
+  - <project-rag-ue-addon-root>/docs/wiki/standalone-vs-ue-augmented.md
   - docs/wiki/addon-protocol/addon-receiver-scaffold.md
-  - docs/wiki/thin-wrapper-graceful-fail.md
-  - ../../../project-rag-ue-addon/docs/wiki/triad-roles-doctrine.md
+  - <project-rag-root>/docs/wiki/artifact-shape-conformance/thin-wrapper-graceful-fail.md
+  - <project-rag-ue-addon-root>/docs/wiki/triad-roles-doctrine.md
 ---
 
 
@@ -74,7 +75,7 @@ No addon name, path, or capability is hard-coded in host source.
 
 The host boots and serves queries with zero addons installed. Addon-gated tools return
 `extraction_skipped`; health probes emit `DEGRADED` with an actionable install hint.
-Full doctrine: project-rag:docs/wiki/thin-wrapper-graceful-fail.md §Three implementation rules.
+Full doctrine: `<project-rag-root>/docs/wiki/artifact-shape-conformance/thin-wrapper-graceful-fail.md` §Three implementation rules.
 
 ## Protocol version
 
@@ -159,6 +160,6 @@ even when pointed at a non-UE project root so engine-RAG tools work.
 - [addon-protocol.md](../addon-protocol.md) — formal versioned contract, hookspec table, façade types
 - [addon-receiver-scaffold.md](./addon-receiver-scaffold.md) — Wave-2a doctrine and project-type gate philosophy
 - standalone-vs-ue-augmented (relocated to project-rag-ue-addon; status `deprecated`) — legacy capability matrix. Runtime self-declaration via `FastMCP(instructions=...)` + `project_rag_instructions()` + per-tool `ToolAnnotations` is now the authoritative routing surface; `corpus-class-taxonomy.md` is the doctrine anchor. The capability-matrix wiki remains for historical reference only and is not consulted by the runtime.
-- project-rag:docs/wiki/thin-wrapper-graceful-fail.md — three implementation rules for addon seam probe sites
-- project-rag:docs/wiki/project-type-domains.md — domain-gate split by detected language
-- project-rag:docs/wiki/h3-4x2-baseline-freeze-matrix.md — canonical (corpus × query-shape) baseline-freeze matrix; addon authors registering a new corpus should extend the matrix's per-row cell-history with their corpus's NDCG/MRR/Recall cells per ship
+- `<project-rag-root>/docs/wiki/artifact-shape-conformance/thin-wrapper-graceful-fail.md` — three implementation rules for addon seam probe sites
+- `<project-rag-root>/docs/wiki/multi-rag-platform-architecture/project-type-domains.md` — domain-gate split by detected language
+- `<project-rag-root>/docs/wiki/multi-rag-platform-architecture/h3-4x2-baseline-freeze-matrix.md` — canonical (corpus × query-shape) baseline-freeze matrix; addon authors registering a new corpus should extend the matrix's per-row cell-history with their corpus's NDCG/MRR/Recall cells per ship

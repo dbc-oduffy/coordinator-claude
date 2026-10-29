@@ -71,8 +71,13 @@ Under the D-4 curated-only-by-default chroma build:
 - The uncategorized chunker case (`categories=[]`) is unaffected — see § Empty list —
   uncategorized below for the include/exclude/no-flag semantics.
 
-Cross-link: see [`cross-repo-acceptance-coupling.md`](../../../../project-rag/docs/wiki/cross-repo-acceptance-coupling.md)
-§ The pattern for the AC7 example, which is the canonical example-game-repo-side acceptance criterion
+Cross-link: resolve `<project-rag-root>` with `machine-local get repos.project_rag`, then read:
+
+```
+<project-rag-root>/docs/wiki/cross-repo/cross-repo-acceptance-coupling.md
+```
+
+§ The pattern holds the AC7 example, which is the canonical example-game-repo-side acceptance criterion
 gated on D-4 curated chroma landing.
 
 ## Semantics

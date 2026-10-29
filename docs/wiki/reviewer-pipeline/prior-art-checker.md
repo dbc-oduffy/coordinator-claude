@@ -43,7 +43,7 @@ mandatory live-read, not an acceptable gap to carry forward.
 
 ## Role in the review pipeline
 
-**The prior-art-checker is a recall pre-flight, not a reviewer.** It does not participate in the sequential-review HARD RULE — it runs once before any reviewer is dispatched and its output is consumed by all downstream reviewers. Running it does not satisfy the "sequential" requirement; it sits upstream of the reviewer sequence entirely.
+**The prior-art-checker is a recall pre-flight, not a reviewer.** It is not one of the reviewers in the parallel wave, each of which applies its own findings — it runs once before any reviewer is dispatched and its output is consumed by all of them. Running it does not stand in for a reviewer; it sits upstream of the wave entirely.
 
 ## When does it run? — EM Decision Rules
 
@@ -101,7 +101,7 @@ Prior art is not immutable doctrine. When a PM-authorized director-tier reviewer
 
 - **COMPATIBLE** — zero conflicts; compatible-but-relevant items are informational only. Proceed to Opus reviewer dispatch.
 - **WARN** — one or more conflicts surfaced. EM (with the reviewer's help) picks a direction-of-correction per conflict before dispatching the Opus reviewer: `update-plan`, `update-prior-art`, `both`, `override-and-document`, or `PM-input-needed`. "WARN" does not mean "plan is wrong" — it means "two surfaces disagree; pick which to update." See § Bidirectional resolution.
-- **BLOCKED-SURFACE-TO-PM** — one or more conflicts contradict load-bearing doctrine (scoped-safety-commits, daily-branch-discipline, round-trip-contract-tests, sequential-review HARD RULE, etc.) OR contradict explicit institutional memory recording a past incident. EM **must** escalate to PM before continuing. Do not dispatch the Opus reviewer until the conflict is resolved or PM authorizes override.
+- **BLOCKED-SURFACE-TO-PM** — one or more conflicts contradict load-bearing doctrine (scoped-safety-commits, daily-branch-discipline, round-trip-contract-tests, the parallel review wave in which reviewers apply their own findings, etc.) OR contradict explicit institutional memory recording a past incident. EM **must** escalate to PM before continuing. Do not dispatch the Opus reviewer until the conflict is resolved or PM authorizes override.
 - **DEGRADED** — the agent ran with materially incomplete coverage. Emitted when: (a) Phase 1 capped at 30 claims and the plan has significantly more, (b) Stuck Detection fired ≥1 time, (c) a corpus was unreadable, or (d) estimated token cost exceeded 50K. Treat DEGRADED as no signal — review the plan fully against prior art as if no pre-flight ran. DEGRADED does not block; it flags unreliable coverage.
 
 ## Hard prohibitions — prior-art-checker must NOT
@@ -288,7 +288,7 @@ the sibling is HOST; the offer only ever points consumer → host.
 
 #### The copy-out bucket has no polarity
 
-Phase 2.6 of the agent (DR-201 (b)) is a second bucket in the same mechanism
+Phase 2.6 of the agent is a second bucket in the same mechanism
 and does not inherit the consume polarity. An own-deliverable repo hosts no
 capability and is a legitimate source to copy a declared `shapes[]` entry
 from. `host_repo` is never read; only `source_repo == plan_repo` suppresses (a

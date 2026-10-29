@@ -1,5 +1,6 @@
 ---
 name: queue-grind-op-runner
+executes-rows: false
 description: "Runs one queue-grind op verify via coordinator-invoke; relays exit code and JSON."
 model: haiku
 effort: low

@@ -276,6 +276,23 @@
         ]
       },
       {
+        "matcher": "Monitor",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "timeout": 10,
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/preuse-monitor-dispatch.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
+          }
+        ]
+      },
+      {
         "matcher": "SendMessage",
         "hooks": [
           {
@@ -341,7 +358,7 @@
             "timeout": 15,
             "args": [
               "-c",
-              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "import os,sys,json,re;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else (sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b),sys.stdout.write(json.dumps({'hookSpecificOutput':{'hookEventName':'PreToolUse','permissionDecision':'deny','permissionDecisionReason':'The engine did not take this submission (hook bootstrap unresolvable). Retry once, then do the work by hand (dispatch the agents yourself, scoped commits) and file this failure to claude-klabauter-em.'}})) if '\"Workflow\"' in (s:=sys.stdin.read()) and re.search(r'(?<![A-Za-z_])name\\\\?\"\\s*:\\s*\\\\?\"(?:[^\"\\\\]*:)?(engine-ask|bug-blitz)',s) else '')",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/preuse-workflow-dispatch.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
@@ -458,6 +475,22 @@
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/postuse-stop-family-dispatch.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "timeout": 10,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/postuse-split-readme-autosync.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }

@@ -75,11 +75,7 @@ from _guard_runner_contract import (  # noqa: E402
 
 from _machine_profile import guard_level  # noqa: E402
 
-#: INVARIANT: guards listed here guard truly irreversible/destructive actions
-#: and ignore `coordinator.guard_level`: their deny always stands. Add a guard
-#: only when its harm cannot be undone after the action proceeds. Everything
-#: else is downgraded to an advisory at `warn` and silenced at `off`.
-NON_DOWNGRADABLE_GUARDS = frozenset({"guard-oss-payload-locality", "guard-engine-mirror-write"})
+from _protected_act import advise_and_record, protected_act_for  # noqa: E402
 
 #: A verdict is the shape both layers speak: {"channel": ..., "text": ...}.
 GuardVerdict = Dict[str, str]
@@ -88,28 +84,24 @@ GuardVerdict = Dict[str, str]
 GuardEntry = Union[GuardVerdict, Tuple[str, Callable[[Any], Optional[GuardVerdict]]]]
 
 
-def apply_guard_level(guard_id: str, verdict: Optional[GuardVerdict]) -> Optional[GuardVerdict]:
+def apply_guard_level(
+    guard_id: str, verdict: Optional[GuardVerdict], event: str = "PreToolUse"
+) -> Optional[GuardVerdict]:
     """Map a guard's `CHANNEL_DENY` verdict through its effective guard level:
-    strict keeps the deny; warn turns it into an advisory carrying the same
-    text; off drops it. Advisories and `NON_DOWNGRADABLE_GUARDS` pass through."""
+    strict keeps the deny; warn records the deny text to the friction log and
+    returns None (nothing enters context); off drops it. Advisories and guards
+    with a roster `protected_act` pass through untouched."""
     if not verdict or verdict.get("channel") != CHANNEL_DENY:
         return verdict
-    if guard_id in NON_DOWNGRADABLE_GUARDS:
+    if protected_act_for(guard_id):
         return verdict
     level = guard_level(guard_id)
     if level == "strict":
         return verdict
     if level == "off":
         return None
-    return {
-        "channel": CHANNEL_ADDITIONAL_CONTEXT,
-        "text": (
-            f"Advisory ({guard_id}, level warn): {verdict.get('text', '')}\n"
-            "Allowed at guard_level warn. Stricter: `machine-local set "
-            "coordinator.guard_level strict`; silence: `machine-local set "
-            f"coordinator.guard_level.{guard_id} off`."
-        ),
-    }
+    advise_and_record(guard_id, verdict.get("text", ""), event)
+    return None
 
 
 def run_guards(

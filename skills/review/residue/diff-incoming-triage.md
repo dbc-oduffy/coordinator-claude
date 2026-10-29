@@ -14,4 +14,4 @@ order: 60
   → Read the cited code at the cited line, not the reviewer's paraphrase. Confirm or revise premise either way.
 
 - _Worker Dispatch Recommendations block present in reviewer output?_ _(`--surface diff`)_
-  → On diff reviews: all four workers are in scope (`test-evidence-parser`, `security-audit-worker`, `dep-cve-auditor`, `doc-link-checker`) — reviewers name only the ones that fire on this diff. If the recommendation names `test-evidence-parser`, the EM runs the recommended test invocation first, captures stdout/stderr to a file, and dispatches the worker with that captured path — never the command itself.
+  → On diff reviews: both workers are in scope (`security-audit-worker`, `doc-link-checker`) — reviewers name only the ones that fire on this diff. For test evidence, the EM runs the recommended test invocation, captures stdout/stderr to a file, and runs `bin/weekly-gate-tests.py --test-output` on that path.

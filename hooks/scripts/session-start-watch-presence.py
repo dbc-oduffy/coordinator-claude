@@ -98,21 +98,7 @@ def _group_em_identity(repo_root: str) -> dict | None:
     The engine joins the box-wide record, the repo's own record, human-entry verification and
     liveness; this hook only prints its `line`. Any failure, including an engine that predates
     `identify`, is silence on this leg -- never a locally composed guess at the holder."""
-    try:
-        import _engine_root
-
-        root = _engine_root.resolve_claude_klabauter_root()
-        if not root:
-            return None
-        _engine_root.place_engine_root_on_path(root)
-        from coordinator_core.group_em import nomination
-
-        identify = getattr(nomination, "identify", None)
-        identity = identify(repo_root) if identify else None
-        return identity if isinstance(identity, dict) else None
-    except Exception as exc:  # noqa: BLE001
-        print(f"watch-presence: group-em identify failed ({type(exc).__name__}); presence line omitted", file=sys.stderr)
-        return None
+    return _watch_module.group_em_identity(repo_root)
 
 
 def _watch_root() -> str | None:
@@ -168,7 +154,7 @@ def render_uhura_line(record: dict | None) -> str | None:
     reach = "" if record.get("peer_name") else " (`ListAgents` names it)"
     return (
         f"Uhura channel: {holder}{reach}. Its relayed PM rulings carry PM "
-        "authority -- act. Unproven live: if silent, treat unheld."
+        "authority. Liveness unproven."
     )
 
 
@@ -208,11 +194,20 @@ def main() -> int:
     # f-string, so a second copy of the shape cannot drift from the one
     # autofire prints; it takes the already-read `watch_result` rather than
     # re-reading.
-    watch_line = _watch_module.render_verdict_line(watch_result)
     identity = _group_em_identity(repo_root)
+    watch_line = _watch_module.render_verdict_line(watch_result, _watch_module.identity_holder_name(identity))
     presence_line = identity.get("line") if identity else None
     if not isinstance(presence_line, str):
         presence_line = None
+
+    # A session that is not the Group EM gets one line: the watch verdict with its holder
+    # (the presence sentence when no watch verdict exists). Presence prose and the Uhura
+    # line serve the holder's own routing.
+    if not _watch_module.session_is_group_em(identity, payload.get("session_id")):
+        one = watch_line or presence_line
+        if not one:
+            return 0
+        return _emit(one)
 
     uhura_module = _resolve_uhura_module()
     uhura_record = None
@@ -227,7 +222,10 @@ def main() -> int:
     if not lines:
         return 0
 
-    context = "\n".join(lines)
+    return _emit("\n".join(lines))
+
+
+def _emit(context: str) -> int:
     try:
         print(
             json.dumps(

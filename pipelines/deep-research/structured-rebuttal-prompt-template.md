@@ -12,7 +12,7 @@ subject {{subject}}. You are a fresh agent picking up a returned verifier for th
 
 ## Your Inputs
 
-**Brief:** {{brief}} — your topic is the row whose id is `{{item}}`.
+**Brief:** {{stage.brief-author.output}} — the research brief; your topic is the row whose id is `{{item}}`.
 **Your inbox:** {{scratch_dir}}/mail/verifier-{{item}}.jsonl — the challenges peers sent you
 **Your prior output:** {{scratch_dir}}/{{item}}-findings.md — the findings your predecessor wrote
 

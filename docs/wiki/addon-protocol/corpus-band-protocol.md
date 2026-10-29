@@ -6,7 +6,8 @@ relates_to:
   - docs/wiki/addon-protocol.md
   - docs/wiki/addon-protocol/host-vs-addons.md
   - docs/wiki/addon-protocol/host-addon-separation-of-concerns.md
-  - docs/wiki/engine-rag-runtime-contract.md
+  # sibling page: <project-rag-root> = `machine-local get repos.project_rag`
+  - <project-rag-root>/docs/wiki/index-freshness-contract/engine-rag-runtime-contract.md
 ---
 
 
@@ -297,6 +298,6 @@ The full palette is greppable in `core/source_registry.py:_VALID_ENVELOPE_VERDIC
   history; Z-AMEND-1 boundary analysis; hookspec table.
 - [host-vs-addons.md](./host-vs-addons.md) — host/addon polarity; what lives in
   the host vs. what lives in addons.
-- project-rag:docs/wiki/engine-rag-runtime-contract.md — runtime
+- `<project-rag-root>/docs/wiki/index-freshness-contract/engine-rag-runtime-contract.md` — runtime
   contract for engine RAG; CorpusBand version lifecycle; AD-5 default-blend
   mechanics.

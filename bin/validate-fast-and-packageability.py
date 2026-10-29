@@ -476,12 +476,8 @@ def run_fast(repo_root: str | None) -> tuple[str, int]:
     owner = mutex_owner("suite-mutex")
     with suite_mutex.held(owner, "validate-fast", timeout=MUTEX_WAIT_SECS) as acquired:
         if not acquired:
-            current = suite_mutex.holder() or {}
-            print(
-                "[WARN] suite mutex held by %s for %ss — proceeding unserialized"
-                % (current.get("owner", "<unknown>"), int(MUTEX_WAIT_SECS)),
-                file=sys.stderr,
-            )
+            print(suite_mutex.timeout_refusal(MUTEX_WAIT_SECS), file=sys.stderr)
+            return "mutex-refused", suite_mutex.EX_TEMPFAIL
         cmd_exit = _run_resolved_command(scoped_cmd)
 
     if cmd_exit == PYTEST_NO_TESTS_COLLECTED:

@@ -1,5 +1,6 @@
 ---
 name: docs-checker
+executes-rows: false
 description: "Verifies external API claims against authoritative docs before Opus review. A table."
 model: haiku
 effort: low

@@ -50,7 +50,7 @@ inherited bug):
     repo is CROSS_SURFACE, not ROT -- a real citation into a different
     tracked surface (a plan, handoff, lesson), out of scope for this plan's
     wiki rot ratchet.
-  - `resolve_pathed` -- a pathed reference (`docs/wiki/some-page.md`),
+  - `resolve_pathed` -- a pathed reference (`<plugin-root>/docs/wiki/some-page.md`),
     resolved REPO-ROOT-RELATIVE.
   - `resolve_markdown_link` -- a real `[text](path.md)` markdown link,
     resolved relative to the CITING file's own directory -- the one form for
@@ -89,7 +89,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 WIKI_ROOT = REPO_ROOT / "coordinator" / "docs" / "wiki"
 
 #: The plugin root. This corpus's authors write pathed backticked citations
-#: (`` `docs/wiki/some-page.md` ``) relative to the PLUGIN root, not the repo
+#: (`` `<plugin-root>/docs/wiki/some-page.md` ``) relative to the PLUGIN root, not the repo
 #: root -- "Both trees are named 'coordinator-claude'; they are NOT the same
 #: tree. The live plugin root under `~/.claude/plugins/coordinator-claude/`
 #: is one level *above* a `coordinator/` subdirectory; under THIS source
@@ -510,7 +510,7 @@ def resolve_pathed(
     roots: "tuple[Path, ...]" = PATHED_RESOLUTION_ROOTS,
     wiki_index: "dict[str, tuple[Path, ...]] | None" = None,
 ) -> Verdict:
-    """Pathed reference (`docs/wiki/some-page.md`), resolved against each of
+    """Pathed reference (`<plugin-root>/docs/wiki/some-page.md`), resolved against each of
     `roots` in order -- never joined against the citing file's own
     directory. First hit wins; the winning root is recorded on the returned
     `Verdict.resolved_root` so the verdict is auditable. See

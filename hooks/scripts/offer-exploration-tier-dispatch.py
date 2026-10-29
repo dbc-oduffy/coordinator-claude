@@ -163,8 +163,7 @@ _WIKI_ANCHOR = (
 )
 
 _OFFER_PROSE = (
-    "Read-only-shaped dispatch: an unnamed Explore is cheaper and stays "
-    "read-only. Naming it forfeits both -- skip if this needs Edit/Write."
+    "Read-only work: dispatch an unnamed Explore instead (named loses read-only)."
 )
 
 

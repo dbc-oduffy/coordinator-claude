@@ -2,9 +2,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://coordinator.local/schemas/review-stage.schema.json",
   "x-schema-name": "review-stage",
-  "x-schema-version": "1.9.0",
+  "x-schema-version": "1.10.0",
   "x-bump-class": "nested-field-additive",
-  "x-bump-note": "1.8.0 -> 1.9.0 adds the optional terminal-judge-result property `differs_from_baseline`; the met branch of terminal-judge-verdict-rules admits falsifier verdict `error` only when it is true; no required list changed. Prior: 1.7.0 -> 1.8.0 adds the optional terminal-judge-result properties `completion_summary`, `lesson_candidates` and `authored_by`; no required list changed. Prior: 1.6.0 -> 1.7.0 adds `visual` to the `register_rows[].surface` enum. Hold: claude-klabauter re-vendors 1.7.0 (E1). Spec: docs/plans/2026-10-12-pm-instructions-enforced-end-to-end.md § C1. Prior: 1.5.0 -> 1.6.0 adds the optional terminal-judge-result property `register_rows`, the `register-source` member of `pm_words_read.source`, a terminal-judge-verdict-rules clause forcing not_met when a met result holds an unruled unclaimed row or a this-plan row not met and wired, and the evidence-order sentence in the terminal-judge-result description (docs/plans/2026-10-09-requirement-register-doe.md C1); no required list changed. Prior-version history: coordinator/schemas/SCHEMA-BUMP-HISTORY.md § review-stage.schema.json.",
+  "x-bump-note": "1.9.0 -> 1.10.0 adds the optional terminal-judge-result property `remnant` {gap, paths, checks}, additionalProperties false; a terminal-judge-verdict-rules clause admits it only when status is not_met; no required list changed. The `delivery-verdict` $def is renamed `delivery-verdict-result` so the hoisted key no longer collides with the delivery-verdict artifact type in the artifact-shape-contract emit. Hold: claude-klabauter re-vendors 1.10.0 (engine owns the remnant executor loop). Spec: docs/plans/2026-10-24-not-met-dispatches-remnant-completion.md § C5. Prior-version history: coordinator/schemas/SCHEMA-BUMP-HISTORY.md § review-stage.schema.json.",
   "description": "Structured returns for the execute-review stage (docs/plans/2026-09-27-review-inside-execute-plan.md § Contract). the engine repo's compose_execute_review injects the relevant $def as each agent call's schema. Never applies_to a sidecar file directly -- these are dispatch RETURN shapes, validated in-process by the caller, not documents on disk.",
   "$defs": {
     "anchor": {
@@ -124,7 +124,7 @@
         }
       }
     },
-    "delivery-verdict": {
+    "delivery-verdict-result": {
       "type": "object",
       "description": "The delivery verifier's return: every executor delivery claim checked against the frozen diff.",
       "required": ["sidecar_path", "verdict", "product_files", "claims_checked", "claims_unbacked"],
@@ -204,6 +204,16 @@
         "status": { "type": "string", "enum": ["met", "not_met", "indeterminate"] },
         "observation": { "type": "string", "maxLength": 200 },
         "differs_from_baseline": { "type": "boolean" },
+        "remnant": {
+          "type": "object",
+          "required": ["gap", "paths", "checks"],
+          "additionalProperties": false,
+          "properties": {
+            "gap": { "type": "string", "minLength": 1 },
+            "paths": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+            "checks": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+          }
+        },
         "sidecar_path": { "type": "string", "maxLength": 300 },
         "completion_summary": { "type": "string", "maxLength": 600 },
         "lesson_candidates": {
@@ -384,6 +394,10 @@
             }
           },
           "else": { "required": ["reason"] }
+        },
+        {
+          "if": { "required": ["remnant"] },
+          "then": { "properties": { "status": { "const": "not_met" } } }
         },
         {
           "if": {

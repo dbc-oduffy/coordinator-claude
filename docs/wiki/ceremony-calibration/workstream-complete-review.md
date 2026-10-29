@@ -99,7 +99,7 @@ Named reviewers (the Staff Engineer, personas) are for plans and architecture, n
 
 If `code-reviewer` surfaces an architectural finding, capture it in `state/lessons/` and surface to PM for a plan-shaped decision. The finding belongs in the planning stream, not the code-review stream.
 
-The weekly `/workweek-complete` Step 7 parallel-code-review is the merge-gate ceremony — **N code-semantics chunk reviewers (Sonnet `code-reviewer-weekly`, partitioned over the narrowed scope) + 3 mechanical workers (security-audit-worker, dep-cve-auditor, test-evidence-parser) → no-rewrite synthesizer**. The Staff Engineer is NOT in the gate — consistent with "named reviewers are for plans/architecture, not code output" above; they run a separate advisory architecture pass at Step 7.5 (fed by the synthesizer's `arch_tier_candidates` + `convergent_findings` + the seam set), which surfaces spinoff candidates but never blocks merge. The gate runs at merge time regardless of workstream-complete coverage — it is NOT a deferral path. Workstream-complete review happens at workstream completion; the merge gate is a separate, independent ceremony.
+The weekly `/workweek-complete` Step 7 parallel-code-review is the merge-gate ceremony — **N code-semantics chunk reviewers (Sonnet `code-reviewer-weekly`, partitioned over the narrowed scope) + the security-audit-worker, with `weekly-gate-deps.py` and `weekly-gate-tests.py` run as scripts → `weekly-gate-synthesize.py` no-rewrite reducer**. The Staff Engineer is NOT in the gate — consistent with "named reviewers are for plans/architecture, not code output" above; they run a separate advisory architecture pass at Step 7.5 (fed by the synthesizer's `arch_tier_candidates` + `convergent_findings` + the seam set), which surfaces spinoff candidates but never blocks merge. The gate runs at merge time regardless of workstream-complete coverage — it is NOT a deferral path. Workstream-complete review happens at workstream completion; the merge gate is a separate, independent ceremony.
 
 ## Anti-ceremony-bias tripwire (code-reviewer-skip direction)
 
@@ -330,7 +330,7 @@ The `parallel-code-review` skill body IS modified for the N-chunk model (Strand 
 
 **Verdict subvariant:** when the code-semantics scope is empty AND no findings from any mechanical worker, the synthesizer may emit `OK (code-semantics trail-covered, mechanical clean)` — an informational subvariant of the standard `OK` verdict. The parallel dispatch still runs; no "skip" path exists. This variant signals that the trail successfully shed load without bypassing the safety gate.
 
-**Why mechanical workers are never scoped down:** workstream-complete reviews dispatch only `coordinator:review-code` Branch A.2 (`code-reviewer`). The three mechanical workers (security-audit-worker, dep-cve-auditor, test-evidence-parser) never run at workstream-complete. "Trail-covered" therefore does not mean "all lenses covered" — it means "code-semantics lens covered." Narrowing mechanical workers based on the trail would silently elide their independence property.
+**Why mechanical workers are never scoped down:** workstream-complete reviews dispatch only `coordinator:review-code` Branch A.2 (`code-reviewer`). The three mechanical lenses (security-audit-worker, `weekly-gate-deps.py`, `weekly-gate-tests.py`) never run at workstream-complete. "Trail-covered" therefore does not mean "all lenses covered" — it means "code-semantics lens covered." Narrowing mechanical workers based on the trail would silently elide their independence property.
 
 ## workweek-trail-scope.py — detect-then-fail-loud on segment-shape, not silent-pick on string proxy
 
@@ -360,7 +360,7 @@ old trail record's shape — none of it describes invocable behavior.
 
 1. **Chain set:** `git rev-list --no-merges <merge-base origin/main HEAD..HEAD> [-- <scope-paths>]`. Merge commits are excluded via `--no-merges` (they carry no authored diff that requires review — this is an explicit design decision, not emergent behavior).
 2. **Reviewed set:** reads ALL trail records (live + archived) via `bin/list-review-trail-records.py` (archive-aware — records move to `archive/review-trail/<week>/` after `/workweek-complete` Step 13; the gate must read both dirs). For each `scope_kind=diff` record with a valid `sha_range`, the shared `lib/review-coverage-core.py` computes `git rev-list <sha_range>` and unions → `reviewed_set`. Records with `scope_kind ∈ {plan, integration}` are skipped silently (no real sha-range).
-3. **Verdict filter (shared core):** the shared core excludes `verdict=pending` from `reviewed_set`. A `pending` record means the review has not completed — counting it as coverage lets the gate pass on unreviewed commits. `verdict=waived` counts as covered (explicit PM waiver = a coverage decision). Verdicts `{ok, warn, blocked, waived}` all count.
+3. **Verdict filter (shared core):** the shared core excludes `verdict=pending` from `reviewed_set`. A `pending` record means the review has not completed — counting it as coverage lets the gate pass on unreviewed commits. `verdict=waived` counts as covered (a recorded decision that the range needs no review). Verdicts `{ok, warn, blocked, waived}` all count.
 4. **Uncovered set:** `chain_set − reviewed_set`.
 5. **Output:** `range=… chain_commits=N covered=M uncovered=K VERDICT={COVERED|UNCOVERED}` on stdout. On `UNCOVERED`, one `uncovered: <sha> <subject>` line per gap on stderr. Exit 0 in both cases (verdict-line shape, same as `review-brightline-gate.py`) — the calling skill parses `VERDICT=UNCOVERED` and halts.
 
@@ -558,7 +558,7 @@ pointlessly on TS-only stubs and miss future workstreams that drop the `tc-` pre
 
 Coordinator skill bodies invoke the gate via a presence-check (`[ -x <path> ] && <path>
 [args]`) against the UE build-freshness script. Absent script → graceful no-op so non-UE
-repos see no change. See `docs/wiki/example-game-repo-doctrine.md §7.7` for the full convention.
+repos see no change. See `example-game-repo-doctrine.md §7.7` under `<example-game-repo-root>/docs/wiki/` (`<example-game-repo-root>` = `machine-local get repos.example_game_workbench_repo`) for the full convention.
 
 ### Verdict semantics extension
 

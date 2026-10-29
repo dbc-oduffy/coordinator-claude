@@ -11,8 +11,8 @@ disable-model-invocation: true
 Builds/refreshes the architecture atlas in `docs/architecture/`. Not for weekly spot-checks
 (`architecture-audit`), daily reviews (`code-health`), or one-off investigation. Occupies
 ~25-90 min of context — not background work, and top-level EM only: a dispatched agent cannot
-fan out (`A-SKILL-PHASE-NAMES-ITS-ACTOR`). Purpose, layout, rationale, retired mechanics: wiki
-(cited by name only — no path).
+fan out (`A-SKILL-PHASE-NAMES-ITS-ACTOR`). Purpose, layout, rationale, retired mechanics:
+`coordinator/docs/wiki/skills-corpus/architecture-survey-residue.md`.
 
 ## Arguments
 
@@ -21,17 +21,19 @@ Announce the resolved mode before starting.
 
 ## Phase 0: Scope (YOU)
 
+0. Preflight, before any other step: run
+   `python3 ${CLAUDE_PLUGIN_ROOT}/pipelines/deep-architecture-survey/survey_symbols_step.py --preflight-only`
+   (it runs `import symbol_extract`). Exit 3 → STOP and show the PM its install line,
+   `python3 -m pip install ".[tree-sitter]"` run from the symbol-extract package. Never start the
+   survey past a failed preflight.
 1. Read `DIRECTORY.md` if present; proceed silently if absent.
 2. Discriminate scope from PM phrasing — targeted single-system / atlas-wide refresh /
-   bootstrap. Classification rules: wiki.
-3. Derive system boundaries and the Workflow's `censusBuckets`. Chunking rules: wiki.
+   bootstrap. Classification rules: `coordinator/docs/wiki/skills-corpus/architecture-survey-residue.md` § Scope-calibration detail.
+3. Derive system boundaries and the Workflow's `censusBuckets`. Chunking rules: `coordinator/docs/wiki/skills-corpus/architecture-survey-residue.md` § Chunking rules.
 4. Refresh: mark churned/stable systems from `systems-index.md`'s `Last mapped` dates.
-5. Select scale tier from `counts.bucketed_total`. Threshold table: wiki.
+5. Select scale tier from `counts.bucketed_total`. Threshold table: `coordinator/docs/wiki/skills-corpus/architecture-survey-residue.md` § Scale-tier threshold rationale.
 6. Generate run ID, create the scratch dir.
-7. Run the consume-gate script by absolute path through its interpreter, never a bareword and
-   never through the settings home — the engine's `coordinator/bin/` carries no settings-home
-   forwarder for it (`snippets/resolve-coordinator-bin.md` rung 3: never point a no-forwarder CLI at the
-   settings home), so resolve it against the plugin root:
+7. Run the consume-gate script through its settings-home launcher (`snippets/resolve-coordinator-bin.md`):
    `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/survey-consume-gate"` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\survey-consume-gate.exe"`, same arguments), feeding it the JSON config
    (`repo_root`, `claude_klabauter_root`, `run_id`, `census_buckets`, `mode`, `since`, `system_dirs`,
    `excluded_dirs`, which is required and has no default: pass `["state/", "cross-repo/"]`) on stdin. Capture its stdout verbatim and pass it straight into the
@@ -39,6 +41,11 @@ Announce the resolved mode before starting.
    `declined_reason` here. When the gate declines (or its output is absent/malformed), the
    Workflow falls back to the agentic census wave at a known higher cost — a designed path, not
    a break, when it shows up in a fallback log.
+8. Run `survey_symbols_step.py` (same directory as the Workflow) over the consume-gate output;
+   it performs the symbols extraction EM-side and writes the receipt. Write `survey-input.json`
+   under the scratch dir — the consume-gate output, the receipt as `symbolsReceipt`, and
+   `existingAtlas` — and hand the Workflow that file as `inputPath`. A receipt `halt` stops the
+   run under that label.
 
 Emergent-set/chunk-K detection is engine-owned. An escalation flag in the Workflow's returned
 manifest → surface a re-bootstrap recommendation to the PM in the Phase 5 report; deciding it is
@@ -51,16 +58,18 @@ op step 7 calls was deleted engine-side, so refresh silently takes the costlier 
 ## Phase 0.5-3: Invoke the Workflow
 
 Invoke `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-architecture-survey/survey.workflow.js`, passing
-`INPUT.consumeGate` from Phase 0's step 7 — its own header comment documents the full input
+`inputPath` from Phase 0's step 8 — its own header comment documents the full input
 shape; read it there, not a hand-copy here. It owns the whole extraction-through-synthesis
-pipeline end to end — never hand-orchestrate it. Resume a rate-limit wipe with
-`resumeFromRunId`. Read the returned manifest; it writes every atlas artifact. Mechanism
-detail: wiki.
+pipeline end to end — never hand-orchestrate it. When it returns `symbols-step-required` (the
+census-fallback first leg), run `survey_symbols_step.py` with `--census-dir` set to the returned
+`census_dir`, then invoke leg 2 with the new receipt. Resume a rate-limit wipe with
+`resumeFromRunId`. Read the returned manifest (paths plus counts); it writes every atlas
+artifact. Mechanism detail: `coordinator/docs/wiki/skills-corpus/architecture-survey-residue.md` § What the Workflow actually does, phase by phase.
 
 ## Phase 4: Accuracy and Clarity Review (YOU)
 
 EM-side, after the Workflow returns — its runtime has no filesystem/subprocess primitive, so
-neither stage can run inside it. Why: wiki.
+neither stage can run inside it. Why: `coordinator/docs/wiki/em-operating-model/workflow-orchestration.md`.
 
 1. Check the emitted atlas pages' citations with the engine-side `check-doctrine-citations` CLI,
    which HAS a settings-home launcher — Shape W shown, Shape A/B on a POSIX host:
@@ -71,10 +80,13 @@ neither stage can run inside it. Why: wiki.
    **This covers path resolution only.** The atlas-specific half — symbol and record citations
    resolved by lookup, the verbatim quoted span asserted present in the cited record, and the
    atlas-global coverage bookkeeping — is `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/atlas-citation-check"` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\atlas-citation-check.exe"`, same arguments)
-   (no settings-home forwarder; rung 3, same as step 7). Run it and record its counts. It
+   Run it and record its counts. It
    currently reports thousands of findings against a stale atlas, so a non-zero exit is not yet a
    stop condition — the number itself is the signal, and it must shrink run over run.
-2. Dispatch `atlas-clarity-reviewer` once per page (parallel, never batched). Collect verdicts to
+2. Run `python3 ${CLAUDE_PLUGIN_ROOT}/pipelines/deep-architecture-survey/atlas_anchor_reciprocity.py --repo-root .`;
+   a non-zero exit (one-sided anchor pair or non-repo-root-relative path) means the run does not
+   report clean — fix the listed pairs, or record them in the Phase 5 report.
+3. Dispatch `atlas-clarity-reviewer` once per page (parallel, never batched). Collect verdicts to
    the sidecar.
 
 ## Phase 5: Integration and Report (YOU)
@@ -102,7 +114,7 @@ Out of scope for every agent here: `gh pr create/merge`, `git push origin main`,
    `git commit -m "deep-architecture-survey: [first run|refresh] — [N] systems mapped; Last full audit bumped" -- docs/architecture/ state/health-ledger.md`
 6. Rotation target (Shape W, `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`):
    `& "$env:COORDINATOR_SETTINGS_HOME\bin\query-completions.exe" --since "30d" --where "nature=roadmap" --format json`
-   Scoring rules: wiki.
+   Scoring rules: `coordinator/docs/wiki/skills-corpus/architecture-survey-residue.md` § Rotation-target scoring.
 7. Report to PM:
    ```markdown
    ## Architecture Survey Complete
@@ -122,4 +134,4 @@ Out of scope for every agent here: `gh pr create/merge`, `git push origin main`,
 8. Clean scratch — only after commit succeeds:
    `rm -rf state/scratch/deep-architecture-survey/{run-id}/`.
 
-Failure modes and every retired-mechanism detail: wiki.
+Failure modes and every retired-mechanism detail: `coordinator/docs/wiki/skills-corpus/architecture-survey-residue.md`.

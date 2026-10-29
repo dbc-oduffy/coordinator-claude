@@ -23,9 +23,9 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-_TESTS_DIR = Path(__file__).resolve().parents[2] / "tests"
-if str(_TESTS_DIR) not in sys.path:
-    sys.path.insert(0, str(_TESTS_DIR))
+_SCRIPTS_DIR = Path(__file__).resolve().parent
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
 import _hook_ratchet_shared as shared  # noqa: E402
 
 # Chosen as ~3x the measured corpus median resident load (8,357 B -- see the

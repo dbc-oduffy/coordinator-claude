@@ -1097,5 +1097,36 @@ def main(stdin_text: str | None = None) -> int:
     return 0
 
 
+_SUMMARY_RE = re.compile(
+    r"batons_claimed=(?P<claimed>\[.*?\]), spool_open_count=(?P<count>\d+)"
+)
+
+
+def check_baton_intake(context_text: str, exit_mode: bool = False) -> tuple[bool, str]:
+    """Verdict on a run's additionalContext: (ok, reason). Intake mode refuses
+    when the `batons_claimed=..., spool_open_count=N` summary is absent; exit
+    mode additionally refuses an empty claim list while the spool held N>0."""
+    match = _SUMMARY_RE.search(context_text or "")
+    if match is None:
+        return False, "baton-claim-summary-absent: no batons_claimed/spool_open_count line"
+    if exit_mode:
+        count = int(match.group("count"))
+        if match.group("claimed") == "[]" and count > 0:
+            return False, f"zero-batons-claimed-with-open-spool: spool_open_count={count}"
+    return True, "ok"
+
+
+def check_main(argv: list[str]) -> int:
+    """`--check-intake [--exit] [FILE]`: reads FILE or stdin; exit 0 ok, 2 refused."""
+    exit_mode = "--exit" in argv
+    files = [a for a in argv if not a.startswith("--")]
+    text = Path(files[0]).read_text(encoding="utf-8") if files else sys.stdin.read()
+    ok, reason = check_baton_intake(text, exit_mode)
+    print(reason, file=sys.stdout if ok else sys.stderr)
+    return 0 if ok else 2
+
+
 if __name__ == "__main__":
+    if "--check-intake" in sys.argv[1:]:
+        sys.exit(check_main(sys.argv[1:]))
     sys.exit(main())

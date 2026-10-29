@@ -89,6 +89,15 @@ better alternative (*"did you mean X?"*), never with the violation. The advisory
 this well — the head/tail plumbing guard names a single-process `python3 -c` equivalent, and
 callers take it. Much of the confinement band merely refuses.
 
+**Read-only commands and guard-named remedies are exempt from the refusal.** A command that reads
+and writes nothing, and the remedy a refusing guard itself names, pass that guard: refusing the
+outlet a guard offers is the no-way-forward block this page rules out. Engine ref read:
+`claude-klabauter`, `coordinator_core/bash_guards/guard_doctrine_surface_bash_write.py`
+(read-shape carve-out, point 6; `_segment_writes_outside_store`: read-only program or sanctioned
+writer) and `_sanctioned_remedy.probe_remedy`. The exemption covers the exempt command, never the
+rest of the turn — see
+`coordinator-tripwires/a-guard-exemption-read-only-from-disk-silences-the-whole-turn.md`.
+
 **But offers alone cannot carry this, and structure is where the investment goes.** Prose and
 nudges only do so much when an agent has a great deal to process — a Claude deep in a full context
 window will not reliably act on a suggestion, however well phrased. What is wanted is a **safety

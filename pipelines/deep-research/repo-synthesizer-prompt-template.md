@@ -173,6 +173,7 @@ The GAP-ANALYSIS references both repos freely.
 - **Don't manufacture consensus** — if specialists genuinely disagree, present the trade-off
 - **Preserve file:line references** from specialist findings — every claim must trace back
 - **Recommendations must be SPECIFIC and ACTIONABLE**
+- **Output is a full lever register, never a top N.** List every lever found, each with an owner (repo or role), evidence, and a status. Ranking orders the register; it never truncates it. Carry the PM's quantifiers ('all', 'every', a 'top N' only when the PM said it) verbatim from the brief; add no cap the PM did not state.
 - **Every recommendation gets a confidence level** based on cross-specialist consensus
 - **Go beyond spec when judgment warrants it.** The EM scoped this study. The specialists executed it. You have the unique vantage of seeing the complete picture. If something important was missed — a cross-subsystem concern, an unconsidered angle, an architectural implication — document it. This is your mandate.
 - **Open questions are as valuable as answers** — knowing what we don't know prevents false confidence

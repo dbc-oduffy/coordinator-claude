@@ -1491,20 +1491,14 @@ def _slug_from_title(title: str) -> str:
     always ends on a whole word — unless the very first word itself exceeds
     40 chars, in which case the hard cut is the only option left.
     """
-    slug = title.lower()
-    slug = re.sub(r"[^a-z0-9]+", "-", slug)
-    slug = slug.strip("-")
-    if len(slug) > 40:
-        truncated = slug[:40]
-        boundary = truncated.rfind("-")
-        slug = truncated[:boundary] if boundary > 0 else truncated
-    # Re-strip after truncation (review finding, corpus-sweep F1): a 40-char cut
-    # landing exactly on a separator would otherwise leave a trailing dash, which
-    # _mint_artifact_id/_mint_deliverable_id would then carry into a double-dash
-    # id (...-a--<hex>) at the prefix boundary. Real example: "Execute the
-    # Tier-F grant gate — a sibling repo is blocked on chunk one" truncates its
-    # _mint_artifact_id slug at char 30 exactly on "...grant-gate-|a...".
-    return slug.strip("-")
+    # Ids minted from this slug are validated against [a-z0-9-]+, so non-ASCII
+    # letters (which bounded_slug's isalnum admits) are folded to dashes first.
+    ascii_title = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
+    if not ascii_title:
+        return ""  # callers treat an empty slug as "no title"
+    _ensure_engine_on_path()
+    from coordinator_core.bounded_slug import bounded_slug  # noqa: PLC0415
+    return bounded_slug(ascii_title, 40)
 
 
 def _is_placeholder_title(title: str) -> bool:

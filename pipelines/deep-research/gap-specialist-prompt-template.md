@@ -4,7 +4,7 @@ by pass 1's sweep — NOT to re-research what pass 1 already covered.
 
 ## Your Assignment
 
-Your brief is the file `{{brief}}`. Read it first.
+Your brief is the research brief at `{{stage.brief-author.output}}` (the gap brief `{{brief}}` is context only; the research brief governs). Read it first.
 
 **Your gap letter:** {{item}}
 Find the row for gap `{{item}}` in the brief's gap table. It gives your gap id, gap

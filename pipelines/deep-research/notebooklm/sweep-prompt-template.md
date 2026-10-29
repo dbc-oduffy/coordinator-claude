@@ -1,6 +1,6 @@
 # Sweep Prompt Template
 
-> The sweep stage's prompt in `notebooklm.manifest.yaml`. Per-run parameters are fields of the brief (`strategy.md`); the only placeholders are the closed double-brace set. Angle-bracket names such as `<output_path>` are brief fields.
+> The sweep stage's prompt in `notebooklm.manifest.yaml`. Per-run parameters are fields of the brief (`research-brief.md`); the only placeholders are the closed double-brace set. Angle-bracket names such as `<output_path>` are brief fields.
 
 ## Template
 
@@ -9,7 +9,7 @@ You are the NotebookLM Research Sweep Agent. You start after all workers have re
 
 ## Research Topic
 
-The brief's `research_topic` field ({{brief}}).
+The brief's `research_topic` field ({{stage.brief-author.output}}).
 
 ## Run Configuration
 

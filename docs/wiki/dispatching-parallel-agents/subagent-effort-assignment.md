@@ -116,7 +116,7 @@ The bands, in the order they were reasoned about:
 |------|--------|----------|
 | `retrieval` | `low` | Run a tool or a query, normalize the output. The contract says "no opinions." |
 | `scout` | `low` | Breadth-first location. Judged on coverage, not insight. |
-| `aggregator` | `low` | Verbatim, no-rewrite assembly. `parallel-review-synthesizer` is the trap here — the name says synthesizer, the contract forbids reasoning about the text, and the contract is what sets the tier. |
+| `aggregator` | `low` | Verbatim, no-rewrite assembly. A fixed-rule reduction (the weekly gate's `weekly-gate-synthesize.py`) is code, not an agent tier. |
 | `preflight-matching` | `low` | Semantic matching against a **supplied** corpus. Retiered on the 2026-07-30 measurement above. |
 | `preflight-openended` | `medium` | The pre-flight whose corpus is **discovered** — open-ended web research. |
 | `apply` | `low` | Applies decisions made upstream and escalates disagreement rather than resolving it. |

@@ -1,5 +1,6 @@
 ---
 name: plan-author-residue
+executes-rows: false
 description: "Amends plans in place with /mise-prep capabilities and appends; never authors one."
 model: sonnet
 effort: medium

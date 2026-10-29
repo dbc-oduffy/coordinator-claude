@@ -190,7 +190,7 @@ Analyze the repo on its own merits. Do NOT compare against any other project.
 **Limitations:** [trade-offs, edge cases, constraints — not judgments, just facts]
 **Notable Details:** [non-obvious implementation choices worth understanding]
 
-4. Write a Summary section: top 3-5 most interesting aspects ranked by significance
+4. Write a Summary section: every significant aspect found, ranked by significance (ranking orders the list; it never truncates it)
 5. Write your assessment to the output file incrementally
 
 **Rules for assessment:**
@@ -223,7 +223,7 @@ repo files to project file candidates. Start with those files.
 **Gap Assessment:** [specific divergence — what's missing, different, or disconnected]
 **Risk Level:** <LOW|MEDIUM|HIGH|CRITICAL> — [why this matters for correctness]
 
-4. Write a Summary of Critical Findings: top 3-5 gaps ranked by impact
+4. Write a Summary of Critical Findings: every gap found, ranked by impact (ranking orders the list; it never truncates it)
 5. Write your comparison to the comparison output file
 
 **Rules for comparison:**

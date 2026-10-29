@@ -147,7 +147,7 @@ On success the CLI prints the receiver path:
 Receiver-side: <abs-path>
 ```
 
-The memo is delivered when `Receiver-side:` prints, and no PM step exists. A same-machine, registry-visible peer session reachable per § "Then, the sync-vs-async gate" may additionally be told by SendMessage that the memo landed; that is optional and is not delivery.
+The memo is delivered when `Receiver-side:` prints, and no PM step exists. An item owed to a live, reachable peer session goes by SendMessage carrying the content itself, the memo staying the record ([AN-ITEM-OWED-TO-A-LIVE-PEER-SESSION-GOES-BY-SENDMESSAGE](../coordinator-tripwires/an-item-owed-to-a-live-peer-session-goes-by-sendmessage.md)); the memo's landing is not the alert.
 
 (`--self-receipt` prints the same single `Receiver-side:` line; the dispatcher is the receiver.)
 

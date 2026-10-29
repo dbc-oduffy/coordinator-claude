@@ -9,7 +9,7 @@ order: 7
 only what is plan-specific is stated here).
 
 - **Artifact-shape tradeoff.** Most plan findings are about *what to build*, not *how it's coded*, so this row carries the bulk of them. On a **refactor-over-patch** signal, surface a refactor proposal: refactor is the default when AI is the implementer, since a critical rewrite is often an afternoon rather than a quarter — *"too big"* means genuinely complex, not merely large. _See `${CLAUDE_PLUGIN_ROOT}/snippets/em-operating-doctrine.md` § How to Decide._
-- **Worker dispatch recommendations.** Eligible on plan reviews: `doc-link-checker` (most relevant); `dep-cve-auditor` (if the plan introduces a dependency). `test-evidence-parser` and `security-audit-worker` do NOT fire — they require runtime artifacts; a reviewer naming them on a plan is miscalibration, surface it to PM.
+- **Worker dispatch recommendations.** Eligible on plan reviews: `doc-link-checker` (most relevant). `security-audit-worker` does NOT fire — it requires runtime artifacts; a reviewer naming them on a plan is miscalibration, surface it to PM.
 
 **Prior-Art Mutability and Reviewer Elevation**
 

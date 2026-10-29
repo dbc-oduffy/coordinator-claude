@@ -25,8 +25,7 @@ is exactly why case-by-case judgement does not catch it and a named rule is requ
 ## Start with the harm class, before any machinery
 
 **Ask what class of harm the guard prevents, before designing any of its machinery.** Fail-closed
-defaults, wall-clock caps, `UNANSWERABLE` sentinels, ratified operator override keys, human-gated
-unlock channels — that is the correct grammar for **irreversible harm**, and it is absurd applied
+defaults, wall-clock caps, `UNANSWERABLE` sentinels, ratified operator override keys — that is the correct grammar for **irreversible harm**, and it is absurd applied
 to a courtesy signal. Reach for it there and nowhere else.
 
 The engine plane's path-touch claim gate is the incident of record: a **swimlane guideline** — so
@@ -56,6 +55,11 @@ outlet outright.
 **Every guard states what the denied actor does next, and "wait for a human" does not qualify on a
 box running 50–70 concurrent agents.**
 
+Read-only commands and guard-named remedies are exempt from the refusal; the exemption covers that
+command, never the rest of the turn. Engine ref read: `claude-klabauter`
+(`_segment_writes_outside_store`, `_sanctioned_remedy.probe_remedy`); full statement in
+[`bash-guard-threat-model.md`](./bash-guard-threat-model.md).
+
 The incident: an EM asked its PM to create an unlock sentinel so that nine finished, passing,
 correct tests could be committed — a human unblocking a machine, from a guard that was advisory by
 design. That is not an escape hatch, it is a stall with paperwork.
@@ -68,10 +72,9 @@ re-reads them when a rule changes, so a reader who follows the outlet sentence w
 into the breach it was supposed to prevent. When a constraint lands that forbids an action, grep
 error messages, docstrings, and READMEs whose remediation text recommends that action — the outlet
 rule above demands the sentence be correct, not merely present.
-[`guard-unlock-channel.md`](./guard-unlock-channel.md) is the deliberate, narrow exception that
-proves the shape: an operator-facing, one-shot, per-guard, per-session channel for a guard that
-genuinely gates irreversible harm. Routine finished work reaching it is a proportionality defect
-upstream of that channel, not a use of it.
+A person is never the outlet: a deny no machine-takeable step clears is a guard defect, reported
+with the exact denial to the guard's owner
+([`guard-unlock-channel.md`](./guard-unlock-channel.md)).
 
 ## The signal corollary — duration governs the fact, not just the block
 
@@ -126,8 +129,8 @@ accumulating override surface is the same smell read from the other side.
   verification machinery rather than refusal machinery.
 - [`guard-message-concision.md`](./guard-message-concision.md) — downstream: how to word a guard
   that has already earned its place.
-- [`guard-unlock-channel.md`](./guard-unlock-channel.md) — the human-shaped outlet, and the narrow
-  class of guard that legitimately needs one.
+- [`guard-unlock-channel.md`](./guard-unlock-channel.md) — the standing route for a deny no machine
+  step clears: a guard defect, reported to the owner, never cleared by a human act.
 - [`concurrency-safety-patterns.md`](../concurrent-em-git-operations/concurrency-safety-patterns.md) — the necessity test in its
   natural habitat: what the layer below already guarantees under concurrent writers.
 

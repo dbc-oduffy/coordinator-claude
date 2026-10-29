@@ -18,6 +18,8 @@ multi-repo parent directory -- is denied, naming the repos the brief's absolute
 paths point at. SubagentStart provisioning anchors on that cwd and cannot refuse,
 so the child would start and then block. Fail-open on every unknowable input.
 The other is the one advisory under SKILL-STAGE BRIEF ADVISORY below.
+A deny stands only when `_protected_act.protected_act_for(guard)` declares a protected act;
+any other deny is recorded by `advise_and_record` and dropped, injecting nothing.
 
 AGGREGATION CONTRACT -- FIRST-DENY-WINS, NON-DENY OUTPUT COMPOSES. Guards 1-4
 run in registration order (each guard's own `hooks/REGISTRATIONS.md` section
@@ -121,6 +123,16 @@ except Exception:
 
     def _git_roots_named_in_text(text: str, limit: int = 3) -> List[str]:  # type: ignore[no-redef]
         return []
+
+try:
+    from _protected_act import advise_and_record as _advise_and_record
+    from _protected_act import protected_act_for as _protected_act_for
+except Exception:
+    def _protected_act_for(guard_id: str, roster_path: Any = None) -> Optional[str]:  # type: ignore[no-redef]
+        return None
+
+    def _advise_and_record(guard_id: str, deny_text: str, event: str, repo: Any = None) -> None:  # type: ignore[no-redef]
+        return None
 
 try:
     import yaml as _yaml
@@ -321,6 +333,17 @@ def _is_deny(env: Optional[dict]) -> bool:
     return _hso(env).get("permissionDecision") == "deny"
 
 
+def _is_protected_deny(env: Optional[dict], guard_id: str) -> bool:
+    """A deny that stands: only a guard with a declared protected act may deny. Any other
+    deny is recorded to the friction log and dropped, injecting nothing."""
+    if not _is_deny(env):
+        return False
+    if _protected_act_for(guard_id) is not None:
+        return True
+    _advise_and_record(guard_id, str(_hso(env).get("permissionDecisionReason") or ""), "PreToolUse")
+    return False
+
+
 def _collect_notes(env: Optional[dict], contexts: List[str], system_messages: List[str]) -> None:
     ctx = _hso(env).get("additionalContext")
     if isinstance(ctx, str) and ctx.strip():
@@ -391,12 +414,14 @@ def main() -> int:
 
     refusal = _repo_less_cwd_refusal(payload)
     if refusal:
-        _write_bytes(sys.stdout, json.dumps({"hookSpecificOutput": {
+        refusal_env = {"hookSpecificOutput": {
             "hookEventName": "PreToolUse",
             "permissionDecision": "deny",
             "permissionDecisionReason": refusal,
-        }}) + "\n")
-        return 0
+        }}
+        if _is_protected_deny(refusal_env, "preuse-agent-dispatch"):
+            _write_bytes(sys.stdout, json.dumps(refusal_env) + "\n")
+            return 0
 
     skipped: List[str] = []
     trailing_stderr: List[str] = []
@@ -414,6 +439,8 @@ def main() -> int:
         if err.strip():
             trailing_stderr.append(err.rstrip("\n"))
         env = _envelope(out)
+        if _is_deny(env) and not _is_protected_deny(env, guard.filename):
+            continue
         if _is_deny(env):
             if skipped:
                 trailing_stderr.append(_skipped_line(skipped))
@@ -439,6 +466,9 @@ def main() -> int:
         _write_bytes(sys.stderr, "\n".join(trailing_stderr) + "\n")
 
     env = _envelope(out)
+    if _is_deny(env) and not _is_protected_deny(env, last.filename):
+        env = None
+        out = ""
     if _is_deny(env) or (out.strip() and env is None):
         _write_bytes(sys.stdout, out)
         return 0

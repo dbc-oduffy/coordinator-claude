@@ -13,7 +13,7 @@ hand-run the old snapshot-rollback runbook** for anything this command covers.
 
 ## Backing script
 
-No settings-home forwarder for this script — resolve the engine root with the ratified resolver.
+Deliberately no settings-home launcher for this script (it deletes the settings-home `bin/`, which a running launcher cannot survive on Windows) — resolve the engine root with the ratified resolver.
 Never hand-roll a precedence chain here: a second copy of the ladder is a second thing to drift.
 
 ```
@@ -23,20 +23,20 @@ Never hand-roll a precedence chain here: a second copy of the ladder is a second
 - PowerShell hosts: `& $env:COORDINATOR_PYTHON "$env:CLAUDE_PLUGIN_ROOT\hooks\scripts\_engine_root.py"`
   (`python3` when unset).
 
-It prints the resolved root on stdout and owns the whole ladder: the live-tree env overrides
+It prints the resolved root on stdout (exit 2, empty stdout, stderr naming `repos.claude_klabauter` on a miss: stop and report, never guess a path; `INSTALL.md` § Step 1e) and owns the whole ladder: the live-tree env overrides
 first (the manual test-and-execute carve-out), then the published engine mirror — which is the
 ordinary answer on a healthy box. **The engine root is the published mirror, not an authoring
 checkout**; an authoring tree moves under concurrent sessions, so resolving against one makes the
 engine a moving target.
 
-Empty output: stop, report "engine root unresolved" — never guess a path. (The resolver
-prints an empty line on a total miss rather than failing, so empty output IS the miss
-signal; do not wait for a non-zero exit it does not produce.)
+Exit 2 with stderr naming the missing registry key: stop, report "engine root unresolved" — never guess a path.
 
 Python interpreter: `COORDINATOR_PYTHON` env override, else `python3`.
 
-Invoke (PowerShell): `& $env:COORDINATOR_PYTHON "<resolved-engine-root>\coordinator\bin\coordinator-uninstall.py" [OPTIONS]`
-(`python3` when unset).
+Invoke in two steps, never a `$VAR` script path: run the resolver, then call
+`<python> "<printed-root>/coordinator/bin/coordinator-uninstall.py" [OPTIONS]` with the printed root
+substituted literally and `<python>` the interpreter named above. PowerShell:
+`& <python> "<printed-root>\coordinator\bin\coordinator-uninstall.py" [OPTIONS]`.
 
 Every leg is idempotent and fail-loud on ambiguity.
 
@@ -124,7 +124,8 @@ engine-computable fact.
     the specific `<plugin>@<marketplace>` entry to `false` under `~/.claude/settings.local.json`'s
     `enabledPlugins` block.
 20. **`~/.claude/CLAUDE.md` personal-layer seed** — DELIBERATELY-NOT-REVERSED. No manual command
-    offered.
+    offered. Its backup `~/.claude/CLAUDE.md.pre-coordinator.bak` (the operator's pre-install
+    file) is likewise left in place so the operator can restore it by hand.
 21. **`coordinator-setup-state.yaml` receipt** — REVERSE via
     `coordinator-setup-state clear setup_concluded`, or delete the file if it holds no other
     milestones.
@@ -191,6 +192,10 @@ engine-computable fact.
 34. **`claude-author` wrapper (`install-claude-author-wrapper.py`)** — CANNOT-REVERSE-SAFELY.
     Copies `claude-author.py` to `~/.local/bin/claude-author` (under `$CLAUDE_HOME` when set); the directory
     is the operator's, so delete only that one file by hand.
+35. **BoxCacheTrim scheduled task** (Windows, opt-in) — MANUAL when not elevated. Run
+    `python "<plugin-root>\templates\bin\install-box-cache-trim-task.py" --uninstall` (no-op if
+    never installed): it deletes the task from an elevated shell; exit 3 means it needs one, so
+    print that command for the operator to run from an elevated terminal.
 
 ## Uninstall boundary
 

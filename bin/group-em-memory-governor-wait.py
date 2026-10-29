@@ -1,7 +1,8 @@
 """group-em-memory-governor-wait — the Group EM's one-shot wake on the memory governor's log.
 
-The governor runs as a session-long background shell appending to a log; this waiter is a second
-background shell whose exit is the wake. It starts at the log's current end, so lines the Group EM
+The governor runs detached from the session and appends to its --log; this waiter is the session's
+background run, and its exit is the wake. A reaped waiter is relaunched, and the governor survives
+it. The waiter starts at the log's current end, so lines the Group EM
 already acted on never re-wake it, prints the first new complete line, and exits 0. After acting,
 relaunch the waiter only, never the governor: a governor restart would drop the trees it holds
 paused.

@@ -143,7 +143,7 @@ _Last calibrated: 2026-05-03 against Claude Opus 4.7 (1M context) training distr
 
 **Changelog sidecar schema** (`state/review-findings/{timestamp}-docs-checker-edits.md`, YAML per edit): `file`, `line_before`/`line_after`, `content_before`/`content_after`, `source` (tool/query/result_id), `claim_id`, `confidence` (high/medium). This is what the EM's mandatory spot-check (above) reads against the diff.
 
-**Reviewer awareness:** the sentinel snippet `snippets/docs-checker-consumption.md` is synced to every reviewer that may see a pre-verified artifact (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, the Front-End Reviewer, example-game-repo-the Game Dev Reviewer) — it explains how to read `VERIFIED`/`AUTO-FIXED`/`UNVERIFIED`/`INCORRECT` markers so reviewers don't re-verify what docs-checker already settled.
+**Reviewer awareness:** no consumption snippet is synced; the dispatch brief cites the pre-flight sidecar and its `VERIFIED`/`AUTO-FIXED`/`UNVERIFIED`/`INCORRECT` markers.
 
 ---
 
@@ -431,7 +431,7 @@ For major surface additions where the spec author was substrate-blind (no on-dis
 
 <!-- Review: code-reviewer — plan-coverage-checker (Phase 2.7d) was absent from the five-layer topology list; added as 3b parallel to prior-art-checker, matching the (2.7b ∥ 2.7d) runtime shape documented in Phase 2.7d. -->
 
-Use the full five-layer recipe when the plan introduces a new cross-cutting abstraction, new doctrine surface, or the spec author flagged substrate-blind framing. Skip layers only with explicit rationale recorded in the dispatch trail. Specialist-worker lenses (test-evidence-parser, security-audit-worker, dep-cve-auditor, doc-link-checker) ride alongside layer 5 as routine, not opt-in — they catch what generalist Opus reviewer lenses miss.
+Use the full five-layer recipe when the plan introduces a new cross-cutting abstraction, new doctrine surface, or the spec author flagged substrate-blind framing. Skip layers only with explicit rationale recorded in the dispatch trail. Specialist-worker lenses (security-audit-worker, doc-link-checker) ride alongside layer 5 as routine, not opt-in — they catch what generalist Opus reviewer lenses miss.
 
 ### the Staff Engineer Pass 0 — premise-challenge protocol (layer 4 detail)
 
@@ -506,9 +506,8 @@ entry points delivering convergence-as-confidence. <!-- src: plan04-010 -->
 **Step A (sequential):** Freeze the week's diff via `coordinator/bin/freeze-review-diff.py
 --range origin/main...HEAD --slice-id weekly-<TS>`, which writes
 `state/review-trail/diffs/<slice-id>.{diff,head.sha}` and prints the `.diff` path. There is no
-`$FINDINGS_DIR` mirror — `workflows/review-wave.mjs` derives the `.head.sha` sibling from the
-printed `.diff` path and passes both paths explicitly into the synthesizer dispatch as
-`DIFF_PATH`/`HEAD_SHA_PATH`. Run Step 7 prelude (external to skill body) to compute seam-first
+`$FINDINGS_DIR` mirror — the driver derives the `.head.sha` sibling from the printed `.diff`
+path and hands `weekly-gate-synthesize.py` the `.head.sha` path as `--head-sha-path`. Run Step 7 prelude (external to skill body) to compute seam-first
 chunks and write the `.weekly-reviewer-scopes.json` scope file under `state/review-trail/`.
 
 **Step B (parallel — single Agent batch):**
@@ -519,15 +518,15 @@ chunks and write the `.weekly-reviewer-scopes.json` scope file under `state/revi
   touching it forms an atomic nucleus assigned whole to ONE chunk; only non-seam
   co-touching files may spill if nucleus exceeds size target.
 - `security-audit-worker` (Sonnet): semgrep/bandit/gitleaks, full week diff always.
-- `dep-cve-auditor` (Sonnet): language CVE feed, full week diff always.
-- `test-evidence-parser` (Sonnet): classifies captured test failures — `tools: ["Read", "Edit"]`, executes nothing. It reads output someone else produced: the EM's own run, or a `test-runner` dispatch. Full week diff always.
+- `weekly-gate-deps.py` (script, before the Workflow): manifest diff plus `pip-audit`/`npm audit`, full week diff always, writes `deps.md`.
+- `weekly-gate-tests.py` (script, before the Workflow): classifies captured test output (the EM's own run, or a `test-runner` dispatch), writes `tests.md`; not-run when no output is passed.
 
-The three mechanical workers ALWAYS run on the full week diff. They are never scoped down
+The security worker and both scripts ALWAYS run on the full week diff. They are never scoped down
 by the trail — workstream-complete reviews do not invoke them, so "trail-covered" ≠ "mechanically
 covered."
 
 **Step C (sequential — after all workers return):**
-Synthesizer (Sonnet) reads N chunk-reviewer files + 3 specialist files from disk. Per the
+`weekly-gate-synthesize.py` reads N chunk-reviewer files + the security, deps and tests files from disk. Per the
 no-rewrite contract: every finding appears verbatim (quote or omit, never paraphrase).
 Output JSON:
 
@@ -584,11 +583,9 @@ Write surface requires EM explicit scope-check on return via `git --no-optional-
 | docs-checker (conditional, Sonnet) | 5–15K |
 | N × code-reviewer-weekly (Sonnet, per chunk) | ~5–30K each |
 | security-audit-worker (Sonnet) | 10–30K |
-| dep-cve-auditor (Sonnet) | 10–25K |
-| test-evidence-parser (Sonnet) | 5–30K |
-| synthesizer (Sonnet, in/out) | 15–40K / 3–8K |
+| weekly-gate scripts (deps, tests, synthesize) | 0 (code) |
 
-Total: ~75–200K tokens. Expected frequency: 1–3× per active day. This is the justified
+Total: ~40–150K tokens. Expected frequency: 1–3× per active day. This is the justified
 cost — multi-lens mechanical sweep at merge is the gate that workstream-complete reviews and
 plan-time reviews do not substitute for.
 
@@ -733,6 +730,8 @@ At session end (via `/handoff` or `/workstream-complete`), three review scales a
 **Chain-end detection.** A session is chain-end when it was opened via `/pickup` and ends WITHOUT `/handoff` or `/spinoff` — i.e. it's the terminal link, not a checkpoint. Chain-end review scope is the **full chain diff since the last main merge**, not just the current session's segment — the point is to catch integration-seam mismatches across the whole chain, not re-review what a prior session's `code-reviewer` already covered.
 
 **Review-trail record.** Every completed review writes `state/review-trail/YYYY-MM-DD-HHMMSS-session-id.json` (never overwritten) with fields: `sha_range`, `reviewer`, `scope`, `verdict`, `diff_loc`, `session_id`. This is the substrate the archive-aware readers (below) and the plan-delivery-audit skill consume.
+
+**Cross-box commits are reviewed.** Every box in the fleet runs coordinator, so commits arriving from another box's branch (e.g. `origin/work/<box>/*`) already went through code review on their home box. Never call them "unreviewed", and never gate their absorb or merge on re-review; gate only on conflicts and on tests that fail after the merge. "Unreviewed" is reserved for same-box engine HALT commits: mid-run checkpoints that land a run's code at HEAD before its review completes.
 
 **`/workweek-complete` Step 7 prelude.** Before the weekly merge-gate (§ Parallel Code Review Gate below) dispatches, Step 7's prelude reads the trail, computes unreviewed SHAs and cross-segment seams (files touched in ≥2 segments), and scopes the Staff Engineer's advisory pass to `unreviewed ∪ seams` — mechanical workers (security/deps/tests) still run the full week diff regardless.
 

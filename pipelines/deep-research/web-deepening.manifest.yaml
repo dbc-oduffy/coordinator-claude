@@ -23,6 +23,14 @@ stages:
     optional: true
     web_caller: true
     output: "{{scratch_dir}}/gap-corpus.md"
+  - id: brief-author
+    phase: Brief
+    agent_type: coordinator:research-brief-author
+    model: sonnet
+    template: web-deepening-brief-author-prompt-template.md
+    web_caller: false
+    depends_on: [scout-t2]
+    output: "{{scratch_dir}}/research-brief.md"
   - id: gap-specialists
     phase: Gap-specialists
     agent_type: coordinator:research-specialist
@@ -31,7 +39,7 @@ stages:
     fan_out:
       over: inputs.gaps
     web_caller: true
-    depends_on: [scout-t2]
+    depends_on: [brief-author]
     output: "{{scratch_dir}}/D-{{item}}-claims.json"
     schema:
       type: object

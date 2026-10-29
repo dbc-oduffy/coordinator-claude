@@ -4,6 +4,11 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.6.10] — 2026-10-28
+
+- **Two-box reconcile:** combines the machine-a and machine-b lines, one implementation per file; the weekly-gate cluster takes machine-b's mechanical-to-code side, and `plan-blitz.mjs` carries both.
+- **Guard doctrine:** a guard that denies an EM commit is a guard defect, routed to the guard's owner; the remaining waiver language is retired (`A-GUARD-DENYING-AN-EM-COMMIT-IS-A-GUARD-DEFECT`).
+
 ## [4.6.9] — 2026-10-24
 
 - **EM role marker:** `assert-em-role` writes `em-role-asserted` in every EM session (not only under Cockpit), except on a compact SessionStart; it arms the engine's pre-fire survey guard. The turn-intent Stop block stays Cockpit-only. Pairs with claude-klabauter 7600c103a, which exempts the live Group EM nomination holder.

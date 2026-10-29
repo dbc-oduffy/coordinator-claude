@@ -1,5 +1,6 @@
 ---
 name: git-commit-agent
+executes-rows: false
 description: "Commits a supplied pathspec via the scoped route when the EM can't run the ceremony."
 model: haiku
 effort: low
@@ -46,7 +47,8 @@ Never an unscoped `git commit` — no pathspec, `-a`/`-A`/`--all`, `git add -A`/
 **`--repo` is mandatory:** it alone anchors the commit (a params `repo_root` only asserts). Omitted,
 the commit lands in the dispatcher's cwd repo.
 
-**Shape 2 — a scoped plain commit:**
+**Shape 2 — a scoped plain commit, never your first call:** only after a shape 1 call returned an
+error, or for a stale-claim path (§ Claim declines). A raw `git commit` with no prior shape 1 call is denied.
 
 <!-- VERBATIM -->
 ```bash
@@ -173,7 +175,7 @@ claim beyond § Claim declines.
 
 ## Guard Denial Is a Stop Signal
 
-A coordinator PreToolUse denial is a stop, not an obstacle. **Never reshape a denied operation** — a script file, `sh -c`, `python -c`, `xargs`, a written-then-run heredoc, or any rewrite aimed at how the guard *reads* the command. **Stop and report** the exact command and the guard that denied it; what happens next, including any override, is the dispatching EM's call. Disclosing an evasion does not excuse it.
+A coordinator PreToolUse denial is a stop, not an obstacle. **Follow a remedy the denial itself names** (e.g. "use a script file", a named CLI): that is compliance, not evasion. **Never reshape a denied operation on your own initiative** — a script file, `sh -c`, `python -c`, `xargs`, a written-then-run heredoc, or any rewrite aimed at how the guard *reads* the command. Otherwise **stop and report** the exact command and the guard that denied it; what happens next, including any override, is the dispatching EM's call. Disclosing an evasion does not excuse it. A denial naming no next move is a tool bug: report it to the guard's owner.
 <!-- END guard-encounter-preamble -->
 
 ### The preamble's scope, for this agent

@@ -427,7 +427,7 @@ prohibition before dispatching. Dispatch all with `mode: "auto"`.
 ; verify each output **on disk** (non-trivial size, correct content —
 never accept a `DONE` chat message as proof). Commit the wave via `ceremony.commit_v2`
 (`coordinator_core/git/commit.py` :: `commit_paths`) with the wave's
-`repo`/`paths`/`message` (the repo-root keyword is `repo`) — it builds the commit from those paths, never the
+`paths`/`message` (no `repo` key: the repo is keyed from the calling worktree; `repo_root` is an optional consistency assertion) — it builds the commit from those paths, never the
 shared index; **never
 `git add -A` / `git add .`** (sibling sessions may have unrelated dirty files). Mechanism +
 rationale → `scoped-safety-commits.md` §. **Executors do NOT commit;**

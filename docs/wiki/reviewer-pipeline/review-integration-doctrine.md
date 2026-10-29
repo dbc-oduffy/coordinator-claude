@@ -14,7 +14,9 @@ separate integrator agent; the reviewer that finds a defect fixes it.
 
 ## The reviewer applies every finding, then logs a verifiable record
 
-Apply every finding in place in the reviewed artifact — source, test, plan body, or wiki. Then
+Apply every finding in place in the reviewed artifact — source, test, plan body, or wiki; Kira
+(`coordinator:overengineering-reviewer`) applies within a budget of ≤3 repo files and ~50 changed
+lines per dispatch and logs the rest `"status": "handed-off"` for an executor chunk. Then
 write a `## Findings Ledger` section in your own sidecar holding one fenced ` ```json ` array,
 with exactly one row per finding in your `ReviewOutput`:
 
@@ -34,11 +36,31 @@ changes for the workstream it blocks
 
 ## Verdicts
 
-`OK`/`WARN`/`BLOCKED`: apply everything. `REJECTED`/`PIVOT` (premise failure): apply nothing, and
-log every row as `"status": "suspended"`. `review-findings-ledger verify` accepts `suspended` only
-under those two verdicts. Kira's `rebuild_recommended: true`: apply nothing. The EM dispatches an
+Plan review returns `APPROVED` or `BLOCKED`: apply everything. The verdict describes the plan as it
+stands after the reviewer's own edits: every finding applied and re-verified is `APPROVED`, whatever
+its severity, and `BLOCKED` means only that something remains the reviewer could not fix itself (a
+decision it does not own), each item named in the sidecar with `heldBy` naming who holds the answer
+(the APM or a domain reviewer, never the EM). There is no plan-review `WARN`; code
+review and the other checkers keep their own verdict sets.
+
+`REJECTED`/`PIVOT` (premise failure): apply nothing, and log every row as
+`"status": "suspended"`. `review-findings-ledger verify` accepts `suspended` only under those two
+verdicts. Kira's `rebuild_recommended: true`: apply nothing. The EM dispatches an
 executor with a refactor remit, and that executor stamps `integrated_from: [<kira stem>]` in its
 own run-report — the only remaining writer of `integrated_from`.
+
+## Re-verify the applied fixes, then give the verdict on the fixed artifact
+
+After the last edit, re-read every hunk you applied and judge the artifact as it now stands. This
+is a judgment pass: `review-findings-ledger verify` checks only that each ledger row's `after` text
+landed. A fix that fails the re-read is re-edited, not reported. `BLOCKED` after fixing names a
+finding you could not fix; it is never a request that the EM or an executor re-author the artifact
+(`coordinator-tripwires/a-reviewer-that-applied-its-fixes-re-verifies-never-re-authors.md`,
+`A-REVIEWER-THAT-APPLIED-ITS-FIXES-RE-VERIFIES-NEVER-RE-AUTHORS`).
+
+This is the reviewer checking its own applied edits, not an independent judgment of a patch. Where
+`coordinator-tripwires/a-patched-verifier-cannot-judge-its-patcher.md` requires an
+independent judge, that requirement still applies and the re-verify does not satisfy it.
 
 ## Engine op `review-findings-ledger`
 
@@ -88,18 +110,25 @@ the next starts). In a chatty run they run as one wave: a reviewer mails `CLAIM 
 section, spine row or frontmatter) to every peer before editing it, skips regions a peer holds,
 mails `RELEASE <region>` once its edits verify, and mails any ground shift.
 
-Code review over a diff runs per executor group, and every reviewer in it — slice owners, Kira
-(`coordinator:overengineering-reviewer`), and any named persona — applies every finding it logs
-in place with an exact-text `Edit`, including one outside its own slice; a missed `Edit` is
-re-read and re-applied. The EM sweeps `verify` over every sidecar and lands one scoped commit.
+Code review over a diff runs per executor group, and every reviewer in it — slice owners and any
+named persona — applies every finding it logs in place with an exact-text `Edit`, including one
+outside its own slice; a missed `Edit` is re-read and re-applied. Kira
+(`coordinator:overengineering-reviewer`) applies only within its budget (≤3 repo files, ~50
+changed lines per dispatch) and logs each finding past it `"status": "handed-off"`, target file
+and change described, for an executor chunk the EM routes; Kira never re-implements it. The EM sweeps `verify` over every sidecar and lands one scoped commit.
 
 ## No integration pass
 
 There is no separate integrator agent and no integrate remit. Every reviewer applies its own
 findings as it goes (§ The reviewer applies every finding, above), and there is no second review
-round. The one thing that returns to the EM instead of being applied in place is a Kira
-`rebuild_recommended: true`, or a `REJECTED`/`PIVOT` premise verdict (§ Verdicts) — everything
-else is applied and verified before the review stage ends.
+round. When every reviewer ledger verified and every logged finding is applied, the plan-author
+resolver pass is skipped and the plan stays ready (plan-blitz Phase 5d reads the op's own counts).
+There is no round cap on the lead plan reviewer: an `APPROVED` ends the series, and a `BLOCKED`
+reviewer's named items go to the EM. The different-persona second reviewer at XL and above is
+unchanged. Size ceilings and ambient reds the run did not cause go to the delivery note, never a
+halt or revise. The one thing that returns to the EM instead of being applied in
+place is a Kira `rebuild_recommended: true`, a `REJECTED`/`PIVOT` premise verdict (§ Verdicts), or a Kira
+finding past Kira's edit budget (`handed-off`) — everything else is applied and verified before the review stage ends.
 
 ## Pre-flight lens findings are not the reviewer's to fold
 
@@ -157,7 +186,7 @@ sidecar at `state/subagent-share/<session>/<provision_key>.md`, edits the `<!-- 
 sentinel, applies every finding, writes the `## Findings Ledger`, runs `verify`, and returns:
 
 ```
-DONE: <sidecar-path> | verdict: <OK|WARN|BLOCKED> | findings: <N> | executed: <yes|no>
+DONE: <sidecar-path> | verdict: <APPROVED|WARN|BLOCKED> | findings: <N> | executed: <yes|no>
 ```
 
 Persona reviewers (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Director of Engineering) are dual-use (advisory OR sidecar-review)

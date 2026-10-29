@@ -11,7 +11,7 @@ Repo-wide doc maintenance, any prior agent's changes. `--no-distill` skips Phase
 
 **Split:** Phases 1–11d dispatch UNNAMED to a Sonnet doc-maintenance agent (`model: "sonnet"`;
 named breaks report delivery) and stop at 11d — subagents can't dispatch subagents. EM runs
-Phase 0, 9's commit, 11a, 12, 11f/11g/11h/11h2/11i/11j, 13–15, and all escalations. Sonnet agent
+Phase 0, 6, 9's commit, 11a, 12, 11f/11g/11h/11h2/11i/11j, 13–15, and all escalations. Sonnet agent
 out-of-scope: `gh pr create/merge`, `git push origin main`, any commit to `main` — surface a
 merge urge to the EM instead.
 
@@ -30,12 +30,12 @@ printed no-op message verbatim, stop. Exit 1: continue.
 
 | # | Action |
 |---|---|
-| 0 | Branch guard off `main`. `coordinator-safe-commit --blanket --invoking-command update-docs "pre-docs quick-save"`. Push is Phase 9. |
+| 0 | Branch guard: not on `main`; work on the day branch `work/<machine>/<YYYY-MM-DD>` (create it if absent). `coordinator-safe-commit --blanket --invoking-command update-docs "pre-docs quick-save"`. Push is Phase 9. |
 | 1–2b | Follow, in order: `${CLAUDE_PLUGIN_ROOT}/pipelines/update-docs/detect-current-state.md`, `source-index-maintenance.md`, `docs-readme-maintenance.md`. |
-| 3 | Update plan-doc status markers, completion dates, deviations. |
+| 3 | Update plan-doc status markers, completion dates, deviations. Never mark an executing plan complete: the engine gate (`plan.status`) refuses it; leave it. |
 | 4 | Memory is a pointer index (PM decisions, behavioral feedback, cross-repo/project pointers only) — size-guard-capped, drained at every closure ceremony. Lessons → `/learn-lessons`. |
 | 5 | Retired, no-op — placeholder keeps numbering stable. |
-| 6 | `/learn-lessons --mode=local`. |
+| 6 (EM) | `/learn-lessons --mode=local`, run in the EM session (a skill cannot run in the Sonnet subagent); the subagent skips it and continues with 7. |
 | 7 | CLAUDE.md — rare, only on a real architecture/rule/build-system change. |
 | 8 | Follow `pipelines/update-docs/handoff-archival.md`. |
 | 8b | Follow `pipelines/update-docs/artifact-pruning.md`. `git rm` is EM-scope — inventory only; every candidate arrives PRUNE or KEEP with a reason. |
@@ -51,8 +51,8 @@ printed no-op message verbatim, stop. Exit 1: continue.
 | 11d | `lint-frontmatter --json`. `ok:false`: top 3 schemas + up to 5 files in Phase 14. Escalate at ≥2 consecutive non-zero runs. Native seam: `schema.validate` op. |
 | 12 (EM) | Resolve scope (`plugins/` if present at repo root, else invoking repo's own doc surface). Pre-count `[text](url)` links in `{skills,agents,commands}/*.md`; below a low per-file threshold, skip and report. Else dispatch `doc-link-checker` (scope + file filter only, never `--check-external`; it follows its own agent file's Output Contract/DONE-After-Write Protocol) via its auto-provisioned sidecar. Never halts. |
 | 11f (EM) | `verify-parallel-review-lens-orthogonality`. Non-zero: lens-domain collision — rename/drop the reviewer, don't auto-fix. |
-| 11h (EM) | `verify-skill-anchor-links`. Exit 1: dead anchors, don't auto-fix. Exit 2: **could not check** (broken/missing manifest) — report as missing coverage, never a finding; absent manifest is exit 0/1, not 2. |
-| 11h2 (EM) | `verify-coverage --sweep-root "$(pwd)"`. **Non-zero HALTS `/update-docs`** — retarget, add a rationale to `REF_ALLOWLIST` in the engine repo's `verify_coverage.py`, or create the artifact. |
+| 11h (EM) | `verify-skill-anchor-links`. Exit 1: dead anchors, don't auto-fix. Exit 2, or a run that checked zero anchors (total 0): **unverified** (broken/missing manifest or nothing checked) — report as missing coverage, never green and never a finding; absent manifest is exit 0/1, not 2. |
+| 11h2 (EM) | `verify-coverage --sweep-root "$(pwd)"`. **Non-zero HALTS `/update-docs`** — retarget, add a rationale to `REF_ALLOWLIST` in the engine repo's `verify_coverage.py`, or create the artifact. A zero-total report (nothing swept) is **unverified**, not green: report it as missing coverage. |
 | 11i (EM) | `update-docs-probes queue-prune-sweep`. Pruned: fold into the commit, report the count. |
 | 11j (EM) | `reap-stale-subagent-sidecars` — reaps on session liveness AND an age floor AND a status carve-out, never `status:` alone. Reaped: `git rm` into the commit, report the count. |
 | 11k (EM) | Follow `pipelines/update-docs/claudemeta-manifest-cadence.md`. Source-repo only, no-op elsewhere. |

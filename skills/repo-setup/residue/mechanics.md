@@ -64,12 +64,18 @@ watch trio — `state/group-em-watch.json`, `state/group-em-watch-parked.json`,
 `state/group-em-watch-spool.jsonl` — the engine-provenance ledger
 `state/engine-provenance-counts.jsonl`, `state/housekeeping-liveness.json`, `state/orientation_cache.md`, the emitted workflow scripts
 `state/**/fire-*.mjs` and `state/**/*.mjs.emitted.json`,
+`Intermediate/`, root-anchored `/scratch_*`,
 `.project-rag-corpus-artifacts/` and `.project-rag-corpus-store/`) is present — create if
 absent, append only the missing lines under one header if partial, skip if complete. Any of those
 transients already tracked (emitted `fire-*.mjs` / `*.mjs.emitted.json` included): `git rm --cached`
 after adding the ignore rule, never `git rm`. Warn if `.claude/` (not just `settings.local.json`)
 is blanket-ignored, if tracked content exists under `scratch/`/`tasks/_*.log` (offer, don't
-auto-`git rm --cached`), or if the project-rag corpus paths are already tracked (break-class).
+auto-`git rm --cached`), or if the project-rag corpus paths are already tracked (break-class). Warn when a lockfile
+from a package manager other than the repo's own is present (e.g. `pnpm-lock.yaml` or
+`yarn.lock` beside `package-lock.json`; the repo's manager is the `packageManager` field, else the
+lockfile already tracked) — offer to delete or ignore it, never auto-remove. A generated cache is
+either ignored or committed deliberately by its producer, never hand-committed churn
+(`GENERATED-CACHE-IS-IGNORED-OR-PRODUCER-COMMITTED`, `coordinator-tripwires/`).
 
 **Pre-commit corpus-artifact guard**: install `${CLAUDE_PLUGIN_ROOT:?coordinator plugin root unset — run this from a plugin command/skill, or substitute an absolute path}/bin/pre_commit_corpus_artifact_guard.py`
 as `.git/hooks/pre-commit`: `cp` byte-for-byte, `chmod +x`, and confirm

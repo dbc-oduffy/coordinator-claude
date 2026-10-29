@@ -40,6 +40,8 @@ Dispatched executors are always Sonnet; self-execute only on a named token-econo
 
 ## Phase 1: Load, Authorize, Review
 
+0. **One box per plan.** A plan runs on one box, claimed before execute; another box's claim stops
+   this run. Tripwire: `A-PLAN-EXECUTES-ON-ONE-BOX-CLAIMED-BEFORE-EXECUTE`.
 1. Read the plan in full, then run `python3 "${CLAUDE_PLUGIN_ROOT:?plugin root unset}/lib/plan_scaffold_markers.py" <plan-path>`;
    exit 3 (`PLAN-SCAFFOLD-UNFILLED`) means the plan is an unfilled scaffold — report and stop.
 2. Unless `/autonomous`: run `pickup-assemble brief <plan-path>` FIRST, before minting (minting erases the signal) — it emits
@@ -164,7 +166,7 @@ headless path a named fire-leg refusal (`ScriptNotFoundError`, `PluginDirResolut
 
 **A fifth state: fired-then-died.** A handle with `log_size_bytes: 0` stalled past startup: report and stop.
 
-**A sixth state: returned `incomplete`, nothing halted.** Not a resume. Run `dispatch.land_run`, then `emit-dispatch-workflow --plan <plan> --only-incomplete <task-output>` and fire; never hand-dispatch. A row partial only on a break outside its files is re-graded by `land_run`; any other is re-verified (`--reverify-delivery <run-record>`, fire, `reverify-delivery record --run-record <that same run-record>`, never the `.emitted.json`). Hand-committing its files refuses the stamp.
+**A sixth state: returned `incomplete`, nothing halted.** Not a resume. Run `dispatch.land_run`, then `emit-dispatch-workflow --plan <plan> --only-incomplete <task-output>` and fire; never hand-dispatch. A row partial only on a break outside its files is re-graded by `land_run`; any other is re-emitted with `--only-incomplete`, never reverified. Hand-committing its files refuses the stamp.
 
 **A brief never asks an executor to commit** and never dictates code: it carries intent, the PM verbatims and constraints (wiki `dispatch-briefing.md` § Field rules).
 
@@ -188,7 +190,9 @@ review wave runs inside the workflow; nothing commits mid-run. The driver runs `
 it. Still `executing`: read the reason; Phase-5-halted. That commit writes one
 completion receipt per baton; the EM reads it, never writes it ([`completion-receipts.md`](../../docs/wiki/release-and-distribution/completion-receipts.md)).
 See [`terminal-judge.md`](../../docs/wiki/reviewer-pipeline/terminal-judge.md). Tripwire:
-`A-PLAN-SELF-COMPLETES-ONLY-ON-A-MET-TERMINAL-JUDGE`.
+`A-PLAN-SELF-COMPLETES-ONLY-ON-A-MET-TERMINAL-JUDGE`. With `state/warp/<run_id>/objective.json`
+present, a `not_met` verdict goes to the engine's reacher loop (`coordinator:objective-reacher`) at the terminal gate only, after
+the last planned wave; the run ends only on the exit set (met, impossible with evidence, First Officer doctrine conflict escalated, or attempts exhausted into a rethink stage), never partial or unknown.
 
 Same turn: wake digest to the PM (**hands-on**/**pm**; at once in **ceo**); then fire
 `coordinator:workstream-complete`.
@@ -228,9 +232,13 @@ bug-backlog|debt-backlog|improvement-queue`, or take it to the PM; a reason with
 
 ## Phase 4: Finalize and Report
 
-**At L and above the run's ledger checker is the close**, replacing plan-reviewer, falsifier and
-integrity review, both judges and delivery-verifier: none runs beside or after it, and steps 3 to
-3.8 apply below L only.
+**At L and above the run's ledger checker is the close**, replacing plan-reviewer, integrity review,
+and both judges: no judge slot runs beside or after it, except the
+fresh re-judge after a `not_met` remnant wave, and steps 3 to 3.8 apply below L only. The close runs the
+plan's recorded falsifier; a failing falsifier is `not_met` and follows the exit set in
+`coordinator/docs/wiki/em-operating-model/run-objective-loop.md` (rethink and research how to succeed),
+never a partial close. A ledger checker `not_met` carries the `remnant` object and follows
+`coordinator/contract/remnant-completion-fragment.json`.
 
 **Precondition:** every wave-map chunk has landed (recovery triple); else return
 to Phase 3. Steps 2.5 to 4: manual path, only if the terminal commit did not stamp.
@@ -282,8 +290,7 @@ join was deleted, not narrowed; do not restore it as an oversight. Two sha-ances
    `review_stamp: minted`:** `review-stamp mint --plan "$ARGUMENTS" --build-test <wake digest's
    tests.sidecar>` (not required when the spine wrote nothing testable and the criterion is `met`). Any refusal is Phase-5-halted: report, skip step 4. Tripwire:
    `A-PLAN-REACHES-IMPLEMENTED-ONLY-THROUGH-A-REVIEW-STAMP`.
-   A `delivery.verdict == FAIL` repaired by fix-forward commits is cleared only by
-   `emit-dispatch-workflow --reverify-delivery` (`execute-plan-residue.md` § Reverify a delivery FAIL). Re-run 3.8, then step 4.
+   A review or commit gate halts only per C0 (caused reds); other reds go in the delivery note.
 4. `close-out-and-stamp "$ARGUMENTS"` stamps `status: implemented` and commits the plan path
    (full-plan-shipped), or reports remaining uncommitted chunks and skips the stamp
    (Phase-5-halted). The engine refuses `implemented` without a `review_stamp` (step 3.8).

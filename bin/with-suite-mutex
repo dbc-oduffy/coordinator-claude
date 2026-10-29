@@ -93,12 +93,10 @@ changes; deliberately not done here — see review escalation, and the
 CREATE_NO_WINDOW negative-spec above for why touching spawn flags on this
 line is treated as a tradeoff, not a silent fix.
 
-WAIT POSTURE: copies full_runner.py's and
-validate-fast-and-packageability.py's posture and message shape exactly
-— wait up to suite_mutex.MUTEX_WAIT_SECS, and on timeout print the
-current holder and PROCEED UNSERIALIZED with a warning, rather than
-refusing. This is a resource control, not an authorization gate; refusing to
-run at all here would turn a serialization aid into a spurious failure.
+WAIT POSTURE: wait up to suite_mutex.MUTEX_WAIT_SECS; on timeout kill the
+suspended child, print suite_mutex.timeout_refusal (naming the holder) with
+`with-suite-mutex --wait` advice, and exit 75 without running it. There is
+no bypass flag.
 
 Negative-spec — what this wrapper is NOT:
     - NOT runner-aware. It knows nothing about pytest, pnpm, node, or any
@@ -663,23 +661,23 @@ def main(argv: List[str]) -> int:
             timeout=0.0 if reuse_fresh else suite_mutex.MUTEX_WAIT_SECS,
             pid=process.pid,
         ) as acquired:
-            if not acquired and reuse_fresh:
+            if not acquired:
                 # SIGKILL reaches a stopped child; SIGTERM would stay pending on it.
                 process.kill()
                 process.wait()
-                print(
-                    "with-suite-mutex: another suite run took the mutex first; run "
-                    "`with-suite-mutex --wait`, then retry.",
-                    file=sys.stderr,
-                )
+                if reuse_fresh:
+                    print(
+                        "with-suite-mutex: another suite run took the mutex first; run "
+                        "`with-suite-mutex --wait`, then retry.",
+                        file=sys.stderr,
+                    )
+                else:
+                    print(
+                        suite_mutex.timeout_refusal(suite_mutex.MUTEX_WAIT_SECS)
+                        + "; run `with-suite-mutex --wait`, then retry.",
+                        file=sys.stderr,
+                    )
                 return _MUTEX_HELD_EXIT_CODE
-            if not acquired:
-                current = suite_mutex.holder() or {}
-                print(
-                    "[WARN] suite mutex held by %s for %ss — proceeding unserialized"
-                    % (current.get("owner", "<unknown>"), int(suite_mutex.MUTEX_WAIT_SECS)),
-                    file=sys.stderr,
-                )
             started_at = suite_run_reuse._now_iso()
             started_mono = time.monotonic()
             head_sha, dirty_paths = (None, [])

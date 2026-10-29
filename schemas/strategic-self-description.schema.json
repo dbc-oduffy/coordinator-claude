@@ -1,0 +1,215 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coordinator.local/schemas/strategic-self-description.schema.json",
+  "x-schema-name": "strategic-self-description",
+  "x-schema-version": "1.6.0",
+  "x-bump-class": "nested-field-additive",
+  "x-bump-note": "1.5.0 -> 1.6.0 (nested-field-additive) adds OPTIONAL `repo_owner` to `$defs.repoIdentityTuple` (same type/minLength/pattern as `owner`); `owner` stays in `required`, `repo_owner` stays out of it, neither use site (`repo_identity`, `dependencyEdge`) is touched. EQUALITY RULE: when both are present they MUST be equal; readers resolve `repo_owner ?? owner`. HOLDING: no producer emits `repo_owner` until example-cockpit-repo confirms its 1.6.0 re-vendor by memo (cockpit's RepoIdentityTupleSchema is .strict(); mirror floor 1.5.0); claude-klabauter's vendored copy lags until it re-vendors, so the parity test is registered designed_red in state/fast-full-known-red.json until docs/plans/2026-10-06-mcollab-04-self-description-repo-owner-dual-read-rebased.md C6. DR-097 push-side duty attaches to claude-klabauter and example-cockpit-repo and is discharged by C5a and C5b naming this CLASS back to each. Spec: docs/plans/2026-10-06-mcollab-04-self-description-repo-owner-dual-read-rebased.md (C4a). PRIOR NOTE: 1.4.0 -> 1.5.0 (nested-field-additive) RETIRES `format: uri` from `hero_asset`, making the field expressible by a private repo. the cockpit repo reads that annotation as `z.string().url()`; most of the fleet is private and has no absolute URL to give, so the only reachable value was null. Four repos held committed hero art and all four correctly left the field null \u2014 the field could not do the job it exists for, and its null was asserting 'no hero art' about repos that have some. It is now a locator: an absolute `https://` URL or a repo-root-relative path, the shape `competitors[].documents` already uses. PM ruling: the consumer fetches the bytes from the producer's tree; the locator is a path, never an inlined payload. `data:` URIs validate on the cockpit repo's pinned zod 4.4.3 (measured 2026-09-03) and were the zero-rollout option; they are excluded BY PROSE ONLY. CLASS, and why none of the four terms fits cleanly: this is a constraint widen on an existing top-level scalar, which the DR-097 vocabulary has no term for. `nested-field-additive` is the nearest fit on the SAFE side per schema-version-gate.md \u2014 the safety property the additive terms require holds exactly: removing an annotation only ever widens, so EVERY document valid under 1.4.0 is still valid under 1.5.0. Verified, not assumed: all 10 populated fleet instances validate against 1.5.0 (measured 2026-09-03). An earlier draft of this bump added a containment `pattern` and was withdrawn: narrowing the accepted set is a `major` by the version gate's own rule, not merely disproportionate. Note for whoever revisits it \u2014 the SAFETY objection is now discharged (the cockpit repo surveyed 30 populated `documents` paths fleet-wide, 2026-09-03, zero unsafe), so only the ORDERING cost remains; the containment still lands with the `documents` debt item, on both fields at once, never on the empty field alone. ORDERING, per DR-193 \u2014 NOT an invalidation event: consumers re-vendor first, producers populate second, and nothing breaks in between because no instance writes a relative path until then. Until the cockpit repo confirms its reader accepts the widened form, repos leave `hero_asset` null. NEGATIVE SPEC: this does not touch the permission gate. `.fleet-readable` still decides whether a sibling may read the file, uniformly, with no image-shaped exception \u2014 the open residual is marker COVERAGE (today's markers scope to `docs/research/`; hero art at `assets/` falls outside), a convention question, not a schema one. DR-097 push-side duty attaches (the cockpit repo vendors a version-pinned mirror) and is discharged by naming this CLASS back to the cockpit repo-em, not merely that a bump occurred.",
+  "applies_to": "state/strategic/self-description.yaml",
+  "description": "Per-repo strategic self-description: a repo's authored declaration of what it strategically IS — mission, lifecycle phase, positioning, call-to-action. New artifact class under the Fleet Producer Contract (docs/wiki/hook-best-practices/state-placement-law.md § Fleet Producer Contract): per-repo emitted, harvested read-side, never consolidated into a fleet-wide file. Spec: docs/plans/2026-07-11-strategic-self-description-standard.md § C1. Fields are built from the abstract need each serves (proposal §2), not any single consumer's shipped type shape — see the plan's Anti-scope § no-renamed-PerProjectStrategic.",
+  "type": "object",
+  "required": [
+    "repo_identity",
+    "lifecycle",
+    "vision",
+    "version_highlights",
+    "competitors",
+    "call_to_action",
+    "hero_asset"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "repo_identity": {
+      "allOf": [{ "$ref": "#/$defs/repoIdentityTuple" }],
+      "unevaluatedProperties": false
+    },
+    "lifecycle": {
+      "type": "string",
+      "enum": [
+        "prototype",
+        "vertical-slice",
+        "alpha",
+        "shipped",
+        "live-ops",
+        "sunset"
+      ],
+      "description": "DoE-defined canonical lifecycle enum (DEC-3) — a richer ordered set than any single consumer's binary need. Consumers PROJECT/COLLAPSE this into their own layer (e.g. a consumer mapping it to a shipped|pre-launch config field); the generic-superset-to-consumer-subset mapping direction is a documented contract property, not ad-hoc per-consumer choice."
+    },
+    "vision": {
+      "type": "object",
+      "description": "One-paragraph statement of what this repo strategically is / is for.",
+      "required": ["value", "provenance"],
+      "additionalProperties": false,
+      "properties": {
+        "value": { "type": "string" },
+        "provenance": { "$ref": "#/$defs/provenance" }
+      }
+    },
+    "version_highlights": {
+      "type": "array",
+      "description": "Ordered notable-release/milestone entries, most relevant first. May be empty for a repo with no dated highlights yet.",
+      "items": {
+        "type": "object",
+        "required": ["label", "date", "bullets", "provenance"],
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "type": "string",
+            "description": "Short milestone/version label, e.g. a version tag or named release."
+          },
+          "date": {
+            "type": "string",
+            "format": "date",
+            "description": "Date the highlighted milestone landed (YYYY-MM-DD)."
+          },
+          "bullets": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Notable points for this milestone."
+          },
+          "provenance": { "$ref": "#/$defs/provenance" }
+        }
+      }
+    },
+    "competitors": {
+      "type": "array",
+      "description": "Comparable/adjacent projects or products and this repo's relationship to each. May be empty.",
+      "items": {
+        "type": "object",
+        "required": ["name", "relationship", "note", "provenance"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "relationship": {
+            "type": "string",
+            "enum": ["competitor", "peer", "aspirational-target", "complement", "prior-art", "superseded-by", "supersedes"],
+            "description": "How this repo positions itself relative to the named project. This is the DoE-canonical superset; consumers project/collapse it into their own subset (e.g. a competitive-stance triple), exactly as the lifecycle enum (DEC-3) is consumer-projected — the generic-superset→consumer-subset mapping direction is a documented contract property, not a per-consumer choice."
+          },
+          "note": {
+            "type": ["string", "null"],
+            "description": "Optional free-text elaboration. Present-as-null when absent, per the schema's nullable-field convention — never an omitted key."
+          },
+          "provenance": { "$ref": "#/$defs/provenance" },
+          "documents": {
+            "type": ["array", "null"],
+            "description": "Paths, relative to this repo's root, to documents assessing this competitor. OPTIONAL: not in `required`, so an omitted key, `null`, and `[]` are three legal spellings of the same thing and a consumer MUST read all three as no-documents (`entry.documents ?? []`). A description cannot carry the present-as-null guarantee: it is carried by `required` plus a nullable type union and by nothing else \u2014 a description asserting it on an OPTIONAL field states a property no validator checks, which is the trap rather than the contract. Measured 2026-09-03 across the fleet's ten self-descriptions: of 57 competitor entries, 30 omit this key and 12 write it as null, so the omitted form is the fleet majority and is conformant. RULED, and it changes what you should author: `documents` joins `competitors.items.required` at the next `major`, recovering the guarantee at the enforcement layer where it belongs. `hero_asset` and `competitors[].note` are the schema's only other present-as-null fields and BOTH are already in a `required` list, so this field is the anomaly and is corrected rather than generalised from. That tightening narrows and is therefore `major` by construction; it rides the same major bump as the repo-relative-path `pattern` queued for this field, after a fleet backfill. SO: author this key present-as-null NOW even though today's validator permits omitting it \u2014 the omitted form is conformant at 1.x and is what the backfill will have to undo. A locator list, not an identity anchor \u2014 nothing here is a join key. Says WHICH documents exist, never WHETHER a sibling repo may read them: the `.fleet-readable` marker convention remains the permission gate and this field neither replaces nor implies it. POPULATING THIS FIELD IS TWO OBLIGATIONS, NOT ONE: the paths here, AND a `.fleet-readable` marker whose globs actually cover them. Doing the first without the second yields entries that render `not-opted-in` -- a surface that names a document and cannot open it, which is worse than an empty list, and it fails silently. Measured 2026-09-02: a repo populated six entries pointing outside its marker's domain and all six read as not-opted-in; against paths inside the domain the same reader returned 24 readable, 0 not-opted-in. The mechanism is fine; the obligation pair decides the outcome.",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "call_to_action": {
+      "description": "SECURITY BOUNDARY (DEC-5). A closed, kind-discriminated union — each branch pins its own required payload shape and formats. additionalProperties:false on every branch and on the envelope; kind is a closed enum. Supports validate-or-degrade: a consumer that validates against this schema is handed either a fully-conformant payload for the given kind or a hard validation failure — never a schema-legal-but-semantically-malformed payload (the validate-then-trust anti-pattern this shape forecloses).",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind", "label", "payload"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "url" },
+            "label": { "type": "string", "minLength": 1 },
+            "payload": {
+              "type": "object",
+              "required": ["uri"],
+              "additionalProperties": false,
+              "properties": {
+                "uri": { "type": "string", "format": "uri" }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["kind", "label", "payload"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "claude-session" },
+            "label": { "type": "string", "minLength": 1 },
+            "payload": {
+              "type": "object",
+              "required": ["cwd", "args"],
+              "additionalProperties": false,
+              "properties": {
+                "cwd": { "type": "string", "minLength": 1 },
+                "args": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["kind", "label"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "none" },
+            "label": { "type": "string", "minLength": 1 }
+          }
+        }
+      ]
+    },
+    "hero_asset": {
+      "type": ["string", "null"],
+      "description": "Optional hero image/screenshot LOCATOR: either an absolute `https://` URL, or a path relative to this repo's root (e.g. `assets/hero.jpg`), matching the locator shape `competitors[].documents` already uses. Present-as-null when absent \u2014 this key MUST be present in every instance with value null, never omitted (D9 read-contract requirement: absence-of-value must be a typed, pattern-matchable null, not a missing key). Null means THIS REPO HAS NO HERO ART and nothing else \u2014 it is not the parking space for art that exists but cannot be expressed, which is what the retired `format: uri` turned it into for every private repo. A LOCATOR, NEVER A PAYLOAD: the consumer fetches the bytes out of this repo's tree. Do not inline a `data:` URI \u2014 base64 inflates ~1.37x inside a document the refresh ceremony hand-edits and a consumer re-parses per render. That prohibition is prose, not schema: tightening it would narrow the accepted set, which is a `major` by construction, and it is not worth a fleet-wide re-vendor. There is deliberately NO `pattern` here. Producer-side containment against absolute paths, drive letters and `..` escapes is real and wanted, but it is the SAME gap already filed for `competitors[].documents` at state/debt-backlog/2026-09-03-competitors-documents-lacks-a-repo-relative-path-pattern.yaml, and it lands on both fields together after a survey of the populated instances \u2014 not on one field now and the live, populated one later. Consumers enforce their own containment regardless and must not rely on this field. POPULATING THIS FIELD IS TWO OBLIGATIONS, NOT ONE, exactly as for `competitors[].documents`: the path here, AND a `.fleet-readable` marker whose globs actually cover it. The marker convention remains the sole permission gate \u2014 naming a file here says WHICH art exists, never WHETHER a sibling may read it, and there is no image-shaped self-opt-in carve-out. A path outside the marker's domain renders `not-opted-in`: a surface that names a hero and cannot open it, which fails silently and is worse than null. Per DR-196 a marker's domain is the directory carrying it, so hero art at `assets/` is opted in by `assets/.fleet-readable`. TWO GATES, AND ONLY ONE IS OPEN \u2014 do not read the first as the second. VALIDATION is open: the cockpit repo re-vendored 1.5.0 and dropped `z.string().url()` (their `688dc2ef0`), so populating this field with a repo-relative path is SAFE and will not drop the repo from the Strategic view. RENDERING is not: a repo-relative locator validates and deliberately does not render \u2014 a correct silent no-op, never a broken image \u2014 until the hero-serving route lands. Populate if you want the locator recorded; expect no art yet. The marker half is behind that too: keep markers inside `docs/research/` until the cockpit confirms the DR-196 domain change, since a marker elsewhere is simply not honoured before then."
+    },
+    "maturity_axis": {
+      "type": ["string", "null"],
+      "description": "OPTIONAL, consumer-set-only field (DEC-4, PM-ratified include-both). A consumer-defined maturity dimension label this repo is scored on by that consumer. DoE schema does not interpret its value; absence-allowed and costs non-consuming repos nothing."
+    },
+    "depends_on": {
+      "type": "array",
+      "description": "OPTIONAL, consumer-set-only field (DEC-4). Repo-identity references this repo depends on, for consumers computing blast-radius / retirement-impact queries (e.g. 'what breaks if we retire repo Y'). Absence-allowed.",
+      "items": { "$ref": "#/$defs/dependencyEdge" }
+    }
+  },
+  "$defs": {
+    "provenance": {
+      "type": "string",
+      "enum": ["curated", "generated", "asserted"],
+      "description": "Per-field provenance marker (DEC-2) — a THREE-value marker, never a binary. curated = human-authored editorial judgment; generated = machine-derived draft, not yet human-ratified; asserted = human-typed factual claim with no editorial judgment and no observable signal (e.g. a version label that can silently drift). Collapsing to curated|generated is a named anti-pattern — see plan § Anti-scope."
+    },
+    "repoIdentityTuple": {
+      "type": "object",
+      "description": "Canonical join key for a repo, matching the Fleet Producer Contract's existing emission join key (owner, repo) — docs/wiki/skills-corpus/emission-conformance-contract.md § Producer Contract — Repo Identity and coordinator_root_path. coordinator_root_path is carried alongside as a non-key, nullable, machine-local member of this tuple, not part of the join key itself. Does NOT mint a competing single-field slug primitive; consumers join on the (owner, repo) pair they already resolve for other emission. Shared by both `repo_identity` (this artifact's own identity) and `depends_on[]` (identities of OTHER repos this one depends on) — a single $defs shape so the two representations of 'a repo's join-key tuple' cannot drift apart. Intentionally NOT self-closing (`additionalProperties` omitted here, not `false`) — draft 2020-12's `additionalProperties:false` does not compose through `allOf`/`$ref`, so closedness is declared at each use site instead (`repo_identity` and `dependencyEdge` below, both via `allOf` + sibling `unevaluatedProperties:false`), so this shape stays extensible (e.g. `dependencyEdge`'s `strength` member, v1.3.0) without losing closed-shape validation anywhere it's used. `unevaluatedProperties` is implemented via draft-2020-12 annotation propagation in `bin/lib/schema.js`'s `validateJsonSchemaNode` (tracking which properties each `allOf`/`$ref`/`anyOf`/`oneOf` subschema successfully evaluated), so a stray or misspelled key in `repo_identity`/`dependencyEdge` is rejected without falsely rejecting legitimately-composed keys.",
+      "required": ["owner", "repo", "coordinator_root_path"],
+      "properties": {
+        "owner": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\s/].*$",
+          "description": "Validated string (D11 parity with the fleet's owner/MachineSlug convention), not a closed enum. Rejects empty values and values with a leading whitespace or `/` character. Admits local/<basename> repos with no git remote."
+        },
+        "repo_owner": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\s/].*$",
+          "description": "Structural GitHub-org half of the join key; the successor name of `owner`. Equals `owner` when both are present. Readers resolve `repo_owner ?? owner`. Optional: `owner` remains required."
+        },
+        "repo": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Repo name, second member of the Fleet Producer Contract join-key tuple."
+        },
+        "coordinator_root_path": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "description": "A machine-local location hint for the emitting clone, which MAY be null; NOT a member of the join key — consumers key on (owner, repo). The key itself is always present, carried present-as-null when there is no meaningful value."
+        }
+      }
+    },
+    "dependencyEdge": {
+      "description": "A single `depends_on[]` entry: a repoIdentityTuple plus an OPTIONAL `strength` member (v1.3.0, cross-repo-memo Defect 1). Added so blast-radius / retirement-impact consumers can discriminate a hard runtime dependency from a weak/install-surface coupling instead of every declared edge rendering with equal weight. `strength` is optional and absence-allowed — pre-1.3.0 instances (bare identity tuples, or an empty `depends_on: []`) remain valid; a repo populating `depends_on[]` is expected to set `strength` on each edge going forward, not required to backfill retroactively.",
+      "allOf": [{ "$ref": "#/$defs/repoIdentityTuple" }],
+      "properties": {
+        "strength": {
+          "type": "string",
+          "enum": ["hard", "soft"],
+          "description": "Dependency criticality for blast-radius queries. `hard` = this repo fails to build/run/ship without the named repo (e.g. a runtime plugin registration, a lockstep-tested schema dependency). `soft` = coupling exists (shared install surface, historical lineage, an inbound-consumer relationship) but this repo would still function without it. Closed two-value enum per DEC-4's precedent (small closed enums over free text) — omit rather than guess when genuinely ambiguous."
+        }
+      },
+      "unevaluatedProperties": false
+    }
+  }
+}

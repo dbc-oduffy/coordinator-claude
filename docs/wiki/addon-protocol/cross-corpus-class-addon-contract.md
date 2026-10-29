@@ -170,5 +170,5 @@ Policy reference: the `project-rag-ue-addon` repo's corpus-band naming-policy de
 - `docs/wiki/addon-protocol/addon-hookspec-shape.md` — hookspec signatures
 - `core/addon_protocol.py` — `CorpusBand` dataclass + `ADDON_PROTOCOL_VERSION`
 - `core/addon_hookspecs.py` — hookspec definitions
-- `project-rag-ue-addon` repo's `docs/wiki/multi-corpus-source-doctrine.md` — collision precedence rule
+- `project-rag-ue-addon` repo's `<project-rag-ue-addon-root>/docs/wiki/multi-corpus-source-doctrine.md` (`machine-local get repos.project_rag_ue_addon`) — collision precedence rule
 - `project-rag-ue-addon` repo's corpus-band naming-policy decision record — naming policy + 3-tier stability model

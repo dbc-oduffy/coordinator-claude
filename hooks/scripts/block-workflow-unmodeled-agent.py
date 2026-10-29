@@ -973,7 +973,20 @@ def main() -> int:
         return 0
 
     if modeled_n < agent_n:
-        msg = _compose_partial_modeled_context(agent_n, modeled_n)
+        # An un-modeled call pinned to an agentType costs its definition's
+        # charter model, so it counts as covered on the same terms as the
+        # all-unmodeled branch above: resolvable, and not an unrostered Opus.
+        calls = _walk_agent_calls(stripped, _string_mask(stripped))
+        covered_n = modeled_n
+        for has_model, agent_type in calls:
+            if has_model:
+                continue
+            tier = _resolve_call_site_tier(agent_type)
+            if tier is not None and (tier != "opus" or agent_type in _rostered_agent_types()):
+                covered_n += 1
+        if covered_n == agent_n:
+            return 0
+        msg = _compose_partial_modeled_context(agent_n, covered_n)
         out = {
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",

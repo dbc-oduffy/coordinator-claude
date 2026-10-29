@@ -1,52 +1,22 @@
 /*
  * goal-blitz — background-Workflow encoding of one batched goal-setting run.
  *
- * Spec backlink: coordinator/skills/goal-blitz/SKILL.md. Contract fixture:
- * coordinator/skills/goal-blitz/goal-blitz-contract.json. The skill stays the source of truth; this
- * script is its dispatch vehicle.
+ * Spec: coordinator/skills/goal-blitz/SKILL.md; fixture: coordinator/skills/goal-blitz/goal-blitz-contract.json.
  *
- * WHAT ONE RUN COVERS: every seed in `args.seeds`, in one fire. Per seed: the VP-Product Reviewer (the
- * `coordinator:vp-product` agent) authors the Objective and Key Results from the seed's context into
- * the trail, a second the VP-Product Reviewer pass critiques the draft unconditionally, the VP-Product Reviewer integrates the critique, and
- * one blitz-em reads the trail for readiness. The run ends at a terminal Ratify phase that returns
- * ready drafts in `awaitingRatification` and ratifies nothing.
+ * Every seed in `args.seeds`, one fire: the VP-Product Reviewer (`coordinator:vp-product`) drafts the OKR into the
+ * trail, the APM (`coordinator:apm`) critiques unconditionally, the VP-Product Reviewer integrates, one blitz-em gates
+ * readiness, a terminal Ratify phase returns ready drafts in `awaitingRatification`.
  *
- * Negative-spec — what this is NOT:
- *   - NOT a goal store writer. A draft lives in the trail; it becomes a goal only when the
- *     skill's lander runs over a recorded the VP-Product Reviewer ratification. No goal-store write happens here.
- *   - NOT the ratifier. The VP-Product Reviewer ratifies an OKR; the skill driver dispatches the VP-Product Reviewer once over the whole set
- *     and records each answer in <trailDir>/ratification.json. A seed's stated objective is input
- *     the VP-Product Reviewer may refine; the VP-Product Reviewer's version is what lands.
- *   - NOT a place where the EM gates mid-run. Critique and integration fire unconditionally
- *     (tripwire: A-BLITZ-WAVE-THAT-GATES-ON-THE-EM-IS-NOT-A-BLITZ).
- *   - NOT plan-blitz. It carries no plan gate, XS dispatch, premise check or replan machinery.
+ * NOT a goal store writer (the skill's lander writes after a recorded the VP-Product Reviewer ratification), NOT the
+ * ratifier (the driver dispatches the VP-Product Reviewer once over the set and records <trailDir>/ratification.json;
+ * the VP-Product Reviewer's version is what lands), NOT an EM-gated wave (A-BLITZ-WAVE-THAT-GATES-ON-THE-EM-IS-NOT-A-BLITZ),
+ * NOT plan-blitz.
  *
- * args contract (bound by workflow.bind_args; this script declares no top-level `args`):
- *   {
- *     repoRoot: string,             // ABSOLUTE. REQUIRED; the run refuses without it. Every brief
- *                                   //  anchors repo-relative paths here, because an agent
- *                                   //  otherwise resolves them against the driver shell cwd.
- *     trailDir: string,             // ABSOLUTE. REQUIRED. Drafts, critiques and the readiness
- *                                   //  record are written here; the caller scaffolds it.
- *     provisionSidecarCli: string,  // ABSOLUTE resolved `coordinator-doc-new` invocation. REQUIRED;
- *                                   //  the run refuses without it, so the critic never invents
- *                                   //  a sidecar root.
- *     interactionMode: string,      // hands-on | pm | ceo. Bound as-is; ratifierFor derives the
- *                                   //  `approver` the result reports (always `vp-product`). Any
- *                                   //  other value throws.
- *     pluginAgentsAvailable: bool,  // whether coordinator:* agent types resolve. Defaults true;
- *                                   //  only an explicit false disables them.
- *     seeds: [ { id, path, kind: 'goal-seed' | 'sizing', intent } ]
- *   }
- *
- * Invocation (scriptPath resolves through the plugin root, never a repo-relative prefix):
- *   Workflow({
- *     scriptPath: `${CLAUDE_PLUGIN_ROOT}/workflows/goal-blitz.mjs`,
- *     args: { repoRoot: "/abs/repo", trailDir: "/abs/repo/state/goal-blitz/<stamp>",
- *             provisionSidecarCli: "/abs/settings-home/bin/coordinator-doc-new",
- *             interactionMode: "hands-on", pluginAgentsAvailable: true,
- *             seeds: [ { id: "...", path: "state/handoffs/...md", kind: "goal-seed", intent: "..." } ] }
- *   })
+ * args (bound by workflow.bind_args): repoRoot (ABSOLUTE, REQUIRED; briefs anchor paths here),
+ * trailDir (ABSOLUTE, REQUIRED), provisionSidecarCli (ABSOLUTE `coordinator-doc-new`, REQUIRED),
+ * interactionMode (hands-on|pm|ceo; ratifierFor derives approver `vp-product`; other values throw),
+ * pluginAgentsAvailable (default true), seeds: [{ id, path, kind: 'goal-seed'|'sizing', intent }].
+ * scriptPath resolves through `${CLAUDE_PLUGIN_ROOT}/workflows/goal-blitz.mjs`, never a repo-relative prefix.
  *
  * Returns: { ready, pulled, rework, awaitingRatification, ratified, approver, incidents, trailDir }
  */
@@ -55,15 +25,40 @@
 // phase declared after it.
 export const meta = {
   name: 'goal-blitz',
-  description: 'One batched goal-setting run: the VP-Product Reviewer authors each OKR, a second the VP-Product Reviewer pass critiques every draft unconditionally, the VP-Product Reviewer integrates, a sonnet agent gates readiness, and one terminal Ratify phase hands ready drafts to the VP-Product Reviewer for ratification.',
+  description: 'One batched goal-setting run: the VP-Product Reviewer authors each OKR, the APM critiques every draft, the VP-Product Reviewer integrates, a sonnet agent gates readiness, a terminal Ratify phase hands ready drafts to the VP-Product Reviewer.',
   phases: [
-    { title: 'Draft', detail: 'One the VP-Product Reviewer author per seed. Sets the Objective and Key Results from the seed context and writes the draft into the trail, never into the goal store.' },
-    { title: 'Critique', detail: 'One further the VP-Product Reviewer pass per draft, fired unconditionally. Per-element PASS, FLAG or REJECT and a set verdict of GO, REVISE or REFRAME.' },
-    { title: 'Integrate', detail: 'the VP-Product Reviewer applies the REJECT and FLAG rewrites to the draft, or accepts a FLAG with a written rationale.' },
+    { title: 'Draft', detail: 'One the VP-Product Reviewer author per seed writes the Objective and Key Results into the trail, never the goal store.' },
+    { title: 'Critique', detail: 'One APM pass per draft, unconditional. Per-element PASS, FLAG or REJECT; set verdict GO, REVISE or REFRAME.' },
+    { title: 'Integrate', detail: 'the VP-Product Reviewer applies the REJECT and FLAG rewrites, or accepts a FLAG with a written rationale.' },
     { title: 'Readiness gate', detail: 'One sonnet agent over the trail. Per draft: ready, pulled with a reason, or rework.' },
-    { title: 'Ratify', detail: 'Terminal gate. Returns ready drafts in awaitingRatification and ratifies nothing; the VP-Product Reviewer ratifies once over the whole set.' },
+    { title: 'Ratify', detail: 'Terminal gate. Returns ready drafts in awaitingRatification; ratifies nothing.' },
   ],
 }
+
+// BEGIN workflow-shared (synced from workflows/_shared/fanout-helpers.mjs)
+// Model tiers. Sonnet is the default; haiku only for schema-bound read-only legs on the leg-register
+// floor; opus is PM-gated and every opus site carries an `opus-ruling: <ruling ref>` and an `opus-justified: <reason>` comment.
+const TIER = {HAIKU: 'haiku', SONNET: 'sonnet', OPUS: 'opus'}
+// Split items into batches of at most maxPerAgent (default 10); one batch is one agent's work.
+const batchItems = (items, {maxPerAgent = 10} = {}) => {
+  const n = Math.max(1, Math.floor(maxPerAgent)), out = []
+  for (let i = 0; i < items.length; i += n) out.push(items.slice(i, i + n))
+  return out
+}
+// A fanned-out agent returns a pointer, never its payload.
+const PATH_SUMMARY_SCHEMA = {type: 'object', properties: {path: {type: 'string'}, summary: {type: 'string', maxLength: 400}, counts: {type: 'object', additionalProperties: {type: 'number'}}}, required: ['path', 'summary']}
+// Append to a prompt: instructs the agent to write its payload to a file and return path + summary.
+const pathSummary = prompt => `${prompt}\n\nWrite your full payload to a file under your sidecar/scratch directory and return ONLY {path, summary, counts}: path is that file, summary is at most 400 characters, counts is a flat object of numbers. Never inline the payload in your reply.`
+// Replace every occurrence of slot with batonId through a string, array or plain-object tree.
+const fillBaton = (value, batonId, slot) => {
+  if (typeof value === 'string') return value.split(slot).join(batonId)
+  if (Array.isArray(value)) return value.map((v) => fillBaton(v, batonId, slot))
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, fillBaton(v, batonId, slot)]))
+  }
+  return value
+}
+// END workflow-shared
 
 // The Workflow tool's `args` declares no type, so a JSON object can arrive as its serialized
 // text. Bound under its own name: a module-scope redeclaration of `args` is a SyntaxError on any
@@ -78,9 +73,7 @@ if (!parsedArgs || typeof parsedArgs !== 'object') {
 
 const INTERACTION_MODES = ['hands-on', 'pm', 'ceo']
 
-// The single place the ratifier is derived. The VP-Product Reviewer (the VP Product agent) sets and ratifies every OKR,
-// so every valid mode maps to `vp-product`. An unknown mode throws rather than defaulting: a
-// silent default would route a goal to the wrong confirmer.
+// Every valid mode maps to `vp-product`; an unknown mode throws (a silent default misroutes the goal).
 function ratifierFor(interactionMode) {
   if (!INTERACTION_MODES.includes(interactionMode)) {
     throw new Error(
@@ -103,9 +96,7 @@ const PROVISION_SIDECAR_CLI =
     : null
 const seeds = Array.isArray(parsedArgs.seeds) ? parsedArgs.seeds.filter((s) => s && s.id) : []
 
-// `pluginAgentsAvailable` defaults true, matching emit-goal-fire.py; only an explicit false turns it
-// off. An unresolvable agentType yields a generic agent wearing the role label, and nothing reports
-// the substitution.
+// Defaults true (emit-goal-fire.py); an unresolvable agentType silently yields a generic agent.
 const PLUGIN_AGENTS = parsedArgs.pluginAgentsAvailable !== false
 
 function withRole(agentType) {
@@ -182,14 +173,10 @@ const READINESS_SCHEMA = {
   },
 }
 
-// An agent outage manufactures verdicts rather than merely losing a run, so every dispatch is
-// counted: a rejected call, a null resolution and an unrecoverable missing tldr all land here and
-// ride the result as `incidents`. Rejections are re-thrown so each caller keeps its own handling.
+// Failures ride the result as `incidents`; rejections are re-thrown.
 const agentIncidents = []
 
-// A role that returned no tldr gets a code-built WARN tldr that points at its own sidecar, which is
-// the record; an agent restatement of it adds nothing a reader of the sidecar lacks, and a recovered
-// fallback never flips a leg's completion. No sidecar path means no tldr (null) and an incident.
+// No tldr: code-built WARN tldr pointing at the sidecar; never flips completion. No sidecar path: null plus an incident.
 function tldrFallback(label, sidecarPath) {
   if (!sidecarPath) return null
   return {
@@ -242,8 +229,7 @@ function trackAgent(label, call) {
 
 const slug = (text) => String(text).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 
-// Paths in the trail are ASSIGNED, never chosen: two agents picking the obvious filename collide
-// and the later write silently destroys the earlier.
+// Trail paths are ASSIGNED, never chosen: agents picking the same filename destroy each other's write.
 const draftPathFor = (seedId) => `${TRAIL_DIR}/${slug(seedId)}.goal-draft.yaml`
 const critiquePathFor = (seedId) => `${TRAIL_DIR}/${slug(seedId)}.critique.md`
 const integratePathFor = (seedId) => `${TRAIL_DIR}/${slug(seedId)}.integrate.md`
@@ -284,7 +270,7 @@ this brief and over anything you read earlier, and name it in your return.`
 const PROVISION_CLI_RULE = `Get your findings sidecar path by running this EXACT resolved invocation, and do not
 construct one by hand:
 
-    ${PROVISION_SIDECAR_CLI} --type review-findings --agent-type vp-product
+    ${PROVISION_SIDECAR_CLI} --type review-findings --agent-type apm
 
 It prints the repo-relative sidecar path on stdout. Use what it prints and return it verbatim as
 \`sidecarPath\`. On failure, report the failure verbatim and stop; never invent a path.`
@@ -302,8 +288,8 @@ resolve a decision that belongs to the VP-Product Reviewer. Your characteristic 
 draft with an unresolved REJECT, or a REFRAME set verdict, is rework, not ready.`,
 }
 
-// Critic brief: goal-setting Step 2 text, adapted: the critic is a separate the VP-Product Reviewer pass over the VP-Product Reviewer's draft.
-const CRITIC_BRIEF = `You are the VP-Product Reviewer (VP of Product, they/them), in a separate critic pass over an OKR set the VP-Product Reviewer authored.
+// Critic brief: goal-setting Step 2 text, adapted: the critic is the APM, reading the VP-Product Reviewer's draft.
+const CRITIC_BRIEF = `You are a general-purpose agent taking the APM (Assistant Product Manager) lens, critiquing an OKR set the VP-Product Reviewer (VP of Product) authored.
 You are reviewing the draft OKR set for strategic rigor.
 Your job is to act as a full OKR critic, not a rubber-stamp.
 
@@ -354,18 +340,13 @@ if (seeds.length === 0) {
   return emptyResult({ empty: true })
 }
 
-// ---------------------------------------------------------------------------
-// Draft, Critique, Integrate: one chain per seed, seeds in parallel.
-// A chain that fails or blocks is recorded as rework for that seed alone and never halts a peer.
-// ---------------------------------------------------------------------------
+// Draft, Critique, Integrate: one chain per seed, in parallel; a failed chain is rework for that seed alone.
 
 async function runSeed(seed) {
   const seedId = seed.id
   const draftPath = draftPathFor(seedId)
 
-  // the VP-Product Reviewer is pinned model 'opus' at effort 'high', never inherited and never low: an unpinned author
-  // takes whatever the firing session was set to, and the VP-Product Reviewer owes the OKR's shape, the one artifact
-  // everything downstream judges. Pin rationale: docs/wiki/planning/goal-blitz.md.
+  // the VP-Product Reviewer is pinned model 'opus', effort 'high', never inherited or low. Rationale: docs/wiki/planning/goal-blitz.md.
   const drafted = await trackAgent(`vp-product:draft:${seedId}`, agent(
     `${ROLE_CONTRACTS['yk-author']}
 
@@ -393,7 +374,7 @@ ${NO_GOAL_WRITE_RULE}
 ${MID_RUN_DIRECTION_RULE}
 ${REPO_ROOT_RULE}
 ${TRAIL_RULE(draftPath)}`,
-    { model: 'opus', effort: 'high', ...withRole('coordinator:vp-product'),
+    { model: 'opus', effort: 'high', /* opus-justified: the VP-Product Reviewer authors and integrates the OKR; opus-ruling: G-EM-2026-10-27-R3 */ ...withRole('coordinator:vp-product'),
       label: `vp-product:draft:${seedId}`,
       phase: 'Draft',
       schema: DRAFT_SCHEMA,
@@ -404,7 +385,7 @@ ${TRAIL_RULE(draftPath)}`,
   }
 
   // Fires unconditionally: the EM is not asked whether a draft deserves a critic.
-  const critique = await trackAgent(`vp-product:critique:${seedId}`, agent(
+  const critique = await trackAgent(`apm:critique:${seedId}`, agent(
     `${CRITIC_BRIEF}
 
 The draft under review is at: ${drafted.draftPath}
@@ -414,8 +395,8 @@ Do not edit the draft.
 ${PROVISION_CLI_RULE}
 ${REPO_ROOT_RULE}
 ${TRAIL_RULE(critiquePathFor(seedId))}`,
-    { model: 'opus', effort: 'high', ...withRole('coordinator:vp-product'),
-      label: `vp-product:critique:${seedId}`,
+    { model: 'sonnet', ...withRole('general-purpose'),
+      label: `apm:critique:${seedId}`,
       phase: 'Critique',
       schema: CRITIQUE_SCHEMA,
     },
@@ -442,7 +423,7 @@ ${NO_GOAL_WRITE_RULE}
 ${MID_RUN_DIRECTION_RULE}
 ${REPO_ROOT_RULE}
 ${TRAIL_RULE(integratePathFor(seedId))}`,
-    { model: 'opus', effort: 'high', ...withRole('coordinator:vp-product'),
+    { model: 'opus', effort: 'high', /* opus-justified: the VP-Product Reviewer authors and integrates the OKR; opus-ruling: G-EM-2026-10-27-R3 */ ...withRole('coordinator:vp-product'),
       label: `vp-product:integrate:${seedId}`,
       phase: 'Integrate',
       schema: INTEGRATE_SCHEMA,
@@ -467,9 +448,7 @@ const settled = chains.filter(Boolean)
 const failedChains = settled.filter((c) => c.verdict === 'rework')
 const gated = settled.filter((c) => c.verdict !== 'rework')
 
-// ---------------------------------------------------------------------------
 // Readiness gate: one Sonnet group-em-assistant over the whole trail.
-// ---------------------------------------------------------------------------
 
 let verdicts = []
 if (gated.length) {
@@ -494,9 +473,7 @@ a draft. A draft is never ready while a REJECT is unresolved or its set verdict 
 also enforced after you answer, and your disagreement is recorded rather than acted on.
 ${REPO_ROOT_RULE}
 ${TRAIL_RULE(readinessPathFor())}`,
-    // Sonnet: blitz-em is Opus-only, so the gate wears the blitz-em ROLE_CONTRACT in its brief.
-    // Verdicts are evidence-bound and REJECT/REFRAME readies are overridden after the answer;
-    // no authored prose remains that needs Opus.
+    // Sonnet wearing the blitz-em ROLE_CONTRACT (blitz-em is Opus-only); REJECT/REFRAME readies are overridden after.
     { model: 'sonnet', ...withRole('coordinator:group-em-assistant'),
       label: 'readiness:goal-blitz',
       phase: 'Readiness gate',
@@ -506,8 +483,7 @@ ${TRAIL_RULE(readinessPathFor())}`,
   verdicts = (gateResult && gateResult.verdicts) || []
 }
 
-// Mechanical reconciliation only ever makes a verdict stricter: a gate that favours its own
-// output must not be able to promote a REFRAME or an unresolved REJECT to ready.
+// Reconciliation only makes a verdict stricter: never promote a REFRAME or unresolved REJECT to ready.
 const verdictById = new Map(verdicts.map((v) => [v.seedId, v]))
 const ready = []
 const pulled = []
@@ -533,10 +509,7 @@ for (const c of gated) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Ratify: the terminal gate and the only one. Nothing is ratified here; ready drafts are handed
-// to the skill driver, which dispatches the ratifier named by `approver` once over the whole set.
-// ---------------------------------------------------------------------------
+// Ratify: terminal gate; nothing is ratified here, ready drafts go to the driver.
 
 return {
   ready,

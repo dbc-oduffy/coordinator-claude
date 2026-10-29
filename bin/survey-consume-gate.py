@@ -139,10 +139,44 @@ def _invoke_op(claude_klabauter_root: str, op: str, params: dict[str, Any]) -> t
     return 0, result if isinstance(result, dict) else None, None
 
 
+def _rag_registration(repo_root: str) -> dict[str, Any]:
+    """`rag_registered` plus an unregistered-repo `defect` when project-rag is on
+    the box and `repo_root` is absent from its registry; `{}` (no keys) when
+    project-rag is absent or anything fails. One JSON read, no subprocess.
+    """
+    try:
+        try:
+            from coordinator_core.install import rag_fleet_registration as reg
+        except ImportError:
+            sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+            from coordinator_core.install import rag_fleet_registration as reg
+
+        rag = reg.detect_project_rag()
+        if rag is None:
+            return {}
+        root = reg._canon(repo_root)
+        registered = root in reg.registered_roots(rag)
+        out: dict[str, Any] = {"rag_registered": registered}
+        if not registered:
+            out["defect"] = {
+                "kind": "unregistered-repo",
+                "fix": reg.remedy_line(root.name),
+            }
+        return out
+    except Exception:
+        return {}
+
+
 def _rag_predicate(repo_root: str) -> dict[str, Any]:
     """Single-authority RAG-present predicate — a disk check, no subprocess.
 
-    Present means `.project-rag/graph.db` (or the artifact the manifest names)
+    Adds `rag_registered`/`defect` only when project-rag is detected.
+    """
+    return {**_rag_index_state(repo_root), **_rag_registration(repo_root)}
+
+
+def _rag_index_state(repo_root: str) -> dict[str, Any]:
+    """Present means `.project-rag/graph.db` (or the artifact the manifest names)
     exists and is non-empty. A missing, unreadable or malformed manifest falls
     back to the `graph.db` default. Any error reports `rag_present: false`,
     never a silent skip of the gate.

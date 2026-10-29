@@ -48,10 +48,14 @@ tests/test_function_gate_parse_sweep.py
 tests/test_function_gate_wiring.py
 tests/test_mirror_native_inject_fidelity.py
 tests/test_percolate_identity_check_gate.py
+tests/test_percolate_mirror_push_publish_slot.py
+tests/test_percolate_round_child_slot_wire.py
+tests/test_percolate_round_publish_slot.py
 tests/test_percolate_round_seed_names_nested_rename.py
 tests/test_publish_door_name_map.py
 tests/test_publish_gate_predicate_symmetry.py
 tests/test_publish_identity_check_source_refresh.py
 tests/test_publish_identity_check_staged_deadlock.py
 tests/test_publish_preswap_payload_gate.py
+tests/test_publish_sequencing_slot.py
 tests/test_publish_token_index_maintenance.py

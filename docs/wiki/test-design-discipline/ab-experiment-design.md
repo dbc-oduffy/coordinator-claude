@@ -41,6 +41,14 @@ A/B harnesses look clean — flip a flag, run two banks, compare. In practice th
 
 ---
 
+## 4. Stage the Run: Canary, Small Probe, Then Spend
+
+**Failure shape.** A first run of a new harness or formula is launched at full width (many arms, many reps). The harness cannot yet measure, so the spend returns a void or an unscorable result and the formula's merit stays unknown.
+
+**Rule.** Stage it: a canary first, then a small probe (about one pair per size class) on the engine that carries the fixes. The probe's pass bar is **measurability**, not the score: the cell completes, no harness void, no halt that needs an EM, full judges, an archived transcript. Replay old failure cells offline first, since they cost no cell spend. Extra reps, arms or a rotation need a fresh PM go on the probe report.
+
+---
+
 ## Cross-References
 
 - [`dogfooding-doctrine`](../lesson-triage/dogfooding-doctrine.md) — fix-through validation; A/B is one shape of dogfood.

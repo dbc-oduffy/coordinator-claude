@@ -68,7 +68,7 @@ Write each topic to its own file at {{scratch_dir}}/{{subject}}-scout-<topic id>
 **Contradictions found:**
 - <Source A says X, Source B says Y> — needs verifier resolution
 
-**Recommended for deep read (top 3-5):**
+**Recommended for deep read (every source that needs it; no count cap):**
 1. <URL> — <why this needs deeper analysis>
 2. ...
 

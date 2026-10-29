@@ -31,7 +31,7 @@ When a PreToolUse hook needs to block a tool call, emit JSON to stdout — not a
 
 The flat `{"permissionDecision":"deny"}` shape (no `hookSpecificOutput` wrapper) is an older API form that silently passes through. Always use the nested `hookSpecificOutput` wrapper.
 
-Exit codes do NOT block-with-a-clean-reason. **exit 1** is non-blocking — the tool call proceeds and stderr goes to the *user terminal* only (advisory; the model never sees it). **exit 2** at PreToolUse *does* block, but the reason is delivered as raw stderr into the model's turn, not surfaced in the Claude Code permission UI (and exit-2 semantics vary by hook event — see § Friction-as-warning for the full PreToolUse-vs-PostToolUse table). JSON deny (stdout + exit 0) is the protocol that blocks the call AND surfaces a structured reason in the Claude Code UI — prefer it for any PreToolUse block. (In-tree witness for exit-2-blocks: `check-claude-md-size.py:6`.)
+Exit codes do NOT block-with-a-clean-reason. **exit 1** is non-blocking — the tool call proceeds and stderr goes to the *user terminal* only (advisory; the model never sees it). **exit 2** at PreToolUse *does* block, but the reason is delivered as raw stderr into the model's turn, not surfaced in the Claude Code permission UI (and exit-2 semantics vary by hook event — see § Only a protected act may deny for the full PreToolUse-vs-PostToolUse table). JSON deny (stdout + exit 0) is the protocol that blocks the call AND surfaces a structured reason in the Claude Code UI — prefer it for any PreToolUse block. (In-tree witness for exit-2-blocks: `check-claude-md-size.py:6`.)
 
 The `permissionDecisionReason` field is required — hooks that omit it produce a terse "denied" with no context, which is harder to diagnose when an agent hits the block.
 
@@ -141,25 +141,15 @@ Hook scripts have two registration surfaces: `hooks/hooks.json` (plugin-distribu
 
 Doctrinal pair: disable in BOTH surfaces AND remove the script file in the same commit. If you remove the script first, the registration edits follow in the same commit. For temporary disable rather than permanent removal, comment out the entries rather than deleting the script.
 
-## Friction-as-warning needs a typed override, not a toggle
+## Only a protected act may deny; everything else records
 
-When you want a hook to *change EM behavior* (not just leave a paper trail), block-with-typed-justification is the only shape that works. Warn-only fails silent — stderr at exit 0 goes to the user's terminal, not back into the model's context, so the EM never reads it.
+A hook denies (PreToolUse `permissionDecision: deny`, Stop `decision: block`) only an act in the closed enum `PROTECTED_ACTS` (`hooks/scripts/_protected_act.py`): `box-degrading` (filling the disk, runaway processes, a true whole-filesystem scan, destroying data or git history) or `irreversible-external` (push or PR to a non-owned remote, p4 submit, mail, release, publish into a mirror). The roster's `protected_acts` map declares each deny-capable guard's act. Every other would-be deny calls `advise_and_record(guard_id, deny_text, event)`: one line to `.coordinator-local/hook-friction.jsonl`, nothing injected into context. Stop and SubagentStop hooks record and never block outside the enum. See `A-DENY-WITHOUT-A-PROTECTED-ACT-IS-ADVICE`.
 
-The two effective shapes:
+The exit-code channels, for the hooks that may still speak:
 
-1. **Hard block + typed env-var override.** Hook emits a JSON deny (`{"permissionDecision":"deny", "permissionDecisionReason":"<four questions>"}`) unless `COORDINATOR_<SCOPE>_PUNT="<plain-English sentence>"` is set. Trivial overrides ("1", "ok", strings under ~12 chars) are rejected by the reason-parser — the cognitive load IS the design point. The EM must articulate *what is being punted* while the deny reason sits in context.
-
-2. **Exit 2 with stderr.** The Claude Code runtime treats exit 2 as "feed stderr into the model's next turn." This reaches the model — but **whether it also blocks depends on the hook event:**
-   - **PreToolUse `exit 2` BLOCKS** the tool call (stderr → model). Wrong altitude for a pure warn.
-   - **PostToolUse `exit 2` does NOT block** — the tool already ran, the file is on disk, only the stderr reaches the model. This is the genuine warn-reaches-the-model-**without**-blocking channel.
-
-   So a "warn, never block" hook whose audience is the EM must fire at **PostToolUse** and `exit 2`. Canonical example: the unauthorized-handoff nudge, folded into `hooks/scripts/postuse-advisory-dispatch.py` (PostToolUse(*), narrows itself to Write on `state/handoffs/`|`tasks/spinoffs/`) — see `coordinator/docs/wiki/coordinator-tripwires/` § `NUDGE-UNAUTHORIZED-HANDOFF`.
-
-Stderr at exit 0 is the failure mode — the message lands in the user terminal but never reaches the model that just made the decision. If the EM is the audience, the EM has to be forced to read it.
-
-The cost isn't keystrokes — it's the moment of friction that surfaces the lazy-punt before it becomes a queue entry. If writing the override sentence feels harder than just fixing the underlying thing, the hook worked.
-
-Pattern generalizes to any "don't reflexively reach for this surface" tripwire: the improvement-queue-write nudge and similar advisory hooks — all use block-with-override or exit-2-with-stderr; none use stderr-at-exit-0. (The daily-branch-block hook is retired; replaced by an active-behavior SessionStart branch-cut hook.)
+- **PreToolUse `exit 2` BLOCKS** the tool call (stderr → model); JSON deny is the structured form of the same block.
+- **PostToolUse `exit 2` does NOT block** — the tool already ran, only the stderr reaches the model. It is the one channel that reaches the model without blocking; spend it only on something the agent can act on in the next call. Canonical example: the unauthorized-handoff nudge in `hooks/scripts/postuse-advisory-dispatch.py` — see `coordinator/docs/wiki/coordinator-tripwires/` § `NUDGE-UNAUTHORIZED-HANDOFF`.
+- Stderr at exit 0 reaches the user terminal only, never the model.
 
 ### Reliability of the gating signal must match the cost of being wrong
 

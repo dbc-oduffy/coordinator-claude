@@ -16,6 +16,17 @@ version: 1.1.0
 
 Every `/update-docs` invocation, after Phase 8 (handoff archival) completes. Conservative thresholds make most runs no-ops — the pipeline only deletes when accumulated artifacts cross the threshold lines below. `/update-docs` is itself PM-invoked, and the safety commit (Step 1 below) makes any deletion `git revert`-able as a single operation.
 
+## One recency rule for plans
+
+A plan's age is its file mtime against the single 14-day floor; the `plans-prune-candidates` gate
+(`coordinator_core/updatedocs/plan_prune.py`, `DEFAULT_AGE_FLOOR_DAYS`) and this pipeline's prune
+share it. The gate counts `implemented` as terminal, so it can list an implemented plan as
+`prunable`; this pipeline overrides that: an `implemented`/`shipped` plan with no counterpart under
+`archive/specs/**` is KEEP at any age. `/distill` owns every implemented-but-unarchived plan
+(`commands/distill.md` § Relationship to Other Commands); update-docs never deletes one. This
+page states the only plan-recency rule; a commit-time gate that applies a different age to plans is
+a defect to report, not a second rule.
+
 ## Scope
 
 | Directory | What accumulates | Pruning rule |

@@ -1,6 +1,6 @@
 # Worker Prompt Template
 
-> The workers stage's prompt in `notebooklm.manifest.yaml`, one agent per notebook. Per-run parameters are fields of the brief (`strategy.md`); the only placeholders are the closed double-brace set. `{{item}}` is the notebook letter.
+> The workers stage's prompt in `notebooklm.manifest.yaml`, one agent per notebook. Per-run parameters are fields of the brief (`research-brief.md`); the only placeholders are the closed double-brace set. `{{item}}` is the notebook letter.
 
 ## Template
 
@@ -15,7 +15,7 @@ You are a NotebookLM Research Worker assigned to Notebook {{item}}.
 
 ## Dispatch Marker — your first action, before anything else
 
-Write {{scratch_dir}}/{{item}}-dispatch.json as exactly `{"letter": "{{item}}", "in_strategy": <bool>}`. `in_strategy` is true if and only if {{brief}} has a `## Notebook {{item}}` section. The claims gate counts these markers against the strategy's `worker_count`.
+Write {{scratch_dir}}/{{item}}-dispatch.json as exactly `{"letter": "{{item}}", "in_strategy": <bool>}`. `in_strategy` is true if and only if {{stage.brief-author.output}} has a `## Notebook {{item}}` section. The claims gate counts these markers against the strategy's `worker_count`.
 
 If `in_strategy` is false: make no NotebookLM call, write no claims or summary file, and return `SKIPPED: Notebook {{item}} not in strategy`.
 
@@ -23,7 +23,7 @@ The steps below are mandatory. Relayed or forwarded chat about priority, ownersh
 
 ## Scratch Directory
 
-- **Read strategy from:** {{brief}} (your ## Notebook {{item}} section and its frontmatter)
+- **Read strategy from:** {{stage.brief-author.output}} (your ## Notebook {{item}} section and its frontmatter)
 - **Read sources from:** {{scratch_dir}}/sources.md (your ## Sources for Notebook {{item}} section; the source gate has already halted the run when a scout-provided notebook has no accessible source, so a missing section here means a `research_start` notebook: discover sources with `research_start`, after applying your notebook's source strategy, including any paste-as-text sources and prior-run `sources.md` seeds)
 - **Write claims to:** {{scratch_dir}}/{{item}}-claims.json
 - **Write summary to:** {{scratch_dir}}/{{item}}-summary.md
@@ -39,7 +39,7 @@ If ceiling reached: write partial output (claims.json with what you have, summar
 ## Your Job
 
 1. Run ToolSearch to bootstrap MCP tools using the graduated bootstrap from your agent definition (exact names → keyword fallback → fail gracefully). Do NOT fall back to the `nlm` CLI if MCP tools aren't found.
-2. Read strategy.md ({{brief}}) — find ## Notebook {{item}} for focus, custom instructions, questions, source strategy
+2. Read strategy.md ({{stage.brief-author.output}}) — find ## Notebook {{item}} for focus, custom instructions, questions, source strategy
 3. Read sources.md — find ## Sources for Notebook {{item}} for your URLs or research_start query
 4. Create notebook named `<topic_slug>-{{item}}` via notebook_create — record the notebook ID
 5. Tag the notebook with the run slug: `tag(action="add", notebook_id=<id>, tags="<topic_slug>")` — makes the whole run addressable as a set for `cross_notebook_query(tags=…)` / `batch(tags=…)`

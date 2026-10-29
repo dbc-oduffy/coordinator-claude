@@ -61,7 +61,7 @@ The two paths this pipeline handles:
 
 ## Orphan-Promotion Handoffs as Live Specs
 
-Orphan-promotion handoffs (handoffs that promote in-flight work into a spec for another session to continue) function as **live specs** — concurrent execution can outpace commit cadence. Don't archive them on a "looks consumed" hunch; require an explicit consumption signal (successor's `Continuing from`, /pickup having moved them to `archive/handoffs/`, or PM direction). The `pickup_ready: true` veto above is the mechanical guard for fresh orphan-promotions.
+Orphan-promotion handoffs (handoffs that promote in-flight work into a spec for another session to continue) function as **live specs** — concurrent execution can outpace commit cadence. Don't archive them on a "looks consumed" hunch; require an explicit consumption signal (successor's `Continuing from`, /pickup having moved them to `archive/handoffs/`, or PM direction). `pickup_ready: true` is a positive pickup-authorized signal, not a veto (see the negative-spec above); the guard for fresh orphan-promotions is the explicit-consumption-signal requirement itself.
 
 ## `.gitignore` Check
 

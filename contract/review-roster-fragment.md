@@ -5,6 +5,21 @@ dispatches, and in what order. `dispatch.emit` (the engine) reads the `execute_r
 from here and composes it as stages of the same emitted workflow every executed plan gets — size
 does not select a roster; every plan is reviewed, at every t-shirt size.
 
+## `plan_review`
+
+`plan_review` is the plan-altitude roster; the engine's `plan_blitz_args._plan_review_roster`
+forwards it to plan-blitz as `parallelReview`. `tiers` maps each t-shirt size XS..XXL to
+`reviewers`, ordered `{agentType, model}` entries: the first is the lead; the block is the only
+source of reviewer models bar a forwarded `parallelReview` model, which overrides it per agent type. At XL and XXL only, one further entry carries `role: second-lead` and
+`brief: lead`: a separate read of the plan on sonnet (`coordinator:plan-reviewer`), dispatched
+with the lead's review brief and in the same parallel wave, with the lead's output withheld from
+it (plan-blitz's default path; its chatty wave dispatches the entry as an ordinary applying reviewer, untagged). Its findings are tagged `second-lead` and go through adjudication into the merged revise;
+no tier below XL has the entry.
+`signal_reviewers` maps a review signal to the domain reviewer that replaces the lead slot at M
+and above. `lead_round_cap: null` means the lead has no round cap. `revise` is one merged step
+after one parallel review wave. `tests/test_plan_review_roster.py` pins the block against the
+ladder and the agents roster.
+
 ## Consumer version
 
 `schema_version: 6` carries a single `execute_review` block and no top-level `tiers` (v4's
@@ -20,9 +35,9 @@ only the JSON shape). No entry carries one today. The per-slice code-reviewer re
 Delivery claims are checked by that reviewer's brief-conformance rows, not by a separate wave
 member.
 
-Kira carries `min_tshirt: "L"`: the integration stage runs on a plan sized L or above; a plan whose
-size cannot be derived (a grind row) does not run Kira. `tiers` cannot express L-and-above, because
-the engine maps M and L to one tier; do not simplify `min_tshirt` to a `tiers` array.
+Kira (`overengineering-reviewer`) is not rostered at any size; Kira runs only when the EM or PM
+names Kira. A `min_tshirt` entry key, when one is added, gates on size; do not simplify it to a
+`tiers` array, because the engine maps M and L to one tier.
 
 ## Required on every code-landing emit
 
@@ -36,8 +51,8 @@ Review is guaranteed by the emitted script, never by an EM or a ceremony remembe
 
 ## Stages
 
-`execute_review.stages` is an ORDERED list of exactly four kinds: `prep`, `review-wave`,
-`integration`, then `judge`. Prep runs first (it partitions the diff and provisions every sidecar
+`execute_review.stages` is an ORDERED list of exactly three kinds: `prep`, `review-wave`, then
+`judge`. Prep runs first (it partitions the diff and provisions every sidecar
 the rest read). The review wave holds only the per-slice code reviewers; each
 applies and verifies its own slice's findings (`applies: own-slice`). In a plan-path run an
 **executor group** is one emit wave: its slice reviewers start once every row writing any of its
@@ -46,17 +61,16 @@ on every row. The scoped verify leg overlaps whole-diff review and re-verify; re
 tests over every group's edits and governs any test covering a review-edited file. Each verify
 call is bounded at 300 s (`VERIFY_WALL_BUDGET_S`); an overrun reads `indeterminate`/`error`, never
 a pass. Chatty, `writes_under` and review-only runs keep the serial review (all slices after the
-last row). The integration stage holds Kira alone, the final Opus pass over the whole diff after
-the last row (`applies: whole-diff`): it may change code and must ensure the plan's target is met. Its
-exact-text Edits fail rather than clobber a stale read, so it re-reads and re-applies. Named-signal
+last row). There is no whole-diff integration stage. Named-signal
 personas (`review-signals.json`) are not rostered; they stay reachable through manual
 `/review --surface diff`. `tests/test_review_roster_fragment.py` enforces the stage order.
 
 `judge` is last and holds exactly one agent, `coordinator:exit-criterion-judge`, returning
 `terminal-judge-result`. It reads the plan's prime exit criterion against the tree and the PM's
-recorded words, and writes into the run record's `criterion` leg. It never halts the wave: a
-`not_met` or `indeterminate` verdict leaves the plan `executing`. It has no `blocking_verdicts`
-row because the composer reads none for it.
+recorded words, and writes into the run record's `criterion` leg. At tier L and above the engine
+withholds the judge stage, keyed to the run tier; the fragment carries no key for it. It never halts
+the wave: a `not_met` verdict (the terminal judge returns `met` or `not_met` only) leaves the plan
+`executing`. It has no `blocking_verdicts` row because the composer reads none for it.
 
 `per: slice` fans the `coordinator:code-reviewer` review-wave entry out over prep's own slice
 list at run time — the fragment names one entry, the run dispatches one call per slice.
@@ -84,7 +98,7 @@ could drift.
 Same purpose as v4: it maps every `agentType` an execute-review stage may dispatch — whether
 roster-fixed or reached by manual `/review` — to the exact verdict string its own charter declares blocking,
 so a consumer never hardcodes agent names or normalises their vocabulary. `code-reviewer` blocks
-on `BLOCKED`; `overengineering-reviewer` and every
+on `BLOCKED`; `overengineering-reviewer` (opt-in) and every
 signal-selectable persona (`staff-eng`, `staff-data-sci`, `senior-front-end`, `staff-ux`) block on
 `REJECTED`, their shared reviewer enum's bottom value.
 

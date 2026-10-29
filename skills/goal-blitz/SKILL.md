@@ -1,6 +1,6 @@
 ---
 name: goal-blitz
-description: "PM-GATED. The VP-Product Reviewer (VP Product) sets, critiques and ratifies OKRs for every goal-seed or goal-setting sizing at once, in one background wave. Or named seeds."
+description: "PM-GATED. The VP-Product Reviewer (VP Product) sets and ratifies OKRs, the APM critiques, for every goal-seed or goal-setting sizing in one background wave, or named seeds."
 description-budget: 320
 version: 1.0.0
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent", "Skill", "Workflow", "AskUserQuestion", "TaskCreate", "TaskUpdate", "TaskGet", "TaskList"]
@@ -10,7 +10,7 @@ argument-hint: "[<seed-id> ...] [--interaction-mode hands-on|pm|ceo]"
 # Goal-blitz — a repo's worth of OKRs, one ratification
 
 Batches `coordinator:goal-setting`: the VP-Product Reviewer (`coordinator:vp-product`, Opus, effort high) sets each OKR
-from the seed's context, a second the VP-Product Reviewer pass critiques it, the VP-Product Reviewer integrates, a blitz-em checks
+from the seed's context, `coordinator:apm` critiques it, the VP-Product Reviewer integrates, a blitz-em checks
 readiness, and the VP-Product Reviewer ratifies the whole set once at the end. A seed's own objective is input the VP-Product Reviewer may refine. Nothing reaches `state/goals/` before
 that ratification. The wave fires from the top-level EM
 only (`A-SKILL-PHASE-NAMES-ITS-ACTOR`).
@@ -67,7 +67,7 @@ notification names — it is the lander's input.
 ### 3. Ratify — once, at the end
 
 The workflow ratifies nothing; it returns ready drafts in `awaitingRatification`. The ratifier is
-**the VP-Product Reviewer** (`coordinator:vp-product`) for every `interactionMode`; the result's `approver` reports `vp-product`. No PM or APM path ships.
+**the VP-Product Reviewer** (`coordinator:vp-product`) for every `interactionMode`; the result's `approver` reports `vp-product`. The APM critique is the one APM path; no PM or APM ratification path ships.
 
 Dispatch the VP-Product Reviewer **once**, at its own pinned effort (an override is refused), over the whole set. Give
 it each ready draft's path (`<trail>/<seed-id>.goal-draft.yaml`) and critique; ask per draft for

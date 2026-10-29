@@ -75,7 +75,7 @@ ladder: `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`.
 
 **Pass `--sizing-object`.** `coordinator-doc-new --type plan` hard-refuses without an explicit `--sizing-object`/`--no-sizing-object`, exit 1, nothing written. The flag also writes the reverse edge onto the cited sizing (plan FK plus status flip).
 
-`Read` the scaffolded file before authoring the body.
+`Read` the scaffolded file before authoring the body. Never declare gitignored `state/perf/` readings as a row's writes: `GITIGNORED-PERF-READINGS-ARE-EVIDENCE-NEVER-A-SHIPPED-WRITE`.
 
 **Invocation point 2 — commit.** Commit the moment the body is saved, *then* proceed to review, per
 `snippets/scoped-commit-route.md` — pathspec exactly `docs/plans/<slug>.md`, subject

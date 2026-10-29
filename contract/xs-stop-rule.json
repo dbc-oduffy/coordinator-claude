@@ -1,0 +1,10 @@
+{
+  "contract": "xs-stop-rule",
+  "stop_rule_present": true,
+  "max_files": 2,
+  "max_lines": 30,
+  "guard_phrase": "the only one: call engine-ask",
+  "stop_action": "engine-ask",
+  "posture": "default-path",
+  "snippet": "coordinator/snippets/agent-role-em.md"
+}

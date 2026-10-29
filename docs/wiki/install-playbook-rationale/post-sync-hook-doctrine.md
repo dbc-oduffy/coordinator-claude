@@ -100,7 +100,7 @@ The canonical example is the `coordinator-claude` post-rsync depersonalise sweep
 every `.md` and `.sh` file in the destination, because persona-name leakage from previous
 rounds accumulates in files not touched by the current delta. Touching only the current
 delta's files would let old leakage accumulate indefinitely (observed 2026-05-17:
-check-persona-names CI failed on eng-director.md, dep-cve-auditor.md etc. that had not been
+check-persona-names CI failed on eng-director.md and other agent files that had not been
 touched since their leakage was introduced). This hook is therefore a full-tree mutating hook,
 and its correctness depends on that scope.
 

@@ -97,7 +97,9 @@ MERGE-target cluster owes retirement at Phase 2 close
 (`residue/source-plan-supersession.md`).
 
 2.1. Scaffold each stub (Shape W, `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`):
-   `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-doc-new.exe" --type roadmap-baton --title "<title>" --roadmap-id <run-id> --stub-id <slug>-<N> --out state/handoffs/<date>_<HHMMSS>_roadmap-<slug>-<N>.md`,
+   PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-doc-new.exe" --type roadmap-baton --title "<title>" --roadmap-id <run-id> --stub-id <slug>-<N> --out state/handoffs/<date>_<HHMMSS>_roadmap-<slug>-<N>.md`;
+   POSIX shell: `"${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/bin/coordinator-doc-new" --type roadmap-baton --title "<title>" --roadmap-id <run-id> --stub-id <slug>-<N> --out state/handoffs/<date>_<HHMMSS>_roadmap-<slug>-<N>.md`;
+   then
    mint the id (`bin/mint-deliverable-id --stub-id "<slug>-<N>"` → `deliverable_id:`), fill the rest
    from 2.1.5's output. **Read `residue/stub-frontmatter-schema-and-field-notes.md` first.**
 
@@ -108,7 +110,8 @@ MERGE-target cluster owes retirement at Phase 2 close
    `A-BATON-IS-NOT-A-SIZING-ARTIFACT`.
 2.1.5. Number stubs in dependency order before writing any — run (Shape W,
    `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`)
-   `& "$env:COORDINATOR_SETTINGS_HOME\bin\roadmap-number-stubs.exe" <edges-file>`
+   PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\roadmap-number-stubs.exe" <edges-file>`;
+   POSIX shell: `"${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/bin/roadmap-number-stubs" <edges-file>`;
    and transcribe its `N`/`sprint`/`wave` output verbatim (multi-sprint boundaries are hand
    judgment). Covers only DECLARED edges. Format: wiki.
 
@@ -142,7 +145,8 @@ MERGE-target cluster owes retirement at Phase 2 close
    product-coupled signal (`PM `-prefix, named stakeholder, decision/policy/scope/
    user-facing language).
 2.6–2.7. Phase 2 close (Shape W, `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`):
-   `& "$env:COORDINATOR_SETTINGS_HOME\bin\audit-roadmap.exe" <run-id>` — one gate, five audits. Exit 1 blocks close. `kind: roadmap-baton` frontmatter must be validator-clean; `roadmap_id` must name an on-disk cluster. **No applicable cluster → scaffold the stub `kind: spinoff`** (never a null `roadmap_id` or placeholder cluster).
+   PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\audit-roadmap.exe" <run-id>`;
+   POSIX shell: `"${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/bin/audit-roadmap" <run-id>` — one gate, five audits. Exit 1 blocks close. `kind: roadmap-baton` frontmatter must be validator-clean; `roadmap_id` must name an on-disk cluster. **No applicable cluster → scaffold the stub `kind: spinoff`** (never a null `roadmap_id` or placeholder cluster).
 2.8. Sequential reviews — same altitude rule and sidecar contract as Step 1.5.5. Domain reviewer
    skippable when its Step-1.5.5 findings are pinned into the stub ACs verbatim AND each stub's
    `coordinator:plan` re-applies the lens at PLAN altitude; record the skip in the roadmap dir.

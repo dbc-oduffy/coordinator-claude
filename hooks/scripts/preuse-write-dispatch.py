@@ -216,6 +216,21 @@ def main() -> int:
     # fired); the hard-deny phase is unchanged and still returns a single envelope.
     # Normalising here keeps `out` a lone envelope or None for every path below -- a list
     # must never reach stdout, where the harness expects exactly one hookSpecificOutput.
+    try:
+        _eh = out.get("hookSpecificOutput") if isinstance(out, dict) else None
+        if isinstance(_eh, dict) and _eh.get("permissionDecision") == "deny":
+            from _protected_act import advise_and_record, protected_act_for
+
+            if protected_act_for("coordinator_core.write_guards.engine") is None:
+                advise_and_record(
+                    "coordinator_core.write_guards.engine",
+                    str(_eh.get("permissionDecisionReason") or ""),
+                    "PreToolUse",
+                )
+                out = None
+    except Exception:
+        pass
+
     engine_envelopes: list = []
     if isinstance(out, list):
         engine_envelopes = out

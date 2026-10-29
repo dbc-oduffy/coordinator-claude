@@ -20,9 +20,9 @@
  * waves into one resumable unit"). Wave-2 agents do NOT commit — per
  * workflow-orchestration.md § Commit discipline inside workflows, the EM commits from each
  * agent's returned manifest after the run. Wave-2 agents are additive+provenance-only; the
- * plan's PM-gate-shift (Decisions for PM #1) restricts the PM gate to DELETIONS, so this
- * script writes docs/wiki/<topic>.md directly rather than staging to scratch for a manual
- * apply step — no Phase-5-style apply agent exists downstream of this Workflow.
+ * deletion gate is the delete guards plus the Phase 3d provenance citation, not a PM wait. Synth output is
+ * staged under state/scratch/artifact-distillation/<runId>/staged/ and moved into docs/wiki/ by
+ * one atomic promote script call (bin/distill-promote-staged.py) after every return validates.
  */
 
 export const meta = {
@@ -31,9 +31,11 @@ export const meta = {
   phases: [
     { title: 'load', detail: 'optional (args.inputFile only): one Haiku agent() relays the manifest, then one per batch file and slug shard, each returning its parsed content verbatim (schema-forced) — avoids authoring a large batches table inline in args' },
     { title: 'scan', detail: 'parallel Haiku xN: read assigned batch, return structured nuggets (schema-forced, journaled)' },
-    { title: 'candidates', detail: 'parallel Haiku xM: one agent per cluster relays C1\'s learn-lessons-reconcile-candidates CLI against the cluster\'s target wiki path, returns candidate_restatements (schema-forced) — an LLM-mediated relay run ahead of synth, not a deterministic assembler call; failure/fabrication degrades silently to an empty list, indistinguishable on disk from "genuinely no candidates" (see Wave 1.5 comment below)' },
-    { title: 'synth', detail: 'parallel Sonnet xM: one agent owns one docs/wiki/<topic>.md, additive+provenance direct write, amends/coexists against pre-computed candidate_restatements' },
+    { title: 'candidates', detail: 'one op-relay dispatch runs bin/distill-candidates-batch.py over every cluster (learn-lessons-reconcile-candidates per target wiki path); the workflow parses the script stdout itself; a failed topic degrades to an empty candidate list and is logged (see Wave 1.5 comment below)' },
+    { title: 'source-hash', detail: 'one op-relay dispatch runs bin/distill-promote-staged.py check: topics whose source hash matches their last promote are skipped; no stored hash is never skipped' },
+    { title: 'synth', detail: 'parallel coordinator:distill-writer x ceil(topics/15): each agent owns a batch of topics, additive+provenance writes into the run dir staged/ tree, amends/coexists against pre-computed candidate_restatements' },
     { title: 'coverage-gate', detail: 'in-process set-diff of dispositions[] nugget ids vs. assigned nugget ids per cluster; any gap re-dispatches a targeted Sonnet re-synth for the uncovered subset only' },
+    { title: 'promote', detail: 'one op-relay dispatch runs bin/distill-promote-staged.py promote: every staged file swapped into place atomically with rollback, then per-topic source_sha256 stored; failure leaves the tree untouched' },
     { title: 'judgment-mining-2-5', detail: 'parallel Sonnet xM (one per topic-cluster, folded-in Phase 2.5): mines live reviewer sidecars for cross-spec convergence, emits judgment-proposals (schema-forced) for Phase 3b review and wiki promotion into docs/wiki/codebase-judgment/ — read-only orchestrator boundary, no nested sub-agents; runs only once Phase 2 and the Coverage Gate above are fully complete' },
     { title: 'contradiction-detection-3a', detail: 'parallel Sonnet xM (one per cluster, folded-in Phase 3a): reuses Phase 2.5\'s clusterTag grouping of Phase-2 topics to compare synthesized wiki content within each cluster for contradictions (schema-forced), plus an in-process mechanical cross-cluster contradiction check (no subagent dispatch) over every cluster\'s returned contradiction_refs' },
     { title: 'contradiction-escalation', detail: 'conditional (fires only when any cluster reports unresolvable_contradictions > 0 or the cross-cluster check finds a candidate): single Opus agent resolves the flagged contradictions, followed by a single Sonnet fidelity-check agent verifying every flagged source id was cited — never an unconditional stage' },
@@ -260,50 +262,75 @@ function assertRelayedListCounts(lists, declared, relayed) {
   return null
 }
 
-// Schema of the file `args.curatedFile` names: the `distill.curate_clusters` return saved verbatim.
-// Every field the script reads off `loadedCurated` is a property here.
-const CURATED_FILE_SCHEMA = {
-  type: 'object',
-  required: ['verdicts'],
-  properties: {
-    verdicts: {
-      type: 'array',
-      items: {
-        type: 'object',
-        required: ['tag', 'verdict'],
-        properties: {
-          tag: { type: 'string' },
-          verdict: { type: 'string', enum: ['keep', 'normalize', 'merge', 'drop'] },
-          canonical_slug: { type: ['string', 'null'] },
-          merge_target: { type: ['string', 'null'] },
-          count: { type: 'integer' },
-          drop_cause: { type: ['string', 'null'] },
-          reason: { type: ['string', 'null'] },
-        },
-      },
-    },
-    counts: {
-      type: 'object',
-      required: ['total'],
-      properties: { total: { type: 'integer' } },
-    },
-    threshold_applied: { type: ['number', 'null'] },
-    threshold_auto: { type: ['boolean', 'null'] },
-    nugget_drop_share: { type: ['number', 'null'] },
-    degraded: { type: ['boolean', 'null'] },
-    contradictionClusters: {
-      type: 'array',
-      items: {
-        type: 'object',
-        required: ['clusterTag', 'topicKeys'],
-        properties: {
-          clusterTag: { type: 'string' },
-          topicKeys: { type: 'array', items: { type: 'string' } },
-        },
-      },
-    },
-    contradictionClusterCount: { type: 'integer' },
-  },
+// Pure sha256 over a string's UTF-8 bytes. The workflow sandbox has no crypto or fs, so a relayed
+// file is verified here against the launcher's deterministic hash instead of being trusted.
+function sha256Hex(text) {
+  const bytes = []
+  for (const ch of String(text)) {
+    let c = ch.codePointAt(0)
+    if (c < 0x80) bytes.push(c)
+    else if (c < 0x800) bytes.push(0xc0 | (c >> 6), 0x80 | (c & 63))
+    else if (c < 0x10000) bytes.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63))
+    else bytes.push(0xf0 | (c >> 18), 0x80 | ((c >> 12) & 63), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63))
+  }
+  const K = [
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+  ]
+  const H = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19]
+  const bitLen = bytes.length * 8
+  bytes.push(0x80)
+  while (bytes.length % 64 !== 56) bytes.push(0)
+  const hi = Math.floor(bitLen / 0x100000000)
+  const lo = bitLen >>> 0
+  for (const w of [hi, lo]) bytes.push((w >>> 24) & 255, (w >>> 16) & 255, (w >>> 8) & 255, w & 255)
+  const rotr = (x, n) => (x >>> n) | (x << (32 - n))
+  for (let off = 0; off < bytes.length; off += 64) {
+    const w = new Array(64)
+    for (let i = 0; i < 16; i++) {
+      w[i] = ((bytes[off + 4 * i] << 24) | (bytes[off + 4 * i + 1] << 16) | (bytes[off + 4 * i + 2] << 8) | bytes[off + 4 * i + 3]) | 0
+    }
+    for (let i = 16; i < 64; i++) {
+      const s0 = rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ (w[i - 15] >>> 3)
+      const s1 = rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ (w[i - 2] >>> 10)
+      w[i] = (w[i - 16] + s0 + w[i - 7] + s1) | 0
+    }
+    let [a, b, c, d, e, f, g, h] = H
+    for (let i = 0; i < 64; i++) {
+      const t1 = (h + (rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25)) + ((e & f) ^ (~e & g)) + K[i] + w[i]) | 0
+      const t2 = ((rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22)) + ((a & b) ^ (a & c) ^ (b & c))) | 0
+      h = g; g = f; f = e; e = (d + t1) | 0; d = c; c = b; b = a; a = (t1 + t2) | 0
+    }
+    const add = [a, b, c, d, e, f, g, h]
+    for (let i = 0; i < 8; i++) H[i] = (H[i] + add[i]) | 0
+  }
+  return H.map((x) => (x >>> 0).toString(16).padStart(8, '0')).join('')
+}
+
+// A relayed curated file is accepted only when its text hashes to the launcher's sha256 (a
+// trailing newline the relay trimmed is restored once); returns the parsed object or null.
+function parseVerifiedCurated(relayResult, expectedSha256) {
+  if (!relayResult || typeof relayResult.stdout !== 'string') return null
+  const want = String(expectedSha256).toLowerCase()
+  const text = relayResult.stdout
+  if (sha256Hex(text) !== want && sha256Hex(text + '\n') !== want) return null
+  try {
+    return JSON.parse(text)
+  } catch (e) {
+    return null
+  }
+}
+
+// A list channel is "supplied" when it is an array, however short: `[]` is a real, count-0 list
+// (truthiness would treat it as present everywhere else and still skip this carve-out).
+function listSupplied(...channels) {
+  return channels.some((c) => Array.isArray(c))
 }
 
 // Pure: turns the op's verdict list into the tag-keyed map the clustering consumes. Throws naming
@@ -367,6 +394,83 @@ function assertRelayedCounts(batches, declared, relayed) {
 // we pass a nominal ceiling (16) and let the runtime apply the real cores-derived cap.
 const CONCURRENCY_CAP = 16
 
+// Synth fan-out: topics per writer agent, the pre-synth dispatch ceiling, and the writer model.
+const TOPICS_PER_AGENT = 15
+const AGENT_CEILING = (RAW_ARGS_INPUT && Number.isFinite(RAW_ARGS_INPUT.agentCeiling))
+  ? RAW_ARGS_INPUT.agentCeiling
+  : 40
+const SYNTH_MODEL = (RAW_ARGS_INPUT && RAW_ARGS_INPUT.synthModel) || 'sonnet'
+const DISTILL_WRITER_TYPE = 'coordinator:distill-writer'
+
+const SCRIPT_RELAY_SCHEMA = {
+  type: 'object',
+  required: ['exit_status', 'stdout'],
+  properties: {
+    exit_status: { type: 'number' },
+    stdout: { type: 'string' },
+  },
+}
+
+function chunkClusters(list, size) {
+  const out = []
+  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size))
+  return out
+}
+
+// Synth-wave dispatches only (scan, judgment, contradiction and 3b/3d agents are not counted):
+// one synth batch per TOPICS_PER_AGENT topics, an equal number of coverage-gate re-synths, plus
+// the source-hash, candidates and promote relays.
+function estimateDispatches(clusterCount, perAgent) {
+  return 2 * Math.ceil(clusterCount / perAgent) + 3
+}
+
+// A batch needs Bash only to mint decision records through the scaffolder.
+function writerTypeFor(batch) {
+  const mintsDecisions = batch.some((c) => (c.nuggets || []).some((n) => n.type === 'DECISION'))
+  // executor-keeper: a decision-minting batch needs Bash for the scaffolder.
+  return mintsDecisions ? 'coordinator:executor' : DISTILL_WRITER_TYPE
+}
+
+function stagedPathFor(stagedDir, wikiPath) {
+  return `${stagedDir}/${wikiPath.replace(/\\/g, '/').replace(/^\/+/, '')}`
+}
+
+function parseScriptJson(relayResult) {
+  if (!relayResult || typeof relayResult.stdout !== 'string') return null
+  try {
+    return JSON.parse(relayResult.stdout)
+  } catch (e) {
+    return null
+  }
+}
+
+// Joins a batched writer return onto the dispatched batch: each returned entry is matched to its
+// cluster by sameTopic and stamped with the dispatching key, so a cluster the agent dropped or
+// mangled simply has no result and lands in failedTopicKeys.
+function joinBatchResults(batch, ret) {
+  const entries = (ret && Array.isArray(ret.results)) ? ret.results : []
+  const joined = []
+  for (const cluster of batch) {
+    const r = entries.find((e) => e && sameTopic(e.topic_key, cluster.topicKey))
+    if (r) joined.push(stampKey(r, 'topic_key', cluster.topicKey))
+  }
+  return joined
+}
+
+// Files to promote: every non-skipped synth result, staged under stagedDir at its target path.
+function buildPromoteManifest(runId, clustersIn, results, stagedDir, wikiPathOf, hashes) {
+  const files = []
+  const topicHashes = {}
+  for (const cluster of clustersIn) {
+    const r = results.find((x) => sameTopic(x.topic_key, cluster.topicKey))
+    if (!r || r.op === 'skipped') continue
+    const target = wikiPathOf(cluster)
+    files.push({ staged: stagedPathFor(stagedDir, target), target })
+    if (hashes && hashes[cluster.topicKey]) topicHashes[cluster.topicKey] = hashes[cluster.topicKey]
+  }
+  return { run_id: runId, files, hashes: topicHashes }
+}
+
 const loadAgentBytes = []
 let loadedInput = null
 const loadStats = () => buildLoadStats(loadAgentBytes, loadedInput && loadedInput.batches, loadedInput && loadedInput.wikiSlugs)
@@ -376,6 +480,16 @@ if (RAW_ARGS_INPUT && RAW_ARGS_INPUT.curatedFile && RAW_ARGS_INPUT.curatedTags !
     phase_reached: 'load',
     halted: 'curated-input-ambiguous',
     detail: 'distill-harvest: args carries both curatedFile and curatedTags — pass exactly one curated channel',
+    load_stats: loadStats(),
+  }
+}
+// The curated loader's runtime cache keys on its brief; the file's sha256 in the brief makes the
+// key follow the file's content, so an edited curated file never replays a stale load.
+if (RAW_ARGS_INPUT && RAW_ARGS_INPUT.curatedFile && !/^[0-9a-f]{64}$/i.test(String(RAW_ARGS_INPUT.curatedFileSha256 || ''))) {
+  return {
+    phase_reached: 'load',
+    halted: 'curated-hash-missing',
+    detail: 'distill-harvest: args.curatedFile is set without args.curatedFileSha256 (64 hex chars) — the launcher computes the sha256 of the curated file deterministically and passes it beside curatedFile',
     load_stats: loadStats(),
   }
 }
@@ -401,7 +515,7 @@ if (RAW_ARGS_INPUT && RAW_ARGS_INPUT.inputFile) {
   const loadResults = (await parallel(
     [() => agent(loadBrief, {
       schema: INPUT_FILE_SCHEMA,
-      agentType: 'coordinator:executor',
+      agentType: DISTILL_WRITER_TYPE,
       phase: 'load',
       label: 'input-file',
       model: 'haiku',
@@ -441,7 +555,7 @@ if (RAW_ARGS_INPUT && RAW_ARGS_INPUT.inputFile) {
   const batchResults = await parallel(
     manifest.batchFiles.map((rel, i) => () => agent(shardBrief(rel, batchCopyNote), {
       schema: BATCH_FILE_SCHEMA,
-      agentType: 'coordinator:executor',
+      agentType: DISTILL_WRITER_TYPE,
       phase: 'load',
       label: `batch-${String(i + 1).padStart(4, '0')}`,
       model: 'haiku',
@@ -451,7 +565,7 @@ if (RAW_ARGS_INPUT && RAW_ARGS_INPUT.inputFile) {
   const shardResults = await parallel(
     slugShardFiles.map((rel, i) => () => agent(shardBrief(rel, slugCopyNote), {
       schema: SLUG_SHARD_SCHEMA,
-      agentType: 'coordinator:executor',
+      agentType: DISTILL_WRITER_TYPE,
       phase: 'load',
       label: `wikislugs-${String(i + 1).padStart(4, '0')}`,
       model: 'haiku',
@@ -503,7 +617,7 @@ const listCountHalt = assertRelayedListCounts(
       // With a curated file and no list in the input file or args, the list arrives through the
       // curated file and the count is checked there.
       contradictionClusters: RAW_ARGS_INPUT.curatedFile &&
-        !((loadedInput && loadedInput.contradictionClusters) || RAW_ARGS_INPUT.contradictionClusters)
+        !listSupplied(loadedInput && loadedInput.contradictionClusters, RAW_ARGS_INPUT.contradictionClusters)
         ? undefined
         : RAW_ARGS_INPUT.contradictionClusterCount,
       crossRepoDispositions: RAW_ARGS_INPUT.crossRepoDispositionCount,
@@ -770,7 +884,7 @@ const scanResults = (await parallel(
   BATCHES.map((batch) => () =>
     agent(scanBriefFor(batch), {
       schema: NUGGET_SCHEMA,
-      agentType: 'coordinator:executor',
+      agentType: DISTILL_WRITER_TYPE,
       phase: 'scan',
       label: batch.batchId,
       model: 'haiku',
@@ -993,31 +1107,26 @@ if (RAW_ARGS_INPUT && RAW_ARGS_INPUT.curatedFile) {
   const curatedFilePath = RAW_ARGS_INPUT.curatedFile
   const curatedLoadBrief =
     `Repo: ${RAW_ARGS_INPUT.repoRoot || '(unspecified)'}. Do NOT git commit. No out-of-scope edits.\n\n` +
-    `You are a Haiku curated-verdicts loader (Wave 0b of the /distill harvest Workflow).\n\n` +
-    `Read the file at exactly this path: ${curatedFilePath}\n\n` +
-    `Parse its contents as JSON and return the parsed content VERBATIM as your structured ` +
-    `output, matching the required schema exactly — field-for-field, with no summarizing, no ` +
-    `truncation, and no paraphrasing of any string value (e.g. tags, slugs, reasons). If the ` +
-    `file does not exist, cannot be read, or is not valid JSON matching the schema, do NOT ` +
-    `guess or fabricate a substitute — that is a hard failure condition for this task. Copy ` +
-    `every verdict entry and every count exactly as the file states it, never compute or ` +
-    `correct a count, and omit any field the file does not carry.`
-  const curatedLoadResults = (await parallel(
+    `Run this one command exactly as given, once (curated file sha256: ${RAW_ARGS_INPUT.curatedFileSha256}):\n\n` +
+    `cat '${curatedFilePath}'\n\n` +
+    `Return the command's complete stdout byte-for-byte in "stdout" and its exit status in ` +
+    `"exit_status". Do not parse, summarize, reformat or trim it.`
+  const curatedRelay = (await parallel(
     [() => agent(curatedLoadBrief, {
-      schema: CURATED_FILE_SCHEMA,
-      agentType: 'coordinator:executor',
+      schema: SCRIPT_RELAY_SCHEMA,
+      agentType: 'coordinator:op-relay',
       phase: 'load',
       label: 'curated-file',
       model: 'haiku',
     })],
     { concurrency: 1 }
-  )).filter(Boolean)
-  loadedCurated = curatedLoadResults[0]
+  )).filter(Boolean)[0]
+  loadedCurated = parseVerifiedCurated(curatedRelay, RAW_ARGS_INPUT.curatedFileSha256)
   if (!loadedCurated) {
     throw new Error(
-      `distill-harvest: args.curatedFile="${curatedFilePath}" was set but the load agent failed to ` +
-      `return a schema-valid payload (file missing, unreadable, or malformed JSON) — fix the ` +
-      `file and re-run rather than falling back silently to curatedTags or invocation A.`
+      `distill-harvest: args.curatedFile="${curatedFilePath}" was set but the relayed text did not ` +
+      `hash to args.curatedFileSha256 or is not JSON (file missing, edited, or the relay altered it) — ` +
+      `fix the file or its hash and re-run rather than falling back silently to curatedTags or invocation A.`
     )
   }
   const curatedCountHalt = assertRelayedListCounts(
@@ -1028,7 +1137,7 @@ if (RAW_ARGS_INPUT && RAW_ARGS_INPUT.curatedFile) {
     {
       args: {
         verdicts: RAW_ARGS_INPUT.curatedVerdictCount,
-        contradictionClusters: ((loadedInput && loadedInput.contradictionClusters) || RAW_ARGS_INPUT.contradictionClusters)
+        contradictionClusters: listSupplied(loadedInput && loadedInput.contradictionClusters, RAW_ARGS_INPUT.contradictionClusters)
           ? undefined
           : RAW_ARGS_INPUT.contradictionClusterCount,
       },
@@ -1597,16 +1706,16 @@ if (droppedNuggetShare > DROP_SHARE_WARNING_THRESHOLD) {
     `nugget corpus (threshold ${(DROP_SHARE_WARNING_THRESHOLD * 100).toFixed(0)}%) — see drop_summary`)
 }
 
-const clusters = consolidateClusters(rawClusters, WIKI_SLUGS, {
+const allClusters = consolidateClusters(rawClusters, WIKI_SLUGS, {
   runId: RUN_ID,
   wikiDirs: WIKI_DIRS,
 })
-const homedCount = clusters.filter((c) => c.bucket === 'homed').length
-const newCount = clusters.filter((c) => c.bucket === 'new').length
+const homedCount = allClusters.filter((c) => c.bucket === 'homed').length
+const newCount = allClusters.filter((c) => c.bucket === 'new').length
 log(`consolidation: ${rawClusters.length} raw -> ${homedCount} homed + ${newCount} new ` +
   `(no-misc: curation already decided upstream which tags survive, per plan chunk C4)`)
 
-if (clusters.length === 0) {
+if (allClusters.length === 0) {
   return {
     phase_reached: 'scan',
     halted: 'zero-clusters-after-scan',
@@ -1618,9 +1727,62 @@ if (clusters.length === 0) {
   }
 }
 
+// Pre-fire ceiling: the dispatch estimate is computed from the cluster count alone, before the
+// first post-scan dispatch (source-hash, candidates, synth).
+const dispatchEstimate = estimateDispatches(allClusters.length, TOPICS_PER_AGENT)
+if (dispatchEstimate > AGENT_CEILING) {
+  return {
+    phase_reached: 'consolidate',
+    halted: 'agent-ceiling-exceeded',
+    run_id: RUN_ID,
+    dispatch_estimate: dispatchEstimate,
+    agent_ceiling: AGENT_CEILING,
+    topics_per_agent: TOPICS_PER_AGENT,
+    clusters_total: allClusters.length,
+    resume_hint: 'Re-invoke with args.agentCeiling >= dispatch_estimate, or narrow the scope.',
+  }
+}
+
+// Skip-unchanged: one script call hashes every cluster's source files and compares against the
+// hashes the last promote stored; a topic with no stored hash is never skipped.
+phase('source-hash')
+const SOURCE_HASH_DIR = `state/scratch/artifact-distillation/${RUN_ID}`
+const sourceHashSpec = allClusters.map((c) => ({
+  topic_key: c.topicKey,
+  sources: [...new Set((c.nuggets || []).map((n) => n.source).filter(Boolean))],
+}))
+const sourceHashRelay = await agent(
+  `Run this one shell script exactly as given, once. Do not alter, split or re-run it.\n\n` +
+  `mkdir -p '${SOURCE_HASH_DIR}'\n` +
+  `cat > '${SOURCE_HASH_DIR}/source-hash-spec.json' <<'DISTILL_SPEC_EOF'\n${JSON.stringify(sourceHashSpec)}\nDISTILL_SPEC_EOF\n` +
+  `python3 "\${CLAUDE_PLUGIN_ROOT}/bin/distill-promote-staged.py" check '${SOURCE_HASH_DIR}/source-hash-spec.json'\n\n` +
+  `Return the script's complete stdout verbatim in "stdout" and its exit status in "exit_status".`,
+  { schema: SCRIPT_RELAY_SCHEMA, agentType: 'coordinator:op-relay', phase: 'source-hash', label: 'source-hash', model: 'haiku' },
+)
+const sourceHashes = parseScriptJson(sourceHashRelay) || {}
+if (!parseScriptJson(sourceHashRelay)) {
+  log('source-hash: relay returned no parseable result — no topic is skipped as unchanged')
+}
+const unchangedClusters = allClusters.filter((c) => (sourceHashes[c.topicKey] || {}).unchanged === true)
+const clusters = allClusters.filter((c) => !unchangedClusters.includes(c))
+const topicSourceHashes = Object.fromEntries(
+  allClusters.map((c) => [c.topicKey, (sourceHashes[c.topicKey] || {}).sha256 || null]))
+if (unchangedClusters.length > 0) {
+  log(`source-hash: ${unchangedClusters.length} topic(s) unchanged since their last promote — skipped: ` +
+    unchangedClusters.map((c) => c.topicKey).join(', '))
+}
+// Unchanged topics were harvested by an earlier run; their nuggets count as harvested.
+const unchangedResults = unchangedClusters.map((c) => ({
+  topic_key: c.topicKey,
+  wiki_path: c.wikiPath || '',
+  op: 'skipped',
+  reason: 'unchanged-source-hash',
+  dispositions: (c.nuggets || []).map((n) => ({ nugget_id: n.id, op: 'SKIP', reason: 'unchanged-source-hash', prior_harvest: true })),
+}))
+
 // ---------------------------------------------------------------------------------------------
-// Wave 2 — Sonnet xM, one-agent-owns-one docs/wiki/<topic>.md. Additive + provenance direct
-// write. resumeFromRunId re-runs only the synths that failed on a prior attempt (the Workflow
+// Wave 2 — batched distill-writer agents, each owning a disjoint set of docs/wiki/<topic>.md
+// targets, written as staged copies. resumeFromRunId re-runs only the synths that failed on a prior attempt (the Workflow
 // runtime resumes cached-successful phases/agents automatically on `resumeFromRunId`; each
 // agent() call here is independently cacheable per the tool's same-script+same-args contract).
 // ---------------------------------------------------------------------------------------------
@@ -1718,74 +1880,77 @@ const SYNTH_SCHEMA = {
 // and keeps the synth brief's shape uniform.
 // ---------------------------------------------------------------------------------------------
 
-const CANDIDATES_SCHEMA = {
-  type: 'object',
-  required: ['topic_key', 'wiki_path', 'candidate_restatements'],
-  properties: {
-    topic_key: { type: 'string' },
-    wiki_path: { type: 'string' },
-    // Pinned field shape (do not vary): candidate_restatements: [{line, excerpt}]. The CLI's
-    // own candidate objects also carry a `signal` ("phrase-overlap"|"heading-duplicate") — the
-    // routing record does not carry it; the candidates agent below drops it on the way in.
-    candidate_restatements: {
-      type: 'array',
-      items: {
-        type: 'object',
-        required: ['line', 'excerpt'],
-        properties: {
-          line: { type: 'number' },
-          excerpt: { type: 'string' },
-        },
-      },
-    },
-  },
-}
+// Pinned record shape (do not vary): candidate_restatements: [{line, excerpt}] — the batch
+// script drops the CLI's `signal` field.
 
 phase('candidates')
-const candidatesBriefFor = (cluster) => {
-  const slug = slugifyTopic(cluster.topicKey)
-  const existingPath = WIKI_SLUGS[slug]
-  const wikiPath = cluster.wikiPath || existingPath || `${WIKI_DIRS[0]}/${slug}.md`
-  const incomingText = cluster.nuggets.map((n) => n.content || '').filter(Boolean).join('\n\n')
-
-  return COMMON + `
-
-You are a Haiku candidate-restatement scout (Wave 1.5 of the /distill harvest Workflow). You
-are a mechanical relay, not a judge — run the CLI below and hand back its result verbatim.
-
-Target wiki path: ${wikiPath}
-Incoming content (the nuggets about to be synthesized into that file):
-${JSON.stringify(incomingText)}
-
-Write the incoming content above to
-state/scratch/artifact-distillation/${RUN_ID}/candidates-${slugifyTopic(cluster.topicKey)}.txt,
-then run:
-  learn-lessons-reconcile-candidates ${wikiPath} --text-file <the scratch file path above>
-(If the bareword isn't on PATH, resolve it via
-"\${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/learn-lessons-reconcile-candidates".)
-Exit 0 is the normal/ok outcome, including when the target file doesn't exist yet — do not
-treat that as a failure.
-
-Parse the printed decision-object JSON from stdout. Its candidate list rides on the "gates"
-key (it may be the array itself, or nested at gates.candidates — inspect the actual returned
-JSON and use whichever shape is present); each candidate carries {line, excerpt, signal}. An
-empty list is a normal, valid result. Return topic_key '${cluster.topicKey}', wiki_path
-'${wikiPath}', and candidate_restatements as those candidates mapped to exactly {line, excerpt}
-pairs — drop the signal field, it is not part of the routing record.`
+// The candidates step is deterministic: ONE op-relay dispatch runs bin/distill-candidates-batch.py
+// over every cluster and returns the script's stdout verbatim; the workflow parses that JSON
+// itself (no LLM re-shaping of the candidate lines).
+// Per-cluster {topic_key, wiki_path, text} entries; text_file is assigned under scratchDir.
+function candidatesBatchEntries(clustersIn, wikiSlugsIn, wikiDirsIn, scratchDir) {
+  return clustersIn.map((cluster) => {
+    const slug = slugifyTopic(cluster.topicKey)
+    return {
+      topic_key: cluster.topicKey,
+      wiki_path: cluster.wikiPath || wikiSlugsIn[slug] || `${wikiDirsIn[0]}/${slug}.md`,
+      text_file: `${scratchDir}/candidates-${slug}.txt`,
+      text: cluster.nuggets.map((n) => n.content || '').filter(Boolean).join('\n\n'),
+    }
+  })
 }
 
-const candidatesResults = (await parallel(
-  clusters.map((cluster) => () =>
-    agent(candidatesBriefFor(cluster), {
-      schema: CANDIDATES_SCHEMA,
-      agentType: 'coordinator:executor',
-      phase: 'candidates',
-      label: `cand-${slugifyTopic(cluster.topicKey)}`,
-      model: 'haiku',
-    }).then((r) => stampKey(r, 'topic_key', cluster.topicKey))
-  ),
-  { concurrency: CONCURRENCY_CAP }
-)).filter(Boolean)
+function candidatesBatchBrief(entries, scratchDir) {
+  const specJson = JSON.stringify(entries.map((e) => ({ topic_key: e.topic_key, wiki_path: e.wiki_path, text_file: e.text_file })))
+  const writes = entries.map((e, i) => {
+    const delim = `DISTILL_TEXT_${i}_EOF`
+    return `cat > '${e.text_file}' <<'${delim}'\n${e.text}\n${delim}`
+  }).join('\n')
+  return `Run this one shell script exactly as given, once. Do not alter, split or re-run it.\n\n` +
+    `mkdir -p '${scratchDir}'\n${writes}\n` +
+    `cat > '${scratchDir}/candidates-spec.json' <<'DISTILL_SPEC_EOF'\n${specJson}\nDISTILL_SPEC_EOF\n` +
+    `python3 "\${CLAUDE_PLUGIN_ROOT}/bin/distill-candidates-batch.py" '${scratchDir}/candidates-spec.json'\n\n` +
+    `Return the script's complete stdout verbatim in "stdout" and its exit status in "exit_status". ` +
+    `A non-zero exit is reported as it came back.`
+}
+
+// Parse the batch script's stdout into {topic_key, wiki_path, candidate_restatements} records. A topic the script
+// reports as errored, or output that does not parse, degrades to no record (an empty candidate
+// list downstream) and is logged — never a block.
+function parseCandidatesBatch(relayResult, logFn) {
+  if (!relayResult || typeof relayResult.stdout !== 'string') {
+    logFn('candidates: batch relay returned no result — every cluster degrades to an empty candidate list')
+    return []
+  }
+  let map
+  try {
+    map = JSON.parse(relayResult.stdout)
+  } catch (e) {
+    logFn(`candidates: batch script stdout is not JSON (exit ${relayResult.exit_status}) — every cluster degrades to an empty candidate list`)
+    return []
+  }
+  const out = []
+  for (const topicKey of Object.keys(map || {})) {
+    const rec = map[topicKey]
+    if (!rec || rec.status !== 'ok' || !Array.isArray(rec.candidate_restatements)) {
+      logFn(`candidates: topic_key='${topicKey}' errored (${rec && rec.error ? rec.error : 'no status ok'}) — empty candidate list`)
+      continue
+    }
+    out.push({ topic_key: topicKey, wiki_path: rec.wiki_path, candidate_restatements: rec.candidate_restatements })
+  }
+  return out
+}
+
+const CANDIDATES_SCRATCH_DIR = `state/scratch/artifact-distillation/${RUN_ID}`
+const candidatesEntries = candidatesBatchEntries(clusters, WIKI_SLUGS, WIKI_DIRS, CANDIDATES_SCRATCH_DIR)
+const candidatesRelay = await agent(candidatesBatchBrief(candidatesEntries, CANDIDATES_SCRATCH_DIR), {
+  schema: SCRIPT_RELAY_SCHEMA,
+  agentType: 'coordinator:op-relay',
+  phase: 'candidates',
+  label: 'cand-batch',
+  model: 'haiku',
+})
+const candidatesResults = parseCandidatesBatch(candidatesRelay, log)
 
 // A candidates-agent failure degrades to an empty candidate list for that cluster (via the
 // Map lookup's `|| []` fallback inside buildCandidatesByTopic below) — never a block, and never
@@ -1854,23 +2019,31 @@ the guide as its only home; the guide may link the record.
 `
 }
 
-const synthBriefFor = (cluster) => {
-  // D2: target resolved from disk reality (WIKI_SLUGS), not a topicKey-keyed Phase-0 guess.
-  // D3: honor a target the consolidation pass already set (homed merges, the misc bucket) —
-  // only fall back to fresh disk-resolution for a genuinely new cluster.
+// D2: target resolved from disk reality (WIKI_SLUGS), not a topicKey-keyed Phase-0 guess.
+// D3: honor a target the consolidation pass already set (homed merges, the misc bucket) —
+// only fall back to fresh disk-resolution for a genuinely new cluster.
+const wikiPathOf = (cluster) =>
+  cluster.wikiPath || WIKI_SLUGS[slugifyTopic(cluster.topicKey)] || `${WIKI_DIRS[0]}/${slugifyTopic(cluster.topicKey)}.md`
+
+const STAGED_DIR = `state/scratch/artifact-distillation/${RUN_ID}/staged`
+
+// One topic's section of a batched writer brief. The writer reads the target and writes only
+// the staged copy; the promote step moves staged files into place after every return validates.
+const synthSectionFor = (cluster) => {
   const slug = slugifyTopic(cluster.topicKey)
   const existingPath = WIKI_SLUGS[slug]
-  const wikiPath = cluster.wikiPath || existingPath || `${WIKI_DIRS[0]}/${slug}.md`
+  const wikiPath = wikiPathOf(cluster)
+  const stagedPath = stagedPathFor(STAGED_DIR, wikiPath)
   const existing = Boolean(existingPath)
   const candidates = candidatesByTopic.get(slugifyTopic(cluster.topicKey)) || []
 
-  return COMMON + `
+  return `
 
-You are a Sonnet knowledge-synthesis agent (Wave 2 of the /distill harvest Workflow).
-
-You own EXACTLY ONE wiki file: ${wikiPath}, plus the decision records you yourself scaffold
-(see below, if any). This is a disjoint-file assignment — no other agent in this run touches
-this path; do not touch any other docs/wiki/*.md file or any decision record you did not scaffold.
+=== TOPIC ${cluster.topicKey} ===
+You own EXACTLY ONE wiki file for this topic: ${wikiPath}, written ONLY as the staged copy
+${stagedPath} (never write ${wikiPath} itself), plus the decision records you yourself scaffold
+(see below, if any). Disjoint-file assignment — no other topic in this batch or run touches this
+path; do not touch any other docs/wiki/*.md file or any decision record you did not scaffold.
 
 Your topic: ${cluster.topicKey}
 Nuggets assigned to you (canonical Phase-1 ids, carry every id through to your disposition
@@ -1881,7 +2054,7 @@ ${existing
   ? `This guide already exists at ${wikiPath}. Read it first. MERGE ADDITIVELY: only add or ` +
     `update sections where these nuggets provide genuine new information; do not rewrite ` +
     `unchanged sections (guide-drift is a known failure mode). Preserve reasoning behind ` +
-    `existing decisions.`
+    `existing decisions. Write the complete merged file to ${stagedPath}.`
   : `This is a NEW guide. Produce a complete document: H1 title, Overview, Architecture, Key ` +
     `Patterns, Gotchas, Reference sections as applicable to the nuggets you were given.`}
 
@@ -1896,7 +2069,7 @@ this brief, nothing for you to run: ${JSON.stringify(candidates)}. ${candidates.
 Stamp PROVENANCE on every section you add or update, TWO ways, both required:
 1. The human-readable spec-backlink comment as before: \`<!-- PROVENANCE: run ${RUN_ID},
    derived from <nugget id(s)> -->\`, per docs/wiki/rag-bait-conventions.md.
-2. Machine-readable YAML frontmatter at the TOP of ${wikiPath} (add it if the file has none;
+2. Machine-readable YAML frontmatter at the TOP of ${stagedPath} (add it if the file has none;
    merge into it if it already has frontmatter — never duplicate the block), per
    docs/wiki/claude-md-surfaces/rag-bait-conventions.md § 5b:
      provenance:
@@ -1910,17 +2083,17 @@ Stamp PROVENANCE on every section you add or update, TWO ways, both required:
    fabricated retrieval recipe is worse than an absent one; it fails only when someone actually
    needs it. This applies per-field, not all-or-nothing.
 
-This is a direct write — write straight to ${wikiPath} with the Write/Edit tool (additive
-knowledge writes are not staged for a manual apply step in this pipeline; only deletions are
-PM-gated, and this Workflow performs no deletions).
+Write the file with the Write/Edit tool to ${stagedPath} only; the Workflow promotes staged files
+into place after every return validates. Decision records are the one exception: the scaffolder
+allocates them in place.
 
-Do NOT git commit — the EM commits from your returned manifest after this run completes.
-
-Return the schema-required fields, including a dispositions[] entry for every nugget_id you
-were assigned (op ADD_SECTION/UPDATE_SECTION/REMOVE_SECTION/CREATE_DR/SKIP, with a reason for
-any SKIP — e.g. "EPHEMERAL at source", "SUPERSEDED at source", "AMBIGUOUS — folded into
-existing section X, or still unclassifiable at synth time"). For a CREATE_DR entry set \`target\` to the decision record's path. Set op: 'skipped' at the top
-level only if you produced no file changes at all (rare — note why in reason).
+Return, for this topic, an entry in results[] with the schema-required fields, including a
+dispositions[] entry for every nugget_id you were assigned (op ADD_SECTION/UPDATE_SECTION/
+REMOVE_SECTION/CREATE_DR/SKIP, with a reason for any SKIP — e.g. "EPHEMERAL at source",
+"SUPERSEDED at source", "AMBIGUOUS — folded into existing section X, or still unclassifiable at
+synth time"). For a CREATE_DR entry set \`target\` to the decision record's path. Set op:
+'skipped' at the top level only if you produced no staged file at all (rare — note why in
+reason). Set topic_key to exactly '${cluster.topicKey}' and wiki_path to exactly '${wikiPath}'.
 ${drMintingSectionFor(cluster)}
 Also return \`provenance\`: an object with \`run_id: '${RUN_ID}'\` (always required) plus
 whichever of \`archived_spec\`/\`original_path\`/\`last_verbose_sha\`/\`distilled\` you resolved
@@ -1929,18 +2102,32 @@ from the frontmatter, include a matching entry in \`omitted_reasons\` (keyed by 
 stating why — never guess a value here either.`
 }
 
+const BATCH_SYNTH_SCHEMA = {
+  type: 'object',
+  required: ['results'],
+  properties: { results: { type: 'array', items: SYNTH_SCHEMA } },
+}
+
+const synthBatchBriefFor = (batch) => COMMON + `
+
+You are a batch knowledge-synthesis agent (Wave 2 of the /distill harvest Workflow). You handle
+${batch.length} topic(s) below, one after another. Do NOT git commit — the EM commits from your
+returned manifest after this run completes. Return one results[] entry per topic.
+` + batch.map(synthSectionFor).join('\n')
+
+const synthBatches = chunkClusters(clusters, TOPICS_PER_AGENT)
 const synthResults = (await parallel(
-  clusters.map((cluster) => () =>
-    agent(synthBriefFor(cluster), {
-      schema: SYNTH_SCHEMA,
-      agentType: 'coordinator:executor',
+  synthBatches.map((batch, i) => () =>
+    agent(synthBatchBriefFor(batch), {
+      schema: BATCH_SYNTH_SCHEMA,
+      agentType: writerTypeFor(batch),
       phase: 'synth',
-      label: slugifyTopic(cluster.topicKey),
-      model: 'sonnet',
-    }).then((r) => stampKey(r, 'topic_key', cluster.topicKey))
+      label: `synth-batch-${i + 1}`,
+      model: SYNTH_MODEL,
+    }).then((ret) => joinBatchResults(batch, ret))
   ),
   { concurrency: CONCURRENCY_CAP }
-)).filter(Boolean)
+)).filter(Boolean).flat()
 
 const failedTopicKeys = clusters
   .map((c) => c.topicKey)
@@ -2045,6 +2232,7 @@ function mergeGapDispositions(originalDispositions, gapDispositions, foldedIds) 
 }
 
 function gapSynthBriefFor(gap) {
+  const gapStaged = stagedPathFor(STAGED_DIR, gap.wikiPath)
   const gapCandidates = candidatesByTopic.get(slugifyTopic(gap.topicKey)) || []
   const foldedNuggets = gap.foldedNuggets || []
   const gapNuggets = [...gap.uncoveredNuggets, ...foldedNuggets]
@@ -2061,7 +2249,8 @@ You are a Sonnet knowledge-synthesis agent (coverage-gate re-synth, Wave 2 follo
 /distill harvest Workflow).
 
 A prior synth pass on ${gap.wikiPath} did not carry every nugget it was assigned into its
-returned dispositions[] manifest. Re-open ${gap.wikiPath} and additively integrate ONLY the
+returned dispositions[] manifest. Re-open the staged copy ${gapStaged} (if it does not exist,
+copy ${gap.wikiPath} there first) and additively integrate ONLY the
 following nuggets — do not touch or re-derive content covering any other
 nugget id, and do not rewrite unchanged sections:
 ${JSON.stringify(gapNuggets, null, 2)}
@@ -2078,13 +2267,13 @@ Stamp PROVENANCE on every section you add or update, TWO ways, both required —
 main synth pass:
 1. The human-readable spec-backlink comment: \`<!-- PROVENANCE: run ${RUN_ID}, derived from
    <nugget id(s)> -->\`, per docs/wiki/rag-bait-conventions.md.
-2. Machine-readable YAML frontmatter at the TOP of ${gap.wikiPath} (add it if none exists;
+2. Machine-readable YAML frontmatter at the TOP of ${gapStaged} (add it if none exists;
    merge into existing frontmatter — never duplicate the block), per
    docs/wiki/claude-md-surfaces/rag-bait-conventions.md § 5b (\`archived_spec\`/\`original_path\`/
    \`last_verbose_sha\`/\`distilled\`/\`run_id\`). Omit any of the four optional fields you
    cannot resolve from real evidence rather than guessing a plausible value.
 
-Direct write to ${gap.wikiPath} with the Write/Edit tool. Do NOT git commit — the EM commits from
+Write ${gapStaged} with the Write/Edit tool (the Workflow promotes it into ${gap.wikiPath}). Do NOT git commit — the EM commits from
 your returned manifest after this run completes.
 
 Set topic_key to exactly '${gap.topicKey}' and wiki_path to exactly '${gap.wikiPath}' in your
@@ -2115,10 +2304,10 @@ if (resynthWork.length > 0) {
     resynthWork.map((gap) => () =>
       agent(gapSynthBriefFor(gap), {
         schema: SYNTH_SCHEMA,
-        agentType: 'coordinator:executor',
+        agentType: writerTypeFor([{ nuggets: [...gap.uncoveredNuggets, ...(gap.foldedNuggets || [])] }]),
         phase: 'coverage-gate',
         label: `gap-${slugifyTopic(gap.topicKey)}`,
-        model: 'sonnet',
+        model: SYNTH_MODEL,
       }).then((r) => stampKey(r, 'topic_key', gap.topicKey))
     ),
     { concurrency: CONCURRENCY_CAP }
@@ -2148,6 +2337,37 @@ if (remainingGaps.length > 0) {
     `nugget(s) still uncovered after gap re-synth (gap agent failure) — ` +
     `${remainingGaps.map((g) => g.topicKey).join(', ')}`)
 }
+
+// ---------------------------------------------------------------------------------------------
+// Staged promote — every synth and gap-synth return has validated (a missing topic halted
+// above); one script call swaps all staged files into place or leaves the tree untouched.
+// ---------------------------------------------------------------------------------------------
+phase('promote')
+const promoteManifest = buildPromoteManifest(RUN_ID, clusters, synthResults, STAGED_DIR, wikiPathOf, topicSourceHashes)
+let promoteResult = { status: 'ok', promoted: [], error: '' }
+if (promoteManifest.files.length > 0) {
+  const promoteRelay = await agent(
+    `Run this one shell script exactly as given, once. Do not alter, split or re-run it.\n\n` +
+    `cat > '${SOURCE_HASH_DIR}/promote-manifest.json' <<'DISTILL_MANIFEST_EOF'\n${JSON.stringify(promoteManifest)}\nDISTILL_MANIFEST_EOF\n` +
+    `python3 "\${CLAUDE_PLUGIN_ROOT}/bin/distill-promote-staged.py" promote '${SOURCE_HASH_DIR}/promote-manifest.json'\n\n` +
+    `Return the script's complete stdout verbatim in "stdout" and its exit status in "exit_status". ` +
+    `A non-zero exit is reported as it came back.`,
+    { schema: SCRIPT_RELAY_SCHEMA, agentType: 'coordinator:op-relay', phase: 'promote', label: 'promote', model: 'haiku' },
+  )
+  promoteResult = parseScriptJson(promoteRelay) || { status: 'error', promoted: [], error: 'promote relay returned no parseable result' }
+}
+if (promoteResult.status !== 'ok') {
+  return {
+    phase_reached: 'promote',
+    halted: 'promote-failed',
+    run_id: RUN_ID,
+    promote_error: promoteResult.error,
+    staged_dir: STAGED_DIR,
+    synth_results: synthResults,
+    resume_hint: 'The working tree is untouched; staged files remain under staged_dir. Re-invoke with resumeFromRunId set to this Workflow-tool runId (wf_...).',
+  }
+}
+log(`promote: ${promoteResult.promoted.length} staged file(s) moved into place; ${unchangedClusters.length} unchanged topic(s) skipped`)
 
 // ---------------------------------------------------------------------------------------------
 // Distillation-log rows — the Workflow becomes the named producer of Phase 5c's per-artifact
@@ -2188,13 +2408,13 @@ for (const result of scanResults) {
 }
 
 const dispositionOpByNuggetId = new Map()
-for (const r of synthResults) {
+for (const r of [...synthResults, ...unchangedResults]) {
   for (const d of r.dispositions || []) {
     // Non-SKIP wins: a nugget carried by two dispositions is harvested if either one kept it,
     // and last-write-wins would let an incidental SKIP mask a real integration.
     const prior = dispositionOpByNuggetId.get(d.nugget_id)
     if (prior && prior !== 'SKIP') continue
-    dispositionOpByNuggetId.set(d.nugget_id, d.op)
+    dispositionOpByNuggetId.set(d.nugget_id, d.prior_harvest ? 'PRIOR_HARVEST' : d.op)
   }
 }
 
@@ -2326,7 +2546,7 @@ log(`provenance completeness: ${provenanceCompleteness.complete}/${provenanceCom
 // PIPELINE.md:604-612 constraints, carried verbatim:
 //   - Read-only orchestrator boundary: this Workflow dispatches mining agents directly; no
 //     mining agent is permitted to dispatch a nested sub-agent of its own (same
-//     agentType: 'coordinator:executor' read-only-orchestrator role every other wave here uses).
+//     DISTILL_WRITER_TYPE role every other non-Bash wave here uses).
 //   - Strict sequencing: Phase 2 AND its in-Workflow Coverage Gate (immediately above) are fully
 //     complete before this section runs — structural by placement, not a runtime check.
 //   - Convergence threshold defaults to 3, overridable via /distill --min-convergence=N
@@ -2510,7 +2730,7 @@ if (!(Array.isArray(JUDGMENT_CLUSTERS) && JUDGMENT_CLUSTERS.length > 0)) {
   judgmentScout = (await parallel(
     [() => agent(judgmentCorpusBrief(), {
       schema: JUDGMENT_CORPUS_SCHEMA,
-      agentType: 'coordinator:executor',
+      agentType: DISTILL_WRITER_TYPE,
       phase: 'judgment-mining-2-5',
       label: 'judgment-corpus',
       model: 'sonnet',
@@ -2527,7 +2747,7 @@ if (JUDGMENT_RUN_CLUSTERS.length > 0) {
     JUDGMENT_RUN_CLUSTERS.map((cluster) => () =>
       agent(judgmentBriefFor(cluster), {
         schema: JUDGMENT_SCHEMA,
-        agentType: 'coordinator:executor',
+        agentType: DISTILL_WRITER_TYPE,
         phase: 'judgment-mining-2-5',
         label: `judgment-${slugifyTopic(cluster.topicCluster)}`,
         model: 'sonnet',
@@ -2715,7 +2935,7 @@ if (CONTRADICTION_CLUSTERS.length > 0) {
     multiTopicClusters.map((cluster) => () =>
       agent(contradictionBriefFor(cluster), {
         schema: CONTRADICTION_SCHEMA,
-        agentType: 'coordinator:executor',
+        agentType: DISTILL_WRITER_TYPE,
         phase: 'contradiction-detection-3a',
         label: `3a-${slugifyTopic(cluster.clusterTag)}`,
         model: 'sonnet',
@@ -2846,12 +3066,12 @@ citing EVERY source id involved — either \`winner\` (a single authoritative id
 (≥2 ids, when a genuinely new synthesis is required — pair with \`synthesis\`), or
 \`unresolvable: true\` with \`sources\` still listing every id if you cannot resolve it even with
 this bounded context. \`rationale\` is required on every entry. Do NOT guess — an honest
-unresolvable entry surfaces to the PM at Phase 4; a fabricated resolution does not.`
+unresolvable entry surfaces in the returned opus_escalation object; a fabricated resolution does not.`
 
   const [opusResult] = (await parallel(
     [() => agent(escalationBrief, {
       schema: ESCALATION_SCHEMA,
-      agentType: 'coordinator:executor',
+      agentType: DISTILL_WRITER_TYPE,
       phase: 'contradiction-escalation',
       label: 'opus-3esc',
       model: 'opus',
@@ -2895,7 +3115,7 @@ the first violation found.`
     const [fidelity] = (await parallel(
       [() => agent(fidelityBrief, {
         schema: FIDELITY_SCHEMA,
-        agentType: 'coordinator:executor',
+        agentType: DISTILL_WRITER_TYPE,
         phase: 'contradiction-escalation',
         label: 'opus-3esc-fidelity',
         model: 'sonnet',
@@ -2910,7 +3130,7 @@ the first violation found.`
     }
   } else {
     log('contradiction-escalation: Opus resolution agent failed to return a result — surfacing ' +
-      'unresolved to Phase 4 PM gate per PIPELINE.md:658 rather than blocking the run.')
+      'unresolved in the returned object rather than blocking the run.')
   }
 
   opusEscalation = {
@@ -3075,7 +3295,7 @@ files yourself — this is a reporting pass only; do NOT git commit.`
   const [drDedupResult] = (await parallel(
     [() => agent(drDedupBrief, {
       schema: DR_DEDUP_SCHEMA,
-      agentType: 'coordinator:executor',
+      agentType: DISTILL_WRITER_TYPE,
       phase: 'phase-3b',
       label: 'dr-dedup',
       model: 'sonnet',
@@ -3090,7 +3310,7 @@ files yourself — this is a reporting pass only; do NOT git commit.`
       failure_detail: 'Phase 3b dedup agent failed to return a result.',
       status: 'agent-failed',
     }
-    log('phase-3b: dedup agent failed to return a result — surfacing to Phase 4 PM gate rather than halting the run.')
+    log('phase-3b: dedup agent failed to return a result — surfacing in the returned object rather than halting the run.')
   } else {
     phase3b = { ...drDedupResult, status: drDedupResult.failure ? 'failed' : 'ran' }
     if (drDedupResult.failure) {
@@ -3157,10 +3377,48 @@ const DELETION_MANIFEST_SCHEMA = {
           disposition: { type: 'string', enum: ['DELETE', 'SEND_BACK', 'BLOCKED', 'PRESERVE'] },
           reason: { type: 'string' },
           source_nugget_ids: { type: 'array', items: { type: 'string' } },
+          citation_target: { type: 'string' },
+          citation_written: { type: 'boolean' },
         },
       },
     },
   },
+}
+
+// A DELETE verdict stands only with an on-disk citation of the artifact's full repo-relative path
+// inside the wiki/decision page that absorbed it (the delete guard's harvest-provenance reads it).
+function enforceProvenanceCitation(deletions) {
+  const downgraded = []
+  const rows = (deletions || []).map((d) => {
+    if (d.disposition !== 'DELETE') return d
+    const ok = d.citation_written === true && typeof d.citation_target === 'string' &&
+      /^docs\/(wiki|decisions)\//.test(d.citation_target.replace(/\\/g, '/'))
+    if (ok) return d
+    downgraded.push(d.artifact_path)
+    return { ...d, disposition: 'SEND_BACK', reason: `no guard-visible provenance citation written (${d.reason})` }
+  })
+  return { rows, downgraded }
+}
+
+// Disk check of the agent's citation claim: one script relay reads each cited page and confirms it
+// contains the artifact path. A row the script does not confirm loses its claim (and is downgraded
+// by enforceProvenanceCitation); an unparseable relay confirms nothing.
+async function verifyCitationsOnDisk(deletions) {
+  const rows = (deletions || []).filter((d) => d.disposition === 'DELETE' && d.citation_target)
+  if (rows.length === 0) return deletions || []
+  const spec = rows.map((d) => ({ artifact_path: d.artifact_path, citation_target: d.citation_target }))
+  const dir = `state/scratch/artifact-distillation/${RUN_ID}`
+  const relay = await agent(
+    `Run this one shell script exactly as given, once. Do not alter, split or re-run it.\n\n` +
+    `mkdir -p '${dir}'\n` +
+    `cat > '${dir}/citation-spec.json' <<'DISTILL_SPEC_EOF'\n${JSON.stringify(spec)}\nDISTILL_SPEC_EOF\n` +
+    `python3 "\${CLAUDE_PLUGIN_ROOT}/bin/distill-promote-staged.py" verify-citations '${dir}/citation-spec.json'\n\n` +
+    `Return the script's complete stdout verbatim in "stdout" and its exit status in "exit_status".`,
+    { schema: SCRIPT_RELAY_SCHEMA, agentType: 'coordinator:op-relay', phase: 'phase-3d', label: 'verify-citations', model: 'haiku' },
+  )
+  const confirmed = parseScriptJson(relay) || {}
+  return (deletions || []).map((d) =>
+    d.disposition === 'DELETE' && confirmed[d.artifact_path] !== true ? { ...d, citation_written: false } : d)
 }
 
 let phase3d = { deletions: [], status: 'suppressed' }
@@ -3211,17 +3469,26 @@ Either an artifact was harvested or it wasn't — do NOT emit a disposition that
 un-harvested artifact as settled. An artifact whose knowledge is not fully extracted is
 SEND_BACK or BLOCKED, never DELETE and never a bare "retain".
 
+**Provenance write (required for every DELETE).** Before you return DELETE for an artifact,
+make its capture guard-visible on disk: Grep docs/wiki/ and docs/decisions/ for the artifact's
+full repo-relative path. If a page already cites it, set citation_target to that page. If none
+does, open the wiki page or decision record that absorbed its nuggets and add the artifact's
+full repo-relative path to that page's frontmatter provenance block (a source_artifacts list,
+additive, no other edit), then set citation_target to that page. Return citation_written: true
+only after the citation is on disk. Cannot write it: return SEND_BACK, never DELETE. This
+verdict is final — no PM approval step follows it; the delete guards decide at apply time.
+
 For each artifact_path, include reason (explicit — name the missing citation, the blocking
 reference, or the extracted nugget ids) and source_nugget_ids (nugget IDs actually cited in
 this row's mechanical disposition — [] for SEND_BACK/BLOCKED/PRESERVE). Every row above must
 appear exactly once in your returned deletions[] (minus any archive/handoffs/ rows, which you
-omit per the rule above). Do NOT git commit — this is a reporting pass; Phase 4 (PM gate) and
-Phase 5 (apply) are downstream of this Workflow.`
+omit per the rule above). Do NOT git commit — the EM commits; Phase 5 (apply) is downstream of
+this Workflow.`
 
   const [deletionManifestResult] = (await parallel(
     [() => agent(deletionManifestBrief, {
       schema: DELETION_MANIFEST_SCHEMA,
-      agentType: 'coordinator:executor',
+      agentType: DISTILL_WRITER_TYPE,
       phase: 'phase-3d',
       label: 'deletion-manifest',
       model: 'sonnet',
@@ -3231,9 +3498,14 @@ Phase 5 (apply) are downstream of this Workflow.`
 
   if (!deletionManifestResult) {
     phase3d = { deletions: [], status: 'agent-failed' }
-    log('phase-3d: deletion-manifest agent failed to return a result — surfacing to Phase 4 PM gate rather than halting the run.')
+    log('phase-3d: deletion-manifest agent failed to return a result — surfacing in the returned manifest rather than halting the run.')
   } else {
-    phase3d = { ...deletionManifestResult, status: 'ran' }
+    const verified = await verifyCitationsOnDisk(deletionManifestResult.deletions)
+    const enforced = enforceProvenanceCitation(verified)
+    if (enforced.downgraded.length > 0) {
+      log(`phase-3d: ${enforced.downgraded.length} DELETE row(s) without a written provenance citation downgraded to SEND_BACK`)
+    }
+    phase3d = { ...deletionManifestResult, deletions: enforced.rows, status: 'ran' }
     const dispositionCounts = phase3d.deletions.reduce((acc, d) => {
       acc[d.disposition] = (acc[d.disposition] || 0) + 1
       return acc
@@ -3380,6 +3652,7 @@ ${JSON.stringify(probeRows.map((d) => d.artifact_path), null, 2)}
 
 For each path return artifact_path, and copy \`eligible\` and \`blocked_by\` from the guard's JSON exactly. If the guard's response lacks \`eligible\` or \`blocked_by\` for a path, omit that field — never fill it in. For a path whose blocked_by includes 'active-reference', list as citing_paths every file under docs/, tasks/, archive/ and state/handoffs/ that contains that path's repo-relative path.`, {
         schema: REPOINT_PROBE_SCHEMA,
+        // executor-keeper: shells out to the engine-owned distill-delete-guard CLI; the writer type has no Bash.
         agentType: 'coordinator:executor',
         phase: 'citation-repoint',
         label: 'repoint-probe',
@@ -3424,6 +3697,7 @@ For each candidate below, edit each citing file so the citation names the wiki p
 Candidates:
 ${JSON.stringify(candidates, null, 2)}`, {
             schema: REPOINT_APPLY_SCHEMA,
+            // executor-keeper: edits citing files across the repo and re-runs the delete guard (Bash).
             agentType: 'coordinator:executor',
             phase: 'citation-repoint',
             label: 'repoint-apply',
@@ -3572,6 +3846,7 @@ commit — the EM commits from the returned manifest after this run completes.`
       [...byBatch.entries()].map(([batchId, rows]) => () =>
         agent(reentryBriefFor(batchId, rows), {
           schema: REENTRY_SCHEMA,
+          // executor-keeper: mints decision records and wiki pages for unharvested artifacts.
           agentType: 'coordinator:executor',
           phase: 'artifact-reentry',
           label: `reentry-r${reentryRoundsRun + 1}-${batchId}`,
@@ -3669,6 +3944,12 @@ return {
     ? { manifest_incomplete: true, manifest_incomplete_reason: 'phase-3d deletion-manifest agent failed to return a result' }
     : {}),
   clusters_synthesized: synthResults.length,
+  synth_batches: synthBatches.length,
+  topics_per_agent: TOPICS_PER_AGENT,
+  dispatch_estimate: dispatchEstimate,
+  agent_ceiling: AGENT_CEILING,
+  skipped_unchanged: unchangedClusters.map((c) => c.topicKey),
+  promoted_files: promoteResult.promoted,
   scan_results: scanResults,
   synth_results: synthResults,
   distillation_log_rows: distillationLogRows,

@@ -20,10 +20,10 @@ You are the NotebookLM claims-gate stage. Decide whether the workers produced a 
 2. Run the gate script. It reads every <letter>-dispatch.json marker and <letter>-claims.json in the scratch directory and prints one JSON object {ok, remedy, checks}:
 
    ```bash
-   <python> "<plugin-root>/pipelines/deep-research/notebooklm/nlm-run-gate.py" claims --strategy "{{brief}}" --scratch "{{scratch_dir}}"
+   <python> "<plugin-root>/pipelines/deep-research/notebooklm/nlm-run-gate.py" claims --strategy "{{stage.brief-author.output}}" --scratch "{{scratch_dir}}"
    ```
 
-   `<python>` is the interpreter resolved per `resolve-coordinator-bin.md` § Portability (`python3`, else `python`). On PowerShell run `python (Join-Path "<plugin-root>" "pipelines\deep-research\notebooklm\nlm-run-gate.py") claims --strategy "{{brief}}" --scratch "{{scratch_dir}}"` instead.
+   `<python>` is the interpreter resolved per `resolve-coordinator-bin.md` § Portability (`python3`, else `python`). On PowerShell run `python (Join-Path "<plugin-root>" "pipelines\deep-research\notebooklm\nlm-run-gate.py") claims --strategy "{{stage.brief-author.output}}" --scratch "{{scratch_dir}}"` instead.
 
 3. When the resolve step exits non-zero or prints nothing, or the script printed anything other than one JSON object, the gate fails closed: ok is false, remedy is one line naming what happened. For an unresolved root: "unresolved plugin root — resolve-coordinator-clone --content-root failed: <its stderr line>", with checks {"plugin_root": "unresolved"}. For a script error: the script's error text as the remedy. Never return ok true unless the script printed ok true.
 

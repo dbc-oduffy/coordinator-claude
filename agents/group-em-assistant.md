@@ -1,5 +1,6 @@
 ---
 name: group-em-assistant
+executes-rows: false
 description: "Sonnet aide to a Group EM: memo inbox, park-spool triage. Read-and-report."
 model: sonnet
 effort: low

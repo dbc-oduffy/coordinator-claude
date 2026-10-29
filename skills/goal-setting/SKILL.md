@@ -50,7 +50,7 @@ whether and when to fire each.
 ### Step 1 — PM states Objective and candidate Key Results
 
 The PM names the **Objective** (qualitative, direction-setting) and one or more **candidate KRs**
-(raw is fine). Do NOT prompt for a format — structure comes from critique, not intake.
+(raw is fine). Do NOT prompt for a format — the VP-Product Reviewer drafts the structure in Step 2.
 
 **Sizing-object present** (Entry point 3): it pre-populates this step's raw framing in body prose
 only, never new frontmatter (`appetite` is never a KR or stub `cost:`). Crossing table: wiki.
@@ -68,34 +68,36 @@ self-description? (Skip freely.)"_ On opt-in, record via
 `coordinator/schemas/strategic-self-description.schema.json`; `provenance: curated`), never a
 second marking store. On decline, go to Step 2 without re-offering.
 
-### Step 2 — Dispatch the VP-Product Reviewer as full OKR critic
+### Step 2 — Dispatch the VP-Product Reviewer to draft the OKR
 
 > **Do not ask whether to dispatch** — invoking this skill IS the request for the dispatch this
 > step names; it dissolves no gate this skill's own body names.
 
 **Dispatch via `Agent(subagent_type: "coordinator:vp-product", model: "opus")`.** Inline verbatim:
 
-> You are the VP-Product Reviewer (VP of Product, they/them). You are reviewing a draft OKR set for strategic rigor.
-> Your job is to act as a full OKR critic, not a rubber-stamp.
+> You are the VP-Product Reviewer (VP of Product, they/them). Draft the OKR set from the PM's Objective and candidate
+> KRs.
 >
-> Assess: (1) Is the Objective a real Objective — qualitative, direction-setting, not a metric or
-> tactic in disguise? (2) Are the KRs real Key Results — measurable outcomes, not activity/output
-> proxies? (3) Is the SET reasonable — ≤5 KRs; more means the Objective is unfocused? (4)
-> Weekly-perceptibility per KR — can an agent or PM observe it move this week? If not, flag as a
-> later-impact aspiration with a weekly-perceptible rewrite, or note the PM should defer it.
+> Draft to: (1) a real Objective — qualitative, direction-setting, not a metric or tactic in
+> disguise; (2) real Key Results — measurable outcomes, not activity/output proxies; (3) ≤5 KRs;
+> more means the Objective is unfocused; (4) weekly-perceptibility per KR — an agent or PM can
+> observe it move this week; otherwise mark it a later-impact aspiration with a
+> weekly-perceptible rewrite, or note the PM should defer it.
 >
-> Return: verdict per element (PASS/FLAG/REJECT), specific rewrite suggestions for
-> flagged/rejected elements, a SET-level verdict (GO/REVISE/REFRAME). Give the EM and PM the
-> material to revise it themselves — do not rewrite the whole OKR yourself.
+> Return: the draft Objective and KRs, with a one-line rationale per KR.
 
 The dispatch runs in the background: tell the PM to expect a wait; stand down until the VP-Product Reviewer's idle
 notification, no polling or re-dispatch.
 
-### Step 3 — EM+PM integrate the VP-Product Reviewer's critique in-dialogue
+Then dispatch `Agent(subagent_type: "coordinator:apm")` to critique the VP-Product Reviewer's draft: verdict per
+element (PASS/FLAG/REJECT), rewrite suggestions for flagged/rejected elements, a SET-level verdict
+(GO/REVISE/REFRAME). The APM critiques; it does not redraft.
+
+### Step 3 — EM+PM integrate the APM's critique in-dialogue
 
 No artifact exists yet. REJECT items are rewritten or dropped; FLAG items rewritten or accepted
 with a stated rationale; weekly-perceptibility notes rewritten or deferred to a `kind: goal-seed`
-stub. EM presents the critique, proposes a revised shape, asks the PM to confirm.
+stub. EM presents the VP-Product Reviewer's draft and the APM critique, proposes a revised shape, asks the PM to confirm.
 
 **Do NOT proceed to Step 4 without explicit PM confirmation on the revised OKR.**
 
@@ -153,6 +155,6 @@ stubs this run scaffolded.
 **Out of scope:** roadmap authoring (`/roadmap-planning`), KR tracking infrastructure
 (`goal.schema.json`), fleshing out a `kind: goal-seed` stub without PM pickup (entry point 2).
 
-**Self-verify before DONE:** the VP-Product Reviewer dispatched; PM confirmed the revised OKR before any artifact hit
+**Self-verify before DONE:** the VP-Product Reviewer dispatched to draft and the APM to critique; PM confirmed the revised OKR before any artifact hit
 disk; goal artifact scaffolded then emitted; each roadmap-seed carries `origin_goal_id:` and
 `deployment_state: awaiting_gate`; `/roadmap-planning` offered, not invoked; commit scoped.

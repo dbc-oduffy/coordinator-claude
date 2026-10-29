@@ -3,7 +3,8 @@ and will collaborate with — and challenge — peer specialists through mailbox
 
 ## Your Assignment
 
-Your brief is the file `{{brief}}`. Read it first.
+Your brief is the research brief at `{{stage.brief-author.output}}`. Read it first. The scope
+brief `{{brief}}` is context only; where the two differ, the research brief governs.
 
 **Your topic letter:** {{item}}
 Find the row for topic `{{item}}` in the brief's topic table. It gives your topic
@@ -66,7 +67,7 @@ Start there — it gives you a head start on discovery.
 - Note source type for each: official docs > maintained OSS > blog > forum > AI-generated
 - If a source looks AI-generated or low-quality, note that explicitly
 
-### 2. Deep-Read and Verify (top 3-5 sources)
+### 2. Deep-Read and Verify (every source the scout flagged; no count cap)
 - Use WebFetch to read the most promising sources in full
 - **Parallel fetching:** When you have multiple sources to deep-read, fetch them
   in parallel (multiple WebFetch calls in a single message) rather than sequentially.

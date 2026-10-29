@@ -32,7 +32,7 @@ order: 7
 
 - _Worker Dispatch Recommendations block present?_
   → On roadmap reviews: `doc-link-checker` and `plan-coverage-checker` are the relevant
-  pair. `test-evidence-parser`, `security-audit-worker`, and `dep-cve-auditor` do NOT fire
+  pair. `security-audit-worker` does NOT fire
   — a roadmap has no runtime artifacts and no dependency manifest. A reviewer naming them
   has miscalibrated to the wrong altitude; surface it rather than dispatching.
 

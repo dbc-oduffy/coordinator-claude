@@ -1,6 +1,6 @@
 ---
 name: consolidate-git
-description: "Consolidate and prune stale branches."
+description: "Absorb every branch into the current one by true merge, then prune."
 version: 1.0.0
 allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskUserQuestion","TaskCreate","TaskUpdate","TaskGet","TaskList"]
 ---
@@ -9,14 +9,14 @@ allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskU
 
 ## Overview
 
-Reduce branch and worktree sprawl to a single clean workstream branch. Every branch and worktree
+Consolidate every branch's commits into the current branch so none is orphaned. Every branch and worktree
 is inventoried for you (ownership, unique-commit evidence, absorb/delete sequencing).
 Unconditional directives (no-unique-commit deletes, clean-worktree removal, prune) execute as you
 reach them. Yours to decide: supersession verdicts, conflict resolution, the locked/dirty worktree
 pause, and the merge-ready call.
 
 **Consolidation and shipping are separate decisions — this skill never merges to main.** It leaves
-one current branch holding all of *my* in-flight work, no sibling branches, no stale worktrees;
+one current branch holding every branch's work, no orphaned commits, no stale worktrees;
 shipping is `/merging-to-main`'s call (optionally offered via `merge-ready`).
 
 **Announce at start:** "Using coordinator:consolidate-git to consolidate branches and worktrees
@@ -35,11 +35,11 @@ judgment point, never fires silently.
 **Worktrees are not exempt.** One whose tip is reachable from main or the current branch is stale
 (a lock is a stale signal, not a veto); a dirty one is a genuine pause.
 
-**Candidates are branches/worktrees owned by the current git identity, plus `cloud-session`
-branches** (tip authored by `noreply@anthropic.com`). An `Operator:` trailer equal to your git
-email makes it `mine-stale`; without it, or another operator's, it is `cloud-session`, usually the
-operator's own in-flight work — absorbing it is this skill's point. Every other owner's branch is
-reported under `gates` and never touched.
+**Every branch on every box, any owner, is a candidate** — local, remote-only, and `cloud-session`
+(tip authored by `noreply@anthropic.com`; an `Operator:` trailer equal to your git email makes it
+`mine-stale`). The point is no orphaned commits: all work across the boxes lands in the current
+branch, which is why this pairs with `/merging-to-main`. A branch the brief withholds under `gates`
+as another owner's is still absorbed; only `refs/preserve/*` is never touched.
 
 ## Resolve the Judgment Points
 
@@ -64,8 +64,17 @@ Otherwise **keep**. Before any remote delete, run `git merge-base --is-ancestor 
 `git show --stat` per commit; nothing labels a commit "superseded" for you. Before choosing
 **skip**, name the file(s) on the current branch that supersede each commit — "current branch has
 a newer version" without a path is a guess, and any commit touching a file the current branch never
-touched must be absorbed. **absorb** applies the computed cherry-pick/merge selection (cherry-pick
-for small counts, merge for large) via the closed CLI table — you are not hand-choosing the git verb.
+touched must be absorbed. **absorb** is a true `git merge` per branch, never a cherry-pick, so
+each source tip becomes reachable. **Superseded or reverted on purpose** is not **skip**: run
+`git merge -s ours <branch>` with the superseding sha in the message — its commits stay reachable
+and the dead code does not return. A verdict never deletes a branch whose tip is unreachable from
+the current branch.
+
+**Delete gate.** Before deleting any local or remote branch, confirm no live session on any box has
+it checked out or is pushing to it. A live branch is absorbed, not deleted.
+
+**Test gate.** Run the ratchet or targeted tests after the absorbs and before `/merging-to-main`; a
+red from an absorb blocks the merge.
 
 **keep.** A branch the PM wants left alive (e.g. committed to within N hours) is neither absorbed
 nor deleted: **skip** is a delete verdict, so leave that point unresolved (no directive depending
@@ -96,7 +105,7 @@ or flagged dirty worktrees) — otherwise **stop-here**. Phrase it as a recommen
 ## Report
 
 Per the `branches`/`worktrees` gates: absorbed, skipped (superseding evidence named), kept,
-deleted, untouched (other owners); then current branch, ahead-of-main count, merge-ready disposition.
+deleted, left untouched (`refs/preserve/*` only); then current branch, ahead-of-main count, merge-ready disposition.
 
 ## Edge Cases
 
@@ -109,10 +118,10 @@ before a remote delete is proposed. Cross-device reconciliation: wiki § Consoli
 
 - **Merge to main.** Consolidation stops on the current branch; shipping is `/merging-to-main`,
   invoked separately by the PM (optionally recommended via `j-merge-ready`).
-- **Rebase** — merges and cherry-picks only.
+- **Rebase or cherry-pick** — true merges only.
+- **Touch `refs/preserve/*`.**
 - **Touch other repos** — scoped to the current repository only.
 - **Delete main** — always preserved as the merge target.
 - **Force-delete branches** — safe delete (`-d`) only; `-D` needs explicit PM approval if `-d`
   refuses.
-- **Touch other people's branches or worktrees** — ownership is tip-commit-author-scoped; every
-  non-owned branch/worktree except `cloud-session` is reported, never modified.
+- **Delete a branch it has not absorbed** — ownership decides reporting, never exclusion.

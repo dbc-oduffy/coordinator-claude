@@ -1,5 +1,6 @@
 ---
 name: external-pattern-checker
+executes-rows: false
 description: "Opt-in web research on plan claims prior-art-checker left Silent."
 model: sonnet
 effort: medium

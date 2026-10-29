@@ -432,5 +432,5 @@ a band with this name.
 - `docs/wiki/addon-protocol/addon-hookspec-shape.md` — hookspec signatures
 - `core/addon_protocol.py` — `CorpusBand` dataclass + `ADDON_PROTOCOL_VERSION`
 - `core/addon_hookspecs.py` — hookspec definitions
-- `docs/wiki/failure-catalog.json` (shipped by E-NAMED-BANDS) + `docs/wiki/project-rag-failure-catalog.md` (shipped by E-NAMED-BANDS) — catalog row schema
+- `docs/wiki/failure-catalog.json` (shipped by E-NAMED-BANDS) + `<project-rag-root>/docs/wiki/project-rag/project-rag-failure-catalog.md` (shipped by E-NAMED-BANDS; `<project-rag-root>` = `machine-local get repos.project_rag`) — catalog row schema
 - Template addon: `project-rag-template-addon` repo — working exemplar with one live universal band

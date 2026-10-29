@@ -20,7 +20,7 @@ Documents the architecture and rationale behind the weekly code-review gate and 
 
 ### Trail-reading and scope computation
 
-Before invoking `parallel-code-review`, the EM computes the narrowed **code-semantics** scope from the workstream-complete review trail. The three mechanical workers (security-audit-worker, dep-cve-auditor, test-evidence-parser) always see the full week diff — only the code-semantics lens narrows, and that narrowed scope is then **chunked** into N disjoint file-scope partitions, one Sonnet `code-reviewer-weekly` per chunk.
+Before invoking `parallel-code-review`, the EM computes the narrowed **code-semantics** scope from the workstream-complete review trail. The three mechanical lenses (security-audit-worker, `weekly-gate-deps.py`, `weekly-gate-tests.py`) always see the full week diff — only the code-semantics lens narrows, and that narrowed scope is then **chunked** into N disjoint file-scope partitions, one Sonnet `code-reviewer-weekly` per chunk.
 
 > The helper's JSON keys are role slugs, not persona names (producer-side no back-compat shim): the `staff_eng` SHA set is the code-semantics chunking input and `staff_eng_seam_files` additionally feeds the Staff Engineer's Layer-2 pass in Step 7.5.
 
@@ -47,7 +47,7 @@ The review-coverage-gate DAG mode delegates to `coordinator_core` `build_reviewe
 
 ### Gate structure
 
-The `parallel-code-review` skill dispatches **N Sonnet `code-reviewer-weekly` chunks + 3 mechanical workers** (security-audit-worker + dep-cve-auditor + test-evidence-parser) in parallel into a no-rewrite synthesizer. It emits a structured `BLOCKED | WARN | OK` verdict.
+The `parallel-code-review` skill dispatches **N Sonnet `code-reviewer-weekly` chunks + the security-audit-worker** in one parallel, with `weekly-gate-deps.py` and `weekly-gate-tests.py` run as scripts beforehand, into the `weekly-gate-synthesize.py` no-rewrite reducer. It emits a structured `BLOCKED | WARN | OK` verdict.
 
 **the Staff Engineer is NOT in this gate** — they run a separate architecture pass in Step 7.5 (DECISION D3). The step-7 gate is the only hard merge block. The brief references `weekly-reviewer-scopes.json` under `state/review-trail/.` so the synthesizer narrates 'code-semantics chunks scoped to gap+seams; mechanical workers full diff' in the verdict.
 
@@ -141,5 +141,5 @@ produces, not a stand-in.
 Also watch for a chunk that adds a `skip_<newgate>=True` escape to the pipeline test closest to
 the real pipeline shape, purely to keep that test green under the new gate — that silently opts
 the highest-fidelity test out of the gate it was just asked to enforce. Running
-`test-evidence-parser` (one of the Step 7 mechanical workers) after any gate/publish chunk lands
+`weekly-gate-tests.py` (the Step 7 tests lens) after any gate/publish chunk lands
 catches both shapes: the hand-built oracle and the self-exempted near-real test.

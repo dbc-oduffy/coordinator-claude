@@ -1,0 +1,252 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coordinator.local/schemas/coordinator-local-md.schema.json",
+  "x-schema-name": "coordinator-local-md",
+  "x-schema-version": "1.6.0",
+  "x-bump-class": "nested-field-additive",
+  "x-bump-note": "1.0.0 -> 1.1.0 added the top-level `ceremony_test_cmds` array-of-objects property (commit 7ca365435, C8 of docs/plans/2026-08-16-unstrand-the-hook-test-suite.md), left unbumped at the time -- an EQUAL_VERSION_SHAPE_DRIFT instance caught by test_schema_version_pin.py's shape-hash gate. Purely additive: a new optional top-level property (required: [] at the schema root, per-item `required` is internal to the array's own object shape), never required at the document root -- no previously-valid coordinator.local.md becomes invalid. 1.1.0 -> 1.2.0 added the optional top-level `collaboration_mode` (enum solo|multi|auto) and `collaboration_bot_exclude` (array of strings) properties for coordinator/bin/collab-verdict.py (M0CDAGA-C5); same additive class, nothing required, no previously-valid document becomes invalid. The same 1.1.0 -> 1.2.0 bump also adds the optional top-level scalar `terminal_test_cmd` (type string; docs/plans/2026-09-11-repo-supplied-terminal-test-command-key.md C1). No BUMP_CLASS_VOCAB term exactly names a top-level scalar addition (`top-level-array-additive` is array-specific; the other terms describe nested fields, enum values, pattern widening, or major breaks), so x-bump-class takes the nearest-fit term on the safe side, `nested-field-additive`, which keeps the full reader-first / dual-gate discipline instead of the non-holding carve-out reserved for declared-tolerant array additions. Purely additive: nothing required, no previously-valid document becomes invalid. 1.2.0 -> 1.3.0 adds the optional top-level `research_pipelines` array-of-objects property ({name, spec, schema, output_paths, subjects_hint}), read by coordinator/hooks/scripts/guard-research-pipeline-dispatch.py; the class is top-level-array-additive. No declared-tolerant consumer set is claimed, so the bump takes the bilateral-sequencing discipline, not the non-holding carve-out. Nothing becomes required at the document root, so no previously-valid coordinator.local.md becomes invalid. 1.3.0 -> 1.4.0 adds the optional top-level `post_ceremony_skills` array of skill-id strings, read by the /workweek-complete and /merging-to-main skill prose; same additive class, nothing required. 1.4.0 -> 1.5.0 adds the optional top-level scalar `design_registry_path` (type string, minLength 1), read by coordinator/hooks/scripts/_design_registry_gate.py; x-bump-class keeps its nearest-fit term as the 1.2.0 note reasons, and nothing becomes required. 1.5.0 -> 1.6.0 adds the optional per-target `app_session` validate fields (build, start, port, ready_path, ready_timeout_s, build_timeout_s, build_isolated, env, request_headers, routes, variants), read by the `app-session validate` verb's parse_validate_config (claude-klabauter coordinator_core/ops/_app_session_validate_contract.py); every typed leaf admits the string form the parser coerces, every level stays open, and nothing becomes required.",
+  "applies_to": "coordinator.local.md",
+  "match_mode": "yaml-frontmatter",
+  "title": "coordinator.local.md frontmatter",
+  "description": "Repo-root coordinator.local.md frontmatter — committed per-repo doctrine config (not gitignored, not machine-local). Declares the KNOWN keys read by live consumers (coordinator/hooks/scripts/_posture.py, coordinator/skills/validate/SKILL.md's fast_test_cmd/full_test_cmd resolver, the ceremony post-command hook seam, coordinator:install's project_type/project_subtypes onboarding, and the human-facing-doc-staleness detector's doc-registry four). Every declared key degrades to a fleet default when absent or malformed at the reader, per each reader's own fail-open contract — this schema documents shape, not obligation; nothing here is `required`. `app_session` (docs/plans/2026-08-15-launch-half-to-engine-ops-and-skill-surface.md § Design) declares the PM-ruled per-target launch config shape, read by the app-session skill's launch verbs and by its `validate` verb (parse_validate_config). `terminal_test_cmd` (docs/plans/2026-09-11-repo-supplied-terminal-test-command-key.md) is likewise reader-less: it declares the shape only, and no reader consumes it yet.",
+  "type": "object",
+  "_additionalProperties_note": "Permissive by design, and load-bearing here specifically: this corpus has hit the closed-schema/no-slot failure three times in one day (sizing-object EM-settled, sizing-object boundary justification, verdict_cited), and 56 of the 68 schemas under coordinator/schemas/ are open or unset vs 12 closed (counted directly) -- open is the house norm, not the exception. additionalProperties is intentionally left unset (open) at every level of this schema, including inside app_session's per-target objects: an unrecognised top-level key, an unrecognised app_session target name, and an unrecognised per-target field must all validate. Do not add additionalProperties: false anywhere in this file.",
+  "required": [],
+  "properties": {
+    "engagement_posture": {
+      "type": "string",
+      "enum": ["precision", "default", "substrate-free"],
+      "description": "Per-repo override of the engagement-posture resolver's default rung. Read by coordinator/hooks/scripts/_posture.py:102 (_VALID_POSTURES at _posture.py:~40 enumerates exactly these three values); an unrecognised or absent value fails open through the ~/.claude/coordinator-identity.yaml rung to the hardcoded 'precision' default (_posture.py:11-15)."
+    },
+    "fast_test_cmd": {
+      "type": "string",
+      "description": "The fast/day-to-day test command for this repo, run verbatim and unsanitized (argv resolved via shlex, not shell=True) by the /validate seam. Resolution order is env (COORDINATOR_FAST_TEST_CMD) -> this frontmatter key -> skip-with-notice (coordinator/skills/validate/SKILL.md:18-19); absence is a skip, not a failure, at ad hoc invocation, but fails loud at a cadence gate (FAST-TEST-CMD-MISSING-CHECK, DR-142)."
+    },
+    "full_test_cmd": {
+      "type": "string",
+      "description": "The full/slow test command for this repo, same resolution and trust model as fast_test_cmd (coordinator/skills/validate/SKILL.md:18-19,26-28). May be identical to fast_test_cmd when a repo has no separate slow tier (a tiering choice, not a schema constraint)."
+    },
+    "project_type": {
+      "type": "string",
+      "enum": ["general", "game-dev", "web-dev", "data-science"],
+      "description": "Canonical project-type classification asked once during coordinator:install onboarding (DR-099). Legacy values ('unreal', 'meta', 'web') are migrated away from, not accepted here."
+    },
+    "project_subtypes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Optional free-form engine/stack-routing tags alongside project_type (e.g. 'unreal' for a game-dev repo). Free-form by design (DR-099) -- not a closed enum."
+    },
+    "workday_start_post_command": {
+      "type": "string",
+      "description": "Opt-in per-repo command run at the end of /workday-start, argv-only (no shell=True), advisory: always exits 0, one redacted prose summary line. First token must be a real executable on EVERY OS the repo is worked on -- pnpm/npm/npx/yarn are .cmd shims that CreateProcess cannot launch, so they resolve on macOS/Linux and are a silent WinError 2 on Windows; name the interpreter instead (node scripts/x.mjs). (coordinator/docs/wiki/ceremony-calibration/workday-workweek-cadence.md:87-92, and that page's Semantics section; ceremony-post-command hook seam, docs/plans/2026-07-08-ceremony-post-command-hook-seam.md)."
+    },
+    "workday_complete_post_command": {
+      "type": "string",
+      "description": "Same seam as workday_start_post_command, fired at the end of /workday-complete (coordinator/docs/wiki/ceremony-calibration/workday-workweek-cadence.md:93)."
+    },
+    "workweek_start_post_command": {
+      "type": "string",
+      "description": "Same seam as workday_start_post_command, fired at the end of /workweek-start (coordinator/docs/wiki/ceremony-calibration/workday-workweek-cadence.md:94)."
+    },
+    "workweek_complete_post_command": {
+      "type": "string",
+      "description": "Same seam as workday_start_post_command, fired at the end of /workweek-complete (coordinator/docs/wiki/ceremony-calibration/workday-workweek-cadence.md:95)."
+    },
+    "human_facing_docs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Per-repo override of the human-facing-doc-staleness detector's tracked doc list, e.g. [README.md, INSTALL.md, CONTEXT.md, CONTRIBUTING.md, coordinator/README.md]. Engine-side fleet default applies when absent (docs/plans/2026-07-28-human-facing-doc-staleness-detector.md:429-444)."
+    },
+    "doc_staleness_commits": {
+      "type": "integer",
+      "description": "Commit-count staleness threshold for the doc-staleness detector (docs/plans/2026-07-28-human-facing-doc-staleness-detector.md:429-444)."
+    },
+    "doc_staleness_days": {
+      "type": "integer",
+      "description": "Day-count staleness threshold for the doc-staleness detector, paired with doc_staleness_commits (docs/plans/2026-07-28-human-facing-doc-staleness-detector.md:429-444)."
+    },
+    "doc_verify_ignore": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Repo-level residual known-good-citation ignore list for the doc-staleness detector's content-verification leg (docs/plans/2026-07-28-human-facing-doc-staleness-detector.md:224,577). Distinct from the per-doc frontmatter key of the same name on an individual tracked doc; this is the coordinator.local.md-level list."
+    },
+    "terminal_test_cmd": {
+      "type": "string",
+      "description": "Repo-supplied test command for the terminal commit gate, run verbatim and unsanitized. Optional; absence means the gate falls back to its default. Reader-less: the shape is declared here before any reader consumes it."
+    },
+    "collaboration_mode": {
+      "type": "string",
+      "enum": ["solo", "multi", "auto"],
+      "description": "Override of the collaboration detector (coordinator/bin/collab-verdict.py), read from the examined repo's own coordinator.local.md. `solo` forces mode solo (the only input that lowers a latched multi), `multi` forces multi, `auto` (default, also when absent) defers to commit-authorship detection."
+    },
+    "collaboration_bot_exclude": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Extra author emails the collaboration detector drops as bots, on top of `*[bot]` and `*@users.noreply.github.com`. A single key holding a list, never repeated keys."
+    },
+    "ceremony_test_cmds": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "cmd", "collection_roots"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Short identifier for this ceremony-cadence runner, e.g. 'hook-and-whoami-tests'."
+          },
+          "cmd": {
+            "type": "string",
+            "description": "The ceremony-cadence test command. Single-command shape -- no &&/;/pipe chaining -- the same rule fast_test_cmd and full_test_cmd carry (DR-088). Runs at ceremony cadence: never per-commit, never by a subagent (DR-088 Tier T ceiling), and gated per this repo's Build & Test tier classification for this key."
+          },
+          "collection_roots": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Repo-relative directories this cmd collects tests from. Consumed by coordinator/tests/guards/test_every_test_tree_is_collected.py to subtract this tier's coverage from its reachability walk -- parsed, never a hardcoded path constant in the guard."
+          },
+          "known_red_count": {
+            "type": "integer",
+            "description": "Shrink-only count of pre-existing failing tests recorded at this tier's declaration. May only decrease as diagnosis chunks land; must never be silently raised."
+          }
+        }
+      },
+      "description": "Named ceremony-cadence test runners distinct from fast_test_cmd/full_test_cmd -- for a tree that is real coverage but too expensive or cross-plane-dependent for the fast tier (docs/plans/2026-08-16-unstrand-the-hook-test-suite.md C8). Run at a ceremony gate's cadence, not per-commit; CLAUDE.md Build & Test cites this key rather than restating collection roots in prose."
+    },
+    "post_ceremony_skills": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Skill ids the /workweek-complete and /merging-to-main ceremonies invoke after their archive and merge steps, once per ceremony, advisory on failure. Absent or empty: no behaviour change. Contract: coordinator/docs/wiki/post-ceremony-skills.md."
+    },
+    "design_registry_path": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Repo-relative path of the design-registry instance, read by coordinator/hooks/scripts/_design_registry_gate.py. Absent: the default docs/design/registry.yaml."
+    },
+    "research_pipelines": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "spec", "schema", "output_paths"],
+        "properties": {
+          "name": {"type": "string", "description": "Short identifier for this research pipeline, e.g. 'womens-journalism'. Named in the dispatch guard's deny reason."},
+          "spec": {"type": "string", "description": "Repo-relative path to the Pipeline C spec the pipeline runs with: `/research` is invoked with this spec."},
+          "schema": {"type": "string", "description": "Repo-relative path to the JSON Schema the pipeline's output files must conform to."},
+          "output_paths": {"type": "array", "items": {"type": "string"}, "description": "Repo-relative directories or globs the pipeline writes. An Agent dispatch whose prompt names one (or its basename directory) is routed to Pipeline C."},
+          "subjects_hint": {"type": "array", "items": {"type": "string"}, "description": "Optional keywords that identify this research (e.g. 'journalism', 'intel'). An Agent dispatch whose prompt contains one as a whole word is routed to Pipeline C."}
+        }
+      },
+      "description": "Repo-declared research pipelines. When present, the PreToolUse(Agent) guard coordinator/hooks/scripts/guard-research-pipeline-dispatch.py denies an ad-hoc non-Pipeline-C Agent dispatch whose prompt names a declared output path or subjects_hint keyword, and points the EM at `/research` with the pipeline's spec. Absent or unreadable: the guard allows silently."
+    },
+    "app_session": {
+      "type": "object",
+      "description": "PM-ruled per-target launch-lifecycle config (docs/plans/2026-08-15-launch-half-to-engine-ops-and-skill-surface.md § Design, 'PM-ruled config shape'). A mapping of target name (e.g. 'desktop') -> per-target object. C4 wired the engine-backed reader and the app-session skill to this shape; the `app-session validate` verb reads the build/start/port/routes/variants fields. additionalProperties stays open at this level: an unrecognised target name must still validate.",
+      "additionalProperties": {
+        "type": "object",
+        "description": "Per-target launch config. `runtime` is the discriminator selecting how the target is resolved and launched (e.g. 'electron' resolves via the Electron npm-package convention; an unrecognised or absent runtime degrades to a plain argv command with no resolution step -- see § Design's 'runtime axis'). Runtime-specific fields (e.g. `command`) are additive per runtime and intentionally left open here rather than enumerated per-runtime, since Electron is the first implemented resolver, not the capability's definition.",
+        "required": ["runtime"],
+        "properties": {
+          "runtime": {
+            "type": "string",
+            "description": "The runtime discriminator for this target, e.g. 'electron'. Unrecognised or absent values fall back to a plain argv command (§ Design's 'runtime axis') -- this key is intentionally NOT a closed enum, since new runtime resolvers are expected to be added without a schema bump."
+          },
+          "command": {
+            "type": "string",
+            "description": "Argv-only launch command for this target (e.g. 'pnpm dev'). Spawned unsanitized, never via shell=True -- no shell=True path or shell-word-form compatibility shim is permitted for this seam (docs/plans/2026-08-15-launch-half-to-engine-ops-and-skill-surface.md § Design, 'Argv-only, no shell=True')."
+          },
+          "build": {
+            "type": "string",
+            "description": "`app-session validate`: argv build command run before start (e.g. 'pnpm build'). The reader parses block mappings only."
+          },
+          "start": {
+            "type": "string",
+            "description": "`app-session validate`: argv command that serves the built app (e.g. 'pnpm start')."
+          },
+          "port": {
+            "oneOf": [
+              {"type": "integer", "minimum": 1},
+              {"type": "string", "pattern": "^[0-9]+$"}
+            ],
+            "description": "`app-session validate`: port the started app listens on. A digit string is coerced by the parser."
+          },
+          "ready_path": {
+            "type": "string",
+            "pattern": "^/",
+            "description": "`app-session validate`: path polled until the app answers; must start with '/'."
+          },
+          "ready_timeout_s": {
+            "oneOf": [
+              {"type": "integer", "minimum": 1},
+              {"type": "string", "pattern": "^[0-9]+$"}
+            ],
+            "description": "`app-session validate`: seconds to wait for ready_path. A digit string is coerced."
+          },
+          "build_timeout_s": {
+            "oneOf": [
+              {"type": "integer", "minimum": 1},
+              {"type": "string", "pattern": "^[0-9]+$"}
+            ],
+            "description": "`app-session validate`: seconds allowed for the build. A digit string is coerced."
+          },
+          "build_isolated": {
+            "type": ["boolean", "string"],
+            "description": "`app-session validate`: build in an isolated copy. The parser reads true/false words from a string."
+          },
+          "env": {
+            "type": "object",
+            "additionalProperties": {"type": ["string", "number", "boolean", "null"]},
+            "description": "`app-session validate`: environment for build and start. Block mapping only; the parser coerces every scalar to a string."
+          },
+          "request_headers": {
+            "type": "object",
+            "additionalProperties": {"type": ["string", "number", "boolean", "null"]},
+            "description": "`app-session validate`: headers sent with every route request. Block mapping only; the parser coerces every scalar to a string."
+          },
+          "routes": {
+            "type": "object",
+            "description": "`app-session validate`: route name -> path, or -> {path, expect_status}. Block mapping only; never a list.",
+            "additionalProperties": {
+              "oneOf": [
+                {"type": "string", "pattern": "^/"},
+                {
+                  "type": "object",
+                  "required": ["path"],
+                  "properties": {
+                    "path": {"type": "string", "pattern": "^/"},
+                    "expect_status": {
+                      "oneOf": [
+                        {"type": "integer"},
+                        {"type": "string", "pattern": "^[0-9]+$"}
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "variants": {
+            "type": "object",
+            "description": "`app-session validate`: variant name -> {env} overlay merged over env. Block mapping only.",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "env": {
+                  "type": "object",
+                  "additionalProperties": {"type": ["string", "number", "boolean", "null"]}
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

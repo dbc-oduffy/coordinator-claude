@@ -55,6 +55,7 @@ _WIKI_ANCHOR = (
 PIPELINE_C_AGENTS = frozenset({
     "research-scout",
     "research-specialist",
+    "research-brief-author",
     "research-synthesizer",
     "structured-synthesizer",
     "coverage-auditor",

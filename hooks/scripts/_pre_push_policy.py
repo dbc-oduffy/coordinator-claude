@@ -215,6 +215,9 @@ def _under(path: Path, root: Path) -> bool:
 def _path_targets(text: str, member: Path, repo_root: Path) -> list[Path]:
     found: list[Path] = []
     for tok in _TOKEN_RE.findall(text):
+        # Prose ends tokens with "." or ":"; Windows resolves "pnpm-lock.yaml." to the lockfile,
+        # which then dodges the data-suffix skip unless the punctuation is stripped first.
+        tok = tok.rstrip(".:")
         cands = {tok, _VAR_PREFIX_RE.sub("", tok), tok.lstrip("/"), _VAR_PREFIX_RE.sub("", tok).lstrip("/")}
         for cand in cands:
             if not cand or cand in (".", ".."):

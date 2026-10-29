@@ -77,7 +77,43 @@ def age_phrase(last_tick_at: Any) -> Optional[str]:
     return f"{seconds / 3600:.1f} hours"
 
 
-def render_verdict_line(result: Optional[dict]) -> Optional[str]:
+def group_em_identity(repo_root: str) -> Optional[dict]:
+    """The engine's one decision on who the Group EM is (`nomination.identify`), or None.
+
+    Any failure, including an engine that predates `identify`, is None -- never a locally
+    composed guess at the holder."""
+    try:
+        import _engine_root
+
+        root = _engine_root.resolve_claude_klabauter_root()
+        if not root:
+            return None
+        _engine_root.place_engine_root_on_path(root)
+        from coordinator_core.group_em import nomination
+
+        identify = getattr(nomination, "identify", None)
+        identity = identify(repo_root) if identify else None
+        return identity if isinstance(identity, dict) else None
+    except Exception as exc:  # noqa: BLE001
+        print(f"watch-presence: group-em identify failed ({type(exc).__name__}); presence line omitted", file=sys.stderr)
+        return None
+
+
+def session_is_group_em(identity: Optional[dict], session_id: Any) -> bool:
+    """True when the engine identity names this session as a live or pending Group EM holder."""
+    if not identity or not isinstance(session_id, str) or not session_id:
+        return False
+    holder = identity.get("holder") or {}
+    return identity.get("state") in ("live", "pending") and holder.get("session_id") == session_id
+
+
+def identity_holder_name(identity: Optional[dict]) -> Optional[str]:
+    holder = (identity or {}).get("holder") or {}
+    return holder.get("name") or None
+
+
+def render_verdict_line(result: Optional[dict], holder_fallback: Optional[str] = None) -> Optional[str]:
+    """The one `GROUP EM WATCH:` line; `holder_fallback` names the holder when the watch read does not."""
     if not result:
         return None
     verdict = result.get("verdict")
@@ -85,26 +121,20 @@ def render_verdict_line(result: Optional[dict]) -> Optional[str]:
         return None
 
     age = age_phrase(result.get("last_tick_at"))
-    holder = result.get("holder_name") or result.get("holder_session_id")
+    holder = result.get("holder_name") or result.get("holder_session_id") or holder_fallback
 
     if verdict == _verdict_constant("VERDICT_ARMED", "armed"):
         checked = f"checked {age} ago" if age else "is running"
         held = f", held by {holder}" if holder else ""
-        tail = f"{checked}{held}. Quiet between checks is normal, not a fault."
+        tail = f"{checked}{held}."
     elif verdict == _verdict_constant("VERDICT_STALE", "stale"):
-        checked = f"last checked {age} ago and is" if age else "is"
-        tail = f"{checked} past the deadline it set itself. Re-arm it with /group-em."
+        checked = f"last checked {age} ago," if age else ""
+        tail = f"{checked} past its deadline. Re-arm: /group-em.".strip()
     elif verdict == vacant_verdict():
         held = f" ({holder})" if holder else ""
-        tail = (
-            f"this watch's record{held} has no live holder. "
-            "Nobody is watching. Arm one with /group-em."
-        )
+        tail = f"no live holder{held}. Arm: /group-em."
     else:
-        tail = (
-            "no watch has ever reported for this repo. NOT an all-clear: nothing has "
-            "looked. Arm one with /group-em."
-        )
+        tail = "never reported. NOT an all-clear: nothing has looked. Arm: /group-em."
     return f"GROUP EM WATCH: {verdict} — {tail}"
 
 

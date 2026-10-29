@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coordinator.local/schemas/research-claim.schema.json",
+  "x-schema-name": "research-claim",
+  "x-schema-version": "3.0.1",
+  "x-bump-note": "3.0.0 -> 3.0.1 (patch): ZERO SHAPE EFFECT on record validation. The `x-external-consumers` annotation now names a reader class instead of a repo; the roster of consuming repos lives in the RESEARCH-CLAIMS-JSON-IS-AN-EXTERNAL-CONTRACT tripwire page. DR-097 push-side duty ATTACHES (the engine repo vendors this schema): the hold is HOLDING until the engine repo re-vendors 3.0.1; RE-VENDOR pending, the mirror is at 3.0.0 meanwhile. PRIOR: 2.0.0 -> 3.0.0 (require-id) promotes `id` to `required` alongside `claim_text`. Same ground: the artifact declares itself a durable queryable index, and a record with no key is unaddressable in one. Zero producer cost — `id` is populated on 259/259 records across every claims file on this machine, and every producer template assigns it. A separate version from 2.0.0 rather than a revision of it because 2.0.0 was already pushed and its consumer memo already sent; a redefined version number is worse for a pinning consumer than a second bump. `source_url` is NOT promoted despite the same argument applying: the three producer paths disagree on it in prose (specialist-prompt-template.md:242 mandates it with a `training_knowledge` sentinel; repo-synthesizer-prompt-template.md:314 mandates a file:line value; notebooklm/worker-prompt-template.md:82 explicitly permits null), and the sentinel form contradicts this schema's own tripwire rule against placeholder citations. Requiring it means settling that three-way disagreement first — tracked separately, not smuggled into a schema bump. PRIOR: 1.1.0 -> 2.0.0 (require-claim-text, cross-repo/inbox/2026-08-30-the game-editor server-em-research-claims-hook-rejects-array.md) moves `claim_text` from declared-only into `required`. MAJOR because it constrains producers: a record omitting it now fails claims_emit.emit_claims per-record validation (exit 1) rather than landing clean. Readers are unaffected — a required constraint only narrows what reaches them, so no consumer pinning 1.1.0 loses a field. WHY: a producer emitted `claim` rather than `claim_text` and, with `required: []`, shipped a 59-record file that was schema-valid and semantically empty — every record would have queried as a claim with no text, silently, to a declared external consumer. Second instance of the class (source_url/source_date sat declared-but-unpopulated before it), and the RESEARCH-CLAIMS-JSON-IS-AN-EXTERNAL-CONTRACT tripwire's rule against it had no mechanism discharging it. `claim_text` is the one field whose absence makes a record meaningless, so it is the one required; producer-local extra keys stay permitted (`additionalProperties` deliberately unset) because producers legitimately carry their own fields alongside the contract's. `id` is required on the same ground: the artifact declares itself a durable queryable index, and a record with no key is unaddressable in one. Zero producer cost — it is populated on 259/259 records across every claims file on this machine, and every producer template assigns it. `source_url` is NOT promoted despite the same argument applying: the three producer paths disagree on it in prose (specialist-prompt-template.md:242 mandates it with a `training_knowledge` sentinel; repo-synthesizer-prompt-template.md:314 mandates a file:line value; notebooklm/worker-prompt-template.md:82 explicitly permits null), and the sentinel form contradicts this schema's own tripwire rule against placeholder citations. Requiring it means settling that three-way disagreement first — tracked separately, not smuggled into a schema bump.",
+  "applies_to": "docs/research/*.claims.json",
+  "kinds": ["research-claim"],
+  "description": "Per-claim queryable record promoted from claims.json (N records per file; synthetic enumeration in query-records C5). PUBLISHED READ CONTRACT: docs/research/*.claims.json is consumed read-only by external sibling repos pinning x-schema-version; field removals and semantic changes require a major bump plus a cross-repo memo to declared consumers.",
+  "x-external-consumers": ["sibling-research-corpus-consumer"],
+  "type": "object",
+  "required": ["id", "claim_text"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique identifier for this claim within its claims.json file."
+    },
+    "claim_text": {
+      "type": "string",
+      "description": "The full text of the claim as emitted by the specialist producer."
+    },
+    "confidence": {
+      "type": "string",
+      "enum": ["HIGH", "MEDIUM", "LOW"],
+      "description": "Producer-assessed confidence level for this claim."
+    },
+    "source_url": {
+      "type": "string",
+      "description": "URL of the primary source supporting this claim."
+    },
+    "source_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Publication or retrieval date of the source (YYYY-MM-DD)."
+    },
+    "topic_tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "List of topic tags assigned by the producer to categorise this claim."
+    },
+    "type": {
+      "type": "string",
+      "enum": ["fact", "limitation", "opinion", "pattern", "recommendation", "feature_update"],
+      "description": "Semantic type of the claim as classified by the producer."
+    },
+    "evidence": {
+      "type": "string",
+      "description": "Supporting evidence quoted or summarised by the producer (optional)."
+    },
+    "counter_evidence": {
+      "type": "string",
+      "description": "Counter-evidence or caveats noted by the producer (optional)."
+    },
+    "corroborated_by": {
+      "type": "string",
+      "description": "Reference to another source or claim that corroborates this one (optional)."
+    },
+    "contested_by": {
+      "type": "string",
+      "description": "Reference to a source or claim that contests this one (optional)."
+    }
+  }
+}

@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import os
+import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Optional
 
 from file_cache_contract import (
     CacheLimits,
@@ -30,6 +32,58 @@ from file_cache_contract import (
 SETTLE_SECONDS = 2.0
 
 _GIB = 1024**3
+
+# The PM-installed, trigger-less, on-demand task; its fixed action trims the cache and appends to
+# trim.log. This module only fires it; it never creates or schedules a task.
+TRIM_TASK = "BoxCacheTrim"
+LOG_WAIT_SECONDS = 5.0
+
+
+def trim_log_path() -> Path:
+    return Path(os.environ.get("ProgramData", r"C:\ProgramData")) / "BoxMemory" / "trim.log"
+
+
+def _log_tail(path: Path) -> str:
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return ""
+    return lines[-1].strip() if lines else ""
+
+
+def fire_box_cache_trim(
+    run: Callable[..., "subprocess.CompletedProcess"] = subprocess.run,
+    log_path: Optional[Path] = None,
+    sleep: Callable[[float], None] = time.sleep,
+) -> Optional[str]:
+    """Fire the BoxCacheTrim task. None when the task is absent or would not start (caller falls
+    back); else the trim.log tail line, waiting up to LOG_WAIT_SECONDS for the run to append one
+    ("" when the log is unreadable)."""
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+    def _schtasks(verb: str):
+        try:
+            return run(["schtasks", f"/{verb}", "/tn", TRIM_TASK], capture_output=True, text=True,
+                       timeout=15, creationflags=flags)
+        except (OSError, subprocess.SubprocessError):
+            return None
+
+    query = _schtasks("query")
+    if query is None or query.returncode != 0:
+        return None
+    path = log_path if log_path is not None else trim_log_path()
+    before = _log_tail(path)
+    fired = _schtasks("run")
+    if fired is None or fired.returncode != 0:
+        return None
+    waited = 0.0
+    while waited < LOG_WAIT_SECONDS:
+        tail = _log_tail(path)
+        if tail and tail != before:
+            return tail
+        sleep(0.25)
+        waited += 0.25
+    return _log_tail(path)
 
 
 def _gib(n: int) -> str:
@@ -131,11 +185,13 @@ def run(
     host: FileCacheHost | None,
     platform: str,
     sleep: Callable[[float], None] = time.sleep,
+    fire: Optional[Callable[[], Optional[str]]] = None,
 ) -> int:
     """Run the trim CLI against `host`; returns the process exit code.
 
     Order, each a hard stop: platform, elevation, privilege, counters. `host` may be None only
-    when `platform` is not win32.
+    when `platform` is not win32. Unelevated with `--apply`, a present BoxCacheTrim task is fired
+    instead of failing; `fire` returns None when it is absent.
     """
     parser = argparse.ArgumentParser(
         prog="trim-file-cache.py",
@@ -152,6 +208,11 @@ def run(
     if host is None:
         raise TypeError("host is required on win32")
     if not host.is_elevated():
+        if args.apply:
+            tail = (fire or fire_box_cache_trim)()
+            if tail is not None:
+                print(f"fired scheduled task {TRIM_TASK}" + (f": {tail}" if tail else ""))
+                return ExitCode.OK
         _err("not elevated: run from an elevated (Administrator) shell.")
         return ExitCode.NOT_ELEVATED
 

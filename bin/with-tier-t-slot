@@ -10,11 +10,9 @@ This wrapper is where that answer lives: it blocks until a slot frees, runs the
 command, and releases on the way out. The guard's job reduces to requiring the
 wrapper; the counting happens here, where the command's lifetime is known.
 
-WAITING, NOT REFUSING, is the whole design. A dispatched agent denied for load
-has no good move: it retries, or it reports a failure that is really a queue.
-A fan-out of 876 scoped runs should COMPLETE, taking K at a time, and that is
-what this produces — the bound stops being something a caller can violate and
-becomes something it cannot perceive except as latency.
+WAITING is the design: a fan-out of 876 scoped runs should COMPLETE, taking K
+at a time, so the bound shows up as latency. Only when the wait elapses does it
+refuse (exit 75), never run unserialized.
 
 Usage:
     with-tier-t-slot [--owner-label LABEL] [--wait SECS] -- <command> [args...]
@@ -33,11 +31,10 @@ Negative spec:
     break; here a wedged run's SLOT is reclaimed by SLOT_STALE_TTL_SECS
     without touching the process, so the box keeps its K and the operator keeps
     their runaway to debug. Killing a scoped test run is not this tool's call.
-  - On acquisition timeout it runs the command ANYWAY (fail OPEN) rather than
-    refusing, matching suite_mutex's take-side posture. A semaphore that turns
-    into an outage when the box is busy is worse than one that occasionally
-    admits K+1.
-  - Exit code is the child's, unmodified.
+  - On acquisition timeout it REFUSES (fail CLOSED): stderr names the slot
+    holder(s), the exit code is 75, and the child was never launched. There is
+    no bypass flag.
+  - Otherwise the exit code is the child's, unmodified.
 """
 
 from __future__ import annotations
@@ -225,11 +222,14 @@ def _win32_resolve_command(command: List[str]) -> Optional[List[str]]:
     )
     return None
 
-#: How long to wait for a slot before proceeding unserialized. Generous: the
-#: runs this bounds are short by construction, so a caller that waits this long
-#: is behind a genuinely full box rather than a wedged one, and the alternative
-#: to waiting is making the box worse.
+#: How long to wait for a slot before refusing with `_EXIT_SLOT_TIMEOUT`.
+#: Generous: the runs this bounds are short by construction, so a caller that
+#: waits this long is behind a genuinely full box rather than a wedged one.
 _DEFAULT_WAIT_SECS = 300.0
+
+#: EX_TEMPFAIL: no slot within the wait; the wrapped command was not run to
+#: completion. There is no flag to run anyway.
+_EXIT_SLOT_TIMEOUT = 75
 
 _USAGE = (
     "Usage: with-tier-t-slot [--owner-label LABEL] [--wait SECS] -- <command> [args...]"
@@ -325,6 +325,18 @@ def _parse_args(argv: List[str]) -> Tuple[Optional[str], float, List[str]]:
     return owner_label, wait, command
 
 
+def _stop_child(proc: subprocess.Popen) -> None:
+    """Terminate, then kill, the wrapped child; never raises."""
+    try:
+        proc.terminate()
+        proc.wait(timeout=10)
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
+
 def main(argv: List[str]) -> int:
     owner_label, wait, command = _parse_args(argv)
     if not command:
@@ -338,34 +350,32 @@ def main(argv: List[str]) -> int:
     owner = tier_t_slots.owner_id() if owner_label is None else owner_label
     cmd_text = " ".join(command)
 
-    # Acquired around the child rather than inside it: the slot must be held
-    # for the child's whole lifetime, and `pid=` is handed the CHILD's pid so a
-    # slot is judged live against the process actually doing the work — the
-    # PID-LIVENESS contract in suite_mutex's module docstring, which this
-    # wrapper would otherwise violate by recording its own short-lived pid.
+    # The slot is acquired BEFORE the child is launched, so a timeout refuses
+    # with the command never started. It is recorded under this wrapper's own
+    # pid, which satisfies the PID-LIVENESS contract in suite_mutex's module
+    # docstring because the wrapper blocks on the child and so outlives it.
     proc: Optional[subprocess.Popen] = None
     slot = None
     try:
-        proc = subprocess.Popen(launch_command, **no_console_passthrough_kwargs())
-        slot = tier_t_slots.acquire_slot(owner, cmd_text, wait, pid=proc.pid)
+        slot = tier_t_slots.acquire_slot(owner, cmd_text, wait, pid=os.getpid())
         if slot is None:
-            taken, cap, _ = tier_t_slots.occupancy()
+            taken, cap, holders = tier_t_slots.occupancy()
+            held_by = "; ".join(
+                f"slot {h.get('slot')} owner={h.get('owner')} pid={h.get('pid')} "
+                f"cmd={h.get('cmd')!r}"
+                for h in holders
+            ) or "no live holder visible"
             print(
                 f"with-tier-t-slot: no slot free after {wait:.0f}s ({taken}/{cap} taken) — "
-                "running unserialized rather than refusing.",
+                f"refusing to run unserialized. Held by: {held_by}",
                 file=sys.stderr,
             )
+            return _EXIT_SLOT_TIMEOUT
+        proc = subprocess.Popen(launch_command, **no_console_passthrough_kwargs())
         return proc.wait()
     except KeyboardInterrupt:
         if proc is not None:
-            try:
-                proc.terminate()
-                proc.wait(timeout=10)
-            except Exception:
-                try:
-                    proc.kill()
-                except Exception:
-                    pass
+            _stop_child(proc)
         return 130
     finally:
         if slot is not None:

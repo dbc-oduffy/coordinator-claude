@@ -6,7 +6,7 @@ Filesystem hygiene is a distinct lifecycle from knowledge extraction (`/distill`
 
 ## Three classes of cruft
 
-**Class 1 — Harness state.** Files under `~/.claude/projects/<repo>/<uuid>/`, `*.jsonl` transcripts, and `~/.claude/file-history/<uuid>/`. These accumulate boundlessly — each Claude Code session writes a UUID directory; a week of fan-out dispatches can produce hundreds. The 14-day default retention is the non-negotiable floor; the only gate is a pre-flight check that skips any UUID cited as `predecessor:` in an active handoff.
+**Class 1 — Harness state.** Files under `~/.claude/projects/<repo>/<uuid>/`, `*.jsonl` transcripts, and `~/.claude/file-history/<uuid>/`. These accumulate boundlessly — each Claude Code session writes a UUID directory; a week of fan-out dispatches can produce hundreds. Ended session and subagent transcripts are deleted past 250 MB or 48 h; the only exemption is a live session, and a session whose liveness cannot be read is kept.
 
 **Class 2 — In-repo scratch.** Agent-created directories with cruft-name anchors inside a repo tree: `tmp-cc/`, `nonexistent/`, `fake/`, single-character names `[a-z]/`, and chain'd identical-segment paths like `z/z/z/`. These are name-anchored (identity is in the name, not the content) and age-gated (> 7 days mtime). The gate also requires the path to be git-untracked and not inside a `.git/` boundary. Confirm-needed names (`tmp/`, `scratch/`, `output/`) are context-dependent — Layer 1 reports them; Layer 2 confirms.
 
@@ -87,15 +87,14 @@ highest-blast-radius case:
   discovery is unpredictable blast radius, not this skill's remit.
 - Git-untracked is necessary but not sufficient for cruft — a new unregistered repo, a
   this-session working area, or intentionally-unversioned content all look untracked too.
-- A session UUID cited as `predecessor:` in any active handoff is never auto-pruned; the pre-flight
-  block-list check that covers Layer 1 must be honored by any confirm-needed item this skill
-  surfaces too.
+- A live session's UUID is never auto-pruned, nor one whose liveness cannot be read; any
+  confirm-needed item this skill surfaces honors the same exemption.
 
 ## Name list (Layer 1 auto-prune)
 
 | Class | Auto-prune names | Age gate | Extra conditions |
 |---|---|---|---|
-| Class 1 (harness) | `<uuid>/`, `<uuid>.jsonl`, `file-history/<uuid>/` | > 14d (configurable via `--days`) | Not cited as `predecessor:` in an active handoff |
+| Class 1 (harness) | `<uuid>/`, `<uuid>.jsonl`, `file-history/<uuid>/` | ended and > 48 h, or > 250 MB | Not a live session; unreadable liveness keeps it |
 | Class 2 (in-repo scratch) | `tmp-cc/`, `nonexistent/`, `fake/`, single-char `[a-z]/`, chain'd identical-segment paths (`z/z/z/`) | > 7d | git-untracked; not inside `.git/`; not in negative-spec list |
 | Class 2 (confirm-needed) | `tmp/`, `scratch/`, `output/` | any | Report-only from Layer 1; Layer 2 handles confirm |
 | Class 3 (parent-folder) | `nonexistent/`, `tmp/`, `tmp-cc/`, `fake/`, `null/`, `undefined/`, `untitled*/`, single-char dirs | any | Conjoint gate: name match AND fingerprint match required |
@@ -196,7 +195,7 @@ The orphan markdown cases illustrate why Layer 2 exists: they do not match the f
 
 ## Why Layer 1 is non-negotiable
 
-Without a non-agentic backstop, a single heavy fan-out session can write dozens of UUID harness directories totalling hundreds of megabytes. The harness's own 30-day rotation window means stale sessions accumulate across a full month before the harness touches them; at normal coordinator usage rates, weeks pass with no cleanup. Layer 2 (the skill) requires an explicit PM invocation — if the PM does not invoke `/cruft-sweep`, accumulation continues unchecked. Layer 1 runs in-session every workday: `/workday-start` Step 1.11 surfaces the dry-run advisory, and `/workday-complete` Step 1.5 runs the `--apply` sweep. Together the two legs are the install path — the PM does not need to be in the loop, and no out-of-session scheduler is required for the floor to hold. The empirical baseline (2.6 GB reclaimed on the first run after months of accumulated harness state) demonstrates what "boundless accumulation" looks like in practice. Layer 1 is the mechanism that prevents that baseline from being the norm.
+Without a non-agentic backstop, a single heavy fan-out session can write dozens of UUID harness directories totalling hundreds of megabytes. The harness's own rotation window (`cleanupPeriodDays`, 30 days unless setup lowers it) lets stale sessions accumulate long before the harness touches them. Layer 2 (the skill) requires an explicit PM invocation — if the PM does not invoke `/cruft-sweep`, accumulation continues unchecked. Layer 1 runs in-session every workday: `/workday-start` Step 1.11 surfaces the dry-run advisory, and `/workday-complete` Step 1.5 runs the `--apply` sweep. Together the two legs are the install path — the PM does not need to be in the loop, and no out-of-session scheduler is required for the floor to hold. The empirical baseline (2.6 GB reclaimed on the first run after months of accumulated harness state) demonstrates what "boundless accumulation" looks like in practice. Layer 1 is the mechanism that prevents that baseline from being the norm.
 
 ---
 
@@ -220,14 +219,12 @@ in `X--project-rag/` alone, with single session dirs at 262 MB); **620 MB in
 `file-history/`** (~1800 session dirs from `2026-05-03` onward). The first cleanup
 recovered 6.2 GB.
 
-**Default retention: 14 days.** PM-configurable via
-`~/.claude/machine-local/registry.local.toml` key
-`cruft_sweep.harness_retention_days`.
-
-**Pre-flight guard:** skip any session-dir UUID still referenced in an active
-handoff `predecessor:` field — grep `tasks/handoffs/*.md` and
-`state/handoffs/*.md` before deletion. Active session UUIDs are
-checkpoint anchors; sweeping them breaks lineage queries.
+**Retention: 48 h or 250 MB, whichever comes first,** for ended session and subagent
+transcripts. Only a live session is exempt; a session whose liveness cannot be read is kept.
+`setup.py` sets Claude Code's `cleanupPeriodDays` to 2 when it is missing or higher, and never
+raises a lower value. Dead sessions' `Temp\claude` folders are pruned after 48 h under a 5 GiB
+budget. The engine owns the retention mechanism.
+Transcripts are also capped by the disk-budget enforcer (`coordinator/docs/wiki/disk-budget-enforcer.md`).
 
 **Sonnet-scratch name patterns (Layer 1 auto-prune candidates).** Default
 agent-created cruft names: `tmp/`, `tmp-cc/`, `nonexistent/`, `fake/`,

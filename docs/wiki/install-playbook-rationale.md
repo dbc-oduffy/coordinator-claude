@@ -40,33 +40,30 @@ take the CLI steps and reach the engine at Step 4 instead.
 which reports only that the script is present and executable. It returns green on a box where the
 real invocation then fails.
 
-Full execution proof on Windows is tracked in this repo's dogfood log rather than re-run per doc
-edit — a doctrine-repo
-authoring-repo working-data doc with no OSS-mirror counterpart.
-
 ## Step 1e — engine-root export, and the retired token
 
 If `machine-local` does not exist yet, that is expected on a cold box — it is deposited by
-Phase 3, which has not run. Export the engine root instead and Phase 3 will pick it up:
+Phase 3, which has not run, so `machine-local set` is circular here. The durable route is a
+hand-written registry entry in `<settings-home>/machine-local/registry.local.toml`:
 
-```bash
-export COORDINATOR_ENGINE_ROOT="$(dirname <coordinator-clone>)/claude-klabauter"
+```toml
+[repos]
+Claude_klabauter = "<absolute path of the claude-klabauter clone>"
 ```
 
-`COORDINATOR_ENGINE_ROOT` is the top rung of the engine-root ladder and the one bootstrap remedy
-that works before anything is installed. The durable equivalent, which survives a new shell, is a
-pointer file at `~/.coordinator-claude-settings/machine-local/.claude-klabauter-root`
-containing the path. `CLAUDE_KLABAUTER_ROOT` is retired and unhonoured — setting it produces an
-error naming `COORDINATOR_ENGINE_ROOT` as the replacement.
+`_engine_root.py` reads that key (nested tables are flattened to `repos.claude_klabauter`), so the
+entry survives new shells and is what the engine installer later takes over. The session-only
+alternative is `export COORDINATOR_ENGINE_ROOT="$(dirname <coordinator-clone>)/claude-klabauter"`,
+the top rung of the ladder. Run as a CLI, `_engine_root.py` prints the path and exits 0 on a hit;
+on a miss it prints nothing to stdout, names `repos.claude_klabauter` on stderr, and exits 2 — so
+an exit of 2 means this step is missing. Inside `$(...)` the exit is swallowed, so a fence that
+substitutes the path must test the printed value is non-empty. `CLAUDE_KLABAUTER_ROOT` is retired and unhonoured —
+setting it produces an error naming `COORDINATOR_ENGINE_ROOT` as the replacement.
 
-**`-root`, never `-live-root`, for a clone of the published mirror.** `engine_bootstrap.py` reads
-both, at different rungs asserting different things: `.claude-klabauter-root` admits a root only
-with a tracked `coordinator_core/_engine_stamp` (the published build), `.claude-klabauter-live-root`
-admits one on `isdir` alone (a live working tree). The wrong name is not a failure you will see —
-the published arm falls through, the live arm accepts, and the box resolves by asserting a
-published mirror is a live tree, which is the engine-root decision's manual test-and-execute carve-out taken by
-accident. The engine root is the published mirror on every box; the live tree is reachable only
-via an explicit `COORDINATOR_ENGINE_ROOT`.
+A pointer file `<settings-home>/machine-local/.claude-klabauter-root` (never `-live-root`) is also
+a published-mirror rung (`cloud-preboot-install-contract.md`), read by `engine_bootstrap.py`, not by
+`_engine_root.py`. The engine root is the published mirror on every box; the live tree is reachable
+only via an explicit `COORDINATOR_ENGINE_ROOT`.
 
 
 ## Step 4 — why the ordering is not the obvious one
@@ -79,6 +76,7 @@ coordinator-claude before the engine clone exists fails on the first command wit
 deposits the `machine-local` resolver the engine installer's dependency check needs; running
 `/coordinator:setup` expecting it to install the substrate gets a fail-loud "engine not satisfied"
 with no explanation.
+
 
 ## Percolation surface — full detail
 
@@ -100,11 +98,8 @@ second and third by hand.
 `coordinator/templates/setup/.percolate-identity.example` to `setup/.percolate-identity` at the
 repo root and populate `PERSONAL_REVIEW_PATTERNS` with this machine's real codenames. This is the
 one percolation step no installer phase performs for you — it requires knowledge (which machine
-names are private) that only the operator has. **Do not** provision this at
-`~/.coordinator-claude-settings/.percolate-identity` expecting it to be picked up here — that path
-belongs to the older shared-install (`~/.claude`-rooted) topology and is a separate file; see the
-wiki's § Per-operator identity for the distinction and for why a
-`~/.coordinator-claude-settings/setup/` tree is a retired orphan, not a live surface.
+names are private) that only the operator has. The settings-home copy is the second rung of the
+ladder in `coordinator/docs/wiki/install-playbook-rationale/percolate-setup.md`; a `~/.coordinator-claude-settings/setup/` tree is a retired orphan.
 
 **Verifying the surface is complete:** run
 `python3 "$(python3 coordinator/hooks/scripts/_engine_root.py)/coordinator/bin/publish.py" --dry-run coordinator-claude`
@@ -117,10 +112,7 @@ the version-consistency gate as "not found" is not a clean install either — it
 `$(python3 coordinator/hooks/scripts/_engine_root.py)/coordinator/bin/`) didn't resolve, and
 publishing would proceed with that surface unchecked.
 
-**Why rung 2 (repo-local resolution) needs a root-level `setup/`:** this repo's plugin root is the
-`coordinator/` subdirectory, not the repo root, so a bare clone with no root `setup/` falls through
-repo-local resolution and silently resolves against `~/.claude` instead — see the wiki's §
-one-level-offset trap. The maximalist installer keeps the repo-root `setup/` tree in sync with
-`coordinator/templates/setup/`; if you hand-roll a clone without running the installer, copy that
-template to the repo root before expecting `/percolate` to work locally.
+Repo-local resolution needs a root-level `setup/` (the plugin root is `coordinator/`, one level
+down; see the one-level-offset trap in `coordinator/docs/wiki/install-playbook-rationale/percolate-setup.md`). The installer keeps it in sync with
+`coordinator/templates/setup/`; a hand-rolled clone must copy that template to the repo root.
 </content>

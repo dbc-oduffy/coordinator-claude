@@ -5,7 +5,8 @@ status: active
 relates_to:
   - docs/wiki/addon-protocol.md
   - docs/wiki/addon-protocol/addon-receiver-scaffold.md
-  - docs/wiki/thin-wrapper-graceful-fail.md
+  # sibling pages: <project-rag-root> = `machine-local get repos.project_rag`
+  - <project-rag-root>/docs/wiki/artifact-shape-conformance/thin-wrapper-graceful-fail.md
 ---
 
 
@@ -110,7 +111,7 @@ values specific to capability dispatch:
 Producers whose `requires_capabilities` contains any `capability_unclaimed` or
 `capability_unsatisfied` capability are skipped with the ledger status recorded.
 
-See [`producer-ledger-status-vocabulary.md`](../../../../project-rag/docs/wiki/producer-ledger-status-vocabulary.md) for the canonical status carve-up across all 9 final statuses.
+See `<project-rag-root>/docs/wiki/workstate-store/producer-ledger-status-vocabulary.md` for the canonical status carve-up across all 9 final statuses.
 
 ## Six W8c hookspecs
 
@@ -241,4 +242,4 @@ each, and surfaces a structured table:
 
 - [addon-protocol.md](../addon-protocol.md) — full v6 hookspec table + façade types
 - [addon-receiver-scaffold.md](./addon-receiver-scaffold.md) — Wave-2a doctrine, project-type gate
-- [thin-wrapper-graceful-fail.md](../../../../project-rag/docs/wiki/thin-wrapper-graceful-fail.md) — graceful-fail contract for addon seam probe sites
+- `<project-rag-root>/docs/wiki/artifact-shape-conformance/thin-wrapper-graceful-fail.md` — graceful-fail contract for addon seam probe sites

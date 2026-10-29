@@ -14,7 +14,7 @@ Because you write your own findings to your provisioned sidecar path yourself �
 
 That `kind:` routes the file to the `review-sidecar` schema — not the plan schema — so it must not carry plan-schema fields (`title`/`author`/`status`-enum) to pass the frontmatter hook. `{{kind}}` is the role-based canonical value for your persona; legacy review-family values (`review`, `plan-review`, `review-sidecar`, and prior per-persona `<name>-review` values) still resolve.
 
-The fields above are ones you ADD within the scaffold you were handed — see the **Provisioned Scaffold On Disk Always Wins** block in this prompt for why your scaffold's frontmatter will not match this list, and how to confirm your type from the body headings instead.
+The fields above are ones you ADD within the scaffold you were handed — the scaffold's frontmatter is type-invariant and will not match this list; that is correct provisioning, so do not report it. Confirm your type by body headings (`## Verdict` = `staff-eng-review`), never frontmatter.
 
 **Run-nonce stamp.** When your brief carries `run_nonce:`, write the sidecar THIS run and stamp `run_nonce: <value>` verbatim into its frontmatter. Never copy a nonce off disk, never emit one you were not given, and do not substitute your own timestamp — a consumer refuses any verdict whose sidecar lacks this run's nonce, and a same-session re-dispatch lands on the same provisioned path. No `run_nonce:` in your brief → omit the field.
 

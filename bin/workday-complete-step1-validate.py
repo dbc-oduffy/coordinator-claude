@@ -589,12 +589,9 @@ def main() -> int:
     owner = mutex_owner("suite-mutex")
     with suite_mutex.held(owner, "workday-complete-step1", timeout=MUTEX_WAIT_SECS) as acquired:
         if not acquired:
-            current = suite_mutex.holder() or {}
-            _err(
-                "[workday-complete-step1] [WARN] suite mutex held by %s for %ss — "
-                "proceeding unserialized"
-                % (current.get("owner", "<unknown>"), int(MUTEX_WAIT_SECS))
-            )
+            _err("[workday-complete-step1] " + suite_mutex.timeout_refusal(MUTEX_WAIT_SECS))
+            _emit(rc_ubt, "mutex-refused")
+            return suite_mutex.EX_TEMPFAIL
         ft_rc, ft_content = _run_fast_test_cmd(scoped_cmd, _ft_env)
 
     if ft_rc == PYTEST_NO_TESTS_COLLECTED:

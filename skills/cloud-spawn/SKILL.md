@@ -1,6 +1,6 @@
 ---
 name: cloud-spawn
-description: "Cloud-only: spawn a worker/probe cloud session with an admissible brief and report channel."
+description: "Cloud-only: spawn a worker/probe session with an admissible brief and report channel."
 version: 1.0.0
 allowed-tools: ["Read", "Bash", "ToolSearch"]
 ---

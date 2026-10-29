@@ -123,38 +123,87 @@ def _git_ls_files(repo: Path, *pathspecs: str) -> list[str]:
     return [line for line in out.split("\n") if line]
 
 
-def _is_prose_line(stripped: str, in_docstring: bool) -> bool:
-    if in_docstring:
+_DOCSTRING_OPENER = re.compile(r"""^[rRbBuU]{0,2}(\"\"\"|''')""")
+
+
+_DEF_HEAD = re.compile(r"(?:async\s+)?(?:def|class)\b")
+_TRAILING_COMMENT = re.compile(r"\s+#.*$")
+
+
+class _DocstringTracker:
+    """Line-oriented docstring position tracker: a triple-quoted opener is a genuine
+    docstring only as the first statement of a module, or directly after a def/class
+    header's closing colon. Any other triple-quoted string (assigned, f-string, SQL or
+    template body) is code and stays unexempt. Feed every line, in order, to ``feed``."""
+
+    def __init__(self) -> None:
+        self.in_triple = False
+        self.triple_is_doc = False
+        self._doc_slot = True
+        self._header_open = False
+
+    def feed(self, stripped: str) -> tuple[bool, bool]:
+        """Return ``(in_docstring_before, opener_is_docstring)`` for this line, then
+        advance. ``opener_is_docstring`` is True when this line opens a genuine docstring."""
+        was_in_doc = self.in_triple and self.triple_is_doc
+        opener_ok = (
+            not self.in_triple
+            and self._doc_slot
+            and _DOCSTRING_OPENER.match(stripped) is not None
+        )
+        count = stripped.count('"""') + stripped.count("'''")
+        if self.in_triple:
+            if count % 2 == 1:
+                self.in_triple = False
+                self.triple_is_doc = False
+            return was_in_doc, False
+        if count % 2 == 1:
+            self.in_triple = True
+            self.triple_is_doc = opener_ok
+        if count:
+            self._doc_slot = False
+            self._header_open = False
+            return was_in_doc, opener_ok
+        if not stripped or stripped.startswith("#"):
+            return was_in_doc, False
+        code = _TRAILING_COMMENT.sub("", stripped)
+        if _DEF_HEAD.match(code):
+            self._header_open = True
+        if self._header_open:
+            if code.endswith(":"):
+                self._header_open = False
+                self._doc_slot = True
+            elif code.count("(") == code.count(")"):
+                self._header_open = False
+                self._doc_slot = False
+            else:
+                self._doc_slot = False
+        else:
+            self._doc_slot = False
+        return was_in_doc, False
+
+
+def _is_prose_line(stripped: str, in_docstring: bool, opener_is_docstring: bool = False) -> bool:
+    if in_docstring or opener_is_docstring:
         return True
     return stripped.startswith("#")
 
 
-def _toggle_docstring(stripped: str, in_docstring: bool) -> bool:
-    # Cheap, line-oriented heuristic: count triple-quote delimiters per line. Correct
-    # for the overwhelming majority of single-open/single-close docstring lines in this
-    # tree; a line that both opens and closes (or opens two) toggles an even number of
-    # times and is treated as NOT entering a multi-line docstring, which is the common
-    # one-line-docstring case.
-    count = stripped.count('"""') + stripped.count("'''")
-    if count % 2 == 1:
-        return not in_docstring
-    return in_docstring
-
-
-def _classify_line(rel: str, stripped: str, in_docstring: bool) -> tuple[str, str | None]:
+def _classify_line(
+    rel: str, stripped: str, in_docstring: bool, opener_is_docstring: bool = False
+) -> tuple[str, str | None]:
     """Return (primary_class, secondary_class_or_None) for one already-noun-bearing line."""
+    prose = _is_prose_line(stripped, in_docstring, opener_is_docstring)
     if any(p.search(stripped) for p in EXTERNALLY_NAMED_PATTERNS):
-        secondary = "PROSE-ONLY" if _is_prose_line(stripped, in_docstring) else None
-        return "EXTERNALLY-NAMED-THING", secondary
+        return "EXTERNALLY-NAMED-THING", "PROSE-ONLY" if prose else None
 
     if rel in CONTRACT_BOUND_FILES:
-        secondary = "PROSE-ONLY" if _is_prose_line(stripped, in_docstring) else None
-        return "CONTRACT-BOUND", secondary
+        return "CONTRACT-BOUND", "PROSE-ONLY" if prose else None
 
     if rel == CC_INVOKE_PATH and any(name in stripped for name in CC_INVOKE_ALIAS_NAMES):
         return "CONTRACT-BOUND", None
 
-    if _is_prose_line(stripped, in_docstring):
+    if prose:
         return "PROSE-ONLY", None
 
     if _is_test_file(rel) and not NOUN.search(
@@ -198,15 +247,16 @@ def _scan_four_trees(repo: Path) -> tuple[list[dict], int]:
             continue
         if not NOUN.search(text):
             continue
-        in_docstring = False
+        tracker = _DocstringTracker()
         for lineno, line in enumerate(text.split("\n"), start=1):
             stripped = line.strip()
             has_hit = bool(NOUN.search(line))
-            was_in_docstring = in_docstring
-            in_docstring = _toggle_docstring(stripped, in_docstring)
+            was_in_docstring, opener_is_docstring = tracker.feed(stripped)
             if not has_hit:
                 continue
-            primary, secondary = _classify_line(rel, stripped, was_in_docstring)
+            primary, secondary = _classify_line(
+                rel, stripped, was_in_docstring, opener_is_docstring
+            )
             rows.append(
                 {
                     "file": rel,

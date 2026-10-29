@@ -153,12 +153,9 @@ def _normalize_argv0_token(token: str) -> str:
     if not token:
         return _DYNAMIC
     token = token.split()[0]
-    # A Windows drive prefix (e.g. a `C:\tools\bash.exe`-shaped argv0) needs no separate strip. abs-path-ok: illustrative argv0 shape in a comment, not a real host path
-    # The `\\`-split below already isolates the basename, since the drive
-    # letter and colon are never part of the last path segment.
-    # (The marker above sits on the citation's OWN line deliberately -- the concrete-path
-    # gate matches same-line only, so a reason wrapped onto the next line reads as a bare
-    # marker and does not exempt anything.)
+    # A Windows drive prefix needs no separate strip: the `\\`-split below already
+    # isolates the basename, since the drive letter and colon are never part of the
+    # last path segment.
     for sep in ("/", "\\"):
         if sep in token:
             token = token.rsplit(sep, 1)[-1]

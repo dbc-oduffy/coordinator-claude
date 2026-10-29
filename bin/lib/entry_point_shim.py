@@ -374,14 +374,21 @@ def _merge_assemble_dispatch(op: str, params: dict, print_fn, result_key: str, *
 
     cc_invoke.last_rung = None
     try:
-        result = cc_invoke.route(op, params, repo_root, _legacy_fn)
+        if is_apply:
+            # Apply runs the external node ceremony suite, whose cost exceeds the
+            # warm ceremony ceiling; warm would answer indeterminate for a run that
+            # completes cold. Served cold in-process, never routed warm.
+            result = _legacy_fn()
+        else:
+            result = cc_invoke.route(op, params, repo_root, _legacy_fn)
     except RuntimeError as exc:
         if not served_cold and _merge_assemble_is_method_not_found(exc):
             result = _merge_assemble_cold_call(op, params)
             served_cold = True
         elif is_apply:
-            # Post-dispatch (or undiscriminable — fail closed per AC6):
-            # never retry cold, an apply directive may already have landed.
+            # Apply is served cold, so any RuntimeError here is the cold run's own
+            # failure (a directive may already have landed) — fail closed per AC6,
+            # never re-run.
             #
             # `is_timeout_error` sharpens the OPERATOR MESSAGE only; it must not
             # gate the routing above. AC6 fails closed on every undiscriminable
@@ -392,7 +399,9 @@ def _merge_assemble_dispatch(op: str, params: dict, print_fn, result_key: str, *
             # landed in full, whereas an unclassified failure leaves even that
             # unknown. Routing them identically while reporting them identically
             # would discard the one discriminator the transport actually exposes.
-            if cc_invoke.is_timeout_error(exc):
+            if served_cold:
+                detail = "the in-process apply failed; it was not re-run"
+            elif cc_invoke.is_timeout_error(exc):
                 detail = (
                     "the op ran past its budget; the engine was NOT stopped, so "
                     "this apply may have landed in full"

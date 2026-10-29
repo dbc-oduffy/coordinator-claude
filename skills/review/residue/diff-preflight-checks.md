@@ -21,12 +21,12 @@ Three independent pre-flight checks beyond the diff freeze. Each fires or skips 
   → Mandatory dispatch of `docs-checker`. Other external APIs are EM judgment; in-repo-only skips.
   _See `coordinator/docs/wiki/reviewer-pipeline/docs-checker-pre-review.md` for the full row table._
 
-**Check 3 — Test evidence (test-evidence-parser)**
+**Check 3 — Test evidence (`weekly-gate-tests.py`)**
 
 - _Diff includes **unintended** failing tests, runtime artifacts, or stack traces in the work-in-progress notes?_ (i.e., evidence of a problem the EM has not yet diagnosed — NOT verdict-bearing smoke output where a BLOCK or WARN is the expected outcome)
-  → EM runs the failing test invocation and captures stdout/stderr to a file, then dispatches `test-evidence-parser` to `Read` that captured path and classify the failures. Read the structured output. Real failures block the dispatch; flakes/env failures get logged and the review proceeds.
+  → EM runs the failing test invocation and captures stdout/stderr to a file, then runs `bin/weekly-gate-tests.py --test-output <path> --out <findings>` to classify the failures. Read the findings file. Real failures block the dispatch; flakes/env failures get logged and the review proceeds.
 - _Diff has clean test runs (or no test surface yet — pre-TDD scaffold)?_
-  → Skip `test-evidence-parser` at pre-flight; reviewer may still call it via Worker Dispatch Recommendations.
+  → Skip `weekly-gate-tests.py` at pre-flight.
 
 _(EM-initiated pre-flight; the normal case is reviewer-routed dispatch via the Worker Dispatch Recommendations block at Branch B. Pre-flight loses the routing-intelligence framing, so use only when the diff already exhibits failure evidence the reviewer would otherwise stumble into cold.)_
 

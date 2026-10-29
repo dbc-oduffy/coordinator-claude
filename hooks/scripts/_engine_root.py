@@ -1682,10 +1682,21 @@ if __name__ == "__main__":
     # this module) resolves the engine root by shelling out to this SAME
     # seam instead of hand-rolling a second, bash-native TOML reader — one
     # implementation, three consumers (Python import, `_claude_klabauter-root.js`
-    # mirror, this CLI). Prints the resolved path, or an empty line on total
-    # miss (never raises, never prints "None") so a fence can test with a
-    # plain `[ -z "$var" ]` check. Deliberately not zero-spawn (unlike the
-    # importable function, which the hot-path hooks require) — a `.md` fence
-    # already pays a `python3` invocation for its main body of work, so one
-    # more short-lived interpreter start here is not a new cost class.
-    print(resolve_claude_klabauter_root() or "")
+    # mirror, this CLI). A hit prints the path and exits 0; a miss prints
+    # nothing to stdout, names the fix on stderr, and exits 2. A fence tests
+    # the exit code; a non-empty stdout is still the path. The importable
+    # functions stay fail-open. Deliberately not zero-spawn (unlike them) —
+    # a `.md` fence already pays a `python3` invocation for its main body.
+    import sys
+
+    _root = resolve_claude_klabauter_root()
+    if _root:
+        print(_root)
+        sys.exit(0)
+    print(
+        "engine root unresolved: set registry key repos.claude_klabauter in "
+        f"{_settings_home_registry_dir() / 'registry.local.toml'} "
+        "(INSTALL.md § Step 1e)",
+        file=sys.stderr,
+    )
+    sys.exit(2)

@@ -378,6 +378,12 @@ PUBLISHER_ONLY_TARGETS = frozenset({
     "coordinator-validate-local-config.py",
     "engine-gap-lint.py",
     "klabauter-promote.py",
+    # Temporary deny-list hold-back in the declarations yaml (klabauter ships
+    # no _machine_local.py yet). Drop this entry in the same change that lifts
+    # the hold-back; the equality test goes red until both move together.
+    # Reserved in substrate._AGENT_HELPER_RESERVED_NAMES, so it gets no
+    # agent-helper forwarder either way.
+    "machine-local.py",
     "percolate-gate.py",
     "percolate-mirror.py",
     "percolate-push.py",

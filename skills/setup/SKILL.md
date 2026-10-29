@@ -14,6 +14,9 @@ with remediation if the engine is unresolvable. Does NOT replace `coordinator:in
 bootstrap into `~/.claude/`) or `coordinator:repo-setup` (consumer-project first-time
 scaffolding) — three distinct verbs.
 
+**Runnable on stated intent.** The PM's stated intent to install or set up coordinator authorizes
+running this skill; it need not be human-typed. `plugin_update` stays gated.
+
 **`setup_skill` in the manifest is informational, not the dispatch primitive.** This skill uses
 direct Bash calls, not subagent dispatch (the engine self-confirms via `claude_klabauter_seam_resolvable`).
 

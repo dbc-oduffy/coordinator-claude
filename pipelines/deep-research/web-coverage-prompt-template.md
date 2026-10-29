@@ -9,7 +9,7 @@ the coverage-audit sidecar named below.
 
 **Pipeline mode:** A (web)
 
-The brief is the file `{{brief}}`; read it for the topic and the topic letters.
+The brief is the research brief at `{{stage.brief-author.output}}`; read it for the topic and the topic letters.
 
 - **Specialist claim records:** every `<letter>-claims.json` in `{{scratch_dir}}/`, one per topic
   letter in the brief's topic table. Your denominator is each claim object with a non-null `id`.

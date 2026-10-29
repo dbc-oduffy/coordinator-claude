@@ -71,8 +71,18 @@ ceremony never offers, nominates or calls `groupem.enter`; the G-EM is entered f
 **Day focus.** If `$ARGUMENTS` is provided: _"Requested focus: {arguments}"_ — carry it into
 "What should today's focus be?" in the briefing.
 
+## The one sanctioned refresh
+
+After the briefing renders, when staleness was flagged, run the structural-index refresh
+(`structural-index-refresh`, `snippets/resolve-coordinator-bin.md`, launched windowless) only after
+`box-memory-snapshot.py --admit-peak <GiB>` admits; HOLD (exit 4) means skip and report. Incremental
+or structural only, never a fresh full embed while production project-rag is serving; a full
+re-embed is a human ask. `/workweek-start` inherits this via its Step 10 chain
+(`coordinator/docs/wiki/coordinator-tripwires/a-reindex-is-a-staleness-flag-never-an-agent-trigger.md`).
+
 ## What This Does NOT Do
 
+Start a reindex on a stale flag outside the section above: the corpus-currency probe is read-only.
 Bug-sweep / daily-code-health / deep-architecture-survey / update-docs (dedicated invocations).
 Merge to main. Choose work (`/workstream-start`'s Engage section). `/update-docs` and `/bug-sweep`
 are recommended, never auto-dispatched from here — a PM call. `/workday-complete` is the evening

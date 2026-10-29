@@ -12,8 +12,8 @@ allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskU
 
 The /workweek-complete pre-merge code-review gate: snapshots the week's diff against
 `origin/main`, dispatches N `code-reviewer-weekly` chunk reviewers over the narrowed
-code-semantics scope plus 3 mechanical specialists (security, deps, tests) over the full diff, all
-in parallel, and synthesizes BLOCKED/WARN/OK. Enforces
+code-semantics scope plus `security-audit-worker` over the full diff in one parallel Workflow, runs
+the deps and tests scripts, and reduces BLOCKED/WARN/OK with `weekly-gate-synthesize.py`. Enforces
 `${CLAUDE_PLUGIN_ROOT}/snippets/em-operating-doctrine.md` § How to Review What Came Back.
 The Staff Engineer's Layer-2 pass runs separately at Step 7.5 (wiki).
 
@@ -76,9 +76,8 @@ Resolve: `coordinator-resolve-validation-cmd --full` → `$TEST_CMD` / `$RESOLVE
 `TEST_OUTPUT_PATH="state/review-trail/diffs/${WEEKLY_SLICE_ID}.test.log"`, then run the
 resolver-branch decision above and act on its `next_move`.
 
-Pre-scaffold (`Edit` cannot create a file): `printf '<!-- FINDINGS -->\n' >
-"$FINDINGS_DIR/tests.md"`. On `RESOLVER_EXIT=2`, still write it but skip test-evidence-parser
-(surfaces as `failed_disk_read`).
+On `RESOLVER_EXIT=2`, omit `--test-output`: `weekly-gate-tests.py` writes `tests.md` with status
+`not-run`, scored as an absent lens.
 
 ---
 
@@ -87,12 +86,15 @@ Pre-scaffold (`Edit` cannot create a file): `printf '<!-- FINDINGS -->\n' >
 > **Do not ask whether to dispatch** — invoking this skill IS the request for the dispatch this
 > step names; it dissolves no gate this skill's own body names.
 
-**Dispatch the whole span as one Workflow — `Workflow({scriptPath: "${CLAUDE_PLUGIN_ROOT}/workflows/review-wave.mjs", args: {pluginRoot: "${CLAUDE_PLUGIN_ROOT}", ...}})`** (both resolved to absolute paths, never repo-relative). It encodes this
-section and the synthesizer dispatch below; its `args` contract is in the script's header.
+**Before the Workflow, run the two scripts** (resolved like every CLI on this page):
+`weekly-gate-deps.py --diff "$DIFF_PATH" --repo . --out "$FINDINGS_DIR/deps.md"` and
+`weekly-gate-tests.py [--test-output "$TEST_OUTPUT_PATH"] --out "$FINDINGS_DIR/tests.md"`.
+
+**Dispatch the span as one Workflow — `Workflow({scriptPath: "${CLAUDE_PLUGIN_ROOT}/workflows/review-wave.mjs", args: {pluginRoot: "${CLAUDE_PLUGIN_ROOT}", ...}})`** (both resolved to absolute paths, never repo-relative). It encodes the
+chunk and security legs below; its `args` contract is in the script's header.
 Pre-provision each dispatched agent's sidecar first —
 `provision-sidecar --agent-type <type> --provision-key <slice-id>` — and inject the printed path
-as `sidecar_path:` in its brief: a Workflow spawn never auto-provisions one. Omit
-`testOutputPath` on an unconfigured-resolver (`RESOLVER_EXIT=2`) week and the parser is skipped.
+as `sidecar_path:` in its brief: a Workflow spawn never auto-provisions one.
 
 The gate is not a checkpoint: reviewers run to completion without EM authorization.
 
@@ -105,11 +107,17 @@ frozen input and writes only its own findings file.
   incrementally, marking `escalate_to_architecture: true` where relevant. Applied findings land
   in the diff, verified via `review-findings-ledger verify`.
 - **security-audit-worker**: `$DIFF_PATH` → `$FINDINGS_DIR/security.md`.
-- **dep-cve-auditor**: repo manifests at HEAD vs. `$DIFF_PATH` → `$FINDINGS_DIR/deps.md`.
-- **test-evidence-parser**: `$TEST_OUTPUT_PATH` → `$FINDINGS_DIR/tests.md` via one `Edit` on the
-  pre-scaffolded sentinel. Skip on `RESOLVER_EXIT=2`.
+- **`weekly-gate-deps.py`**: repo manifests at HEAD vs. `$DIFF_PATH` → `$FINDINGS_DIR/deps.md`.
+- **`weekly-gate-tests.py`**: `$TEST_OUTPUT_PATH` → `$FINDINGS_DIR/tests.md`.
 
-These four are orthogonal lenses; the N chunk reviewers partition one by file-scope (wiki).
+Before the Workflow, run the two mechanical scripts (code, no agent; names and flags pinned in
+`coordinator/lib/weekly_gate.py` `SCRIPT_CLIS`):
+
+- `weekly-gate-deps.py --diff "$DIFF_PATH" --repo . --out "$FINDINGS_DIR/deps.md"`
+- `weekly-gate-tests.py --test-output "$TEST_OUTPUT_PATH" --out "$FINDINGS_DIR/tests.md"` (skip on
+  `RESOLVER_EXIT=2`; it surfaces as absent, not failed)
+
+These lenses are orthogonal; the N chunk reviewers partition one by file-scope (wiki).
 
 Reviewers never commit. A chunk reviewer's footprint is exactly its one `chunk-<k>.md`;
 anything else is a contract violation to revert.
@@ -124,30 +132,30 @@ domain, at least four rows) and fails closed.
 |---|---|
 | `agents/code-reviewer-weekly.md` | code semantics |
 | `agents/security-audit-worker.md` | source security |
-| `agents/dep-cve-auditor.md` | dependency CVEs |
-| `agents/test-evidence-parser.md` | test evidence |
+| `bin/weekly-gate-deps.py` | dependency CVEs |
+| `bin/weekly-gate-tests.py` | test evidence |
 
 ---
 
-## Synthesizer Pre-Flight and Dispatch
+## Synthesis Pre-Flight and Run
 
-Each expected findings file (chunk-*.md + active specialists, or the skip sentinel on a doc-only
-week) must exist and be >1KB before the synthesizer runs. A failing/missing one:
-`lens_coverage[<reviewer>]: failed_disk_read`, degrade to WARN, never "no findings = no issues."
+Each expected agent-written findings file (chunk-*.md, security.md, or the skip sentinel on a
+doc-only week) must exist and be >1KB. Script-written `deps.md` and `tests.md` are gated by their
+status field (`ok`/`not-run`/`failed`), never size: `not-run` scores an absent lens. A failing/missing
+agent file: `lens_coverage[<reviewer>]: failed_disk_read`, degrade to WARN, never "no findings = no
+issues."
 
 **Quota-exhausted dispatch.** Scan each returned slice against
-`${CLAUDE_PLUGIN_ROOT}/snippets/quota-self-detect-preamble.md` before synthesizer dispatch — a
+`resets HH:MM`, or a sub-1KB body with `quota`/`rate limit`, before synthesis — a
 match (or the `QUOTA-EXHAUSTED-DISPATCH:` envelope) is excluded from synthesis. Re-dispatch after
 the wait or escalate partial coverage to the PM; the gate holds.
 
 Any other failed dispatch: retry once via `SendMessage` (never redispatch from scratch), then
 `failed_disk_read`/WARN degrade — an infra dropout never blocks.
 
-Once all present files pass, dispatch Sonnet `parallel-review-synthesizer`
-(`agents/parallel-review-synthesizer.md`) with `$HEAD_SHA_PATH`. It owns verdict computation,
-convergence detection, and `arch_tier_candidates` aggregation. Writes `$FINDINGS_DIR/synthesis.json`.
-
-`review-wave.mjs`'s Synthesize phase runs this span; either vehicle satisfies these rules.
+Once all present files pass, run `weekly-gate-synthesize.py --findings-dir "$FINDINGS_DIR"
+--head-sha-path "$HEAD_SHA_PATH"`. It owns verdict computation, convergence detection, and
+`arch_tier_candidates` aggregation, and writes `$FINDINGS_DIR/synthesis.json`.
 
 ---
 

@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coordinator.local/schemas/fleet-capability-index.schema.json",
+  "x-schema-name": "fleet-capability-index",
+  "x-schema-version": "1.1.0",
+  "x-bump-class": "top-level-array-additive",
+  "x-bump-note": "1.0.0 -> 1.1.0 (top-level-array-additive, claude-klabauter-first) adds optional top-level `shapes` [shapeEntry] (DR-201 (b)); holding, because fleet.aggregate_capability_index validates manifests with additionalProperties false, so no declared-tolerant consumer set exists. Pending DoE's own copy (DoE I47 C2). RE-VENDOR: coordinator-content-repo.",
+  "applies_to": "state/capabilities/fleet-index.json",
+  "description": "The AGGREGATED fleet-capability index — the shape the engine repo's engine op produces by reading every platform repo's authored capability-manifest.schema.json instance and folding them into one persisted, read-derived projection (docs/plans/2026-07-17-cross-repo-capability-lens.md § C1). This is a Tier-B aggregation VIEW, not a producer sink: no repo ever emits INTO this index (Fleet Producer Contract, docs/wiki/hook-best-practices/state-placement-law.md § Fleet Producer Contract, lines ~290-293 — a consolidation point a repo writes into would make one producer a fleet-wide SPOF). If lost or stale it is fully rebuildable from the decentralized per-repo manifests, which remain the sole source of truth. The review SKILL (C4) resolves this index via the engine op-invocation seam, applies the read-time TTL staleness downgrade (AC8) against `generated_at`/`ttl`, and passes its path to prior-art-checker (C3) as `fleet_capability_index:`. `entries[].host_repo` mirrors capability-manifest.schema.json's per-capability shape (duplicated here, not $ref'd cross-file, because this repo's schema-validation harness only resolves `$ref`/`$defs` within a single schema file — see coordinator/bin/lib/schema.js's JSON-Schema-subset validator) and MUST include every repo's capabilities, INCLUDING the plan's own repo, so the checker can compute `host_repo == plan_repo` asymmetry (F1c) as a mechanical field comparison rather than an external lookup.",
+  "type": "object",
+  "required": ["generated_at", "ttl", "entries"],
+  "additionalProperties": false,
+  "properties": {
+    "generated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO timestamp this aggregated index was last (re)built by the engine's op. Paired with `ttl` for the read-time TTL staleness rule (AC8): past `generated_at` + `ttl`, the review SKILL downgrades every entry's `maturity` to stale/unverified before passing the index on, so a silently-stale-but-readable index is never trusted as live."
+    },
+    "ttl": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Freshness stamp — the declared time-to-live for this index build (e.g. an ISO-8601 duration like \"P1D\"), read alongside `generated_at` by the review SKILL's read-time TTL downgrade rule (AC8/F2). Distinct from any single manifest's `refresh_cadence` (capability-manifest.schema.json): this is the INDEX's own staleness budget, set by the engine's refresh ceremony, not a per-repo authoring cadence."
+    },
+    "entries": {
+      "type": "array",
+      "description": "Every aggregated capability entry across every enumerated sibling repo, INCLUDING the plan's own repo's entries if it has authored a manifest (F1c — required so `host_repo == plan_repo` is a mechanical comparison the checker can run without a separate self-lookup). May be empty for an OSS-safe degrade (registry absent, zero siblings enumerated, or zero manifests found) — an empty `entries[]` is a valid index, not a validation failure.",
+      "items": { "$ref": "#/$defs/indexEntry" }
+    },
+    "shapes": {
+      "type": "array",
+      "description": "OPTIONAL. Copy-out exemplar shapes aggregated across every enumerated sibling repo (DR-201 shapeEntry, carried through from each source manifest with `source_repo` and verbatim `maturity`).",
+      "items": { "$ref": "#/$defs/shapeEntry" }
+    }
+  },
+  "$defs": {
+    "shapeEntry": {
+      "type": "object",
+      "required": [
+        "shape_id",
+        "shape_label",
+        "shape_summary",
+        "exemplar_path",
+        "copy_posture",
+        "maturity",
+        "provenance",
+        "source_repo"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "shape_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable identifier for this shape, unique within the emitting repo's manifest."
+        },
+        "shape_label": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable label; the string a copy-out offer quotes verbatim."
+        },
+        "shape_summary": {
+          "type": "string",
+          "minLength": 1,
+          "description": "One-line summary of what the shape is and when to copy it."
+        },
+        "exemplar_path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Repo-relative path of the exemplar in the owning repo."
+        },
+        "copy_posture": {
+          "type": "string",
+          "enum": ["copy-out", "ask-the-owner"],
+          "description": "Whether a consumer may copy the exemplar out directly or must ask the owning repo first."
+        },
+        "maturity": {
+          "type": "string",
+          "enum": ["live", "stale", "unverified", "absent"],
+          "description": "Fail-closed reachability marker, carried through verbatim from the source manifest."
+        },
+        "provenance": {
+          "type": "string",
+          "enum": ["curated", "generated", "asserted"],
+          "description": "Same enum and semantics as indexEntry.provenance."
+        },
+        "source_repo": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The emitting repo: a non-polarity echo of the manifest-level `host_repo`, never compared for consume suppression."
+        }
+      }
+    },
+    "indexEntry": {
+      "type": "object",
+      "description": "Same per-capability shape as capability-manifest.schema.json's `capabilityEntry`, PLUS the emitting repo's `host_repo` present on every entry (required at this level too, not only inherited from a manifest-level field, since entries from many manifests are flattened into one array here).",
+      "required": [
+        "capability_id",
+        "capability_class",
+        "capability_label",
+        "consume_seam",
+        "maturity",
+        "provenance",
+        "host_repo"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "capability_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable identifier for this capability, unique within its emitting repo's manifest — see capability-manifest.schema.json."
+        },
+        "capability_class": {
+          "type": "string",
+          "enum": ["store", "query-surface", "index", "embed-pipeline", "other"],
+          "description": "Coarse structural class — the field the prior-art-checker's construction-vs-production predicate (F1a) matches a plan's proposed-artifact-class against."
+        },
+        "capability_label": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable label, e.g. \"workstate store\" — paired with `capability_class` for the domain-aware match (F1b)."
+        },
+        "consume_seam": {
+          "type": "string",
+          "minLength": 1,
+          "description": "REAL, structured consume seam vouched for by the emitting repo — carried through aggregation unchanged from the source manifest."
+        },
+        "maturity": {
+          "type": "string",
+          "enum": ["live", "stale", "unverified", "absent"],
+          "description": "Fail-closed reachability marker (AC9), as authored in the source manifest. The review SKILL (C4) may further DOWNGRADE (never upgrade) this value at read-time per the TTL staleness rule (AC8) once the index itself has aged past its `ttl` — that downgrade happens outside this schema, at consumption time, and is not itself validated here."
+        },
+        "provenance": {
+          "type": "string",
+          "enum": ["curated", "generated", "asserted"],
+          "description": "Three-value provenance marker carried through from the source manifest (capability-manifest.schema.json); `generated`/`asserted` fail closed harder than `curated` on maturity (AC9)."
+        },
+        "host_repo": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The offering repo for this entry. CRITICAL (F1c): every entry — INCLUDING entries whose `host_repo` equals the plan's own repo — MUST be present so the checker's `host_repo == plan_repo` suppression is a mechanical field comparison over this array, never an external per-repo lookup."
+        }
+      }
+    }
+  }
+}

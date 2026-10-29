@@ -38,7 +38,7 @@ Plain `brief` returns `artifact`/`preflight`/`gates`/`directives`/`judgment_poin
 - **Execution-observations fold**: read each sidecar's `divergence` as quoted narrative, never EM-authored prose; surface a crashed-executor marker before deleting it. A `## Tasks`-spine plan cites `plan-completeness status <plan-path>`'s divergence rollup (with its non-conformant count) instead of per-chunk sidecars; a pre-spine plan reads sidecars.
 - **Memo-resolution / self-clean disposition**: decide once, plain prose; evidence is surfaced, never picked.
 - **Session Ledger row append** (predecessor-consumed only): one row to the consumed handoff's `## Session Ledger`, via the `handoff.append_session_ledger` op, never hand-typed.
-- **Prime exit criterion assertion**: a run-stamped plan already carries `exit_criterion_met`; verify it, never recompute. Absent blocks; clear it by the re-judge route (terminal-judge § Closing a plan whose run judged `not_met`). `asserted: false` routes to `/handoff` or a Phase-5 halt. At L and above the run's ledger checker verdict is the close: no judge, falsifier or delivery check runs after it. [terminal-judge](../../docs/wiki/reviewer-pipeline/terminal-judge.md); `A-PLAN-SELF-COMPLETES-ONLY-ON-A-MET-TERMINAL-JUDGE`.
+- **Prime exit criterion assertion**: a run-stamped plan already carries `exit_criterion_met`; verify it, never recompute. Absent blocks; clear it by the re-judge route (terminal-judge § Closing a plan whose run judged `not_met`). `asserted: false` routes to `/handoff` or a Phase-5 halt. At L and above the run's ledger checker verdict is the close: no judge, falsifier or delivery check runs after it, except the fresh re-judge after a `not_met` remnant wave (the verdict's `remnant` object; `coordinator/contract/remnant-completion-fragment.json`). [terminal-judge](../../docs/wiki/reviewer-pipeline/terminal-judge.md); `A-PLAN-SELF-COMPLETES-ONLY-ON-A-MET-TERMINAL-JUDGE`.
 - **Stop the session's own watchers — MANDATORY, never opt-in.** `coordinator-invoke workstream_complete.stand_down_watchers '{"session_id":"<sid>"}'` stops this session's, never a peer's. Render `stopped` (name each), each `survivors` entry as **not verified** (never "done"), `expires_on_its_own` (`notify_when_idle`, no action), and every `unattributed` entry and `warnings` line. A Group EM holder relays the returned `notice`. `A-CLOSED-SESSION-LEAVES-NO-WATCHER-RUNNING`.
 - **Terminal-baton drain — MANDATORY, and the last thing this ceremony does.** No directive
   performs it.
@@ -52,7 +52,7 @@ Plain `brief` returns `artifact`/`preflight`/`gates`/`directives`/`judgment_poin
      <!-- enum-prose: schema=handoff field=deployment_state omit=awaiting_gate,ready_to_fire,in_flight -->
 
   `[[terminal-batons-are-swept-at-close-not-left-to-the-next-ceremony]]`
-- **Kira fires per the run's review tier** (L/XL/XXL in the engine-ask review wave; XS/S/M skip Kira by design), never on every close.
+- **Kira runs only when the EM or PM names Kira**, never by default and never on every close.
 - **An idle subagent has not failed.** Recover a review that never delivered its verdict from its transcript under `subagents/`; never replace it with `em-verified`, which overwrites an independent finding. `AN-IDLE-SUBAGENT-HAS-NOT-NECESSARILY-FAILED`.
 
 ---
@@ -100,7 +100,7 @@ event outside this session's reach that clears it.
 
 **Capping with the review unrun is forbidden; `verdict: pending` is not the escape hatch.** Tells you are about to cap (trampoline instead): "the next session can review this"; `reviewer: waived` paired with a non-`waived` verdict; a range narrowed because the honest range was refused; "mandatory" reasoned as advisory. Tripwire: `PARTITION-MANDATORY`.
 
-**A chain-ancestry waiver is provenance, not review discharge — it does not clear a HALT.** `certifies_review: false` reads "ancestry NOT reviewed." Tripwire: `WAIVER-IS-PROVENANCE-NOT-DISCHARGE`.
+**Chain-ancestry is provenance, not review discharge — it does not clear a HALT.** `certifies_review: false` reads "ancestry NOT reviewed."
 
 ---
 
@@ -139,15 +139,16 @@ Order is transition, dispose, archive: `continued` needs `deployment_state` alre
 - **Nothing** for review — the plan's `review_stamp` was minted before this ceremony ran; confirm `gates.review_receipt.blocks` is `false` and name any gap in
    the summary.
 
-**`apply` runs the post-close steps itself, after its close commit — never by hand:**
+**`apply` runs the post-close steps itself, after its close commit:**
 `d-baton-chain-closure`, `d-structural-index-refresh`, `d-ceremony-reindex`, then a release of
-every touch claim the session holds. Read outcomes off `post_close[]`.
+every touch claim the session holds. Read outcomes off `post_close[]`. `d-ceremony-reindex` is
+engine-owned; report its outcome, never re-run it (`A-REINDEX-IS-A-STALENESS-FLAG-NEVER-AN-AGENT-TRIGGER`).
 
 **A run-stamped plan already carries `implemented`; the ceremony verifies it, never restamps.** Where `land_run` did not stamp, `d-stamp-plan-implemented` is gated engine-side (a blocked stamp is not a failed one) with three empty-`resolves` judgment points on its `depends_on`: `jp-open-spine-rows-block-stamp` (unwaived `open` rows, or `indeterminate`), `jp-landed-reconciliation-block-stamp` (plan `landed` with unticked ACs), `jp-review-receipt-block-stamp`. An unresolved one lands in `report["blocked"]` under `HALTED_AT_JUDGMENT` — a close exits non-failing with no stamp. That covers the stamp leg only, never an open census gate (§ Completion verdict). `waived_open_spine_row_ids` clears leg 1's `applicable` arm only. Never build a doctrine gate beside these. Tripwire: `AN-HONEST-INCOMPLETE-DOES-NOT-EARN-THE-WRAP-OFFER`.
 
 **A stamp line can carry a failed archival move** (`N of M moves failed`): move the remainder, or the plan's sidecars stay orphaned.
 
-Exit `2` (`DIRECTIVE_FAILED`) = nothing landed; exit `4` (`PARTIAL_MUTATION`) = a directive failed. **Exit `4` is a failed close, never "done with residue":** fix the cause and re-run `apply`. **`state/sizings/` files are committed by the engine's close commit**, never by hand. A client-side timeout is no failure signal: reconcile against commit state before re-running.
+Exit `2` (`DIRECTIVE_FAILED`) = nothing landed; exit `4` (`PARTIAL_MUTATION`) = a directive failed. **Exit `4` is a failed close, never "done with residue":** fix the cause and re-run `apply`. **`state/sizings/` files are committed by the engine's close commit**. A client-side timeout is no failure signal: reconcile against commit state before re-running.
 
 Push runs on a cadence, not on this commit: `push_status` `"cadence-pending"`, `"pushed"` and (older engines) `"deferred"` are all success. Only `"deferred"` wants confirming, via `git branch -r --contains <sha>`. **Never `git push` to "fix" an apparent delay.**
 

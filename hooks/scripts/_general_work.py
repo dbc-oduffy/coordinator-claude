@@ -165,12 +165,14 @@ def _merge(existing: str, section: str) -> str:
 _SEED_IDENTITY = ("-c", "user.name=general-work-root", "-c", "user.email=general-work-root@localhost")
 
 
-def _git(root: Path, *args: str, pre: tuple[str, ...] = ()):
-    """Run git in `root`; None when git is missing or fails to spawn, so callers stay non-fatal."""
+def _git(root: Path, *args: str, pre: tuple[str, ...] = (), stdin: bytes | None = None):
+    """Run git in `root`, feeding `stdin` when given; None when git is missing or fails to spawn, so
+    callers stay non-fatal."""
     try:
         return subprocess.run(
             ["git", *pre, "-C", str(root), *args],
             capture_output=True,
+            input=stdin,
             check=False,
             timeout=30,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
@@ -260,13 +262,14 @@ def _commit_seed(root: Path, paths: list[str]) -> None:
     """Stage and commit exactly `paths`, each named explicitly, skipping any path git reports as
     ignored or excluded; a no-op when none differs from HEAD. Supplies a fallback identity only
     when the box has none."""
-    use = []
-    for rel in paths:
-        res = _git(root, "check-ignore", "-q", "--", rel)
-        if res is None or res.returncode > 1:
-            return
-        if res.returncode == 1:
-            use.append(rel)
+    if not paths:
+        return
+    # One batched check-ignore (exit 0 = some ignored, 1 = none, >1 = failure); -z keeps names verbatim.
+    res = _git(root, "check-ignore", "--stdin", "-z", stdin="\0".join(paths).encode("utf-8", "surrogateescape") + b"\0")
+    if res is None or res.returncode > 1:
+        return
+    ignored = {p.decode("utf-8", "surrogateescape") for p in res.stdout.split(b"\0") if p}
+    use = [rel for rel in paths if rel not in ignored]
     if not use:
         return
     _git(root, "add", "--", *use)

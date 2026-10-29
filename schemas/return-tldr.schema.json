@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coordinator-content-repo/coordinator/schemas/return-tldr.schema.json",
+  "x-schema-version": "1.0.0",
+  "title": "Agent return-tldr",
+  "description": "The capped, code-assembled digest an agent may put in front of the EM — pinned in docs/plans/2026-09-27-four-turn-em-loop.md § Pinned interfaces. Inlined as a strict-JSON literal into coordinator/snippets/return-tldr.md between /* BEGIN RETURN_TLDR_SCHEMA */ and /* END RETURN_TLDR_SCHEMA */ (C4).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["verdict", "decisions", "counts", "sidecar"],
+  "properties": {
+    "verdict": { "type": "string", "enum": ["OK", "WARN", "BLOCKED", "PIVOT", "FAILED"] },
+    "decisions": {
+      "type": "array",
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["item", "anchor"],
+        "properties": {
+          "item": { "type": "string", "maxLength": 200 },
+          "anchor": { "type": "string", "maxLength": 240 }
+        }
+      }
+    },
+    "counts": {
+      "type": "object",
+      "maxProperties": 12,
+      "additionalProperties": { "type": "integer", "minimum": 0 }
+    },
+    "sidecar": { "type": ["string", "null"], "maxLength": 240 }
+  }
+}

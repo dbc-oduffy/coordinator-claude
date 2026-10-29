@@ -4,7 +4,7 @@ created: 2026-07-12
 type: doctrine
 related:
   - ~/.claude/CLAUDE.md § Concurrent-EM Git Operations
-  - coordinator/docs/wiki/cross-repo-fleet-contract.md (O_EXCL collision-guard prior art)
+  - page `cross-repo-fleet-contract.md` under `<content-root>/docs/wiki/` (`<content-root>` = `machine-local get repos.content_root`; O_EXCL collision-guard prior art)
 ---
 
 <!-- RAG-bait: silent-overwrite fix, O_CREAT O_EXCL retry-with-suffix, fail-loud vs fail-quiet caller

@@ -108,6 +108,14 @@ The failure shape (UE+MCP campaign closeout in example-game-repo): the EM wrote 
 
 *Source: example-game-repo `state/lessons/` (example-game-repo-L47), central-pulled.* [universal]
 
+### Act on every lever found — never cap at "top N"
+
+**When the PM asks for the levers on a problem, act on every one found and track each in the owning session's lever register.** Never narrow to "top N" and never park a lever as too small. Keep the PM's quantifiers ("every", "all", "each") verbatim in the brief you dispatch; a brief that substitutes "top 3" for the PM's words has overridden the ask.
+
+**How to apply:** for pipeline-shaped levers, planning stays above S sizing; every other stage is kept only for its measured unique catches. Test demoting, gating or merging each stage and keep nothing on faith.
+
+*Source: group-em lesson `2026-10-27-ejected-memory-act-on-every-lever`.* [universal]
+
 ### Negative-search a recent ratification before honoring a PM reversal
 
 **When a PM direction — or a bug's apparent fix — would reverse a recently-ratified decision, grep the wiki / lib headers / regression tests for the prior ratification and surface it BEFORE acting.** The reverser may lack that context; the EM who holds it owes the surface, not silent compliance. **Tell:** an internal mismatch (e.g. a local-day key paired with a UTC commit window) is the signature of an *incomplete prior migration to complete*, not a *design to reverse* — reversing it re-opens the very inconsistency the migration was closing.

@@ -127,7 +127,7 @@ contributions at boot and at each call boundary; no host tool imports
 
 This boundary is enforced by the pluggy registry: addons that are not installed
 are simply absent from the aggregation result, and the host degrades gracefully
-(see project-rag:docs/wiki/thin-wrapper-graceful-fail.md).
+(see `<project-rag-root>/docs/wiki/artifact-shape-conformance/thin-wrapper-graceful-fail.md`; `<project-rag-root>` = `machine-local get repos.project_rag`).
 
 ---
 

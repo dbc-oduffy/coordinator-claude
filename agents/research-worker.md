@@ -1,9 +1,10 @@
 ---
 name: research-worker
+executes-rows: false
 description: "Sonnet NotebookLM worker: ingests scout sources, queries, writes {letter}-claims.json."
 model: sonnet
 effort: low
-tools: ["Read", "Write", "Glob", "Edit", "Bash", "PowerShell", "ToolSearch", "mcp__notebooklm-mcp__notebook_create", "mcp__notebooklm-mcp__notebook_get", "mcp__notebooklm-mcp__notebook_query", "mcp__notebooklm-mcp__tag", "mcp__notebooklm-mcp__source_add", "mcp__notebooklm-mcp__source_get_content", "mcp__notebooklm-mcp__source_delete", "mcp__notebooklm-mcp__research_start", "mcp__notebooklm-mcp__research_status", "mcp__notebooklm-mcp__research_import", "mcp__notebooklm-mcp__studio_create", "mcp__notebooklm-mcp__studio_status", "mcp__notebooklm-mcp__download_artifact", "mcp__notebooklm-mcp__chat_configure", "mcp__notebooklm-mcp__refresh_auth", "mcp__notebooklm-mcp__batch", "mcp__notebooklm-mcp__source_sync_drive", "mcp__notebooklm-mcp__source_list_drive"]
+tools: ["Read", "Write", "Glob", "Edit", "Bash", "PowerShell", "ToolSearch", "mcp__notebooklm-mcp__notebook_create", "mcp__notebooklm-mcp__notebook_get", "mcp__notebooklm-mcp__notebook_query", "mcp__notebooklm-mcp__tag", "mcp__notebooklm-mcp__source_add", "mcp__notebooklm-mcp__source_get_content", "mcp__notebooklm-mcp__source_delete", "mcp__notebooklm-mcp__research_start", "mcp__notebooklm-mcp__research_status", "mcp__notebooklm-mcp__research_import", "mcp__notebooklm-mcp__studio_create", "mcp__notebooklm-mcp__studio_status", "mcp__notebooklm-mcp__download_artifact", "mcp__notebooklm-mcp__chat_configure", "mcp__notebooklm-mcp__refresh_auth", "mcp__notebooklm-mcp__batch", "mcp__notebooklm-mcp__source_sync_drive", "mcp__notebooklm-mcp__source_list_drive", "mcp__project-rag__project_staleness_check", "mcp__project-rag__project_symbol", "mcp__project-rag__project_symbol_callers", "mcp__project-rag__project_symbol_references", "mcp__project-rag__project_symbol_brief", "mcp__project-rag__project_referencers", "mcp__project-rag__project_semantic_search", "mcp__project-rag__project_rag_instructions", "mcp__project-rag__project_symbol_source"]
 color: orange
 access-mode: read-write
 ---
@@ -193,11 +194,23 @@ Unless noted, each case ends the same way: **write partial output and proceed to
 **STOP** (write partial, proceed to Phase 5) on: retrying an operation >2×, waiting >5 min for one
 operation, or repeated auth failure after `refresh_auth`. Never loop indefinitely.
 
+<!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->
+
+**Code lookup: project-rag first.**
+
+1. First action, when `mcp__project-rag__*` tools are present (they arrive deferred): `ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
+2. Then `project_staleness_check`; callers `project_symbol_callers`/`_references`; impact `project_referencers`; else `project_rag_instructions`.
+Bodies, members, UE engine types: load `project_symbol_source`, `project_engine_*` by name; a `project_symbol` stub is not "corpus can't answer".
+**Enumeration is not a lookup.** "What exists?" means a target list, a file set, a coverage count, or "is X covered?". Answer it by walking the filesystem (Glob, a disk enumerator), never with project-rag or any other index, because an index reports only what it already holds. Use project-rag to understand what the walk found, never to decide what exists.
+If a project-rag call errors or its tools are absent (daemon down), fall back to Grep/Read and carry on.
+Friction: memo `project-rag-em` / `gh issue create -R dbc-oduffy/project-rag`.
+<!-- END project-rag-preamble -->
+
 <!-- BEGIN guard-encounter-preamble (synced from snippets/guard-encounter-preamble.md) -->
 
 ## Guard Denial Is a Stop Signal
 
-A coordinator PreToolUse denial is a stop, not an obstacle. **Never reshape a denied operation** — a script file, `sh -c`, `python -c`, `xargs`, a written-then-run heredoc, or any rewrite aimed at how the guard *reads* the command. **Stop and report** the exact command and the guard that denied it; what happens next, including any override, is the dispatching EM's call. Disclosing an evasion does not excuse it.
+A coordinator PreToolUse denial is a stop, not an obstacle. **Follow a remedy the denial itself names** (e.g. "use a script file", a named CLI): that is compliance, not evasion. **Never reshape a denied operation on your own initiative** — a script file, `sh -c`, `python -c`, `xargs`, a written-then-run heredoc, or any rewrite aimed at how the guard *reads* the command. Otherwise **stop and report** the exact command and the guard that denied it; what happens next, including any override, is the dispatching EM's call. Disclosing an evasion does not excuse it. A denial naming no next move is a tool bug: report it to the guard's owner.
 <!-- END guard-encounter-preamble -->
 
 <!-- BEGIN subagent-sandbox-preamble (synced from snippets/subagent-sandbox-preamble.md) -->

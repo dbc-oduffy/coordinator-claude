@@ -69,7 +69,7 @@ The coordinator is yours after install. Make it serve your actual work, not the 
 
 ## Movement 3 — Take it for a spin: a real test drive
 
-Reading about the loop and *feeling* it are different things. Start a fresh Claude Code session in a throwaway directory first: the install session is rooted in the install clone, which is never a working repo. Pick something small and real, or a scratch project, and run it through the actual machinery so the difference between "assign a ticket" and "brief a partner" lands viscerally.
+Reading about the loop and *feeling* it are different things. Run it inline in this session, targeting the general-work root (`repos.general_work`) or a repo the operator picks, and never the install clone. Pick something small and real, or a scratch project, and run it through the actual machinery so the difference between "assign a ticket" and "brief a partner" lands viscerally.
 
 Good first spins, easiest to most:
 
@@ -84,13 +84,13 @@ Good first spins, easiest to most:
 
 ## Movement 4 — Point it at a project
 
-The tour ends by putting coordinator on real work, opt-in and after the test drive. Start a fresh
-Claude Code session in the chosen repo (the install session is rooted in the clone); every operator who
+The tour ends by putting coordinator on real work, opt-in and after the test drive. Run it inline in this
+session against the chosen repo's path, with no new session needed; every operator who
 opts in leaves with one repo onboarded.
 
 Ask which they have:
 
-- **An existing repo** → `/coordinator:repo-setup`, run from inside it. Scaffolds the
+- **An existing repo** → `/coordinator:repo-setup`, run against its path. Scaffolds the
   project-local surfaces, captures `project_type` so the right domain specialists route, and
   renders their posture overlay there from the anchor install already persisted.
 - **Something new** → `/coordinator:new-project`, which scaffolds the repo and onboards it in one

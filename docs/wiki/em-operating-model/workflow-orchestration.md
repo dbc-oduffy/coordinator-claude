@@ -107,7 +107,7 @@ A Workflow reporting a failure has almost always **already persisted its executo
 
 - **StructuredOutput retry-cap exhaustion.** A schema'd `agent()` that fails to emit conformant JSON five times surfaces as `parallel[N] failed` — but the executor's disk edits landed *before* the final emission failed. The failure is the structured-output emission, not the task. Check the executor's write-files before assuming loss.
 - **Stall-watchdog retry.** An `agent()` silent for `stallMs` (default 180 s) is aborted — its transcript ends `[Request interrupted by user]`, not a PM message — and relaunched fresh over its disk state, at most 5 times. Tripwire: `A-WORKFLOW-STALL-ABORT-READS-AS-A-USER-INTERRUPT`.
-- **Session/usage-limit death.** Every `agent()` errors with "hit your session limit" and `subagent_tokens=0` / `tool_uses=0` — no partial disk writes at all. Verify clean, then re-run with `resumeFromRunId` once the limit resets; no agent was cached, so the whole wave re-runs safely. Do NOT hand-finish or re-plan around a limit-death.
+- **Session/usage-limit death.** Every `agent()` errors with "hit your session limit" and `subagent_tokens=0` / `tool_uses=0` — no partial disk writes at all. Verify clean, then re-run with `resumeFromRunId` once the limit resets; no agent was cached, so the whole wave re-runs safely. Resume is the pleasant path for a limit-death; if it cannot, the EM finishes the work itself and files the failure as friction.
 
 **`git status` is the arbiter, not the workflow's verdict string.** Verify what landed, then resume — never re-dispatch from scratch over partial work. Manual reads on a shared tree use `git --no-optional-locks status`; the flag sits between `git` and the subcommand or the invocation hard-fails. `git diff --cached` / `git ls-files -m` need no such flag.
 
@@ -222,6 +222,8 @@ The DAG does not exist on arrival — N independently-authored plans need a conv
 
 **The haiku class.** Search, summarise and inventory legs that are schema-bound and write at most their own scratch output default to haiku (deep-research `scout` and `stub` stages). Deep repo reads and judgement stay sonnet (`grounding`, `specialists`). Lessons-extraction and code-writing legs are never haiku. A manifest or script declaration repeats the agent's own frontmatter pin and never overrides it (`test_declared_dispatch_tier_matches_agent_pin.py`).
 
+**Fan-out default is batched, scripted, pointer-returning.** A deterministic step (one CLI, one argv) runs as script, not as an agent. Small items batch per agent with `batchItems` (capped by the ~10-minute unit rule); a fanned-out agent writes its payload to a file and returns `{path, summary, counts}` via `pathSummary` / `PATH_SUMMARY_SCHEMA`; each kept Opus site (a `model: 'opus'` literal or `model: TIER.OPUS`) carries an `opus-ruling: <ruling ref>` comment naming an APM/PM ruling; a reason alone does not approve Opus. One-plan-per-baton and one-seed-chain authoring legs are one item of real work and do not batch. The helpers live once in `coordinator/workflows/_shared/fanout-helpers.mjs` and are spliced into the in-scope scripts by `coordinator/bin/workflow-shared-sync.py` (scripts cannot import); never hand-edit a spliced block. Tripwire `WORKFLOW-SHARED-HELPER-PARITY`, pinned by `coordinator/tests/test_workflow_shared_helper_parity.py`.
+
 **Negative-spec:** an un-modeled `agent()` in an Opus session is a defect, not a shortcut. The omission is invisible in the script and surfaces only as burn.
 
 **The tool boundary enforces this.** The PreToolUse hook `hooks/scripts/block-workflow-unmodeled-agent.py` (tripwire `BLOCK-WORKFLOW-UNMODELED-AGENT`) gates every `Workflow` launch in an Opus-tier session: any `agent(` call with no `model:` set DENIES the launch, pre-filling the `model: 'sonnet'` fix rather than just naming the violation. Mixed coverage (some calls modeled, some not) is allowed with an advisory warning. It validates the resume path (`scriptPath`/`name`) by reading the file, not just an inline `script` string, and attributes `model:` per call-site via balanced-paren extraction rather than a global token tally. Escape hatch for the rare PM-approved Opus case: `COORDINATOR_OVERRIDE_WORKFLOW_MODEL_GUARD=1`. → `docs/wiki/coordinator-tripwires.md § BLOCK-WORKFLOW-UNMODELED-AGENT`.
@@ -321,15 +323,14 @@ and never deferred to `/workstream-complete`. The order, fixed by the roster fra
 1. **Prep** (mechanical, `coordinator:test-runner`) partitions the working-tree diff into
    file-disjoint slices at or above `review_brightline_gate`'s threshold, and freezes a
    worktree diff per slice plus the whole diff.
-2. **Slice reviewers per executor group; Kira's integration stage after the last row.** One
+2. **Slice reviewers per executor group.** One
    `code-reviewer` per slice applies its own findings inside its slice's files only, logging
-   anything outside it under `## Out-of-Slice Findings`. `overengineering-reviewer` (Kira, L and
-   above) holds the `integration` stage alone, runs over the whole diff and applies whole-diff
-   with exact-text `Edit`s (`applies: whole-diff`). Named-signal personas are not rostered.
-   `delivery-verifier` is not a wave member; it runs only on the reverify path.
+   anything outside it under `## Out-of-Slice Findings`. `overengineering-reviewer` (Kira) is
+   opt-in and not rostered: it runs only when the EM or PM names it, over the whole diff, applying
+   with exact-text `Edit`s. Named-signal personas are not rostered.
+   The Verify judge checks delivery.
 3. **Bookkeeping — the engine's `bookkeep_wave`, not an agent.** There is no integrate remit:
-   each slice reviewer applies and verifies its own findings, and Kira
-   applies Kira's own. There is no second review round; a finding no reviewer can
+   each slice reviewer applies and verifies its own findings. There is no second review round; a finding no reviewer can
    resolve goes to the PM (`review-integration-doctrine.md` § No integration pass). A partitioned
    close needs no N+1 integration pass from this stage, because execute-review has no integration
    commit to budget for.
@@ -433,7 +434,7 @@ An agent whose return becomes the Workflow's own work list (a relay load) is dis
 - **An error naming a symbol this change added or made required is in scope**, even when it fires in a file the change never touched. A gate's 'pre-existing / out-of-scope' label is a hypothesis; check the symbol's provenance.
 - **A session disconnect does not stop a background Workflow.** Before relaunching, check whether the original run is still writing; two runs over the same chunks write the same files.
 - **An executor's structured return can be a placeholder while its disk edit is real (or the reverse).** Spot-check the critical and last-wave edits on disk before committing.
-- **A Workflow killed by the account usage limit fails every agent with zero tool use and no partial writes.** After the reset, resume via `resumeFromRunId`; do not hand-finish or re-plan.
+- **A Workflow killed by the account usage limit fails every agent with zero tool use and no partial writes.** After the reset, resume via `resumeFromRunId`; if resume fails, the EM finishes the work itself and files the failure as friction.
 - **A serial migration chain run as a Workflow halts on the first red at a schema-critical seam.** Each agent returns `{status: green|red}`; on red, stop and surface partial results instead of cascading.
 - **The model-guard reads `model:` literally at each agent call.** Spread or helper-returned options hide it; agents then inherit the session model.
 - **A workflow's synthesis is the only durable record.** Per-agent journals are ephemeral; promote any per-agent finding you will cite into the artifact.

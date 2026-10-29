@@ -402,6 +402,9 @@ class SweepConfig:
     repo_root: str = ""
     size_cap_gib: str = "2"
     size_cap_floor_hours: str = "24"
+    # Mirror of claude_home_census.DEFAULT_MAX_MB / DEFAULT_MAX_AGE_HOURS; keep in step.
+    transcript_max_mb: str = "250"
+    transcript_max_age_hours: str = "48"
 
 
 @dataclass
@@ -585,6 +588,15 @@ def _apply_machine_local_days_override(cfg: SweepConfig) -> None:
     if floor_value and floor_value.isdigit() and int(floor_value) > 0:
         cfg.size_cap_floor_hours = floor_value
 
+    for key, attr in (
+        ("transcript_retention.max_mb", "transcript_max_mb"),
+        ("transcript_retention.max_age_hours", "transcript_max_age_hours"),
+    ):
+        raw = _machine_registry_get(key)
+        raw = raw.strip() if raw else ""
+        if raw.isdigit() and int(raw) > 0:
+            setattr(cfg, attr, raw)
+
 
 def _acquire_lock(lock_dir: str) -> None:
     """Exclusive lock via os.mkdir (atomic on POSIX and Windows). Contention
@@ -642,7 +654,11 @@ def _handoffs_dir_from_glob(handoffs_glob: str) -> Path:
 
 
 def _sweep_harness(cfg: "SweepConfig", totals: "Totals") -> None:
-    from coordinator_core.ops.cruft_sweep import build_uuid_blocklist, sweep_harness
+    from coordinator_core.ops.cruft_sweep import (
+        box_live_session_ids,
+        build_uuid_blocklist,
+        sweep_harness,
+    )
 
     handoffs_dir = _handoffs_dir_from_glob(cfg.handoffs_glob)
     blocklist, complete = build_uuid_blocklist(handoffs_dir)
@@ -658,12 +674,20 @@ def _sweep_harness(cfg: "SweepConfig", totals: "Totals") -> None:
     log_path = Path(cfg.log_path) if cfg.log_path else None
     size_cap_bytes = int(float(cfg.size_cap_gib) * 1024**3)
     size_cap_mtime_floor_secs = int(cfg.size_cap_floor_hours) * 3600
+    live_ids = box_live_session_ids()
+    if live_ids is None:
+        sys.stderr.write(
+            f"{SELF_NAME}: liveness unresolved; transcript retention skipped, every transcript kept\n"
+        )
     harness_bytes, harness_items = sweep_harness(
         Path(cfg.projects_root), Path(cfg.file_history_root), int(cfg.days),
         blocklist, apply=cfg.apply, json_mode=cfg.json_mode, quiet=cfg.quiet,
         log_path=log_path,
         size_cap_bytes=size_cap_bytes,
         size_cap_mtime_floor_secs=size_cap_mtime_floor_secs,
+        transcript_live_ids=live_ids,
+        transcript_max_bytes=int(cfg.transcript_max_mb) * 1024**2,
+        transcript_max_age_secs=int(cfg.transcript_max_age_hours) * 3600,
     )
     totals.harness_bytes = harness_bytes
     totals.harness_items = harness_items

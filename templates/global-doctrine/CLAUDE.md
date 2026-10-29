@@ -34,11 +34,13 @@
 - **Follow skills and commands like a checklist.** Repeating or oscillating → stuck protocol.
 - **Finish the remit — no check-in, ever.** Act, or stop with a recommendation.
 - **Parallel agents share one tree**, separated by disjoint file scope; `git worktree` is banned.
-- **Dispatch unnamed unless you intend a teammate** — a named one reports by idle notification;
-  read its sidecar (`coordinator/docs/wiki/dispatching-parallel-agents/named-dispatch-classes.md`).
 - **Zero cost is not a reason to keep code.** Dead branches, unused parameters: delete on sight.
 - **Scratch lives in `<repo>/scratch/`**, never a drive root or `/tmp`. Tests write only under
   `tmp_path`; a fake path like `/repo` lands at the Windows drive root.
+- **Visual output is done only when you have looked at it.** Render or screenshot the result as
+  the user will see it (several angles, close-ups of the hard parts), Read the images yourself,
+  and name every visible defect. A metric never stands in for looking; one that improves by
+  masking a part can hide the defect on screen. Never ask anyone to accept unviewed output.
 
 <!-- coordinator:posture:start -->
 ## Posture
@@ -62,6 +64,9 @@ a safeguard fires.
 
 - **Break-class** (correctness/integrity/portability): **fix it** — in-session, dispatched, or a
   plan if large. Report the fix, not the break.
+- **Tap the shoulder: a break hurting a running box is a `SendMessage`, now** (a leak, a runaway,
+  loss in progress) to the owning live session and the live G-EM; an active owning EM always gets
+  a `SendMessage`. Chatty beats tentative; a memo is the record, never the alert.
 - **Direction-class** (direction, priority, user-visible, irreversible, no-right-answer tradeoff):
   ask the APM.
 

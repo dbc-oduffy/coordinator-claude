@@ -18,8 +18,9 @@ Contract:
   stdout  -- NOTHING (this protocol has no stdout envelope -- see below)
   stderr  -- ONE combined blob (contract clause 4, CONCATENATE-ALL) when one
              or more of the four guards fires; nothing otherwise
-  exit 2  -- when one or more guard fired
-  exit 0  -- otherwise (including any internal failure -- fail-open)
+  exit 2  -- only if this dispatcher declares a protected act in the roster (none does)
+  exit 0  -- otherwise: a fired blob goes to the friction log, never to context
+             (including any internal failure -- fail-open)
 
 Batches the four guards via `_stop_family_runner.run_registered_stop_family_
 guards` -- see `_stop_family_runner_contract.py` for the aggregation rule
@@ -90,6 +91,15 @@ def main() -> int:
             pass
 
     if text:
+        try:
+            from _protected_act import protected_act_for, advise_and_record
+            if protected_act_for("postuse-stop-family-dispatch.py") is None:
+                advise_and_record(
+                    "postuse-stop-family-dispatch.py", text, payload.get("hook_event_name") or "PostToolUse"
+                )
+                return 0
+        except Exception:
+            pass
         try:
             sys.stderr.buffer.write(text.encode("utf-8"))
             sys.stderr.buffer.write(b"\n")

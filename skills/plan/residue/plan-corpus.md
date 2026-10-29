@@ -37,7 +37,7 @@ _Condition: substrate verified. The four PM doctrinal lenses bind here: time (ag
 
 - _Plan mutates a shared symbol (state enum, gameplay tag, public field, exported signature)?_ → Add a reverse-reference scan subsection listing every consumer.
 
-- _Drafting tasks?_ → Declare `review_signals` first, from `coordinator/contract/review-signals.json`. An absent field is a positive claim: no specialist and no external-docs surface is in play. Enforcement: `coordinator/docs/wiki/skills-corpus/plan-residue.md`.
+- _Drafting tasks?_ → Declare `review_signals` first, from `coordinator/contract/review-signals.json`. An absent field is a positive claim: no specialist and no external-docs surface is in play. Enforcement: `coordinator/docs/wiki/skills-corpus/plan-residue.md`. Writes under a UE plugin or .uproject repo → `unreal` (`UE-TOUCHING-PLAN-CARRIES-UNREAL-SIGNAL`).
 
 - _Plan amends an assumption another live plan depends on?_
   → **Edit the body of every affected sibling in this same change.** Grep `docs/plans/` for the amended assumption, edit each hit inline, add `**Amended <YYYY-MM-DD> by <this-plan-slug>:** <one-line change>` at its top, and commit the amending plan and all edited siblings together.

@@ -1,5 +1,6 @@
 ---
 name: op-relay
+executes-rows: false
 description: "Relays one coordinator-invoke op verbatim."
 model: haiku
 effort: low

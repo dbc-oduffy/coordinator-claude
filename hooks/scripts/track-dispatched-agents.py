@@ -715,6 +715,180 @@ def _write_subagent_start_record(payload: dict) -> None:
         return
 
 
+_RAG_PLUGIN_NAME = "project-rag"
+_RAG_INDEX_DIR = ".project-rag"
+
+
+def _iso_epoch(value: Any) -> float | None:
+    """Epoch seconds for an ISO-8601 string (Z or offset; naive means UTC), else None."""
+    if not isinstance(value, str):
+        return None
+    try:
+        dt = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.timestamp()
+
+
+def _rag_install(plugins_json: Path) -> tuple[float, Path] | None:
+    """(install epoch, installPath) of the project-rag plugin from installed_plugins.json.
+
+    The install epoch is the later of installedAt/lastUpdated: a session that began before
+    it may have snapshotted hooks without the nudge. None when unreadable or absent.
+    """
+    try:
+        data = json.loads(plugins_json.read_text(encoding="utf-8"))
+        plugins = data.get("plugins", data)
+        for key, entries in plugins.items():
+            if key.split("@", 1)[0] != _RAG_PLUGIN_NAME or not isinstance(entries, list):
+                continue
+            for entry in entries:
+                stamps = [
+                    t for t in (_iso_epoch(entry.get("installedAt")), _iso_epoch(entry.get("lastUpdated")))
+                    if t is not None
+                ]
+                install_path = entry.get("installPath")
+                if stamps and isinstance(install_path, str) and install_path:
+                    return max(stamps), Path(install_path)
+    except Exception:
+        return None
+    return None
+
+
+def _session_start_epoch(transcript_path: Any) -> float | None:
+    """First timestamped record of the parent session transcript, as epoch seconds."""
+    if not isinstance(transcript_path, str) or not transcript_path:
+        return None
+    try:
+        with open(transcript_path, "r", encoding="utf-8", errors="replace") as fh:
+            for _ in range(50):
+                line = fh.readline()
+                if not line:
+                    break
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue
+                ts = _iso_epoch(rec.get("timestamp")) if isinstance(rec, dict) else None
+                if ts is not None:
+                    return ts
+    except OSError:
+        return None
+    return None
+
+
+def _repo_is_rag_indexed(cwd: Any) -> bool:
+    """A `.project-rag` directory at or above cwd, stopping at the repo root or the home dir."""
+    if not isinstance(cwd, str) or not cwd:
+        return False
+    try:
+        here = Path(cwd)
+        home = Path.home()
+        for d in (here, *here.parents):
+            if d == home:
+                return False
+            if (d / _RAG_INDEX_DIR).is_dir():
+                return True
+            if (d / ".git").exists():
+                return False
+    except (OSError, ValueError):
+        pass
+    return False
+
+
+_SNIPPET_SELECT_RE = re.compile(r'ToolSearch\("(select:mcp__project-rag__[^"]+)"\)')
+_NUDGE_SELECT_RE = re.compile(r'select:mcp__project-rag__[^"\s]+')
+
+
+def _snippet_select() -> str:
+    """The step-1 ToolSearch select string of coordinator/snippets/project-rag-preamble.md, or "".
+
+    The snippet is the single source of the project-rag tool list; the SubagentStart bridge reads
+    it at hook time so old and new sessions load the same tools.
+    """
+    try:
+        # the snippet ships beside hooks/, so parents[2] holds in the source and plugin layouts
+        snippet = Path(__file__).resolve().parents[2] / "snippets" / "project-rag-preamble.md"
+        m = _SNIPPET_SELECT_RE.search(snippet.read_text(encoding="utf-8"))
+        return m.group(1) if m else ""
+    except Exception:
+        return ""
+
+
+def _with_snippet_select(text: str) -> str:
+    """`text` carrying the snippet's select string in place of the rendered one (appended if none)."""
+    select = _snippet_select()
+    if not select:
+        return text
+    if _NUDGE_SELECT_RE.search(text):
+        return _NUDGE_SELECT_RE.sub(lambda _m: select, text, count=1)
+    return f'{text} ToolSearch("{select}")'
+
+
+def _rag_nudge_bridge_text(payload: dict, plugins_json: Path | None = None) -> str:
+    """The project-rag PROJECT-RAG-FIRST text for a subagent whose parent session predates
+    the project-rag install, else "".
+
+    Claude Code snapshots plugin hooks at session start, so such a session never runs
+    project-rag's own SubagentStart nudge. A newer session gets that hook itself, so this
+    stays silent for it (no double nudge). Wording is rendered by the installed project-rag
+    `rag_nudge`, with its tool list taken from the project-rag preamble snippet. Informational only; every failure returns "".
+    """
+    try:
+        if plugins_json is None:
+            base = os.environ.get("CLAUDE_CONFIG_DIR") or str(Path.home() / ".claude")
+            plugins_json = Path(base) / "plugins" / "installed_plugins.json"
+        install = _rag_install(plugins_json)
+        if install is None:
+            return ""
+        install_epoch, install_path = install
+        started = _session_start_epoch(payload.get("transcript_path"))
+        if started is None or started >= install_epoch:
+            return ""
+        if not _repo_is_rag_indexed(payload.get("cwd")):
+            return ""
+        lib = install_path / "hooks" / "lib"
+        if not (lib / "rag_nudge.py").is_file():
+            return ""
+        sys.path.insert(0, str(lib))
+        try:
+            import rag_nudge  # type: ignore[import-not-found]
+        finally:
+            try:
+                sys.path.remove(str(lib))
+            except ValueError:
+                pass
+        verdict = rag_nudge.subagent_server_verdict(os.environ)
+        if not verdict.get("reachable"):
+            return ""
+        tier1 = rag_nudge.load_tier1(lib.parent / "data" / "tier1-tools.json")
+        if not tier1:
+            return ""
+        text = rag_nudge.render_nudge(tier1, verdict.get("sources"))
+        if not isinstance(text, str):
+            return ""
+        return _with_snippet_select(text)
+    except Exception:
+        return ""
+
+
+def _emit_subagent_start_context(parts: list[str]) -> None:
+    """Write the SubagentStart additionalContext envelope for non-empty parts; nothing otherwise."""
+    parts = [p for p in parts if p]
+    if not parts:
+        return
+    out = {
+        "hookSpecificOutput": {
+            "hookEventName": "SubagentStart",
+            "additionalContext": "\n\n".join(parts),
+        }
+    }
+    sys.stdout.write(json.dumps(out))
+    sys.stdout.write("\n")
+
+
 def main() -> int:
     raw = _read_stdin()
     _write_posttooluse_agent_canary(raw)
@@ -730,8 +904,10 @@ def main() -> int:
 
     if event == "SubagentStart":
         _write_subagent_start_record(payload)
+        bridge = _rag_nudge_bridge_text(payload)
         fields = _build_subagent_start_params(payload)
         if fields is None:
+            _emit_subagent_start_context([bridge])
             return 0  # fail-open -- missing identity field, nothing to write
         session_id = payload.get("session_id") or ""
         cwd = payload.get("cwd") or None
@@ -739,7 +915,7 @@ def main() -> int:
             "session_id": session_id if isinstance(session_id, str) else "",
             **fields,
         }
-        return _dispatch_subagent_start_ops(cwd, params, payload)
+        return _dispatch_subagent_start_ops(cwd, params, payload, [bridge] if bridge else None)
 
     # PostToolUse(Agent) enrich path -- unreached hook_event_name values
     # (this script is only ever registered on SubagentStart and PostToolUse)
@@ -765,7 +941,9 @@ def main() -> int:
     return _dispatch_bookkeeping_write(cwd, params)
 
 
-def _dispatch_subagent_start_ops(cwd: Any, params: dict, payload: dict) -> int:
+def _dispatch_subagent_start_ops(
+    cwd: Any, params: dict, payload: dict, extra_context: list[str] | None = None
+) -> int:
     """SubagentStart-only two-op relay (2026-08-21 catering cutover, C1):
     `hooks.track_dispatched_agents` (bookkeeping, FIRST) then
     `hooks.cater_subagent_start` (catering, SECOND), through one
@@ -805,8 +983,10 @@ def _dispatch_subagent_start_ops(cwd: Any, params: dict, payload: dict) -> int:
     deliberate: only catering carries a payload today, but a silent drop is
     the exact failure class this cutover keeps reproducing.
     """
+    extra = list(extra_context or [])
     root = _resolve_claude_klabauter_root()
     if not root:
+        _emit_subagent_start_context(extra)
         return 0  # fail-open -- engine unresolvable on this machine
 
     from _engine_root import place_engine_root_on_path as _place_engine_root_on_path
@@ -819,6 +999,7 @@ def _dispatch_subagent_start_ops(cwd: Any, params: dict, payload: dict) -> int:
         from coordinator_core.hooks import track_dispatched_agents as _op  # noqa: F401
         from coordinator_core.ipc import HookDispatchError, dispatch_ops_from_hook
     except Exception:
+        _emit_subagent_start_context(extra)
         return 0  # engine unimportable -> fail-open
 
     subagent_type = params.get("subagent_type") or ""
@@ -881,6 +1062,7 @@ def _dispatch_subagent_start_ops(cwd: Any, params: dict, payload: dict) -> int:
             origin_worktree=str(cwd) if cwd else None,
         )
     except Exception:
+        _emit_subagent_start_context(extra)
         return 0  # any engine failure -> fail-open (never brick a hook fire)
 
     additional_context_parts: list[str] = []
@@ -897,17 +1079,8 @@ def _dispatch_subagent_start_ops(cwd: Any, params: dict, payload: dict) -> int:
         if isinstance(note, str) and note:
             additional_context_parts.append(note)
 
-    if not additional_context_parts:
-        return 0  # all empty -- emit nothing (AC5/AC7)
-
-    out = {
-        "hookSpecificOutput": {
-            "hookEventName": "SubagentStart",
-            "additionalContext": "\n\n".join(additional_context_parts),
-        }
-    }
-    sys.stdout.write(json.dumps(out))
-    sys.stdout.write("\n")
+    additional_context_parts.extend(extra)
+    _emit_subagent_start_context(additional_context_parts)  # all empty -- emits nothing (AC5/AC7)
     return 0
 
 

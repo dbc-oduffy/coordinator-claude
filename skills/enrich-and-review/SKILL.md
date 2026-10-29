@@ -18,9 +18,11 @@ and hands-on re-plans.
 <!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->
 
 **Code lookup: project-rag first.**
-`ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
-`project_staleness_check`; callers `project_symbol_callers`/`_references`; impact `project_referencers`; else `project_rag_instructions`.
+
+1. First action, when `mcp__project-rag__*` tools are present (they arrive deferred): `ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
+2. Then `project_staleness_check`; callers `project_symbol_callers`/`_references`; impact `project_referencers`; else `project_rag_instructions`.
 Bodies, members, UE engine types: load `project_symbol_source`, `project_engine_*` by name; a `project_symbol` stub is not "corpus can't answer".
+**Enumeration is not a lookup.** "What exists?" means a target list, a file set, a coverage count, or "is X covered?". Answer it by walking the filesystem (Glob, a disk enumerator), never with project-rag or any other index, because an index reports only what it already holds. Use project-rag to understand what the walk found, never to decide what exists.
 If a project-rag call errors or its tools are absent (daemon down), fall back to Grep/Read and carry on.
 Friction: memo `project-rag-em` / `gh issue create -R dbc-oduffy/project-rag`.
 <!-- END project-rag-preamble -->
@@ -100,12 +102,12 @@ brief carries its `state/subagent-share/<session>/<provision_key>.md` path
 (`provision_report`-injected); the reviewer writes ReviewOutput there and returns `DONE:
 <sidecar-path> | verdict: <OK|WARN|BLOCKED> | findings: <N>` (detail: wiki).
 
-A chatty run reviews in one parallel wave (review § A.3); this manual procedure runs in order
-with a fix-application gate: Reviewer 1 (all enriched stubs) → STOP, applies and verifies its
-ledger against the returned sidecar path (every finding, spot-checked diff) → only then
-Reviewer 2 on the corrected stubs → STOP, same. A single reviewer skips the second pass but
-keeps fix-application. Conflicting feedback: apply unless it conflicts with stated requirements
-or PM direction, document overrides in the stub, escalate genuine uncertainty.
+Both reviewers dispatch in parallel over all enriched stubs (single message, review § A.3),
+then one fix pass runs over the union of their findings with one applied-and-verified gate:
+every finding applied and checked (spot-checked diff) against the returned sidecar paths. A
+single reviewer gets the same fix pass over its own findings. Conflicting feedback: apply unless
+it conflicts with stated requirements or PM direction, document overrides in the stub, escalate
+genuine uncertainty.
 
 **The enriched-artifact duty is contract, not brief text.** The contract is injected at dispatch
 for every `REVIEWER_ROSTER` member. A resolved reviewer whose `contract_blocks:` row in

@@ -6,8 +6,8 @@ plugin's `engine-ask` stub (`workflows/engine-ask.js`) or `bug-blitz` stub
 (`workflows/bug-blitz.js`) is the EM's submission: it is handed to the engine op the
 SUBMISSIONS table maps the stub to (`hooks.submit_engine_ask`, `hooks.submit_bug_blitz`)
 through the settings-home `hook-run` door, which emits the warp run and answers allow + a
-rewrite to the emitted script. Each stub's deny carries its own tail (engine-ask: do not
-size or dispatch by hand; bug-blitz: do not emit the grind by hand). Its rewrite IS the payload every leg below judges, so the receipt legs verify the
+rewrite to the emitted script. Each stub's deny carries its own tail: retry once, then the
+hand route (engine-ask: do the work by hand; bug-blitz: run the grind by hand), filing the failure to the engine owner. Its rewrite IS the payload every leg below judges, so the receipt legs verify the
 script the call will actually fire; its envelope composes first. Any other call skips the
 stage without a spawn. Denied, final: an engine deny; a submission the engine does not answer
 (no launcher, spawn failure, timeout, no envelope); and any answer, allow or empty, that
@@ -63,6 +63,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -73,8 +74,14 @@ _HOOKS_DIR = Path(__file__).resolve().parent
 if str(_HOOKS_DIR) not in sys.path:
     sys.path.insert(0, str(_HOOKS_DIR))
 
-from _stop_family_runner import _BufferedTextCapture  # noqa: E402
-from _win_portability import no_console_creationflags  # noqa: E402
+#: A sibling module that fails to import is held, not raised: `main` turns it into a named deny
+#: for a submission and re-raises it for any other call.
+_IMPORT_FAILURE: Optional[BaseException] = None
+try:
+    from _stop_family_runner import _BufferedTextCapture  # noqa: E402
+    from _win_portability import no_console_creationflags  # noqa: E402
+except Exception as _exc:  # pragma: no cover - exercised by forcing the import to fail
+    _IMPORT_FAILURE = _exc
 
 try:
     from _git_root_walk import git_root_walk as _git_root_walk  # noqa: E402
@@ -82,16 +89,43 @@ except Exception:
     def _git_root_walk(start: Optional[str] = None) -> Optional[str]:  # type: ignore[no-redef]
         return None
 
+try:
+    from _protected_act import advise_and_record as _advise_and_record  # noqa: E402
+    from _protected_act import protected_act_for as _protected_act_for  # noqa: E402
+except Exception:
+    def _protected_act_for(guard_id: str, roster_path: Any = None) -> Optional[str]:  # type: ignore[no-redef]
+        return None
+
+    def _advise_and_record(guard_id: str, deny_text: str, event: str, repo: Any = None) -> None:  # type: ignore[no-redef]
+        return None
+
+
+def _stands(env: Optional[dict], guard_id: str) -> bool:
+    """True when `env` is a deny whose guard declares a protected act. Any other deny is
+    recorded to the friction log and dropped, injecting nothing."""
+    if _hso(env).get("permissionDecision") != "deny":
+        return False
+    if _protected_act_for(guard_id) is not None:
+        return True
+    _advise_and_record(guard_id, str(_hso(env).get("permissionDecisionReason") or ""), "PreToolUse")
+    return False
+
 
 #: Stub name -> the engine op that turns its submission into the fired run.
 SUBMISSIONS: Mapping[str, str] = {
     "engine-ask": "hooks.submit_engine_ask",
     "bug-blitz": "hooks.submit_bug_blitz",
 }
-#: What a denied submission tells the EM not to do by hand, per stub.
+#: The hand route a denied submission names after one retry, per stub.
 _DENY_TAILS: Mapping[str, str] = {
-    "hooks.submit_engine_ask": "do not size or dispatch by hand.",
-    "hooks.submit_bug_blitz": "do not emit the grind by hand.",
+    "hooks.submit_engine_ask": (
+        "do the work by hand (dispatch the agents yourself, scoped commits) "
+        "and file this failure to claude-klabauter-em."
+    ),
+    "hooks.submit_bug_blitz": (
+        "run the grind by hand (dispatch the agents yourself, scoped commits) "
+        "and file this failure to claude-klabauter-em."
+    ),
 }
 #: Under the registration's own 15s: a warm emit measures ~0.4s.
 _SUBMIT_TIMEOUT_S = 12
@@ -155,6 +189,11 @@ def _invoke(main_fn: Callable[[], int], stdin_text: str) -> Tuple[str, str]:
 def _is_submission(payload: dict) -> Optional[str]:
     """The engine op for a submission stub named by the call, else None."""
     tool_input = payload.get("tool_input")
+    if isinstance(tool_input, str):
+        try:
+            tool_input = json.loads(tool_input)
+        except ValueError:
+            return None
     if payload.get("tool_name") != "Workflow" or not isinstance(tool_input, dict):
         return None
     name = tool_input.get("name")
@@ -185,8 +224,7 @@ def _engine_submission(op: str, raw: str, payload: dict) -> Tuple[Optional[dict]
     launcher = _hook_run()
     if launcher is None:
         return None, (
-            "engine submission skipped: no hook-run launcher under the settings home; "
-            "nothing was emitted"
+            "skipped: no hook-run launcher; nothing was emitted"
         )
     cwd = payload.get("cwd")
     try:
@@ -225,7 +263,7 @@ def _deny(reason: str) -> dict:
 def _unreached(crumb: str, deny_tail: str) -> dict:
     """The fail-closed deny for a submission the engine did not answer."""
     lead, tail = "The engine did not take this submission (", (
-        "). Tell the PM the engine submit door is down; " + deny_tail
+        "). Check warm.request_status, retry once, then " + deny_tail
     )
     room = 280 - len(lead) - len(tail)
     if len(crumb) > room:
@@ -235,7 +273,8 @@ def _unreached(crumb: str, deny_tail: str) -> dict:
 
 _REFUSAL_LEAD = "The engine took this submission but emitted no run: "
 #: The longest deny tail bounds the words room, so every stub's refusal fits the cap.
-_REFUSAL_WORDS_CAP = 280 - len(_REFUSAL_LEAD) - len(" Tell the PM; ") - max(
+_REFUSAL_REMEDY = " Fix the args and retry once; if it still refuses, "
+_REFUSAL_WORDS_CAP = 280 - len(_REFUSAL_LEAD) - len(_REFUSAL_REMEDY) - max(
     len(t) for t in _DENY_TAILS.values()
 )
 
@@ -257,10 +296,46 @@ def _refused(env: dict, deny_tail: str) -> dict:
     said = " ".join(" ".join(words).split()) or "it said nothing."
     if len(said) > _REFUSAL_WORDS_CAP:
         said = said[: _REFUSAL_WORDS_CAP - 3] + "..."
-    return _deny(_REFUSAL_LEAD + said + " Tell the PM; " + deny_tail)
+    return _deny(_REFUSAL_LEAD + said + _REFUSAL_REMEDY + deny_tail)
+
+
+#: What this call wrote to stdout, for the per-call log line.
+_EMITTED: List[str] = []
+_CALL_LOG_GUARD_ID = "preuse-workflow-dispatch.py:call"
+_call_record = _advise_and_record
+
+
+def _outcome() -> str:
+    text = "".join(_EMITTED)
+    if not text.strip():
+        return "passed"
+    if "The engine did not take this submission" in text:
+        return "unreached"
+    if '"permissionDecision": "deny"' in text:
+        return "denied"
+    return "allowed"
+
+
+def _log_call(raw: str) -> None:
+    """One line per call to the friction log: the call id and the outcome. Never raises."""
+    try:
+        try:
+            payload = json.loads(raw)
+        except ValueError:
+            payload = None
+        call_id = payload.get("tool_use_id") if isinstance(payload, dict) else None
+        _call_record(
+            _CALL_LOG_GUARD_ID,
+            f"call_id={call_id or '-'} outcome={_outcome()}",
+            "PreToolUse",
+        )
+    except Exception:
+        return None
 
 
 def _write_bytes(stream: Any, text: str) -> None:
+    if stream is sys.stdout:
+        _EMITTED.append(text)
     stream.buffer.write(text.encode("utf-8"))
     stream.buffer.flush()
 
@@ -279,10 +354,18 @@ def _compose(envs: List[dict]) -> Optional[dict]:
     rewrite: Optional[dict] = None
     for env in envs:
         hso = _hso(env)
-        if hso.get("permissionDecision") == "allow":
+        reason = hso.get("permissionDecisionReason")
+        has_reason = isinstance(reason, str) and bool(reason.strip())
+        # A bare allow carrying only advisory context is an advisory, not a grant.
+        advisory_only = (
+            not has_reason
+            and not isinstance(hso.get("updatedInput"), dict)
+            and isinstance(hso.get("additionalContext"), str)
+            and bool(hso["additionalContext"].strip())
+        )
+        if hso.get("permissionDecision") == "allow" and not advisory_only:
             allowed = True
-            reason = hso.get("permissionDecisionReason")
-            if isinstance(reason, str) and reason.strip():
+            if has_reason:
                 reasons.append(reason)
         new_input = hso.get("updatedInput")
         if isinstance(new_input, dict):
@@ -312,8 +395,52 @@ def _compose(envs: List[dict]) -> Optional[dict]:
     return merged or None
 
 
+_SUBMISSION_NAME_RE = re.compile(r'(?<![A-Za-z_])name\\?"\s*:\s*\\?"(?:[^"\\]*:)?(engine-ask|bug-blitz)')
+_WORKFLOW_TOOL_RE = re.compile(r'"tool_name"\s*:\s*"Workflow"')
+
+
+def _submission_op(raw: str) -> Optional[str]:
+    """The engine op when `raw` is submission-shaped, even if it does not parse as JSON.
+    Never raises: the failure paths call it to decide between a named deny and a pass."""
+    try:
+        try:
+            payload = json.loads(raw)
+        except ValueError:
+            payload = None
+        if isinstance(payload, dict):
+            return _is_submission(payload)
+        if _WORKFLOW_TOOL_RE.search(raw):
+            found = _SUBMISSION_NAME_RE.search(raw)
+            if found:
+                return SUBMISSIONS[found.group(1)]
+    except Exception:
+        return None
+    return None
+
+
 def main() -> int:
+    """Run the dispatcher; any failure on a submission-shaped call is a named deny, never silence."""
     raw = sys.stdin.read()
+    _EMITTED.clear()
+    try:
+        if _IMPORT_FAILURE is not None:
+            raise _IMPORT_FAILURE
+        rc = _dispatch(raw)
+    except Exception as exc:
+        op = _submission_op(raw)
+        if op is None:
+            _log_call(raw)
+            raise
+        _write_bytes(
+            sys.stdout,
+            json.dumps(_unreached(f"hook failed: {type(exc).__name__}: {exc}", _DENY_TAILS[op])) + "\n",
+        )
+        rc = 0
+    _log_call(raw)
+    return rc
+
+
+def _dispatch(raw: str) -> int:
     skipped: List[str] = []
     stderr_parts: List[str] = []
     envs: List[dict] = []
@@ -332,16 +459,24 @@ def main() -> int:
         payload = json.loads(raw)
     except ValueError:
         pass
-    op = _is_submission(payload) if isinstance(payload, dict) else None
+    op = _is_submission(payload) if isinstance(payload, dict) else _submission_op(raw)
+    if op is not None and not isinstance(payload, dict):
+        _write_bytes(
+            sys.stdout,
+            json.dumps(_unreached("the call payload was not a JSON object", _DENY_TAILS[op])) + "\n",
+        )
+        return 0
     if op is not None:
         deny_tail = _DENY_TAILS[op]
         submitted, crumb = _engine_submission(op, raw, payload)
         if submitted is None:
             submitted = _unreached(crumb, deny_tail)
+        fired = _hso(submitted).get("updatedInput")
+        # A submission refusal is a floor guard: it denies at every guard level, so no
+        # protected-act roster gate applies to the engine's deny or this stage's own.
         if _hso(submitted).get("permissionDecision") == "deny":
             _write_bytes(sys.stdout, json.dumps(submitted) + "\n")
             return 0
-        fired = _hso(submitted).get("updatedInput")
         if not (isinstance(fired, dict) and fired.get("scriptPath")):
             _write_bytes(sys.stdout, json.dumps(_refused(submitted, deny_tail)) + "\n")
             return 0
@@ -368,9 +503,11 @@ def main() -> int:
             skipped.append(f"{guard.module_key} (non-JSON stdout ignored)")
             continue
         if _hso(env).get("permissionDecision") == "deny":
-            _flush_stderr()
-            _write_bytes(sys.stdout, out)
-            return 0
+            if _stands(env, guard.filename):
+                _flush_stderr()
+                _write_bytes(sys.stdout, out)
+                return 0
+            continue
         envs.append(env)
 
     _flush_stderr()

@@ -2,7 +2,8 @@
 
 > Stage `scope` of `structured.manifest.yaml` (`produces_brief`). Placeholders are the closed set
 > only; every other input is a field of the sizing file at `{{brief}}`. The stage's output becomes
-> `{{brief}}` for every later stage.
+> `{{brief}}` for the scout and the brief-author stage; the brief-author's research brief replaces it
+> for the verifiers, rebuttal, synthesizer and coverage stages.
 
 ## Template
 
@@ -64,7 +65,9 @@ A score below 5/6 does not stop you: write the brief anyway, and open it with a 
 ## The Scope Brief
 
 Write {{scratch_dir}}/scout-brief.md. It is the one input every later stage reads; nothing is
-hand-filled into a stage prompt. It carries: run id and date, timing, subject context, the
+hand-filled into a stage prompt. The scout surveys sources from it, and the brief-author stage
+then writes the research brief the verifiers read; this brief stays the source of the output path
+and schema. It carries: run id and date, timing, subject context, the
 existing data, a topic section per topic (id, what it covers, search domains, focus questions,
 schema fields, adversarial queries), acceptance criteria, gate rules, Phase 2 gate rules, the
 output path, and the full output schema. Peers are every other topic section. If the spec lists

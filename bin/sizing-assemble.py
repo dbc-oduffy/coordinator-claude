@@ -35,10 +35,60 @@ from __future__ import annotations
 import sys
 
 
+def _flag(argv: list[str], name: str):
+    """Value of `name VALUE` or `name=VALUE` in argv, else None; the engine's argparse accepts both
+    spellings, so the floor gate must too or `--tshirt=XS` walks past it."""
+    for i, tok in enumerate(argv):
+        if tok == name:
+            return argv[i + 1] if i + 1 < len(argv) else None
+        if tok.startswith(name + "="):
+            return tok[len(name) + 1:]
+    return None
+
+
+def _floor_gate(argv: list[str]):
+    """`--floor` prints the SizingFingerprint for --intent; a --tshirt below it exits 2.
+
+    Returns None when the call is not floor-governed (no --intent) and falls through to the engine.
+    """
+    intent = _flag(argv, "--intent")
+    if intent is None or "--help" in argv or "-h" in argv:
+        return None
+    import json
+
+    from entry_point_shim import _cc_invoke_resolve_claude_klabauter_root
+
+    # Engine root first: `coordinator_core.ops` caches an import failure for the life of the process.
+    try:
+        root = _cc_invoke_resolve_claude_klabauter_root()()
+    except RuntimeError:
+        return None
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    from coordinator_core.ops.sizing_floor import below_floor, floor
+
+    fp = floor(intent)
+    if "--floor" in argv:
+        print(json.dumps({"parts_count": fp.parts_count, "tshirt_floor": fp.tshirt_floor, "rows": list(fp.rows)}))
+        return 0
+    tshirt = _flag(argv, "--tshirt")
+    if tshirt is not None and below_floor(tshirt, fp):
+        print(
+            f"sizing-assemble: --tshirt {tshirt} is below the floor {fp.tshirt_floor} "
+            f"for {fp.parts_count} counted parts: {', '.join(fp.rows)}",
+            file=sys.stderr,
+        )
+        return 2
+    return None
+
+
 def main(argv: list[str]) -> int:
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from entry_point_shim import run_target  # noqa: E402
 
+    refusal = _floor_gate(argv)
+    if refusal is not None:
+        return refusal
     return run_target("sizing-assemble", argv)
 
 

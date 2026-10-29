@@ -98,7 +98,7 @@ The companion `sync-main.py` enforces the invariant `local main == origin/main` 
 
 When branch consolidation hits a merge conflict, the EM presents a structured decision rather than improvising:
 
-- **A — Run `/consolidate-git` now.** Absorb the conflicting branch into the current daily.
+- **A — Run `/consolidate-git` now.** Absorb the conflicting branch into the current daily by true merge (`merge -s ours` when deliberately superseded).
 - **B — Defer.** Write `tasks/.deferred-branches.md` with a re-check date. Surface prominently next interactive workday-start.
 - **C — Archive as dead.** Move to `archive/{machine}/{date}/{old-branch-name}`.
 
@@ -239,7 +239,8 @@ This is what produces empty branches and orphan stashes by construction. The hoo
   inspect command text (above) can see the override.
 - No create-time branch hook is installed, so branch creation has nothing to bypass. Override *keys*
   for the other guards are operator-set per `docs/reference/guard-override-keys.md`
-  (engine-resident), alongside the in-session per-guard unlock sentinel described there.
+  (engine-resident). A guard that denies an EM's legitimate work is a guard defect, reported to
+  its owner, never unlocked in-session.
 
 **Name collision worth knowing.** `coordinator_core/consolidate_assemble/apply.py` reads the same
 variable name, but as a **branch name to compare against**, not a boolean: it selects a forced
@@ -502,17 +503,16 @@ The `cs_compute_machine` function body now lives natively in the machine-resolve
 
 - **Transient orphan read.** A fetch or a peer's push landing mid-run can make an already-landed
   commit read merge-base-not-ancestor for one snapshot and reachable the next. Re-run the
-  merge-base check once the tree settles and look for a recovering merge commit; try the
-  cherry-pick first (empty result = already applied; never force an empty cherry-pick or re-commit
-  duplicate content).
+  merge-base check once the tree settles and look for a recovering merge commit; a true merge of
+  an already-landed tip is a no-op, never re-commit duplicate content.
 - **Refs that hold objects.** A `backup/`- or `pre-*` ref is doing its job when identical to its
   source, so it reads as pure redundancy by unique-commit count. "Merged into HEAD" differs from
   "safe to lose": the gap is a ref whose objects live on no pushed remote.
 - **Conflict-resolved shared infra.** Last-writer-wins silently reverts edits when both sides
   touched a hunk and the conflict was resolved naively; check the canonical phrase of each known
   change, weighting shared files (plugin internals, scripts, project configs).
-- **Cross-device reconciliation.** A cherry-pick silently drops whichever side is not replayed;
-  a hunk can vanish from a parent that never conflicted, hence verify against each parent.
+- **Cross-device reconciliation.** Merge, never cherry-pick (a cherry-pick orphans the source
+  tip); a hunk can vanish from a parent that never conflicted, hence verify against each parent.
 - **Dirty worktrees.** Worktrees are forbidden (override needs explicit PM permission via the
   EM), so a dirty one is debris to drain; the lock is a stale signal, the dirt is not.
 

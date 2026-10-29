@@ -1,14 +1,14 @@
-"""Auto-compaction default and threshold derivation, shared by the status line and the
-imminent-compaction hook.
+"""Auto-compaction threshold derivation, shared by the status line and the imminent-compaction hook.
 
 The harness compacts at `min(window - 13000, window * pct / 100)`, where `window` is
-`CLAUDE_CODE_AUTO_COMPACT_WINDOW` clamped to the model window and `pct` is
-`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`. The override can only lower the threshold. The statusline payload
-carries no threshold field, so consumers derive it here from the configured inputs.
+`CLAUDE_CODE_AUTO_COMPACT_WINDOW` (env), else the top-level `autoCompactWindow` user setting,
+clamped to the model window, and `pct` is `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` when an operator sets
+it. No percentage default is written. The statusline payload carries no threshold field, so
+consumers derive it here from the configured inputs.
 
-Installer helper: `python3 compaction_defaults.py --apply <settings.json>` writes
-`env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = DEFAULT_AUTOCOMPACT_PCT` when the key is absent and never
-overwrites an operator value.
+Installer helper: `python3 compaction_defaults.py --apply <settings.json>` writes the top-level
+`autoCompactWindow = DEFAULT_AUTOCOMPACT_WINDOW` when the key is absent and never overwrites an
+operator value.
 """
 from __future__ import annotations
 
@@ -17,9 +17,10 @@ import os
 import sys
 from pathlib import Path
 
-DEFAULT_AUTOCOMPACT_PCT = 40
+DEFAULT_AUTOCOMPACT_WINDOW = 400000
 PCT_ENV = "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"
 WINDOW_ENV = "CLAUDE_CODE_AUTO_COMPACT_WINDOW"
+WINDOW_KEY = "autoCompactWindow"
 BUFFER_TOKENS = 13000
 
 
@@ -41,11 +42,16 @@ def settings_path() -> Path:
     return (Path(raw) if raw else Path.home() / ".claude") / "settings.json"
 
 
-def _settings_env() -> dict:
+def _settings() -> dict:
     try:
-        block = json.loads(settings_path().read_text(encoding="utf-8")).get("env")
-    except (OSError, ValueError, AttributeError):
+        settings = json.loads(settings_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
         return {}
+    return settings if isinstance(settings, dict) else {}
+
+
+def _settings_env() -> dict:
+    block = _settings().get("env")
     return block if isinstance(block, dict) else {}
 
 
@@ -59,15 +65,24 @@ def configured(name: str, settings_env: dict | None = None) -> float | None:
     return _number((_settings_env() if settings_env is None else settings_env).get(name))
 
 
-def threshold_tokens(window_size: object, settings_env: dict | None = None) -> tuple[float | None, str]:
+def configured_window(settings: dict | None = None) -> float | None:
+    """The configured compaction window: env var, then settings `env`, then top-level `autoCompactWindow`."""
+    settings = _settings() if settings is None else settings
+    env_block = settings.get("env")
+    from_env = configured(WINDOW_ENV, env_block if isinstance(env_block, dict) else {})
+    return from_env if from_env is not None else _number(settings.get(WINDOW_KEY))
+
+
+def threshold_tokens(window_size: object, settings: dict | None = None) -> tuple[float | None, str]:
     """(tokens at which auto-compaction fires, provenance) or (None, why-unknown)."""
     model_window = _number(window_size)
     if model_window is None:
         return None, "window size unknown"
-    if settings_env is None:
-        settings_env = _settings_env()
-    window = min(configured(WINDOW_ENV, settings_env) or model_window, model_window)
-    pct = configured(PCT_ENV, settings_env)
+    if settings is None:
+        settings = _settings()
+    env_block = settings.get("env")
+    window = min(configured_window(settings) or model_window, model_window)
+    pct = configured(PCT_ENV, env_block if isinstance(env_block, dict) else {})
     budget = window - BUFFER_TOKENS
     if pct is not None:
         budget = min(budget, window * pct / 100.0)
@@ -76,11 +91,10 @@ def threshold_tokens(window_size: object, settings_env: dict | None = None) -> t
 
 
 def apply_default(settings: dict) -> bool:
-    """Set the default override in `settings["env"]` when absent. True when changed."""
-    env = settings.setdefault("env", {})
-    if not isinstance(env, dict) or PCT_ENV in env:
+    """Set the default window in `settings` when the key is absent. True when changed."""
+    if WINDOW_KEY in settings:
         return False
-    env[PCT_ENV] = str(DEFAULT_AUTOCOMPACT_PCT)
+    settings[WINDOW_KEY] = DEFAULT_AUTOCOMPACT_WINDOW
     return True
 
 

@@ -128,7 +128,9 @@ def _detect_hook_seam_drift():
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         current_loader = getattr(mod, 'LOADER', None)
-        if not isinstance(current_loader, str) or current_loader == snapshotted_loader:
+        if not isinstance(current_loader, str) or snapshotted_loader in (
+            current_loader, getattr(mod, 'WORKFLOW_LOADER', None),
+        ):
             return  # current, or the source doesn't define LOADER at all -- not our call
 
         session_id = os.environ.get('CLAUDE_CODE_SESSION_ID')
@@ -169,7 +171,62 @@ def _detect_hook_seam_drift():
 _detect_hook_seam_drift()
 p = sys.argv[1]
 sys.argv = sys.argv[1:]
-if os.path.isfile(p):
+if os.path.basename(p) == 'preuse-workflow-dispatch.py':
+    # The one target that fails CLOSED for a submission. It runs as a child so a crash, a
+    # kill or a hang (hook timeout is 15 s) still leaves this process alive to answer a named
+    # deny; any other Workflow call keeps the fail-open of every hook.
+    import json
+    import re
+    import subprocess
+
+    def _workflow_deny(why):
+        sys.stdout.write(json.dumps({'hookSpecificOutput': {
+            'hookEventName': 'PreToolUse',
+            'permissionDecision': 'deny',
+            'permissionDecisionReason': (
+                'The engine did not take this submission (' + why + '). Retry once, then '
+                'do the work by hand (dispatch the agents yourself, scoped commits) and '
+                'file this failure to claude-klabauter-em.'),
+        }}) + '\n')
+        sys.stdout.flush()
+
+    _raw = sys.stdin.buffer.read()
+    _text = _raw.decode('utf-8', 'replace')
+    _is_submission = '"Workflow"' in _text and bool(re.search(
+        r'(?<![A-Za-z_])name\\?"\s*:\s*\\?"(?:[^"\\]*:)?(engine-ask|bug-blitz)', _text))
+    if not os.path.isfile(p):
+        if _is_submission:
+            _workflow_deny('hook script missing: ' + os.path.basename(p))
+        else:
+            sys.stderr.write('COORDINATOR HOOK SEAM: registered hook script unreachable -- failing OPEN. missing: ' + p)
+        sys.exit(0)
+    # Child budget must stay below the hooks.json Workflow timeout (15 s) minus boot time.
+    _CHILD_BUDGET_S = 12.0
+    try:
+        _limit = float(os.environ.get('COORDINATOR_WORKFLOW_HOOK_TIMEOUT_S') or _CHILD_BUDGET_S)
+    except ValueError:
+        _limit = _CHILD_BUDGET_S
+    try:
+        _child = subprocess.run(
+            [sys.executable, p], input=_raw, capture_output=True, timeout=_limit,
+            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
+        )
+    except subprocess.TimeoutExpired:
+        if _is_submission:
+            _workflow_deny('hook timed out after %ss' % _limit)
+        sys.exit(0)
+    if _child.stdout.strip():
+        sys.stdout.buffer.write(_child.stdout)
+        sys.stdout.flush()
+    elif _child.returncode != 0 and _is_submission:
+        _workflow_deny('hook failed, exit %s' % _child.returncode)
+    if _child.stderr:
+        sys.stderr.buffer.write(_child.stderr)
+        sys.stderr.flush()
+    if _child.stdout.strip() or not _is_submission:
+        sys.exit(_child.returncode)
+    sys.exit(0)  # a submission with no stdout was already answered by the named deny above
+elif os.path.isfile(p):
     runpy.run_path(p, run_name='__main__')
 else:
     sys.stderr.write(

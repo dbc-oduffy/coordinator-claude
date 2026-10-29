@@ -154,6 +154,11 @@ REGISTRY: Tuple[StartGuard, ...] = (
     StartGuard("session_start_ensure_group_em_home",
                "session-start-ensure-group-em-home.py",
                frozenset({"startup", "resume", "clear", "compact", "fork"})),
+    # Size-and-age sweep of ~/.claude/projects and ~/.cache, throttled to one per 6 h by its own
+    # stamp and bounded by its own 25 s deadline; it fits the 45 s registration timeout, so that
+    # timeout is unchanged (sweep-boot's 30 s is a separate leg).
+    StartGuard("session_start_disk_budget", "session-start-disk-budget.py",
+               frozenset({"startup", "resume", "compact"})),
     # LAST, so the cheap self-heals above never wait behind it. No per-leg timer: the 45 s registration timeout bounds it.
     StartGuard("sweep_boot", "sweep-boot.py", frozenset({"startup", "compact"})),
 )

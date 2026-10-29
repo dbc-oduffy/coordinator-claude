@@ -11,8 +11,10 @@
 ## The `updatedocs.gates` invocation — one authority
 
 Every later phase's "Detect first" step calls the same op:
-`& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" updatedocs.gates '{}'` (Shape W /
-Shape A-B POSIX — `snippets/resolve-coordinator-bin.md`). It is a detect-only op: no gate it runs
+`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-invoke" updatedocs.gates '{}'`
+(POSIX shape; on PowerShell use Shape W,
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" updatedocs.gates '{}'` —
+`snippets/resolve-coordinator-bin.md`). It is a detect-only op: no gate it runs
 writes or moves anything, and every guard downstream still runs. Each gate's verdict is tri-state
 — a repo it cannot see reads `unavailable`, which means "not checked", never "clean". A phase page
 names only its own gate and what that gate does not write; the invocation shape and the

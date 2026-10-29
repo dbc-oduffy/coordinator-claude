@@ -84,7 +84,8 @@
 #       from the same single read as line 1 (liveness.session_live_with_basis):
 #       "harness-registry" | "stable-pid" | "stable-pid-shared" |
 #       "recency-window" | "recency-window-mtime" |
-#       "harness-registry-elsewhere" | "unknown". Never emitted on the
+#       "harness-registry-elsewhere" | "harness-registry-superseded" |
+#       "unknown". Never emitted on the
 #       malformed-SID or transport-failure paths since those carry no decided
 #       verdict to attach a basis to.
 #     exit 0   -> live.
@@ -652,6 +653,26 @@ def main(argv: list[str]) -> int:
         return _TRANSPORT_FAIL
 
 
+def _cmd_release_artifact_bulk(mod, rest: list[str]) -> int:
+    # The only stdin reader in this bin: door_core.c scopes the warm door's
+    # cold leg to this subcommand (door_stdin_subcommand_scoped), and
+    # test_stdin_reading_table_parity pins that sys.stdin appears nowhere else.
+    _bulk_usage = "session-claim-cli release-artifact-bulk (--all | --stdin | <path>...)"
+    use_all = "--all" in rest
+    use_stdin = "--stdin" in rest
+    paths = [a for a in rest if a not in ("--all", "--stdin")]
+    unknown = [a for a in paths if a.startswith("--")]
+    if unknown or (use_all and (use_stdin or paths)) or not (use_all or use_stdin or paths):
+        return _usage(_bulk_usage)
+    if use_stdin:
+        paths += [ln.strip() for ln in sys.stdin.read().splitlines() if ln.strip()]
+    paths = [p for p in paths if p]  # drop empty argv strings (stdin lines already stripped)
+    return _call_claim_bool(
+        "release-artifact-bulk", mod._release_path_claims_bulk,
+        None if use_all else paths,
+    )
+
+
 def _dispatch(argv: list[str]) -> int:
     if not argv:
         return _usage("session-claim-cli")
@@ -704,20 +725,7 @@ def _dispatch(argv: list[str]) -> int:
         return _call_claim_bool("release-artifact", mod.release_artifact, class_, basename, baton_repo_root)
 
     if subcmd == "release-artifact-bulk":
-        _bulk_usage = "session-claim-cli release-artifact-bulk (--all | --stdin | <path>...)"
-        use_all = "--all" in rest
-        use_stdin = "--stdin" in rest
-        paths = [a for a in rest if a not in ("--all", "--stdin")]
-        unknown = [a for a in paths if a.startswith("--")]
-        if unknown or (use_all and (use_stdin or paths)) or not (use_all or use_stdin or paths):
-            return _usage(_bulk_usage)
-        if use_stdin:
-            paths += [ln.strip() for ln in sys.stdin.read().splitlines() if ln.strip()]
-        paths = [p for p in paths if p]  # drop empty argv strings (stdin lines already stripped)
-        return _call_claim_bool(
-            "release-artifact-bulk", mod._release_path_claims_bulk,
-            None if use_all else paths,
-        )
+        return _cmd_release_artifact_bulk(mod, rest)
 
     if subcmd == "release-or-relinquish":
         if len(rest) < 2:

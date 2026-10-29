@@ -165,7 +165,7 @@ phrase from your change at `HEAD`; missing → re-apply, push a follow-up.
 
 ## Step 9: Local Cleanup
 
-First run `"$COORDINATOR_SETTINGS_HOME/bin/structural-index-refresh"` (PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\structural-index-refresh.exe"`; non-blocking, always exit 0; `COORDINATOR_STRUCTURAL_INDEX_REFRESH_OFF=1` disables) — report its line if it prints one.
+Report the structural-index staleness (`.structural-index/refresh-last.json`) in one line; the next `/workday-start` refreshes it. Never refresh here (`A-REINDEX-IS-A-STALENESS-FLAG-NEVER-AN-AGENT-TRIGGER`).
 
 Check out main (`COORDINATOR_OVERRIDE_BRANCH=1`), pull, delete the local branch (a follow-on
 `/bug-blitz` cuts a fresh day branch from main). Clear any stray worktree (`git worktree remove <path>`).

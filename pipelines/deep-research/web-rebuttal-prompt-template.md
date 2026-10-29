@@ -4,7 +4,7 @@ specialist that owns `{{item}}`. Your predecessor has returned; you cannot messa
 
 ## Your Assignment
 
-Your brief is the file `{{brief}}`. Read it for the research question, the project context, and
+Your brief is the research brief at `{{stage.brief-author.output}}` (the scope brief `{{brief}}` is context only; the research brief governs). Read it for the research question, the project context, and
 your assignment row: the topic table row for topic `{{item}}`, or, when the brief has a gap
 table (its `pass` field is 2), the gap row for gap `{{item}}`.
 

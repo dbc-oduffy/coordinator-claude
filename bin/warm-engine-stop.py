@@ -1,98 +1,40 @@
-"""warm-engine-stop.py — the operator hatch for a wedged-but-listening warm
-engine server.
+"""warm-engine-stop.py — the operator hatch that takes down the warm pair
+(supervisor, front door, then server) of the clone this file lives in.
 
-Spec backlink: docs/plans/2026-08-16-one-engine-for-the-whole-box.md § C18,
-AC9a of the warm-engine plan (`docs/plans/2026-08-15-warm-engine-retires-
-the-per-invocation-cold-start.md`) -- a server that answers the pipe but
-will not shut down needs an operator-runnable stop path independent of any
-agentic session.
+Spec backlink: docs/plans/2026-10-25-publish-stops-warm-pair-and-blocks-respawn.md (C3);
+originally AC9a of the warm-engine plan
+(`docs/plans/2026-08-15-warm-engine-retires-the-per-invocation-cold-start.md`).
 
 COLD-PATH RULE: this script is RUNNABLE, never a slash command. It must
-work with no Claude Code session, no coordinator plane, nothing but a
-plain interpreter -- exactly the guard `coordinator/tests/
-test_cold_path_remediation_is_runnable.py` exists to enforce for this
-class of script (that guard's own `COLD_PATH_MODULES` list is out of this
-row's `writes:`, so this script is not enrolled in it here; the shape --
-naked argparse, no imported session/agent surface, every diagnostic a
-plain string -- is followed regardless, since AC9a's whole point is this
-running before/without a session).
+work with no Claude Code session, no coordinator plane, nothing but a plain
+interpreter (guard: `coordinator/tests/test_cold_path_remediation_is_runnable.py`):
+naked argparse, no imported session/agent surface, every diagnostic a plain string.
 
-INVOCATION BINDS TO THE CLONE THIS FILE LIVES IN. There is no `--engine-
-root` flag: `Path(__file__).resolve().parents[2]` is this script's own
-containing clone's root, the same computation every other `warm/*` module
-keeps as a local copy (`election._default_engine_clone`, `client.
-_engine_clone_root`, `skew._default_engine_clone`, `breadcrumb.
-_default_engine_clone`). Running the copy of this script SHIPPED INSIDE
-the klabauter clone therefore resolves and stops THAT clone's server, with
-no argument to get wrong:
+INVOCATION BINDS TO THE CLONE THIS FILE LIVES IN. There is no `--engine-root`
+flag: `_REPO_ROOT` is this script's own containing clone, so the copy shipped
+inside the klabauter clone stops THAT clone's pair:
 
     python3 <klabauter-clone-root>/coordinator/bin/warm-engine-stop.py
 
--- substitute the box's actual `repos.claude_klabauter` resolution (`
-machine-local get repos.claude_klabauter`) for `<klabauter-clone-root>`.
-This script does not resolve that registry key itself, to keep "which
-clone does this stop" a property of "which copy did you run," not of
-another config lookup that could disagree with it.
+IDENTIFICATION AND MECHANISM live in `coordinator_core.warm.pair_stop.
+stop_warm_pair`: the supervisor is stopped first, then the front door, then the server (graceful
+ask, then a direct signal), and a final exact-argv command-line sweep under
+the engine root decides success.
 
-IDENTIFICATION, conservative by construction (this box runs 50-70
-concurrent LLM sessions -- module docstring of every other `warm/*`
-module names this load). This script NEVER sends a kill signal to a pid
-it has not positively identified as this engine's server:
-
-  1. Read `<svc dir>/warm.json` (`coordinator_core.warm.breadcrumb.
-     read_breadcrumb`). Absent or corrupt -> nothing to stop, exit
-     `_EXIT_NO_BREADCRUMB`, no process touched.
-  2. Verify the recorded `pid` is STILL the SAME process via
-     `coordinator_core.session.core.stable_pid_alive(pid,
-     stored_start_epoch=...)` -- pid PLUS the psutil birth instant, so a
-     pid the OS has since recycled for an unrelated process reads dead
-     rather than falsely alive. A dead/recycled pid -> nothing to stop,
-     exit `_EXIT_STALE_BREADCRUMB`, no process touched.
-
-MECHANISM, preferred order:
-
-  1. ASK. Connects to the breadcrumb's own `pipe` (the same transport
-     shape `warm.client._open_pipe` uses: plain `open(pipe, "r+b")`, no
-     ctypes) and sends one JSON-RPC frame carrying a deliberately-wrong
-     `_engine_token`. This is a considered reuse of ALREADY-WIRED
-     machinery, not a new server-side "stop" op: `warm.server._serve_line`
-     pops `_engine_token` off every incoming frame and, on a mismatch,
-     calls `warm.skew.evict_on_skew` -- which runs respond -> close the
-     listener -> `warm.lifecycle.drain_and_exit` (steps 2-4 of C17's own
-     ordered shutdown sequence) BEFORE it ever looks at the request's
-     `method`. No dedicated `engine.stop` RPC exists yet at C18 (would
-     require editing `warm/server.py`, outside this row's `writes:`), so
-     this is the only currently-wired path that reaches the graceful
-     drain-and-exit sequence remotely. Flagged here, deliberately, as a
-     borrowed mechanism a future chunk should replace with a purpose-built
-     op -- not hidden as if it were one.
-  2. FALL BACK to a direct signal (`psutil.Process(pid).terminate()`,
-     escalating to `.kill()` after a bounded wait) ONLY if step 1's
-     connection itself fails (no pipe, busy, or no response within the
-     wait) -- i.e. the server is not answering its own transport, so
-     asking nicely cannot work. The pid signalled is the SAME pid
-     `stable_pid_alive` already verified in the identification step above;
-     this script does not re-resolve it a second way.
+EXIT CODES: 0 when neither process survives ("stopped", or "nothing to stop"
+when no process was found); `_EXIT_COULD_NOT_STOP` (4) otherwise, with every
+survivor's pid and role on stderr.
 
 Negative-spec:
-  - Does NOT wait for anything at connect time beyond one bounded read
-    (mirrors `warm.client.READ_DEADLINE_SECS`'s discipline, not this
-    module's own invention) -- an operator running this by hand wants a
-    bounded command, not one that can itself wedge.
-  - Does NOT touch any pid the breadcrumb did not name and
-    `stable_pid_alive` did not verify. No "kill anything listening near
-    this pipe name" fallback exists.
-  - Does NOT delete the breadcrumb before confirming the target process
-    is gone (or the ask succeeded) -- `unlink_breadcrumb` is the last
-    step, best-effort, on a success path only.
+  - Never signals a pid that a verified record or the exact command-line match
+    did not identify; there is no "kill anything python-ish" fallback.
+  - Never claims success while a survivor remains.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import sys
-import time
 from pathlib import Path
 
 _BIN_DIR = Path(__file__).resolve().parent
@@ -102,17 +44,14 @@ _REPO_ROOT = _BIN_DIR.parent.parent
 _BOOTSTRAP_DONE = False
 
 
-_BOOTSTRAPPED_NAMES = ("breadcrumb", "stable_pid_alive")
+_BOOTSTRAPPED_NAMES = ("pair_stop",)
 
 
 def _bootstrap_engine() -> None:
-    """Put `_REPO_ROOT` on `sys.path` -- idempotent, safe to call more than
-    once.
+    """Put `_REPO_ROOT` on `sys.path` and bind `pair_stop` -- idempotent.
 
-    What moved and what did not: this mutation used to run at MODULE scope,
-    which made every import of this file mutate the `sys.path` of a warm
-    server ~50 sessions share. Only the trigger moved; the value inserted is
-    byte-for-byte the same.
+    Trap: runs on first use, never at import, so importing this file does not
+    mutate the `sys.path` of a warm server ~50 sessions share.
     """
     global _BOOTSTRAP_DONE
     if _BOOTSTRAP_DONE:
@@ -120,8 +59,7 @@ def _bootstrap_engine() -> None:
     if str(_REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(_REPO_ROOT))
 
-    from coordinator_core.warm import breadcrumb
-    from coordinator_core.session.core import stable_pid_alive
+    from coordinator_core.warm import pair_stop
 
     _resolved = locals()
     for _name in _BOOTSTRAPPED_NAMES:
@@ -148,262 +86,26 @@ def __getattr__(name: str):
 
 
 _EXIT_OK = 0
-_EXIT_NO_BREADCRUMB = 2
-_EXIT_STALE_BREADCRUMB = 3
 _EXIT_COULD_NOT_STOP = 4
-
-# Matches `warm.client.READ_DEADLINE_SECS`'s own bound for a single
-# request/response round trip -- an operator command should never itself
-# hang past a plausible server response window.
-_ASK_READ_DEADLINE_SECS = 2.0
-
-# Matches `warm.client.ERROR_PIPE_BUSY` -- kept as a local literal rather
-# than importing the private constant from a sibling module for a single
-# comparison.
-_ERROR_PIPE_BUSY = 231
-
-_TERMINATE_GRACE_SECS = 5.0
-_TERMINATE_POLL_INTERVAL_SECS = 0.1
-
-# The graceful ask's own confirm window (BV-20260927-06). A connection that
-# succeeds and then drops is EXPECTED here -- `warm.skew.evict_on_skew`
-# writes its response, closes the listener, then drains up to `warm.
-# lifecycle`'s own ceiling (dispatch timeout + margin, ~35s default) before
-# `os._exit`. Reading that drop as failure -- or as success without waiting
-# for the pid to actually go away -- is the defect this window exists to
-# close: sized a little above the drain ceiling, not `_TERMINATE_GRACE_SECS`
-# (which is a raw-signal grace, a different and much shorter wait).
-_ASK_CONFIRM_GRACE_SECS = 40.0
-
-# mismatch, per this script's own docstring ("MECHANISM", step 1).
-_STOP_REQUEST_TOKEN = "warm-engine-stop-requested-0000"
-
-
-def _read_line_with_deadline(fh, deadline_secs: float) -> "bytes | None":
-    import threading
-
-    result: dict = {}
-
-    def _read() -> None:
-        try:
-            result["line"] = fh.readline()
-        except OSError as exc:
-            result["exc"] = exc
-
-    reader = threading.Thread(target=_read, daemon=True)
-    reader.start()
-    reader.join(deadline_secs)
-    if reader.is_alive():
-        return None
-    if "exc" in result:
-        return None
-    return result.get("line")
-
-
-def _open_pipe(pipe: str):
-    return open(pipe, "r+b")
-
-
-def _ask_server_to_stop(pipe: str) -> bool:
-    """Attempt the graceful ask (docstring "MECHANISM" step 1). Returns
-    True iff a connection was made and a response (well-formed or not) was
-    received or the write itself succeeded before the connection dropped
-    -- i.e. the server was there and reachable, so a direct signal is
-    unnecessary. Returns False on any transport failure (no pipe, busy,
-    someone else's pipe, or a read-deadline expiry), which is this
-    script's signal to fall back to a direct process signal.
-    """
-    request = {
-        "jsonrpc": "2.0",
-        "id": "warm-engine-stop",
-        "method": "engine.stop_probe",
-        "params": {},
-        "_engine_token": _STOP_REQUEST_TOKEN,
-    }
-    payload = json.dumps(request, ensure_ascii=False).encode("utf-8") + b"\n"
-
-    try:
-        fh = _open_pipe(pipe)
-    except OSError:
-        return False
-
-    try:
-        try:
-            fh.write(payload)
-            fh.flush()
-        except OSError:
-            return False
-        _read_line_with_deadline(fh, _ASK_READ_DEADLINE_SECS)
-        # Whether or not a response line arrived, the write succeeding
-        # means the server accepted the frame and (per `warm.server.
-        # _serve_line`'s fixed order) already ran respond -> close_listener
-        # -> drain before this function could observe anything further --
-        # a dropped read here is an EXPECTED shape of a server that is now
-        # exiting, not a failure to report.
-        return True
-    finally:
-        try:
-            fh.close()
-        except OSError:
-            pass
-
-
-def _pid_confirmed_gone(pid: int, stored_epoch_str: str) -> bool:
-    """True iff `pid` (identified the same way `main` already did, pid plus
-    stored birth instant) is no longer the process this script identified.
-
-    Reuses `stable_pid_alive` rather than a bare `psutil.pid_exists` --
-    the same recycled-pid hazard `main`'s own identification step guards
-    against applies here: a dead-and-reused pid must read as gone, not as
-    a new unrelated process still being "the server"."""
-    return not stable_pid_alive(pid, stored_start_epoch=stored_epoch_str)
-
-
-def _wait_for_pid_gone(
-    pid: int,
-    stored_epoch_str: str,
-    *,
-    deadline_secs: float,
-    poll_interval: float = _TERMINATE_POLL_INTERVAL_SECS,
-) -> bool:
-    """Poll `_pid_confirmed_gone` until true or `deadline_secs` elapses.
-
-    Bounded, never hangs: an operator running this by hand gets a definite
-    answer within `deadline_secs`, never an indefinite wait -- mirrors this
-    module's own `_terminate_pid` confirm loop, sized for a graceful drain
-    (`_ASK_CONFIRM_GRACE_SECS`) rather than a raw signal."""
-    deadline = time.monotonic() + deadline_secs
-    while True:
-        if _pid_confirmed_gone(pid, stored_epoch_str):
-            return True
-        if time.monotonic() >= deadline:
-            return False
-        time.sleep(poll_interval)
-
-
-def _terminate_pid(pid: int, *, psutil_module=None) -> bool:
-    """Direct-signal fallback (docstring "MECHANISM" step 2): `terminate()`
-    then, if still alive past `_TERMINATE_GRACE_SECS`, `kill()`. Returns
-    True iff the process was confirmed gone. Never signals a pid this
-    module has not itself resolved via `psutil` here -- the caller already
-    verified this exact pid with `stable_pid_alive` before calling this
-    function.
-
-    `psutil_module` is an injectable seam for tests -- this function never
-    signals a real OS process in this repo's own test suite (per this
-    row's own dispatch instructions); production callers leave it `None`
-    and get the real `psutil` import.
-    """
-    psutil = psutil_module
-    if psutil is None:
-        import psutil
-
-    try:
-        proc = psutil.Process(pid)
-    except psutil.NoSuchProcess:
-        return True
-
-    try:
-        proc.terminate()
-    except psutil.NoSuchProcess:
-        return True
-    except psutil.AccessDenied:
-        return False
-
-    deadline = time.monotonic() + _TERMINATE_GRACE_SECS
-    while time.monotonic() < deadline:
-        if not proc.is_running():
-            return True
-        time.sleep(_TERMINATE_POLL_INTERVAL_SECS)
-
-    try:
-        proc.kill()
-    except psutil.NoSuchProcess:
-        return True
-    except psutil.AccessDenied:
-        return False
-
-    deadline = time.monotonic() + _TERMINATE_GRACE_SECS
-    while time.monotonic() < deadline:
-        if not proc.is_running():
-            return True
-        time.sleep(_TERMINATE_POLL_INTERVAL_SECS)
-    return not proc.is_running()
 
 
 def main(argv=None) -> int:
     _bootstrap_engine()
     parser = argparse.ArgumentParser(
         description=(
-            "Stop the warm engine server for the clone this script lives in. "
-            "No arguments: identification comes entirely from this clone's "
-            "own <svc dir>/warm.json breadcrumb."
+            "Stop the warm supervisor, front door and server for the clone this script "
+            "lives in. No arguments: the engine root is this clone."
         )
     )
     parser.parse_args(argv)
 
-    record = breadcrumb.read_breadcrumb()
-    if record is None:
-        print(
-            f"No breadcrumb at {breadcrumb.breadcrumb_path()} -- nothing to stop.",
-            file=sys.stderr,
-        )
-        return _EXIT_NO_BREADCRUMB
+    result = pair_stop.stop_warm_pair(_REPO_ROOT)
+    if result.ok():
+        print("stopped" if result.stopped else "nothing to stop", file=sys.stderr)
+        return _EXIT_OK
 
-    pid = record.get("pid")
-    pipe = record.get("pipe")
-    stored_epoch = record.get("stable_pid_start_epoch")
-    if not isinstance(pid, int) or not isinstance(pipe, str):
-        print(
-            f"Breadcrumb at {breadcrumb.breadcrumb_path()} is malformed -- nothing to stop.",
-            file=sys.stderr,
-        )
-        return _EXIT_NO_BREADCRUMB
-
-    stored_epoch_str = str(stored_epoch) if stored_epoch is not None else ""
-    if not stable_pid_alive(pid, stored_start_epoch=stored_epoch_str):
-        print(
-            f"Breadcrumb pid {pid} is dead or recycled -- nothing to stop. "
-            f"Remove the stale breadcrumb at {breadcrumb.breadcrumb_path()} if it persists.",
-            file=sys.stderr,
-        )
-        return _EXIT_STALE_BREADCRUMB
-
-    print(f"Identified warm engine server: pid={pid} pipe={pipe}", file=sys.stderr)
-
-    asked = _ask_server_to_stop(pipe)
-    if asked:
-        print(
-            "Sent graceful-stop request over the warm pipe; a connection "
-            "that is accepted and then drops is the server draining and "
-            "exiting, not a failure -- waiting to confirm.",
-            file=sys.stderr,
-        )
-        if _wait_for_pid_gone(pid, stored_epoch_str, deadline_secs=_ASK_CONFIRM_GRACE_SECS):
-            print("stopped", file=sys.stderr)
-            breadcrumb.unlink_breadcrumb()
-            return _EXIT_OK
-        print(
-            f"Graceful-stop request was delivered, but pid {pid} has not "
-            f"exited after {_ASK_CONFIRM_GRACE_SECS:.0f}s -- it may still be "
-            "draining in-flight work. Re-run this script or check the pid "
-            "directly before assuming the stop failed.",
-            file=sys.stderr,
-        )
-        return _EXIT_COULD_NOT_STOP
-
-    print(
-        "Warm pipe did not accept a connection -- falling back to a direct process signal.",
-        file=sys.stderr,
-    )
-    stopped = _terminate_pid(pid)
-    if not stopped:
-        print(f"Could not confirm pid {pid} stopped.", file=sys.stderr)
-        return _EXIT_COULD_NOT_STOP
-
-    print(f"pid {pid} stopped.", file=sys.stderr)
-    breadcrumb.unlink_breadcrumb()
-    return _EXIT_OK
+    print(result.render_survivors(), file=sys.stderr)
+    return _EXIT_COULD_NOT_STOP
 
 
 if __name__ == "__main__":

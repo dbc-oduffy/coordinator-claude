@@ -7,7 +7,7 @@ order: 30
 
 **`--surface diff` precedence — tier table before routing table.** Consult the tier table below BEFORE the routing table's composite signal match: the tier table decides Sonnet-vs-Opus (a single-subsystem diff with no domain signal routes to `code-reviewer` at Sonnet); the routing table fires only once the tier table selected Opus. Applying `routing.md`'s Fallback Rule (unmatched signal → the Staff Engineer at Medium) first sends Sonnet-shaped diffs to an Opus persona — the violation `agents/code-reviewer.md` exists to prevent.
 
-**`--surface diff` only — Personas are Opus-only.** the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Director of Engineering carry `model: opus`; dispatching one with a `model: "sonnet"` override is a doctrine violation. Sonnet-tier code review uses `code-reviewer` (`agents/code-reviewer.md`); Sonnet-tier mechanical analysis uses the relevant worker (`test-evidence-parser`, `security-audit-worker`, `dep-cve-auditor`, `doc-link-checker`).
+**`--surface diff` only — Personas are Opus-only.** the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Director of Engineering carry `model: opus`; dispatching one with a `model: "sonnet"` override is a doctrine violation. Sonnet-tier code review uses `code-reviewer` (`agents/code-reviewer.md`); Sonnet-tier mechanical analysis uses the relevant worker (`security-audit-worker`, `doc-link-checker`).
 
 **`--surface diff` tier table:**
 

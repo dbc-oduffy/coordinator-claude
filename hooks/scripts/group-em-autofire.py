@@ -149,10 +149,55 @@ def fleet_repo_roots() -> list[str]:
     return sorted(roots.values())
 
 
+def _frontmatter_status(text: str) -> str | None:
+    """`status:` of a leading `---` fenced frontmatter block, quotes stripped; None when the file
+    has no frontmatter or no `status:` key."""
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return None
+    for line in lines[1:]:
+        if line.strip() == "---":
+            return None
+        key, sep, value = line.partition(":")
+        if sep and key.strip() == "status":
+            return value.strip().strip("'\"").strip()
+    return None
+
+
+def inbox_memo_lists(root: str) -> dict | None:
+    """`{memos, stamped}` absolute posix path lists for `<root>/state/cross-repo/inbox/*.md`.
+    None when the inbox directory cannot be listed or any memo cannot be read (fail open: the
+    workflow's enumerator covers the repo, never a list silently missing a memo). The open/in_progress set mirrors the klabauter assembler's filter; drift there is
+    the trap."""
+    inbox = Path(root) / "state" / "cross-repo" / "inbox"
+    try:
+        files = sorted(p for p in inbox.iterdir() if p.suffix == ".md" and p.is_file())
+    except OSError:
+        return None
+    memos: list[str] = []
+    stamped: list[str] = []
+    for path in files:
+        try:
+            status = _frontmatter_status(path.read_text(encoding="utf-8", errors="replace"))
+        except OSError:
+            return None
+        if status is None:
+            continue
+        (memos if status in ("open", "in_progress") else stamped).append(path.as_posix())
+    return {"memos": memos, "stamped": stamped}
+
+
 def render_fleet_workflow(plugin_root: Path, repos: list[str], holder: dict) -> str:
     """The exact `Workflow` invocation that grinds every fleet inbox to zero."""
     script = (plugin_root / "workflows" / "fleet-inbox-blitz.mjs").as_posix()
-    args = {"repos": repos, "gem": {"sessionId": holder.get("sessionId"), "name": holder.get("name")}}
+    memo_lists = {r: v for r in repos if (v := inbox_memo_lists(r)) is not None}
+    memo_counts = {r: len(v["memos"]) for r, v in memo_lists.items()}
+    args = {
+        "repos": repos,
+        "memo_lists": memo_lists,
+        "memo_counts": memo_counts,
+        "gem": {"sessionId": holder.get("sessionId"), "name": holder.get("name")},
+    }
     try:
         import _machine_profile
 

@@ -64,6 +64,21 @@ def main() -> int:
         # Advisory-only: any dispatch failure (HookDispatchError or otherwise) is a silent pass.
         return 0
 
+    try:
+        hso = result.get("hookSpecificOutput") if isinstance(result, dict) else None
+        if isinstance(hso, dict) and hso.get("permissionDecision") == "deny":
+            from _protected_act import advise_and_record, protected_act_for
+
+            if protected_act_for("preuse-sendmessage-dispatch") is None:
+                advise_and_record(
+                    "preuse-sendmessage-dispatch",
+                    str(hso.get("permissionDecisionReason") or ""),
+                    "PreToolUse",
+                )
+                return 0
+    except Exception:
+        pass
+
     if result:
         sys.stdout.write(json.dumps(result))
         sys.stdout.write("\n")

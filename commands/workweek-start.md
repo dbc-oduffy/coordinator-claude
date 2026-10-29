@@ -250,7 +250,8 @@ internally; never sequence prune and maintenance as separate call-site steps.
 ## Step 10: Chain into /workday-start
 
 A new week's first session is also a new workday. Invoke `Skill(coordinator:workday-start)`
-unconditionally — it short-circuits itself if already run today.
+unconditionally — it short-circuits itself if already run today. The one sanctioned index refresh
+lives there (`workday-start.md` § The one sanctioned refresh); this command starts none.
 
 After the chained `/workday-start` returns, emit the combined summary below.
 

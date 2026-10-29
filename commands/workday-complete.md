@@ -57,7 +57,7 @@ If `ToolSearch` finds `mcp__project-rag__*`, run the staleness survey with this 
 stale/very-stale only for a repo `project_list_sources` reports as `origin: consumer-project` —
 elsewhere the step is N/A and silent (`A-RAG-VERDICT-ON-AN-UNINDEXED-REPO-IS-NOT-STALENESS`).
 A consumer-project registration with `reachable=false`/`root_exists=false` while the root exists
-on disk is a broken registration, not staleness: report one line naming the repo and the `origin`/`reachable`/`root_exists` values the tool returned (it returns no `resolution` field), and route it to the index owner; never re-index from here.
+on disk is a broken registration, not staleness: report one line naming the repo and the `origin`/`reachable`/`root_exists` values the tool returned (it returns no `resolution` field), and route it to the index owner; never re-index from here (`A-REINDEX-IS-A-STALENESS-FLAG-NEVER-AN-AGENT-TRIGGER`).
 
 Plugin validation runs only in the plugin source repo: where `coordinator/tests/plugin-ecosystem/run.js` exists under
 the repo root, run `node --test coordinator/tests/plugin-ecosystem/run.js` from `coordinator/`
@@ -66,10 +66,7 @@ one report line, never the plugin-cache copy (it cannot resolve the engine check
 
 **The register stall check:** `coordinator-invoke requirement_register.stall_report '{"today":"<today>"}'` (settings-home forwarder); render findings in the wrap report under `### Register stall check`, omitted when empty.
 
-**Step 4b: Structural index.** Run `"$_py" "$COORDINATOR_SETTINGS_HOME/bin/structural-index-refresh"` (POSIX; on PowerShell `& "$env:COORDINATOR_SETTINGS_HOME\bin\structural-index-refresh.exe"`, `snippets/resolve-coordinator-bin.md`) (non-blocking, always exit 0; `COORDINATOR_STRUCTURAL_INDEX_REFRESH_OFF=1` disables) — report its line if it prints one. A "still running" or "cold build started" line has no
-completion signal in this run: the detached run writes its outcome (`exit_code`,
-`stderr_tail`, `deferred`) to `.structural-index/refresh-last.json`. Read it at Step 10; a
-non-zero or missing `exit_code` there is a report line, still non-blocking.
+**Step 4b: Structural index.** Read-only: report the staleness from `.structural-index/refresh-last.json` (and the Step 4 staleness survey) in one line; the next `/workday-start` refreshes it. Never run a refresh here (`A-REINDEX-IS-A-STALENESS-FLAG-NEVER-AN-AGENT-TRIGGER`).
 
 ## Step 5: Resolve Judgment Points
 
@@ -88,6 +85,9 @@ Read each `judgment_points[]` entry verbatim — question/evidence/dispositions 
 - `jp_day_goal_closeout`: `day_goal_closeout` is a top-level key of the decisions file, beside the judgment-point entries: `{"day_goal_closeout": {goal_id: "done"|"dropped"}}`, or skip (shape: wiki).
 
 ## Step 6: Apply
+
+`apply` publishes: its consolidate directive (`d_step3_consolidate`) pushes the work branch. No
+switch suppresses that yet; under a no-push constraint, stop before Step 6 and report.
 
 POSIX hosts: Shape A, resolving `workday-complete-assemble apply --decisions-file <path>` (path to
 a file containing the json map of judgment_point_id -> {"disposition": "<value>"}) `${FOR_DATE:+--for-date "$FOR_DATE"} $ONLY_FLAG $PERIOD_FLAG`.

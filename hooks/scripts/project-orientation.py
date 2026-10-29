@@ -194,6 +194,14 @@ def _w(text: str) -> None:
 # a list = `main()` is collecting `(category, label)` items for the counted line.
 _FOLD: Optional[list] = None
 
+# Set by `main()` from the SessionStart payload: True when the engine identity does not name
+# this session as the Group EM (G-EM-only banners go quiet), and the payload `source`
+# (`startup`/`clear`/`compact`/`resume`/`fork`; "" when unknown, which emits in full).
+_NON_GEM: bool = False
+_SOURCE: str = ""
+# The cache body is emitted once per session (`startup`); a re-boot keeps only the age header.
+_CACHE_BODY_SKIPPED_SOURCES = ("clear", "compact", "resume", "fork")
+
 
 def _w_fold(category: str, label: str, full_text: str, lead: str = "") -> None:
     """Print `lead + full_text`, or record `(category, label)` while a collector is active.
@@ -941,17 +949,14 @@ def harness_version_drift_banner(repo_root: Optional[str]) -> None:
     small_patch_move = leading_match and (newest_tuple[-1] - pinned_tuple[-1]) < 5
 
     if small_patch_move:
-        _w(
-            f"── Harness moved: {pinned} → {newest_str} ({n_desc}) — vendored Claude Code "
-            f"docs reconciled at {pinned}; re-read what shipped in the gap ──\n"
-        )
-    else:
-        _w("\n")
-        _w(
-            f"── ⚠ Harness drift: {pinned} → {newest_str} — vendored Claude Code docs are "
-            f"{n_desc} behind; re-read the delta and re-pin "
-            "state/reference/anthropic-docs/reconciled-against.json ──\n"
-        )
+        return
+    _w("\n")
+    _w(
+        f"── ⚠ Harness drift: {pinned} → {newest_str} — vendored Claude Code docs are "
+        f"{n_desc} behind; run python coordinator/bin/refresh-vendored-docs.py, "
+        "have the impact agent read the changed pages, then run it with --repin "
+        "(state/reference/anthropic-docs/reconciled-against.json) ──\n"
+    )
 
 
 def _local_surface_probe_value(parsed: dict, json_path: str):
@@ -1380,7 +1385,7 @@ def corpus_currency_banner(repo_root: Optional[str]) -> None:
             continue
         name = band.get("band")
         remount_command = band.get("remount_command")
-        _w(f"── Corpus currency: {name} is behind — refresh: {remount_command} ──\n")
+        _w(f"── Corpus currency: {name} is behind — flag only, a human remounts: {remount_command} ──\n")
 
 
 def _structural_index_refresh_failure_line(repo_root: str) -> None:
@@ -1909,6 +1914,8 @@ def copies_banner(
     could-not-check naming the HEAD that moved. The capability-index age and the plugin-mirror
     time anchor are re-derived against now on every boot. No disable env var.
     """
+    if _NON_GEM:
+        return
     cc = _copies_mod("_copy_currency")
     cil = _copies_mod("_copy_leg_capability_index")
     ctx = ctx or default_copies_context()
@@ -2144,50 +2151,20 @@ def engine_resolution_banner() -> None:
         # target of THIS repo's own topology — foreign identity, dropped.
 
     if klass == RESOLUTION_RESOLVED_ENGINE:
-        root_suffix = f" — this session's DoE-plane hooks resolve to {_root}" if _root else ""
-        _w(
-            f"── Engine: published engine mirror{branch_suffix}{provenance_suffix}"
-            f"{root_suffix} ──\n"
-        )
-    elif klass == RESOLUTION_LIVE_WORKING_TREE:
+        if provenance_suffix:
+            root_suffix = f" — this session's DoE-plane hooks resolve to {_root}" if _root else ""
+            _w(
+                f"── Engine: published engine mirror{branch_suffix}{provenance_suffix}"
+                f"{root_suffix} ──\n"
+            )
+    elif klass == RESOLUTION_LIVE_WORKING_TREE and not _NON_GEM:
         _w(
             f"── Engine: sibling LIVE working tree{branch_suffix}{provenance_suffix} — "
             "this session's DoE-plane hooks resolve here ──\n"
         )
 
-    if is_plane and kept_rows:
+    if is_plane and kept_rows and not _NON_GEM:
         _w_live_plugin_root_line()
-
-    if is_plane:
-        for mirror_path, owner in kept_rows:
-            _w(
-                f"── Publish mirror (not a peer repo): {mirror_path} — owned by "
-                f"{owner} ──\n"
-            )
-
-
-def general_work_folders_banner() -> None:
-    """Name the general-work root and the group-em home; resolve only, never create.
-
-    Each folder drops its own line when its resolver refuses or fails; fail-open.
-    """
-    if _SCRIPTS_DIR_STR not in sys.path:
-        sys.path.append(_SCRIPTS_DIR_STR)
-    try:
-        import _general_work
-
-        _w(f"General-work folder (git-tracked landing for work that fits no project): {_general_work.resolve_root()}\n")
-    except Exception:
-        pass
-    try:
-        import _gem_home
-
-        _w(
-            f"Group-em folder: {_gem_home.resolve_home()} -- for role-based work: one Claude "
-            "overseeing multiple sessions, unblocking and queueing them.\n"
-        )
-    except Exception:
-        pass
 
 
 def _w_live_plugin_root_line() -> None:
@@ -2863,6 +2840,8 @@ def handle_cache_present_boot(cache: Path, cache_text: Optional[str] = None) -> 
 
     _w("\n")
     _w(cache_banner_line(cache_text))
+    if _SOURCE in _CACHE_BODY_SKIPPED_SOURCES:
+        return True
     _w(cache_text)
     _w("\n")
     _w("── Orientation: 1 document loaded (from cache) ──\n")
@@ -3110,7 +3089,8 @@ def _run_banners(banners: list) -> None:
                 banner()
             except Exception:
                 pass
-        _w(_render_staleness_line(_FOLD))
+        if not _NON_GEM:
+            _w(_render_staleness_line(_FOLD))
     finally:
         _FOLD = None
 
@@ -3123,10 +3103,28 @@ def main(argv: list) -> int:
     # which extracts session_id from it), but the harness may still write it
     # to this process's stdin — an un-drained pipe risks a hang on Windows.
     # Content is discarded; failures are fail-open (empty string, no raise).
+    global _NON_GEM, _SOURCE
     try:
-        _read_stdin(2.0)
+        payload = json.loads(_read_stdin(2.0) or "{}")
     except Exception:
-        pass
+        payload = {}
+    if isinstance(payload, dict):
+        source = payload.get("source")
+        _SOURCE = source if isinstance(source, str) else ""
+        # Identity is probed only for a real payload (it names a session); a bare invocation
+        # keeps every banner.
+        sid = payload.get("session_id")
+        if isinstance(sid, str) and sid:
+            try:
+                if _SCRIPTS_DIR_STR not in sys.path:
+                    sys.path.append(_SCRIPTS_DIR_STR)
+                import _watch_module
+
+                cwd = payload.get("cwd")
+                identity = _watch_module.group_em_identity(cwd if isinstance(cwd, str) and cwd else os.getcwd())
+                _NON_GEM = not _watch_module.session_is_group_em(identity, sid)
+            except Exception:
+                _NON_GEM = True
 
     if lightweight:
         # Boot fast-path (the ONLY invocation shape in production — the
@@ -3161,7 +3159,6 @@ def main(argv: list) -> int:
                 lambda: copies_banner(repo_root),
                 lambda: orientation_cache_staleness_banner(repo_root, cache_text),
                 engine_resolution_banner,
-                general_work_folders_banner,
                 lambda: local_install_surface_banner(repo_root),
                 lambda: install_currency_banner(repo_root),
                 lambda: corpus_currency_banner(repo_root),
@@ -3200,7 +3197,6 @@ def main(argv: list) -> int:
             lambda: harness_version_drift_banner(repo_root),
             lambda: copies_banner(repo_root),
             engine_resolution_banner,
-            general_work_folders_banner,
             lambda: local_install_surface_banner(repo_root),
             lambda: install_currency_banner(repo_root),
             lambda: corpus_currency_banner(repo_root),

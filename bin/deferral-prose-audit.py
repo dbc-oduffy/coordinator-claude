@@ -168,14 +168,19 @@ def seed_plan(launcher: str, root: Path, rel: str, key: str, hits: List[Hit], ru
 
 
 def _git_toplevel() -> Path:
+    """Git toplevel of cwd via the checked resolver; a MISMATCH is reported to stderr and the run proceeds, --seed included."""
     try:
-        out = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True,
-                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0)
-    except OSError as exc:
-        raise AuditError(f"git unavailable: {exc}") from exc
-    if out.returncode != 0 or not out.stdout.strip():
+        import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
+        from repo_identity import resolve_checked_repo_root
+    except (ImportError, RuntimeError) as exc:
+        # repo_identity raises RuntimeError at import when the engine is not locatable.
+        raise AuditError(f"engine unavailable: {exc}") from exc
+    root, verdict = resolve_checked_repo_root(explicit_root=None)
+    if verdict["verdict"] == "MISMATCH":
+        print(verdict["message"], file=sys.stderr)
+    if not root:
         raise AuditError("cwd is not inside a git repo; pass --root")
-    return Path(out.stdout.strip())
+    return Path(root)
 
 
 def main(argv: Optional[Sequence[str]] = None, runner: Optional[Runner] = None,

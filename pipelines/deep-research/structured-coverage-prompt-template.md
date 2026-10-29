@@ -19,7 +19,8 @@ target is the coverage-audit sidecar named below.
 
 ## Inputs
 
-**Scope brief:** {{brief}} — names the subject, the topics, and the structured output path.
+**Research brief:** {{stage.brief-author.output}} — names the subject and the topics.
+**Scope brief:** {{brief}} — names the structured output path.
 **Verifier finding records:** every file matching {{scratch_dir}}/*-findings.md (glob, read ALL)
 **Drop-justification oracle:** {{scratch_dir}}/synthesis-annotations.md — read it first.
 **Structured output to audit:** the output path named in the brief.

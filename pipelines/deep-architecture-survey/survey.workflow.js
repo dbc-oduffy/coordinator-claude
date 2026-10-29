@@ -73,13 +73,13 @@
 
 export const meta = {
   name: 'deep-architecture-survey',
-  description: '/architecture-survey Phase 0-3: Phase-0.5 consume-gate (INPUT.consumeGate, script-produced) -> deterministic chunk census fallback -> Haiku inventory -> Sonnet analysis (LOW-cap sequential sub-batches + ramp + backoff) -> Opus synthesis',
+  description: '/architecture-survey Phase 0-3: Phase-0.5 consume-gate (INPUT.consumeGate, script-produced) -> deterministic chunk census fallback -> EM-side symbols receipt (INPUT.symbolsReceipt) -> Sonnet analysis (LOW-cap sequential sub-batches + ramp + backoff) -> per-system Sonnet synthesis shards + one cross-system agent',
   phases: [
     { title: 'consume-gate', detail: 'consumes INPUT.consumeGate (EM-side script output: RAG-present predicate + cartography.* op results) — zero agent dispatch; falls back to the census wave when absent or declined' },
     { title: 'census', detail: 'LOW-cap sequential sub-batches: Haiku per directory-bucket returns structured file list (schema-forced, journaled) — costed fallback when cartography.* is unavailable' },
-    { title: 'inventory', detail: 'one cartography.symbols invocation for the whole run, artifact-path consumed with a read-back coverage gate — no agentic fallback on partial coverage' },
+    { title: 'inventory', detail: 'consumes INPUT.symbolsReceipt written by the EM-side symbols step (preflight, cartography.symbols, whole-artifact coverage read) — zero agent dispatch, no agentic fallback on partial coverage' },
     { title: 'analysis', detail: 'LOW-cap sequential sub-batches: Sonnet per system, narrative analysis + boundary catalog (schema-forced)' },
-    { title: 'synthesis', detail: 'single Opus leaf: cross-system atlas artifacts' },
+    { title: 'synthesis', detail: 'LOW-cap Sonnet shard per system (systems/{name}.md), then one cross-system agent for the atlas-wide files' },
   ],
 }
 
@@ -89,14 +89,17 @@ export const meta = {
 const INPUT = typeof args === 'string' ? JSON.parse(args) : args
 
 
+// INPUT arrives through the Workflow tool's `inputPath` (a JSON file the EM writes under the run's
+// scratch directory), never inline in the invocation — the atlas and chunk table are large.
 //   runId: 'YYYY-MM-DD-HHhMM',
-
-
-//   since: 'YYYY-MM-DD' | null,        // no longer read by this script — duplicated onto
-
-
-//   systemDirs: ['<dir>', ...] | null, // RETAINED here (not moved off INPUT): the existingAtlas
-
+//   repoRoot, mode, scaleTier, since, systemDirs, censusBuckets
+//   existingAtlas: { <systemName>: { content } }   // refresh only; read from the inputPath file
+//   consumeGate: <survey-consume-gate.py stdout> | absent
+//   chunkTable: [...] | absent                     // leg 2 of the census-fallback flow
+//   symbolsReceipt: <symbols-receipt.schema.json> | absent  // absent -> halt symbols-step-required
+//   crossSystemModel, pluginRoot                   // optional overrides
+// Results travel by path: manifests carry *_path fields and counts, never census, chunk-table or
+// analysis payloads.
 
 const RUN_ID = INPUT.runId
 const REPO_ROOT = INPUT.repoRoot
@@ -104,9 +107,8 @@ const MODE = INPUT.mode || 'first-run'
 const SCALE_TIER = INPUT.scaleTier || 'full'
 const CENSUS_BUCKETS = INPUT.censusBuckets || []
 const EXISTING_ATLAS = INPUT.existingAtlas || {}
+const SYMBOLS_RECEIPT = INPUT.symbolsReceipt || null
 
-
-const CLAUDE_KLABAUTER_ROOT = INPUT.claude_klabauterRoot
 const SCRATCH_DIR = `${REPO_ROOT}/state/scratch/deep-architecture-survey/${RUN_ID}`
 
 // ---------------------------------------------------------------------------------------------
@@ -318,8 +320,9 @@ as oversized: true (feeds the Phase-1 Read-pagination guard). Do NOT analyze, su
 evaluate any file — this is mechanical enumeration, the same shape a deterministic claude-klabauter
 \`arch-census\` op will eventually replace (coordinator/docs/contracts/arch-engine-scripts.md).
 
-Return the structured object with your full file list. Do not write any output file — return
-the data directly in your structured response.`
+Return the structured object with your full file list, and also Write that same object as JSON to
+${SCRATCH_DIR}/census/${bucket.bucketId}.json (create the directory if missing): the EM-side
+symbols step reads the per-bucket files from there, not from your reply.`
 }
 
 async function phaseZeroCensus() {
@@ -463,169 +466,15 @@ function groupChunksBySystem(chunks) {
 }
 
 
-const SYMBOLS_EXTRACTION_SCHEMA = {
-  type: 'object',
-  required: ['ok', 'exitCode', 'artifactPath'],
-  properties: {
-    ok: { type: 'boolean' },
-    exitCode: { type: 'number' },
-    artifactPath: { type: 'string' },
-    byteCount: { type: 'number' },
-    error: { type: 'string' },
-  },
-}
-
-function symbolsExtractionBriefFor(files, paramsPath, artifactPath) {
-  const paramsJson = JSON.stringify({ target_root: REPO_ROOT, files })
-  return COMMON + `
-
-You are a mechanical op-invocation agent (Phase-1 consumer of the /architecture-survey Workflow).
-Do NOT judge, summarize, or analyze anything, and do NOT read or paste the op's payload into your
-reply — the whole point of this step is that the symbol table travels via disk, never through you.
-
-Step 1: Check whether ${artifactPath} already exists (e.g. \`test -e\` or \`ls\`). RUN_ID makes
-this path unique per run, so its pre-existence means something is already wrong — a stale artifact
-from a killed prior attempt, or a resumed run about to read it as if it were fresh. Do NOT delete,
-overwrite silently, or consume it: stop here, report ok: false with error naming the pre-existing
-path, and do NOT proceed to Step 2.
-
-Step 2: Write this exact JSON to ${paramsPath} (create parent directories if they do not exist):
-${paramsJson}
-
-Step 3: Run exactly this command. Note it uses PYTHONPATH, not \`cd\` — this makes
-\`coordinator_core\` importable without changing your working directory:
-
-  PYTHONPATH="${CLAUDE_KLABAUTER_ROOT}" python3 -m coordinator_core.invoke cartography.symbols --params-file "${paramsPath}" --bare > "${artifactPath}"
-
-Step 4: report the process exit code, and the byte size of ${artifactPath} (e.g. \`wc -c\` or
-\`stat\`). Do NOT open, Read, or summarize ${artifactPath}'s content.
-
-Return: ok (true iff exit code is 0), exitCode, artifactPath ("${artifactPath}"), byteCount, and
-error (the command's stderr, only when ok is false).`
-}
-
-// Phase "inventory": one cartography.symbols invocation for the whole run, its stdout redirected
-// straight to an artifact file rather than returned through agent() — the return-value transport
-// silently truncates large replies. Read back from the artifact to cross-check coverage.
-//
-// No agentic fallback: a file the producer does not claim, or one its extractor adapter could not
-// attempt, means the run stops loudly (naming the uncovered files) and writes no atlas rather than
-// narrowing the tree silently. An empty symbol list is not the same as uncovered — a file that
-// parses cleanly but declares no top-level symbols still counts as covered; only the producer's own
-// in-band unsupported/unavailable markers gate the stop.
-async function invokeSymbolsExtraction(files) {
-  if (!CLAUDE_KLABAUTER_ROOT) {
-    throw new Error(
-      'invokeSymbolsExtraction: INPUT.claude_klabauterRoot is required — the cartography.symbols ' +
-      'invocation needs PYTHONPATH set to a claude-klabauter checkout for `coordinator_core` to ' +
-      'be importable. Pass the absolute path to a claude-klabauter checkout as INPUT.claude_klabauterRoot.'
-    )
-  }
-  const paramsPath = `${SCRATCH_DIR}/cartography-symbols-params-${RUN_ID}.json`
-  const artifactPath = `${SCRATCH_DIR}/cartography-symbols-${RUN_ID}.json`
-  const results = await runBatchWithBackoff(
-    [() => agent(symbolsExtractionBriefFor(files, paramsPath, artifactPath), {
-      schema: SYMBOLS_EXTRACTION_SCHEMA,
-      agentType: 'coordinator:executor',
-      phase: 'inventory',
-      label: 'cartography.symbols',
-      model: 'haiku',
-    })],
-    'inventory cartography.symbols'
-  )
-  const result = results[0]
-  if (!result || !result.ok) {
-    log(`inventory: cartography.symbols invocation failed or unavailable (${result ? result.error : 'no result'}, exitCode=${result ? result.exitCode : 'n/a'})`)
-    return null
-  }
-  return result
-}
-
-// Header-only read-back — mirrors the chunk_table consume-gate's decomposition (never pull the
-// whole symbol payload, most of it whole function bodies per this plan's own measurement, back
-// through an agent() return). Reports just enough to cross-check completeness and coverage: the
-// count of `files[]` entries the artifact actually carries, and every entry this op marked
-// `unsupported`/`unavailable` (its own in-band non-coverage signal — see the block comment above).
-const SYMBOLS_HEADER_SCHEMA = {
-  type: 'object',
-  required: ['total_files', 'unavailable_count', 'unsupported_count'],
-  properties: {
-    total_files: { type: 'number' },
-    unavailable_count: { type: 'number' },
-    unsupported_count: { type: 'number' },
-    unavailable_sample: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: { path: { type: 'string' }, reason: { type: 'string' } },
-      },
-    },
-    unsupported_extensions: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: { ext: { type: 'string' }, count: { type: 'number' } },
-      },
-    },
-    coverage_note: { type: 'string' },
-  },
-}
-
-function symbolsHeaderBriefFor(artifactPath) {
-  return COMMON + `
-
-You are a mechanical command-runner (Phase-1 consumer of the /architecture-survey Workflow). Do
-NOT judge, summarize, or analyze anything, and do NOT open the artifact yourself — it routinely
-exceeds 5 MB, so reading it into your context would truncate the very count you are asked for.
-
-Run exactly this command and capture its stdout. Copy it verbatim, including the quoted heredoc
-delimiter (<<'PY') and the closing PY line:
-
-  python3 - <<'PY'
-import json, os, collections
-d = json.load(open(r"${artifactPath}", encoding="utf-8"))
-files = d.get("files") or []
-unavailable = [f for f in files if f.get("unavailable") is True]
-unsupported = [f for f in files if f.get("unsupported") is True]
-ext = collections.Counter(os.path.splitext(f.get("path") or "")[1].lower() for f in unsupported)
-out = {
-    "total_files": len(files),
-    "unavailable_count": len(unavailable),
-    "unsupported_count": len(unsupported),
-    "unavailable_sample": [
-        {"path": f.get("path"), "reason": f.get("detail") or ""} for f in unavailable[:50]
-    ],
-    "unsupported_extensions": [{"ext": e or "(none)", "count": n} for e, n in ext.most_common()],
-}
-note = d.get("coverage_note")
-if note:
-    out["coverage_note"] = note
-print(json.dumps(out))
-PY
-
-An "uncovered" file is one the op flagged in-band as unclaimable or unattempted. A file that
-parsed successfully with an EMPTY symbol list carries neither key and is NOT uncovered — the
-command above already encodes that distinction; do not second-guess it.
-
-Parse that stdout as JSON and return its fields unchanged: total_files, unavailable_count,
-unsupported_count, unavailable_sample, unsupported_extensions, and coverage_note when the command
-emitted one. On any non-zero exit, report the failure and return no counts — do NOT estimate,
-infer, or reconstruct them by other means. Do not write any output file.`
-}
-
-async function readSymbolsArtifactHeader(artifactPath) {
-  const results = await runBatchWithBackoff(
-    [() => agent(symbolsHeaderBriefFor(artifactPath), {
-      schema: SYMBOLS_HEADER_SCHEMA,
-      agentType: 'coordinator:executor',
-      phase: 'inventory',
-      label: 'symbols-header-readback',
-      model: 'haiku',
-    })],
-    'inventory symbols-header-readback'
-  )
-  return results[0] || null
-}
+// Receipt halts the EM-side symbols step (survey_symbols_step.py) may write; each is returned as
+// this run's `halted` label verbatim. Schema: symbols-receipt.schema.json.
+const RECEIPT_HALTS = [
+  'symbol-extract-missing',
+  'symbols-artifact-preexists',
+  'symbols-producer-failed',
+  'symbols-coverage-truncated',
+  'symbols-extractor-unavailable',
+]
 
 // Deduped, request-ordered file list across every Phase-1 sub-chunk — the single
 // `cartography.symbols` invocation's `files` param.
@@ -643,61 +492,58 @@ function buildSymbolsFileList(chunkTable) {
   return files
 }
 
-// Runs the deterministic `cartography.symbols` consumer in place of the Phase-1 Haiku inventory
-// wave. Returns { symbolsArtifactPath, totalFiles } on full coverage, or null with the reason
-// already logged — the caller halts the run rather than substituting any agentic fallback
-// (PM-ratified, binding: no agentic fallback — see the block comment above).
-async function phaseOneSymbolsExtraction(chunkTable) {
+// Phase "inventory": consumes INPUT.symbolsReceipt, the receipt the EM-side symbols step
+// (survey_symbols_step.py) wrote after running the preflight, the pre-existence check and
+// `cartography.symbols`, and reading the artifact whole. No agent runs here: the Workflow has no
+// filesystem or subprocess primitive, so a Haiku "file handle" for that work is the
+// workflow-agent-as-file-handle tell. No agentic fallback on partial coverage either: a stop here
+// writes no atlas rather than narrowing the tree silently. Unsupported extensions are the one
+// narrowing that is allowed, because no producer claims them and nothing can be installed to fix it.
+//
+// Returns { halted, ... } (a distinct label, detail logged) or { symbolsArtifactPath, ... }.
+function phaseOneSymbolsExtraction(chunkTable) {
   phase('inventory')
   const files = buildSymbolsFileList(chunkTable)
-  if (files.length === 0) {
-    log('inventory: empty chunk table — no files to extract symbols for, halting')
-    return null
+
+  const receipt = SYMBOLS_RECEIPT
+  if (!receipt || typeof receipt !== 'object') {
+    log('inventory: INPUT.symbolsReceipt absent — the EM-side symbols step has not run for this chunk table; halting so the caller runs it and re-invokes')
+    return { halted: 'symbols-step-required' }
   }
 
-  const receipt = await invokeSymbolsExtraction(files)
-  if (!receipt) return null
-
-  const header = await readSymbolsArtifactHeader(receipt.artifactPath)
-  if (!header) {
-    log('inventory: cartography.symbols artifact header readback failed to return — stopping (no agentic fallback)')
-    return null
+  if (receipt.halt || receipt.ok !== true) {
+    const label = RECEIPT_HALTS.includes(receipt.halt) ? receipt.halt : 'symbols-producer-failed'
+    const sample = (receipt.unavailable_sample || []).map((u) => `${u.path} (${u.reason})`).join('; ')
+    log(`inventory: symbols step halted with ${receipt.halt || 'no halt label on a not-ok receipt'}${label !== receipt.halt ? ` (reported as ${label})` : ''}${sample ? ` — affected: ${sample}` : ''}${receipt.coverage_note ? ` — coverage_note: ${receipt.coverage_note}` : ''}`)
+    return { halted: label }
   }
 
-  if (typeof header.total_files !== 'number' || header.total_files !== files.length) {
-    log(`inventory: cartography.symbols artifact carries ${header.total_files} file entries, requested ${files.length} — truncation/containment fault, stopping (no agentic fallback)`)
-    return null
+  if (typeof receipt.total_files !== 'number' || receipt.total_files !== files.length) {
+    log(`inventory: symbols artifact carries ${receipt.total_files} file entries, chunk table requests ${files.length} — truncation/containment fault, stopping (no agentic fallback)`)
+    return { halted: 'symbols-coverage-truncated' }
   }
 
-  // The op reports two distinct coverage failures and they are NOT the same condition. A file the
-  // producer COULD claim but did not attempt (`unavailable` — symbol_extract absent, an optional
-  // extra) is a fixable install fault: the deterministic path exists and is simply not reachable
-  // here, so proceeding would silently narrow a tree that is supposed to be fully covered. A file
-  // whose extension NO producer claims (`unsupported`) is not fixable by any action — there is no
-  // extra to install and nothing to compute — so halting on it offers the operator no remedy and
-  // costs the whole atlas over files that were never inventoriable. Neither branch fires an agent,
-  // which is the constraint that actually binds.
-  if (header.unavailable_count > 0) {
-    const sample = (header.unavailable_sample || []).map((u) => `${u.path} (${u.reason})`).join('; ')
-    log(`inventory: cartography.symbols could not attempt ${header.unavailable_count} of ${files.length} requested file(s) whose extensions it DOES claim — the deterministic producer is reachable in principle but unavailable here, so this run stops and writes no atlas rather than narrowing a tree silently (no agentic fallback). Install the missing extractor and re-run. Affected: ${sample}${header.coverage_note ? ` — coverage_note: ${header.coverage_note}` : ''}`)
-    return null
+  // `unavailable` (a claimed extension whose extractor is absent) is a fixable install fault and
+  // stops the run; `unsupported` (no producer claims the extension) narrows the inventory.
+  if (receipt.unavailable_count > 0) {
+    log(`inventory: ${receipt.unavailable_count} of ${files.length} requested file(s) could not be attempted by an extractor that claims them — stopping rather than narrowing the tree silently (no agentic fallback)`)
+    return { halted: 'symbols-extractor-unavailable' }
   }
 
-  // unavailable and unsupported are disjoint per file (producer invariant), and the early return
-  // above means this only runs when unavailable_count === 0.
-  const inventoriedCount = header.total_files - header.unsupported_count
-  if (header.unsupported_count > 0) {
-    const breakdown = (header.unsupported_extensions || []).map((e) => `${e.ext} x${e.count}`).join(', ')
-    log(`inventory: NARROWED PASS — ${header.unsupported_count} of ${files.length} requested file(s) carry extensions no symbol producer claims, so they are outside the deterministic inventory and are excluded from it; ${inventoriedCount} file(s) are inventoried. No model derived symbols for the excluded set and none will. Excluded by extension: ${breakdown}`)
+  const inventoriedCount = receipt.total_files - receipt.unsupported_count
+  if (receipt.unsupported_count > 0) {
+    const breakdown = (receipt.unsupported_extensions || []).map((e) => `${e.ext} x${e.count}`).join(', ')
+    log(`inventory: NARROWED PASS — ${receipt.unsupported_count} of ${files.length} requested file(s) carry extensions no symbol producer claims and are excluded; ${inventoriedCount} file(s) are inventoried. Excluded by extension: ${breakdown}`)
   } else {
-    log(`inventory: cartography.symbols covered all ${header.total_files} requested file(s), artifact at ${receipt.artifactPath}`)
+    log(`inventory: symbols step covered all ${receipt.total_files} requested file(s), artifact at ${receipt.artifact_path}`)
   }
 
   return {
-    symbolsArtifactPath: receipt.artifactPath,
-    totalFiles: header.total_files,
+    symbolsArtifactPath: receipt.artifact_path,
+    chunkTablePath: receipt.chunk_table_path || null,
+    totalFiles: receipt.total_files,
     inventoriedCount,
-    excludedByExtension: header.unsupported_extensions || [],
+    excludedByExtension: receipt.unsupported_extensions || [],
   }
 }
 
@@ -707,6 +553,8 @@ async function phaseOneSymbolsExtraction(chunkTable) {
 // wave that tripped the account-level rate limit in the friction log (21 Sonnet analysts fired
 // at once, findings #6-#9).
 // ---------------------------------------------------------------------------------------------
+
+const CENSUS_DIR = `${SCRATCH_DIR}/census`
 
 const ANALYSIS_SCHEMA = {
   type: 'object',
@@ -773,15 +621,15 @@ async function phaseTwoAnalysis(systems, symbolsArtifactPath) {
       phase: 'analysis',
       label: system.systemName,
       model: 'sonnet',
-    }).then((r) => ({ ...r, system_name: system.systemName })),
+    }).then((r) => (r ? { ...r, system_name: system.systemName } : r)),
     'analysis'
   )
 }
 
 // ---------------------------------------------------------------------------------------------
-// Phase "synthesis" — single Opus leaf agent. Not sub-batched (it's exactly one agent) but it
-// DOES benefit from the same backoff wrapper in case the account is still cooling from the
-// analysis wave.
+// Phase "synthesis" — one Sonnet shard per system (each writes systems/{name}.md, drained at the
+// LOW cap with backoff), then one cross-system agent for the atlas-wide files. One agent over all
+// systems overflows its context at scale; the shard count is the system count.
 //
 // CONDENSE_HOOK (review-corrected, findings #6/#7): this Workflow script has NO in-script
 // filesystem primitive (agent/parallel/phase/log is the whole API — see the file header docstring
@@ -807,63 +655,120 @@ const SYNTHESIS_SCHEMA = {
   },
 }
 
-function synthesisBriefFor(analysisText, systemCount) {
+const SHARD_MODEL = 'sonnet'
+// The cross-system agent reads every system page and writes the atlas-wide files; its model is
+// the one knob a caller may turn up for a large atlas.
+const CROSS_SYSTEM_MODEL = INPUT.crossSystemModel || 'sonnet'
+const PLUGIN_ROOT = INPUT.pluginRoot || `${REPO_ROOT}/coordinator`
+const ANALYSIS_RESULTS_PATH = `${SCRATCH_DIR}/analysis-results.json`
+
+const PATH_RULE = `Every path you write into the atlas (frontmatter and body alike) is repo-root-relative:
+no leading \`/\`, no \`./\`, no drive letter, no home-directory prefix.`
+
+const SYNTHESIS_CONDENSE = `If the analyst pages you Read are large (approaching ~80K tokens / ~300KB combined), apply the
+condense-analyst-pages extraction in coordinator/pipelines/deep-architecture-survey/agent-prompts.md
+§ Condense-Analyst-Pages Helper to each page: drop the \`## Information Flow Diagram\` H2 section,
+keep everything else verbatim. This is text extraction only; do not re-author any analyst's judgment.`
+
+// Shard: one system's atlas page. A shard writes exactly docs/architecture/systems/{name}.md.
+function synthesisShardBriefFor(system) {
   return COMMON + `
 
-You are the Opus cross-system synthesis agent (Phase-3 of the /architecture-survey Workflow).
+You are a Sonnet system-page synthesis agent (Phase-3 shard of the /architecture-survey Workflow).
 You are a LEAF agent — do NOT spawn further agents.
 
-Total systems: ${systemCount}
+System: ${system.system_name}
+Phase-2 analysis: ${system.analysis_path} — Read it directly (Read tool); the Workflow script that
+dispatched you has no filesystem access.
+${SYNTHESIS_CONDENSE}
 
-### Phase-2 System Analysis Reports (all systems)
-${analysisText}
+Write ONE file: docs/architecture/systems/${system.system_name}.md, following the per-system page
+template and YAML-frontmatter conventions in
+coordinator/pipelines/deep-architecture-survey/agent-prompts.md § Phase 3 (last_mapped:, mode:,
+entry_points:, cross_system_connections:, dependencies:). Mode: ${MODE}. last_attested is carried
+forward from the existing page at that path if one exists and is never written by the survey. No
+grade or status fields — this is discovery, not weekly-architecture-audit.
 
-**Read each analysis_path above directly (Read tool) — the Workflow script that dispatched you
-has no filesystem access and could not paste the content itself; you must read it yourself.**
-If the COMBINED size of all analyst pages you Read is large (approaching or exceeding ~80K
-tokens / ~300KB), apply the condense-analyst-pages extraction defined in
-coordinator/pipelines/deep-architecture-survey/agent-prompts.md § Condense-Analyst-Pages Helper
-(Phase-3 Overflow Guard) to EACH page before using its content: drop the \`## Information Flow
-Diagram\` H2 section (from its header up to, but not including, the next H2 header), keep
-everything else verbatim (System Narrative, Boundary Catalog, Key Architectural Observations,
-Summary). This is a pure text-extraction step — do not re-summarize or re-author any analyst's
-judgment; synthesis discipline forbids that regardless of context pressure.
+${PATH_RULE}
 
-Produce the complete architecture atlas per the Phase-3 template in
-coordinator/pipelines/deep-architecture-survey/agent-prompts.md: validate cross-system
-connections bidirectionally (flag one-sided ones), then write systems-index.md,
-cross-system-map.md, connectivity-matrix.md, file-index.md, and one systems/{name}.md per
-system, all under docs/architecture/. Follow the YAML-frontmatter conventions in that template
-exactly (last_mapped:, mode:, per-system entry_points:/cross_system_connections:/dependencies:).
-last_attested is carried forward from the existing page if present and never written by the
-survey. No grade or status fields — this is discovery, not weekly-architecture-audit.
-
-Every system must appear in systems-index.md and have a per-system file. Every tracked file must
-appear in file-index.md. Do NOT write any code or modify any source files — produce markdown
-atlas artifacts only. Return the structured object listing every artifact path you wrote.`
+Do NOT write any other file, any code, or modify any source file. Return artifacts_written
+listing the path you wrote, and systems_count 1.`
 }
 
+// Cross-system agent: the four atlas-wide files plus analysis-results.json, after the shards.
+function synthesisCrossSystemBriefFor(systems) {
+  const list = systems
+    .map((s) => `- ${s.system_name}: analysis ${s.analysis_path}, page docs/architecture/systems/${s.system_name}.md`)
+    .join('\n')
+  return COMMON + `
+
+You are the cross-system synthesis agent (Phase-3 of the /architecture-survey Workflow). You are a
+LEAF agent — do NOT spawn further agents. The per-system pages already exist, one shard each.
+
+Total systems: ${systems.length}
+${list}
+
+Read the system pages and analyses above directly (Read tool).
+${SYNTHESIS_CONDENSE}
+
+Write these files per coordinator/pipelines/deep-architecture-survey/agent-prompts.md § Phase 3:
+docs/architecture/systems-index.md, docs/architecture/cross-system-map.md,
+docs/architecture/connectivity-matrix.md, docs/architecture/file-index.md. Every system must appear
+in systems-index.md. Every tracked file must appear in file-index.md. Validate cross-system
+connections bidirectionally across the system pages.
+
+Then run \`python3 ${PLUGIN_ROOT}/pipelines/deep-architecture-survey/atlas_anchor_reciprocity.py --repo-root ${REPO_ROOT}\`
+and fix every one-sided pair or non-repo-root-relative path it lists in the system pages; record
+any pair you cannot fix under one_sided_connections.
+
+${PATH_RULE}
+
+Finally write ${ANALYSIS_RESULTS_PATH} as JSON: [{system_name, analysis_path}] for the systems
+above (the Workflow returns its path, never its content). Do NOT write code or modify source
+files. Return artifacts_written listing every path you wrote, including that JSON file.`
+}
+
+const EMPTY_ARTIFACTS = (r) => !r || !Array.isArray(r.artifacts_written) || r.artifacts_written.length === 0
+
+// Returns { shardResults, failedShards, emptyShards, crossSystem } or null when there is nothing
+// to synthesize. Shards drain through the same LOW-cap ramp + backoff as analysis; the
+// cross-system agent runs after every shard finished.
 async function phaseThreeSynthesis(analysisResults) {
   phase('synthesis')
   if (analysisResults.length === 0) {
     log('synthesis: no analysis results to synthesize — halting')
     return null
   }
-  const analysisText = analysisResults
-    .map((r) => `\n\n---\n### System: ${r.system_name} (${r.analysis_path})\n[content at ${r.analysis_path} — read by the synthesis agent directly]`)
-    .join('')
-
-  const results = await runBatchWithBackoff(
-    [() => agent(synthesisBriefFor(analysisText, analysisResults.length), {
+  const shardResults = await drainLowCap(
+    analysisResults,
+    (system) => agent(synthesisShardBriefFor(system), {
       schema: SYNTHESIS_SCHEMA,
       agentType: 'coordinator:executor',
       phase: 'synthesis',
-      label: 'opus-synthesis',
-      model: 'opus',
-    })],
-    'synthesis'
+      label: `synth-${system.system_name}`,
+      model: SHARD_MODEL,
+    }).then((r) => (r ? { ...r, system_name: system.system_name } : r)),
+    'synthesis shards'
   )
-  return results[0] || null
+  const failedShards = analysisResults
+    .map((s) => s.system_name)
+    .filter((name) => !shardResults.some((r) => r.system_name === name))
+  const emptyShards = shardResults.filter(EMPTY_ARTIFACTS).map((r) => r.system_name)
+  if (failedShards.length > 0 || emptyShards.length > 0) {
+    return { shardResults, failedShards, emptyShards, crossSystem: null }
+  }
+
+  const crossResults = await runBatchWithBackoff(
+    [() => agent(synthesisCrossSystemBriefFor(analysisResults), {
+      schema: SYNTHESIS_SCHEMA,
+      agentType: 'coordinator:executor',
+      phase: 'synthesis',
+      label: 'cross-system-synthesis',
+      model: CROSS_SYSTEM_MODEL,
+    })],
+    'synthesis cross-system'
+  )
+  return { shardResults, failedShards, emptyShards, crossSystem: crossResults[0] || null }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -914,7 +819,8 @@ if (!cartographyUsed) {
         phase_reached: 'census',
         halted: 'census-verification-failed',
         run_id: RUN_ID,
-        census_results: censusResults,
+        census_dir: CENSUS_DIR,
+        census_bucket_count: censusResults.length,
         failed_census_buckets: failedCensusBuckets,
       }
     }
@@ -947,22 +853,38 @@ if (chunkTable.length === 0) {
     halted: 'empty-chunk-table',
     run_id: RUN_ID,
     ...consumeGateStatus,
-    census_results: censusResults,
+    census_dir: CENSUS_DIR,
+    census_bucket_count: censusResults.length,
     failed_census_buckets: failedCensusBuckets,
   }
 }
 
-const symbolsExtraction = await phaseOneSymbolsExtraction(chunkTable)
+const symbolsExtraction = phaseOneSymbolsExtraction(chunkTable)
 
-if (!symbolsExtraction) {
+// Pointer facts shared by every manifest from here on: counts and paths, never the payloads.
+const chunkTablePath = (SYMBOLS_RECEIPT && SYMBOLS_RECEIPT.chunk_table_path) || null
+const payloadPointers = {
+  census_dir: CENSUS_DIR,
+  chunk_table_path: chunkTablePath,
+  chunk_table_size: chunkTable.length,
+  census_bucket_count: censusResults.length,
+}
+
+if (symbolsExtraction.halted) {
+  // 'symbols-step-required' is the census-fallback leg-1 end: the EM runs the symbols step over
+  // census_dir and re-invokes with chunkTable + symbolsReceipt. Every other label is the receipt's
+  // own halt, passed through verbatim.
   return {
     phase_reached: 'inventory',
-    halted: 'symbols-extraction-incomplete',
+    halted: symbolsExtraction.halted,
     run_id: RUN_ID,
     ...consumeGateStatus,
-    census_results: censusResults,
-    chunk_table: chunkTable,
-    resume_hint: 'cartography.symbols failed, returned incomplete, or did not cover every in-scope file — see the logged uncovered-file detail. No agentic fallback exists for this stop; the underlying producer/coverage gap must be resolved before re-running.',
+    ...payloadPointers,
+    failed_census_buckets: failedCensusBuckets,
+    symbols_receipt: SYMBOLS_RECEIPT
+      ? { halt: SYMBOLS_RECEIPT.halt || null, artifact_path: SYMBOLS_RECEIPT.artifact_path || null, total_files: SYMBOLS_RECEIPT.total_files, requested_files: SYMBOLS_RECEIPT.requested_files, unavailable_count: SYMBOLS_RECEIPT.unavailable_count, unsupported_count: SYMBOLS_RECEIPT.unsupported_count }
+      : null,
+    resume_hint: 'No agentic fallback exists for this stop. symbols-step-required: run the EM-side symbols step (--census-dir for the census-fallback path) and re-invoke with symbolsReceipt in the inputPath file. Any other label: resolve the named producer/coverage gap, then re-run the symbols step.',
   }
 }
 
@@ -986,8 +908,7 @@ if (analysisResults.length === 0) {
     halted: 'all-analysis-agents-failed',
     run_id: RUN_ID,
     ...consumeGateStatus,
-    census_results: censusResults,
-    chunk_table: chunkTable,
+    ...payloadPointers,
     symbols_artifact_path: symbolsExtraction.symbolsArtifactPath,
     symbols_inventoried_count: symbolsExtraction.inventoriedCount,
     symbols_excluded_by_extension: symbolsExtraction.excludedByExtension,
@@ -1006,34 +927,56 @@ if (failedAnalysisSystems.length > 0) {
     halted: 'analysis-partial-failure',
     run_id: RUN_ID,
     ...consumeGateStatus,
-    census_results: censusResults,
-    chunk_table: chunkTable,
+    ...payloadPointers,
     symbols_artifact_path: symbolsExtraction.symbolsArtifactPath,
     symbols_inventoried_count: symbolsExtraction.inventoriedCount,
     symbols_excluded_by_extension: symbolsExtraction.excludedByExtension,
-    analysis_results: analysisResults,
+    completed_analysis_systems: analysisResults.map((r) => r.system_name),
     failed_analysis_systems: failedAnalysisSystems,
     resume_hint: 'Re-invoke this Workflow with resumeFromRunId set to run_id above; only failed analysis agent()s re-run.',
   }
 }
 
 const synthesisResult = await phaseThreeSynthesis(analysisResults)
+const synthesisPointers = {
+  ...consumeGateStatus,
+  ...payloadPointers,
+  symbols_artifact_path: symbolsExtraction.symbolsArtifactPath,
+  symbols_inventoried_count: symbolsExtraction.inventoriedCount,
+  symbols_excluded_by_extension: symbolsExtraction.excludedByExtension,
+  completed_analysis_systems: analysisResults.map((r) => r.system_name),
+}
 
-if (!synthesisResult) {
+if (!synthesisResult || synthesisResult.failedShards.length > 0 || (synthesisResult.emptyShards.length === 0 && !synthesisResult.crossSystem)) {
   return {
     phase_reached: 'synthesis',
     halted: 'synthesis-agent-failed',
     run_id: RUN_ID,
-    ...consumeGateStatus,
-    census_results: censusResults,
-    chunk_table: chunkTable,
-    symbols_artifact_path: symbolsExtraction.symbolsArtifactPath,
-    symbols_inventoried_count: symbolsExtraction.inventoriedCount,
-    symbols_excluded_by_extension: symbolsExtraction.excludedByExtension,
-    analysis_results: analysisResults,
-    resume_hint: 'Re-invoke this Workflow with resumeFromRunId set to run_id above; only the synthesis agent() re-runs.',
+    ...synthesisPointers,
+    failed_synthesis_systems: synthesisResult ? synthesisResult.failedShards : analysisResults.map((r) => r.system_name),
+    cross_system_ran: !!(synthesisResult && synthesisResult.crossSystem),
+    resume_hint: 'Re-invoke this Workflow with resumeFromRunId set to run_id above; only the failed synthesis agent()s re-run.',
   }
 }
+
+// A synthesis agent that returns without naming a single artifact wrote nothing the EM can commit;
+// reporting done:true over it would ship an empty atlas.
+const emptySynthesis = [...synthesisResult.emptyShards, ...(synthesisResult.crossSystem && EMPTY_ARTIFACTS(synthesisResult.crossSystem) ? ['cross-system'] : [])]
+if (emptySynthesis.length > 0) {
+  return {
+    phase_reached: 'synthesis',
+    halted: 'synthesis-wrote-no-artifacts',
+    run_id: RUN_ID,
+    ...synthesisPointers,
+    empty_synthesis_agents: emptySynthesis,
+    resume_hint: 'Re-invoke this Workflow with resumeFromRunId set to run_id above; inspect the named synthesis agents before trusting a re-run.',
+  }
+}
+
+const artifactsWritten = [
+  ...synthesisResult.shardResults.flatMap((r) => r.artifacts_written),
+  ...synthesisResult.crossSystem.artifacts_written,
+]
 
 return {
   done: true,
@@ -1041,13 +984,16 @@ return {
   mode: MODE,
   scale_tier: SCALE_TIER,
   systems_count: analysisResults.length,
-  ...consumeGateStatus,
-  census_results: censusResults,
+  ...synthesisPointers,
   failed_census_buckets: failedCensusBuckets,
-  chunk_table_size: chunkTable.length,
-  symbols_artifact_path: symbolsExtraction.symbolsArtifactPath,
-  symbols_inventoried_count: symbolsExtraction.inventoriedCount,
-  symbols_excluded_by_extension: symbolsExtraction.excludedByExtension,
+  analysis_results_path: ANALYSIS_RESULTS_PATH,
   failed_analysis_systems: failedAnalysisSystems,
-  synthesis: synthesisResult,
+  synthesis: {
+    artifacts_written: artifactsWritten,
+    one_sided_connections: [
+      ...synthesisResult.shardResults.flatMap((r) => r.one_sided_connections || []),
+      ...(synthesisResult.crossSystem.one_sided_connections || []),
+    ],
+    notes: synthesisResult.crossSystem.notes || null,
+  },
 }

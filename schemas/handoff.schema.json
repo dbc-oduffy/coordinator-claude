@@ -1,0 +1,1514 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coordinator.local/schemas/handoff.schema.json",
+  "x-schema-name": "handoff",
+  "x-schema-version": "11.1.0",
+  "x-bump-class": "nested-field-additive",
+  "x-bump-note": "11.0.1 -> 11.1.0 declares optional `plan_blitz_hold_cleared_by`, `suggested_priority` and `gate_evidence`, which landed in the shape with the version unmoved; every document valid under 11.0.1 still validates. Claude-klabauter re-vendors 11.1.0. PRIOR: 11.0.0 -> 11.0.1 changes no shape. It moves the version past a half-landed 11.0.0: DoE d69b927e9 declared 11.0.0 while the `notebooklm-research` mapping key was still present, and 292e8c560 removed the key with the version unmoved. Claude-klabauter vendored both states as 11.0.0. 11.0.1 names the finished retirement. Prior: 10.14.0 -> 11.0.0 (major) retires `notebooklm-research` from the `x-producer-typed-command.mapping` closed vocabulary (62 members -> 61; the `producer.typed_command` enum derives from it, every other member keeps its order). The /research entry replaces the notebooklm-research command verb. CLASSIFIED MAJOR: a closed-enum narrow, precedent 3.1.0 -> 4.0.0 in SCHEMA-BUMP-HISTORY.md. Fleet sweep immediately before the bump: for every `repos.*` machine-local key with a git checkout, `git grep -l -E \"typed_command:\\s*\\\"?notebooklm-research\"` returned zero in all repos, so no record is stranded. handoff-archived.schema.json is untouched (it does not enumerate the verb). DR-097 push-side duty attaches: claude-klabauter re-vendors 11.0.0. PRIOR: 10.13.0 -> 10.14.0 (nested-field-additive) declares optional flat `plan_blitz_hold_cleared_by` (non-empty string, a commit sha or cite): a plan-blitz pull carrying it is cleared, so plan_gate re-offers the baton (reports `hold_cleared`) instead of holding it. Every document valid under 10.13.0 still validates. DR-097 push-side duty attaches: this bump reds the vendored-parity leg until claude-klabauter re-vendors. PRIOR: 10.12.0 -> 10.13.0 (nested-field-additive) declares optional `superseded_by`: the id of the baton this one's work was folded into. A baton carrying it is terminal for the engine's plan_gate (excluded from unsized and held counts, counted as superseded); the free-text `plan_blitz_hold_reason` is never matched for it. Every document valid under 10.12.0 still validates. DR-097 push-side duty attaches: this bump reds the vendored-parity leg until claude-klabauter re-vendors. PRIOR: 10.11.0 -> 10.12.0 (enum-value-additive) appends the gate_evidence leg kind `probe-command` (repo, ref, note required): the authoring side's declared evidence probe, never run by the resolver (indeterminate like `human`, but a different fact), trust is operator-confirm. Backlink: docs/plans/2026-10-07-em-never-inputs-what-we-can-compute.md C1. Every document valid under 10.11.0 still validates. DR-097 push-side duty attaches: the vendored-parity leg stays red until claude-klabauter re-vendors (plan E4); held off main until then. PRIOR: 10.10.0 -> 10.11.0 (enum-value-additive) adds the two producer.typed_command vocabulary members `goal-blitz` and `roadmap-blitz` (both group execution), the coordinator verbs the goal-blitz (0e9b213e2) and roadmap-blitz (fc52b40ce) skills introduced; no existing member, group, or required entry changed. Every document valid under 10.10.0 still validates. PRIOR: 10.9.0 -> 10.10.0 (nested-field-additive) declares `human_assignee` (string-or-null, optional, no `required` entry, no cross-field `allOf` coupling), the same shape as `human_claimant`. The 2026-08-20 prefixed-key amendment is the ruling for the key names only, not for any `repo_owner` rename retirement. The writer is engine-subject: claude-klabauter's `coordinator_core/ops/handoff_author_fork.py :: _stamp_human_assignee`, not a writer in this repo. `human_owner` is deliberately NOT declared: it is a tracker-frontmatter key and nothing writes it onto a handoff, so declaring it would assert a contract this repo cannot keep. Every document valid under 10.9.0 still validates. DR-097 push-side duty attaches: this bump reds the vendored-parity leg (test_vendored_schema_matches_doe_source) until claude-klabauter re-vendors, and is held off main until then; the parity nodeids are registered known-red in state/fast-full-known-red.json. Spec backlink: docs/plans/2026-09-07-mcollab-03-multi-axis-ownership-schema-publication.md C1. PRIOR: 10.8.0 -> 10.9.0 (enum-value-additive) adds the two producer.typed_command vocabulary members `cloud-channel` (session) and `cloud-spawn` (execution), the coordinator verbs the cloud skills of those names introduced; no existing member, group, or required entry changed. 10.7.0 -> 10.8.0 (nested-field-additive) declares `venue` (enum: cloud, workstation, any; optional, absent ≡ any) -- state/improvement-queue/2026-09-27-handoff-has-no-local-only-venue-field.yaml. Makes the 'needs a human at a terminal / a workstation, not a cloud session' marker mechanical instead of prose-only: state/handoffs/2026-09-27-human-only-and-workstation-gated-items.md previously carried this fact as a bold first-paragraph sentence a cloud pickup sweep cannot see, so a cloud session could claim and stall on every item. Optional top-level enum, no `required` entry, no cross-field `allOf` coupling -- every document valid under 10.7.0 still validates (absence reads as `any`, identical to today's unconstrained behaviour). Read-side: the engine repo's cloud pickup/baton-assemble sweep lists a `venue: workstation` handoff as not-claimable with a one-line reason in a cloud session, never auto-claims it; a workstation session claims any venue. DR-097 push-side duty attaches -- vendored schema; the engine repo re-vendors via bin/engine-revendor-schema.py and re-pins in coordinator_core/frontmatter/tests/test_schema_validate.py. PRIOR: 10.6.0 -> 10.7.0 (nested-field-additive) declares `replan_of` — the source baton id a `plan-blitz` `replan` verdict minted THIS record to replace. Written only by `roadmap.blitz_land::mint_replan_baton` at mint time, verbatim from the wave verdict's `batonId` (state/bug-backlog/2026-09-22-blitz-land-replan-baton-leaves-its-original-a-live-candidate.yaml): before this field existed the original baton carried no machine link to its replan, so `roadmap.plan_gate` kept re-offering it as `needs_plan` forever and an EM's only recourse was `close-handoff --reason displaced`, which throws the lineage away (DR-242 refuses `supersede-archive-handoff` on an unclaimed original — 'a successor-named child is not evidence of succession'). This field is the machine evidence DR-242 asks for, ENGINE-attested rather than operator-attested: the same landing that mints the replan also transitions the original to `deployment_state: continued` / `continued_into: <replan handoff_id>` via `handoff_transition`'s own supersede primitive, so the successor and the lineage edge land together, atomically, with no EM step in between. Distinct from `forked_from` (already declared, PM-directed spinoff branch-point ancestry, optional on any spinoff) — `replan_of` is narrower and engine-only, naming the specific baton this replan supersedes rather than general lineage. `roadmap.plan_gate` reads it (and, for pairs minted before this bump, falls back to the pre-existing `forked_from` path link) to drop a superseded original out of every wave even on the rare landing where the `continued` stamp itself did not reach disk. Optional top-level string, no `required` entry, no cross-field `allOf` coupling — every document valid under 10.6.0 still validates. DR-097 push-side duty attaches — vendored schema; coordinator-content-repo's canonical copy needs the same property mirrored by hand (this repo is not that schema's source of truth). PRIOR: 10.5.0 -> 10.6.0 (nested-field-additive) declares `distill_fate` (enum: ephemeral/commitment/ratification) and `in_repo_capture` (string) on the handoff schema, folding the fully-drafted C1 body from docs/plans/2026-07-19-distill-engine-python-rebuild.md (that plan's own C1 chunk, never landed) into this plan's C2, per docs/plans/2026-09-11-doctrine-surfaces-that-assert-unenforced.md § C2. Both fields mirror cross-repo-memo.schema.json's identical pair byte-for-byte on semantics, reworded for the handoff plane — symmetry closing entry 1 of hnd-doctrine-surfaces-that-assert--9ae619: distill_fate is already stamped on handoffs BY CONVENTION (coordinator/skills/handoff/SKILL.md, coordinator/skills/workstream-complete/SKILL.md) but this schema declared neither property, so a handoff author could stamp `distill_fate: ratification` with no in_repo_capture, or a ~/.claude memory-pointer path, and nothing caught it — the exact data-loss class finding #12 exists to close, still open on the handoff plane before this bump. Purely additive: two new optional top-level scalars, neither joins `required` (line 215-221's five-member array is unchanged), no existing property changes shape, this file carries no top-level `additionalProperties: false` so every legacy handoff without either key stays valid. NOT `major`: no document valid before this bump becomes invalid after it. THE CROSS-FIELD TEETH ARE NOT PART OF THIS BUMP: the ratification-requires-in_repo_capture rule is a Python cross-field check in the engine repo's coordinator_core/frontmatter/schema_validate.py, which has no handoff-side entry yet (grep-confirmed: no `_cf_*`/`_HANDOFF_CROSS_FIELD_RULES` reference to either field) — this schema states the requirement in each field's own description and nothing rejects a violating record until the engine lands the rule; recorded as an `external_gate` on the governing plan, not silently assumed enforced. Companion bump: handoff-archived.schema.json 2.9.0 -> 2.10.0 declares the same pair, DECLARED-NOT-ENFORCED per that schema's own convention (its cross-field rules from the live handoff do not apply). DR-097 push-side duty attaches — vendored schema, and this note states the class; the re-vendor + cross-field-rule ask is carried by a separate memo (C4 of the governing plan) once this bump lands, never bundled into this note. PRIOR (10.4.0 -> 10.5.0, nested-field-additive) admits `kind: spinoff` on `handoff_phase`, the third kind after session-handoff and canonical roadmap-baton. Description-only on this side — the gate itself is `_cf_handoff_phase_kind_gate`'s `_HANDOFF_PHASE_KINDS` in the engine, which must re-vendor. Purely widening: every document valid at 10.4.0 still validates, nothing joins `required`, no value's meaning changes. WHAT IT CLOSES: plan-blitz's spec-dispatch lane parks an S baton by stamping `handoff_phase: execution` plus the four-field `execution_authorized_*`, and EVERY replan baton the gate mints is `kind: spinoff` — so an S route refused the stamp on every one. Measured two ways: 18 of 22 rows this repo's 20260911T145644Z landing reported execution-ready carry no phase and no stamp on disk, and the engine repo-80 hit it twice live (fires 0-12 and 0-13) once `ba355245ca` made the refusal visible instead of counting the row anyway. THE ALTERNATIVE IS FORECLOSED, NOT MERELY LESS TIDY: minting those batons as `roadmap-baton` instead would require a resolving `roadmap_id` (`_cf_spinoff_roadmap_requires_graph`), replan batons are minted per-plan and are cluster-less by construction, and DR-198(b) refuses a well-formed dangling value as a substitute for an honest omission — so that route mints an unmintable baton for exactly the population the S lane serves. DR-198(a) already rules cluster-less baton-shaped work takes `kind: spinoff`; this applies that ruling to the one field that had not caught up. PRECEDENT IN THIS FILE: 10.1.0 -> 10.2.0 widened the `aggregate_execution` kind-gate from `const: roadmap-baton` to `enum: [roadmap-baton, spinoff]` on the same reasoning, for the same population. NOT a stamping widen beyond one path, and the field's own description says so: DR-126's negative-spec (a validation widen must not widen a stamping predicate) is honoured — `blitz_land`'s S lane is the single stamping route admitted, while `handoff_phase_stamp.py`'s pre-write kind guard and push-side-write-discipline's unconditional `continuation` stamp stay session-handoff-only. Stamping a phase onto a spinoff is otherwise still not a thing a session does. DR-097 push-side duty attaches — vendored schema, and the notice states this CLASS. The engine half (`_HANDOFF_PHASE_KINDS`, and `blitz_land`'s own kind refusal) is the engine's to land; until it does, the refusal stands and `land-wave.py` routes those rows to `refused[]` rather than counting them (`3286728053`). ---- PRIOR NOTE (10.3.0 -> 10.4.0) BUNDLE CLASS: `nested-field-additive`, the most restrictive of the two bumps this commit carries — both are additive and both hold unconditionally on this axis, and the three new optional fields are the larger half. 10.3.0 -> 10.4.0 adds five members to `x-producer-typed-command.mapping`, taking it from 53 verbs to 58: `group-em` and `uhura` (session), `mise-prep` and `plan-blitz` (planning), `fire-and-forget` (execution). Classified enum-value-additive — a declared vocabulary GAINS members, narrowing nothing and invalidating no document. Each names a command or skill that has been live in coordinator/commands/ or coordinator/skills/ without a member, which `test_handoff_producer_vocabulary_parity` has been red on: a baton produced by one of them resolves to no typed command, so the producer axis records `unresolved` for work whose producer is perfectly well known. The vocabulary is alphabetical with `other-command` and `unresolved` pinned last, and that ORDER is load-bearing — a set-equal reorder reds _schema_shape.py::_semantic_shape_hash's EQUAL_VERSION_SHAPE_DRIFT — so the members are inserted in sorted position and the two structural members stay at the tail. Groups follow the members already there rather than inventing a class: plan-blitz plans and mise-prep certifies plans before execution (planning, beside `plan`), fire-and-forget executes (execution, beside `execute-plan`), and group-em/uhura are standing session roles (session, beside `mise-en-place` and `workstream-start`). DR-097 push-side duty attaches — vendored schema, and the notice states this CLASS. ---- PRIOR NOTE (10.2.0 -> 10.3.0) 10.2.0 -> 10.3.0 declares three new optional top-level strings, `plan_blitz_hold_reason`, `plan_blitz_hold_cite` and `plan_blitz_hold_until`: the durable home for a plan-blitz hold. Classified nested-field-additive — three new optional top-level scalars on the existing handoff entity, nothing joins `required`, no existing property changes shape, and this file carries no top-level `additionalProperties: false`, so every legacy baton still validates. FLAT BY CONSTRAINT, not by taste: the engine repo's `roadmap.plan_gate` reads baton frontmatter through a narrow line-scanner, so the nested `{reason, cite, until}` mapping first proposed is unreadable at the gate that must report it; the four `execution_authorized_*` fields are the standing precedent for this shape. WHAT IT CLOSES: a hold lived only in a driver's run notes, so an adjudicated baton came back as a candidate on every later gate read — measured on project-rag, 5 of 8 wave-0 candidates carried a recorded reason not to fire and four were re-fired across five runs. The doctrine half (write the hold where the next driver reads it) landed first at 0566a7fdb and is explicitly NOT sufficient: a note still has to be found, and a gate read does not read notes. NEGATIVE SPEC, restated on the fields: a hold is not a `blocked_by` edge — DR-2048 refuses that spelling and the engine repo agree, because an invented edge the gate cannot resolve fails the baton CLOSED forever, which is worse than the retype. Requested by the engine repo-80 via project-rag-4a, who also corrected their own nested proposal on the record; the engine committed to the gate's reporting half same-day once this lands. DR-097 push-side duty attaches — this is one of the vendored schemas, and the notice states this CLASS, not merely that a bump occurred. VERIFY: coordinator/tests/test_schema_version_pin.py and the handoff validation suites green. ---- PRIOR NOTE (10.1.0 -> 10.2.0 (the aggregate execution baton spans a cluster-less set) -- WIDENS the `aggregate_execution` kind-gate from `const: roadmap-baton` to `enum: [roadmap-baton, spinoff]`. Every document valid at 10.1.0 still validates: the accepted set only grows, and no other clause, property, `required` entry or description changes shape. CLASS `enum-value-additive`, and the nearest-fit reasoning is recorded here because the widened vocabulary is expressed as a `const` inside an `allOf` conditional rather than as a named field's `enum` (schema-version-gate.md: 'No term fits -> nearest fit on the SAFE side, with the x-bump-note saying why none applied'). It is one value added to a closed value set on an existing field (`kind`), no field added or removed and no existing value's semantics changed, which is that class's definition; the only inexactness is the keyword it is spelled with. NOT `nested-field-additive` (no field is added) and NOT `major` (nothing narrows) -- and `enum-value-additive` is HOLDING unconditionally on the x-schema-version axis, so classing it here costs a consumer no skipped hold. WHY: measured 2026-09-09 against the live validator (the engine repo `schema_validate.py`, resolved engine), four candidate shapes for a CLUSTER-LESS aggregate -- roadmap_id absent REFUSED ('required for kind=roadmap-baton'), `roadmap_id: null` REFUSED twice (type, and the same cross-field rule), `kind: spinoff` REFUSED by this gate's own const, and a well-formed DANGLING roadmap_id ACCEPTED. The only mintable cluster-less aggregate was therefore the exact defect DR-198(b) names ('a well-formed dangling value is not a valid substitute for an honest omission'), and the population the shape serves is cluster-less by construction: `coordinator/skills/plan-blitz/mise-prep-entry.py` reads `assemble_plan_gate` over the whole tree and treats `--roadmap-id` as an OPTIONAL narrowing, so constituents are drawn across clusters and mostly from batons carrying no roadmap_id at all. This bump applies a ruling that already exists rather than minting an exemption: DR-198(a) rules cluster-less baton-shaped work takes `kind: spinoff`, and DR-198(a1) ACCEPTS the loss of the roadmap graph floor for it as correct rather than as a gap. NO new kind and NO change to `properties.kind.enum` -- the six-member set, its five mirrors and the frozen cockpit-contract schemas are untouched, and the 'not a seventh kind' argument in coordinator/docs/wiki/baton-lifecycle/aggregate-execution-baton.md is unchanged and still governing. A cluster-ful aggregate is unaffected: on `kind: roadmap-baton` the graph floor and DR-198(b)'s referential requirement both still apply. RE-VENDOR: the engine repo vendors a mirror of this file and must re-vendor 10.2.0 byte-identically before it can accept a spinoff-kind aggregate; `coordinator/tests/test_vendored_schema_version_parity.py -k handoff` is the cross-repo unblock signal and its red is expected, not a defect. NO cross-field change is asked of the engine: `_cf_spinoff_roadmap_requires_graph`, `_cf_graph_fields_roadmap_only` and `_cf_roadmap_id_implies_kind` are all correct as they stand and this bump needs none of them touched. PRIOR: 10.0.0 -> 10.1.0 (the aggregate execution baton) -- ADDITIVE, one optional top-level object property (`aggregate_execution`) plus one `allOf` kind-gate that cannot fire on a record which does not carry it; no `required` delta and no change to any existing property. A handoff carrying no `aggregate_execution` key validates exactly as it did at 10.0.0. PRESENCE OF THE KEY IS THE DISCRIMINANT: the aggregate is a SHAPE on the existing `kind: roadmap-baton`, never a seventh `kind` member. The block stores NO certification of its own — that is per-plan on plan.schema.json, and the roll-up is a recomputed read. Reasons for both calls, the fireable-at-one rule, and what is deliberately absent: coordinator/docs/wiki/aggregate-execution-baton.md. RE-VENDOR: the engine repo vendors a mirror of this file. PRIOR: 9.0.0 -> 10.0.0 (major) closes the enforcement-gradient defect DR-198 (docs/decisions/DR-198-cluster-less-baton-work-is-a-spinoff-and-roadmap-id-is-referential.md) names: `roadmap_id`'s declared contract described WHERE the field may appear and never that its value must refer to anything, so an invented string passed and an honest blank was denied. `roadmap_id`'s description now states the referential requirement (DR-198(b): must name an existing state/roadmap/ cluster when present; a well-formed dangling value is not a valid substitute for an honest omission) and the DR-198(a) redirect (cluster-less baton-shaped work takes `kind: spinoff` instead of inventing or blanking this field). This is a NARROWING of the field's previously-unconstrained value domain -- a document that carried a dangling `roadmap_id` was schema-conformant before this bump and is described as non-conformant now, per the identical closed-vocabulary classification the 2.3.0->2.4.0 and 2.4.0->2.5.0 entries below already applied (constraining a previously-unconstrained value domain is `major`, not `nested-field-additive` or any additive term -- `test_bump_class_vocabulary_is_closed` closes the vocabulary to {top-level-array-additive, nested-field-additive, enum-value-additive, major} and none of the additive three fit a narrow). No JSON-Schema-level type/required/enum delta -- the narrow is enforced entirely in the Python cross-field layer (the engine repo `_cf_roadmap_id_implies_kind`/graph-field gates), not in this file's own `allOf`, so this bump's shape delta is description-only; it is still classed `major` because the DOCUMENT VALIDITY SET narrows (a dangling roadmap_id, previously undetected by any gate, is now a defect the fleet's resolve/audit tooling is expected to surface), which is the harm the closed-vocabulary reasoning gates on, not the JSON-Schema keyword diff. Same region: `blocked_by`'s description is corrected in place to state that `roadmap_id` is no longer kind-exclusive (the 2026-09-06 EM ruling widened `_cf_graph_fields_roadmap_only`/`_cf_roadmap_id_implies_kind` to admit `roadmap_id` on any kind, with `kind=roadmap-baton` continuing to REQUIRE it via `_cf_spinoff_roadmap_requires_graph`) -- description-only, no domain change, rides this bump rather than triggering a separate one. DR-097 push-side notification duty discharged via memo to the engine repo's EM (C5, docs/plans/2026-08-05-roadmap-id-referential-existence.md) alongside this bump, per schema-version-gate.md's Bump-class extension key. Fleet-wide sibling-record sweep run before this bump landed (doc-claude, the engine repo, project-rag, project-rag-ue-addon, the cockpit repo, the game-workbench repo, example-market-data-repo): 0 absent, 0 dangling live roadmap_id across every repo's live handoffs; the sole dangling instance found fleet-wide (example-market-data-repo `archive/handoffs/2026-07/2026-07-31_163500_baton-charter-sourcing-coverage-honesty.md` -> `sourcing-charter-honesty`) is an ARCHIVED record already governed by the deliberately-relaxed `handoff-archived.schema.json`, not this live schema, and is the same record C1/DR-198's own Problem section already names as moved to archive -- not a new stranding this narrow introduces. PRIOR: 8.11.0 -> 9.0.0 (major) closes a review finding on the 8.11.0 rename (state/subagent-share/17bb25e5-2824-4b82-959e-9c957a4c4728/coordinatorcode-reviewer.a8a1fc08fbf2531de.md, finding 2): nothing forbade a record from carrying BOTH `gate_notes` and `blocking_notes` with different text, leaving which one governs the read side unasserted. Adds a top-level `allOf` clause, `not: {required: [gate_notes, blocking_notes]}` -- a record may carry EITHER name (migration-window tolerance, unchanged) but never BOTH at once. No legitimate both-present case exists: a writer mid-migration onto `gate_notes` emits one name or the other, never both, so this costs the migration window nothing -- every record valid under 8.11.0 that populated at most one of the pair still validates; only the (previously untested, never-observed-in-the-wild) both-populated shape now fails. This is a breaking/restrictive change (a previously-valid instance shape is now rejected) -- per coordinator/docs/wiki/schema-and-validation-contracts/schema-version-gate.md ('narrowing is not a class... a change that narrows the accepted set is `major`'), recorded as `x-bump-class: major`, MAJOR-incremented accordingly (8.11.0 -> 9.0.0), not folded into `nested-field-additive`. `coordinator/tests/test_handoff_schema_gate_fields.py` gains coverage for the new rejection. 8.10.0 -> 8.11.0 (nested-field-additive, RENAME) renames `blocking_notes` to `gate_notes` (DR-190 § 13) -- the old name is actively wrong, since these notes gate nothing on the graph (the resolver never reads them; see the field's own description). This is a RENAME, not an additive bump, so a re-vendor consumer must not treat it as a plain new-field pickup: `gate_notes` is declared as the canonical field, carrying forward the DR-178 negative-spec clause unchanged (the 'PM execution authorization not yet given' illegal-value rule from the 8.4.0 -> 8.5.0 entry below). `blocking_notes` stays DECLARED (not dropped) and is marked DEPRECATED in its own description, pointing readers at `gate_notes` -- deliberate backward-read tolerance for the migration window: the engine repo's engine keeps writing/reading `blocking_notes` until its own re-vendor lands `gate_notes`, and a hard cutover here would red every in-flight baton the moment this commit lands. No `required` entry on either field, no cross-field `allOf` coupling, no value narrowed -- every document valid under 8.10.0 still validates under 8.11.0. Consumers scanning this field (pm-gate-signal-fragment.json's `scanned_fields`, the parked-baton-gate tripwire/test) are updated in the same change to read both names. PRIOR: 8.9.0 -> 8.10.0 (nested-field-additive) declares three optional fields asked for by the engine repo, upstream-first per the standing ruling that handoff frontmatter shape is DoE-authored doctrine-plane surface. (a) `claimed_by_name` / `claimed_by_address`, same string-or-null shape as `human_claimant`, written by the same engine-subject claim stamp -- closing the write/declare drift `human_claimant` closed at 8.8.0. Both are declared ADVISORY SNAPSHOTS in their own descriptions: a peer name is reassigned across sessions and an address goes stale when that session exits, so neither is an identity join key. (b) `sizing_objects`, the plural fan-in sibling of `sizing_object`, mirroring the `plan_ids`/`deliverable_ids` precedent; the singular is retained unchanged and is not deprecated. Nothing added to `required`, no property changes shape, no cross-field `allOf` coupling -- every document valid under 8.9.0 still validates. Neither ask was blocking: with no top-level `additionalProperties: false` here all three were undeclared-but-tolerated, the same state `human_claimant` was in. PRIOR: 8.8.0 -> 8.9.0 (enum-value-additive) widens `x-producer-typed-command.mapping` from 46 to 53 coordinator typed verbs. The vocabulary was derived from `coordinator/commands/` alone when most of that directory had already migrated to `coordinator/skills/`; the members were all present and correct, but seven verbs a user can type today (`app-session`, `eval-output`, `goal-setting`, `setup`, `sizing`, `spike`, `strategic-self-description-refresh`) had no member and so resolved to `other-command` — a missed enum append, which OTHER-COMMAND-IS-A-BOUNDED-RESIDUAL-NOT-A-CATCH-ALL names as a defect, not residual traffic. The parity test now derives the verb set from `coordinator/commands/` UNION `coordinator/skills/`, so a verb landing in either directory must carry a member with a group before it lands. Purely additive: no member removed, no group renamed, every document valid under 8.8.0 still validates. PRIOR: 8.7.0 -> 8.8.0 (nested-field-additive) closes a two-version parity gap in the engine-ahead direction and declares one new field, in one pass. ADOPTED UPSTREAM, byte-identical to the engine repo's vendored copy at its 8.7.0: (a) 8.6.0's `deliverable_id` DESCRIPTION-only revision (DR-346 §8 -- the bare `dlv-<stub_id>` roadmap-stub form is retired at mint time, no backfill), and (b) 8.7.0's `governing_plan` property. Both were authored on the engine's side and this repo never carried them, so `coordinator/tests/test_vendored_schema_version_parity.py -k handoff` was ALREADY red before this bump, in the direction the gate cannot name -- the engine AHEAD, not behind (that direction-blindness is the standing open ask recorded on the 8.0.0 -> 8.1.0 entry below). DoE's own handoffs carry `governing_plan` in live frontmatter, so its absence here was the same class of defect as (c). NEW here, authored on this side: (c) `human_claimant` (string-or-null, optional, no `required` entry, no cross-field `allOf` coupling), mirroring the shape already declared on the cockpit-contract trio (`handoff-summary`/`cockpit-contract`/`snapshot-envelope`) byte-for-byte. It closes a review finding (state/subagent-share/7ea22d7f-2047-4a92-810a-17a83ac25fbb/2026-08-22-codereview-slices1-state-handoffs-2026-08-22-close-the-clau.md, finding 1, P3/nit): the field the claim stamp writes onto live handoff frontmatter (six on-disk handoffs carry it) was validated only in the cockpit-contract trio, not in the schema governing the file it lands on -- undeclared-but-tolerated (no top-level `additionalProperties: false` here), not schema-invalid, but drift between what gets written and what the governing schema describes. The writer (`archive-stamp-cli`) is engine-subject and untouched. NOT renumbered as 8.6.0: the engine has already used both 8.6.0 and 8.7.0 for the content adopted above, so re-using either number here would make one version string mean two different property sets across the two repos -- the precise hazard the parity gate exists to catch. The parity test stays red until the engine repo re-vendors 8.8.0 byte-identically; that red is the cross-repo unblock signal, not a defect, and per the 8.2.0 -> 8.3.0 entry's DR-097 ruling nested-field-additive is not major, so no class-declaring memo is owed on that axis alone. Companion bump: handoff-archived.schema.json 2.6.0 -> 2.8.0, same three changes. PRIOR: 8.6.0 -> 8.7.0 (nested-field-additive) declares `governing_plan` (docs/plans/2026-08-21-rebuild-the-three-ceremony-assemblers.md § C5/C6, R5) — a repo-relative POSIX path to the plan this baton executes, nullable, absent expressed as an explicit null rather than an omitted key. Backfills a name already in live use (state/handoffs/2026-08-18-supersede-stamps-and-archives-atomically.md carries it hand-authored) and already written by apply.py :: _dispatch_baton_stamp_carried_ids (C5) at mint and across the successor hop; this schema entry was the missing declaration, not a new writer. Optional top-level scalar, no `required` entry, no cross-field `allOf` coupling — every document valid under 8.6.0 still validates. PRIOR: 8.5.0 -> 8.6.0 (nested-field-additive) updates `deliverable_id`'s DESCRIPTION only, per DR-346 §8 (docs/decisions/DR-346-deliverable-id-is-a-cross-compaction-chain-identity.md), C5 of docs/plans/2026-08-21-deliverable-id-as-a-machine-derived-chain-identity.md: the bare `dlv-<stub_id>` roadmap-stub form is RETIRED at mint time -- `coordinator_core.ops.mint_deliverable_id`'s stub path now appends the same opaque 6-hex suffix the slug/plan/handoff form already carried, so a matching id can prove a copy rather than merely a same-named collision. NO BACKFILL: existing records minted under the bare stub form are unchanged and remain valid -- the pattern `^dlv-(?!placeholder-replace-with)[0-9a-zA-Z][0-9a-zA-Z.-]*$` already admitted both shapes, so this is a description-and-mint change only, not a pattern widen. Description text only: nothing added to `required`, no property changes shape, every document valid under 8.5.0 still validates -- same bump class as the prior entry for that reason. PRIOR: 8.4.0 -> 8.5.0 (nested-field-additive) adds a NEGATIVE-SPEC clause to `blocking_notes`'s description (C5, docs/plans/2026-08-20-pickup-of-an-execution-baton-is-authorization.md), naming 'PM execution authorization not yet given' (and paraphrases of it) an illegal gate reason on any baton -- per DR-178, handing an EM an execution baton via a PM handoff or /pickup IS the PM's authorizing act for the plan it carries, so authorization-pending can never be the real blocker. Every other legitimate blocking_notes use (a sibling repo's landing, a peer's dependency, a PM product decision, a 'needs a Windows box'-class real constraint) is explicitly preserved, unchanged. Description text only: nothing added to `required`, no property changes shape, every document valid under 8.4.0 still validates -- same bump class as the prior entry for that reason. Closes the write-time half of DR-178 (the read-time half is the widened tripwire, coordinator/docs/wiki/coordinator-tripwires/pre-execute-authorization-gate-is-retired.md). `coordinator/tests/test_vendored_schema_version_parity.py -k handoff` goes red until the engine repo re-vendors this version byte-identically -- that red is the cross-repo unblock signal, not a defect; the re-vendor ask is carried by a separate memo. Spec backlink: docs/plans/2026-08-20-pickup-of-an-execution-baton-is-authorization.md. PRIOR: 8.3.0 -> 8.4.0 (nested-field-additive) reconciles this schema with what roadmap-batons actually carry (C3, docs/plans/2026-08-20-split-roadmap-planning-at-the-sprint-spine.md). Three changes, none removing or narrowing anything: (1) declares `review_signals` (array of unique strings, no enum), mirroring plan.schema.json's shape byte-for-byte, closing the gap where roadmap-baton stubs already carry this field unvalidated -- coordinator/tests/test_review_signal_vocabulary_parity.py is extended to enforce this schema as a second consumer of the same coordinator/contract/review-signals.json vocabulary so the two schemas cannot drift from the contract independently. (2) declares `covers` (array of strings, roadmap-only) -- PM ruling (state/handoffs/2026-08-20-split-roadmap-planning-at-the-sprint-spine.md:84-85, 'either you dispatch to fix it or it's in scope. I decide scope') required an explicit decision between declaring this field real or striking it from the residue documentation that calls it load-bearing; DECLARED here because coordinator/skills/roadmap-planning/SKILL.md actively directs authors to populate it during M:N cluster consolidation -- the measured zero-occurrence count across all 50 on-disk kind:roadmap-baton stubs reflects that no landed baton has yet folded multiple clusters (a conditional, rare field), not that the doctrine is dead. (3) documents authoring_session's by-kind shape divergence (session id on session-authored kinds, a path on kind: roadmap-baton) directly on that property, including the live consequence that coordinator_core.baton_assemble's _adopt_prior_attempt_scaffold_path session-id-equality predicate can never match a path-shaped value and so silently never fires for roadmap-batons -- the same defect the cockpit repo observed externally. No schema-level type-split is declared for that divergence; this bump only makes the existing behavior legible to a schema-only reader. Spec backlink: docs/plans/2026-08-20-split-roadmap-planning-at-the-sprint-spine.md § C3. PRIOR: 8.2.0 -> 8.3.0 (nested-field-additive) declares `sizing_object` on this schema, mirroring plan.schema.json's `sizing_object` shape byte-for-byte on the type arms (anyOf[string pattern ^state/sizings/.+\\.yaml$, null], optional, no `required` entry, no cross-field allOf) — the established precedent, and a divergent shape for the same semantics is a re-vendor hazard. DIRECTION RULING (discharges A3): the edge is ONE-WAY, baton -> sizing, not mirrored bidirectionally the way plan<->sizing-object.schema.json is. plan<->sizing is bidirectional and symmetry argues for copying it, but that reverse leg is a SCALAR (sizing.plan) and that only works because a sizing routes to at most one plan; a sizing can route to MANY batons over time (a spinoff, then its successors), so a scalar reverse edge would be wrong and an array reverse edge is fan-out upkeep to keep honest on every mint, archive, and supersede. The baton is also the artifact that gets picked up, so the read that matters (baton in hand, reach its intent / appetite / surfaced_to_pm) is the forward one. Cardinality alone carries the one-way ruling — NOT a derivability argument: sizing-object.schema.json's own `plan` field is equally derivable and exists anyway, so derivability does not distinguish the two cases (eng-director review finding 4; DR-176 is not invoked on this axis). One-way is cheaper to keep honest and loses nothing a reader needs; a later fan-out need is served by a reader over the forward edge, which stays authoritative. DR-097 push-side duty: nested-field-additive is not major, so no class-declaring memo is owed on that axis alone — the re-vendor ask is carried by a separate memo regardless. Spec: docs/plans/2026-08-19-batons-carry-their-work.md § C2. PRIOR: 8.1.0 -> 8.2.0 (nested-field-additive) adds four fields, upstream-first, in reply to cross-repo/inbox/2026-08-19-the engine repo's EM-baton-schema-bump-role-axis-and-pickup-doctrine.md (asks 1 and 2). `plan_ids` / `deliverable_ids` are nullable-or-array plural siblings of `origin_plan_id` / `deliverable_id` respectively, same string shape on every entry as the singular field each mirrors; both singulars are retained unchanged, nothing is removed, no `required` entry, no cross-field `allOf` coupling. `baton_role` (enum: work | record, optional, absence ≡ unknown and unknown is NOT inheritable) is the inheritability axis ratified by state/subagent-share/bc70d292-1669-4531-aaa9-845c1b8bb79c/coordinatoreng-director-d8ff2cfd.md: distinct from `kind` (provenance) and from `handoff_phase` (the plan→execute seam, whose `execution` value is deliberately NOT reused here to avoid a same-block naming collision) — see this field's own description for the full ruling. No backfill: `handoff.normalize` must never stamp `baton_role` onto an existing record: this bump is optional-additive text everywhere in one JSON Schema, so nothing here enforces that discipline at the schema layer, but it is stated as read-side contract in the field's own description and any writer touching this field is bound by it. PRIOR: 8.0.0 -> 8.1.0 (nested-field-additive) adopts `reconcile_disposition` / `reconcile_disposition_reason` upstream from the engine repo's vendored copy, which already carried both (read by `coordinator_core/ops/handoff_reconcile.py`'s `_check_conservation` D1 assertion). Both are optional top-level strings, no `required` entry, no cross-field `allOf` coupling — text matched to the engine's committed-HEAD byte-for-byte on the shape, descriptions unchanged. Resolves ask 4 of cross-repo/inbox/2026-08-14-the engine repo's EM-reviewed-range-pattern-and-direction-blind-parity-gate.md: the EM's ruling is that handoff frontmatter shape is DoE-authored doctrine-plane surface, so a field the engine's reads belongs upstream rather than as a declared fork-with-tolerance. Closes the vendored-shape parity gap that memo's item 3 reported (the engine was AHEAD, not behind, on these two fields — the parity gate's own direction-blindness is a separate open ask on the engine's gate implementation, not addressed by this bump). Companion bump: handoff-archived.schema.json 2.5.0 -> 2.6.0 declares the same pair for the archived sibling. Full prior-version history: coordinator/schemas/SCHEMA-BUMP-HISTORY.md section handoff.schema.json.)",
+  "applies_to": "state/handoffs/*.md",
+  "kinds": [
+    "session-handoff",
+    "spinoff",
+    "roadmap-baton",
+    "goal-seed",
+    "roadmap-seed",
+    "recovery"
+  ],
+  "x-baton-class": {
+    "description": "DERIVED-field lookup (D2) -- baton_class is NEVER written to on-disk frontmatter; a consuming function computes it on read by indexing this map with the record's own `kind` value: `x_baton_class['mapping'][record['kind']]`. Direction chosen deliberately as kind -> class, not class -> kinds: the caller of this derivation always already holds a record with a `kind` value in hand and wants its class, which is a direct O(1) lookup in this direction; the inverse (class -> kinds) would force every caller to build its own inverted index from this same data before it could answer the question it actually has. Three classes, closed set: continuation (session-handoff, recovery), deflection (spinoff, goal-seed), intention (roadmap-baton, roadmap-seed) -- see docs/plans/2026-07-29-baton-kind-vocabulary-one-axis-per-field.md § D2 for the axis rationale. The `mapping` below names the D1 TARGET names (goal-seed, roadmap-baton, roadmap-seed) -- the C10 enum narrow that admits them into this schema's own `kinds` array and `properties.kind.enum` above (retiring spinoff-goal/spinoff-roadmap/spinoff-roadmap-creator) has landed as of the 3.1.0 -> 4.0.0 bump below. A schema-parity test (coordinator/tests/) asserts every kind named here is a member of the known-kind universe (union of `kinds`/`properties.kind.enum` and this migration's D1 target table), that every class is one of the three above, and that no kind is double-assigned. `recovery` is retained per C1a's KEEP disposition (state/plan-sidecars/2026-07-29-baton-kind-vocabulary.recovery-disposition.md) rather than struck as a dead value. If a genuinely separate artifact is ever wanted for another tool's consumption (e.g. project-rag), it MUST be GENERATED from this mapping with its own parity test against this key -- never hand-authored independently, which is exactly the two-sources-of-truth drift this migration exists to close.",
+    "mapping": {
+      "session-handoff": "continuation",
+      "recovery": "continuation",
+      "spinoff": "deflection",
+      "goal-seed": "deflection",
+      "roadmap-baton": "intention",
+      "roadmap-seed": "intention"
+    }
+  },
+  "x-producer-typed-command": {
+    "description": "Closed vocabulary for the `producer.typed_command` axis (D6, renamed from `typed-ceremony`) — declared ONCE here, following the `x-baton-class` precedent above, rather than written out longhand the way `kind` is. `producer.typed_command` names the coordinator command verb this session was last inside when a baton was minted; it is one of two axes on the `producer` namespaced record (the other, op-identity, is not enumerated here). Enum order is APPENDED, never re-sorted — `_schema_shape.py::_semantic_shape_hash` hashes enum list order verbatim, so a set-equal reorder reds EQUAL_VERSION_SHAPE_DRIFT. This mapping's keys, in insertion order, ARE that canonical order: the 53 coordinator command verbs (alphabetical, derived from `coordinator/commands/*.md` at authoring time, D4's RESOLVED (A)), followed by the two structural members `other-command`, `unresolved` in that fixed order. `hand-authored` is NOT a member of this axis — op-identity (no ceremony ran; a human authored the record directly) is `producer.op_identity`'s value, not `producer.typed_command`'s; the two axes were split precisely so that fact lives on exactly one of them (D6/F3). Each entry carries a `group` hint so a consuming facet control can group/default-suppress without hand-maintaining a parallel 46-row table that drifts behind the command set — one of ten groups: `session`, `baton`, `planning`, `review`, `execution`, `maintenance`, `research`, `release`, `setup` for the 46 verbs (grouped by ceremony purpose), and `structural` for the two non-verb members. `other-command` means a typed slash command outside coordinator's own set (harness/other-plugin verbs like /clear, /code-review, /loop) — NOT a catch-all for an unnamed coordinator ceremony, which would be a bug. Read-side contract: `unresolved` is a defect marker — the field was expected to resolve and did not — and MUST NEVER be treated as a user-facing facet member alongside the real command verbs; a fail-closed consumer that has never seen the value would otherwise render it as a legitimate bucket. Spec backlink: pln-producer-axis-on-the-baton-con-b68971 § D4, D6.",
+    "mapping": {
+      "app-session": {
+        "group": "execution"
+      },
+      "architecture-audit": {
+        "group": "research"
+      },
+      "architecture-survey": {
+        "group": "research"
+      },
+      "autonomous": {
+        "group": "session"
+      },
+      "brainstorming": {
+        "group": "planning"
+      },
+      "bug-blitz": {
+        "group": "execution"
+      },
+      "bug-sweep": {
+        "group": "execution"
+      },
+      "cloud-channel": {
+        "group": "session"
+      },
+      "cloud-spawn": {
+        "group": "execution"
+      },
+      "code-health": {
+        "group": "execution"
+      },
+      "consolidate-git": {
+        "group": "maintenance"
+      },
+      "cruft-sweep": {
+        "group": "maintenance"
+      },
+      "debt-triage": {
+        "group": "maintenance"
+      },
+      "distill": {
+        "group": "maintenance"
+      },
+      "dogfood": {
+        "group": "execution"
+      },
+      "enrich-and-review": {
+        "group": "review"
+      },
+      "eval-output": {
+        "group": "review"
+      },
+      "execute-plan": {
+        "group": "execution"
+      },
+      "finishing-a-development-branch": {
+        "group": "release"
+      },
+      "goal-blitz": {
+        "group": "execution"
+      },
+      "goal-setting": {
+        "group": "planning"
+      },
+      "group-em": {
+        "group": "session"
+      },
+      "handoff": {
+        "group": "baton"
+      },
+      "install": {
+        "group": "setup"
+      },
+      "learn-lessons": {
+        "group": "maintenance"
+      },
+      "merging-to-main": {
+        "group": "release"
+      },
+      "mise-en-place": {
+        "group": "session"
+      },
+      "mise-prep": {
+        "group": "planning"
+      },
+      "new-project": {
+        "group": "setup"
+      },
+      "parallel-code-review": {
+        "group": "review"
+      },
+      "percolate": {
+        "group": "release"
+      },
+      "pickup": {
+        "group": "baton"
+      },
+      "plan": {
+        "group": "planning"
+      },
+      "plan-blitz": {
+        "group": "planning"
+      },
+      "plan-delivery-audit": {
+        "group": "maintenance"
+      },
+      "quick-wrap": {
+        "group": "session"
+      },
+      "repo-setup": {
+        "group": "setup"
+      },
+      "research": {
+        "group": "research"
+      },
+      "review": {
+        "group": "review"
+      },
+      "review-code": {
+        "group": "review"
+      },
+      "roadmap-blitz": {
+        "group": "execution"
+      },
+      "roadmap-planning": {
+        "group": "planning"
+      },
+      "setup": {
+        "group": "setup"
+      },
+      "shape": {
+        "group": "planning"
+      },
+      "sizing": {
+        "group": "planning"
+      },
+      "spike": {
+        "group": "research"
+      },
+      "spinoff": {
+        "group": "baton"
+      },
+      "staff-session": {
+        "group": "baton"
+      },
+      "strategic-self-description-refresh": {
+        "group": "maintenance"
+      },
+      "systematic-debugging": {
+        "group": "execution"
+      },
+      "uhura": {
+        "group": "session"
+      },
+      "uninstall": {
+        "group": "setup"
+      },
+      "update-docs": {
+        "group": "maintenance"
+      },
+      "validate": {
+        "group": "maintenance"
+      },
+      "fire-and-forget": {
+        "group": "execution"
+      },
+      "workday-complete": {
+        "group": "session"
+      },
+      "workday-start": {
+        "group": "session"
+      },
+      "workstream-complete": {
+        "group": "session"
+      },
+      "workstream-start": {
+        "group": "session"
+      },
+      "workweek-complete": {
+        "group": "session"
+      },
+      "workweek-start": {
+        "group": "session"
+      },
+      "other-command": {
+        "group": "structural"
+      },
+      "unresolved": {
+        "group": "structural"
+      }
+    }
+  },
+  "description": "Active handoff baton — carries session-continuation state for /pickup and workstream tracking. Cross-field rules (deployment_state gates, graph-primitive kind-gate, category/summary cutoff, spinoff-with-predecessor, supersedes kind-gate, handoff_phase stamp-required-when-execution, handoff_phase kind-gate) live in CROSS_FIELD_RULES['handoff'] in bin/lib/schema.js and are applied automatically by validateRecord. Origin-axis rules (kind-prefixed id well-formedness, per-kind cardinality, direct self-reference rejection, predecessor:none invariant for spinoff kinds, forked_from/origin_handoff never-silently-disagree invariant) are also in CROSS_FIELD_RULES['handoff'] (C2). Backfill policy: pre-existing forks carry null for all origin_* fields; no migration. Record-level provenance (ProvenanceEnvelope — how the pipeline observed/derived this record) is DISTINCT from artifact-level origin_* (what spawned this fork) — same word, different plane; origin_* stays frontmatter-only and is not projected into the ProvenanceEnvelope. Spec backlink: pln-structured-originating-session-8b505c § Field shape",
+  "type": "object",
+  "required": [
+    "title",
+    "created",
+    "branch",
+    "status",
+    "predecessor"
+  ],
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Human-readable label for the handoff."
+    },
+    "created": {
+      "type": "string",
+      "format": "date",
+      "description": "Date the handoff was authored (YYYY-MM-DD)."
+    },
+    "branch": {
+      "type": "string",
+      "description": "Git branch this handoff was created on."
+    },
+    "status": {
+      "enum": [
+        "open",
+        "claimed"
+      ],
+      "description": "Lifecycle state (DR-084 P4 narrow). Only 'open'/'claimed' admitted."
+    },
+    "predecessor": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Predecessor handoff path, or null/\"none\" for spinoffs. Key must always be present (string-or-null, D9 nullable rule)."
+    },
+    "predecessor_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^hnd-(?!placeholder-replace-with)[a-z0-9-]+-[0-9a-f]{6}$"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "ID-companion for predecessor (C2, add-not-swap) — the predecessor's handoff_id, resolved and stamped at author time from the SAME predecessor the path field names (never a different one; the adjacency-inference ban is unaffected). Path-independent, survives predecessor archival/rename — the mechanism a machine walks; predecessor remains the human-legible display string. Null when the predecessor has no handoff_id (pre-existing artifact, no backfill) or predecessor is none/null. Never-silently-disagree cross-field rule (predecessor/predecessor_id must resolve to the same artifact when both non-null) is owned by C3, not this schema file. Spec backlink: pln-lifecycle-vocab-c2-durable-cro-991bd4 § C2"
+    },
+    "consumed_by": {
+      "type": "string",
+      "description": "Session id of the consuming /pickup invocation; sourced from $CLAUDE_CODE_SESSION_ID with .current-session-id fallback."
+    },
+    "consumed_at": {
+      "type": "string",
+      "description": "Timestamp when the handoff was consumed (ISO 8601 date-time). Stamped by cs_consume_handoff for race-forensics precision."
+    },
+    "claimed_by": {
+      "type": "string",
+      "description": "Session id of the claiming /pickup invocation (DR-084 successor of consumed_by; new-vocabulary records use this). Sourced from $CLAUDE_CODE_SESSION_ID with .current-session-id fallback. Cross-field rule (claimed + claimed_at ⇒ claimed_by required) lands at P4."
+    },
+    "claimed_at": {
+      "type": "string",
+      "description": "Timestamp when the handoff was claimed (ISO 8601 date-time; DR-084 successor of consumed_at). Stamped by the claim transition for race-forensics precision."
+    },
+    "claimed_by_name": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Peer-name of the claiming session, written by the claim stamp (the engine repo's archive-stamp-cli, engine-subject, not this repo's writer) alongside claimed_by/claimed_at/human_claimant. ADVISORY SNAPSHOT, never an identity join key: a peer name is reassigned across sessions, so a reader resolving WHO holds a claim joins on claimed_by (the session id) and treats this as display text only. String-or-null, optional, no cross-field coupling."
+    },
+    "claimed_by_address": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Messaging address of the claiming session at claim time, written by the same claim stamp as claimed_by_name. ADVISORY SNAPSHOT, never dialled from the record: an address is live-session state and goes stale the moment that session exits, so a reader wanting to reach the holder re-resolves it live rather than trusting this field. String-or-null, optional, no cross-field coupling."
+    },
+    "human_claimant": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Human operator identity associated with the claiming session, mirroring the shape already declared on the cockpit-contract trio (handoff-summary/cockpit-contract/snapshot-envelope schemas). Written by the claim stamp (the engine repo's archive-stamp-cli, engine-subject, not this repo's writer) alongside claimed_by/claimed_at. String-or-null, optional, no cross-field coupling declared here."
+    },
+    "human_assignee": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Human operator designated as responsible for the work, authored at creation time. Written by claude-klabauter's handoff author fork (engine-subject, not this repo's writer). String-or-null, optional, no cross-field coupling declared here."
+    },
+    "reaped_from_session": {
+      "type": "string",
+      "description": "Session id of the DEAD holder whose claim a crash-orphan reaper released, preserved at strip time so the fact of prior consumption survives the strip. Written by the engine repo's `_unclaim` inside the same mutate closure that removes the claim vocabulary (claimed_by/claimed_at/consumed_by/consumed_at) — a second write would reproduce the bug it fixes on a crash between the two. Distinct from claimed_by: claimed_by names the LIVE holder, reaped_from_session names a holder already gone. Its presence is forensic provenance ONLY and asserts nothing about completion — a reaped baton re-advertises as available work, and nothing here proves that work was finished (the engine repo's drift sweep surfaces the population in a `reaped_orphan` bucket and deliberately never closes one). Absent on every baton that was never reaped."
+    },
+    "session_goal": {
+      "type": "string",
+      "description": "One-line session goal statement."
+    },
+    "machine": {
+      "type": "string",
+      "description": "Machine identifier (host name) where the session ran."
+    },
+    "kind": {
+      "enum": [
+        "session-handoff",
+        "spinoff",
+        "roadmap-baton",
+        "goal-seed",
+        "roadmap-seed",
+        "recovery"
+      ],
+      "description": "Handoff kind. Cross-field rules enforce kind-specific constraints (graph primitives require roadmap-baton, supersedes requires spinoff, spinoff/goal-seed/roadmap-seed requires predecessor=none/null). recovery: requires predecessor: <crashed-sha> or null (no cross-field rule enforced, convention only)."
+    },
+    "venue": {
+      "enum": [
+        "cloud",
+        "workstation",
+        "any"
+      ],
+      "description": "Where this handoff may be claimed. `workstation` means the work needs a human or a workstation session at a terminal (e.g. a local-only tool, an interactive step) -- a cloud pickup/baton sweep must list it as not-claimable with a one-line reason and never auto-claim it. `cloud` means the work needs a cloud session. `any` (also the meaning of an absent key) means either venue may claim it -- unconstrained, identical to pre-existing behaviour. Optional, no `required` entry, no cross-field `allOf` coupling."
+    },
+    "authoring_session": {
+      "type": "string",
+      "description": "Session id that authored this handoff. Required by convention on spinoffs as audit trail back to origin. On kind: session-handoff, coordinator-doc-new's scaffolder stamps this machine-generated at scaffold time (omitted, not PLACEHOLDER, when no session id is resolvable) -- coordinator_core.baton_assemble's cross-authorship adoption predicate (_adopt_prior_attempt_scaffold_path) gates adoption of a prior attempt's scaffold on this field matching the resuming run's own session id. C3: this value's SHAPE diverges by kind and this schema types only one shape (plain string) -- on session-handoff (and the other session-authored kinds) it IS a session id, the shape _adopt_prior_attempt_scaffold_path's match assumes. On kind: roadmap-baton it is NOT a session id at all but a path (the roadmap-planning authoring template's own convention; the template's path DEPTH is a C2 decision, not restated here). Consequence: the adoption predicate's session-id-equality match can never succeed against a path-shaped value, so scaffold adoption silently never fires for roadmap-batons -- the same defect the cockpit repo observed from outside (electron/main.ts:4081-4096, 'never a valid predecessor session id'). No schema-level fix is declared here (a kind-conditional type split is a cross-field/engine concern, not this file's job) -- this description exists so a reader of the schema alone sees the divergence and the no-op consequence, rather than assuming one shape fleet-wide."
+    },
+    "workstream": {
+      "type": "string",
+      "description": "Short slug grouping related forks. Required by convention on spinoffs."
+    },
+    "producer": {
+      "type": "object",
+      "required": [
+        "typed_command",
+        "op_identity"
+      ],
+      "additionalProperties": false,
+      "description": "Namespaced RESOLVED-side producer record (D5, D6) — the seam-resolved counterpart to session-shape.schema.json's capture-side `producer` (typed_command + captured_at). Additive and optional at the top level: a pre-existing record written before this bump omits the key entirely, and the batch `handoff.normalize` sweep must never backfill it onto such a record (F1) — this key's own absence is therefore a legitimate, non-defect state, distinct from the present-as-null discipline that governs its two sub-fields once the key IS written. Written at construction time by `handoff_author_fork.py` / `queue_scaffold_baton.py` only (D5); the batch normalize handler always passes producer=None and never re-resolves it for an existing record. Carries two independent axes, both required once the object is present, neither absent-as-omitted (D9): `typed_command` — which coordinator command verb (or `other-command` / `unresolved`) this session was last inside when the baton was minted; vocabulary declared ONCE at `x-producer-typed-command` above (D6, renamed from `typed-ceremony`) — reference that declaration, do not restate its 55 members here, the way `kind`'s enum wrongly is. `op_identity` — machine-vs-human, resolved reliably at the creation seam (`queue_scaffold_baton` is machine-minted by construction; a hand-edited file entering `_normalize_one_text` is not) — the field a consumer's default-suppress logic should key on, replacing the `session-op`-nature proxy. Present-as-null, never an absent key (D9, AC-2): a machine-minted baton from a session that typed no slash command still emits `typed_command: null` with `op_identity: \"machine-minted\"`, distinguishable from a hand-authored record (`op_identity: \"hand-authored\"`, `typed_command` conventionally null) and from a resolution failure (`typed_command: \"unresolved\"`) — three states, never collapsed to one bare `null` (AC-3, F3). Spec backlink: pln-producer-axis-on-the-baton-con-b68971 § D5, D6, D9.",
+      "properties": {
+        "typed_command": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "One of the 61 members declared once at `x-producer-typed-command` above (59 coordinator command verbs, alphabetical, plus `other-command`, `unresolved` in that fixed order), or `null` when `op_identity` is `machine-minted` and no slash command was typed this session (D3's corrected staleness bound), or when `op_identity` is `hand-authored` (conventionally null; op-identity's own axis carries that fact, not this one) — present-as-null (D9), never an absent key. `unresolved` is a defect marker, never a legitimate facet member — see the read-side contract in `x-producer-typed-command.description`."
+        },
+        "op_identity": {
+          "enum": [
+            "machine-minted",
+            "hand-authored"
+          ],
+          "description": "The machine-vs-human axis (D6, F3), resolved at the creation seam independent of what the session typed: `machine-minted` for a baton minted by `queue_scaffold_baton` / `handoff_author_fork`; `hand-authored` for a hand-edited file entering `_normalize_one_text` — true regardless of `typed_command`'s value, which is what makes `hand-authored` reachable independently of a mis-collapsed `null`."
+        }
+      }
+    },
+    "repo": {
+      "type": "string",
+      "description": "Repo id for install-leg spinoff batons (kind: spinoff seeded by a downstream installer)."
+    },
+    "install_chain_order": {
+      "type": "number",
+      "description": "Relative install position for install-leg spinoffs (lower = earlier; coordinator = 0)."
+    },
+    "scope": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "In-scope workstream items (git pathspec syntax)."
+    },
+    "pickup_ready": {
+      "type": "boolean",
+      "description": "Positive pickup-authorized signal. Absence triggers a non-blocking warning at /pickup time."
+    },
+    "deployment_state": {
+      "enum": [
+        "awaiting_gate",
+        "ready_to_fire",
+        "in_flight",
+        "shipped",
+        "continued",
+        "closed"
+      ],
+      "description": "ready_to_fire declares pickup-readiness: the baton is unclaimed, ungated, and safe for a fresh session to grab, and that is orthogonal to what the picking-up session will do. It is not an execution-baton declaration and never a trigger for execution-side machinery; the discriminator is the pointed-at plan's execution_authorized_at stamp, never deployment_state. Lifecycle readiness state. DR-084 P4 narrow: 'abandoned' is retired; 'continued' (succession terminal) and 'closed' (deliberate stop, human/session only) are its replacements. Conditional-required coupling (continued→continued_into, closed→closed_reason) also lands at this narrow. Existing cross-field rules unchanged: awaiting_gate→gate_dependency required; ready_to_fire→gate_dependency forbidden; shipped→shipped_in required (post-cutoff)."
+    },
+    "gate_dependency": {
+      "type": "string",
+      "description": "DEPRECATED (C2) — superseded by blocked_by/no_longer_blocked_by/gate_cleared_by, which admit handoff_id values alongside stub_id and give the gate a resolvable index instead of a free-text one-liner. Old values retired in spirit, not schema-enforced-retired: existing awaiting_gate records still populate this field and it remains shape-valid, but new authoring should prefer blocked_by. NOT UNCONDITIONALLY REQUIRED (C3): an awaiting_gate record must carry AT LEAST ONE of gate_dependency, non-empty blocked_by, or non-empty gate_notes (or its deprecated alias blocking_notes) — a record with none of the three still fails. That three-way OR is enforced in the Python cross-field layer only (H-CROSS-1), NOT in this file's allOf, which encodes just the ready_to_fire-forbids-gate_dependency twin; stated here so a schema-only reader is not misled. Path-shaped values are now REJECTED (C2b, H-CROSS-9): a value containing 'tasks/' or 'archive/', or ending '.md', fails validation — put the baton dependency in blocked_by as a slug and any advisory prose in gate_notes. Formerly: 'Required when deployment_state=awaiting_gate. One-liner naming the subsystem or condition that gates this handoff. Must be subsystem-named, not file-pathed.'"
+    },
+    "no_longer_blocked_by": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^(?!.*/)(?!.*\\.md$)\\S+$"
+      },
+      "description": "Predecessors verified shipped — entries MOVE here from blocked_by (never dropped): a resolution relocates one blocked_by entry into no_longer_blocked_by, it does not delete it from either array. The union of blocked_by and no_longer_blocked_by is invariant across a resolution — same total membership, entries just migrate columns as their blockers clear. Same slug shape as blocked_by (stub_id or handoff_id)."
+    },
+    "gate_notes": {
+      "type": "string",
+      "description": "Advisory prose, NEVER read by the resolver — inert by construction. Home for the 'needs a Windows box' class of real-but-not-a-dependency constraint: true and worth recording, but not a blocked_by/no_longer_blocked_by entry because nothing on the graph clears it. Do not encode anything here that the resolver is meant to act on — that belongs in blocked_by. RENAMED from `blocking_notes` (DR-190 §13): the old name claimed a gating role this field never had. `blocking_notes` is retained on this schema as a deprecated alias during the migration window -- see its own description. NEGATIVE-SPEC (DR-178): 'PM execution authorization not yet given', or any paraphrase asserting the PM has not yet authorized executing the plan this baton carries, is an ILLEGAL value here — handing an EM the baton via a PM handoff or /pickup IS the authorization, so authorization-pending is never a real gate reason. This does not narrow what else is legal: a parked baton citing a sibling repo's landing, a peer's dependency, a PM product decision, or a 'needs a Windows box'-class real-but-not-a-dependency constraint stays exactly as legitimate as before."
+    },
+    "blocking_notes": {
+      "type": "string",
+      "description": "DEPRECATED (8.11.0, DR-190 §13) — renamed to `gate_notes`, which carries the current description and the DR-178 negative-spec clause. This field is never read by the resolver and never was. Retained, not dropped: existing records and any writer not yet re-vendored onto the new name still populate this field and it remains shape-valid; a reader during the migration window should fall back to this field when `gate_notes` is absent. New authoring should prefer `gate_notes`."
+    },
+    "gate_cleared_by": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[0-9a-fA-F]{7,64}$"
+      },
+      "description": "SHA provenance — which commit(s) discharged the gate. Written by _gate_cascade_clear; previously drifted onto disk undeclared (no additionalProperties:false to catch it) before this schema named it. Distinct from no_longer_blocked_by: gate_cleared_by answers 'which commit discharged the gate', no_longer_blocked_by answers 'which baton used to block' (slug history, not commit provenance). Both ship — they answer different questions, neither substitutes for the other."
+    },
+    "reconcile_disposition": {
+      "type": "string",
+      "description": "Operator-recorded disposition clearing a D1 'severed-observer' conservation violation -- read by coordinator_core/ops/handoff_reconcile.py's `_check_conservation` (D1 assertion) via the module-level `_DISPOSITION_FIELD` constant. D1 flags any handoff that surfaced in a prior reconcile pass and is still open with no recorded disposition; `_has_recorded_disposition` treats this field and reconcile_disposition_reason as BOTH required non-empty to discharge the violation. Optional -- absence is the undischarged state, not a defect; no schema-level requirement is imposed on any deployment_state (a required coupling would invalidate every existing handoff on write)."
+    },
+    "reconcile_disposition_reason": {
+      "type": "string",
+      "description": "Free-text justification paired with reconcile_disposition -- read by coordinator_core/ops/handoff_reconcile.py's `_check_conservation` (D1 assertion) via the module-level `_DISPOSITION_REASON_FIELD` constant. Both fields must be non-empty for `_has_recorded_disposition` to clear a D1 conservation violation. Optional; no cross-field validation coupling to reconcile_disposition is enforced at the schema level -- see that field's description."
+    },
+    "gate_evidence": {
+      "type": "object",
+      "required": [
+        "covers_prose",
+        "legs"
+      ],
+      "description": "Structured, machine-checkable evidence for a prose gate_dependency/blocked_by sentence -- the ratified declaration half of the C6 external-gate-evidence vocabulary (consumer already landed at the engine repo coordinator_core/reconcile/gate_eval.py, commit 7e69ecc1; this is what a caller assembles for it to read). Spec backlink: state/plan-sidecars/2026-07-27-gate-resolution-widen-and-migrate.c6-witness-set-ratification.md (eng-director) -- that ratification is authoritative over the landed evaluator wherever the two disagree; the amendments below are rework on already-landed code, not a free authoring choice. A NEW witness source feeding evaluate_gate's existing clear/narrow/surface/not-cleared prose mechanism (rule 0, gated on covers_prose:true) -- never a fifth verdict class (Structural finding Part A). additionalProperties intentionally permissive, matching this file's convention elsewhere; the propertyNames guard below is the load-bearing restriction, not additionalProperties.",
+      "properties": {
+        "covers_prose": {
+          "type": "boolean",
+          "description": "REQUIRED. Human assertion that legs[] fully cover what the prose gate_dependency/blocked_by sentence asserts. Checked FIRST by evaluate_gate's rule 0: only when this is explicitly true do the legs become authoritative and get AND-reduced onto the prose verdict; any other value (absent, or explicitly false) leaves prose dominant and every leg inert (D2a). This is not a partial-credit knob -- a record with covers_prose:false and a full legs[] array is valid and means 'these legs exist but do not yet fully discharge the prose sentence', a documented and expected shape for a partial backfill (three of C10's fifteen backfill targets are known to land here)."
+        },
+        "legs": {
+          "type": "array",
+          "minItems": 1,
+          "description": "REQUIRED, non-empty, FLAT array -- never nested. An empty legs[] is malformed and never vacuously frees the gate (the reducer treats it as indeterminate). Nesting was considered and rejected: it reintroduces a summary value that hides which half failed, the same last_gate_recheck vacuity this vocabulary exists to cure.",
+          "items": {
+            "type": "object",
+            "required": [
+              "leg_id",
+              "kind"
+            ],
+            "propertyNames": {
+              "not": {
+                "enum": [
+                  "read_ok",
+                  "observed",
+                  "error",
+                  "elapsed"
+                ]
+              }
+            },
+            "properties": {
+              "leg_id": {
+                "type": "string",
+                "minLength": 1,
+                "description": "REQUIRED. Stable per-leg identifier, unique within this record's legs[] -- enforced by cross-field/engine rule, not this JSON Schema (same division of labor as carried_items[].carry_id above: schema declares the field required, a cross-field gate enforces uniqueness). The landed evaluator defaults an absent leg_id to the literal string '<unknown>'; two defaulted legs would report identically and the flat list's entire reason for existing -- per-leg result attribution -- evaporates. Do not rely on that default."
+              },
+              "kind": {
+                "enum": [
+                  "test-node-id",
+                  "probe-op-key",
+                  "commit-sha",
+                  "sibling-commitment-ref",
+                  "commit-ancestor",
+                  "file-exists",
+                  "frontmatter-field",
+                  "deadline",
+                  "human",
+                  "probe-command"
+                ],
+                "description": "CLOSED ENUM discriminator selecting how repo/ref/expected/reason/note are shaped (record-level allOf below pins the per-kind shape) and which resolver predicate applies -- engine consumer: the engine repo coordinator_core/reconcile/gate_eval.py _evaluate_gate_evidence_leg. The first four names are carried VERBATIM from cutover.schema.json's confirmed_consumers[].verified_by.kind, but the SHAPE is not a verbatim carry-over: cutover resolves repo roots at the confirmed_consumers RECORD level from gate_source.repos[] and has no per-entry repo field, whereas gate_evidence has no record-level repo declaration at all, so repo: below is a genuine extension, not an inherited field. The next three are deliberately KEBAB-CASE (file-exists, frontmatter-field, commit-ancestor) even though the landed evaluator's own frozensets spell them snake_case (file_exists, frontmatter_field, commit_ancestor) -- kebab is the ratified authoring form (a mixed-casing discriminator is a live typo generator against a closed enum, and the ratification normalizes the newly-added five to kebab; deadline/human are single words and unaffected either way). Per-kind resolution: test-node-id -- a pytest node id the resolver re-runs; satisfied iff observed is True. probe-op-key -- an engine op-key the resolver re-invokes; satisfied iff observed is True. commit-sha -- a commit the resolver git-shows and pattern-matches; satisfied iff observed is True. sibling-commitment-ref -- an FK to a state/cross-repo-commitments/*.yaml record; satisfied iff observed is True. commit-ancestor -- distinct from commit-sha (ancestry, not content-match); the resolver runs git ancestry, satisfied iff observed is True; ref MUST name both ends (a bare SHA with an implicit default target is the same silent-wrong-tree failure the mandatory repo: rule exists to prevent). file-exists -- the resolver stats the path; satisfied iff observed == expected -- existence is never satisfaction (an artifact can exist and say nothing), so expected and note are both required on this kind alone, and where the checked artifact carries a machine-readable state field, frontmatter-field is mandatory instead and file-exists is inadmissible (an actioned cross-repo memo's real condition is status: actioned, not its presence in archive/). frontmatter-field -- the resolver reads the field; satisfied iff observed == expected -- the strongest of the four, converting 'the memo is actioned' into a machine fact. deadline -- no I/O: the resolver computes elapsed from the authored absolute ISO-8601 date carried in ref (never a relative expression); this is a PROMPT, not a satisfier, and is excluded from the AND-reduce toward freed. Three distinguishable signal classes exist and only this kind produces the middle one -- a leg that has been resolved, one that is merely aged with nothing left to re-derive (review-due), and one nobody has looked at yet -- never conflate these three. human -- declared-unresolvable by construction, always indeterminate; the honest alternative to prose that looks resolvable and never is. reason is REQUIRED non-empty here (the landed evaluator's own default of 'no reason authored' is explicitly not relied upon by this schema -- a reasonless human leg is a hiding place, not honest-indeterminate). An unrecognized kind value is schema-inadmissible by this closed enum; a pre-schema record reaching the evaluator with one is marked indeterminate exactly like a human leg, but the two are NOT the same fact -- one is a data defect this enum should have prevented, the other is deliberate declared indeterminacy -- and a triage report must be able to tell them apart. probe-command -- the authoring side's declared evidence probe: ref is a repo-relative script path plus arguments, note says what the output reads; NEVER run by the resolver, so it is indeterminate like human but a different fact (a runnable probe exists, nobody has run it); trust is operator-confirm."
+              },
+              "repo": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Registry key the leg resolves against (e.g. Content_root, engine_repo) -- NEVER a filesystem path. REQUIRED on every kind except human and deadline -- do not infer a leg's repo from context; a resolver that infers resolves against the wrong tree silently. An unregistered repo value resolves read_ok:false at the resolver, which this module's predicate maps to indeterminate, never unsatisfied -- mirroring cutover's fail-closed unscanned-foreign-repo clause. Genuine EXTENSION of cutover's verified_by shape, not a verbatim carry -- see the kind description above."
+              },
+              "ref": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The evidence reference, shaped per kind (record-level allOf below enforces the pairing): a pytest node id (test-node-id), an invokable op-key (probe-op-key), a full or abbreviated commit SHA (commit-sha), a state/cross-repo-commitments/*.yaml filename, bare or path-qualified (sibling-commitment-ref), '<commit-ish>@<target-ref>' naming both ends -- never a bare SHA (commit-ancestor), a repo-relative path (file-exists), '<repo-relative-path>#<field-name>' (frontmatter-field), or an absolute ISO-8601 date, never a relative expression (deadline). NOT CARRIED on kind=human -- reason carries the entire justification there instead."
+              },
+              "expected": {
+                "description": "Equality-kind comparand. REQUIRED and typed per-kind (record-level allOf below): boolean on file-exists; non-null scalar on frontmatter-field. Not applicable to the five boolean-observed kinds (test-node-id, probe-op-key, commit-sha, sibling-commitment-ref, commit-ancestor), to deadline (whose predicate is the resolver's own elapsed computation), or to human (never machine-resolved) -- none of those compare an observation against an authored expectation. A null or absent expected on frontmatter-field collapses that kind into file-exists and re-opens the existence-is-not-satisfaction trap file-exists's own required note exists to flag -- do not author it that way."
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "description": "REQUIRED non-empty on kind=human only -- the entire justification for the declared-unresolvable kind. This schema requires it structurally precisely because the landed evaluator's own fallback ('no reason authored') is not an acceptable authored value -- a covers_prose:true block containing any human leg can never reach freed, and reason is the only accountability a human leg carries. Free prose, never machine-compared against anything."
+              },
+              "note": {
+                "type": "string",
+                "description": "Commentary, NEVER machine-read by the resolver or the reducer -- on a corpus that just spent this whole plan learning that prose gates do not resolve, do not put the real condition here; it belongs in ref/expected. REQUIRED non-empty on kind=file-exists only, where it must state what the existence check actually proves. Optional free text on every other kind."
+              }
+            },
+            "additionalProperties": true,
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "kind": {
+                      "const": "test-node-id"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "repo",
+                    "ref"
+                  ],
+                  "properties": {
+                    "ref": {
+                      "type": "string",
+                      "pattern": "::"
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "kind": {
+                      "const": "probe-op-key"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "repo",
+                    "ref"
+                  ],
+                  "properties": {
+                    "ref": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "kind": {
+                      "const": "commit-sha"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "repo",
+                    "ref"
+                  ],
+                  "properties": {
+                    "ref": {
+                      "type": "string",
+                      "pattern": "^[0-9a-fA-F]{7,64}$"
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "kind": {
+                      "const": "sibling-commitment-ref"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "repo",
+                    "ref"
+                  ],
+                  "properties": {
+                    "ref": {
+                      "type": "string",
+                      "pattern": "^(state/cross-repo-commitments/)?\\d{4}-\\d{2}-\\d{2}-[a-z0-9][a-z0-9-]*\\.yaml$"
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "kind": {
+                      "const": "commit-ancestor"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "repo",
+                    "ref"
+                  ],
+                  "properties": {
+                    "ref": {
+                      "type": "string",
+                      "pattern": "^[^@\\s]+@[^@\\s]+$",
+                      "description": "'<commit-ish>@<target-ref>' -- the '@' is load-bearing: a bare SHA with no '@' fails this pattern outright, which is deliberate (a bare SHA implies an implicit default target and re-opens the silent-wrong-tree failure the mandatory repo: rule exists to prevent)."
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "kind": {
+                      "const": "file-exists"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "repo",
+                    "ref",
+                    "expected",
+                    "note"
+                  ],
+                  "properties": {
+                    "ref": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "expected": {
+                      "type": "boolean"
+                    },
+                    "note": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "kind": {
+                      "const": "frontmatter-field"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "repo",
+                    "ref",
+                    "expected"
+                  ],
+                  "properties": {
+                    "ref": {
+                      "type": "string",
+                      "pattern": "^[^#\\s]+#[^#\\s]+$",
+                      "description": "'<repo-relative-path>#<field-name>' -- exactly one '#', non-empty on both sides."
+                    },
+                    "expected": {
+                      "type": [
+                        "string",
+                        "number",
+                        "boolean"
+                      ],
+                      "description": "Non-null scalar, REQUIRED. A null or absent expected collapses this kind into file-exists and re-opens the existence-is-not-satisfaction trap."
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "kind": {
+                      "const": "deadline"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "ref"
+                  ],
+                  "not": {
+                    "required": [
+                      "repo"
+                    ]
+                  },
+                  "properties": {
+                    "ref": {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}(T\\d{2}:\\d{2}(:\\d{2})?(Z|[+-]\\d{2}:\\d{2})?)?$",
+                      "description": "Absolute ISO-8601 date (or date-time), NEVER a relative expression ('in 2 weeks', '+7d'). elapsed is resolver-computed from this value and is authoring-forbidden (see the propertyNames guard on this object)."
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "kind": {
+                      "const": "human"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "reason"
+                  ],
+                  "not": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "repo"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "ref"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "kind": {
+                      "const": "probe-command"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "repo",
+                    "ref",
+                    "note"
+                  ],
+                  "properties": {
+                    "ref": {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "^(?![/\\\\]|[A-Za-z]:)(?!\\.\\.[/\\\\])(?!\\S*[/\\\\]\\.\\.[/\\\\])",
+                      "description": "Repo-relative script path plus arguments, e.g. 'scripts/check.py --flag'. The pattern rejects an absolute path (leading separator or drive letter) and a `..` segment in the script path."
+                    },
+                    "note": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "What the probe's output reads."
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "last_gate_recheck": {
+      "type": "string",
+      "format": "date",
+      "description": "Timestamp of the last gate-recheck pass; stamped by the gate-recheck verb regardless of --cleared."
+    },
+    "park_note": {
+      "type": "string",
+      "description": "Optional single-line note recorded by the unconsume transition when a picked-up baton is returned to the shelf (why it was un-consumed). Written by handoff-transition.js unconsume --note / cs_unconsume_handoff."
+    },
+    "shipped_in": {
+      "type": "string",
+      "pattern": "^([0-9a-fA-F]{7,64}|substantively-shipped-no-commit:\\d{4}-\\d{2}-\\d{2})$",
+      "description": "The commit at which this baton was declared shipped (a caller-supplied ship commit), always a resolvable SHA, OR the sanctioned substantively-shipped-no-commit:<YYYY-MM-DD> stealth-skip token. Any set value is shape-validated by this pattern unconditionally; the date-gated *requirement* to set shipped_in on shipped handoffs lives in cross-field Rule A3a-2b (pre-cutoff shipped handoffs predating the convention are exempt from the requirement, not from value shape). Companion field shipped_in_kind tags which of the sanctioned resolutions produced this value — read that field's description before assuming this is a direct ship commit. The caller-supplied ship commit is DR-096 meaning 2; see DR-096 for the full taxonomy of how this value is resolved."
+    },
+    "shipped_in_kind": {
+      "enum": [
+        "ship-commit",
+        "successor",
+        "scope-derived",
+        "no-commit"
+      ],
+      "description": "Discriminant for how shipped_in was resolved — required whenever shipped_in is set (required-when-shipped, alongside shipped_in itself). Makes the *meaning* of shipped_in type-checkable by this tag instead of by regex-sniffing the string it points at. ship-commit = the commit at which this baton was declared shipped (the canonical case: a caller-supplied ship commit at write time). successor = the SHA belongs to a successor or the deliverable that resolved this baton (handoff_reconcile gate-a); the successor pointer itself lives in the existing succession fields (continued_into / disposed_successors), NOT duplicated here — this only tags that shipped_in's SHA was sourced from that lineage, not a direct ship commit. scope-derived = legacy/best-effort resolution from the baton's own scope paths (retired as the PREFERRED write-time strategy per DR-096, not eliminated as a write path outright: three in-process sha-less stampers — wsc_commit.py's pre-commit tail, /update-docs Phase 8, and boot_sweep's best-effort stamp — can each still select this kind when no caller-supplied sha is available; none is reached via a CLI --sha flag. Per the blast-radius audit (state/audits/2026-07-26-scope-derived-retirement-blast-radius.md), this kind appears ZERO times on disk across either repo's live or archived corpus — a short observation window since shipped_in_kind started being written, not a durable absence proof. Retiring this write path is orthogonal to the handoff archival backlog, not a drain measure for it. See DR-096 § Current state vs. target state for the corrected account before assuming this tag never appears on a freshly-written value). no-commit = shipped_in holds the substantively-shipped-no-commit:<date> token, not a SHA."
+    },
+    "continued_into": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Successor pointer for deployment_state=continued — handoff_id (hnd-<slug>-<6hex>) preferred, state/handoffs/... path fallback (pre-existing successors carry no handoff_id; no backfill). The tooth that keeps 'continued' from becoming liveness-guess abandonment: an automated writer that cannot name the successor cannot stamp continued. Required-when-continued (P4 narrow)."
+    },
+    "disposed_successors": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Lineage-preservation edges written by distill.apply_disposal (C14) BEFORE a successor handoff is deleted: each entry is a successor's continued-into value (handoff_id preferred, path fallback — same shape as continued_into) for a successor that continued this record's work and was later disposed by /distill. Multi-valued (unlike continued_into, single-valued and deployment_state=continued-gated) because a parent can accumulate multiple disposed successors across separate /distill runs; each entry is append-only and never overwritten. Distinct from continued_into: this field is NOT deployment_state-conditional and is NOT itself the successor pointer for this record's own lifecycle — it is a reverse-pointing lineage record of OTHER records that pointed at this one and have since been deleted."
+    },
+    "closed_reason": {
+      "anyOf": [
+        {
+          "enum": [
+            "cancelled",
+            "displaced",
+            "stale"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Deliberate-stop subtype for deployment_state=closed (human/session only, never automated — DR-084). cancelled = deliberate stop; displaced = replaced with NO lineage edge (with an edge it's continued, not closed); stale = overtaken by events. Deliberately NO crashed/orphaned value: a successor-less dead-holder has no automated terminal — it surfaces for adjudication. Required-when-closed (P4 narrow)."
+    },
+    "blocks": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Stub IDs this stub blocks. Permitted on ANY kind as of C1 — the former roadmap-only cross-field gate was removed so the gate resolver can carry non-roadmap batons. (kind=roadmap-baton still REQUIRES this field, along with roadmap_id/stub_id/wave/blocked_by — enforced in the Python cross-field layer only (`_cf_spinoff_roadmap_requires_graph`), NOT in this file's allOf; relaxing the one did not weaken the other. roadmap_id remains genuinely roadmap-scoped and still rejects on other kinds.)"
+    },
+    "blocked_by": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^(?!.*/)(?!.*\\.md$)\\S+$"
+      },
+      "description": "Stub IDs OR handoff_id values that block this stub (namespace decision already made — do not re-open: the mutating path already matches blocker_id in (stub_id, handoff_id), so the compute index accepting both here makes it agree with what mutation already does). Permitted on ANY kind as of C1 — the former roadmap-only cross-field gate was removed so the gate resolver can carry non-roadmap batons, and `ops/handoff_children.blocked_by_dependents` plus the d6 roadmap-baton-decline evidence text both read it on non-baton handoffs. (kind=roadmap-baton still REQUIRES this field, along with roadmap_id/stub_id/wave/blocks — enforced in the Python cross-field layer only (`_cf_spinoff_roadmap_requires_graph`, whose required list names blocked_by explicitly), NOT in this file's allOf, so a schema-only reader is not misled; relaxing the one did not weaken the other. roadmap_id remains genuinely roadmap-scoped in the sense that it is a roadmap-cluster FK wherever it is carried -- but per EM ruling it is not kind-exclusive: `_cf_graph_fields_roadmap_only`'s gated set is roadmap_id ALONE, admitting non-roadmap-baton kinds -- see roadmap_id's own description.) Pattern is deliberately permissive (no whitespace, no path separator, no .md extension) rather than fit to the numeric stub_id families (<slug>-<N>) — live records include shapes like pacl-05-a, strang-10-C, strang-10-inject-anchor, cis-producer-locator that a narrower `^[a-z]+-\\d{2}$`-style pattern would reject outright."
+    },
+    "roadmap_id": {
+      "type": "string",
+      "description": "Roadmap identifier -- REFERENTIAL, not merely present (DR-198(b), docs/decisions/DR-198-cluster-less-baton-work-is-a-spinoff-and-roadmap-id-is-referential.md): when carried, the value MUST name a cluster that actually exists under state/roadmap/. A well-formed dangling value (a string that names no real cluster) is not a valid substitute for an honest omission -- presence alone was never sufficient, and a schema-only reader must not read this field as satisfied merely because it is non-empty. The existence check itself is NOT enforced by this write-time schema or its cross-field layer (SC-DR-016 excludes a live-state read like state/roadmap/ from deny-from-day-one); it is surfaced at resolve/audit time instead (DR-198(c), option iii), mirroring gate_eval's dangling-blocked_by treatment. RULED permitted on any kind (DR-198) but NOT YET PERMITTED BY THE ENGINE -- do not read this sentence as describing today's runtime. The two cross-field rules that reject roadmap_id on non-roadmap-baton kinds, `_cf_roadmap_id_implies_kind` and `_cf_graph_fields_roadmap_only`, live in the engine repo and their deletion is an OPEN ASK on that repo's wire (cross-repo memo 2026-09-06-coordinator-content-repo-em-roadmap-id-referential-and-two-rule-deletions.md); verified still rejecting at the engine repo origin/main c27ff635f. Until they land, a spinoff carrying roadmap_id is DENIED at write time, so author to the current engine, not to this ruling. When they land, delete this paragraph's caveat -- the ruling itself does not change. `kind=roadmap-baton` still REQUIRES this field via `_cf_spinoff_roadmap_requires_graph` (the engine repo `coordinator_core/frontmatter/schema_validate.py:1345`, verified at origin/main c27ff635f); that requirement lives in the Python cross-field layer only, not this file's allOf. Cluster-less baton-shaped work does NOT get this field invented or left blank to satisfy a mandatory-field pressure -- it takes `kind: spinoff` instead (DR-198(a))."
+    },
+    "stub_id": {
+      "type": "string",
+      "description": "Globally-unique stub code (<slug>-<N>). Required by cross-field rule when kind=roadmap-baton."
+    },
+    "sprint": {
+      "type": "number",
+      "description": "Sprint grouping (typically 1–4). Roadmap-only (kind=roadmap-baton)."
+    },
+    "wave": {
+      "type": "number",
+      "description": "Serialization-order grouping within a sprint. Required by cross-field rule when kind=roadmap-baton."
+    },
+    "covers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Coverage units (cluster ids) folded into this baton; carries Phase 1 verdict accounting when one baton absorbs several clusters -- documented as load-bearing at coordinator/skills/roadmap-planning/residue/stub-frontmatter-schema-and-field-notes.md and directed by coordinator/skills/roadmap-planning/SKILL.md ('every KEEP cluster named in exactly one stub's covers:'). Roadmap-only (kind=roadmap-baton); populated only when a stub consolidates M:N clusters, so most roadmap-baton records legitimately omit it -- absence is the single-cluster case, not a defect. C3: measured zero occurrences across all 50 kind:roadmap-baton stubs on disk (state/handoffs/ + archive/handoffs/) at authoring time, which reflects that no landed baton has yet folded multiple clusters, not that the field is unused doctrine -- declared here so the documented field validates rather than passing silently through an unset additionalProperties gap."
+    },
+    "cost": {
+      "type": "string",
+      "description": "Estimation tier T0|T1|T2|T3. Cross-field rule enforces allowed values when present."
+    },
+    "suggested_priority": {
+      "enum": [
+        "urgent",
+        "high",
+        "medium",
+        "low"
+      ],
+      "description": "Advisory execution-priority signal an EM may attach to this handoff at authoring time. Optional (not nullable — absence already covers 'no suggestion'; a redundant null representation was reviewed out). Enum is the priority-ledger domain (priority-ledger.schema.json's urgent|high|medium|low|none) MINUS 'none' — an EM has no reason to author an explicit clear; absence of the field already covers that case. Advisory only: the PM-owned priority ledger (state/priority-ledger/) is the authoritative tier and lives on a deliberately separate surface — this field never overrides it, and that separation (not memory) is what keeps 'advisory never overrides authoritative' structural. Do NOT add a pm_priority field to this frontmatter to compensate; the tier split is the point. NEGATIVE-SPEC: no inherited_from / priority_predecessor field is permitted on this frontmatter either — priority does not chain hop-to-hop the way carry_id does. No backfill of pre-existing handoffs, consistent with this schema's origin_* no-backfill policy."
+    },
+    "category": {
+      "enum": [
+        "roadmap",
+        "infra",
+        "bug",
+        "docs",
+        "research",
+        "refactor",
+        "uncategorized",
+        "queue-derived-baton"
+      ],
+      "description": "Workstream category. Required by cross-field rule for handoffs created >= 2026-05-29. 'uncategorized' is the null-object sentinel for the one-time backfill normalizer only. 'queue-derived-baton' marks a handoff authored as a queue-triage terminus (solo or themed baton) rather than an ordinary session handoff — class-filterable per docs/plans/2026-07-23-queue-triage-terminates-in-batons.md; interim scaffolding uses 'infra' and hand-edits to this value until the engine's coordinator-doc-new default is updated (C9 memo). WIRE PROJECTION: this field is emitted into the cockpit contract as 'workstream_type' — same axis, two names, a 1:1 passthrough at the engine repo coordinator_core/ops/emit/sections/handoffs.py:401. Adding a value here is NOT sufficient on its own: the cockpit WorkstreamType Literal (coordinator_core/contract/cockpit_schema/entities/deliverable_spine.py) is a closed set and must gain the same value. A handoff carrying a value that Literal does not know is quarantined per-record into the emission's 'malformed' bucket with a logged reason (caught at emit/sections/handoffs.py:436-449) — the emission RUN still completes, but that baton vanishes from the wire and no fleet consumer can see or filter it. See docs/wiki/ceremony-calibration/queue-terminus-doctrine.md § The cockpit projection."
+    },
+    "summary": {
+      "type": "string",
+      "description": "One-line session summary (<=140 chars). Required by cross-field rule for handoffs created >= 2026-05-29. Length enforced by cross-field rule."
+    },
+    "reviewed_at_workstream_complete": {
+      "type": "string",
+      "description": "Review marker written by /workstream-complete and /handoff. Format: '<sha-range> <reviewer> <YYYY-MM-DD>'. Absent on spinoff-kind handoffs."
+    },
+    "completeness_checklist": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Install/onboarding completeness items. Each item: '<class>: <assertion text> [probe: <shell-command>]'. Opt-in — intended for install/onboarding batons only."
+    },
+    "supersedes": {
+      "type": "string",
+      "description": "Conditional-live orientation-supersession field. Permitted only on kind=spinoff (cross-field rule enforced). Distinct from the terminal memo supersedes:/superseded_by: coupling."
+    },
+    "additional_predecessors": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Fan-in merge edges — additional parent handoff paths beyond the primary predecessor. Optional. Each entry is a path string to a predecessor handoff. Cross-field rules enforce: no duplicate entries within the array; no entry duplicating the primary predecessor field. Population is engine-derived, not PM-directed: baton_assemble resolves the fan-in legs via _resolve_held_handoff_for_session and writes this field at successor-scaffold time (d1) from the same resolved list it uses to stamp each leg's own continued_into up-edge (d6*). An EM may still supply legs by hand via coordinator-doc-new --additional-predecessor."
+    },
+    "forked_from": {
+      "type": "string",
+      "description": "Spinoff branch-point ancestry (lineage/render-only). Permitted only on kind=spinoff by cross-field kind-gate. NOT followed by the LoE aggregation primitive (DR-014 effort-isolation preserved); present for DAG rendering and lineage tracing only. Requires PM direction."
+    },
+    "replan_of": {
+      "type": "string",
+      "description": "The source baton id this replan supersedes — the `batonId` a plan-blitz wave's `replan` verdict named, stamped verbatim at mint by `roadmap.blitz_land::mint_replan_baton`. ENGINE-written only, never PM-directed: the mint and this stamp are one landing. Positive succession evidence for the source baton's own `continued_into` edge, which the same landing writes in the same call — see `deployment_state`'s description and DR-242. Distinct from `forked_from` (general spinoff lineage, PM-directed, optional on any spinoff): this field is narrower, always an id (never a path), and exists specifically to let `roadmap.plan_gate` drop a superseded original out of every wave without re-deriving it from naming convention."
+    },
+    "deliverable_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^dlv-(?!placeholder-replace-with)[0-9a-zA-Z][0-9a-zA-Z.-]*$"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Durable deliverable join key. Minted once at the earliest artifact (roadmap-spinoff stub or first plan/handoff) and carried verbatim by every downstream artifact. dlv-<slug>-<6hex> for plan/handoff origins; dlv-<stub_id>-<6hex> for roadmap-stub origins (DR-346 §8: the 6-hex suffix is opaque and machine-derived so a matching id can prove a copy -- the bare dlv-<stub_id> form is retired and NOT backfilled onto existing records). Cross-field rule enforces 'dlv-' prefix when non-null. Null for pre-backfill artifacts. Spec backlink: the engine repo:pln-fleet-deliverable-spine-identity-and-facets-2b331c § D1; DR-346 §8"
+    },
+    "deliverable_ids": {
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^dlv-(?!placeholder-replace-with)[0-9a-zA-Z][0-9a-zA-Z.-]*$"
+          }
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Plural fan-in sibling of deliverable_id (nested-field-additive, 8.1.0 -> 8.2.0) — the join-key set a successor unifying multiple predecessor batons inherits when it carries more than one deliverable forward. Same 'dlv-' pattern as deliverable_id on every array entry; deliverable_id itself is RETAINED, unchanged in meaning, and remains the single-deliverable case's field — this is an added carrier, not a replacement. Null or an absent key both mean 'no plural set authored'; an empty array is not the same as null (reserved for a future 'explicitly zero' distinction, unused as of this bump). No cross-field allOf coupling to deliverable_id is imposed — a record may carry either, both, or neither. Cross-repo ask: cross-repo/inbox/2026-08-19-the engine repo's EM-baton-schema-bump-role-axis-and-pickup-doctrine.md § Ask 1."
+    },
+    "sizing_objects": {
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "pattern": "^state/sizings/.+\\.yaml$",
+            "type": "string"
+          }
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Plural fan-in sibling of sizing_object, exactly as plan_ids and deliverable_ids are the plural siblings of origin_plan_id and deliverable_id. Each entry carries the same string shape as the singular field. The singular sizing_object stays unchanged and is NOT deprecated. Optional, nullable, no required entry, no cross-field allOf coupling. sizing_object's one-way direction ruling (baton -> sizing, never mirrored back) governs every entry here for the same cardinality reason: a sizing routes to many batons over time, so no reverse edge is declared."
+    },
+    "sizing_object": {
+      "anyOf": [
+        {
+          "pattern": "^state/sizings/.+\\.yaml$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "FK to the sizing-object (state/sizings/<id>.yaml) that routed the work behind this baton through coordinator:sizing. Optional and nullable, mirroring plan.schema.json's sizing_object shape byte-for-byte on the type arms — the established precedent for this FK, and a divergent shape for the same semantics is a re-vendor hazard. THE EDGE IS ONE-WAY, baton -> sizing, unlike plan.schema.json's sizing_object <-> sizing-object.schema.json's plan pair, which is bidirectional. Symmetry argues for copying that reverse leg here too, but plan<->sizing's reverse leg is a SCALAR (sizing.plan) and that only works because a sizing routes to at most one plan; a sizing can route to MANY batons over time (a spinoff, then its successors), so a scalar reverse edge would be wrong and an array reverse edge is fan-out upkeep to keep honest on every mint, archive, and supersede. The baton is also the artifact that gets picked up, so the read that matters (baton in hand, reach its intent / appetite / surfaced_to_pm) is the forward one. Cardinality alone carries the one-way ruling, not a derivability argument (sizing-object.schema.json's own `plan` field is equally derivable and exists anyway, so derivability does not distinguish the two cases). One-way is cheaper to keep honest and loses nothing a reader needs; a later fan-out need is served by a reader over the forward edge, which stays authoritative. When present, the referenced file is expected to resolve on disk. Frontmatter-only, never read from handoff body prose."
+    },
+    "initiative": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "FK to the initiative entity (state/initiatives/<id>.yaml). Nullable — not all work belongs to a named initiative. Cross-field rule enforces non-empty string when non-null. Spec backlink: the engine repo:pln-fleet-deliverable-spine-identity-and-facets-2b331c § D2"
+    },
+    "caption": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "One-sentence business-legible outcome line. NOT an engineering title or filename — authored for CEO-board legibility (e.g. 'Shipped the studio Pro billing flow'). Optional; authored at creation time."
+    },
+    "status_reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Free-text one-liner explaining the current status (e.g. 'abandoned — superseded by X'). Optional authored field; carried into the cockpit emission as a product-legibility facet."
+    },
+    "owner": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Authoring workstream or EM identifier. Nullable; carried forward from the earliest artifact for the deliverable."
+    },
+    "origin_session": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Originating-session provenance — the session UUID in which this fork was spawned. DISTINCT from predecessor (continuation spine, always none for forks), forked_from (branch-point ancestry, handoff-path), and deliverable_id (dlv- grouping key). Scalar 0..1. Id format: global UUID, no prefix (already globally unique). Backfill=null for pre-existing forks; no migration. Spec backlink: pln-structured-originating-session-8b505c § Field shape"
+    },
+    "origin_handoff": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Originating-handoff provenance — the active baton path (state/handoffs/…) at fork-authoring time. DISTINCT from predecessor (continuation spine), forked_from (branch-point ancestry, also a handoff-path but lineage/render-only), and deliverable_id (dlv- grouping key). Scalar 0..1. Id format: state/handoffs/… path (inherently namespaced). This is the sole origin_* field that is a handoff-DAG edge (registered in walk-handoff-dag.js EDGE_KIND_META); the other three are cross-entity refs. Backfill=null for pre-existing forks; no migration. Spec backlink: pln-structured-originating-session-8b505c § Field shape"
+    },
+    "origin_handoff_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^hnd-(?!placeholder-replace-with)[a-z0-9-]+-[0-9a-f]{6}$"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "ID-companion for origin_handoff (C2, add-not-swap) — the originating baton's handoff_id, resolved and stamped at author time from the SAME baton origin_handoff names (never a different one). Path-independent, survives the originating baton's archival/rename; origin_handoff remains the human-legible display path. Null when the originating baton has no handoff_id (pre-existing artifact, no backfill) or origin_handoff is null. Never-silently-disagree cross-field rule (origin_handoff/origin_handoff_id must resolve to the same artifact when both non-null) is owned by C3, not this schema file. Spec backlink: pln-lifecycle-vocab-c2-durable-cro-991bd4 § C2"
+    },
+    "origin_plan_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Originating-plan provenance — the plan under execution when this fork was spawned. DISTINCT from predecessor (continuation spine), forked_from (branch-point ancestry), and deliverable_id (dlv- grouping key). Scalar 0..1. Id format: pln-prefixed (e.g. pln-structured-originating-session-8b505c). Cross-entity ref — NOT a handoff-DAG edge; rag's origin_edges projection owns the durable query surface. Backfill=null for pre-existing forks; no migration. Spec backlink: pln-structured-originating-session-8b505c § Field shape"
+    },
+    "plan_ids": {
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Plural fan-in sibling of origin_plan_id (nested-field-additive, 8.1.0 -> 8.2.0) — the plan-provenance set a successor unifying multiple predecessor batons inherits when more than one plan was under execution across the merged lineage. Same string shape as origin_plan_id on every array entry (pln-prefixed by convention, unenforced by pattern here exactly as origin_plan_id itself is unenforced); origin_plan_id is RETAINED, unchanged in meaning, and remains the single-plan case's field — this is an added carrier, not a replacement. Null or an absent key both mean 'no plural set authored'. No cross-field allOf coupling to origin_plan_id is imposed — a record may carry either, both, or neither. Cross-entity ref, same as origin_plan_id — NOT a handoff-DAG edge. Cross-repo ask: cross-repo/inbox/2026-08-19-the engine repo's EM-baton-schema-bump-role-axis-and-pickup-doctrine.md § Ask 1."
+    },
+    "origin_goal_id": {
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Originating-goal provenance — the goal(s) tagged at fork-authoring time. Array (string[] | null) because multi-goal forks are real (a roadmap serving multiple goals; many-to-many InitiativeSummary.goals[]). DISTINCT from predecessor (continuation spine), forked_from (branch-point ancestry), and deliverable_id (dlv- grouping key). Each entry is goal-prefixed kebab-case (e.g. goal-shipping-velocity) — matches the goal.schema.json id field scheme. Cross-entity ref — NOT a handoff-DAG edge; rag's origin_edges projection fans array entries into N edge rows. Backfill=null for pre-existing forks; no migration. Spec backlink: pln-structured-originating-session-8b505c § Field shape"
+    },
+    "handoff_id": {
+      "type": "string",
+      "pattern": "^hnd-(?!placeholder-replace-with)[a-z0-9-]+-[0-9a-f]{6}$",
+      "description": "Durable stable ID for this handoff/spinoff record, path-independent (survives archival move/rename). Minted via coordinator-doc-new's _mint_artifact_id(prefix=\"hnd\", slug) at scaffold time — hnd-<slug>-<6hex>. OPTIONAL on new records going forward, but POLICY REVERSED (DR-102, C10) for the live corpus: state/handoffs/*.md records that predated this field were BACKFILLED via coordinator/lib/backfill-handoff-id.py (idempotent; frontmatter-primitives seam; script removed post-backfill, its job done) — this supersedes the prior no-backfill prose, which was consistent with this schema's origin_* no-migration policy but does not hold for handoff_id itself. archive/handoffs/ remains grandfathered (out of scope for the reversal), matching DR-096 §5's precedent for shipped_in on archived batons. This is the join key C2's predecessor_id/origin_handoff_id ID-companion ancestry fields resolve against — backfilling it serves LINEAGE tracking only and does NOT de-collide the gate index (which joins on id/stub_id, a separate namespace). Spec backlink: pln-lifecycle-vocab-c2-durable-cro-991bd4 § C1; DR-102"
+    },
+    "recovers_session": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "recovery-kind only: session-id of the crashed session being reconstructed. OPTIONAL, no cross-field enforcement (yet) — a future cross-field rule could require this to be non-null when kind=recovery, but that gate is left as a follow-up (see bin/lib/schema.js CROSS_FIELD_RULES['handoff'] comment)."
+    },
+    "handoff_phase": {
+      "enum": [
+        "continuation",
+        "execution"
+      ],
+      "description": "The plan→execute seam axis on kind: session-handoff, canonical kind: roadmap-baton, AND kind: spinoff — it is NOT session-handoff-only. Absence ≡ continuation (going-forward default). OPTIONAL. The kind-gate MUST resolve the roadmap side through kind_values_for_canonical('roadmap-baton'), never a bare kind == 'roadmap-baton' literal: that canonical resolves to {roadmap-baton, spinoff-roadmap}, and real roadmap batons on disk carry kind: spinoff-roadmap — a literal gate would never fire on them. Admitting this field on roadmap-baton or spinoff is NOT backfilling it — widening this validation gate does not widen any stamping predicate. ONE stamping path is widened alongside it and no other: plan-blitz's spec-dispatch lane (roadmap/blitz_land.py :: the S lane), which is the route the spinoff admission exists for. handoff_phase_stamp.py's own pre-write kind guard and push-side-write-discipline's unconditional continuation stamp stay session-handoff-only. Cross-field rules (stamp-required-when-execution: _cf_execution_stamp_required; kind-gate: _cf_handoff_phase_kind_gate) live in the engine repo/coordinator_core/frontmatter/schema_validate.py's _HANDOFF_CROSS_FIELD_RULES list. Spec backlink: pln-first-class-execution-handoff--40a6e5 § C1"
+    },
+    "baton_role": {
+      "enum": [
+        "work",
+        "record"
+      ],
+      "description": "The inheritability axis (nested-field-additive, 8.1.0 -> 8.2.0): work = a unit of work a session or run may inherit (e.g. an ordinary continuation handoff, a spinoff carrying real work, a roadmap stub). record = a session's own scratch identity, or any artifact filed rather than picked up (a spike verdict, a session-start baton.json) — never offered as inheritable work. OPTIONAL. Absence ≡ unknown, and unknown is NOT inheritable — a consumer checks by POSITIVE MATCH (`baton_role == \"work\"`), never via a defaulted `.get(..., \"work\")` and never via a normalizer backfill: `handoff.normalize` MUST NEVER stamp this field onto an existing unstamped record, since sweeping 'work' across the legacy corpus would convert an honestly-unknown population into a false assertion in one commit. That not-inheritable-when-absent rule is scoped to NEW consumers reading this axis (the unification held-set, /mise-en-place's inheritance set) — it does NOT gate /pickup admitting an artifact the operator explicitly named; an operator naming a path is the authority, and this field is not a second gate on their instruction. Distinct from two axes it sits beside on this same schema, and must not be folded with either: `kind` (session-handoff | spinoff | roadmap-baton | goal-seed | roadmap-seed | recovery) answers where this record came from, not what may inherit it — a spinoff can carry baton_role: work despite kind alone never implying that. `handoff_phase` (continuation | execution) is the plan→execute seam on an already-inheritable record and is a different axis entirely — do NOT use the string 'execution' as a baton_role value; a record can validly carry `handoff_phase: execution` alongside `baton_role: work` on the same frontmatter block, and the two must never be conflated. Ratifying review: state/subagent-share/bc70d292-1669-4531-aaa9-845c1b8bb79c/coordinatoreng-director-d8ff2cfd.md. Cross-repo ask: cross-repo/inbox/2026-08-19-the engine repo's EM-baton-schema-bump-role-axis-and-pickup-doctrine.md § Ask 2."
+    },
+    "execution_authorized_by": {
+      "type": "string",
+      "description": "The PM/session that authorized execution. OPTIONAL — one of the four-field execution-authorization stamp (by/at/sha/note); required-together enforcement (_cf_execution_stamp_required) lives in the engine repo/coordinator_core/frontmatter/schema_validate.py's _HANDOFF_CROSS_FIELD_RULES list when handoff_phase=execution. Spec backlink: pln-first-class-execution-handoff--40a6e5 § C1"
+    },
+    "execution_authorized_at": {
+      "type": "string",
+      "description": "ISO 8601 date-time of authorization. OPTIONAL — one of the four-field execution-authorization stamp (by/at/sha/note); required-together enforcement (_cf_execution_stamp_required) lives in the engine repo/coordinator_core/frontmatter/schema_validate.py's _HANDOFF_CROSS_FIELD_RULES list when handoff_phase=execution. Spec backlink: pln-first-class-execution-handoff--40a6e5 § C1"
+    },
+    "execution_authorized_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{7,64}$",
+      "description": "git-hash-object of the plan body at authorization (the content-binding witness /pickup recomputes; schema shape-only). OPTIONAL — one of the four-field execution-authorization stamp (by/at/sha/note); required-together enforcement (_cf_execution_stamp_required) lives in the engine repo/coordinator_core/frontmatter/schema_validate.py's _HANDOFF_CROSS_FIELD_RULES list when handoff_phase=execution. Spec backlink: pln-first-class-execution-handoff--40a6e5 § C1"
+    },
+    "execution_authorized_note": {
+      "type": "string",
+      "description": "The verbatim PM utterance that named execution. The FOURTH field of the stamp: plan-execute-session-split.md § Pinned conventions pins the stamp as a byte-identical FOUR-field contract (by/at/sha/note); note is the self-attesting field — a stamp without a note that names execution signals the write-bar may not have been met. Do NOT drop it. OPTIONAL — required-together enforcement (_cf_execution_stamp_required) lives in the engine repo/coordinator_core/frontmatter/schema_validate.py's _HANDOFF_CROSS_FIELD_RULES list when handoff_phase=execution. Spec backlink: pln-first-class-execution-handoff--40a6e5 § C1"
+    },
+    "distill_fate": {
+      "enum": [
+        "ephemeral",
+        "commitment",
+        "ratification"
+      ],
+      "description": "Distill-lifecycle classification stamped on this handoff (symmetry with the memo-side field, cross-repo-memo.schema.json). ephemeral: fyi-ack/routine, no capture required. commitment: opens a follow-up loop. ratification: settles ownership/seam permanently — REQUIRES in_repo_capture pointing at an in-repo home (cross-field rule shared with cross-repo-memo's identical rule, ported at the engine repo coordinator_core/frontmatter/schema_validate.py); a ~/.claude memory-pointer path MUST fail validation (finding #12). Absent is valid (back-compat, no migration). Spec backlink: docs/plans/2026-07-19-distill-engine-python-rebuild.md § C1, folded via docs/plans/2026-09-11-doctrine-surfaces-that-assert-unenforced.md § C2"
+    },
+    "in_repo_capture": {
+      "type": "string",
+      "description": "In-repo path where a ratification-fated handoff's decision was durably captured (docs/decisions/, docs/wiki/, state/cross-repo-commitments/, or a canonical plan/spec path — or the coordinator/docs/... source-repo equivalents). Required by cross-field rule when distill_fate=ratification (the engine repo coordinator_core/frontmatter/schema_validate.py — the handoff-side enforcement is an EXTERNAL GATE, not yet landed; see this schema's own x-bump-note). A ~/.claude-rooted path is NOT a valid in-repo home and fails validation once the rule lands (finding #12). Spec backlink: docs/plans/2026-07-19-distill-engine-python-rebuild.md § C1, folded via docs/plans/2026-09-11-doctrine-surfaces-that-assert-unenforced.md § C2"
+    },
+    "carried_items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "carry_id",
+          "description",
+          "disposition"
+        ],
+        "properties": {
+          "carry_id": {
+            "type": "string",
+            "pattern": "^cf-[a-z0-9-]+-[0-9a-f]{6}$",
+            "description": "Stable identity for one carried item, minted ONCE (cf-<slug>-<6hex>) the first time the item is carried, then threaded byte-identical through every successor handoff regardless of how the item's prose is re-worded hop to hop. This is the anti-evasion tooth: the gate (coordinator_core.ops.handoff_carry_gate, the engine repo) keys on carry_id, never on description text, so re-wording an item never loses the thread. A new item (first appearance) mints a fresh carry_id; an item continuing from the predecessor keeps its predecessor's carry_id byte-identical."
+          },
+          "description": {
+            "type": "string",
+            "description": "Human-readable one-liner for the item — free to reword hop to hop; carry_id (not this text) is the identity key."
+          },
+          "disposition": {
+            "enum": [
+              "carried",
+              "closed",
+              "spun_off",
+              "blocked"
+            ],
+            "description": "carried = still open, no sanctioned exit yet — legal at any carry depth: an item may be carried indefinitely so long as each hop declares its state. closed = terminated in place (disposition_detail names why, mirrors deployment_state: closed's closed_reason vocabulary). spun_off = forked into its own baton (disposition_detail names the spinoff handoff path/id). blocked = the sanctioned exit for a genuine external dependency (e.g. hardware-gated Windows-host validation) — remains visible and explicit rather than silently re-carried; disposition_detail must name the concrete blocking condition, not restate 'blocked'."
+          },
+          "disposition_detail": {
+            "type": "string",
+            "description": "Required whenever disposition != carried (cross-field rule _cf_carried_items_shape in coordinator_core/frontmatter/schema_validate.py, the engine repo) — names the closure reason, the spinoff target, or the concrete external blocker. A disposition of closed/spun_off/blocked with no disposition_detail is the exact 'operator remembers' shape this field exists to eliminate, so the rule rejects it."
+          },
+          "first_seen_handoff_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "handoff_id of the handoff where this carry_id was first minted. Null when unknown (pre-existing item backfilled without history). Provenance only — not consulted by the gate."
+          }
+        }
+      },
+      "description": "Machine-readable replacement for the free-prose '_(carried via N handoffs)_' annotation under `## Carried Forward` — see coordinator/skills/handoff/SKILL.md § Cascading unresolved items. Each entry is gate-checked by coordinator_core.ops.handoff_carry_gate (the engine repo) before the handoff is written: the gate refuses a missing/non-string carry_id, an unrecognized disposition, and a terminal disposition (closed/spun_off/blocked) with an empty disposition_detail. It does NOT gate on carry depth — carries are indefinite so long as each hop declares the item's state."
+    },
+    "review_signals": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true,
+      "description": "C3: mirrors plan.schema.json's review_signals byte-for-byte on shape (array of unique strings, no enum) — declared here because roadmap-baton stubs (kind: roadmap-baton on this schema) carry the same field, and this schema previously did not declare it, leaving it unvalidated. Selects which reviewers this baton needs, forward — distinct from a reviewer-recorded-approval field, backward. Values are not enumerated here by design — the vocabulary is coordinator-content-repo coordinator/contract/review-signals.json, and membership is enforced by that contract's parity test (coordinator-content-repo coordinator/tests/test_review_signal_vocabulary_parity.py, extended to this schema as a second consumer) plus the frontmatter write guard where a coordinator engine is installed."
+    },
+    "governing_plan": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "R5 (docs/plans/2026-08-21-rebuild-the-three-ceremony-assemblers.md § C5/C6) -- repo-relative POSIX path to the plan this baton executes, stamped at mint (a fresh plan->execute mint, or this session's own currently-claimed plan) and carried forward unchanged across the successor hop (a continuation/execution-handoff mint carries its predecessor's own governing_plan). OPTIONAL: not in `required`, so an omitted key and `null` are two legal spellings of no-governing-plan and a consumer MUST read both. This field does not carry the present-as-null guarantee, and no description can give it one — only `required` plus a nullable union does that (coordinator-tripwires/present-as-null-is-carried-by-required-never-by-a-description.md). Measured 2026-09-03 across 955 baton-shaped records: 895 omit the key, 60 carry a path, and ZERO write `governing_plan: null`. The omitted form is not a majority, it is the whole corpus; the present-as-null spelling an earlier draft of this description demanded has never been written by any session. Enforcing it would manufacture 895 violations out of a corpus that has been internally consistent throughout, and 665 of those records are ARCHIVED — which handoff-archived.schema.json's `producer` already rules out, present-as-null being explicitly not retroactively imposed on records archived before the field existed. Absence is therefore correct and conformant, not a defect to be backfilled. Distinct from plan_ids (a fan-in citation audit, DR-346) and from origin_plan_id (spinoff-only originating-plan provenance): this is the single, current plan path a baton is executing against. Sole writer: apply.py :: _dispatch_baton_stamp_carried_ids -- an existing value differing from a freshly-resolved one raises rather than silently overwriting a recorded link."
+    },
+    "aggregate_execution": {
+      "type": "object",
+      "description": "THE AGGREGATE EXECUTION BATON: N workstreams named on ONE baton whose declared next step is the run. Presence of this key IS the shape — there is no seventh `kind` member and no flag (kind-gated to `roadmap-baton` by the allOf clause below). OPTIONAL at the record level. THIS BATON STORES NO CERTIFICATION OF ITS OWN: certification is per-plan (`mise_prepped_by/_at/_sha/_findings`, COORDINATOR-RESOLUTIONS.md Resolution 2) and the roll-up is a READ that recomputes each plan's body sha at the moment it is asked, which is why no `mise_prepped_*` twin is declared here. FIREABLE AT >=1 CERTIFIED CONSTITUENT, never all-N; a fire with any remainder is reported as a PARTIAL-FIRE naming what was excluded, never as completion. `constituents`, `uncertified` and `withheld_rows` are all three REQUIRED inside this block — an optional exclusion list is how a quiet drop happens. NEGATIVE-SPEC: not a status and no fourth status vocabulary (`status`, `handoff_phase`, `deployment_state` are the three, all untouched here); `handoff_phase: execution` and its `execution_authorized_*` quartet are an ORTHOGONAL axis this block neither implies, requires, nor substitutes for; plan-blitz's exclusion of claimed and `in_flight` batons is inherited unmodified, never re-derived here; no cross-repo aggregation; and no `additionalProperties: false` on the nested objects (coordinator-tripwires/a-closed-schema-turns-an-invented-key-into-a-lost-artifact.md). Contract: coordinator/docs/wiki/aggregate-execution-baton.md. Spec backlink: docs/plans/2026-09-07-aggregate-execution-baton.md § C1",
+      "required": [
+        "constituents",
+        "uncertified",
+        "withheld_rows"
+      ],
+      "properties": {
+        "constituents": {
+          "type": "array",
+          "minItems": 1,
+          "description": "The N workstreams this baton aggregates, one entry each. REQUIRED, and `minItems: 1` because an aggregate of nothing would validate as an execute-me baton with nothing to execute. Membership is the ONLY thing about a constituent this baton stores; whether that plan may fire is read off the plan itself, every time. The candidate set is produced under plan-blitz's existing exclusion of claimed and `in_flight` batons — inherited, never re-derived here.",
+          "items": {
+            "type": "object",
+            "required": [
+              "workstream",
+              "plan"
+            ],
+            "properties": {
+              "workstream": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The workstream slug this constituent carries — the same short grouping slug the top-level `workstream` field uses, so an operator reading the baton sees WHICH work a named exclusion costs without opening the plan."
+              },
+              "plan": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Repo-relative POSIX path to this workstream's plan — the object that carries the certification. A path, never a plan id: the roll-up has to OPEN this file to recompute its body sha."
+              }
+            }
+          }
+        },
+        "uncertified": {
+          "type": "array",
+          "description": "The constituent plans this baton is NOT going to fire, each with the attest state that excluded it. REQUIRED as a key; `uncertified: []` is a DECLARED-EMPTY asserting that nothing was excluded, structurally different from an absent key — the same distinction `writes: []` and `census: []` draw. REQUIRED RATHER THAN OPTIONAL BECAUSE AN OPTIONAL EXCLUSION LIST IS HOW A QUIET DROP HAPPENS, and a quiet drop reads as completion: an operator reading the frontmatter sees the excluded work without querying anything. IT IS AN OBSERVATION, NEVER A VERDICT — the fire-time authority is the recomputed read over each plan, and this list only ever SUBTRACTS from the fire set, so a stale list can hold back a plan that has since certified (reportable drift, and a reason to re-mint) but can never fire one that has not. Contract: coordinator/docs/wiki/aggregate-execution-baton.md.",
+          "items": {
+            "type": "object",
+            "required": [
+              "plan",
+              "state"
+            ],
+            "properties": {
+              "plan": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Repo-relative POSIX path, matching a `constituents[].plan`."
+              },
+              "state": {
+                "enum": [
+                  "STALE",
+                  "UNSTAMPED",
+                  "MALFORMED"
+                ],
+                "description": "Which of the mise-prep attest's four consumer states excluded this plan; CERTIFIED is absent by construction. STALE (stamp present, `mise_prepped_sha` disagrees with the recomputed body sha) and UNSTAMPED (no key) are DIFFERENT WORDS ON PURPOSE and route to different repairs — stale re-gates, unstamped stamps. MALFORMED is a hand-written partial stamp the write op cannot emit. This is the attest's own reader vocabulary (coordinator/docs/wiki/lesson-triage/mise-prepped-attest.md), read OFF A PLAN — never a state of this baton, and not a fourth status vocabulary."
+              }
+            }
+          }
+        },
+        "withheld_rows": {
+          "type": "array",
+          "description": "The spine rows held back inside plans that DO certify, per plan. REQUIRED as a key; `withheld_rows: []` is a DECLARED-EMPTY. This is the declared reader of plan.schema.json's `mise_prepped_findings` — the row ids an `external_gate` carrying `requires: landed-work` withheld while its plan still certified. A SECOND exclusion population, never folded into `uncertified`: an uncertified plan contributes no rows at all, while a certified plan can still arrive with rows that will not run, and folding them would report a partially-fired plan as a fully-fired one. Same observation-not-verdict rule as `uncertified`: the fire-time set is the UNION of what is stored here and what each plan's `mise_prepped_findings` says when read, so this list only ever subtracts.",
+          "items": {
+            "type": "object",
+            "required": [
+              "plan",
+              "rows"
+            ],
+            "properties": {
+              "plan": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Repo-relative POSIX path, matching a `constituents[].plan`."
+              },
+              "rows": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "description": "Withheld spine row ids, copied from that plan's `mise_prepped_findings`. IDS, NOT PROSE AND NOT A COUNT: they point into the plan's own `## Tasks` spine, which is the record. A plan with nothing withheld gets no entry here at all — `minItems: 1` is what keeps an empty-rows entry from reading as an exclusion that excludes nothing.",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "plan_blitz_hold_reason": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Why plan-blitz must NOT fire this baton, stated so a driver who was not in the session that learned it can act on it. OPTIONAL — one of the flat `plan_blitz_hold_*` keys. FLAT, not a nested mapping, and that is load-bearing: `roadmap.plan_gate` reads baton frontmatter through a narrow line-scanner rather than a YAML parser, so a nested `{reason, cite, until}` is unreadable at the gate that has to report it — the same precedent the four `execution_authorized_*` fields set. WHAT IT CLOSES: a hold lived only in the driver's own run notes, which the next session neither inherits nor knows to read, so an adjudicated baton returned as a candidate on every later gate read — measured on project-rag, 5 of 8 wave-0 candidates had a recorded reason not to fire and four were re-fired across five runs. NEGATIVE SPEC: a hold is NOT a blocker. It does not belong in `blocked_by`, which takes stub/handoff ids the gate resolves; spelling a hold as an invented edge is worse than the retype, and the gate fails such an edge CLOSED forever. A held baton stays a candidate by design — the gate reports the hold and the driver decides."
+    },
+    "plan_blitz_hold_cite": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Where the hold's reason is written down — a DR id, a file:line, a run's landing record, an audit path. OPTIONAL — one of the flat `plan_blitz_hold_*` keys. A hold whose reason cannot be re-read is a hold the next driver has to take on faith, and the one after that will clear it."
+    },
+    "plan_blitz_hold_until": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The condition that ends the hold, as prose a reader can evaluate against the tree — a landing, a ruling, a sibling's ship. OPTIONAL — one of the flat `plan_blitz_hold_*` keys. Absence means the hold stands until someone removes it deliberately, which is a weaker claim than a date: a date nobody enforces expires a hold the tree still needs."
+    },
+    "plan_blitz_hold_cleared_by": {
+      "type": "string",
+      "minLength": 1,
+      "description": "What cleared a plan-blitz pull: a commit sha or a cite a reader can check. OPTIONAL — one of the flat `plan_blitz_hold_*` keys, flat because plan_gate reads batons line by line. A hold carrying it is cleared: the clearing commit lifts the hold, so the baton is offered again. The hold's reason/cite/until stay as history."
+    },
+    "superseded_by": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Id of the baton this baton's work was folded into. Present means terminal: plan_gate excludes it from unsized and held counts and counts it as superseded. Optional; written when a fold is decided, never inferred from prose."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "deployment_state": {
+            "const": "ready_to_fire"
+          }
+        },
+        "required": [
+          "deployment_state"
+        ]
+      },
+      "then": {
+        "not": {
+          "required": [
+            "gate_dependency"
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "deployment_state": {
+            "const": "closed"
+          }
+        },
+        "required": [
+          "deployment_state"
+        ]
+      },
+      "then": {
+        "required": [
+          "closed_reason"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "deployment_state": {
+            "const": "continued"
+          }
+        },
+        "required": [
+          "deployment_state"
+        ]
+      },
+      "then": {
+        "required": [
+          "continued_into"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "claimed"
+          }
+        },
+        "required": [
+          "status",
+          "claimed_at"
+        ]
+      },
+      "then": {
+        "required": [
+          "claimed_by"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "deployment_state": {
+            "const": "shipped"
+          }
+        },
+        "required": [
+          "deployment_state",
+          "shipped_in"
+        ]
+      },
+      "then": {
+        "required": [
+          "shipped_in_kind"
+        ]
+      }
+    },
+    {
+      "not": {
+        "required": [
+          "gate_notes",
+          "blocking_notes"
+        ]
+      }
+    },
+    {
+      "$comment": "aggregate_execution kind-gate: an aggregate execution baton is a SHAPE on an existing kind, never a seventh kind. TWO kinds admit it, and which one a given aggregate takes is decided by its constituent set, not by the aggregate-ness: `roadmap-baton` when every constituent belongs to one roadmap cluster, `spinoff` when the set is cluster-less. That second arm is DR-198(a) applied, not an exemption invented here — cluster-less baton-shaped work takes `kind: spinoff`, and an aggregate over a cluster-less set is cluster-less baton-shaped work. Under `roadmap-baton` the aggregate inherits that kind's cross-field graph floor unchanged (_cf_spinoff_roadmap_requires_graph: roadmap_id, stub_id, wave, blocks, blocked_by), including DR-198(b)'s referential requirement on roadmap_id; under `spinoff` it carries no roadmap_id at all, which is DR-198(a1)'s accepted cost, not a gap. NEGATIVE-SPEC: a cluster-less aggregate must NOT be minted as a `roadmap-baton` carrying an invented or dangling roadmap_id — that shape validates and is exactly the defect DR-198(b) names. The gate fires only when the block is present, so no record without one is constrained. Canonical-kind resolution (kind_values_for_canonical) is a Python cross-field concern and not expressible here. Why not a seventh kind: coordinator/docs/wiki/baton-lifecycle/aggregate-execution-baton.md § What it is not.",
+      "if": {
+        "required": [
+          "aggregate_execution"
+        ]
+      },
+      "then": {
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "roadmap-baton",
+              "spinoff"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

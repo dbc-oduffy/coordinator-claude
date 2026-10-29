@@ -77,7 +77,7 @@ prints a `Workflow({scriptPath})` line for the EM to fire (`--dry-run` still wri
 and receipt: it withholds stamps, not files). A script over the Workflow byte cap is split into
 `<runId>-pN.residue.mjs` parts, each a complete args object, one printed line each, `apmItems` in
 part 1 only. The per-plan writes-collision findings files the args reference by `seamRef` sit in
-`state/mise-workflows/<runId>.seam/`, written under `--dry-run` too. Nothing is fired from here;
+`.coordinator-local/mise-workflows/<runId>.seam/`, written under `--dry-run` too. Nothing is fired from here;
 `--json` carries `residueWorkflow` (repo-relative path of part 1, or null),
 `residueWorkflowParts` (every part) and `residueFindings` (findings-file count). A bind or validate refusal is exit 2, taken
 only AFTER the full report prints (`--json`: `residueWorkflow: null` plus `residueError`), because
@@ -274,7 +274,7 @@ def _write_residue(repo_root: Path, rows: list[dict], seam_fix: dict) -> tuple[l
     plan needs authoring and no census or seam-fix item needs a ruling.
 
     Contract: returns `(part paths, findings-file count)`. Writes the per-plan findings files
-    under `state/mise-workflows/<runId>.seam/`, then `<runId>.residue.mjs` (one part) or
+    under `.coordinator-local/mise-workflows/<runId>.seam/`, then `<runId>.residue.mjs` (one part) or
     `<runId>-pN.residue.mjs` (each at most `emit._WORKFLOW_SCRIPT_BYTE_CAP` bytes, `apmItems` in
     part 1 only), each with its emission receipt; fires nothing, spawns nothing of its own.
     Raises `ValueError` on a bind or validate refusal or a single over-cap batch, after removing

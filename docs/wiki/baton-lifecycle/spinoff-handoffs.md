@@ -156,7 +156,7 @@ Check each of the following before treating any premise as ground truth:
 
 ### Verify semantic fit of handoff-named target files before writing
 
-When a handoff names a target file (e.g., "extend `docs/wiki/X.md`"), `Read` that file and confirm the topic and section actually fit before writing. Stale handoff-named targets accumulate when the wiki has been refactored between handoff-author time and pickup time — the file may still exist but now cover a different scope, or the relevant section may have moved to a sibling file.
+When a handoff names a target file (e.g., "extend `docs/wiki/<page>.md`"), `Read` that file and confirm the topic and section actually fit before writing. Stale handoff-named targets accumulate when the wiki has been refactored between handoff-author time and pickup time — the file may still exist but now cover a different scope, or the relevant section may have moved to a sibling file.
 
 ### Parked-tracker rows: framing is hypothesis, substrate is ground truth
 

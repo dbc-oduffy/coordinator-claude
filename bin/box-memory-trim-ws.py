@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """box-memory-trim-ws.py PID -- trim one process's working set (Windows only).
 
 Prints one line on success, exit 0:

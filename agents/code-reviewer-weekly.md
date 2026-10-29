@@ -1,5 +1,6 @@
 ---
 name: code-reviewer-weekly
+executes-rows: false
 description: "Static weekly-gate chunk reviewer, compaction-safe. Only via parallel-code-review."
 model: sonnet
 effort: low
@@ -82,9 +83,11 @@ can reach, state that as a limitation rather than omitting it.
 <!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->
 
 **Code lookup: project-rag first.**
-`ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
-`project_staleness_check`; callers `project_symbol_callers`/`_references`; impact `project_referencers`; else `project_rag_instructions`.
+
+1. First action, when `mcp__project-rag__*` tools are present (they arrive deferred): `ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
+2. Then `project_staleness_check`; callers `project_symbol_callers`/`_references`; impact `project_referencers`; else `project_rag_instructions`.
 Bodies, members, UE engine types: load `project_symbol_source`, `project_engine_*` by name; a `project_symbol` stub is not "corpus can't answer".
+**Enumeration is not a lookup.** "What exists?" means a target list, a file set, a coverage count, or "is X covered?". Answer it by walking the filesystem (Glob, a disk enumerator), never with project-rag or any other index, because an index reports only what it already holds. Use project-rag to understand what the walk found, never to decide what exists.
 If a project-rag call errors or its tools are absent (daemon down), fall back to Grep/Read and carry on.
 Friction: memo `project-rag-em` / `gh issue create -R dbc-oduffy/project-rag`.
 <!-- END project-rag-preamble -->
@@ -146,9 +149,7 @@ denied something you would otherwise have run, name the command and the guard.>
 
 ## Worker Dispatch Recommendations
 <Optional. Name workers the EM should run as follow-up. Format:>
-- `test-evidence-parser` — rationale
 - `security-audit-worker` — rationale
-- `dep-cve-auditor` — rationale
 - `doc-link-checker` — rationale
 <Omit the entire section if no workers fire on this chunk.>
 

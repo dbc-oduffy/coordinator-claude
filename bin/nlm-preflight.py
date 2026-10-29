@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """nlm-preflight: settings-home forwarder to DoE's notebooklm preflight script.
 
 Runs deep-research/notebooklm/nlm-preflight.py from the resolved DoE pipelines

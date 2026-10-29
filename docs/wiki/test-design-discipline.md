@@ -1861,6 +1861,22 @@ Contract tests for a retired daemon or socket transport hang rather than fail on
 a stub — they block on readiness polls. Delete those tests, then their orphaned fixtures, as part of
 the retirement.
 
+## 176. An End-to-End Acceptance Test Drives the Production Entry Point
+
+An acceptance test labelled end-to-end calls the entry point production calls, in its default form,
+after the real build step that produces its input. A test that hand-builds that input and calls an
+inner stage directly proves the stage, not the requirement.
+
+**Concrete failure:** in experiments-1d runs r40 and r1 the "e2e" test built the graph DB by hand
+and called the edge extractor directly, skipping the real reindex. Every reviewer passed it. The
+production path (default call after a real reindex) was never exercised, and the requirement it
+named was unmet.
+
+**Rule:** the executor writes the acceptance test through the production entry point; the reviewer
+names a test that substitutes a fixture for that path as not meeting the requirement. A fixture
+may feed a unit test of the stage (see § 1, § 20); it never stands in for the e2e. Tripwire:
+`coordinator-tripwires/a-fixture-substituted-for-the-production-entry-is-not-an-e2e-test.md`.
+
 ## Field rules
 
 - **A regression net proves itself fail-pre, not only pass-post.** Run the new test against the pre-fix file (`git show <fix>~1:<path>` into place, run, confirm red, restore); a test that is green both ways guards nothing.

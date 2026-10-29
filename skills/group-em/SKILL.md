@@ -126,14 +126,14 @@ nobody and nothing re-runs entry. In this order, as your first act:
    `--status` answers "is a watch alive here?" (0 alive, 1 not running, 2 unknown — never green); `--once` fires a single poll.
 
 3. **Events wake you; no cron tick exists.** Your wakes are: the background watch run's
-   completion; peer `SendMessage`s; `notify_when_idle` one-shots (main conversation only); and
-   the **memory governor**. Run `python -u <plugin-root>/bin/group-em-memory-governor.py >>
-   <home>/scratch/governor.log 2>&1` once, `run_in_background`, for the whole standing; the wake is a
+   completion; peer `SendMessage`s; `notify_when_idle` one-shots; and
+   the **memory governor**. Run `python -u <plugin-root>/bin/group-em-memory-governor.py`, stdout
+   to `<home>/scratch/governor.log`, once, detached; the wake is a
    second background run, `<plugin-root>/bin/group-em-memory-governor-wait.py <that log>`, which
    exits on the first new line. Relaunch only the waiter; never filter its line, never wrap either in
-   a `Monitor`. On a PAUSED line, tell its owner. You send no hold or clear messages: `WARN` and swap-out hold nothing. Admit a heavy command when peak + min(25% of peak, 8 GiB) <= kernel-available AND commit + peak <= commit limit:
-   `<plugin-root>/bin/box-memory-snapshot.py --admit-peak <GiB>` (HOLD is exit 4); floor 2.5 GiB. Also on demand:
-   `trim-file-cache` (the PM runs it elevated; the governor's `GOVERNOR CACHE-TRIM-HINT` line prints it),
+   a `Monitor`. On a PAUSED line, tell its owner. `WARN` and swap-out hold nothing; send no hold/clear messages. Admit a heavy command when peak + min(25% of peak, 8 GiB) <= kernel-available AND commit + peak <= commit limit:
+   `<plugin-root>/bin/box-memory-snapshot.py --admit-peak <GiB>` (HOLD is exit 4); floor 2.5 GiB; launch via `box-launch-windowless.py`. Guards self-detach (exit 5: run its fix). Also on demand:
+   fire `schtasks /Run /TN BoxCacheTrim` if installed (`install-box-cache-trim-task.py --check` exits 0), else `trim-file-cache` (PM-run, elevated; `GOVERNOR CACHE-TRIM-HINT` prints it),
    `box-memory-trim-ws`, `box-memory-tree`, `box-memory-wait-pid`. Copies: queued `robocopy /J`. Tripwire:
    `A-BOX-MEMORY-IS-THE-KERNEL-VERDICT-NOT-A-FREE-PAGES-FLOOR`. The GPU is one slot: embedding writes
    and UE GPU work never overlap (`A-GPU-IS-ONE-SLOT-EMBED-SIDECARS-AND-UE-GPU-WORK-NEVER-OVERLAP`).
@@ -152,6 +152,10 @@ nobody and nothing re-runs entry. In this order, as your first act:
    **A deploy slot names its commit set, never `HEAD`:** before the GO, list
    `<live-sha>..<target-sha>`; rule on others' commits in that range from a release note.
    Tripwire: `A-DEPLOY-THAT-BUILDS-FROM-DISK-SHIPS-PEERS-UNCOMMITTED-EDITS`.
+   A deploy or respawn GO for a commit-served target also states the suite plus an
+   import-and-boot smoke run against a clean `git archive` export of the target commit, never the
+   working tree, beside the commit range. Tripwire:
+   `A-DEPLOY-GO-ON-A-TREE-SUITE-SHIPS-A-COMMIT-THE-SUITE-NEVER-SAW`.
    **A prod-migrate GO names every migration the command applies:** list
    `<ledger-tail>..<pending-head>`, and check a constraint-replacing migration against the
    deployed revision's writers. Tripwire: `A-PROD-MIGRATE-GO-NAMES-LESS-THAN-THE-COMMAND-APPLIES`.
@@ -163,8 +167,9 @@ release, a publish, a ruling, a doctrine-adjacent call) lands on you and is deci
 the PM's delegation. "Publish", "release" and "merge" in the global external-facing list name what
 is gated, not who holds the gate. Never hand one to the PM, even bundled with another PM act. A
 direction call you cannot make goes to the APM. The PM gets only an act that needs the human's own
-hands, such as an interactive login, stated as the act (`! firebase login --reauth`). Tripwire:
-`A-GROUP-EM-IS-WHERE-UP-ENDS`.
+hands, such as an interactive login, stated as the act (`! firebase login --reauth`). A guard
+that denies an EM commit is a guard defect: take the exact denial from the EM, route it to the guard's owner, never work around it.
+Tripwires: `A-GROUP-EM-IS-WHERE-UP-ENDS`, `A-GUARD-DENYING-AN-EM-COMMIT-IS-A-GUARD-DEFECT`.
 
 ### Arming the watch — every refusal and every false green
 
@@ -286,46 +291,46 @@ suppression silently).
 2. Present it (`suppressed`: peer held; `truncated`: re-evaluated next wake; `unrecorded`:
    cooldown write failed).
 3. **Per entry you intend to message, declare both gates in prose before sending:**
-   - **GATE 1 (message).** Is the shared contract itself the unknown, needing round-trips — or a
-     settled ask? A settled ask is a memo.
+   - **GATE 1 (owner live?).** Owner live on the box → `SendMessage`; a memo only for an owner
+     with no live session, or as its record.
    - **GATE 2 (receiver).** Cheaper to them now than later? It has no instrument; it rests on what
      you know about that peer.
-   - **Either gate unclear → the memo channel.**
-4. **Re-resolve the address from the SESSION ID immediately before sending, and treat a refusal as
+   - **Either gate unclear → `SendMessage`.**
+4. **Re-resolve the address from the SESSION ID just before sending, and treat a refusal as
    a refusal.** The engine's `coordinator_core.group_em.send_pass.resolve_addressee(repo_root,
-   peer_session_id)` (import it with the engine root on the path) returns the name that session
-   answers to right now, or `None` — do not send on `None`. **`repo_root` is the PEER's repo, not
+   peer_session_id)` returns the name that session
+   answers to now, or `None` — do not send on `None`. **`repo_root` is the PEER's repo, not
    yours:** the roster it reads is scoped to that root, so a peer in another repo resolves `None`
    against yours.
 
    Resolve from the id, never validate the name. Tripwire: `A-PEER-NAME-IS-NOT-A-STABLE-ADDRESS`.
 
-**Never loop over `entries` sending.** `SendMessage` is in `allowed-tools`; the gate is this
-paragraph.
+**Never loop over `entries` sending.**
 
 **A `PAUSED:away` peer is never offered**, reported as `never-send-reason`. Tripwire:
 `A-PAUSED-ROSTER-IS-NOT-A-NUDGE-LIST`.
 
 ## The escalation screen — a claimed PM item is presumed yours until it survives
 
-**A session claiming something for the PM is wrong about 19 times in 20** (the PM's measured
-prior). Test the claim; it is never routing already done.
+**A session's claimed PM item is wrong 19 times in 20** (the PM's prior). Test it.
 
-- **"Next: review."** The next step in a procedure the session owns. Push it (or name the actual
-  next step if review is not a step at that size). Do not grant a permission the session holds.
+- **"Next: review."** The next step of a procedure the session owns. Push it; never grant a
+  permission it holds.
 - **"Variable `x` or `xy`?"** Engineering, decided by whoever holds the file. Push it.
-- **"Do I execute?"** The one with a real question, answerable by you — below.
+- **"Do I execute?"** A real question; answer it (below).
+- **"Where is file X?"** Never the PM's: `machine-local store`, provenance records, then a scoped
+  search. An undeclared outside-repo data root is a break: declare it.
 - **"This is irreversible."** Only a publish to a server the fleet does not own is; push a local write back as the session's own (`A-LOCAL-WRITE-IS-RECOVERABLE-ONLY-PUBLISHING-IS-IRREVERSIBLE`).
 
 Run the altitude test on the way out of a turn too: an idle peer is not a reason to message.
 
 **Answer engineering calls yourself**, or dispatch `coordinator:staff-eng` for a viability read.
-Route scope and direction to the APM. Pass the PM only what survives this screen, in plain words: what happens, to which server, why it cannot be undone.
+Route scope and direction to the APM. Pass the PM only what survives this screen, in plain words: what happens, to which server, why it cannot be undone. No routine unblock survives it; steer by win rate, not hygiene (`coordinator/docs/wiki/dispatching-parallel-agents/group-em-standing/group-em-escalation-threshold.md`).
 
 ### Push, do not nudge
 
-**"Do you need anything?" is a failure, not a gentler success** ("want me to...?", "let me know
-if..." likewise): it hands the decision back to the session that froze on it.
+**"Do you need anything?" is a failure** ("want me to...?" likewise): it hands the decision back
+to the session that froze on it.
 
 A push **names the act, names its owner, and closes**: *"That is yours. Do X."* No question mark,
 offer or conditional; one clause of reason.
@@ -384,8 +389,8 @@ decision.** The autofire hook prints `FLEET INBOX GRIND, FIRE NOW`:
 
 Fire it first after arming the watch, unattended. `repos` is the fleet map (`machine-local get
 repos.*`, repos with `state/cross-repo/inbox`). **Do not hand-author a variant.** Save each
-returned manifest to `<home>/state/inbox-blitz-<date>/<repo>.json` and memo that path to the
-repo's EM, who applies and commits it. Tripwires: `A-GROUP-EM-HAND-AUTHORING-THE-INBOX-WORKFLOW`,
+returned manifest to `<home>/state/inbox-blitz-<date>/<repo>.json` and memo each to that repo's EM
+by path, who applies and commits it. Tripwires: `A-GROUP-EM-HAND-AUTHORING-THE-INBOX-WORKFLOW`,
 `A-GROUP-EM-SENDS-MEMOS-AND-NEVER-RECEIVES-THEM`.
 
 ## Cross-repo commit authority

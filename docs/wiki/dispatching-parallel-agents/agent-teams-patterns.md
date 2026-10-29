@@ -65,7 +65,7 @@ The synthesizer task should be blocked by every specialist task. Once unblocked,
 
 When wiring the synthesizer's dispatch prompt, name the exact disk paths where specialist outputs land. The synthesizer reads those paths on startup and treats them as authoritative. Chat transcripts from specialist sessions are not reliable inputs — they can be truncated, reordered, or paraphrased by the runtime.
 
-→ `coordinator/agents/parallel-review-synthesizer.md` and `coordinator/agents/research-synthesizer.md` for the no-rewrite contract, enforced directly in each synthesizer's prompt.
+→ `coordinator/agents/research-synthesizer.md` for the no-rewrite contract, enforced directly in the synthesizer's prompt; `coordinator/bin/weekly-gate-synthesize.py` for the weekly gate's code reducer.
 
 ## Don't advertise tools the runtime doesn't expose
 

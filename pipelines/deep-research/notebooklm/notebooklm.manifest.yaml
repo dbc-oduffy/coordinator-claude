@@ -1,6 +1,6 @@
 schema_version: 1
 pipeline: notebooklm
-description: "NotebookLM research: scope, prior-art, scout, source gate, one worker per notebook, claims gate, sweep, coverage audit"
+description: "NotebookLM research: scope, prior-art, scout, source gate, brief author, one worker per notebook, claims gate, sweep, coverage audit"
 inputs:
   brief: required
   scratch_dir: optional
@@ -56,6 +56,14 @@ stages:
         checks:
           type: object
       required: [ok, remedy]
+  - id: brief-author
+    phase: Brief
+    agent_type: coordinator:research-brief-author
+    model: sonnet
+    template: brief-author-prompt-template.md
+    web_caller: false
+    depends_on: [source-gate]
+    output: "{{scratch_dir}}/research-brief.md"
   - id: workers
     phase: Workers
     agent_type: "coordinator:research-worker"
@@ -65,7 +73,7 @@ stages:
       over: inputs.notebooks
     max_concurrent: 3
     web_caller: false
-    depends_on: [source-gate]
+    depends_on: [brief-author]
     output: "{{scratch_dir}}/{{item}}-summary.md"
   - id: claims-gate
     phase: Workers

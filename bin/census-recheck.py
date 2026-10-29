@@ -26,7 +26,7 @@ them; a gate that shells out is not a gate. They are this tool's job.
 
 WHAT IT DELIBERATELY DOES NOT DO. It does NOT scan plan prose for count-shaped claims
 and demand citations. That predicate was tried and cut, and the reasons are recorded in
-`docs/wiki/lesson-triage/mise-prepped-authoring-bar.md` § What is deliberately not in the bar: it
+Coordinator-content-repo `coordinator/docs/wiki/lesson-triage/mise-prepped-authoring-bar.md` § What is deliberately not in the bar: it
 fires on "three reviewers agreed", misses "the surface is small", teaches authors to
 phrase around it, and can only report that something looked wrong rather than what was
 missing. A DRIFT row here says exactly what moved, in the author's own command.

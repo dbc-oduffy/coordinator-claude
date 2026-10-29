@@ -33,7 +33,7 @@ means no second line.
 
 Negative-spec:
   - Does NOT invoke the bare `machine-local` wrapper (forbidden for consumers, see
-    docs/wiki/hook-best-practices/machine-local-registry.md Sec8(a)) -- resolves `<settings-home>/bin/
+    coordinator-content-repo coordinator/docs/wiki/hook-best-practices/machine-local-registry.md Sec8(a)) -- resolves `<settings-home>/bin/
     _machine_local.py` by path arithmetic and runs it under `sys.executable`, the same
     shape `claude_machine_local.py`'s `_reader_invocation` uses.
   - Does NOT wait on, poll, or report the outcome of the spawned rebuild/publish chain --
@@ -131,6 +131,7 @@ def _min_available_gb() -> float:
 
 _PUBLISH_SEQUENCER = Path(__file__).resolve().parent / "publish-repo-bundle-at-ceremony.py"
 _PUBLISH_RECORD_NAME = "publish-repo-bundle-last.json"
+_LEASE_NAME = "scip-rebuild-lease.json"  # must equal _LEASE_NAME in publish-repo-bundle-at-ceremony.py (hyphenated filename, not importable)
 
 
 def _settings_home() -> Path:
@@ -244,6 +245,21 @@ def _git_common_dir(repo_root: Path) -> Path | None:
     return git_dir
 
 
+def _running_rebuild_pid(common_dir: Path) -> int | None:
+    """Pid of the live sequencer holding the rebuild lease the sequencer writes, else None.
+    Unreadable or stale reads as no rebuild; the sequencer sweeps a stale lease itself."""
+    try:
+        held = json.loads((common_dir / "coordinator-sessions" / _LEASE_NAME).read_text(encoding="utf-8"))
+        owner = held.get("sequencer_pid") if isinstance(held, dict) else None
+        if not isinstance(owner, int) or owner <= 0:
+            return None
+        import psutil
+
+        return owner if psutil.pid_exists(owner) else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _read_prior_publish_line(common_dir: Path) -> str | None:
     """Best-effort read of the sequencer's last-publish record's `line` field.
     Missing file, unreadable file, or malformed/non-dict JSON all read as
@@ -300,6 +316,9 @@ def run(ceremony: str, repo_root: Path) -> str:
         )
 
     common_dir = _git_common_dir(repo_root) or repo_root
+    running = _running_rebuild_pid(common_dir)
+    if running is not None:
+        return f"scip-rebuild: skipped -- a rebuild is already running (sequencer pid {running})"
     log_dir = common_dir / "coordinator-sessions" / "logs"
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     log_path = log_dir / f"scip-rebuild-{ceremony}-{stamp}.log"

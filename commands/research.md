@@ -77,6 +77,12 @@ that source to the run:
 | `doc` | web |
 | `paper` | web |
 
+**Code-primary class** (our own code and/or named OSS checkouts):
+`A-CODE-PRIMARY-RESEARCH-RUNS-REPO-FIRST-THEN-A-GAP-SCOPED-WEB-ASK`. Fire a repo-only ask; on close,
+fire the web/NotebookLM ask by hand with the repo run's open questions in its `context`; never
+`web`+`repo` as peers, no `after` chain. Seam: once `research.primary` (`repo`) is available, use it
+instead of the two-fire route.
+
 **Local-only research.** Research over code or material that must never enter a git repo
 (vendor-proprietary source, licensed corpora) sets `research.destination: local-only` on the
 sizing (`sizing-assemble --research-destination local-only`), or passes `--local-only` to the emit;
@@ -144,7 +150,7 @@ engine emits the research run), or `emit-dispatch-workflow --research --ask "<qu
 for scouts; a multi-question, mixed-target ask is
 `emit-dispatch-workflow --research --ask "<q1>" --target web --target repo=coordinator/hooks --ask "<q2>" --target local=<probe-id> --split`.
 Fire the one printed `Workflow` line as a background Workflow (`run_in_background: true`).
-Never hand-fill a script. Worker briefs (scout, specialist, synth) are composed from the sizing's
+Never hand-fill a script. A brief carries the PM's quantifiers verbatim ('all', 'every', a 'top N' only when the PM said it) and adds no cap the PM did not state; a lever ask returns a full lever register (every lever, each with owner, evidence, status). Worker briefs (scout, specialist, synth) are composed from the sizing's
 frozen intent only; never put baton or `pm_turns` mid-turn instructions into one. On a corpus or deep fire, run `em_watch` (the module `-m coordinator_core.workflow_watch.mailbox_line <box>`, under the interpreter resolved per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` § Portability) in the background the same turn; it returns on an escalation: act, then `em_rewatch`. When `sources[]` holds `notebooklm`, the engine prepends the preflight
 stage and halts before spend if the NotebookLM MCP is unregistered; its remedy strings are the
 exact commands to relay.

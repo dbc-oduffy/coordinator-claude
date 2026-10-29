@@ -5,26 +5,21 @@ Usage: box-launch-windowless.py [--log PATH] [--cwd DIR] -- CMD...
 Prints `LAUNCHED pid=N log=PATH` and exits 0 without waiting. Exit codes: 0 launched,
 1 launch failed (one stderr line), 2 usage. Runs on every host.
 
-Windows: the child gets CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB,
-never DETACHED_PROCESS (a detached child gets a fresh console the moment it spawns a console
-grandchild). Breakaway is best-effort: when the parent's job forbids it Popen raises OSError and
-the launch is retried once without breakaway; a second OSError is the exit-1 failure. A
-pythonw.exe CMD[0] is swapped for the sibling python.exe for the same reason. Never point
-multiprocessing.set_executable at pythonw. POSIX: start_new_session=True.
+The spawn is lib/session_detach.py spawn_detached(strict=False), the single home of the flag set,
+the pythonw swap and the breakaway retry: when the parent's job forbids breakaway the launch is
+retried once without it, and a second OSError is the exit-1 failure. Never point
+multiprocessing.set_executable at pythonw.
 
 Stdlib only; no coordinator_core import.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import sys
 import time
 from pathlib import Path
-
-_NO_CONSOLE_WINDOW = 0x08000000
-_CREATE_NEW_PROCESS_GROUP = 0x00000200
-_CREATE_BREAKAWAY_FROM_JOB = 0x01000000
 
 _USAGE = "usage: box-launch-windowless.py [--log PATH] [--cwd DIR] -- CMD..."
 
@@ -55,12 +50,23 @@ def default_log_path(cmd0: str, cwd: Path, now: float | None = None) -> Path:
     return root / "scratch" / f"launch-{name}-{stamp}-{os.getpid()}.log"
 
 
-def _swap_pythonw(cmd: list[str]) -> list[str]:
-    head = Path(cmd[0])
-    if head.name.lower() == "pythonw.exe":
-        sibling = head.with_name("python.exe")
-        return [str(sibling), *cmd[1:]]
-    return cmd
+def _session_detach():
+    """lib/session_detach.py, loaded by path once."""
+    mod = sys.modules.get("session_detach")
+    if mod is not None:
+        return mod
+    path = Path(__file__).resolve().parent / "lib" / "session_detach.py"
+    spec = importlib.util.spec_from_file_location("session_detach", path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load session_detach from {path}")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod
+    try:
+        spec.loader.exec_module(mod)
+    except BaseException:
+        sys.modules.pop(spec.name, None)
+        raise
+    return mod
 
 
 def _parse(argv: list[str]) -> tuple[str | None, str | None, list[str]] | None:
@@ -95,48 +101,16 @@ def main(argv: list[str] | None = None, *, popen=None, platform: str | None = No
         print(_USAGE, file=sys.stderr)
         return 2
     log_arg, cwd_arg, cmd = parsed
-    plat = sys.platform if platform is None else platform
-    import subprocess
-
-    if popen is None:
-        popen = subprocess.Popen
-
     cwd = Path(cwd_arg) if cwd_arg else Path.cwd()
     log = Path(log_arg) if log_arg else default_log_path(cmd[0], cwd)
-    kwargs: dict = {}
-    if plat == "win32":
-        cmd = _swap_pythonw(cmd)
-        base_flags = _NO_CONSOLE_WINDOW | _CREATE_NEW_PROCESS_GROUP
-        kwargs["creationflags"] = base_flags | _CREATE_BREAKAWAY_FROM_JOB
-    else:
-        base_flags = 0
-        kwargs["start_new_session"] = True
-    if cwd_arg:
-        kwargs["cwd"] = str(cwd)
     try:
-        log.parent.mkdir(parents=True, exist_ok=True)
-        with open(log, "ab") as sink:
-            def spawn():
-                return popen(
-                    cmd,
-                    stdin=subprocess.DEVNULL,
-                    stdout=sink,
-                    stderr=sink,
-                    close_fds=True,
-                    **kwargs,
-                )
-
-            try:
-                proc = spawn()
-            except OSError:
-                if plat != "win32":
-                    raise
-                kwargs["creationflags"] = base_flags
-                proc = spawn()
+        pid = _session_detach().spawn_detached(
+            cmd, log, cwd=cwd_arg, strict=False, popen=popen, platform=platform
+        )
     except OSError as exc:
         print(f"box-launch-windowless: launch failed: {exc}", file=sys.stderr)
         return 1
-    print(f"LAUNCHED pid={proc.pid} log={log}")
+    print(f"LAUNCHED pid={pid} log={log}")
     return 0
 
 

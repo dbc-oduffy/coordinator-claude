@@ -124,7 +124,7 @@ Minor release. New publish-flow skills, sanitization hardening, plugin-wiki bund
 ### Changed
 
 - **Mandatory end-of-run Sonnet code review in mise-en-place Phase 6.** `/mise-en-place` now requires a minimum-Sonnet review on the cumulative diff before declaring the run complete; fires in both standard and hibernate modes.
-- **Session-end review doctrine recalibrated.** Reverted the closed-set blacklist over-correction; encoded a four-point shape framing for when `/session-end` and `/handoff` warrant a Sonnet (default) or Sonnet+the Staff Engineer (chain-end escalation, EM-judged) code review on the diff. Records land in `state/review-trail/*.json` and feed `/workday-complete` Step 9 + `/workweek-complete` Step 7. Doctrine: `docs/wiki/session-end-review.md`.
+- **Session-end review doctrine recalibrated.** Reverted the closed-set blacklist over-correction; encoded a four-point shape framing for when `/session-end` and `/handoff` warrant a Sonnet (default) or Sonnet+the Staff Engineer (chain-end escalation, EM-judged) code review on the diff. Records land in `state/review-trail/*.json` and feed `/workday-complete` Step 9 + `/workweek-complete` Step 7.
 - **Bare-slash skill invocations standardized for 24 coordinator skills/commands.** `name:` frontmatter doctrine captured in `docs/wiki/skills-corpus/writing-skills.md`.
 - **`depersonalize-for-publish.sh` hardened** — extended identity-vocab and JSON coverage; sanitization sweep over 10 wikis + the 3 deferred wikis; PM-D2 placeholders, PM-D3 ue-bootstrap exclusion, PM-D4 disclaimer integrated.
 

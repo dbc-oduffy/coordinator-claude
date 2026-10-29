@@ -53,7 +53,7 @@ Machine-local is where that wiki's "operator-set configuration" concept lives on
 > cross-machine **`repos.*` sibling-repo resolution-behavior** axis — the 4-rung ladder (explicit
 > flag/env → tracked OS-keyed search-roots + marker autodiscovery → tracked exceptions table →
 > `registry.local.toml` fallback), the identity-marker convention, and the fail-loud seam — is
-> specified by project-rag's `docs/wiki/cross-machine-path-resolution-contract.md` (SSOT for that
+> specified by project-rag's cross-machine path-resolution contract (SSOT for that
 > axis, per /shape-ratified doctrine-repo delegation). §4c and
 > §5a reflect the split. Key-namespace SCHEMA, the reader contract (§7), and the helper surface
 > remain coordinator-owned.
@@ -274,11 +274,10 @@ applies to every exported variable the resolver emits. The `:-` default ensures 
 
 ## 4c. `repos.*` sibling-discovery ladder — SSOT pointer
 
-<!-- spec-backlink: project-rag/docs/wiki/cross-machine-path-resolution-contract.md (SSOT) -->
 
 The generic key-resolution order above (§4, rungs 1–7) governs ALL keys in the registry. For the specific question of *how a `repos.<slug>` value is discovered across machines*, a four-rung behavior ladder governs the resolution and is owned by project-rag as SSOT:
 
-**SSOT:** `project-rag/docs/wiki/cross-machine-path-resolution-contract.md`
+**SSOT:** project-rag's cross-machine path-resolution contract
 
 **Naming ratification (DR-087):** `REPO_<SLUG>` (equivalently `REPO_<REPO_ID>`, keyed to the `repos.<id>` registry keys) is the fleet's ratified env-override family. Its rung-1 primacy holds for both a genuinely operator-typed value and a value ambiently exported from the registry itself (e.g. `claude-machine-local.sh`'s `$REPO_<NAME>` exports — the Ergonomic-helpers section); §4 states the provenance-not-ambience discriminant and the historical named case (`claude-author-shim.sh.tmpl`; see DR-087's addendum). Legacy `*_ROOT`-shaped names (`CONTENT_ROOT`, `CLAUDE_KLABAUTER_ROOT`) remain readable indefinitely by their respective resolvers per DR-087 but are not part of this ratified family and are retired from documentation going forward.
 
@@ -358,7 +357,7 @@ Because of both, `.claude.json` is a discovery *hint*, not a source of truth: it
 
 These two wikis define the **port-time cleanup contract** for the coordinator install chain: when extracting a plugin or porting vendored code, sweep absolute paths and replace them with sibling-relative references (`../<sibling-repo>/<path>`). That contract is **unchanged by this wiki** — at port time, the consumer does not yet exist to be told about machine-local. Sibling-relative is the correct vocabulary for the extraction step.
 
-What this wiki establishes is context for the **runtime `repos.<slug>` discovery order** for consumers that already exist. That order defers to the 4-rung ladder in §4c (SSOT: `project-rag/docs/wiki/cross-machine-path-resolution-contract.md`). The blind `../<sibling-repo>/` walk is not a runtime rung — marker-autodiscovery (§4c rung 2) serves the "operator hasn't populated the registry" case instead, with no sibling-layout compliance required.
+What this wiki establishes is context for the **runtime `repos.<slug>` discovery order** for consumers that already exist. That order defers to the 4-rung ladder in §4c (SSOT: project-rag's cross-machine path-resolution contract). The blind `../<sibling-repo>/` walk is not a runtime rung — marker-autodiscovery (§4c rung 2) serves the "operator hasn't populated the registry" case instead, with no sibling-layout compliance required.
 
 The four failure modes that motivated this change remain valid doctrine — and explain WHY the walk is not the runtime mechanism: (a) it dictates operator filesystem layout; (b) it cannot represent deterministic locations (vendor binaries on a specific drive); (c) it fails opaquely with no remediation hint; (d) it does not compose with triangular dependency graphs where moving any one vertex breaks every sibling-relative inside the moved repo.
 
@@ -368,7 +367,7 @@ Port-time cleanup uses sibling-relatives because that is still better than absol
 
 A recurring failure mode (observed across multiple EM sessions) is reading "the coordinator owns the registry" as "EMs other than the coordinator team should not write here," then sidecarring `~/.<tool>/config.toml` to avoid the perceived gate. That is the opposite of the design intent. Two distinct authorities are at play; conflating them is the bug:
 
-- **Schema authorship** (coordinator-team responsibility). The shape of shared keys (`repos.*`, `install.*`, `plugin.mirrors.*`), the generic key-resolution order (§4), the reader contract (§7), and the helper surface (`machine-local`, `claude-machine-local.sh/ps1`, the Python module) are coordinator-governed because every consumer depends on them. Changing the reader contract, renaming a shared namespace, or adding a tracked baseline key requires coordinator-team coherence. **Exception — `repos.*` sibling-resolution-BEHAVIOR:** the rung order, marker-autodiscovery convention, and fail-loud seam for `repos.<slug>` discovery across machines are governed by project-rag's contract SSOT (`project-rag/docs/wiki/cross-machine-path-resolution-contract.md`); see §4c. The coordinator's schema and helper surface implement that behavior contract — they do not set the policy.
+- **Schema authorship** (coordinator-team responsibility). The shape of shared keys (`repos.*`, `install.*`, `plugin.mirrors.*`), the generic key-resolution order (§4), the reader contract (§7), and the helper surface (`machine-local`, `claude-machine-local.sh/ps1`, the Python module) are coordinator-governed because every consumer depends on them. Changing the reader contract, renaming a shared namespace, or adding a tracked baseline key requires coordinator-team coherence. **Exception — `repos.*` sibling-resolution-BEHAVIOR:** the rung order, marker-autodiscovery convention, and fail-loud seam for `repos.<slug>` discovery across machines are governed by project-rag's contract SSOT; see §4c. The coordinator's schema and helper surface implement that behavior contract — they do not set the policy.
 
 - **Value writing** (anyone on the machine). Appending values under existing namespaces, opening a new tool-specific namespace (`mything.*`), or hand-editing per-machine paths in `registry.local.toml` does NOT require coordinator-team sign-off. The reader is schemaless by design — no per-key validation, no declaration step (§7). The registry's whole value proposition is being the convenient shared place that prevents per-tool sidecars from accreting; gatekeeping value-writes would defeat the substrate.
 
@@ -594,7 +593,7 @@ Tripwire: `AN-EXTERNAL-WORKSPACE-IS-NEVER-A-PEER-REPO`.
 path = "<absolute root>"       # required; per-machine
 kind = "external-readonly"     # required; the only value
 vcs = "p4"                     # optional: p4 | git | none
-p4_client = "oduffy-mac-slice" # optional; feeds the p4 no-submit identifiers
+p4_client = "example-mac-slice" # optional; feeds the p4 no-submit identifiers
 ```
 
 - **Fail closed.** An absent or unknown `kind` is read as `external-readonly`. An entry counts only
@@ -667,10 +666,9 @@ dependents = ["<abs file>"]          # optional: files outside the registry that
 - **Relocate reports dependents; it never writes them.** A dependent is a file another owner
   maintains (a `wire`-aggregated concern file the next `wire` run clobbers, a sibling repo's own
   config). Relocating a location is a contract change owed a consumable signal to every dependent
-  reader, discharged by routing the reader through an accessor that resolves the current location
-  (`docs/decisions/DR-sibling-surface-relocation-is-a-contract-change.md`). The store name is that
-  accessor; `path_key` lets existing readers follow with no change; each dependent still embedding a
-  copy is named by `relocate-store` and `--check`, and its owner converts it to read the registry.
+  reader, discharged by routing the reader through an accessor that resolves the current location.
+  The store name is that accessor; `path_key` lets existing readers follow with no change; each
+  dependent still embedding a copy is named by `relocate-store` and `--check`, and its owner converts it to read the registry.
 - **Adopt, do not migrate.** Existing ad-hoc path keys become findable and relocatable by naming them
   in `path_key`; they are not moved into `stores.*`, unset or renamed.
 - **Root namespace, not a concern.** Like `publish.mirrors.*` and `external_workspaces.*`, this
@@ -1183,7 +1181,7 @@ See `templates/machine-local/registry.toml.example` § `[regeneratability]` for 
 
 `repos.*` working-repo paths are `idempotent-regeneratable` for convention-installed repos: rung-2 marker autodiscovery derives the path at runtime from `search-roots.toml` — no absolute path stored in `registry.local.toml`. Off-convention repos that are not discoverable under any search-root or path-exception fall through to the rung-4 `registry.local.toml` fallback (`session-accumulated-must-survive-crash`), requiring manual `machine-local set repos.<slug>` entry per machine. `publish.mirrors.*.path` mirror values are always `session-accumulated-must-survive-crash` — there is no autodiscovery mechanism for publish-target DEST roots. They live in `registry.local.toml` (gitignored per §9).
 
-**The 4-rung ladder (§4c, SSOT: `project-rag/docs/wiki/cross-machine-path-resolution-contract.md`) closes the common-case Bootstrap gap for convention-installed repos.** Rung 2 (marker autodiscovery) derives `repos.<slug>` at runtime from the tracked `search-roots.toml` and the repo's `.claude-plugin/marketplace.json` identity marker — no absolute path is stored in `registry.local.toml`. A fresh-machine clone of `~/.claude` with a correctly configured `search-roots.toml` resolves all convention-installed repos through rung 2 without any manual `machine-local set` invocation.
+**The 4-rung ladder (§4c, SSOT: project-rag's cross-machine path-resolution contract) closes the common-case Bootstrap gap for convention-installed repos.** Rung 2 (marker autodiscovery) derives `repos.<slug>` at runtime from the tracked `search-roots.toml` and the repo's `.claude-plugin/marketplace.json` identity marker — no absolute path is stored in `registry.local.toml`. A fresh-machine clone of `~/.claude` with a correctly configured `search-roots.toml` resolves all convention-installed repos through rung 2 without any manual `machine-local set` invocation.
 
 Manual `machine-local set repos.<slug> /abs/path` (rung 4) is the last-resort fallback for repos that are genuinely off-convention (not discoverable under any `search-roots.toml` entry) and also absent from the tracked exceptions table (`path-exceptions.toml`, rung 3). This is the uncommon case, not the default.
 

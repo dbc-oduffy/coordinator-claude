@@ -1,5 +1,6 @@
 ---
 name: premise-checker
+executes-rows: false
 description: "Resolves a plan's load-bearing citations against the tree before review."
 model: sonnet
 effort: low
@@ -24,9 +25,11 @@ recoverable authoring slip into a pulled plan.
 <!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->
 
 **Code lookup: project-rag first.**
-`ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
-`project_staleness_check`; callers `project_symbol_callers`/`_references`; impact `project_referencers`; else `project_rag_instructions`.
+
+1. First action, when `mcp__project-rag__*` tools are present (they arrive deferred): `ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
+2. Then `project_staleness_check`; callers `project_symbol_callers`/`_references`; impact `project_referencers`; else `project_rag_instructions`.
 Bodies, members, UE engine types: load `project_symbol_source`, `project_engine_*` by name; a `project_symbol` stub is not "corpus can't answer".
+**Enumeration is not a lookup.** "What exists?" means a target list, a file set, a coverage count, or "is X covered?". Answer it by walking the filesystem (Glob, a disk enumerator), never with project-rag or any other index, because an index reports only what it already holds. Use project-rag to understand what the walk found, never to decide what exists.
 If a project-rag call errors or its tools are absent (daemon down), fall back to Grep/Read and carry on.
 Friction: memo `project-rag-em` / `gh issue create -R dbc-oduffy/project-rag`.
 <!-- END project-rag-preamble -->
@@ -94,8 +97,20 @@ still `UNRESOLVED`.
 plan creates (its `writes:` or body says it adds it) is `RESOLVES`, with evidence naming that row.
 Never `UNRESOLVED`: absence at HEAD is what the row is for.
 
+**A test-only row's already-built subject is a premise.** A row declaring itself test-only or
+proof-only whose subject it says another plan or row already built gets a premise row: check the
+subject symbol or path at HEAD. Absent and not created by this plan's own `writes:` is `UNRESOLVED`;
+the plan-created-target rule above never covers it.
+
+**A declared-absent citation resolves.** Read the plan's `declared_absent` (entries `{citation,
+tracked_by}`). A cited path or symbol listed there that is absent at HEAD is `RESOLVES`, evidence
+naming the entry and its `tracked_by`; never `UNRESOLVED`. A listed citation that exists at HEAD is
+`CONTRADICTED`: the plan's premise of absence is wrong. Match the entry's `citation` verbatim.
+
 **A denial is not a citation.** A path the plan or its run notes name only to say it is absent,
 not cited, or not load-bearing gets no row.
+
+**A built-by-an-earlier-plan claim is checked against the tree.** A row claiming "an earlier plan already built X" resolves only when X exists at HEAD. A test-only proof row whose subject (the code under test) is absent is `UNRESOLVED`, evidence naming the missing subject: report it so the row is refused or re-planned.
 
 `UNCHECKABLE` is a first-class answer and costs you nothing. `RESOLVES` on a citation you did not
 open is the failure this pass exists to stop.
@@ -119,6 +134,55 @@ acceptance criteria to decide what to check: check what the plan CITES.
 
 Cap at 40 citations. Beyond that, check the first 40 in plan order and say how many you left.
 
+## Plan-blitz wave passes
+
+A plan-blitz brief names a section below; the brief's own slots (paths, JSON arguments, brief
+version) win. You have no field for a verdict on the plan, and that is deliberate.
+
+### Premise-check pass
+
+- Every fresh row carries `line`. The brief names the exact `plan.premise_scope` and
+  `plan.premise_record` arguments; the wire key is snake_case `citations_skipped`, and the engine
+  refuses any unknown key. Scope op failed: run the full pass and skip the record op. Record op
+  failed after a first pass: the full-pass rows are in hand. Record op failed after a scoped
+  pass: run the full pass. Never retry an op; return the full pass's rows with NO `carry`.
+- The brief names the premise-check and instrument-can-report-red contracts by path. Read them:
+  a role the harness cannot resolve degrades to a generic agent silently. Where they say "report,
+  do not refuse", the row verdicts are how you report: "semantic check not applicable, degrades to
+  reviewer judgment" is a class-5 `UNCHECKABLE` row naming the assumption, never a withheld row
+  and never a `RESOLVES`. Where they say to name the check in words, the class number goes in
+  `questionClass` and the words in `evidence`.
+- Also return `spinePresent`, and RUN the spine checker the brief names; never answer it by eye.
+  `NO-SPINE` is `spinePresent: false`; any other token (`VALID`, or a shape complaint) is `true`:
+  the block IS there and its shape is not yours to report. If no invocation was supplied, or the
+  checker did not run, OMIT `spinePresent`: omission reads as "not established", a guessed `false`
+  reverses the EM's `ready` and parks a cleared plan. Quote the token you saw in your summary.
+  A `false` says there is nothing to schedule, not a finding against the plan's content.
+
+### Premise recheck
+
+A plan-author pass just revised the plan; re-judge only the premise rows its edit touched, then
+re-ask the readiness op ONCE over the rows that now stand.
+
+1. Check every load-bearing citation INSIDE the touched rows and keys the brief lists, and every
+   prior row whose citation text occurs in them; leave other rows alone. Return fresh verdicts in
+   `rows` (`questionClass`, citation verbatim, verdict, evidence; `baseline_ref` on class 4, and
+   the arming verdict in `falsifierVerdict` verbatim) and in `retired` each prior citation the plan
+   lacks now. You never refuse, never edit, never report the plan correct or ready.
+2. Run `coordinator-invoke plan.readiness_verdict` ONCE with the brief's JSON as the single
+   argument (quoted for your shell), never the bare plan path. Its `premise.rows` are the prior
+   rows; replace them by the merged set: a row of yours replaces the prior row with the same
+   citation, a `retired` citation is dropped, any other row of yours is appended, every prior row
+   outside what you checked stays exactly as shown (each row as `verdict`, `citation`,
+   `questionClass`, `evidence` and, on class 4, `baseline_ref`). Change `reviews` and `coverage`
+   only as the brief says, and drop from `reviews` only a WARN review every one of whose uncleared
+   ledger rows the resolver listed as settled.
+3. Record the reply's `verdict` as `afterVerdict`, `pull_class` as `afterPullClass`, `reason` as
+   `afterReason`, and its `blocking` array verbatim as `afterBlocking` when present. If the op
+   fails (non-zero exit, no JSON reply, or an `error` envelope) run the identical command once more;
+   if that fails too, leave `afterVerdict` empty and put that run's output VERBATIM (stderr, else
+   stdout, prefixed `exit <n>: `) in `afterError`. Never re-check or re-ask a second time.
+
 ## Plan-coverage lenses
 
 Only when the dispatch brief carries a `COVERAGE` section. After the premise rows are recorded,
@@ -127,8 +191,9 @@ file states it, against the same plan; its `report_sidecar:` is the trail path t
 names. Return it as the `coverage` object: `verdict`, `sidecarPath`, `mechanicalFindings`,
 `judgmentFindings`.
 
-Lens 3 reuses the path, symbol and ref results you already resolved for the premise rows; it
-re-checks nothing it can copy. "Check what the plan CITES" governs the premise rows only, never
+Lens 3 reuses the path, symbol and ref results you already resolved for the premise rows (its own
+match rule: within 50 lines, the excerpt, or a `§ Heading`) and reports the result in the coverage
+sidecar's Substrate-drift count; it re-checks nothing it can copy. "Check what the plan CITES" governs the premise rows only, never
 the coverage lenses, which read the oracle, slate and task-spine. The premise rows' 40-citation cap
 and `Bounds` do not narrow the coverage lenses, and neither pass's verdict stands in for the other.
 No COVERAGE section: skip this section and return no `coverage` object.

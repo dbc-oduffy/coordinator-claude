@@ -1,6 +1,6 @@
 # Scope Prompt Template
 
-> The scope stage's prompt in `notebooklm.manifest.yaml`. It turns the sizing into `strategy.md`, which every later stage reads as `{{brief}}`. The only placeholders are the closed double-brace set.
+> The scope stage's prompt in `notebooklm.manifest.yaml`. It turns the sizing into `strategy.md`, which the scout and source gate read as `{{brief}}` and the brief-author stage reads as the survey brief; the brief-author's `research-brief.md` replaces it for the workers and later stages. The only placeholders are the closed double-brace set.
 
 ## Template
 

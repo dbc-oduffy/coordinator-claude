@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""PreToolUse hook (matcher: `EnterWorktree|ExitWorktree`): structurally bans
-the harness worktree-lifecycle tools from every session in this fleet.
+"""PreToolUse hook (matcher: `EnterWorktree|ExitWorktree`): advises against the
+harness worktree-lifecycle tools in every session in this fleet and records
+each `EnterWorktree` attempt.
 
 Why this exists
 ----------------
@@ -14,32 +15,35 @@ shape: scoped parallel edit-only + EM-serial-commit"). A worktree per
 dispatched agent reintroduces exactly the sequential-grind /
 worktree-per-item shape that pattern exists to rule out.
 
-Block predicate
+Advise predicate
 ----------------
-DENY `EnterWorktree` unconditionally (subject to the sentinel override
-below). ALLOW `ExitWorktree` unconditionally — leaving a worktree is
-cleanup, never the thing this guard exists to stop; blocking an exit path
-would trap an agent that is already inside a worktree (from before this
-guard existed, or from an override-gated entry) with no way out.
+`EnterWorktree` is advised against unconditionally (subject to the sentinel
+override below): the hook appends one line to
+`<repo-root>/.coordinator-local/hook-friction.jsonl` (guard_id
+`block-worktree-tool`, the advisory text as `deny_text`) and emits nothing on
+stdout, so the tool call proceeds. Entering a worktree is recoverable, so it
+is not a deny-class act; the ban stands as doctrine and advise-and-record is
+how it is enforced. `ExitWorktree` is always silent -- leaving a worktree is
+cleanup, never the thing this guard exists to flag.
 
-Override — repo-root sentinel file ONLY, no env-var leg
+Override -- repo-root sentinel file ONLY, no env-var leg
 ---------------------------------------------------------
-`<repo-root>/.coordinator-override-worktree-guard` suppresses the DENY on
-`EnterWorktree`. There is deliberately NO environment-variable override
-leg, unlike most other guards in this tree. A dispatched subagent can set
-an env var on itself before a tool call — an env-var override is
-self-defeating for a guard that must bind subagents exactly as it binds
-the main session. Precedent: `coordinator_core.bash_guards.
-block_subagent_destructive_action` (the engine repo) deliberately withholds
-an env-var override for the identical reason.
+`<repo-root>/.coordinator-override-worktree-guard` suppresses the advisory
+and the friction line on `EnterWorktree`. There is deliberately NO
+environment-variable override leg, unlike most other guards in this tree. A
+dispatched subagent can set an env var on itself before a tool call -- an
+env-var override is self-defeating for a guard that must bind subagents
+exactly as it binds the main session. Precedent:
+`coordinator_core.bash_guards.block_subagent_destructive_action` (the engine
+repo) deliberately withholds an env-var override for the identical reason.
 
-Deny message discipline — the sentinel name is NEVER printed
----------------------------------------------------------------
-The deny reason does not name the sentinel file, and does not print any
+Advisory message discipline -- the sentinel name is NEVER printed
+-----------------------------------------------------------------
+The advisory text does not name the sentinel file, and does not print any
 override incantation. Precedent: `block-home-dir-memo-delivery.py`
-withholds its own override env-var name for a documented reason — a deny
-message that prints the exact bypass command reads to an eager agent as a
-sanctioned next step, not a boundary (see that file's docstring and
+withholds its own override env-var name for a documented reason -- a message
+that prints the exact bypass command reads to an eager agent as a sanctioned
+next step, not a boundary (see that file's docstring and
 `coordinator/hooks/tests/block-destructive-rm.security-review.md:39` for
 the incident this pattern exists to prevent: a destructive-rm guard once
 printed `export COORDINATOR_ALLOW_RM=1` in its deny text and an agent used
@@ -152,6 +156,15 @@ def main() -> int:
 
     try:
         if _sentinel_override_active():
+            return 0
+    except Exception:
+        pass
+
+    try:
+        from _protected_act import advise_and_record, protected_act_for
+
+        if protected_act_for("block-worktree-tool") is None:
+            advise_and_record("block-worktree-tool", _DENY_PROSE, "PreToolUse")
             return 0
     except Exception:
         pass

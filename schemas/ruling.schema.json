@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coordinator.local/schemas/ruling.schema.json",
+  "x-schema-name": "ruling",
+  "x-schema-version": "1.0.0",
+  "x-bump-class": "major",
+  "x-bump-note": "1.0.0 initial. Permissive schema for APM and EM rulings stored as state/{rulings,apm-rulings}/*.md. Nothing is required and the key set is open, because the corpus holds frontmatter-less records and many ad-hoc keys; only the canonical fields are typed.",
+  "applies_to": "state/{rulings,apm-rulings}/*.md",
+  "description": "A ruling record: frontmatter, then a prose body. Every key is optional and unknown keys are admitted; a frontmatter-less record projects to {} and validates. Canonical fields are typed only where every corpus value already satisfies the type. Synonym map for readers: `ruled_by` is canonical and `ruling_by`, `ruler`, `author` and `reviewer` are legacy synonyms a reader maps to it; `verdict` is canonical and `ruling` is its legacy synonym.",
+  "type": "object",
+  "required": [],
+  "additionalProperties": true,
+  "properties": {
+    "kind": {
+      "enum": ["ruling", "apm-ruling"],
+      "description": "Record class discriminator."
+    },
+    "date": { "type": "string", "format": "date", "description": "Date of the ruling (YYYY-MM-DD)." },
+    "created": { "type": "string", "format": "date", "description": "Date the record was created (YYYY-MM-DD)." },
+    "subject": { "type": "string", "description": "What the ruling is about." },
+    "title": { "type": "string", "description": "Short title." },
+    "verdict": { "type": "string", "description": "The ruling's outcome. Canonical; legacy synonym: `ruling`." },
+    "ruling": { "type": "string", "description": "Legacy synonym of `verdict`; readers map it." },
+    "plan": { "type": "string", "description": "Plan the ruling concerns." },
+    "sizing": { "type": "string", "description": "Sizing the ruling concerns." },
+    "source_ask": { "type": "string", "description": "The ask that prompted the ruling." },
+    "requested_by": { "type": "string", "description": "Who requested the ruling." },
+    "ruled_by": {
+      "type": "string",
+      "description": "Who ruled. Canonical; legacy synonyms `ruling_by`, `ruler`, `author` and `reviewer` are mapped by readers."
+    },
+    "amends": { "type": "string", "description": "Earlier ruling this one amends." },
+    "needs_pm": { "type": "boolean", "description": "True when the ruling needs the PM's eyes." },
+    "pm_must_see": { "type": "boolean", "description": "True when the PM must see the ruling." },
+    "rows": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Queue rows the ruling covers."
+    }
+  }
+}

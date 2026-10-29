@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "purpose": "Maps each flag-b relay stage label to the engine op that replaces it, the args key a Workflow script reads the op result from, and the agent fallback kept until the op lands.",
+  "fallback_rule": "When the args key is present the script uses it and spawns no agent. When absent the script dispatches the fallback agent unchanged. A fallback is removed only after the owning op is published. plan-blitz.mjs reads only opResults.readiness, opResults.xsLink and opResults.prepGate today; every other row is a declared target, not yet consumed.",
+  "baseline": {
+    "experiments_ref": "42defb8d9b8b1c6b69beda0ffd2b781ece2de245",
+    "flag_b_dispatches": 220,
+    "flag_c_clusters": 19,
+    "flag_c_dispatches": 47,
+    "plan_author_cache_read_median": 1800374.5,
+    "plan_author_turns_median": 29
+  },
+  "l1_acceptance": "unresolved",
+  "l1_note": "R1 cites 'register L61, 08df240' and 'the L1 plan acceptance'; neither resolves in DoE, experiments or the sibling group-em tree. The EM asks the APM; no check is invented here.",
+  "register_row": "R1",
+  "ops": [
+    {"label": "commit", "op_id": "dispatch.land_run", "owner_repo": "claude-klabauter", "args_key": "opResults.commit", "fallback_agent": "git-commit-agent"},
+    {"label": "halt-commit", "op_id": "dispatch.land_run:halt", "owner_repo": "claude-klabauter", "args_key": "opResults.haltCommit", "fallback_agent": "git-commit-agent"},
+    {"label": "commit:wave-N", "op_id": "ceremony.commit_v2:wave", "owner_repo": "claude-klabauter", "args_key": "opResults.waveCommit", "fallback_agent": "git-commit-agent"},
+    {"label": "verify:ROW", "op_id": "dispatch.test_leg:row", "owner_repo": "claude-klabauter", "args_key": "opResults.verifyRow", "fallback_agent": "test-runner"},
+    {"label": "verify:wave-N", "op_id": "dispatch.test_leg:wave", "owner_repo": "claude-klabauter", "args_key": "opResults.verifyWave", "fallback_agent": "test-runner"},
+    {"label": "review re-verify", "op_id": "dispatch.test_leg:review", "owner_repo": "claude-klabauter", "args_key": "opResults.reviewReverify", "fallback_agent": "test-runner"},
+    {"label": "gate", "op_id": "dispatch.ask_gate", "owner_repo": "claude-klabauter", "args_key": "opResults.gate", "fallback_agent": "op-relay"},
+    {"label": "xs-plan-stage", "op_id": "dispatch.ask_stage", "owner_repo": "claude-klabauter", "args_key": "opResults.xsPlanStage", "fallback_agent": "op-relay"},
+    {"label": "seam", "op_id": "dispatch.seam_leg", "owner_repo": "claude-klabauter", "args_key": "opResults.seam", "fallback_agent": "executor"},
+    {"label": "footprint", "op_id": "dispatch.ask_footprint", "owner_repo": "claude-klabauter", "args_key": "opResults.footprint", "fallback_agent": "sizing-scout"},
+    {"label": "prep-gate", "op_id": "plan.prep_gate_codemod", "owner_repo": "claude-klabauter", "args_key": "opResults.prepGate", "fallback_agent": "enricher"},
+    {"label": "readiness-host", "op_id": "plan.readiness_verdict", "owner_repo": "claude-klabauter", "args_key": "opResults.readiness", "fallback_agent": "op-relay"},
+    {"label": "xs-link", "op_id": "plan.sizing_link_baton", "owner_repo": "claude-klabauter", "args_key": "opResults.xsLink", "fallback_agent": "op-relay"},
+    {"label": "roster-reader", "op_id": "plan.review_roster", "owner_repo": "claude-klabauter", "args_key": "plan_review", "fallback_agent": "op-relay"},
+    {"label": "record writers", "op_id": "dispatch.record_write", "owner_repo": "claude-klabauter", "args_key": "opResults.records", "fallback_agent": "executor"}
+  ]
+}

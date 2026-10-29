@@ -753,7 +753,7 @@ via Read + its own judgment-free text handling, not by literally shelling out to
 
 ---
 
-## Phase 3: Opus Cross-System Synthesis Prompt (Full)
+## Phase 3: Cross-System Synthesis Prompt (Full)
 
 ```
 <!-- BEGIN text-only-recovery-preamble (synced from snippets/text-only-recovery-preamble.md) -->
@@ -802,6 +802,13 @@ Cross-reference all system boundary catalogs and produce the complete architectu
 For every boundary entry in every system's boundary catalog, verify that the target
 system's report confirms the connection. Flag any one-sided connections (System A says
 it calls System B, but System B's report doesn't list that entry point).
+
+Every path in the atlas is repo-root-relative (no leading `/`, no `./`, no drive letter).
+List each system's connected systems in a `connected_systems: [names]` frontmatter list.
+After writing the artifacts, run `python3 atlas_anchor_reciprocity.py --repo-root <repo root>`
+(from this pipeline directory); fix every one-sided pair or non-relative path it prints, or
+record the pair under `one_sided_connections: [names]` in the system's frontmatter. Exit 0 is
+required before DONE.
 
 ### 2. Produce Atlas Artifacts
 

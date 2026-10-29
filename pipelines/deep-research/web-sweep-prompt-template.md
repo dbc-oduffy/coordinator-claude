@@ -4,7 +4,7 @@ the final document. Your return value is the only one that reaches the EM.
 
 ## Your Brief
 
-Your brief is the file `{{brief}}`. Read it first. It carries the research question, the
+Your brief is the research brief at `{{stage.brief-author.output}}`. Read it first; the scope brief `{{brief}}` is context only. It carries the research question, the
 project context, the topic table (each topic's letter), and these paths and values:
 
 - `output_path` — the final document. It carries the pipeline suffix `-web`, so same-day

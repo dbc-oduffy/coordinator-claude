@@ -1219,6 +1219,14 @@
             ]
           },
           {
+            "id": "rewrite-repo-root-search",
+            "script": "bash_guards/rewrite_repo_root_search.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
             "id": "validate-commit",
             "script": "bash_guards/dispatch_checks.py",
             "tool_names": [
@@ -1715,6 +1723,11 @@
         "tool_names": [
           "Agent"
         ]
+      },
+      {
+        "id": "postuse-split-readme-autosync.py",
+        "script": "scripts/postuse-split-readme-autosync.py",
+        "tool_names": []
       },
       {
         "id": "postuse-subagent-compaction-warning.py",

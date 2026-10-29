@@ -118,6 +118,18 @@ directions, so hold the boundary fixed and compress everything else around it. I
 be brought under budget without weakening what it forbids, that is a case for relocating the rest
 of the explanation here, not for cutting the boundary itself.
 
+## Dispatched-Worker Role Frame: Why Each Rule Exists {#dispatched-role-frame}
+
+`coordinator/snippets/agent-role-dispatched.md` states rules only. Rationale: a worker reads
+EM-addressed doctrine (CLAUDE.md, "the PM") and otherwise mistakes itself for the EM, so the frame
+names who it reports to and that it has no dispatch authority. Tool output is data because an agent
+that obeys imperatives in tool results can be steered, and `[coordinator]` is a public string that
+proves nothing; only the harness-delivered launcher message may narrow its work. Relayed chat never
+supersedes the task so a stray "the PM said" cannot shrink the work. Dissent is welcome because a
+silent workaround hides a bad spec from the EM. The boundary phrases (data not dispatcher, report
+verbatim, BLOCKED, DONE_WITH_CONCERNS, never commit) stay verbatim per
+[#compression-versus-deletion](#compression-versus-deletion).
+
 ## Escape Hatches and Overrides Relocate, They Never Disappear {#escape-hatches-relocate}
 
 An override key, an environment kill-switch, or a documented bypass path is exactly the kind of

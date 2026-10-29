@@ -200,7 +200,7 @@ A SessionStart/PreToolUse/etc. hook registered in `~/.claude/settings.json` work
 
 ### 11. Port-time absolute-path sweep + sibling-layout convention
 
-> **Runtime `repos.*` discovery.** Sibling-relative replacement is the contract for port-time cleanup (this section's scope: extraction-time absolute-path sweep, where the consumer doesn't yet exist to be told about anything else). At **runtime**, `repos.<slug>` discovery is governed by the 4-rung ladder in `machine-local-registry.md` §4c (SSOT: `project-rag/docs/wiki/cross-machine-path-resolution-contract.md`); the blind `../<sibling-repo>/` walk is **not a runtime rung** — marker-autodiscovery (§4c rung 2) covers that case instead. See `machine-local-registry.md`.
+> **Runtime `repos.*` discovery.** Sibling-relative replacement is the contract for port-time cleanup (this section's scope: extraction-time absolute-path sweep, where the consumer doesn't yet exist to be told about anything else). At **runtime**, `repos.<slug>` discovery is governed by the 4-rung ladder in `machine-local-registry.md` §4c (SSOT: project-rag's cross-machine path-resolution contract); the blind `../<sibling-repo>/` walk is **not a runtime rung** — marker-autodiscovery (§4c rung 2) covers that case instead. See `machine-local-registry.md`.
 
 Incomplete migrations leak absolute paths (`$HOME/src/source-repo/...`, `<drive>:/work/src/...`) into the vendored code, hooks, and config. <!-- foreign-path-ok: the hardcoded path IS the anti-pattern being critiqued --> Symbol parity passes; runtime breaks on every consumer machine. **At extraction time, sweep absolute repo prefixes across the carved-out tree** and replace with sibling-layout relative references (`../<sibling-repo>/<path>`) where cross-repo references are unavoidable. Document the sibling-layout convention in the plugin's CLAUDE.md so `../sibling/...` is a contract — not an implementation detail downstream consumers have to reverse-engineer.
 
@@ -227,7 +227,7 @@ Port-time cleanup (the topic of this section) and runtime discovery are **differ
 
 **Runtime `repos.<slug>` discovery — governed by the §4c ladder.**
 
-The runtime discovery order defers to the 4-rung ladder in `machine-local-registry.md` §4c (SSOT: `project-rag/docs/wiki/cross-machine-path-resolution-contract.md`). The blind `../<sibling-repo>/<path>` walk is not a runtime rung — marker-autodiscovery (§4c rung 2) is the runtime rung. The "operator hasn't populated the registry" case is served by autodiscovery; the original "no forced cutover" intent is satisfied, not overridden.
+The runtime discovery order defers to the 4-rung ladder in `machine-local-registry.md` §4c (SSOT: project-rag's cross-machine path-resolution contract). The blind `../<sibling-repo>/<path>` walk is not a runtime rung — marker-autodiscovery (§4c rung 2) is the runtime rung. The "operator hasn't populated the registry" case is served by autodiscovery; the original "no forced cutover" intent is satisfied, not overridden.
 
 Port-time cleanup still uses sibling-relatives as its replacement vocabulary — the extraction-time MUST rule stays, because at that moment the consumer doesn't yet exist. Runtime consumers follow the §4c ladder.
 
@@ -481,8 +481,8 @@ The substitution pass in `publish-time-transform-py --fix` handles more than per
 
 The `publish-time-transform-py` hook and the percolate Step 2c content scan are **safety nets for inherited content**, not authoring licenses. When writing any doc, skill, or agent file that will be percolated, never hardcode local working-tree paths — even as "doctrine source" citations. Use abstract repo references instead:
 
-- Wrong: `<drive-letter>:/coordinator-claude/docs/wiki/foo.md` — the hardcoded path IS the anti-pattern being critiqued
-- Right: `docs/wiki/foo.md` (relative to plugin root) or `plugins/coordinator-claude/coordinator/docs/wiki/foo.md` (from meta-repo root)
+- Wrong: `<drive-letter>:/coordinator-claude/docs/wiki/<page>.md` — the hardcoded path IS the anti-pattern being critiqued
+- Right: `docs/wiki/<page>.md` (relative to plugin root) or `plugins/coordinator-claude/coordinator/docs/wiki/<page>.md` (from meta-repo root)
 
 Local path leaks survive substitution-table updates (new paths not yet in the regex) and require hand-edits at percolation time. The drift is silent until the per-publish scan catches it. Authoring discipline prevents the class entirely; the hook is the last line of defense, not the first.
 

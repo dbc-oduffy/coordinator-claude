@@ -12,7 +12,8 @@ all verified findings for the subject into structured data matching the output s
 ## Your Assignment
 
 **Subject:** {{subject}}
-**Brief:** {{brief}} — the EM's scout brief. It holds the subject context, the output path
+**Brief:** {{stage.brief-author.output}} — the research brief written after the source survey; it
+supersedes the scout brief at {{brief}}. It holds the subject context, the output path
 (`<output_path>` below), the full output schema, the existing data, the Phase 2 gate rules,
 the run id, and the date. If it has per-subject sections, use the one for {{subject}}.
 
@@ -96,6 +97,7 @@ Write supplementary analysis to {{scratch_dir}}/synthesis-annotations.md:
 - Annotations table (field → source → confidence → notes)
 - Cross-topic reconciliation table (field → verifier values → resolution → reasoning)
 - Gaps remaining table (field → reason → attempted sources → recommendation)
+- Lever register when the brief asks for levers: every lever found, each with owner (repo or role), evidence, status — never a top N; ranking orders it, never truncates it. Carry the PM's quantifiers verbatim from the brief and add no cap the PM did not state.
 
 These annotations are the paper trail. They are NOT the deliverable.
 

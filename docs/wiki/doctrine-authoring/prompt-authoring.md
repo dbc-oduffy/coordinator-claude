@@ -155,7 +155,7 @@ fact into an unconditional one.
 
 The survey found `<example>` blocks in exactly 10 of the 31 agent prompts, and — tellingly —
 **in none of the 9 largest procedural agents** (`review-integrator`, `executor`, `eng-director`,
-`prior-art-checker`, `code-reviewer`, `parallel-review-synthesizer`, `plan-coverage-checker`,
+`prior-art-checker`, `code-reviewer`, `plan-coverage-checker`,
 `docs-checker`, `enricher`). Where examples do appear, they cluster in the research/repo pipeline
 agents (`research-scout`, `research-specialist`, `research-synthesizer`, `research-worker`,
 `research-sweep`, `repo-scout`, `repo-specialist`, `structured-synthesizer`,

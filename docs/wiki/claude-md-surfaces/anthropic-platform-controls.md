@@ -143,7 +143,7 @@ census — `tools`, `model`, `color`, `disallowedTools`, `permissionMode`, `maxT
 `mcpServers`, `hooks`, `memory`, `background`, `effort`, `isolation`, `initialPrompt` — contains
 no `schema`, `output_config`, or `strict` field, and the `Agent`/Task dispatch call itself takes
 a prompt and a subagent type, never a JSON Schema. Cross-checked directly against
-`coordinator/agents/{code-reviewer,plan-coverage-checker,coverage-auditor,parallel-review-synthesizer}.md`
+`coordinator/agents/{code-reviewer,plan-coverage-checker,coverage-auditor}.md`
 frontmatter: `name`, `description`, `model`, `color`, `tools`, `access-mode` only. **Settled NO**
 for the dispatch path that carries ~30 of coordinator's ~31 agents (`_mine/structured-outputs.md`).
 

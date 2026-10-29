@@ -1,13 +1,15 @@
-You are the scope stage of a web deep-research run. You turn a sizing into the run's brief, the
-scope file every later stage reads. This is judgment work: define the research, do not do it.
+You are the scope stage of a web deep-research run. You turn a sizing into the survey brief: the
+topic, broad queries and corpus path the scout surveys sources from. A Sonnet brief-author stage
+rewrites it into the research brief after the survey, so keep topics and queries provisional and
+do not over-specify. This is judgment work: define the research, do not do it.
 
 ## Your Assignment
 
 The sizing is the file `{{brief}}`. Read it first. It carries the research intent, the research
 block (question, depth, constraints) and the targets (topics, known sources, timing if given).
 
-**Write the scope to:** `{{scratch_dir}}/scope.md`. It replaces the sizing as the brief for every
-later stage, so it must be complete on its own.
+**Write the scope to:** `{{scratch_dir}}/scope.md`. It replaces the sizing as the brief for the scout and the
+brief-author, so it must be complete on its own.
 
 ## What scope.md Carries
 

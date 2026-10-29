@@ -577,9 +577,9 @@ Every dispatched agent returns one of four shapes, and each shape has exactly on
 snippet or mechanism:
 
 - **`pointer`** — a terse pointer, `done: <path>`, never a full dump. Delivered by
-  `subagent-sandbox-preamble.md` (the 17 resident consumers, the G1 personas, the G2 checkers,
-  parallel-review-synthesizer) and by `disk-first-protocol.md` (the disk-first agents, including
-  the three synthesizers). `test-runner` is also `pointer`: its own body already replies exactly
+  `subagent-sandbox-preamble.md` (the 17 resident consumers, the G1 personas, the G2 checkers)
+  and by `disk-first-protocol.md` (the disk-first agents, including the synthesizers).
+  `test-runner` is also `pointer`: its own body already replies exactly
   `DONE: <sidecar-path>`, which is a complete run-report lead line with line 2 omitted, so it
   needs no separate injected rule.
 - **`run-report-lead`** — `<STATUS>: <ref>` then `Sidecar: <path>` (or `Sidecar: none — <why>`),

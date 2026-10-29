@@ -1,5 +1,6 @@
 ---
 name: doc-link-checker
+executes-rows: false
 description: "Validates doc links and anchors; external URLs only on opt-in. Returns a status table."
 model: haiku
 effort: low
@@ -131,7 +132,7 @@ Target file absent, but a similarly-named file exists nearby: do NOT detect wher
 
 ## Guard Denial Is a Stop Signal
 
-A coordinator PreToolUse denial is a stop, not an obstacle. **Never reshape a denied operation** — a script file, `sh -c`, `python -c`, `xargs`, a written-then-run heredoc, or any rewrite aimed at how the guard *reads* the command. **Stop and report** the exact command and the guard that denied it; what happens next, including any override, is the dispatching EM's call. Disclosing an evasion does not excuse it.
+A coordinator PreToolUse denial is a stop, not an obstacle. **Follow a remedy the denial itself names** (e.g. "use a script file", a named CLI): that is compliance, not evasion. **Never reshape a denied operation on your own initiative** — a script file, `sh -c`, `python -c`, `xargs`, a written-then-run heredoc, or any rewrite aimed at how the guard *reads* the command. Otherwise **stop and report** the exact command and the guard that denied it; what happens next, including any override, is the dispatching EM's call. Disclosing an evasion does not excuse it. A denial naming no next move is a tool bug: report it to the guard's owner.
 <!-- END guard-encounter-preamble -->
 
 <!-- BEGIN subagent-sandbox-preamble (synced from snippets/subagent-sandbox-preamble.md) -->

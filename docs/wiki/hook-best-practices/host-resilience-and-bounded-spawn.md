@@ -209,6 +209,6 @@ Hook zombie discriminator: PID-file-holder liveness (process is alive) does not 
 ## three lifecycle topologies — _boot_subprocess vs ensure-script vs outer-process supervisor
 
 Per-project Windows daemons need a per-user outer-process supervisor (e.g., a coordinator `ensure-<daemon>` script launched by `SessionStart`), NOT a Windows service AND NOT the in-process `_boot_subprocess` harness. Three distinct topologies: (1) `_boot_subprocess` — inline child managed by the caller process, dies when caller dies; (2) `ensure-script` — idempotent launch script, suitable for short-lived services; (3) outer-process supervisor — started by SessionStart hook, independent lifetime, correct for per-project HTTP daemons.
-- Companion VRAM-coexistence wiki: `docs/wiki/cross-process-vram-coexistence.md`
+- Companion VRAM-coexistence wiki: `<rag-root>/docs/wiki/embedding-model-selection/cross-process-vram-coexistence.md` (`<rag-root>` = `repos.project_rag`)
 - Doctor surface: `coordinator/docs/wiki/install-playbook-rationale/coordinator-doctor.md` Step 1.7 (watchdog status read)
 - Long-lived subprocess hookspec: `docs/wiki/addon-protocol.md` §project_rag_register_long_lived_subprocess

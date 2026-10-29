@@ -127,6 +127,55 @@ def _grant_directive_module():
     return _mod
 
 
+def _print_reply(applied: list, refused: list, target) -> None:
+    """One-line MutationReply JSON on stdout: `ok` is true only with a non-empty `applied`."""
+    print(json.dumps({"ok": bool(applied), "applied": applied, "refused": refused, "target": target}))
+
+
+def _report_grant(mod, directive, rest: list[str], code: int, message: str):
+    """Print what `grant` actually did. A write the readback cannot confirm
+    (absent record, other session, different tier or ceremony) is refused with
+    exit 1, never reported as applied. Returns the (code, message) to exit with."""
+    parsed = directive.parse_grant_args(rest)
+    if not isinstance(parsed, tuple):
+        return code, message
+    granted_by, note, ceremony = parsed
+    request = {"granted_by": granted_by, "ceremony": ceremony}
+    if code != 0:
+        _print_reply([], [{"input": request, "reason": message or f"exit {code}"}], None)
+        return code, message
+    record = mod.read_tier_u_grant()
+    reason = None
+    if not isinstance(record, dict):
+        reason = "grant not found on readback"
+    elif record.get("granted_by") != granted_by or record.get("ceremony") != ceremony:
+        reason = "readback scope differs from the request"
+    elif record.get("note") != note:
+        reason = "readback note differs from the request"
+    else:
+        sid = record.get("session_id")
+        try:
+            current = mod.core.resolve_session_id(None)
+        except Exception:
+            current = None
+        if not sid or (current and sid != current):
+            reason = "grant belongs to a different session"
+    if reason:
+        _print_reply([], [{"input": request, "reason": reason}], None)
+        return 1, f"grant: {reason}"
+    path = None
+    locate = getattr(mod, "_grant_file", None)
+    if locate is not None:
+        found = locate(record["session_id"], None)
+        path = str(found) if found else None
+    _print_reply(
+        [{"path": path, "scope": {"session_id": record["session_id"], "granted_by": granted_by, "ceremony": ceremony}}],
+        [],
+        path,
+    )
+    return 0, message
+
+
 def main(argv: list[str]) -> int:
     if not argv:
         return _usage("tier-u-grant-cli")
@@ -156,6 +205,8 @@ def main(argv: list[str]) -> int:
             )
             return _TRANSPORT_FAIL
         code, message = directive.run_grant_directive([subcmd, *rest])
+        if subcmd == "grant":
+            code, message = _report_grant(mod, directive, rest, code, message)
         if message:
             print(f"tier-u-grant-cli: {message}", file=sys.stderr)
         return code

@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coordinator.local/schemas/peer-set-entry.schema.json",
+  "x-schema-name": "peer-set-entry",
+  "x-schema-version": "1.1.0",
+  "x-bump-class": "nested-field-additive",
+  "x-bump-note": "1.0.0 -> 1.1.0 widens `applies_to` from `state/peers/*.yaml` to `state/peers/*.{yaml,yml}`. No property is added, removed, or made required, and no existing value's semantics change — every document valid under 1.0.0 still validates; the widen only admits a second file extension into the schema's match set. Landed with the matching entry-filter widen in `peer_recheck_staleness_banner` (coordinator/hooks/scripts/project-orientation.py), which must stay in lockstep: the schema declaring which files ARE peer entries and the banner deciding which files it READS are the same question answered twice, and a divergence makes a hand-authored `.yml` entry silently invisible to the nudge while still validating. MOTIVATING FINDING (code-reviewer, 2026-08-11, Finding 1 of state/subagent-share/5a864bd1-bbd0-4d6f-a6ea-c7b39babeba1/coordinatorcode-reviewer-b0c38bdb.md): at 1.0.0 the banner filtered on `p.suffix == '.yaml'` exactly, so a peer entry saved `.yml` — the likelier authoring slip of the two — was invisible to the banner in the same way a README is. That defeats this surface's own stated design intent, that a peer cannot hide from the banner by omission, and it does so silently. Accepting `.yml` was chosen over pinning the exclusion with a test because these files are hand-authored by each repo's EM under the decentralized model (archive/specs/2026-08/2026-08-11-decentralize-code-comparison.md), where a silent miss costs more than extension strictness buys. ON THE RECORDED `x-bump-class`, because the honest answer is that none of the four terms fits: the vocabulary in docs/wiki/schema-and-validation-contracts/schema-version-gate.md names field- and enum-shaped changes (`major`, `nested-field-additive`, `enum-value-additive`, `top-level-array-additive`), and an `applies_to` match-set widen is none of them — no field is added, no enum widened, no array introduced. Omitting the key is NOT available here, and the first draft of this note wrongly claimed it was by citing sizing-object.schema.json's 1.9.0 -> 1.10.0 precedent: that bump omitted the class because it had ZERO shape effect, which `test_bump_note_without_class_declares_zero_shape_effect` enforces by requiring the note to positively assert as much. This bump DOES move the shape hash (`applies_to` is instance-data, not a stripped prose annotation), so that exception does not apply and the pins entry is regenerated in the same commit. `nested-field-additive` is therefore recorded as the deliberate nearest fit, chosen on the safe side rather than the accurate one: every document valid under 1.0.0 still validates, so the change is unambiguously additive rather than `major`, and among the additive terms this is the most restrictive — the same more-restrictive-of-the-pair rule this fleet's schemas already apply when a bundle spans two classes. Over-stating the holding duty can only make a future vendoring sibling wait longer than strictly necessary; under-stating it could let them skip a hold they owed. If a term for a match-set widen is ever added to the vocabulary, this entry is the one to reclassify. NOTE on holding semantics: `nested-field-additive`'s unconditional-hold duty (schema-version-gate.md:170, 'breaks `.strict()` consumers') is written for a field added to record instances; a `.strict()` consumer of peer-set-entry records is unaffected by this glob widen, so only the class's 'additive, not major' characterization applies here, not its consumer-breakage rationale — a future reader should not inherit a bilateral-sequencing hold this bump does not actually owe. the engine repo does not vendor this schema — it was created 2026-08-11 and appears in no vendored corpus — so DR-097's push-side sibling-notification duty does not attach to this bump; re-check DOE_ONLY_SCHEMAS at the next one rather than carrying this sentence forward by pattern-match.",
+  "applies_to": "state/peers/*.{yaml,yml}",
+  "match_mode": "whole-document-yaml",
+  "description": "Peer-set entry — one repo's declaration of a single peer/rival it periodically re-checks via code-comparison, one YAML file per peer under state/peers/<peer-slug>.{yaml,yml} (whole-document YAML; no prose markdown body). Each repo's team identifies its own peers rather than DoE naming them for it — see archive/specs/2026-08/2026-08-11-decentralize-code-comparison.md § Problem. additionalProperties-posture: open — unknown fields are tolerated (not rejected), matching the improvement-queue/debt-backlog/cross-repo-commitment posture, for forward-compatibility as optional fields are added without invalidating existing records.",
+  "type": "object",
+  "_additionalProperties_note": "Permissive by design — additionalProperties is not set to false here, consistent with the existing permissive pattern in other coordinator schemas (improvement-queue, debt-backlog, cross-repo-commitment). A misspelled field will silently pass. This is intentional for forward-compatibility.",
+  "required": ["peer_ref", "axes", "last_checked"],
+  "properties": {
+    "peer_ref": {
+      "type": "string",
+      "description": "The raw, unresolved peer/rival handle — SAME vocabulary as `peer_ref` in coordinator/pipelines/deep-research/code-comparison-record-schema.md § peer_ref, not a second identity form. Two arms, in preference order: (1) a repo coordinate — an owner-qualified peer/repo slug (\"peer-org/peer-repo\") or a clone URL; (2) a strong-id coordinate — a Wikidata QID, else the peer's registrant domain — used when no repo coordinate exists. Negative spec, mirrored from the record schema: peer identity is one field, never two — there is no sibling `peer_coordinate`."
+    },
+    "axes": {
+      "type": "array",
+      "items": {"type": "string"},
+      "minItems": 1,
+      "description": "The comparison axes this peer is checked on — human-readable axis labels in the same vocabulary as `axis` in code-comparison-record-schema.md (the pre-slug source string; a code-comparison run derives each record's `signal_id` from these via the same slug conversion, it does not coin new axes)."
+    },
+    "last_checked": {
+      "anyOf": [{"type": "string", "format": "date"}, {"type": "null"}],
+      "description": "Date (YYYY-MM-DD) of the most recent code-comparison run against this peer, or null when this peer has never been checked. A recurrence banner reads the oldest `last_checked` across state/peers/*.{yaml,yml} to prompt re-checks."
+    },
+    "created": {
+      "type": "string",
+      "format": "date",
+      "description": "Date this peer-set entry was first declared (YYYY-MM-DD)."
+    },
+    "notes": {
+      "type": "string",
+      "description": "Free-form prose on why this peer/rival was chosen and any context a re-check should carry forward."
+    },
+    "tags": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Free-form classification tags."
+    },
+    "system": {
+      "type": "object",
+      "description": "Optional provenance metadata sub-object.",
+      "properties": {
+        "created_by_session": {
+          "type": "string",
+          "description": "Session identifier that authored this entry."
+        },
+        "created_by_agent": {
+          "type": "string",
+          "description": "Agent identifier that authored this entry."
+        },
+        "linked_sessions": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Session identifiers linked to this entry's history."
+        },
+        "linked_commits": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Commit SHAs linked to this entry's history."
+        }
+      }
+    }
+  }
+}

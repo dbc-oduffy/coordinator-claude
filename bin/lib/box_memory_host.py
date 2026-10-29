@@ -5,11 +5,13 @@ inside the functions that use them. No module-level `coordinator_core` import; a
 memory comes from `host_sampler.avail_mb`, imported inside `read_memory_status`.
 
 Family exit codes: 0 ok, 1 operational failure, 2 usage, 3 not elevated, 4 admission HOLD
-(`box-memory-snapshot --admit-peak` only), 6 unsupported host.
+(`box-memory-snapshot --admit-peak` only), 5 cannot leave the Claude Code session's job
+(`session_detach.ensure_detached` refusal), 6 unsupported host.
 """
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import struct
 import sys
@@ -18,6 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 GIB = 1024**3
+CANNOT_DETACH_EXIT = 5
 UNSUPPORTED_HOST_EXIT = 6
 
 _PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
@@ -300,10 +303,9 @@ def empty_working_set(pid: int) -> None:
 _ADMISSION_TAIL_BYTES = 1 << 20
 
 
-def admission_file() -> "Path":
+def admission_file() -> Path:
     """Default admission channel: ``<settings-home>/state/group-em/box/admission.jsonl``."""
     import os
-    from pathlib import Path
 
     root = os.environ.get("COORDINATOR_SETTINGS_HOME")
     base = Path(root) if root else Path(os.environ.get("CLAUDE_HOME") or Path.home()) / ".coordinator-claude-settings"
@@ -330,12 +332,57 @@ def pid_alive(pid: int) -> bool:
     return psutil.pid_exists(pid)
 
 
-def reserved_bytes(path, rss_fn=tree_rss_mb, alive_fn=pid_alive) -> int:
-    """Sum over live START pids with no matching END of max(0, declared peak - tree RSS), in bytes.
+_CREATE_TIME_TOLERANCE_S = 1.0
 
-    START and END match on (session_id, run). A START without ``declared_peak_mb``, a dead pid,
-    an unreadable file or an unreadable RSS contributes 0. Liveness is pid existence only, so a
-    recycled pid of an un-ENDed START over-reserves (fails toward HOLD) until it leaves the tail. Reads only the last 1 MiB of the file.
+
+def pid_create_time(pid: int) -> float | None:
+    """Process create_time (epoch seconds) of ``pid``, or None when unreadable or gone."""
+    import psutil
+
+    try:
+        return float(psutil.Process(pid).create_time())
+    except Exception:
+        return None
+
+
+def _num(value) -> float | None:
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def _pid_holds(line: dict, pid, alive_fn, create_time_fn) -> bool:
+    """True while ``pid`` is still the process the START ``line`` was written for.
+
+    Dead pid: no. Stamped ``create_time``: the live create_time must match it. Legacy line with a
+    ``ts``: the live create_time must not be later than ``ts`` (a later one is a recycled pid).
+    Legacy line with neither: a live pid holds.
+    """
+    if not alive_fn(pid):
+        return False
+    stamped, ts = _num(line.get("create_time")), _num(line.get("ts"))
+    if stamped is None and ts is None:
+        return True
+    current = create_time_fn(pid)
+    if stamped is not None:
+        return current is not None and abs(current - stamped) <= _CREATE_TIME_TOLERANCE_S
+    return current is None or current <= ts + _CREATE_TIME_TOLERANCE_S
+
+
+def _safe_holds(line, pid, alive_fn, create_time_fn) -> bool:
+    try:
+        return _pid_holds(line, pid, alive_fn, create_time_fn)
+    except Exception:
+        return False
+
+
+def reserved_bytes(
+    path, rss_fn=tree_rss_mb, alive_fn=pid_alive, create_time_fn=pid_create_time
+) -> int:
+    """Sum over holding START pids with no matching END of max(0, declared peak - tree RSS), in bytes.
+
+    START and END match on (session_id, run). A START without ``declared_peak_mb``, a pid that
+    does not hold (see ``_pid_holds``: dead, or recycled by create_time), an unreadable file or
+    an unreadable RSS contributes 0. A legacy START with neither ``ts`` nor ``create_time``
+    reserves while its pid is live. Reads only the last 1 MiB of the file.
     """
     import json
 
@@ -366,13 +413,144 @@ def reserved_bytes(path, rss_fn=tree_rss_mb, alive_fn=pid_alive) -> int:
         if isinstance(peak, bool) or not isinstance(peak, (int, float)) or peak <= 0:
             continue
         for pid in line.get("pids") or []:
+            if not _safe_holds(line, pid, alive_fn, create_time_fn):
+                continue
             try:
-                if not alive_fn(pid):
-                    continue
                 total_mb += max(0.0, peak - rss_fn(pid))
             except Exception:
                 continue
     return int(total_mb * 1024 * 1024)
+
+
+def compact_admission(path, alive_fn=pid_alive, create_time_fn=pid_create_time, *, locked: bool = False) -> int:
+    """Rewrite the ledger under ``admission_lock`` without dead or recycled STARTs; returns rows removed.
+
+    ``locked=True`` means the caller already holds ``admission_lock`` (the lock is not reentrant).
+
+    Drops each START whose pids no longer hold, each START/END pair already closed, and the ENDs of
+    dropped STARTs. A kept legacy START with one pid and no ``create_time`` gets that pid's live
+    create_time stamped. Unparseable lines and other rows are kept verbatim. A failed read or
+    replace leaves the file untouched.
+    """
+    import json
+    import os
+
+    path = Path(path)
+    with contextlib.nullcontext() if locked else admission_lock(path):
+        try:
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            return 0
+        parsed = []
+        final: dict = {}
+        for index, text in enumerate(lines):
+            try:
+                row = json.loads(text)
+            except ValueError:
+                row = None
+            parsed.append(row)
+            if isinstance(row, dict) and row.get("phase") in ("START", "END"):
+                final[(row.get("session_id"), row.get("run"))] = (row["phase"], index)
+        drop: set = set()
+        stamped = False
+        for index, row in enumerate(parsed):
+            if not isinstance(row, dict) or row.get("phase") not in ("START", "END"):
+                continue
+            phase, last = final[(row.get("session_id"), row.get("run"))]
+            if phase == "END" or index != last:
+                drop.add(index)
+                continue
+            pids = row.get("pids") or []
+            if not any(_safe_holds(row, pid, alive_fn, create_time_fn) for pid in pids):
+                drop.add(index)
+            elif len(pids) == 1 and _num(row.get("create_time")) is None:
+                stamp = create_time_fn(pids[0])
+                if stamp is not None:
+                    row["create_time"] = stamp
+                    lines[index] = json.dumps(row)
+                    stamped = True
+        if not drop and not stamped:
+            return 0
+        tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+        try:
+            tmp.write_text("".join(f"{t}\n" for i, t in enumerate(lines) if i not in drop), encoding="utf-8")
+            os.replace(tmp, path)
+        except OSError:
+            return 0
+    return len(drop)
+
+
+def peaks_file(admission_path) -> Path:
+    """Recorded-peak store, a sibling of the admission channel."""
+    return Path(admission_path).with_name("command-peaks.json")
+
+
+def read_recorded_peak(admission_path, key: str) -> float | None:
+    """Largest peak in GiB recorded for ``key``, or None."""
+    import json
+
+    try:
+        value = json.loads(Path(peaks_file(admission_path)).read_text(encoding="utf-8")).get(key)
+    except (OSError, ValueError, AttributeError):
+        return None
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0 else None
+
+
+def record_peak(admission_path, key: str, peak_gib: float) -> float:
+    """Keep the larger of the stored and given peak for ``key``; returns the stored value."""
+    import json
+    import os
+
+    path = peaks_file(admission_path)
+    with admission_lock(admission_path):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            data = data if isinstance(data, dict) else {}
+        except (OSError, ValueError):
+            data = {}
+        stored = max(peak_gib, float(data.get(key) or 0))
+        data[key] = stored
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+        tmp.write_text(json.dumps(data), encoding="utf-8")
+        os.replace(tmp, path)
+    return stored
+
+
+def register_command(
+    admission_path, key: str, pid: int, peak_gib: float, create_time_fn=pid_create_time
+) -> None:
+    """Append a START line stamped with ``ts`` and the pid's ``create_time`` (omitted when unreadable).
+
+    The headroom is reserved until END, pid death, or the pid's create_time changing.
+    """
+    import time
+
+    line = {
+        "phase": "START", "session_id": "box-memory-snapshot", "run": f"{key}:{pid}",
+        "pids": [pid], "declared_peak_mb": peak_gib * 1024, "ts": time.time(),
+    }
+    created = create_time_fn(pid)
+    if created is not None:
+        line["create_time"] = created
+    _append_admission(admission_path, line)
+
+
+def release_command(admission_path, key: str, pid: int) -> None:
+    """Append the END line that frees a registered command's reservation (under ``admission_lock``, so a concurrent compaction cannot drop it)."""
+    with admission_lock(admission_path):
+        _append_admission(admission_path, {
+            "phase": "END", "session_id": "box-memory-snapshot", "run": f"{key}:{pid}", "pids": [],
+        })
+
+
+def _append_admission(admission_path, line: dict) -> None:
+    import json
+
+    path = Path(admission_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(line) + "\n")
 
 
 @dataclass(frozen=True)
@@ -385,6 +563,69 @@ class AdmitVerdict:
     commit_ok: bool
 
 
+@contextlib.contextmanager
+def admission_lock(admission_path):
+    """Exclusive cross-process lock on ``<admission>.lock`` (blocking, no deadline: a hung holder stalls every admit) for one check-and-reserve section."""
+    path = Path(admission_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path.with_name(path.name + ".lock"), "a+b") as fh:
+        if sys.platform == "win32":
+            import msvcrt
+
+            fh.seek(0)
+            while True:
+                try:
+                    msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
+                    break
+                except OSError:
+                    continue
+            try:
+                yield
+            finally:
+                fh.seek(0)
+                msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+
+
+def admit_and_register(
+    admission_path,
+    key: str,
+    pid: int,
+    peak_gib: float,
+    status: MemoryStatus,
+    *,
+    cushion_pct: float = 25.0,
+    commit_limit: int | None = None,
+    **reserved_kwargs,
+) -> tuple[AdmitVerdict, int]:
+    """Read reservations, decide and write the START line under one lock; returns (verdict, reserved bytes).
+
+    Two concurrent callers serialize, so the second sees the first's reservation.
+    """
+    import dataclasses
+
+    liveness = {k: v for k, v in reserved_kwargs.items() if k in ("alive_fn", "create_time_fn")}
+    with admission_lock(admission_path):
+        compact_admission(admission_path, locked=True, **liveness)
+        reserved = reserved_bytes(admission_path, **reserved_kwargs)
+        adjusted = dataclasses.replace(
+            status,
+            avail_phys=max(0, status.avail_phys - reserved),
+            commit_used=status.commit_used + reserved,
+        )
+        verdict = admit(int(peak_gib * GIB), adjusted, cushion_pct=cushion_pct, commit_limit=commit_limit)
+        if verdict.admit:
+            register_command(admission_path, key, pid, peak_gib, **{k: v for k, v in liveness.items() if k == "create_time_fn"})
+    return verdict, reserved
+
+
 def admit(
     peak: int,
     status: MemoryStatus,
@@ -392,7 +633,7 @@ def admit(
     cushion_cap: int = 8 * GIB,
     commit_limit: int | None = None,
 ) -> AdmitVerdict:
-    """Pure admission check for a declared peak against a memory snapshot."""
+    """Pure admission check; need is peak + min(cushion_pct of peak, cushion_cap) against ``status.avail_phys``."""
     need_avail = peak + min(peak * cushion_pct / 100, cushion_cap)
     avail_ok = need_avail <= status.avail_phys
     commit_ok = status.commit_used + peak <= (status.commit_limit if commit_limit is None else commit_limit)

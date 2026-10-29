@@ -187,7 +187,9 @@ the un-reviewed subset.
 One unnamed Sonnet `general-purpose` worker (`model: "sonnet"`, never a persona) reads the week's
 `archive/daily-summaries/` files, the week's changelog, and the project strategic documents
 (`ROADMAP.md`, `VISION.md`, `state/workstreams/`). It leaves a paper trail, not a verdict. Field
-detail and prompt: `ceremony-calibration/daily-summary-procedure.md` § Weekly Strategic Observer.
+detail and prompt: `<content-root>/coordinator/docs/wiki/ceremony-calibration/daily-summary-procedure.md`
+§ Weekly Strategic Observer (`<content-root>` is the path in `~/.claude/.content-root`). Unresolvable → stop
+and report the missing path; never search the filesystem for it.
 No commit-count floor.
 
 - Writes debt-backlog YAML via `coordinator-queue-append --schema debt-backlog`, tagged
@@ -364,7 +366,7 @@ Residue is row-granular to this session only — never the whole store, never a 
 
 Moves daily files + priorities fragments to `archive/week-changelogs/<week-starting>/` (which must
 end up holding one `WEEK-SUMMARY.md` in the rollup-frontmatter shape —
-`coordinator/docs/wiki/ceremony-calibration/daily-summary-procedure.md` § Rollup Frontmatter Standard),
+`<content-root>/coordinator/docs/wiki/ceremony-calibration/daily-summary-procedure.md` § Rollup Frontmatter Standard),
 review-trail JSON to `archive/review-trail/<week-starting>/` (`.gitkeep` and
 `.weekly-reviewer-scopes-*.json` shards deleted not archived), rewrites `HEADER.md`, commits +
 pushes. Run `workweek-complete-close archive --version vX.Y.Z --merge-sha <merge-sha>`

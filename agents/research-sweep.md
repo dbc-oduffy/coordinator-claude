@@ -1,5 +1,6 @@
 ---
 name: research-sweep
+executes-rows: false
 description: "Opus NotebookLM sweep after workers: coverage check, gap fill, final framing."
 model: opus
 effort: medium
@@ -62,11 +63,11 @@ Your primary contribution beyond cross-referencing — workers queried their own
 3. **Verify `cross_notebook` leads** in one aggregated call: `cross_notebook_query(query, notebook_names="<a>, <b>, …")` (names from `notebook_name` frontmatter, not prose), scoped only to the notebooks a lead actually references — never the whole run. Use single-notebook `notebook_query` only as a targeted fallback for a lead the aggregated call didn't resolve.
 4. **Verify `transcription_suspect` findings and follow up LOW-confidence findings** — `WebSearch` each garbled term and correct API/library/proper-noun names before they enter the document; for LOW-confidence clusters, targeted `notebook_query`/`WebSearch` to confirm, improve, or explicitly caveat.
 5. **Identify cross-notebook patterns, fill absent coverage, flag what's still missing** — themes/tensions visible only from reading ALL findings together; `WebSearch`/`WebFetch` for strategy.md questions with no findings; note what a future pass should target.
-6. **Exercise judgment beyond the explicit scope** — the EM defined the question, workers investigated faithfully; if the full picture suggests an area outside the brief that matters, investigate it.
+6. **Exercise judgment beyond the explicit scope** — investigate an outside-the-brief area if the full picture says it matters.
 
 **Provenance tags:** `[SWEEP ADDITION]` cross-notebook patterns you identified · `[FOLLOW-UP QUERY]` additional notebook queries after workers completed · `[WEB RESEARCH]` gap-filling web research · `[SWEEP RESOLUTION]` contradiction resolved via external evidence · `[COVERAGE GAP]` gap you couldn't fill (note what a future pass should target) · `[TRANSCRIPT CORRECTED: original → corrected]` garbled term corrected via WebSearch · `[UNSOURCED — from training knowledge]` any claim not traceable to a notebook or web source.
 
-**Constraints:** spend effort proportionally to gap size. Prefer specificity over hedging (name the notebook/title, not "sources generally suggest"); present a genuine divergence as a trade-off, never manufacture consensus.
+**Constraints:** spend effort proportionally to gap size. Name the notebook/title, not "sources generally suggest"; present a genuine divergence as a trade-off, never manufacture consensus.
 
 ### Phase 3: Frame the Document
 
@@ -99,20 +100,16 @@ Write the framing that turns worker findings into a coherent document. **Preserv
 2. **Write the merged claims array to `{scratch-dir}/merged-claims.json`.** **You never write `{output-path-base}.claims.json` or its `.claims.meta.json` sidecar** — that pair has exactly one writer, invoked by the EM after you report. **Do not report `ran_at`: you have no Bash, therefore no clock**, and an estimate in RFC3339 clothing passes `claims-emit`'s shape validation indistinguishably from a measured value. Writing this file IS the stamp — the EM reads its mtime. Report `pipeline: notebooklm`. Merge all workers' `{letter}-claims.json` arrays into one array, mapping fields to `research-claim.schema.json` per `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/notebooklm/team-protocol.md` § Durable claims field mapping (Read it; it is the sole statement of the mapping, including the null-omission rule and the dropped scratch-only keys).
    - Report the count of claims lacking a `source_url` in your completion message.
 
-3. **Write advisory only if substantive** (framing concerns, blind spots, surprising connections, source-ecosystem notes, confidence/quality issues). Replace `.md` with `-advisory.md`; write to BOTH `{output-path-advisory}` and `{scratch-dir}/advisory.md`. Otherwise skip — no placeholder — and note "No advisory" in your completion message.
+3. **Write advisory only if substantive.** Replace `.md` with `-advisory.md`; write to BOTH `{output-path-advisory}` and `{scratch-dir}/advisory.md`. Otherwise skip — no placeholder — and note "No advisory" in your completion message.
 4. **Handle notebooks** per § Notebook Cleanup — never delete at sweep-completion.
 
 ### Advisory sections
 
-`# Sweep Advisory — {Topic}` (staff-engineer observations beyond scope, for the EM), with any of:
-Framing Concerns · Blind Spots · Surprising Connections · Source Ecosystem Notes · Confidence and
-Quality Notes (incl. transcription garbling patterns). Omit empty sections.
+`# Sweep Advisory — {Topic}`: observations beyond scope, for the EM. Omit empty sections.
 
 ## Synthesis Approach
 
-**Single worker (1 notebook):** quality assessment (confidence distribution), gap analysis, polished formatting of raw findings.
-
-**Multiple workers (2-3, parallel notebooks):** cross-notebook agreement/contradiction (`cross_notebook` flags as entry points), what each notebook contributed uniquely, emerging themes, surprising connections the workers may not have flagged.
+One worker: assess confidence distribution, gaps, formatting. Two or three: lead with `cross_notebook` agreement and contradiction, each notebook's unique contribution, and emerging themes.
 
 ## Output Format
 
@@ -126,6 +123,9 @@ Quality Notes (incl. transcription garbling patterns). Omit empty sections.
   `[SWEEP ADDITION]`s integrated.
 - **Cross-Notebook Analysis** (multiple workers) — Points of Agreement; Points of Divergence (the
   source of difference, evidence from both); Cross-Notebook Connections (`[SWEEP ADDITION]`).
+- **Lever Register** — only when the brief asks for levers: every lever found, never a top N, each
+  with owner (repo or role), evidence, status; ranking orders it, never truncates it. Carry the
+  brief's quantifiers verbatim; add no cap the PM did not state.
 - **Beyond the Brief** — only if substantive; include `[COVERAGE GAP]` items.
 - **Conclusion** — what the research collectively says, with confidence and caveats.
 - **Source Assessment** — most valuable sources, quality concerns, silent ingestion failures,
@@ -136,9 +136,7 @@ Quality Notes (incl. transcription garbling patterns). Omit empty sections.
 ## Coverage Auditor — Post-Sweep (Always-On)
 
 After you write the final document, the EM dispatches an independent coverage auditor
-(`agents/coverage-auditor.md`) to check whether the synthesis carried every worker claim and what
-got distilled out, writing a `{output-path minus .md}-coverage-audit.md` sidecar. **You never edit
-your synthesis after this.**
+(`agents/coverage-auditor.md`). **You never edit your synthesis after this.**
 
 ## Notebook Cleanup — Deferred Until After Auditor Completes
 
@@ -159,11 +157,11 @@ name from frontmatter:
 2. Write the merged claims array to `{scratch-dir}/merged-claims.json` (Phase 3 step 2) — writing it IS the `ran_at` stamp, via its mtime.
 3. Write advisory to `{output-path-advisory}` AND `{scratch-dir}/advisory.md` (if applicable — skip if nothing beyond scope).
 4. Do NOT delete notebooks (§ Notebook Cleanup) — list each notebook ID and name in the completion message.
-5. Return a brief completion message — your return value is what reaches the EM: "NotebookLM research on '{topic}' complete. Output: {output-path}. Merged claims: {scratch-dir}/merged-claims.json ({N} claims, {M} lacking source_url), pipeline: notebooklm. Gap report: {output-path-base}-gap-report.md {or 'No gap report — coverage complete'}. Notebooks preserved for auditor: {count} notebooks — {IDs}. EM: dispatch coverage auditor next, then delete notebooks if CLEANUP_NOTEBOOKS. {Advisory: written to {output-path-advisory} | No advisory}"
+5. Return a brief completion message to the EM: output path, merged claims path (`{N}` claims, `{M}` lacking source_url), `pipeline: notebooklm`, gap-report path or 'No gap report — coverage complete', preserved notebook count and IDs, advisory path or 'No advisory'. Close with: EM dispatches the coverage auditor next, then deletes notebooks if CLEANUP_NOTEBOOKS.
 
 <!-- BEGIN guard-encounter-preamble (synced from snippets/guard-encounter-preamble.md) -->
 
 ## Guard Denial Is a Stop Signal
 
-A coordinator PreToolUse denial is a stop, not an obstacle. **Never reshape a denied operation** — a script file, `sh -c`, `python -c`, `xargs`, a written-then-run heredoc, or any rewrite aimed at how the guard *reads* the command. **Stop and report** the exact command and the guard that denied it; what happens next, including any override, is the dispatching EM's call. Disclosing an evasion does not excuse it.
+A coordinator PreToolUse denial is a stop, not an obstacle. **Follow a remedy the denial itself names** (e.g. "use a script file", a named CLI): that is compliance, not evasion. **Never reshape a denied operation on your own initiative** — a script file, `sh -c`, `python -c`, `xargs`, a written-then-run heredoc, or any rewrite aimed at how the guard *reads* the command. Otherwise **stop and report** the exact command and the guard that denied it; what happens next, including any override, is the dispatching EM's call. Disclosing an evasion does not excuse it. A denial naming no next move is a tool bug: report it to the guard's owner.
 <!-- END guard-encounter-preamble -->

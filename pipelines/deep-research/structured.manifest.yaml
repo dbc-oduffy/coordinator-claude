@@ -31,6 +31,15 @@ stages:
     web_caller: true
     depends_on: [scope, prior-art]
     output: "{{scratch_dir}}/scout-index.md"
+  - id: brief-author
+    phase: Brief
+    agent_type: coordinator:research-brief-author
+    model: sonnet
+    template: brief-author-prompt-template.md
+    fan_out: none
+    web_caller: false
+    depends_on: [scout]
+    output: "{{scratch_dir}}/research-brief.md"
   - id: verify
     phase: Verify
     agent_type: coordinator:research-specialist
@@ -39,7 +48,7 @@ stages:
     fan_out:
       over: subject.verifiers
     web_caller: true
-    depends_on: [scout]
+    depends_on: [brief-author]
     output: "{{scratch_dir}}/{{item.topic}}-findings.md"
     schema:
       type: object

@@ -55,7 +55,10 @@ with no artifact-path, resolved per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coor
 
 Once `apply`'s commit lands, trigger project-rag's SCIP rebuild in the background (best-effort,
 never blocks): `"$_py"
-"${CLAUDE_PLUGIN_ROOT:-<content-root>/coordinator}/bin/scip-rebuild-at-ceremony.py" --ceremony handoff`
+"${CLAUDE_PLUGIN_ROOT:-<content-root>/coordinator}/bin/scip-rebuild-at-ceremony.py" --ceremony handoff`.
+Then refresh and republish the structural index if drifted (overnight work closes through
+handoffs): `"$_py" "${CLAUDE_PLUGIN_ROOT:-<content-root>/coordinator}/bin/structural-index-refresh.py"
+--root "$(git rev-parse --show-toplevel)" --timeout 0`
 (§ Plugin-local `coordinator/bin/`, `resolve-coordinator-bin.md`).
 
 Procedure detail arrives with this invocation from `coordinator/skills/handoff/residue/`; you

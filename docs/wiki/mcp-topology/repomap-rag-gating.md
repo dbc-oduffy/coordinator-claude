@@ -40,7 +40,7 @@ The gating contract balances these costs across three states.
 | RAG State | `check-rag-state.py` output | Action | Notes |
 |-----------|----------------------------|--------|-------|
 | **RAG absent** | `absent` | **Generate unconditionally.** | Repomap is the primary structural orientation artifact. |
-| **RAG present + stale or uninitialized** | `stale` or `unknown` | **Generate as fallback stopgap.** Note in run report: "Generated as RAG-fallback — RAG is present but stale." | EM chooses repomap-vs-reindex per session based on time budget. |
+| **RAG present + stale or uninitialized** | `stale` or `unknown` | **Generate as fallback stopgap.** Note in run report: "Generated as RAG-fallback — RAG is present but stale." | Never reindex to escape staleness (`A-REINDEX-IS-A-STALENESS-FLAG-NEVER-AN-AGENT-TRIGGER`); report it. |
 | **RAG present + fresh** | `fresh` | **Skip generation.** Report: "Repomap skipped — project-RAG is present and fresh. Use `mcp__*project-rag*` tools for structural lookups." | Exit cleanly — this is the happy path in RAG-enabled sessions. |
 
 **`unknown` maps to the stale branch** — conservative fallback. Generating when uncertain is

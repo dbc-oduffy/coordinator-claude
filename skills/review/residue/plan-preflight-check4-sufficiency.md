@@ -19,5 +19,5 @@ Verdict is one of `sufficient` / `insufficient` / `cannot-tell` — always state
 | `insufficient` | Names the shortfall in the prime exit criterion's own units where they exist — e.g. "closes ~15 of the ~205 required." |
 | `cannot-tell` | Itself a finding: a plan whose delivered magnitude cannot be reasoned about before execution is a plan nobody can steer. |
 
-**Routing is the point.** `insufficient` and `cannot-tell` are RE-PLAN triggers, not findings to note and pass. Resizing upward via the `plan⇄sizing` return edge is never the default. Narrowing the prime exit criterion to fit the spine is
+**Routing is the point.** `insufficient` and `cannot-tell` are findings to apply in place, once, then continue; only a plan that cannot be saved is returned `UNSAVEABLE`, with the reason named (`A-REVIEWER-RETURNS-UNSAVEABLE-ONLY-WHEN-THE-PLAN-CANNOT-BE-SAVED`). Resizing upward via the `plan⇄sizing` return edge is never the default. Narrowing the prime exit criterion to fit the spine is
 forbidden — that is the vacuous AC one altitude up.

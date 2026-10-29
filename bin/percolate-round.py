@@ -162,6 +162,7 @@ Spec backlink: docs/decisions/DR-301-agent-initiated-publish-push-is-automatable
 from __future__ import annotations
 
 import argparse
+import contextlib
 import faulthandler
 import io
 import json
@@ -186,6 +187,8 @@ _ENGINE_BOUND_NAMES = (
     "_RoundManifest",
     "_read_manifest",
     "_default_manifest_path",
+    "_publish_slot",
+    "_publish_lease",
 )
 
 
@@ -247,8 +250,14 @@ def _bootstrap_engine() -> None:
     from coordinator_core.percolate.round import (  # type: ignore[import-not-found]
         default_manifest_path as _default_manifest_path_,
     )
+    from coordinator_core.percolate import (  # type: ignore[import-not-found]
+        publish_lease as _publish_lease_,
+        publish_slot as _publish_slot_,
+    )
 
     for _name, _value in (
+        ("_publish_slot", _publish_slot_),
+        ("_publish_lease", _publish_lease_),
         ("_RoundLockTimeout", _RoundLockTimeout_),
         ("_round_held_lock", _round_held_lock_),
         ("_INHERITED_LOCK_ROOTS_ENV", _INHERITED_LOCK_ROOTS_ENV_),
@@ -298,6 +307,7 @@ def _lock_busy_message(dest: str, exc: Exception) -> str:
 _PERCOLATE_GATE = _BIN_DIR / "percolate-gate.py"
 _PARSE_DRYRUN = _BIN_DIR / "percolate-parse-dryrun.py"
 _PUBLISH = _BIN_DIR / "publish.py"
+_PERCOLATE_PUSH = _BIN_DIR / "percolate-push.py"
 _STATE_ROOT_RESOLVER = _REPO_ROOT / "coordinator" / "lib" / "coordinator-state-root.py"
 
 #: D1 fix — inherited-holder handoff. `_cmd_round` opens `_round_held_lock`
@@ -3016,6 +3026,22 @@ def _push_dest(dest: str) -> subprocess.CompletedProcess:
     return _run(["git", "-C", dest, "-c", "credential.interactive=never", "push"], timeout=_GIT_PUSH_TIMEOUT_SECS)
 
 
+def _load_open_only_publish():
+    return _sibling_cli(_PERCOLATE_PUSH).open_only_publish
+
+
+def _open_only_push(dest: str, target: str, percolate_root: str) -> int:
+    """`--open-only` terminus: percolate-push's open-only leg, in this
+    interpreter, under the round lock the caller still holds. The round-failure
+    marker is cleared only once the branch is pushed (exit 0, or 3 = pushed
+    with no PR); it survives any other outcome. The marker check is not passed
+    down: this round's own marker is still on disk at this point."""
+    rc = _load_open_only_publish()(dest, target, lock_held=True)
+    if rc in (0, 3):
+        _clear_round_failure_marker(target, percolate_root)
+    return rc
+
+
 def _publish_unpushed_dest_commits(
     target: str, dest: str, percolate_root: str
 ) -> Tuple[bool, bool, str]:
@@ -3071,6 +3097,66 @@ def _publish_unpushed_dest_commits(
 
 
 # ---------------------------------------------------------------------------
+# Publish sequencing slot (origin lease, one holder per shared mirror)
+# ---------------------------------------------------------------------------
+
+class _RoundSlot:
+    """The slot this round holds. `token` is None when the round took none (no
+    origin on dest)."""
+
+    def __init__(self, repo_root: Path):
+        self.repo_root = repo_root
+        self.token: Optional[str] = None
+
+
+def _round_slot_session_id(repo_root: Path) -> Optional[str]:
+    try:
+        from coordinator_core.session.core import resolve_session_id  # noqa: PLC0415
+
+        return resolve_session_id(str(repo_root)) or None
+    except Exception:
+        return None
+
+
+@contextlib.contextmanager
+def _hold_round_slot(dest: str):
+    """Take the mirror's origin slot before Step 1 and release it on every exit.
+    `PublishSlotHeldError` propagates to the caller as BUSY; an unobtainable lease
+    (`PublishLeaseError`) propagates as a refusal."""
+    root = Path(dest)
+    slot = _RoundSlot(root)
+    if _publish_slot.slot_remote(root) is None:
+        yield slot
+        return
+    slot.token = _publish_slot.acquire_slot(
+        root, _publish_slot.make_holder(_round_slot_session_id(root))
+    )
+    try:
+        yield slot
+    finally:
+        try:
+            _publish_slot.release_slot(root, slot.token)
+        except Exception as exc:  # a failed release must not mask the round's own exit
+            print(f"percolate-round: slot release failed: {exc}", file=sys.stderr)
+
+
+def _confirm_round_slot(slot: _RoundSlot) -> bool:
+    """False (reported on stderr) when the slot is no longer ours: the caller
+    must neither commit nor push. Fail-closed on a lease-protocol error."""
+    if slot.token is None:
+        return True
+    try:
+        _publish_slot.confirm_slot(slot.repo_root, slot.token)
+    except (_publish_slot.PublishSlotLostError, _publish_lease.PublishLeaseError) as exc:
+        print(
+            f"percolate-round: publish slot lost before commit/push ({exc}); no push.",
+            file=sys.stderr,
+        )
+        return False
+    return True
+
+
+# ---------------------------------------------------------------------------
 # Main sequence
 # ---------------------------------------------------------------------------
 
@@ -3114,6 +3200,7 @@ def _cmd_round_default(
     dry-run-optional dispatch).
     """
     _bootstrap_engine()
+    open_only = getattr(args, "open_only", False)
     _notice_kwargs = {"clone_root": str(override.clone_root)} if override is not None else {}
     real_stdout_path = tmp / "real-stdout.txt"
     scan_files_path = tmp / "scan-files.txt"
@@ -3123,7 +3210,7 @@ def _cmd_round_default(
             Path(dest),
             holder_label=f"percolate-round:{target}",
             timeout=publish_contention_wait_secs(),
-        ):
+        ), _hold_round_slot(dest) as slot:
             # --- Step 1: real run (sync) -- no dry run by default ----------
             print(f"=== percolate-round {target} — Step 1: real run (sync) ===")
             # `--no-commit`: this round owns the commit itself, as Step 5
@@ -3160,6 +3247,10 @@ def _cmd_round_default(
 
             real_env = dict(_os.environ)
             real_env[_INHERITED_LOCK_ROOTS_ENV] = f"{_os.getpid()}={_os.path.realpath(dest)}"
+            if slot.token is not None:
+                real_env[_publish_slot.PUBLISH_SLOT_INHERITED_ENV] = _publish_slot.encode_inherited(
+                    {_publish_slot.mirror_name(slot.repo_root): slot.token}
+                )
             # Captured immediately before the spawn -- § `_read_fresh_round_
             # manifest`'s own docstring for why this is the freshness check
             # that makes deleting the destination-dirtiness gate safe.
@@ -3475,6 +3566,11 @@ def _cmd_round_default(
                     print("  real-run:  exit 0  (no-op)")
                 if args.no_publish:
                     return _EXIT_OK
+                if open_only:
+                    print("")
+                    if not _confirm_round_slot(slot):
+                        return _EXIT_FAIL
+                    return _open_only_push(dest, target, percolate_root)
                 ahead = _dest_ahead_count(dest)
                 if ahead is None:
                     print("")
@@ -3489,6 +3585,8 @@ def _cmd_round_default(
                     print("")
                     print(f"percolate-round: dest '{dest}' is already in sync with its upstream.")
                     return _EXIT_OK
+                if not _confirm_round_slot(slot):
+                    return _EXIT_FAIL
                 _clear_round_failure_marker(target, percolate_root)
                 push = _push_dest(dest)
                 print("")
@@ -3668,6 +3766,11 @@ def _cmd_round_default(
                             source_head=manifest.stamp_source_head or None,
                             signature=manifest.stamp_signature or None,
                         )
+                    commit_message = _publish_slot.append_slot_trailers(
+                        commit_message, holder=slot.token
+                    )
+                    if not _confirm_round_slot(slot):
+                        return _EXIT_FAIL
                     outcome = commit_paths(
                         repo_root,
                         present_paths,
@@ -3797,7 +3900,8 @@ def _cmd_round_default(
                 print(f"    - {warning}")
 
             if refusal_reason is None:
-                _clear_round_failure_marker(target, percolate_root)
+                if not open_only:
+                    _clear_round_failure_marker(target, percolate_root)
             elif engine_import_failure:
                 _write_round_failure_marker(target, percolate_root, "engine-import-failed", sha)
                 print(f"percolate-round: {engine_import_failure}", file=sys.stderr)
@@ -3812,6 +3916,14 @@ def _cmd_round_default(
                 )
                 return _EXIT_OK
 
+            if open_only:
+                print("")
+                if not _confirm_round_slot(slot):
+                    return _EXIT_FAIL
+                return _open_only_push(dest, target, percolate_root)
+
+            if not _confirm_round_slot(slot):
+                return _EXIT_FAIL
             push = _push_dest(dest)
             if push.returncode != 0:
                 print("")
@@ -3824,6 +3936,12 @@ def _cmd_round_default(
     except _RoundLockTimeout as exc:
         print(f"percolate-round: {_lock_busy_message(dest, exc)}", file=sys.stderr)
         return _EXIT_LOCK_BUSY
+    except _publish_slot.PublishSlotHeldError as exc:
+        print(f"percolate-round: BUSY: {exc}", file=sys.stderr)
+        return _EXIT_LOCK_BUSY
+    except _publish_lease.PublishLeaseError as exc:
+        print(f"percolate-round: publish slot unavailable: {exc}", file=sys.stderr)
+        return _EXIT_FAIL
 
 
 def _field7_preflight(target: str, source_ref: str = "") -> Optional[str]:
@@ -3848,8 +3966,56 @@ def _field7_preflight(target: str, source_ref: str = "") -> Optional[str]:
     )
 
 
+def _unresolved_root_flag(args: argparse.Namespace) -> Optional[str]:
+    """The refusal text for a `--percolate-root` / `--dest-root` that is not an
+    existing directory, or None. The `repo:path` form is not resolved."""
+    for flag, value in (
+        ("--percolate-root", getattr(args, "percolate_root", None)),
+        ("--dest-root", getattr(args, "dest_root", None)),
+    ):
+        if value and not Path(value).is_dir():
+            return (
+                f"percolate-round: refused: {flag} '{value}' is not an existing directory. "
+                f"Pass an absolute directory path; the repo-relative `repo:path` form is not resolved."
+            )
+    return None
+
+
+def _resolve_shipped_sha(repo_root: Path, ref: str) -> Optional[str]:
+    """The full commit sha `ref` names in `repo_root` (one rev-parse), or None when it does not resolve."""
+    from coordinator_core.git.run import git_out  # type: ignore[import-not-found]  # noqa: PLC0415
+
+    out = git_out(["rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"], cwd=str(repo_root))
+    return out or None
+
+
+def _fold_bar_refusal(repo_root: Path, source_ref: str = "") -> Optional[str]:
+    """Advisory text when no green recorded full-suite verdict exists for the shipped commit, or None.
+
+    Advisory only: the caller prints it and proceeds. Keyed to the commit the round ships: `source_ref`
+    when given, else HEAD (a detached HEAD resolves).
+    """
+    from coordinator_core.ops import fold_bar  # type: ignore[import-not-found]  # noqa: PLC0415
+
+    ref = source_ref or "HEAD"
+    sha = _resolve_shipped_sha(repo_root, ref)
+    if sha is None:
+        return f"fold bar: cannot resolve '{ref}' to a commit in {repo_root}"
+    result = fold_bar.verdict(sha, repo_root)
+    if result.ok:
+        return None
+    sv = result.verdict
+    detail = f" [failed={sv.failed}, reds={[r.get('nodeid', '') for r in sv.reds]}]" if sv is not None else ""
+    return f"fold bar: {result.reason}{detail}"
+
+
 def _cmd_round(args: argparse.Namespace) -> int:
     target = args.target
+
+    refusal = _unresolved_root_flag(args)
+    if refusal is not None:
+        print(refusal, file=sys.stderr)
+        return _EXIT_USAGE
 
     percolate_root = _resolve_percolate_root(args.percolate_root)
     if percolate_root is None:
@@ -3874,6 +4040,9 @@ def _cmd_round(args: argparse.Namespace) -> int:
     # upstream and is pushed; with --source-ref it must already be held by a remote
     # branch, and nothing is pushed.
     _bootstrap_engine()
+    bar_refusal = _fold_bar_refusal(Path(source_dir), getattr(args, "source_ref", None) or "")
+    if bar_refusal is not None:
+        print(f"percolate-round: advisory, proceeding: {bar_refusal}", file=sys.stderr)
     from coordinator_core.percolate.source_preflight import (  # type: ignore[import-not-found]  # noqa: PLC0415
         check_source_published as _check_source_published,
     )
@@ -3953,6 +4122,15 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Opt out of the default publish-on-clean-round behaviour (DR-301); print the push command instead of running it.",
     )
     parser.add_argument(
+        "--open-only",
+        action="store_true",
+        help=(
+            "Instead of pushing the checked-out branch, push without merging and open a PR "
+            "for review (percolate-push --open-only). Exit codes as percolate-push. "
+            "Exclusive with --no-publish."
+        ),
+    )
+    parser.add_argument(
         "--no-delta",
         dest="delta",
         action="store_false",
@@ -3985,14 +4163,16 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: Optional[List[str]] = None) -> int:
     _bootstrap_engine()
 
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    if args.open_only and args.no_publish:
+        parser.error("--open-only and --no-publish are mutually exclusive")
+
     # A round once sat idle after its commit (0 CPU, no children) holding the
     # destination lock; static tracing found no unbounded wait. A healthy round
     # finishes well inside this window, so a dump here names the blocked frame
     # the next time it recurs instead of leaving a silent lock-holder.
     faulthandler.dump_traceback_later(_HANG_DUMP_SECONDS, repeat=True)
-
-    parser = _build_parser()
-    args = parser.parse_args(argv)
     return args.func(args)
 
 

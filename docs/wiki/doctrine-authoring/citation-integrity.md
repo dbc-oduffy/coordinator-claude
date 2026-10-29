@@ -29,7 +29,7 @@ one shared code path (`coordinator/lib/citation_graph.py`):
   the repo (a plan, handoff, lesson, or other tracked state artifact). This is a **live** citation
   into a different tracked surface, not wiki-side rot, and it is out of scope for this page's rot
   ratchet — folding it into `rot` would count a real, resolvable citation as a defect.
-- **Pathed** (`` `docs/wiki/some-page.md` ``) — resolved **repo-root-relative**, then against the
+- **Pathed** (`` `docs/wiki/<page>.md` ``) — resolved **repo-root-relative**, then against the
   plugin root (`coordinator/`) — never joined against the citing file's own directory. Joining
   against the citing directory was the prototype's inherited bug: this corpus's authors write
   pathed citations relative to the *plugin* root ("Both trees are named 'coordinator-claude';
@@ -321,7 +321,7 @@ point in time.
 
 ## The root-resolution fix, and what it moved
 
-The pathed-citation class (`` `docs/wiki/some-page.md` ``) was resolved repo-root-only in C1's
+The pathed-citation class (`` `docs/wiki/<page>.md` ``) was resolved repo-root-only in C1's
 first pass, then corrected to try the plugin root (`coordinator/`) before
 the repo root — same commit's `PATHED_RESOLUTION_ROOTS = (PLUGIN_ROOT, REPO_ROOT)`. Measured at
 816 wiki files, same tree:

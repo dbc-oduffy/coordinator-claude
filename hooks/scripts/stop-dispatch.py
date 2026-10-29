@@ -37,6 +37,10 @@ payload and a real 674KB transcript before this file was authored -- this is a
 hosting change, not a policy change: same advisories, same text, same emission
 conditions, same ordering and dedup as the five standalone scripts.
 
+Advise-and-record: a guard whose script name has no `protected_acts` roster entry never blocks and
+never adds context; its stderr/stdout goes to the friction log (`_protected_act.advise_and_record`).
+The aggregation below applies only to guards that declare a protected act.
+
 Aggregation contract, copied from `_stop_family_runner.run_stop_family_guards`:
 CONCATENATE-ALL, never first-fires-wins. If ANY guard returned 2, every
 firing guard's stderr text (blank-line joined; stdout advisories are dropped,
@@ -99,6 +103,7 @@ import io
 import json
 import os
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, List, Optional, Tuple
@@ -288,6 +293,22 @@ def _pre_group_em_park_spool(ctx: Ctx) -> bool:
     )
 
 
+def _pre_disk_budget_due(ctx: Ctx) -> bool:
+    # One stat of the sweep stamp. The producer re-checks `sweep_due` itself; the 6 h default and
+    # the env override are the only two things mirrored here, so this stays import-free.
+    if ctx.agent_id:
+        return False
+    try:
+        hours = float(os.environ.get("COORDINATOR_DISK_BUDGET_THROTTLE_HOURS") or 6)
+    except ValueError:
+        hours = 6.0
+    stamp = os.path.join(os.path.expanduser("~"), ".claude", "disk-budget", "last-sweep.json")
+    try:
+        return time.time() - os.stat(stamp).st_mtime >= hours * 3600
+    except OSError:
+        return True
+
+
 @dataclass(frozen=True)
 class StopGuard:
     module_key: str
@@ -324,6 +345,10 @@ REGISTRY: Tuple[StopGuard, ...] = (
     # aggregation and cannot change any verdict.
     StopGuard("group_em_park_spool",
               "group-em-park-spool.py", _pre_group_em_park_spool),
+    # A PRODUCER like the two above: always exit 0, empty stdout. Spawns the capped detached
+    # disk-budget sweep child when the 6 h stamp has expired; only a running session reaches it.
+    StopGuard("stop_disk_budget_sweep",
+              "stop-disk-budget-sweep.py", _pre_disk_budget_due),
 )
 
 
@@ -413,6 +438,22 @@ def _invoke(main_fn: Callable[[], int], stdin_text: str) -> Tuple[int, str, str]
     return (rc or 0), out_buf.combined(), err_buf.combined()
 
 
+def _declares_protected_act(filename: str) -> bool:
+    try:
+        from _protected_act import protected_act_for
+        return protected_act_for(filename) is not None
+    except Exception:
+        return False
+
+
+def _record_friction(filename: str, text: str, event: str) -> None:
+    try:
+        from _protected_act import advise_and_record
+        advise_and_record(filename, text, event)
+    except Exception:
+        pass
+
+
 def main() -> int:
     raw = sys.stdin.read()
     ctx = Ctx(raw)
@@ -463,6 +504,13 @@ def main() -> int:
             skipped.append(guard.module_key)
             if trace:
                 sys.stderr.write(f"[trace] {guard.module_key}: RAISED {exc!r}\n")
+            continue
+        if not _declares_protected_act(guard.filename):
+            # No protected act declared: a Stop guard records and never blocks or adds context.
+            _text = "\n\n".join(t.rstrip("\n") for t in (err, out) if t.strip())
+            if rc == 2 or _text:
+                _record_friction(guard.filename, _text or "(exit 2, no text)",
+                                 ctx.payload.get("hook_event_name") or "Stop")
             continue
         if out.strip():
             advisory_out.append(out.rstrip("\n"))

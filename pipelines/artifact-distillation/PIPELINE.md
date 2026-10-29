@@ -38,7 +38,7 @@ Phase 0 (Coordinator) → Phase 1 (Haiku ×N, parallel) → Phase 1.5 (Haiku ×N
   → Phase 2.5 (Sonnet ×K, judgment-mining)
   → Phase 3a (Sonnet ×C, parallel by cluster) → [cross-cluster-check] → [Esc: Opus + fidelity-check (Sonnet), if needed]
   → Phase 3b (Sonnet, single) → Phase 3c (Coordinator, mechanical) → Phase 3d (Sonnet, single)
-  → Phase 4 (PM gate) → Phase 5 (Coordinator, apply + delete)
+  → Phase 4 (summary + atlas advisory, no wait) → Phase 5 (Coordinator, apply + delete)
 
 Phase 2.5 through 3d (all agent-dispatching sub-steps of that range, including the cross-cluster
 check and conditional Opus escalation) are folded into `distill-harvest.workflow.js` — the
@@ -260,7 +260,7 @@ After the cross-cluster check, the Workflow reads `unresolvable_contradictions` 
 - **If total unresolvable count = 0 and no cross-cluster candidates:** proceed directly to Phase 3b with no escalation dispatch at all.
 - **If any unresolvable contradictions or cross-cluster candidates exist:** the Workflow auto-dispatches a single Opus resolution agent (same lens `agent-prompts/phase-3-esc.md` documents), then a single Sonnet fidelity-check agent verifying every flagged source id was cited.
 
-**No PM gate on the escalation itself.** Phase 4 PM gate still applies to the assembled output. If the Opus agent fails to return a result, or the fidelity check reports `FAIL`, the Workflow logs the gap and surfaces it in the returned `opus_escalation` object rather than halting the run — PM decides at Phase 4 whether to accept output without full contradiction resolution or request a re-run.
+**No PM gate on the escalation itself.** If the Opus agent fails to return a result, or the fidelity check reports `FAIL`, the Workflow logs the gap and surfaces it in the returned `opus_escalation` object rather than halting the run; the Phase 4 summary names the gap and the EM decides whether to re-run.
 
 ---
 
@@ -270,7 +270,7 @@ After the cross-cluster check, the Workflow reads `unresolvable_contradictions` 
 
 **Input, in-memory, not scratch files:** every `CREATE_DR` disposition from Wave 2's returned `dispositions[]`, with its `target` (the decision records synth agents scaffolded and wrote directly to `docs/decisions/*.md`, the same direct-write contract wiki guides get), plus judgment-mining `new-entry` proposals (cross-reference only — `docs/wiki/codebase-judgment/` is a separate namespace from `docs/decisions/`, never merged into a DR), plus the Opus escalation resolution when Phase 3a triggered one. The dedup agent Reads the real `docs/decisions/*.md` files stamped with this run's `run_id` rather than re-reading a Phase 2 scratch file — there is no staged-apply step for DRs in this pipeline.
 
-**CRITICAL FAILURE MODE:** An empty canonical DR set (zero decision records found) despite non-empty `CREATE_DR` input is always a pipeline error, never a valid outcome. Unlike the retired turn-by-turn path, the Workflow does not halt the run on this — it surfaces `failure: true` plus `failure_detail` on the returned `phase_3b_dr_dedup` object for the Phase 4 PM gate to weigh, the same log-and-surface treatment every other late-pipeline single-agent failure in this Workflow gets. When there is nothing DR-shaped to dedup at all (zero `CREATE_DR` dispositions AND zero judgment new-entry proposals), the Workflow skips the dispatch entirely without spending an agent call on it.
+**CRITICAL FAILURE MODE:** An empty canonical DR set (zero decision records found) despite non-empty `CREATE_DR` input is always a pipeline error, never a valid outcome. Unlike the retired turn-by-turn path, the Workflow does not halt the run on this — it surfaces `failure: true` plus `failure_detail` on the returned `phase_3b_dr_dedup` object for the Phase 4 summary to name, the same log-and-surface treatment every other late-pipeline single-agent failure in this Workflow gets. When there is nothing DR-shaped to dedup at all (zero `CREATE_DR` dispositions AND zero judgment new-entry proposals), the Workflow skips the dispatch entirely without spending an agent call on it.
 
 **Written-record check.** The agent returns `dr_files_found`: every decision record it confirmed on disk for this run. `reconcileDrTargets()` puts each claimed `target` it did not find into `dr_minting.missing_files`; a record carrying this run's `run_id` that no `CREATE_DR` names lands in `dr_minting.unclaimed_files` (an agent died or dropped its claim after scaffolding) — the EM fills or removes each before committing.
 
@@ -296,7 +296,7 @@ The coordinator reads Phase 2 scratch frontmatter + Phase 0 wiki inventory and w
 - Existing `docs/wiki/DIRECTORY_GUIDE.md` — current table rows preserved, new rows inserted alphabetically
 - Existing `docs/wiki/*.md` and `docs/decisions/*.md` filenames — the canonical on-disk name set for the new-guide collision check below
 
-**Fuzzy-name overlap check on NEW-guide proposals.** For every new guide name in the Phase 2 frontmatter, compare its filename stem against every existing `docs/wiki/` / `docs/decisions/` filename stem. Flag a **near-duplicate collision** when stems match after normalizing (strip `-shape`, `-design`, `-v2`, date prefixes, and pluralization; case-insensitive; or one stem is a prefix/substring of the other with ≤4 trailing chars difference — **but apply the prefix/substring rule only when the shorter stem is ≥8 characters**, so short distinct stems like `auth` vs `author`/`oauth` do not trip a false collision, while `onboarding-flow` vs `onboarding-flow-shape` still does). Example: proposed `onboarding-flow.md` collides with existing `onboarding-flow-shape.md`. For each flagged collision, do NOT silently create the new guide — surface it in the Phase 3c preview under a `## New-guide collisions (PM decision)` heading with both names and a one-line recommendation (merge into existing guide vs. confirm genuinely distinct). The PM resolves at the **existing Phase 4 gate — this does not add a new halt or block auto-proceed; it adds a decision item to the gate that already waits for explicit approval.** This is the duplicate-guide gate — detect-then-surface, never detect-then-silently-create (coordinator/`CLAUDE.md` § Implementation Standards — "detect-then-silently-pick is a footgun").
+**Fuzzy-name overlap check on NEW-guide proposals.** For every new guide name in the Phase 2 frontmatter, compare its filename stem against every existing `docs/wiki/` / `docs/decisions/` filename stem. Flag a **near-duplicate collision** when stems match after normalizing (strip `-shape`, `-design`, `-v2`, date prefixes, and pluralization; case-insensitive; or one stem is a prefix/substring of the other with ≤4 trailing chars difference — **but apply the prefix/substring rule only when the shorter stem is ≥8 characters**, so short distinct stems like `auth` vs `author`/`oauth` do not trip a false collision, while `onboarding-flow` vs `onboarding-flow-shape` still does). Example: proposed `onboarding-flow.md` collides with existing `onboarding-flow-shape.md`. For each flagged collision, do NOT silently create the new guide — surface it in the Phase 3c preview under a `## New-guide collisions (PM decision)` heading with both names and a one-line recommendation (merge into existing guide vs. confirm genuinely distinct). The collision is reported in the Phase 4 summary — **it adds no halt and never blocks auto-proceed.** This is the duplicate-guide gate — detect-then-surface, never detect-then-silently-create (coordinator/`CLAUDE.md` § Implementation Standards — "detect-then-silently-pick is a footgun").
 
 **Output manifest:** The coordinator writes a `directory_entries:` YAML manifest alongside the preview, at `state/scratch/artifact-distillation/{run-id}/phase3c-manifest.yaml`. Schema:
 
@@ -311,7 +311,7 @@ directory_entries:
 
 `status` values: `new` (guide created this run), `updated` (existing guide with new sections), `existing` (unchanged entry carried forward). The manifest is the machine-readable source-of-truth for Phase 5 Apply-Agent B's bookkeeping slice. The prose preview at `phase3c-directory-guide-preview.md` is generated FROM the manifest for PM review at Phase 4 — the manifest is authoritative; the preview is the human-readable derived view.
 
-**Output:** Updated `DIRECTORY_GUIDE.md` preview written to `state/scratch/artifact-distillation/{run-id}/phase3c-directory-guide-preview.md`. This is coordinator-written — presented at Phase 4 PM gate for review before any production write.
+**Output:** Updated `DIRECTORY_GUIDE.md` preview written to `state/scratch/artifact-distillation/{run-id}/phase3c-directory-guide-preview.md`. This is coordinator-written — included in the Phase 4 summary.
 
 ---
 
@@ -360,18 +360,17 @@ and Phase 4.
 
 ---
 
-## Phase 4: PM Approval Gate (Coordinator)
+## Phase 4: Summary and Atlas Advisory (Coordinator, no wait)
 
-**Atlas staleness advisory (sensor, non-blocking) — run FIRST.** Before presenting the manifest, run the read-only atlas check and surface an advisory per `commands/distill.md § Phase 4 — PM Gate: Atlas Staleness Advisory`: run `bin/check-atlas-watch-drift.py`, map the run's churn (RIPE plans + archived handoffs) to atlas systems via the seed keyword/path-prefix map, and for any churned system that is `DRIFT`/`STALE` emit a one-line "good cause to run `/architecture-audit` on `<system>` before deletion" advisory. No-map case emits a fail-loud-soft "advisory skipped" line. `/distill` is the **sensor**, never the actuator — it never invokes the audit and never blocks on it.
+There is no deletion approval wait. The deletion gate is the Phase 3d provenance citation plus the delete guards (`bin/distill-delete-guard.py`, re-run by `distill.apply_disposal` at Phase 5); Phase 5 proceeds straight from this summary.
 
-Present to PM:
+**Atlas staleness advisory (sensor, non-blocking) — run FIRST.** Before presenting the summary, run the read-only atlas check and surface an advisory: run `bin/check-atlas-watch-drift.py`, map the run's churn (RIPE plans + archived handoffs) to atlas systems via the seed keyword/path-prefix map, and for any churned system that is `DRIFT`/`STALE` emit a one-line "good cause to run `/architecture-audit` on `<system>` before deletion" advisory. No-map case emits a fail-loud-soft "advisory skipped" line. `/distill` is the **sensor**, never the actuator — it never invokes the audit and never blocks on it.
+
+Report (non-blocking):
 - Summary table: N guides created/updated, N decisions created, N artifacts to delete
-- Full deletion manifest (from Phase 3d)
-- `DIRECTORY_GUIDE.md` preview (from Phase 3c)
+- Deletion manifest (from Phase 3d), each DELETE row with its written provenance citation
+- `DIRECTORY_GUIDE.md` preview (from Phase 3c) and any new-guide collisions
 - Atlas staleness advisory (if any churned system is DRIFT/STALE), or the no-map skipped-line
-- PM can remove items from the deletion list
-
-**Wait for explicit approval. Do not proceed without it.**
 
 **If `--dry-run`:** present the summary and stop here. Do not proceed to Phase 5.
 
@@ -381,10 +380,10 @@ Present to PM:
 
 **Harvest-debt drain contract (plan-priority).** The move of plans to `archive/specs/` is already done by the session-init sweep — decoupled from `/distill`. What Phase 5 runs first is the knowledge-harvest pass over the un-harvested set (plans in `archive/specs/` not yet recorded in `state/distillation-log.md` under a `DISTILLED`/`PROMOTE` disposition — the SINGLE canonical log, schema-of-record: `coordinator/schemas/distillation-log.schema.md`). This harvest pass is committed (step 4) **before** the deletion steps (5-6). A budget-truncated run drains harvest debt before any ephemera disposal — the cheap mechanical deletion never preempts the expensive knowledge-harvest. Full rationale + ordering: `commands/distill.md § Phase 5` intro.
 
-**Native ops backing the deletion-manifest → PM-gate → apply chain:** the disposal path this
-Phase's steps 5-6 walk (Phase 3d deletion manifest → Phase 4 PM approval → step 5's actual
+**Native ops backing the deletion-manifest → apply chain:** the disposal path this
+Phase's steps 5-6 walk (Phase 3d deletion manifest with provenance citations → step 5's actual
 `git rm`) is registered engine-side as three ops — `distill.assemble_disposal_manifest`
-(Phase 3d), `distill.stamp_disposal` (the PM authorization stamp landed at the Phase 4 gate:
+(Phase 3d), `distill.stamp_disposal` (the authorization stamp:
 `disposal_authorized_{by,at,sha,note}`), and `distill.apply_disposal` (step 5's delete tier —
 re-runs the TOCTOU guard check, drain-ordering ancestry check, and idempotent per-record replay
 before deleting) — all three in `coordinator_core/ops/distill_disposal_manifest.py`,

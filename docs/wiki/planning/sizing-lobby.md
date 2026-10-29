@@ -156,6 +156,11 @@ remains one of the four offered exits the PM can select at `pm-decision` (`split
 `roadmap`, `accept_multi_session`), and a sizing-object records it there via `xl_exit`,
 not via `route`.
 
+**Planning is mandatory above S.** The `plan` route at M and L is not a toggle: never propose a
+no-plan route or a plan/no-plan switch. Make planning cheaper or better inside the plan
+structure. Judge a planning stage by what it produces, never by its share of cost; a small-n
+correlation between planning spend and outcome is not a cause.
+
 The § Shape-is-a-conditional-room D5 gate above is unaffected by this table and still wins over
 it: a resolved L/XL with an unclear job-to-be-done, or any size wanting a step-change in
 well-trodden ground, resolves `shape` regardless of what this table alone would say.

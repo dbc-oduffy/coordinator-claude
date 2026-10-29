@@ -1,0 +1,51 @@
+{
+  "rubric_version": "1.0.0",
+  "threshold_provenance": "Threshold opened to the strict end (no_zero + max_total) with zero labelled calibration data, per the gem-01 corpus's imprecise-signal rule ('setting thresholds high can outperform careful selective escalation with imprecise signals'). Unvalidated; to be revisited once D6 has accumulated enough closed records to argue for loosening it.",
+  "threshold": {
+    "no_zero": true,
+    "min_total": 8,
+    "max_total": 8
+  },
+  "dimensions": [
+    {
+      "id": "R1",
+      "question": "Is `prime_exit_criterion.statement` outcome-shaped and falsifiable, and does its recorded `baseline_output` show it currently false?",
+      "anchors": {
+        "0": "The statement is not outcome-shaped (it names an activity or artifact rather than a checkable state), or no `baseline_output` is recorded, or the recorded baseline does not show the criterion currently false.",
+        "1": "The statement is outcome-shaped and falsifiable, and a `baseline_output` is recorded showing it currently false, but the statement admits ambiguity about what would count as passing (e.g. a qualitative or partially-specified condition).",
+        "2": "The statement is unambiguously outcome-shaped and falsifiable, a `baseline_output` is recorded showing it currently false, and a reader unfamiliar with the plan could determine pass/fail from the statement alone."
+      },
+      "evidence_required": true
+    },
+    {
+      "id": "R2",
+      "question": "Does every spine row move the criterion, and does the union of rows plausibly suffice to flip it?",
+      "anchors": {
+        "0": "One or more spine rows does not plausibly move the criterion at all, or the union of rows is plainly insufficient to flip it even if every row succeeds.",
+        "1": "Every spine row plausibly moves the criterion, but the union's sufficiency to flip it is not clearly established (a gap the plan does not address, or reasoning that requires charitable inference).",
+        "2": "Every spine row plausibly moves the criterion, and the union of rows is clearly sufficient, on its own terms, to flip the criterion from false to true."
+      },
+      "evidence_required": true
+    },
+    {
+      "id": "R4",
+      "question": "Can `falsifier.how` be re-run verbatim by someone who did not write it, and would `expected_when_true` discriminate a pass from a near-miss?",
+      "anchors": {
+        "0": "`falsifier.how` cannot be re-run verbatim by someone who did not write it (it relies on unstated context, missing inputs, or undocumented state), or `expected_when_true` would not discriminate a pass from a near-miss.",
+        "1": "`falsifier.how` can be re-run verbatim by an unfamiliar reader with minor friction (e.g. an implicit but inferable working directory or precondition), and `expected_when_true` discriminates a pass from a near-miss.",
+        "2": "`falsifier.how` can be re-run verbatim by an unfamiliar reader with no friction, and `expected_when_true` sharply discriminates a pass from a near-miss with no ambiguity."
+      },
+      "evidence_required": true
+    },
+    {
+      "id": "R5",
+      "question": "Does any row defer a decision the plan has not made (\"do X, then decide\")?",
+      "anchors": {
+        "0": "At least one row defers a decision the plan has not made, leaving a later step contingent on an unresolved choice.",
+        "1": "No row defers a decision outright, but at least one row's phrasing leaves room for a reader to suspect a deferred choice (e.g. hedged language) even though none is explicit.",
+        "2": "No row defers any decision; every choice the plan depends on has already been made and is stated in the plan."
+      },
+      "evidence_required": true
+    }
+  ]
+}

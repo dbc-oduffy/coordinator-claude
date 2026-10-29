@@ -93,8 +93,16 @@ loudly with the exact remediation command (`gh auth refresh -s repo`). Any
 `gh` failure (auth check, `pr create`, `pr merge`) fails the publish
 loudly; it is never treated as a silent success.
 
+`--open-only` (exclusive with `--promote`): same lock, dest-state check,
+round-failure marker and reconcile, but `gh pr merge` is never called. A
+branch that is neither the default nor a channel is pushed to its upstream
+(creating no remote branch); otherwise `HEAD:refs/heads/percolate/<target>/
+<sha12>` goes to origin, which needs a ruleset exemption for the pushing
+actor. The PR is opened with explicit `--base`/`--head`. `open_only_publish`
+is the same leg for a caller that already resolved `dest` and holds its lock.
+
 Usage:
-    percolate-push.py <target> [--percolate-root <path>] [--promote]
+    percolate-push.py <target> [--percolate-root <path>] [--promote | --open-only]
 
 Exit codes:
     0 — `git -C <dest> push` ran and exited 0 (and, on a non-default
@@ -110,6 +118,9 @@ Exit codes:
         predicates — or because the dest is on a branch that is neither
         the default nor a release channel and `--promote` was not passed
         (the push still ran; nothing was opened or merged).
+    3 — `--open-only` pushed (or found nothing to push) but `gh` is absent
+        or unauthenticated; stdout names the head, base and origin URL so a
+        session can open the PR.
     75 — the dest is held by an in-flight percolate/publish round (`git
         push` never ran) — `EX_TEMPFAIL`, naming the holder, not a defect.
         See `docs/reference/percolate-lock-contention.md`.
@@ -119,6 +130,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -164,6 +176,8 @@ _BOOTSTRAPPED_NAMES = (
     "_lock_busy_message",
     "_publish_contention_wait_secs",
     "_reconcile_dest_before_push",
+    "_publish_slot_mod",
+    "_publish_lease_mod",
 )
 _BOOTSTRAP_DONE = False
 
@@ -191,6 +205,13 @@ def _bootstrap_engine() -> None:
         reconcile_dest_before_push as _reconcile_dest_before_push,
     )
 
+    from coordinator_core.percolate import (  # type: ignore[import-not-found]
+        publish_lease as _publish_lease_mod,
+        publish_slot as _publish_slot_mod,
+    )
+
+    globals()["_publish_slot_mod"] = _publish_slot_mod
+    globals()["_publish_lease_mod"] = _publish_lease_mod
     globals()["_PushLockTimeout"] = _PushLockTimeout
     globals()["_push_held_lock"] = _push_held_lock
     globals()["_lock_busy_message"] = _lock_busy_message
@@ -223,6 +244,8 @@ _EXIT_USAGE = 2
 #: `percolate-round.py::_EXIT_LOCK_BUSY` and `publish.py`'s own lock-timeout
 #: leg use for the identical "queue, not a defect" distinction.
 _EXIT_LOCK_BUSY = 75
+#: `--open-only` pushed but could not open the PR (no usable `gh`).
+_EXIT_PUSHED_NO_PR = 3
 
 # Declared release channels (docs/reference/klabauter-release-channels.md,
 # C5/C1). A branch in this set is push-only, `gh` never invoked — same as
@@ -558,33 +581,48 @@ def _existing_open_pr_exists(dest: str, branch: str) -> Tuple[bool, Optional[str
     return bool(entries), None
 
 
+def _open_pr(dest: str, head: str, base: Optional[str], target: str) -> Optional[str]:
+    """Open a PR for `head` unless one is already open; never merges.
+    `base=None` omits `--base` (gh picks the default branch). Returns a
+    refusal message, or `None` on success.
+
+    A prior run may have already opened the PR. Rather than inferring that
+    from `gh pr create`'s error text (not a contract), this asks `gh pr
+    list` directly whether an open PR already exists for `head` BEFORE
+    attempting `create`. Every `gh pr create` failure stays loud.
+    """
+    already_open, list_refusal = _existing_open_pr_exists(dest, head)
+    if list_refusal:
+        return list_refusal
+    if already_open:
+        return None
+    cmd = ["gh", "pr", "create", "--fill"]
+    if base:
+        cmd += ["--base", base]
+    cmd += ["--head", head]
+    create = _run(cmd, cwd=dest)
+    if create.returncode != 0:
+        return (
+            f"percolate-push: `gh pr create` failed for target '{target}' "
+            f"(branch {head}) — refusing to report success.\n"
+            + create.stderr.strip()
+        )
+    return None
+
+
 def _open_and_merge_pr(dest: str, branch: str, target: str) -> Optional[str]:
-    """Open a PR for `branch` and merge it once opened. `gh` failure at
-    either step fails the publish loudly rather than reporting success.
+    """Open a PR for `branch` (`_open_pr`) and merge it once opened. `gh`
+    failure at either step fails the publish loudly rather than reporting
+    success.
 
     Merge strategy: `--merge` (not `--squash`/`--rebase`) — deliberately
     chosen so the merged commits are the exact SHAs the round's own gate
     evidence (CI smoke, declined_paths, etc.) already validated, rather
     than a new squashed/rebased commit the gate never inspected.
-
-    A prior run may have already opened the PR and failed at the merge
-    step. Rather than inferring that from `gh pr create`'s error text (not
-    a contract), this asks `gh pr list` directly whether an open PR
-    already exists for `branch` BEFORE attempting `create` — an
-    idempotent-retry signal decided by a real query, not a substring
-    guess. Every `gh pr create` failure stays loud in every other case.
     """
-    already_open, list_refusal = _existing_open_pr_exists(dest, branch)
-    if list_refusal:
-        return list_refusal
-    if not already_open:
-        create = _run(["gh", "pr", "create", "--fill", "--head", branch], cwd=dest)
-        if create.returncode != 0:
-            return (
-                f"percolate-push: `gh pr create` failed for target '{target}' "
-                f"(branch {branch}) — refusing to report success.\n"
-                + create.stderr.strip()
-            )
+    open_refusal = _open_pr(dest, branch, None, target)
+    if open_refusal:
+        return open_refusal
     merge = _run(["gh", "pr", "merge", branch, "--merge"], cwd=dest)
     if merge.returncode != 0:
         return (
@@ -602,9 +640,185 @@ def _unpromoted_merge_refusal(target: str, branch: str, default_branch: str) -> 
     )
 
 
+_PUSH_CMD = ["-c", "credential.interactive=never", "push"]
+
+
+def _origin_url(dest: str) -> str:
+    result = _run(["git", "-C", dest, "remote", "get-url", "origin"])
+    return result.stdout.strip() if result.returncode == 0 else "(origin URL unreadable)"
+
+
+def _open_only_push_ref(
+    dest: str, target: str, branch_head: str, default_branch: str
+) -> Tuple[Optional[List[str]], Optional[str], Optional[str]]:
+    """Choose what `--open-only` pushes. Returns `(extra_push_args,
+    pushed_branch, error)`. Case (i): a branch that is neither the default
+    nor a release channel (it has an upstream, `_check_dest_state` refused
+    otherwise) is pushed to its own upstream, creating no remote branch.
+    Case (ii): everything else pushes `HEAD:refs/heads/percolate/<target>/
+    <sha12>` to origin; the local default/channel is never pushed to its own
+    upstream."""
+    if branch_head != default_branch and branch_head not in _RELEASE_CHANNELS:
+        # Trap: a refspec-less push follows `push.default`; an upstream whose
+        # name differs from the local branch pushes elsewhere than `--head`.
+        return [], branch_head, None
+    rev = _run(["git", "-C", dest, "rev-parse", "HEAD"])
+    sha = rev.stdout.strip()
+    if rev.returncode != 0 or len(sha) < 12:
+        return None, None, (
+            f"percolate-push: could not read HEAD of {dest} to name the branch.\n"
+            + (rev.stderr or "").strip()
+        )
+    pushed = f"percolate/{target}/{sha[:12]}"
+    return ["origin", f"HEAD:refs/heads/{pushed}"], pushed, None
+
+
+def _open_only_locked(
+    dest: str,
+    target: str,
+    percolate_root: Optional[str],
+    slot_token: Optional[str] = None,
+):
+    """Dest-reading and pushing half of `open_only_publish`, run under the
+    dest lock. Returns an exit code (terminal) or `(head, base)` for the PR
+    leg. A `slot_token` is confirmed immediately before the push."""
+    dest_refusal, has_commits_to_push, branch_head = _check_dest_state(dest)
+    if dest_refusal:
+        print(dest_refusal, file=sys.stderr)
+        return _EXIT_USAGE
+    if percolate_root:
+        marker_refusal = _check_round_failure_marker(target, percolate_root)
+        if marker_refusal:
+            print(marker_refusal, file=sys.stderr)
+            return _EXIT_USAGE
+    default_branch, default_refusal = _resolve_default_branch(dest)
+    if default_refusal:
+        print(default_refusal, file=sys.stderr)
+        return _EXIT_FAIL
+
+    on_default_or_channel = branch_head == default_branch or branch_head in _RELEASE_CHANNELS
+    if not has_commits_to_push and on_default_or_channel:
+        print(
+            f"percolate-push: {dest} is already in sync with its upstream — nothing to push.",
+            file=sys.stderr,
+        )
+        return _EXIT_OK
+
+    push_args: List[str] = []
+    pushed: Optional[str] = branch_head
+    if has_commits_to_push:
+        extra, pushed, error = _open_only_push_ref(dest, target, branch_head, default_branch)
+        if error:
+            print(error, file=sys.stderr)
+            return _EXIT_FAIL
+        push_args = extra or []
+        if not on_default_or_channel:
+            ahead = _run(
+                ["git", "-C", dest, "rev-list", "--count", f"origin/{default_branch}..HEAD"]
+            ).stdout.strip()
+            print(
+                f"percolate-push: branch '{branch_head}' carries {ahead or '?'} commit(s) "
+                f"ahead of origin/{default_branch}; pushing all of them, including any this "
+                "round did not produce.",
+                file=sys.stderr,
+            )
+        reconcile = _reconcile_dest_before_push(Path(dest), out=sys.stdout, err=sys.stderr)
+        if not reconcile.ok:
+            print(f"percolate-push: {reconcile.reason}", file=sys.stderr)
+            return _EXIT_FAIL
+        lost = _publish_slot_mod.lost_reason(Path(dest), slot_token)
+        if lost:
+            print(f"percolate-push: {lost}; not pushing.", file=sys.stderr)
+            return _EXIT_FAIL
+        result = _run(["git", "-C", dest, *_PUSH_CMD, *push_args])
+        if result.stdout:
+            print(result.stdout, end="")
+        if result.returncode != 0:
+            print(
+                f"percolate-push: `git -C {dest} push` failed (exit {result.returncode}):",
+                file=sys.stderr,
+            )
+            print(
+                (result.stderr or "").strip() or "(git wrote nothing to stderr)",
+                file=sys.stderr,
+            )
+            if push_args:
+                print(
+                    "percolate-push: pushing a new branch needs a ruleset exemption for the "
+                    "pushing actor, or a checked-out branch whose upstream already exists.",
+                    file=sys.stderr,
+                )
+            return _EXIT_FAIL
+        if result.stderr:
+            print(result.stderr, end="", file=sys.stderr)
+    return (pushed, default_branch)
+
+
+def _open_only_pr_leg(dest: str, target: str, head: str, base: str) -> int:
+    """Remote half of `--open-only`: open the PR, never merge. No usable
+    `gh` ends at exit 3 with a line naming head, base and origin so a
+    session can open the PR itself."""
+    gh_usable = shutil.which("gh") is not None and _run(["gh", "auth", "status"]).returncode == 0
+    if not gh_usable:
+        print(
+            f"percolate-push: '{head}' is on the remote; open a PR with base '{base}' and head "
+            f"'{head}' on {_origin_url(dest)}"
+        )
+        return _EXIT_PUSHED_NO_PR
+    scope_refusal = _check_gh_repo_scope(dest)
+    if scope_refusal:
+        print(scope_refusal, file=sys.stderr)
+        return _EXIT_FAIL
+    pr_refusal = _open_pr(dest, head, base, target)
+    if pr_refusal:
+        print(pr_refusal, file=sys.stderr)
+        return _EXIT_FAIL
+    print(f"percolate-push: PR open for '{head}' into '{base}'; not merged.")
+    return _EXIT_OK
+
+
+def open_only_publish(
+    dest: str,
+    target: str,
+    *,
+    lock_held: bool = False,
+    percolate_root: Optional[str] = None,
+    slot_token: Optional[str] = None,
+) -> int:
+    """Push without merging and open the PR for an already-resolved `dest`.
+
+    Spawns no `percolate-gate.py` interpreter: a caller that already holds
+    the dest lock passes `lock_held=True`; otherwise the lock is taken here.
+    `percolate_root` enables the round-failure-marker check. `slot_token` is
+    the caller's held sequencing slot, confirmed before the push. Exit codes
+    as the module docstring."""
+    _bootstrap_engine()
+    try:
+        if lock_held:
+            outcome = _open_only_locked(dest, target, percolate_root, slot_token)
+        else:
+            with _push_held_lock(
+                Path(dest),
+                holder_label=f"percolate-push:{target}",
+                timeout=_publish_contention_wait_secs(),
+            ):
+                outcome = _open_only_locked(dest, target, percolate_root, slot_token)
+    except _PushLockTimeout as exc:
+        print(f"percolate-push: {_lock_busy_message(dest, exc)}", file=sys.stderr)
+        return _EXIT_LOCK_BUSY
+    if isinstance(outcome, int):
+        return outcome
+    head, base = outcome
+    return _open_only_pr_leg(dest, target, head, base)
+
+
 def _cmd_push(args: argparse.Namespace) -> int:
     _bootstrap_engine()
     target = args.target
+
+    if args.open_only and args.promote:
+        print("percolate-push: --open-only and --promote are exclusive.", file=sys.stderr)
+        return _EXIT_USAGE
 
     percolate_root = _resolve_percolate_root(args.percolate_root)
     if percolate_root is None:
@@ -616,6 +830,35 @@ def _cmd_push(args: argparse.Namespace) -> int:
     dest = _resolve_dest(target, percolate_root)
     if dest is None:
         return _EXIT_USAGE
+
+    try:
+        with _publish_slot_mod.held_slot(Path(dest), label="percolate-push") as slot_token:
+            return _push_under_slot(args, target, dest, percolate_root, slot_token)
+    except _publish_slot_mod.PublishSlotHeldError as exc:
+        print(f"percolate-push: BUSY: {exc}", file=sys.stderr)
+        return _EXIT_LOCK_BUSY
+    except _publish_lease_mod.PublishLeaseError as exc:
+        print(f"percolate-push: publish slot unavailable: {exc}", file=sys.stderr)
+        return _EXIT_FAIL
+
+
+def _push_under_slot(
+    args: argparse.Namespace,
+    target: str,
+    dest: str,
+    percolate_root: str,
+    slot_token: Optional[str],
+) -> int:
+    """`_cmd_push` from the first dest read on, with the mirror's sequencing
+    slot (`slot_token`, None for a dest without an origin) already held."""
+    if args.open_only:
+        lost = _publish_slot_mod.lost_reason(Path(dest), slot_token)
+        if lost:
+            print(f"percolate-push: {lost}; not pushing.", file=sys.stderr)
+            return _EXIT_FAIL
+        return open_only_publish(
+            dest, target, percolate_root=percolate_root, slot_token=slot_token
+        )
 
     # Lock span (TOCTOU fix, staff-eng finding 4): opens immediately after
     # `_resolve_dest` and covers everything from the first dest read through
@@ -703,6 +946,10 @@ def _cmd_push(args: argparse.Namespace) -> int:
                 # leg whose stderr a caller cannot reconstruct from anywhere
                 # else.
                 # Trap: an unauthenticated push must fail fast, never raise the GCM account picker.
+                lost = _publish_slot_mod.lost_reason(Path(dest), slot_token)
+                if lost:
+                    print(f"percolate-push: {lost}; not pushing.", file=sys.stderr)
+                    return _EXIT_FAIL
                 result = _run(["git", "-C", dest, "-c", "credential.interactive=never", "push"])
                 if result.stdout:
                     print(result.stdout, end="")
@@ -771,6 +1018,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "Open and merge a PR into the default branch when the dest is on a branch that is "
             "neither the default nor a release channel. Without it that merge is refused."
+        ),
+    )
+    parser.add_argument(
+        "--open-only",
+        action="store_true",
+        help=(
+            "Push and open a PR into the default branch; never merge. A session branch with an "
+            "upstream is pushed to it; otherwise HEAD goes to origin as percolate/<target>/<sha12>."
         ),
     )
     parser.set_defaults(func=_cmd_push)

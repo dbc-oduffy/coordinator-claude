@@ -13,7 +13,8 @@ and will challenge peer verifiers through mailbox files.
 
 **Topic ID:** {{item.topic}}
 **Subject:** {{subject}}
-**Brief:** {{brief}} — the EM's scout brief. Your topic is the row whose id is `{{item.topic}}`.
+**Brief:** {{stage.brief-author.output}} — the research brief written after the source survey; it
+supersedes the scout brief at {{brief}}. Your topic is the row whose id is `{{item.topic}}`.
 It also holds the subject context, the schema fields for your topic, the existing data, the
 acceptance criteria, the gate rules, and the timing (minimum and maximum minutes, minimum
 sources). If it has per-subject sections, use the one for {{subject}}.
@@ -83,7 +84,7 @@ subject's verifiers. Work the scout's sources by WebFetch first. WebSearch only 
 pool cannot: the fallback above, the adversarial source, or an unmet gate rule — at most 5 searches
 in all. Record each one under Supplementary searches.
 
-### 2. Deep-Read and Verify (top 3-5 sources)
+### 2. Deep-Read and Verify (every source the scout flagged; no count cap)
 
 - Use WebFetch to read the most promising sources in full
 - **Verify, don't trust.** Find PRIMARY sources, not just secondary references.

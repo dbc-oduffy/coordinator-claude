@@ -9,6 +9,38 @@
     "coordinator:senior-front-end": "REJECTED",
     "coordinator:staff-ux": "REJECTED"
   },
+  "plan_review": {
+    "tiers": {
+      "XS": { "reviewers": [ { "agentType": "coordinator:plan-reviewer", "model": "sonnet" } ] },
+      "S": { "reviewers": [ { "agentType": "coordinator:plan-reviewer", "model": "sonnet" } ] },
+      "M": { "reviewers": [ { "agentType": "coordinator:staff-eng", "model": "opus" } ] },
+      "L": { "reviewers": [ { "agentType": "coordinator:staff-eng", "model": "opus" } ] },
+      "XL": {
+        "reviewers": [
+          { "agentType": "coordinator:staff-eng", "model": "opus" },
+          { "agentType": "coordinator:plan-reviewer", "model": "sonnet", "role": "second-lead", "brief": "lead" },
+          { "agentType": "coordinator:apm", "model": "sonnet" },
+          { "agentType": "coordinator:eng-director", "model": "opus" }
+        ]
+      },
+      "XXL": {
+        "reviewers": [
+          { "agentType": "coordinator:staff-eng", "model": "opus" },
+          { "agentType": "coordinator:plan-reviewer", "model": "sonnet", "role": "second-lead", "brief": "lead" },
+          { "agentType": "coordinator:apm", "model": "sonnet" },
+          { "agentType": "coordinator:eng-director", "model": "opus" }
+        ]
+      }
+    },
+    "signal_reviewers": {
+      "data-science": { "agentType": "coordinator:staff-data-sci", "model": "opus" },
+      "front-end": { "agentType": "coordinator:senior-front-end", "model": "opus" },
+      "ux-flow": { "agentType": "coordinator:staff-ux", "model": "opus" },
+      "cross-repo-seam": { "agentType": "coordinator:eng-director", "model": "opus" }
+    },
+    "lead_round_cap": null,
+    "revise": { "step": "merged", "after": "parallel-review-wave" }
+  },
   "execute_review": {
     "required_for_emit": ["plan", "inventory", "queue", "wave-fire-dispatch"],
     "brightline": { "op": "review_brightline_gate", "partition_on": "PARTITION-MANDATORY" },
@@ -22,14 +54,14 @@
       {
         "kind": "review-wave",
         "agents": [
-          { "agentType": "coordinator:code-reviewer", "model": "sonnet", "effort": "low", "per": "slice", "executor_rows_per_reviewer": { "min": 3, "max": 6 }, "applies": "own-slice", "schema": "slice-review-result" }
-        ]
-      },
-      {
-        "kind": "integration",
-        "agents": [
-          { "agentType": "coordinator:overengineering-reviewer", "model": "opus", "effort": "low", "per": "whole-diff", "min_tshirt": "L", "applies": "whole-diff", "schema": "whole-diff-review-result" }
-        ]
+          { "agentType": "coordinator:code-reviewer", "model": "sonnet", "effort": "low", "per": "slice", "executor_rows_per_reviewer": { "min": 3, "max": 6 }, "applies": "own-slice", "schema": "slice-review-result", "merge": { "rule": "shared-paths", "min_shared_pct": 50, "result": "one-reviewer-multi-slice" } }
+        ],
+        "lens_fold": {
+          "when_rostered": "coordinator:overengineering-reviewer",
+          "fold": "coordinator:code-reviewer",
+          "as": "lens-section",
+          "verdict": "per-lens"
+        }
       },
       {
         "kind": "judge",

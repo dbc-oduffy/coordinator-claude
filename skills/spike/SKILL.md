@@ -42,10 +42,8 @@ self-classification:
 
 ## Both Halves Required
 
-1. **External web research** — how others solve this, what official docs say, known pitfalls.
-   Scoped to this mechanism.
-2. **Local empirical study** — install the dependency, run the probe, measure. The half
-   `coordinator:research` structurally cannot do.
+Web research plus local empirical study. Dispatch `coordinator:spike-worker` for the empirical
+half; it carries the contract (probes, verdict schema, destructive-action prohibition).
 
 A web-only investigation is `/research` wearing a spike costume — dispatch research instead, or
 finish the empirical half before declaring a verdict.
@@ -96,10 +94,8 @@ exists and produces a verdict record gating whether/how one gets drafted.
 
 ## Destructive-Action Prohibition
 
-`/spike` writes files (probes, the verdict record) and can run multi-pass autonomously. No
-exceptions, not proposed, not authorization-requested mid-run: `rm -rf`, `git reset --hard`,
-`git push --force`, `git rebase`, deleting outside the spike's own scratch/probe directory, `gh
-pr merge`, `--no-verify`/`--no-gpg-sign`, hibernate/shutdown/power-off, killing other processes.
+Carried by `coordinator:spike-worker`; nothing destructive runs outside the spike's own
+scratch/probe directory, and none is requested mid-run.
 
 ## Out of Scope
 

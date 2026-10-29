@@ -317,7 +317,7 @@ def _usage(prog: str) -> int:
         "subcommands: observer-sidecar-scan [--dir <path>] | "
         "claude-klabauter-bin-sentinel | ceremony-hook <ceremony-name> | "
         "mis-channelled-box | working-repo-registration [--fix] | hook-currency [--check-only] | "
-        "git-perf-currency [--fix]",
+        "git-perf-currency [--fix] | rag-registration",
         file=sys.stderr,
     )
     return 2
@@ -1010,7 +1010,33 @@ def cmd_git_perf_currency(argv: list[str]) -> int:
     return 1
 
 
+def cmd_rag_registration(argv: list[str]) -> int:
+    """List fleet repos missing from project-rag's registry, one defect line each.
+    Silent exit 0 when project-rag is absent or every repo is registered; exit 1
+    with the lines on stderr otherwise. Disk-only: no subprocess."""
+    if argv:
+        print(
+            f"workday-start-health-probes: rag-registration: unrecognized argument {argv[0]!r}",
+            file=sys.stderr,
+        )
+        return 2
+    _ensure_repo_root_on_path()
+    try:
+        from coordinator_core.install import rag_fleet_registration as rfr
+
+        rag = rfr.detect_project_rag()
+        if rag is None:
+            return 0
+        missing = rfr.unregistered_repos(rag)
+    except Exception:  # noqa: BLE001 -- a health probe never raises on the boot path
+        return 0
+    for slug, _root in missing:
+        print(rfr.remedy_line(slug), file=sys.stderr)
+    return 1 if missing else 0
+
+
 _SUBCOMMANDS = {
+    "rag-registration": cmd_rag_registration,
     "observer-sidecar-scan": cmd_observer_sidecar_scan,
     "claude-klabauter-bin-sentinel": cmd_claude_klabauter_bin_sentinel,
     "ceremony-hook": cmd_ceremony_hook,

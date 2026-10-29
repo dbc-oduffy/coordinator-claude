@@ -483,7 +483,7 @@ def main(argv: list[str]) -> int:
     today = local_day()
     current = wc.git_out("branch", "--show-current")
 
-    from coordinator_core.daily_branch import read_configured_day_branch
+    from coordinator_core.daily_branch import is_work_branch, read_configured_day_branch
 
     configured_day_branch = read_configured_day_branch(os.getcwd())
     if configured_day_branch and current == configured_day_branch:
@@ -501,7 +501,7 @@ def main(argv: list[str]) -> int:
         last_epoch = 0
     now_epoch = int(time.time())
     age_days = (now_epoch - last_epoch) // 86400
-    if age_days > 2 and current.startswith("work/"):
+    if age_days > 2 and is_work_branch(current):
         _out(f"STALE-NEEDS-ABC branch={current} age_days={age_days}")
         _err(f"Stale-commit guard: {current} last commit {age_days} days ago. "
              "Surface A/B/C Branch Reconciliation Decision.")

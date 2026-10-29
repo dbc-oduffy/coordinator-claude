@@ -278,7 +278,7 @@ On `y`, create:
 ```bash
 # setup/publish-targets.sh — DEPRECATED stub created by percolation setup.
 # Migrate to setup/publish-targets.portable (tracked) or the machine-local
-# registry publish.targets key — see docs/wiki/machine-local-registry.md.
+# registry publish.targets key — see docs/wiki/hook-best-practices/machine-local-registry.md.
 # Each TARGETS entry: "name|mode|source_dir|dest_dir"
 # mode: mirror (rsync full tree) or manifest (explicit list via publish-manifest.txt)
 TARGETS=()

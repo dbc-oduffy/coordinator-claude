@@ -19,7 +19,7 @@ for each claim in the worker records, is it present in the synthesis with a poin
 ## Inputs
 
 **Pipeline mode:** D (notebooklm, documented divergence)
-**Brief:** {{brief}} (the run's strategy.md). Its `output_path` field names the synthesis; its
+**Brief:** {{stage.brief-author.output}} (the run's research-brief.md). Its `output_path` field names the synthesis; its
 `topic_slug` field and the output path's date give the run stem.
 **Synthesis to audit:** the brief's `output_path`
 **Worker claim records:** for each notebook letter in the brief:

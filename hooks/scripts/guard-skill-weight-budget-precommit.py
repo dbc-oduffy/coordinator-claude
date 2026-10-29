@@ -1,8 +1,9 @@
 # guard-not-a-hook-entrypoint
 # Native git pre-commit hook, not a hooks.json entrypoint: the commit's own
 # index is only directly readable at pre-commit time.
-"""Native git pre-commit hook: refuse a commit that grows the skill fleet past
-its resident limit, or a skill past its banded ceiling.
+"""Native git pre-commit hook: warn when a commit grows the skill fleet past
+its resident limit, or a skill past its banded ceiling. The warning is
+advisory and the commit proceeds.
 
 THE MEASURED TREE IS THE COMMIT'S OWN INDEX, never the shared working tree.
 For a pathspec commit git hands the hook a temporary index holding the
@@ -26,7 +27,8 @@ A baseline edit that raises any limit or floor against the base revision is
 refused (`limit_raises`); the override hint is not printed for it.
 
 Fail-open: a plumbing failure prints a one-line "did not run" note and exits
-0; only a measured violation exits 1. Override:
+0; an over-budget measurement exits 0 with a warning; only a limit raise
+exits 1. Override:
 COORDINATOR_OVERRIDE_PRECOMMIT_SKILL_WEIGHT_BUDGET.
 """
 
@@ -151,11 +153,10 @@ def _check(proposed_sizes, base_sizes, baseline, base_baseline) -> int:
         return 1
     if not violations:
         return 0
-    print(f"{_TAG} commit refused: skill growth over budget", file=sys.stderr)
+    print(f"{_TAG} advisory: skill growth over budget (commit proceeds)", file=sys.stderr)
     for line in violations:
         print(f"  {line}", file=sys.stderr)
-    print(f"  override: {OVERRIDE_ENV}=1", file=sys.stderr)
-    return 1
+    return 0
 
 
 def main(argv: "list[str]") -> int:

@@ -26,10 +26,10 @@ Soft signals ("overnight," "it's late") do not authorize hibernate. Default stan
 ## Phase 0a: Baton Intake
 
 `/pickup`'s auto-fire claims batons on the invocation line — **check that it did, don't assume
-it.** No claimed-baton list in `additionalContext` means the hook did not fire, and its bootstrap
-fails OPEN: a missing or unresolved script produces silence, not an error, so a run that skipped
-this phase's engine inputs reads exactly like one that had them. Claim by hand
-(`pickup-assemble apply <path>`), say so in the announcement, and carry on. Then resolve open judgment points and claim residue. Not ready → `pickup-assemble drop <path>`;
+it.** The hook's bootstrap fails OPEN, so its absence reads as silence. Pipe the invocation's
+`additionalContext` through `python3 "${CLAUDE_PLUGIN_ROOT:-${_content_root}/coordinator}/hooks/scripts/pickup-autofire.py" --check-intake`;
+exit 2 (no `batons_claimed=…, spool_open_count=N` line) is a **stop** at this phase — report it, run nothing
+further. Then resolve open judgment points and claim residue. Not ready → `pickup-assemble drop <path>`;
 readiness-routed but still coherent → keep the claim, name routed items in the Phase 1 ledger and
 the successor handoff. No brief → `pickup-assemble brief <path> [AND <path>]...`. Announce:
 "Claimed N batons: [paths]. [M put back down: reason.]" Detail: wiki.
@@ -360,8 +360,8 @@ check, anti-vacuity gate, diff freeze, inventory archival (COMPLETE only), track
 
 - **Subtractive adjudication** — the terminal pass over what the review layer added, run before
   the exhaustion check because its coverage feeds it. Build the revocation candidate ledger from
-  **review-layer artifacts in this run's own sha range only** — integrator disposition blocks
-  bucketed `applied`/`deferred` and their reviewer sidecars, keyed `<sidecar-stem>#finding-N`,
+  **review-layer artifacts in this run's own sha range only** — the Findings Ledger rows of
+  reviewer sidecars, keyed `<sidecar-stem>#finding-N`,
   each stamped `costRank` by the size of the integrated change. **The ledger is the address
   space**: sourcing it from the run diff or an executor report widens the adjudicator's authority
   silently, which is the thing to check in review, not its wording. Empty ledger →
@@ -371,6 +371,8 @@ check, anti-vacuity gate, diff freeze, inventory archival (COMPLETE only), track
   unadjudicated — lands in `state/mise-inventory/<run-id>-adjudication.md`. Any `unadjudicated`
   candidate makes the phase INCOMPLETE, and the verdict line may not read COMPLETE while it is.
   Enforcement detail: `coordinator/docs/wiki/test-design-discipline/subtractive-adjudication.md`.
+- **Baton-claim exit check:** rerun the Phase 0a pipe with `--check-intake --exit`; exit 2
+  (`zero-batons-claimed-with-open-spool`) makes the verdict line INCOMPLETE and is named in the tail summary.
 - **Exhaustion check** (live disposition ledger): COMPLETE if every item terminal
   (PASSed/routed-out/already-fixed/dropped), else CONTINUANCE — wording only, tail always runs
   full. Three inputs force CONTINUANCE regardless of the item ledger: an aggregate PARTIAL-FIRE

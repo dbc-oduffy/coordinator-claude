@@ -39,17 +39,43 @@ export const meta = {
   ],
 }
 
+// BEGIN workflow-shared (synced from workflows/_shared/fanout-helpers.mjs)
+// Model tiers. Sonnet is the default; haiku only for schema-bound read-only legs on the leg-register
+// floor; opus is PM-gated and every opus site carries an `opus-ruling: <ruling ref>` and an `opus-justified: <reason>` comment.
+const TIER = {HAIKU: 'haiku', SONNET: 'sonnet', OPUS: 'opus'}
+// Split items into batches of at most maxPerAgent (default 10); one batch is one agent's work.
+const batchItems = (items, {maxPerAgent = 10} = {}) => {
+  const n = Math.max(1, Math.floor(maxPerAgent)), out = []
+  for (let i = 0; i < items.length; i += n) out.push(items.slice(i, i + n))
+  return out
+}
+// A fanned-out agent returns a pointer, never its payload.
+const PATH_SUMMARY_SCHEMA = {type: 'object', properties: {path: {type: 'string'}, summary: {type: 'string', maxLength: 400}, counts: {type: 'object', additionalProperties: {type: 'number'}}}, required: ['path', 'summary']}
+// Append to a prompt: instructs the agent to write its payload to a file and return path + summary.
+const pathSummary = prompt => `${prompt}\n\nWrite your full payload to a file under your sidecar/scratch directory and return ONLY {path, summary, counts}: path is that file, summary is at most 400 characters, counts is a flat object of numbers. Never inline the payload in your reply.`
+// Replace every occurrence of slot with batonId through a string, array or plain-object tree.
+const fillBaton = (value, batonId, slot) => {
+  if (typeof value === 'string') return value.split(slot).join(batonId)
+  if (Array.isArray(value)) return value.map((v) => fillBaton(v, batonId, slot))
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, fillBaton(v, batonId, slot)]))
+  }
+  return value
+}
+// END workflow-shared
+
 
 // Model-tier discipline (coordinator/docs/wiki/dispatching-parallel-agents/delegate-execution.md § Model Selection
 // Rubric, and staff-eng.md/vp-product.md's own "Do Not Commit"/Tools Policy sections):
-//   - Judgment/review personas (vp-product, staff-eng) run OPUS, but their write access is for
+//   - Judgment/review personas (vp-product, staff-eng) run SONNET, and their write access is for
 //     their OWN findings/recommendation artifact only -- staff-eng.md is explicit: "never change
 //     source under review; fixes are the Executor's job."
 //   - Anything that WRITES THE FIX ITSELF runs SONNET, always -- "Dispatched executors are always
 //     Sonnet. No exceptions." (delegate-execution.md). So staff-eng INVESTIGATES and reports what
 //     needs to change; a separate sonnet pass applies it. Same reasoning nearly makes a two-step
 //     out of the XS executor phase too, but those are single-baton direct-dispatch work with no
-//     separate reviewer in the loop to begin with, so one sonnet executor per item is correct as is.
+//     separate reviewer in the loop to begin with, so one sequential sonnet executor covers them all.
+// Items are batched per agent (JUDGMENT_BATCH for the judgment legs); every agent returns PATH_SUMMARY.
 
 
 const VP_PRODUCT_PREAMBLE = `You are acting as the vp-product persona (coordinator/agents/vp-product.md) —
@@ -103,75 +129,109 @@ that was absent from your first read and that you did not write yourself was add
 dispatch: it is binding. Apply it over
 this brief and over anything you read earlier, and name it in your return.`
 
-function vpProduct(item) {
+const OBJECTIVE_RULE = `When state/warp/<run_id>/objective.json exists, read it first and carry its axes; never report "unknown".`
+
+const JUDGMENT_BATCH = 5
+
+const itemList = (items, fmt) => items.map((it, i) => `${i + 1}. ${fmt(it)}`).join('\n')
+
+// One agent per batch of PM-surfaced items; each item's recommendation still lands in its own file.
+function vpProductBatch(batch, n) {
   return agent(
-    `${VP_PRODUCT_PREAMBLE}
+    pathSummary(`${VP_PRODUCT_PREAMBLE}
 
 ${MID_RUN_DIRECTION_RULE}
+${OBJECTIVE_RULE}
 
-Baton: ${item.id} — "${item.title}"
-Record: ${item.path}
-Original PM question raised by the blitz-em: ${item.question}
+You have ${batch.length} independent batons. Handle each in turn, in full, as its own recommendation.
 
-First, read the baton record AND check whether it's still open — a concurrent plan-blitz run may have
+${itemList(batch, (item) => `Baton: ${item.id} — "${item.title}"
+   Record: ${item.path}
+   Original PM question raised by the blitz-em: ${item.question}
+   Output file: state/pm-recommendations/${item.slug}.md`)}
+
+For each: first read the baton record AND check whether it's still open — a concurrent plan-blitz run may have
 already resolved, re-planned, or closed this baton since the question was raised (check for a
 governing_plan, deployment_state, or a newer plan under docs/plans/ dated after this baton's last
-update). If it's already resolved, say so plainly and stop — do not manufacture a recommendation for a
+update). If it's already resolved, say so plainly and stop on that item — do not manufacture a recommendation for a
 question nobody is asking anymore.
 
-Write your findings to state/pm-recommendations/${item.slug}.md (create the directory if needed): a
+Write each baton's findings to its output file (create the directory if needed): a
 one-paragraph summary, the PM-tier-vs-EM-tier call stated first, then (if genuinely PM-tier) your
-recommendation stated plainly, then the alternatives considered and your reasoning.`,
-    { label: `vp-product:${item.id}`, phase: 'VP-Product', model: 'opus', effort: 'low' },
+recommendation stated plainly, then the alternatives considered and your reasoning.
+Your returned path is an index file listing each baton id with its output file; counts carries pmTier, emTier, resolved.`),
+    { label: `vp-product:${n}`, phase: 'VP-Product', model: TIER.SONNET, effort: 'low', schema: PATH_SUMMARY_SCHEMA },
   )
 }
 
-function staffEngInvestigate(item) {
+// One agent per batch of defects. Findings stay one file per item (the Apply pass reads them).
+function staffEngInvestigateBatch(batch, n) {
   return agent(
-    `${staffEngInvestigatePreamble(item.slug)}
+    pathSummary(`${staffEngInvestigatePreamble('<slug>')}
+
+(Substitute each item's own slug below for <slug> in the findings path.)
 
 ${MID_RUN_DIRECTION_RULE}
+${OBJECTIVE_RULE}
 
-Baton: ${item.id} — "${item.title}"
-Record: ${item.path}
-Previously identified defect: ${item.defect}
+You have ${batch.length} independent batons. Investigate each in turn.
 
-Read the plan and the baton's current state first. A concurrent plan-blitz run may have already
-superseded or re-planned this baton since the defect was found.`,
-    { label: `staff-eng-investigate:${item.id}`, phase: 'Staff-Eng Investigate', model: 'opus', effort: 'low' },
+${itemList(batch, (item) => `Baton: ${item.id} — "${item.title}"
+   Record: ${item.path}
+   Previously identified defect: ${item.defect}
+   Findings file: state/pm-recommendations/${item.slug}.staff-eng-findings.md`)}
+
+Read the plan and each baton's current state first. A concurrent plan-blitz run may have already
+superseded or re-planned a baton since the defect was found.
+Your returned path is an index file listing each baton id with its findings file and verdict (a/b/c);
+counts carries needsFix (verdict a), resolved, neverReal.`),
+    { label: `staff-eng-investigate:${n}`, phase: 'Staff-Eng Investigate', model: TIER.SONNET, effort: 'low', schema: PATH_SUMMARY_SCHEMA },
   )
 }
 
-function applyFix(item, findingsPath) {
+// Only fires for a batch whose investigation reported at least one finding that names a fix.
+function applyFixBatch(batch, indexPath, n) {
   return agent(
-    `${APPLY_FIX_PREAMBLE}
+    pathSummary(`${APPLY_FIX_PREAMBLE}
 
 ${MID_RUN_DIRECTION_RULE}
+${OBJECTIVE_RULE}
 
-Baton: ${item.id} — "${item.title}"
-Staff-eng findings: ${findingsPath}`,
-    { label: `apply-fix:${item.id}`, phase: 'Apply Fix', model: 'sonnet', effort: 'low' },
+Investigation index: ${indexPath}
+Apply a fix ONLY to batons whose findings file specifies one; skip the rest without comment.
+
+${itemList(batch, (item) => `Baton: ${item.id} — "${item.title}"
+   Staff-eng findings: state/pm-recommendations/${item.slug}.staff-eng-findings.md`)}
+
+Your returned path is an index of what you applied; counts carries applied, skipped.`),
+    { label: `apply-fix:${n}`, phase: 'Apply Fix', model: TIER.SONNET, effort: 'low', schema: PATH_SUMMARY_SCHEMA },
   )
 }
 
-function executor(item) {
+// One sequential agent per batch of XS batons (batches also run one after another): the batons mutate
+// the shared tree, so they never run concurrently.
+function executorBatch(items, n) {
   return agent(
-    `${EXECUTOR_PREAMBLE}
+    pathSummary(`${EXECUTOR_PREAMBLE}
 
 ${MID_RUN_DIRECTION_RULE}
+${OBJECTIVE_RULE}
 
-Baton: ${item.id} — "${item.title}"
-Record: ${item.path}
+You have ${items.length} batons. Work them strictly ONE AT A TIME, in order, finishing each before the next.
 
-Read the baton record in full. It was sized XS/dispatch by a recent plan-blitz sweep — direct work,
-no plan needed. Before doing anything, verify its EXECUTION gate is actually open (its blockers are
+${itemList(items, (item) => `Baton: ${item.id} — "${item.title}"
+   Record: ${item.path}`)}
+
+Each was sized XS/dispatch by a recent plan-blitz sweep — direct work,
+no plan needed. Before doing anything on a baton, verify its EXECUTION gate is actually open (its blockers are
 coded, not just planned) and that it hasn't already been closed by a concurrent session since the
-sweep — if either is false, report that plainly and stop rather than inventing work.
+sweep — if either is false, record that plainly and move on rather than inventing work.
 
-If it's genuinely still open: do exactly what the baton asks, nothing more. Report what you changed
+If it's genuinely still open: do exactly what the baton asks, nothing more. Record what you changed
 (or, for a confirm-and-close baton, what you verified). Do NOT commit or stage anything — the EM
-commits after you're done.`,
-    { label: `executor:${item.id}`, phase: 'Executor', model: 'sonnet', effort: 'low' },
+commits after you're done.
+Your returned path is a report file with one section per baton; counts carries done, confirmedClosed, skipped.`),
+    { label: `executor:${n}`, phase: 'Executor', model: TIER.SONNET, effort: 'low', schema: PATH_SUMMARY_SCHEMA },
   )
 }
 
@@ -181,29 +241,27 @@ const executorItems = args.executorItems || []
 
 log(`post-blitz triage: ${vpProductItems.length} vp-product, ${staffEngItems.length} staff-eng, ${executorItems.length} executor`)
 
-const vpResults = await parallel(vpProductItems.map((item) => () => vpProduct(item).then((r) => ({ item, result: r }))))
+const vpResults = await parallel(
+  batchItems(vpProductItems, { maxPerAgent: JUDGMENT_BATCH }).map((batch, i) => () =>
+    vpProductBatch(batch, i + 1).then((r) => ({ items: batch, result: r }))),
+)
 
-// Investigate (Opus, parallel, read-only) -> Apply (Sonnet, per-item, only when a real fix was found).
-// Pipelined per item since Investigate must finish before that item's Apply can read its findings,
-// but different items are independent, so pipeline() (not a barrier) lets item A's Apply start while
-// item B is still investigating.
+// Investigate (Sonnet, parallel, read-only) -> Apply (Sonnet), pipelined per batch. Apply runs only when the
+// batch's investigation counted at least one finding that names a fix.
 const staffEngResults = await pipeline(
-  staffEngItems,
-  (item) => staffEngInvestigate(item).then((r) => ({ item, investigation: r })),
-  async ({ item, investigation }) => {
-    const findingsPath = `state/pm-recommendations/${item.slug}.staff-eng-findings.md`
-    const applied = await applyFix(item, findingsPath)
-    return { item, investigation, applied }
+  batchItems(staffEngItems, { maxPerAgent: JUDGMENT_BATCH }).map((batch, i) => ({ batch, n: i + 1 })),
+  ({ batch, n }) => staffEngInvestigateBatch(batch, n).then((r) => ({ batch, n, investigation: r })),
+  async ({ batch, n, investigation }) => {
+    const needsFix = investigation && investigation.counts ? investigation.counts.needsFix : undefined
+    if (!investigation || !investigation.path || needsFix === 0) return { items: batch, investigation, applied: null }
+    const applied = await applyFixBatch(batch, investigation && investigation.path, n)
+    return { items: batch, investigation, applied }
   },
 )
 
-// Executor phase is PIPELINED (sequential, one at a time) rather than parallel: these agents mutate
-// the shared working tree, and running them concurrently risks two agents editing overlapping files
-// or racing on the same directories with no isolation.
+// Executor phase is sequential, at most 10 batons per agent: the batons mutate the shared working
+// tree, and concurrent agents risk editing overlapping files with no isolation.
 const executorResults = []
-for (const item of executorItems) {
-  const r = await executor(item)
-  executorResults.push({ item, result: r })
-}
+for (const [i, batch] of batchItems(executorItems).entries()) executorResults.push(await executorBatch(batch, i + 1))
 
 return { vpResults, staffEngResults, executorResults }

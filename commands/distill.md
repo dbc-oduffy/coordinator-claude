@@ -31,9 +31,9 @@ scope size. See `coordinator/docs/wiki/em-operating-model/workflow-orchestration
 and `pipelines/artifact-distillation/PIPELINE.md` for this pipeline's own Workflow phase mechanics.
 The curated file behind `args.curatedFile` is written by the `distill.write_curated_clusters` op, not by hand. The Workflow's two input channels (`args.inputFile` with its list counts; `args.curatedFile` or inline `args.curatedTags`) are specified in `pipelines/artifact-distillation/phase-0-scoping.md` § Call contract and `pipelines/artifact-distillation/clustering-and-consolidation.md` § Curated-input channels.
 
-**PM gate applies to deletions only.** Additive knowledge writes (wiki/DR harvest, distillation-log
-rows) go direct, no PM checkpoint. Only the irreversible `git rm` at Phase 5 — governed by the
-delete-safety guards below — halts for PM/EM judgment.
+**No PM gate.** The deletion gate is the delete-safety guards below plus the guard-visible
+provenance citation Phase 3d writes for every `DELETE` row. Additive knowledge writes (wiki/DR
+harvest, distillation-log rows) go direct; Phase 4 is a non-blocking summary and atlas advisory.
 
 **Out-of-scope actions for all dispatched agents in this pipeline:** DO NOT run `gh pr create`,
 `gh pr merge`, `git push origin main`, `gh release create`, or any `gh` command that mutates
@@ -223,6 +223,8 @@ reference).
 |---------|-------------|
 | `/distill` | Extract knowledge into wiki docs, trim + archive canonical specs, delete scaffolding |
 | `/update-docs` Phase 8b | Bulk prune without knowledge extraction, unconditional age-thresholded cleanup |
+
+**Owner of implemented-but-unarchived plans:** a `docs/plans/` plan with `status: implemented`/`shipped` and no counterpart under `archive/specs/**` belongs to `/distill`. Phase 8b keeps it at any age (`pipelines/update-docs/artifact-pruning.md` § One recency rule for plans).
 
 **Prior-art-checker** consults `docs/wiki/codebase-judgment/` (Phase 2.5 output) on every plan
 check — cached Opus-tier judgment at Sonnet cost, zero additional wiring.

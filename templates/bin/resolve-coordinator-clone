@@ -52,6 +52,7 @@ from __future__ import annotations
 
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -271,8 +272,11 @@ def main(argv: list[str]) -> int:
         )
         return 1
 
-    os.execv(sys.executable, [sys.executable, str(lib), *argv])
-    return 1  # unreachable on success — execv replaces this process
+    # Synchronous child, never os.execv: on Windows execv spawns and exits at
+    # once, so the caller sees exit 0 before the child's stdout. No
+    # CREATE_NO_WINDOW: it gives the child a fresh console and drops the
+    # inherited std handles; this shim already runs under the caller's console.
+    return subprocess.call([sys.executable, str(lib), *argv])  # popup-intentional-last-resort
 
 
 if __name__ == "__main__":

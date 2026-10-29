@@ -22,6 +22,13 @@ state/**/fire-*.mjs
 state/**/*.fire.mjs
 state/**/*.mjs.emitted.json
 
+# coordinator — ephemeral artifacts (build intermediates, root-level scratch output)
+Intermediate/
+/scratch_*
+
 # project-rag corpus output (never commit; ~230MB in history)
 .project-rag-corpus-artifacts/
 .project-rag-corpus-store/
+
+# warp leg prompts are working files; the engine prunes them for finished runs
+state/warp/*/prompts/
