@@ -128,19 +128,19 @@ def run_cruft_sweep(
     except OSError as exc:
         print(
             f"[workday-complete] WARN: cruft-sweep Step 1.5 could not be invoked "
-            f"({exc}) (non-blocking)",
+            f"({exc})",
             file=err,
         )
-        return 0
+        return 1
 
     if rc != 0:
         log_path = _cruft_sweep_log_path(state_root_script)
         print(
             "[workday-complete] WARN: cruft-sweep Step 1.5 exited non-zero "
-            f"(non-blocking) — check {log_path}",
+            f"({rc}) — check {log_path}",
             file=err,
         )
-    return 0
+    return rc
 
 
 def _build_parser() -> argparse.ArgumentParser:

@@ -497,6 +497,47 @@ def _get_branch(coordinator_root):
     return ""
 
 
+def _span_tip(commit_span, commit_range):
+    """Tip rev of the block's commit window: the --commit-span tip, else the
+    newest sha of the computed range; "" when the window is empty ("n/a")."""
+    for rng in (commit_span, commit_range):
+        if rng and rng != "n/a":
+            return rng.rsplit("..", 1)[-1]
+    return ""
+
+
+def _branch_for_tip(coordinator_root, tip):
+    """Branch the window's tip belongs to, not the checked-out one: a branch whose
+    tip IS the commit, else the nearest branch name-rev finds. "" if neither."""
+    if not tip:
+        return ""
+    flags = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+    try:
+        r = subprocess.run(
+            ["git", "-C", coordinator_root, "branch", "-a", "--points-at", tip,
+             "--format=%(refname:short)"],
+            capture_output=True, text=True, timeout=15, **flags,
+        )
+        names = [n for n in r.stdout.split() if n and "HEAD" not in n] if r.returncode == 0 else []
+        if names:
+            local = [n for n in names if not n.startswith("origin/")]
+            return (local or [n[len("origin/"):] for n in names])[0]
+        r = subprocess.run(
+            ["git", "-C", coordinator_root, "name-rev", "--name-only", "--no-undefined",
+             "--refs=refs/heads/*", "--refs=refs/remotes/origin/*", tip],
+            capture_output=True, text=True, timeout=15, **flags,
+        )
+        if r.returncode == 0:
+            name = r.stdout.strip()
+            for prefix in ("remotes/origin/", "origin/", "heads/"):
+                if name.startswith(prefix):
+                    name = name[len(prefix):]
+            return re.split(r"[~^]", name, maxsplit=1)[0]
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return ""
+
+
 def main(argv):
     if "-h" in argv or "--help" in argv:
         print(__doc__)
@@ -604,7 +645,10 @@ def main(argv):
 
     scope = scope_arg
 
-    branch = _get_branch(coordinator_root) or "unknown"
+    if for_date or commit_span:
+        branch = _branch_for_tip(coordinator_root, _span_tip(commit_span, commit_range)) or "unknown"
+    else:
+        branch = _get_branch(coordinator_root) or "unknown"
 
     validate_val = os.environ.get("RC_VALIDATE") or "not-run"
     plugin_suite_val = os.environ.get("RC_PLUGIN_SUITE") or "n/a"

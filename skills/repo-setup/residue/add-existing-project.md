@@ -1,20 +1,14 @@
-<!-- Purpose: Judgment resolution for the `add-existing-project` lane (a repo built without
-     coordinator). Mechanics: `mechanics.md`; canonical values: `lanes/add-existing-project.yaml`. -->
+---
+segment_id: add-existing-project
+class: protected
+order: 2
+situation: add-existing-project
+---
+<!-- Purpose: `add-existing-project` lane judgment note. Values: `lanes/add-existing-project.yaml`. -->
 
 # repo-setup — add-existing-project lane
 
-**Basis.** Existing code repo, no coordinator setup, classification `working`.
-
-**Ratification accepts Phase 1.5's synthesis unattended.** `p15.ratification-ask` resolves
-`ratify`; the proposed name, type and workstreams are trusted, and win over the Phase 1 `detected_type`.
-
-**Terminal offers with residual judgment:**
-
-- **`p3f.untrack-scratch-offer`** — never auto-runs `git rm --cached`; declines and reports
-  `Needs Attention`.
-- **`p3f5.custom-hook-skip`** — installs the standard hook, but DEFERS (skip + `Needs Attention`)
-  when a custom auto-push hook is already present.
-
-**Roster.** One slot: `lanes/add-existing-project.yaml` `roster_slots[]`.
-
-**UNATTENDED-HALT SET applies unchanged** (`lanes/CONTRACT.md`).
+`p15.ratification-ask` resolves `ratify`: Phase 1.5's name, type and workstreams are trusted and
+win over `detected_type`. `p3f.untrack-scratch-offer` never auto-runs `git rm --cached`; it declines
+and reports `Needs Attention`. `p3f5.custom-hook-skip` DEFERS (skip + `Needs Attention`) when a
+custom auto-push hook exists. The UNATTENDED-HALT SET applies unchanged (`lanes/CONTRACT.md`).

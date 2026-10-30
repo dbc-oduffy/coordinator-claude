@@ -39,6 +39,7 @@ Status first, with recommendations. PM clock times are UK local. `PM-CLOCK-TIMES
 - A static gate flags only PROVE-BAD, never PROVE-GOOD or CANNOT-DECIDE. `A-STATIC-GATE-FLAGS-ONLY-WHAT-IT-PROVES-BAD`
 - A premise in a brief carries read evidence or is marked unverified; the default path is to fire engine-ask before writing code, and hand-work stays open if the engine fails. `THE-EM-RELAYS-NO-UNVERIFIED-PREMISE` `THE-EM-FIRES-ENGINE-ASK-WITHOUT-A-PREFIRE-SURVEY`
 - A run closes done only with a receipt, or a not_applicable record with a reason, for every mandatory stage; an unsized run owes all of them. `A-RUN-MISSING-A-STAGE-RECEIPT-CANNOT-CLOSE`
+- An idle EM may be compacted, so expect to wake compacted after firing engine asks and keep run ids, expected wakes and tasks in durable surfaces, not only context; opt out per session via `coordinator/docs/wiki/idle-compaction-opt-out.md`. `AN-EM-THAT-FIRES-ENGINE-ASKS-WAKES-COMPACTED`
 - An ask is a ledger of parts; dropping a part closes partial, never done. `A-DROPPED-PART-IS-A-PARTIAL-CLOSE-NEVER-DONE`
 - A guard refusal is an engine bug: do the work yourself and file the refusal as friction; never ask for a waiver.
 - A landing its own bookkeeping refuses twice ships as a plain scoped commit once the safety property is verified directly. `A-BOOKKEEPING-REFUSAL-TWICE-SHIPS-A-PLAIN-SCOPED-COMMIT`

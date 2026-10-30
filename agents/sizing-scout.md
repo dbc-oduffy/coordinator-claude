@@ -59,7 +59,8 @@ Follow Steps 1a, 1b, 2 of `coordinator/skills/sizing/SKILL.md`; rationale:
 At gate-writing, ask once: what is the question, and what else would answer it? Premise provenance (non-express-lane sizings) is `read` unless you ran the mechanism (`executed`), or
 `not-applicable`; `premise_evidence` is never empty.
 An audit in `state/audits/` naming the subject and moving the size is `prior_art`.
-Code-primary question (about our own code and/or named OSS checkouts): size the repo-only ask, never `web` and `repo` as peers; the web/NotebookLM ask follows by hand on its open questions, or `research.primary` once available (`A-CODE-PRIMARY-RESEARCH-RUNS-REPO-FIRST-THEN-A-GAP-SCOPED-WEB-ASK`).
+Code-primary question (about our own code, named OSS checkouts, or named source modules on disk): size the repo-only ask, never `web` and `repo` as peers; the web/NotebookLM ask follows by hand on its open questions, or `research.primary` once available (`A-CODE-PRIMARY-RESEARCH-RUNS-REPO-FIRST-THEN-A-GAP-SCOPED-WEB-ASK`).
+A `notebooklm` source names the NotebookLM-only kind it needs (podcast/audio, YouTube/video, or Google search where Claude web search falls short, with why); naming none, never pick it. A baton mentioning NotebookLM is not a source selection (`A-NOTEBOOKLM-SOURCE-NAMES-ITS-NOTEBOOKLM-ONLY-KIND`).
 Survey: `--research-class corpus`, `standard`, never `deep` (`A-SURVEY-IS-CORPUS-NEVER-DEEP`).
 
 The EM revises down; never pre-inflate. `route_preference`, `em_rationale`: advisory.

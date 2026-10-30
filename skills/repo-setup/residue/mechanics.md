@@ -6,13 +6,12 @@
 
 ## Detection (Phase 1 basis)
 
-**`coordinator.local.md` project-type short-circuit.** If present, read `project_type`,
-`project_subtypes`, `cross_platform` and confirm in one line naming the source. If `project_type`
-differs from the marker-scan `detected_type`, emit a one-line informational note (never a
-re-ask): *file value wins, correct `coordinator.local.md` and re-run if wrong.* Legacy values
-(`unreal`, `meta`, bare `web`) get a one-line migration hint — never auto-rewritten.
+**`coordinator.local.md` short-circuit.** If present, read `project_type`, `project_subtypes`,
+`cross_platform` and confirm in one line naming the source. A `project_type` differing from the
+marker-scan `detected_type` gets a one-line note (never a re-ask): file value wins. Legacy values
+(`unreal`, `meta`, bare `web`) get a one-line migration hint, never auto-rewritten.
 
-**Runtime marker scan.** Run (Shape W, `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`)
+**Runtime marker scan** (Shape W, `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`):
 `& "$env:COORDINATOR_SETTINGS_HOME\bin\detect-project-runtime.exe"`. Advisory only — warn and
 continue if the forwarder or its engine-plane target is unresolvable; no skill/agent/hook reads it programmatically.
 
@@ -24,131 +23,104 @@ continue if the forwarder or its engine-plane target is unresolvable; no skill/a
 
 ## Rendering and scaffolding
 
-**Machine profile.** Every step marked *author box only* is skipped without comment on a
-consumer box (`machine-local get coordinator.machine_profile` prints `consumer`, or prints nothing
-and no `repos.*` path holds a `.coordinator-dev-repo` file).
+**Machine profile.** Steps marked *author box only* are skipped without comment on a consumer box
+(`machine-local get coordinator.machine_profile` is `consumer`, or empty with no `.coordinator-dev-repo` under any `repos.*` path).
 
 **CLAUDE.md** (if missing): create once with the Write tool (never a Bash redirect or overwrite)
 from `render-template templates/CLAUDE.md.template` with `PROJECT_NAME`, `PROJECT_TYPE`,
 `SUBTYPES`, `GLOBAL_EXTENDS_LINE` (iff `~/.claude/CLAUDE.md` exists), `PROJECT_TYPE_BLOCK`
 (concatenated `templates/project-type-block.<type>.template` bodies; empty for `general`).
-Populate `## Runtime conventions` from the marker-scan output (or a
-"no runtime markers detected; PM to fill" placeholder). Set `_PHASE_3A_RENDERED_CLAUDE_MD=true` on success so the
-Phase 4 fill-in reminder fires only when this run rendered the template.
+Populate `## Runtime conventions` from the marker scan (or a
+"no runtime markers detected; PM to fill" placeholder). Set `_PHASE_3A_RENDERED_CLAUDE_MD=true` on success.
 
 **docs/README.md** (if missing): `render-template templates/README.md.template`, substituting
 `[PROJECT_NAME]`/`[DATE]`.
 
 **docs/exec-summary.md** (if missing): run
-`repo-setup-args-and-register resolve-exec-summary-generator --run` (Shape W). When the generator is
-unresolvable, skip and list `docs/exec-summary.md` under
-`### Needs Attention` with that reason. It regenerates the MANAGED sections (identity, progress)
-and copies the HAND sections (`special`, `goals`) forward verbatim; a malformed/absent HAND
-fence fails loud and writes nothing. `--batch` runs it in no-clobber mode.
+`repo-setup-args-and-register resolve-exec-summary-generator --run` (Shape W). Generator
+unresolvable: skip, list it under `### Needs Attention` with that reason. HAND sections (`special`,
+`goals`) copy forward verbatim; a malformed/absent HAND fence fails loud and writes nothing. `--batch` runs it no-clobber.
 
 **DIRECTORY.md**: never created here (`/update-docs` owns it).
 
-**Directories.** On a consumer box create only `docs/`, `docs/plans/`, `state/handoffs/` and the
-gitignored `scratch/subagent-sandbox/` directly; do not run the manifest scaffolder (no
-`.project-rag-ignore`, `.github/`, `bin/` or `tasks/` unless a lane answer or the PM asks). On an
-author box create only `docs` and the gitignored `scratch/subagent-sandbox` directly; everything
-else scaffolds via the engine-plane `coordinator_core.install.scaffold_structure` CLI
-(`--manifest-root <coordinator-plugin-root>`, `--root` defaults to cwd), idempotent. Skip with a
-stderr note if the engine-plane root doesn't resolve. Tracker-shaped files are lazy, written by
-their owning skill on first use — except `state/orientation_cache.md` (below).
+**Directories.** Consumer box: create only `docs/`, `docs/plans/`, `state/handoffs/` and the
+gitignored `scratch/subagent-sandbox/`; no manifest scaffolder (no `.project-rag-ignore`,
+`.github/`, `bin/` or `tasks/` unless a lane answer or the PM asks). Author box: create only `docs`
+and `scratch/subagent-sandbox`; the rest scaffolds via the engine-plane
+`coordinator_core.install.scaffold_structure` CLI (`--manifest-root <coordinator-plugin-root>`,
+`--root` defaults to cwd), idempotent; skip with a stderr note if the engine-plane root doesn't
+resolve. Tracker-shaped files are lazy — except `state/orientation_cache.md`.
 
 **`.gitignore`.** Source the block from `templates/gitignore.project.template` (never the
 settings-home `dotgitignore.tmpl`). Ensure the canonical block (`.coordinator-local/`,
-settings.local.json, scratch/, per-session sentinels, the doctrine-edit approval sentinel, ceremony/coverage transients, the group-EM
-watch trio — `state/group-em-watch.json`, `state/group-em-watch-parked.json`,
-`state/group-em-watch-spool.jsonl` — the engine-provenance ledger
-`state/engine-provenance-counts.jsonl`, `state/housekeeping-liveness.json`, `state/orientation_cache.md`, the emitted workflow scripts
-`state/**/fire-*.mjs` and `state/**/*.mjs.emitted.json`,
-`Intermediate/`, root-anchored `/scratch_*`,
-`.project-rag-corpus-artifacts/` and `.project-rag-corpus-store/`) is present — create if
-absent, append only the missing lines under one header if partial, skip if complete. Any of those
-transients already tracked (emitted `fire-*.mjs` / `*.mjs.emitted.json` included): `git rm --cached`
-after adding the ignore rule, never `git rm`. Warn if `.claude/` (not just `settings.local.json`)
-is blanket-ignored, if tracked content exists under `scratch/`/`tasks/_*.log` (offer, don't
-auto-`git rm --cached`), or if the project-rag corpus paths are already tracked (break-class). Warn when a lockfile
-from a package manager other than the repo's own is present (e.g. `pnpm-lock.yaml` or
-`yarn.lock` beside `package-lock.json`; the repo's manager is the `packageManager` field, else the
-lockfile already tracked) — offer to delete or ignore it, never auto-remove. A generated cache is
-either ignored or committed deliberately by its producer, never hand-committed churn
-(`GENERATED-CACHE-IS-IGNORED-OR-PRODUCER-COMMITTED`, `coordinator-tripwires/`).
+settings.local.json, scratch/, per-session sentinels, the doctrine-edit approval sentinel,
+ceremony/coverage transients, `state/group-em-watch.json`, `state/group-em-watch-parked.json`,
+`state/group-em-watch-spool.jsonl`, `state/engine-provenance-counts.jsonl`,
+`state/housekeeping-liveness.json`, `state/orientation_cache.md`,
+`state/**/fire-*.mjs`, `state/**/*.mjs.emitted.json`, `Intermediate/`, root-anchored `/scratch_*`,
+`.project-rag-corpus-artifacts/`, `.project-rag-corpus-store/`) is present — create if absent, append only missing lines under one header. Any already tracked: `git rm --cached` after adding the rule, never
+`git rm`. Warn if `.claude/` is blanket-ignored, if content is tracked under
+`scratch/`/`tasks/_*.log` (offer, don't auto-`git rm --cached`), or if the project-rag corpus paths (`.project-rag-corpus-artifacts/`, `.project-rag-corpus-store/`) are tracked (break-class).
+Warn on a lockfile from a package manager other than the repo's own (`packageManager` field, else the tracked
+lockfile); offer to delete or ignore it, never auto-remove. A generated cache is ignored or committed by its
+producer, never hand-committed churn.
 
-**Pre-commit corpus-artifact guard**: install `${CLAUDE_PLUGIN_ROOT:?coordinator plugin root unset — run this from a plugin command/skill, or substitute an absolute path}/bin/pre_commit_corpus_artifact_guard.py`
-as `.git/hooks/pre-commit`: `cp` byte-for-byte, `chmod +x`, and confirm
-`head -1 .git/hooks/pre-commit` prints `#!/usr/bin/env python3`.
+**Pre-commit corpus-artifact guard**: `cp` `${CLAUDE_PLUGIN_ROOT:?coordinator plugin root unset}/bin/pre_commit_corpus_artifact_guard.py`
+byte-for-byte to `.git/hooks/pre-commit`, `chmod +x`, confirm `head -1 .git/hooks/pre-commit`
+prints `#!/usr/bin/env python3`.
 
-**Post-commit auto-push hook**: `coordinator-ensure-hooks-fleet` (Shape W) — idempotent
-install/repair. Skip if a custom hook exists with PM sign-off (`p3f5.custom-hook-skip`).
+**Post-commit auto-push hook**: `coordinator-ensure-hooks-fleet` (Shape W), idempotent. Skip if a
+custom hook exists with PM sign-off (`p3f5.custom-hook-skip`).
 
-**Session-Id trailer hook**: `coordinator-ensure-prepare-commit-msg-hook` (Shape W) — same
-pattern; silent no-op when no session-id env var resolves.
+**Session-Id trailer hook**: `coordinator-ensure-prepare-commit-msg-hook` (Shape W); no-op without a session-id env var.
 
 **Git config hardening**: `coordinator-configure-git` (Shape W) — sets `gc.auto 0`,
 `core.checkStat minimal`, `maintenance.strategy incremental`, `maintenance.auto false`,
 `maintenance.prefetch.enabled false`. Idempotent, cwd-only.
 
-**Meta-repo pre-commit exec-bit gate** (*author box only*, and only when the onboarded repo is the meta-repo itself): run `install-meta-repo-precommit-hook <meta-root>` (Shape W) solely when
-`canon(<repo-root>) == canon($HOME/.claude)`; any other repo skips it. It never writes into `~/.claude/.git` and never creates `~/.claude/working-repos.yaml`. Override: `COORDINATOR_OVERRIDE_PRECOMMIT_EXEC_BIT=1`.
+**Meta-repo pre-commit exec-bit gate** (*author box only*): run `install-meta-repo-precommit-hook <meta-root>` (Shape W) solely when
+`canon(<repo-root>) == canon($HOME/.claude)`; any other repo skips it. Override: `COORDINATOR_OVERRIDE_PRECOMMIT_EXEC_BIT=1`.
 
-**VS Code read-only guard**: `ensure-vscode-readonly --root <repo-root>` (Shape W) — merges the
-read-only glob into `.vscode/settings.json`; skips loudly (report the key) if `jq` is absent or the file is JSONC.
+**VS Code read-only guard**: `ensure-vscode-readonly --root <repo-root>` (Shape W); skips loudly
+(report the key) if `jq` is absent or the file is JSONC.
 
 ## Substrate seeds (ALWAYS, idempotent — no lane varies these)
 
 **Currency stamp**: `<claude-klabauter-root>/coordinator/lib/coordinator_currency.py write "$(pwd)"
-<coordinator-plugin-root>`. Skip for `published-artifact`. Failure is a non-fatal Needs-Attention warning.
+<coordinator-plugin-root>`. Skip for `published-artifact`; failure is a non-fatal Needs-Attention warning.
 
-**`state/orientation_cache.md`** (if missing; gitignored): render with `## Active workstreams` (name + 2-3
-deliverables from ratified Phase 2 input), `## Branch`, empty `## Pinboard`. The heading set is
-closed and verifier-enforced — never invent a heading.
+**`state/orientation_cache.md`** (if missing; gitignored): `## Active workstreams` (name + 2-3
+deliverables from ratified Phase 2 input), `## Branch`, empty `## Pinboard`. The heading set is closed (verifier-enforced).
 
-**Extended substrate seeds** (Shape W trampolines, subprocesses, fail-loud): `setup-detect-test-cmd.py --root` (writes `fast_test_cmd`/`full_test_cmd`, never silent-picks an ambiguous candidate); `setup-seed-health-ledger.py` (every row `?`); `setup-rag-decision.py --root` (*author box only* — UE + daemon present → offer to index, else `un-indexed; use Tier-3` in CLAUDE.md; a consumer box writes no RAG text); `setup-fnm-pin.py` (only when `.node-version`/`.nvmrc` present; never installs `fnm`). `coordinator:new-project` inherits all four.
+**Extended substrate seeds** (Shape W trampolines, fail-loud): `setup-detect-test-cmd.py --root` (writes `fast_test_cmd`/`full_test_cmd`, never silent-picks an ambiguous candidate); `setup-seed-health-ledger.py` (every row `?`); `setup-rag-decision.py --root` (*author box only* — UE + daemon present → offer to index, else `un-indexed; use Tier-3` in CLAUDE.md; a consumer box writes no RAG text); `setup-fnm-pin.py` (only with `.node-version`/`.nvmrc`; never installs `fnm`). `coordinator:new-project` inherits all four.
 
-**Agent-install-manifest.json seed** (if absent, never overwritten): minimal schema-compliant shape — `agent_install_contract_version: 3`, `repo_id`, `setup_skill`, `standalone_setup_script` with `entry_point_contract`, empty `direct_deps`/`required_env_vars`/`tested_platforms`, one `configurable_locations` example, `packageability_compliance.declared: true`; `[REPO_NAME]` from the ratified Phase 2 name.
+**Agent-install-manifest.json seed** (if absent, never overwritten): minimal schema-compliant
+(`agent_install_contract_version: 3`, `packageability_compliance.declared: true`); `[REPO_NAME]` from the Phase 2 name.
 
-**Strategic self-description skeleton** (if absent): scaffold
-`state/strategic/self-description.yaml` with every field provenance `asserted` or null; the write
-is unconditional (curation is the `p3l.curation-prompt` offer).
+**Strategic self-description skeleton** (if absent): `state/strategic/self-description.yaml`, unconditional.
 
-**Guard-regression tripwire tests** (ALWAYS, idempotent, never offered). Destination is
-`<that-path>/guards/`, derived from the repo's own `fast_test_cmd` path argument. Runs only where
-`<coordinator-plugin-root>/tests/templates/` exists; otherwise skip and report one
-`### Needs Attention` line naming the missing directory. Copy, no-clobber, every ALWAYS template:
-`test_machine_local_state_tracked.py`, `test_foreign_platform_paths.py`,
-`test_registry_toml_machine_paths.py` (conditional on a tracked `registry.toml`),
-`test_guard_wiring_completeness.py` (conditional on a `hooks/hooks.json` surface),
+**Guard-regression tripwire tests** (ALWAYS, never offered). Destination `<that-path>/guards/`,
+from the repo's `fast_test_cmd` path argument. Only where `<coordinator-plugin-root>/tests/templates/`
+exists; else skip with one `### Needs Attention` line naming it. Copy no-clobber: `test_machine_local_state_tracked.py`,
+`test_foreign_platform_paths.py`, `test_registry_toml_machine_paths.py` (iff a tracked
+`registry.toml`), `test_guard_wiring_completeness.py` (iff a `hooks/hooks.json`),
 `test_every_test_tree_is_collected.py`, `test_no_absolute_path_literals.py`,
-`test_gitattributes_line_ending_coverage.py`. Each resolves its own repo root via
-`_tripwire_root.resolve_repo_root()` (copy that sibling alongside). Afterwards verify the guards
-are collected by the repo's own `fast_test_cmd`.
+`test_gitattributes_line_ending_coverage.py`, plus the `_tripwire_root.resolve_repo_root()` sibling
+they resolve their root through. Then verify the repo's `fast_test_cmd` collects them.
 
 **Widened spawn tripwire — `.py`/`.ps1`, ALWAYS, not offered; same `tests/templates/` condition.**
-Copy `test_no_bare_python_spawn.py` + `spawn_detect.py` (verbatim, stdlib-only) + the `no_console_creationflags()` helper (`_win_portability.py` for hooks, `win_portability.py` for lib/bin) into `<scope>/guards/`; set `SCOPE_SUBDIR` and extend `spawn_detect.DEFAULT_EXCLUDE` with the repo's ephemera dirname. Exemptions key on a stable marker (`# guard-allow: <rule-id> <rationale>`, `# popup-intentional-last-resort`, or `spawn_exemption_register.yaml` + monotonic `RATCHET_MAX`), never `file:line`.
+Copy `test_no_bare_python_spawn.py` + `spawn_detect.py` (verbatim, stdlib-only) + the `no_console_creationflags()` helper (`_win_portability.py` for hooks, `win_portability.py` for lib/bin) into `<scope>/guards/`; set `SCOPE_SUBDIR`, extend `spawn_detect.DEFAULT_EXCLUDE` with the repo's ephemera dirname. Exemptions key on a stable marker (`# guard-allow: <rule-id> <rationale>`), never `file:line`.
 
 **Fleet memo-destination registration — mechanical half (*author box only*).** On accept (lane- or
-PM-answered), only-if-absent register via `repo-setup-args-and-register register-repo` (Shape W;
-derives `<key>` the same way `cross-repo-memo`'s `_receiver_repo_key` does); nothing writes
-`~/.claude/working-repos.yaml`. Report `### Created` on success; otherwise `### Needs Attention`
-with the manual remediation command when declined, skipped, or `machine-local` unavailable.
+PM-answered), register only-if-absent via `repo-setup-args-and-register register-repo` (Shape W;
+derives `<key>` the same way `cross-repo-memo`'s `_receiver_repo_key` does); nothing writes `~/.claude/working-repos.yaml`. `### Created` on success; else `### Needs Attention` with the
+manual command when declined, skipped, or `machine-local` unavailable.
 
-## Optional tripwire installs — mechanical half
-
-**Windows console-subprocess tripwire** (`.sh`-only). Copy
-`tests/templates/test_no_bare_console_subprocess.py` to `tests/test_no_bare_console_subprocess.py`,
-customize `PREFIXES`/`EXACT_FILES`, verify with `python tests/test_no_bare_console_subprocess.py`
-(bare `python`, no `python3` alias on Windows). Two suppression markers, honoured identically:
-`# popup-intentional-last-resort`, `# popup-safe-env-suppressed`. Retired form
-`# noqa: bare-subprocess-windows` is NOT honoured. Whether to offer it is lane/PM judgment.
+Optional tripwire installs: `residue/tripwire-installs.md`.
 
 ## Phase 4 report — mechanical shape
 
-**Declared exemption from the ≤200-word EM→PM budget** (global `CLAUDE.md § Communication Style`):
-do not shorten this walkthrough. The template's first and last lines are the marker pair that
-declares the exemption (`em-pm-comms-instrumentation.md` § The ceremony-mandated marker).
+**Declared exemption from the ≤200-word EM→PM budget**: do not shorten this walkthrough. The template's first and last lines are the marker pair.
 
 `### Already Existed (untouched)` prints only when non-empty. `### Created` and `### Needs Attention` always
 print. `### Recent Roadmap` renders `(none)` on a fresh repo.
@@ -167,13 +139,10 @@ Template:
 <!-- ceremony-mandated:end -->
 ```
 
-`### What's next` carries the fixed operator walkthrough: `~/.claude` is the surface the operator
-evolves; the plugin **source** lives in the doctrine-plane clone (live via `--plugin-dir`);
-restart (or `/reload-plugins`) to pick up mid-session edits. The CLAUDE.md fill-in
-reminder fires only when `_PHASE_3A_RENDERED_CLAUDE_MD=true`. `machine-local get repos.*` failure:
-no registry dir → `/coordinator:install` Phase 3; registry present, no keys →
-`machine-local set repos.<name> <path>` per sibling; command not found → re-run
-`/coordinator:install` Phase 3.
+`### What's next` carries the fixed operator walkthrough: the plugin **source** lives in the doctrine-plane clone (live via `--plugin-dir`); restart
+(or `/reload-plugins`) to pick up mid-session edits. The CLAUDE.md fill-in reminder fires only when
+`_PHASE_3A_RENDERED_CLAUDE_MD=true`. `machine-local get repos.*` failure: no registry dir →
+`/coordinator:install` Phase 3; registry present, no keys → `machine-local set repos.<name> <path>`
+per sibling; command not found → re-run `/coordinator:install` Phase 3.
 
-Rationale: `coordinator/docs/wiki/install-playbook-rationale/repo-setup-residue.md`
-§ repo-setup mechanics rationale.
+Background: `coordinator/docs/wiki/install-playbook-rationale/repo-setup-residue.md`.

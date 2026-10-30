@@ -433,6 +433,10 @@ def _run_and_wait(
             return None, "", ""
         return proc.returncode, stdout or "", stderr or ""
     finally:
+        if admission is not None and getattr(proc, "pid", None):
+            from coordinator_core.bash_guards._heavy_command_class import release_spawn
+
+            release_spawn(admission.key, proc.pid)
         poll = getattr(proc, "poll", None)
         if poll is not None and getattr(proc, "pid", None) and poll() is None:
             _kill_tree(proc.pid)

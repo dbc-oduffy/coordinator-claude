@@ -6376,7 +6376,7 @@ def run_pre_sync_gates(
         # which OTHER row carries `coordinator_core`, which this gate
         # deliberately does not have.
         closure_examined, closure_violations = (
-            find_import_closure_violations(restricted_tmp_src)
+            find_import_closure_violations(restricted_tmp_src, source_root=target.source_dir)
             if target.source_dir.name == _CLOSURE_PACKAGE_NAME and only_paths is None
             else (0, [])
         )
@@ -8469,14 +8469,20 @@ def _load_rows(setup_dir: Path, **kwargs: Any) -> List[str]:
 _SOURCE_REF_IMPORTED_PATHS = ("coordinator_core", "coordinator/lib")
 
 
-def _source_ref_from_argv(argv: "Optional[Sequence[str]]") -> str:
+def _round_ref_values_from_argv(argv: "Optional[Sequence[str]]") -> List[str]:
     args = list(sys.argv[1:] if argv is None else argv)
+    values: List[str] = []
     for i, a in enumerate(args):
         if a in ("--commit", "--source-ref"):
-            return args[i + 1] if i + 1 < len(args) else ""
-        if a.startswith(("--commit=", "--source-ref=")):
-            return a.split("=", 1)[1]
-    return ""
+            values.append(args[i + 1] if i + 1 < len(args) else "")
+        elif a.startswith(("--commit=", "--source-ref=")):
+            values.append(a.split("=", 1)[1])
+    return values
+
+
+def _source_ref_from_argv(argv: "Optional[Sequence[str]]") -> str:
+    values = _round_ref_values_from_argv(argv)
+    return values[0] if values else ""
 
 
 def _resolve_round_commit(repo_root: Path, value: str) -> str:
@@ -8505,7 +8511,7 @@ def _export_engine_at_ref(repo_root: Path, ref: str) -> Path:
 
     rev = _git("rev-parse", "--verify", f"{ref}^{{commit}}")
     if rev.returncode != 0:
-        raise RuntimeError(f"--source-ref {ref!r} does not resolve to a commit in {repo_root}")
+        raise RuntimeError(f"--commit {ref!r} does not resolve to a commit in {repo_root}")
     sha = rev.stdout.decode().strip()
     # Runs before bootstrap: importing coordinator_core here would fail, or cache the
     # working-tree package over the export. temp_layout is stdlib-only; load it by path.
@@ -14199,6 +14205,9 @@ def _fold_bar_refusal(repo_root: Path, source_ref: str = "") -> Optional[str]:
 
 def _main(argv: Optional[List[str]] = None) -> int:
     global _ENGINE_ROOT
+    if len(set(_round_ref_values_from_argv(argv))) > 1:
+        print("publish: --commit and --source-ref differ; give one", file=sys.stderr)
+        return 2
     _source_ref_arg = _source_ref_from_argv(argv)
     _explicit = bool(_source_ref_arg)
     try:

@@ -71,7 +71,8 @@ a safeguard fires.
   ask the APM.
 
 Unfixed only for a NAMED reason: tradeoff, another repo, irreversible, or plan-sized. "Not now"
-is not one. Reviewer findings: apply, don't ratify.
+is not one, nor is a peer's "file it". Plan-sized means a plan, not a queue row. Reviewer
+findings: apply, don't ratify.
 
 ## Communication Style
 

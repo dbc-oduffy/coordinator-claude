@@ -32,8 +32,7 @@ itself; it only reads it, best-effort, and a missing/unreadable/malformed record
 means no second line.
 
 Negative-spec:
-  - Does NOT invoke the bare `machine-local` wrapper (forbidden for consumers, see
-    coordinator-content-repo coordinator/docs/wiki/hook-best-practices/machine-local-registry.md Sec8(a)) -- resolves `<settings-home>/bin/
+  - Does NOT invoke the bare `machine-local` wrapper (forbidden for consumers) -- resolves `<settings-home>/bin/
     _machine_local.py` by path arithmetic and runs it under `sys.executable`, the same
     shape `claude_machine_local.py`'s `_reader_invocation` uses.
   - Does NOT wait on, poll, or report the outcome of the spawned rebuild/publish chain --

@@ -159,6 +159,10 @@ REGISTRY: Tuple[StartGuard, ...] = (
     # timeout is unchanged (sweep-boot's 30 s is a separate leg).
     StartGuard("session_start_disk_budget", "session-start-disk-budget.py",
                frozenset({"startup", "resume", "compact"})),
+    # Age sweep of the repo's scratch/ via the engine op fleet.scratch_hygiene, throttled to one per
+    # 24 h per repo by its own stamp; two invokes capped at 15 s each.
+    StartGuard("session_start_scratch_retention", "session-start-scratch-retention.py",
+               frozenset({"startup", "resume", "compact"})),
     # LAST, so the cheap self-heals above never wait behind it. No per-leg timer: the 45 s registration timeout bounds it.
     StartGuard("sweep_boot", "sweep-boot.py", frozenset({"startup", "compact"})),
 )

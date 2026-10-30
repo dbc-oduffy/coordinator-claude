@@ -31,10 +31,11 @@ that function's own docstring for the wiring.
 
 ## Scope (read before editing this file)
 
-Subject is `coordinator_core` TOP-LEVEL names only — never stdlib, never
-third-party. Widening this to any other import would turn a publish gate
-into a general dependency audit and make it red for reasons this plan does
-not own (Anti-scope).
+Subject is `coordinator_core` TOP-LEVEL names, plus (when `source_root` is
+passed; docs/plans/2026-10-29-import-closure-provenance-and-publish-refusal.md
+C3) a first-party module the source tree carries and the restricted tree
+dropped. Never stdlib, never third-party, never a module another publish row
+carries — those resolve in neither tree and stay out.
 
 Only files PHYSICALLY INSIDE the restricted tree `build_allowlisted_source`
 produces are walked. A module that is itself unpublished (e.g.
@@ -92,6 +93,7 @@ from __future__ import annotations
 
 import ast
 import re
+import sys
 from pathlib import Path
 
 PACKAGE_NAME = "coordinator_core"
@@ -508,7 +510,51 @@ def _package_init_attribute_names(tree_root: Path) -> set[str]:
     return names
 
 
-def find_import_closure_violations(tree_root: Path) -> tuple[int, list[tuple[str, str]]]:
+def _module_present(base: Path, dotted: str) -> bool:
+    candidate = base.joinpath(*dotted.split("."))
+    return candidate.with_suffix(".py").is_file() or (candidate / "__init__.py").is_file()
+
+
+def _dropped_first_party_modules(
+    tree: ast.Module, rel: str, tree_root: Path, source_root: Path
+) -> set[str]:
+    """Dotted modules an unguarded absolute import in `tree` names that the
+    source tree carries and the restricted tree dropped.
+
+    Candidate bases, same rule as the landing detector: the tree root, the
+    importer's own directory, and `src/`. A module resolving under any base
+    inside `tree_root` is present; one resolving only under `source_root` is
+    dropped. stdlib, `coordinator_core`, `NEVER_PUBLISHED_ROOTS` and names
+    found in neither tree (third-party, other publish rows) are never
+    reported — cross-row resolution stays out of scope."""
+    importer_dir = Path(rel).parent
+    bases = (Path(), importer_dir, Path("src"))
+    dropped: set[str] = set()
+    for node in _unguarded_import_nodes(tree):
+        if isinstance(node, ast.ImportFrom):
+            if node.level or not node.module:
+                continue
+            names = [node.module]
+        else:
+            names = [alias.name for alias in node.names]
+        for name in names:
+            top = name.split(".", 1)[0]
+            if (
+                top == PACKAGE_NAME
+                or top in NEVER_PUBLISHED_ROOTS
+                or top in sys.stdlib_module_names
+            ):
+                continue
+            if any(_module_present(tree_root / base, name) for base in bases):
+                continue
+            if any(_module_present(source_root / base, name) for base in bases):
+                dropped.add(name)
+    return dropped
+
+
+def find_import_closure_violations(
+    tree_root: Path, source_root: Path | None = None
+) -> tuple[int, list[tuple[str, str]]]:
     """Walk every `.py` file physically inside `tree_root` and return
     `(examined_count, violations)`, where each violation is a
     `(restricted-tree-relative path, unresolved entry)` pair for each
@@ -524,6 +570,11 @@ def find_import_closure_violations(tree_root: Path) -> tuple[int, list[tuple[str
     (`from coordinator_core.X import ...`, `import coordinator_core.X`)
     get no such exemption, since `X` there always names a real submodule
     path component.
+
+    With `source_root` given, a non-`coordinator_core` first-party import is
+    also a violation when the source tree carries its module file and
+    `tree_root` does not (`_dropped_first_party_modules`); None keeps the
+    `coordinator_core`-only subject exactly.
 
     NEGATIVE SPEC: do not extend the bare-shape exemption to dotted
     entries. `_package_init_attribute_names` exists because `from
@@ -550,6 +601,9 @@ def find_import_closure_violations(tree_root: Path) -> tuple[int, list[tuple[str
                 violations.append((rel, entry))
         for entry in sorted(never_published):
             violations.append((rel, entry))
+        if source_root is not None:
+            for entry in sorted(_dropped_first_party_modules(tree, rel, tree_root, source_root)):
+                violations.append((rel, entry))
     return examined, violations
 
 

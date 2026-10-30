@@ -20,10 +20,12 @@ prints one `Workflow` line. Value classes and the tier-to-manifest map:
 
 ## The research door
 
-Sizing is the door for build work (one `coordinator:engine-ask` submission); this command is the
-door for research. The EM enters it when the PM says "research" or "spike", when the ask is
-multifaceted and likely to break up, or when it is uncharted territory. The EM's sizing is the
-authority; neither door gates or refuses the other's arrival. An engine-ask of a research sizing
+`coordinator:engine-ask` is the one front door for research, build and mixed asks: the EM submits
+every ask there and never pre-classifies it. The sizing's research block picks the research lane;
+a mixed ask splits into a research sibling run and a build sibling run held `after` it until
+`research.close`. This command is the research lane's executor, entered through the engine's
+`fire` list; the EM enters it directly only to fire a sizing it already wrote or a bare `--ask`.
+The sizing is the authority. An engine-ask of a research sizing
 halts with route `research` and a one-entry `fire` list; the EM runs that one `fire` call unedited
 and never re-sizes or re-fires by hand. Research need not end with code, and
 every class ends with a committed artifact and trail (Step 4).

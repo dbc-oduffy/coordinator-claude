@@ -670,13 +670,6 @@ conform intake to add.
   dispatch` — one routinely is. Its consumer is the executor brief the operator writes from it by
   hand, not a ceremony-side conform intake; there is no ceremony on the receiving end to conform in
   the first place.
-  <!-- spec-backlink: run 2026-08-06-14h38, nugget c7-079 -->
-  A draft of this reasoning once claimed the opposite — that no sizing-objects are ever produced
-  for `route: dispatch` — and that false claim propagated across five locations before review,
-  cross-checked against the engine-resident routing assembler, disproved it: XS/S sizes route to
-  `dispatch` and DO write a sizing-object on the ordinary path. Recorded here as the corrected
-  claim, not the original one, so a future reader does not reintroduce the disproved version by
-  citing an earlier draft.
 - **Precedent, not a unilateral call.** An earlier planning artifact for this same lobby already
   ratified this exact reasoning shape for three other surfaces, declared thin because those
   surfaces fire *after* a room is already chosen, so they have no sizing-object entry contract to
@@ -769,19 +762,16 @@ non-git cwd, or inside a subagent, never reaches this mechanism at all — it fa
 skill descriptions alone (see below) as its only arrival signal. This is an accepted gap, not a
 defect: both cases are already outside the surface this envelope instruments.
 
-**Why the skill-description work was the strongest lever, not a redundant belt-and-suspenders
-pass.** Sizing was not the only skill claiming the arrival moment — it was the least assertive
-claimant. `plan/SKILL.md` carried "writing a plan to disk without invoking this skill is a
-doctrine violation", an imperative-with-penalty that beat sizing's own advisory ("invoke BEFORE
-plan") on the identical moment; `shape/SKILL.md` and `brainstorming/SKILL.md` claimed the same
-pre-solutioning slot with no deference at all. A model choosing between an advisory and an
-imperative-with-penalty has an easy call, and it was the wrong one. All three now defer in one
-identical clause — "Unsized work enters via coordinator:sizing first." Note honestly: sizing's own
-description already contained a shape test that was already failing before this work started;
-rewriting it was a tidy-up, not the lever. Tightening the three competing descriptions was the
-change that actually moved the needle; the turn-one advisory above is the mechanism that reaches
-the sessions those descriptions can't — the ones that open on a bare ask with no skill invoked
-yet.
+`plan`, `shape` and `brainstorming` defer to sizing in one identical clause in their descriptions
+("Unsized work enters via coordinator:sizing first."); the advisory above reaches the sessions
+that open on a bare ask with no skill invoked.
+
+## One front door — research, build and mixed asks
+
+`coordinator:engine-ask` is the one front door for research, build and mixed asks; the EM never
+pre-classifies an ask. The sizing's research block selects the research lane
+(`coordinator/commands/research.md`), and a mixed ask splits into a research run and a build run
+held `after` it until `research.close`.
 
 ## Who sizes — a fresh scout, never the EM
 

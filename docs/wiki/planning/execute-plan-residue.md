@@ -824,3 +824,47 @@ The engine records a `voided` disposition, with a required reason, for a row who
 became unnecessary (engine support pending). A row blocked on a capability carries
 `blocked_on: {capability, probe}`; any EM may re-dispatch it to a venue where the same probe
 passes, through the normal dispatch path with every gate unchanged.
+
+## Mint mechanics (Phase 1 steps 2 and 2a)
+
+- Mint: `review-exec-auth-stamp authorize-invocation <plan-path> --typed-command /execute-plan
+  [--utterance "<PM's verbatim words>"]`. Hands-on, `--utterance` is required when `pm-brief render
+  <plan>` resolves no PM brief, sizing pm_verbatims or baton (`A-WORDLESS-TYPED-COMMAND-MINT-IS-NOT-A-PM-BRIEF`).
+  On Git Bash, prefix with `MSYS_NO_PATHCONV=1` (or use PowerShell).
+- `/autonomous`: skip the brief and mint as a delegated run: `--authorized-by-delegation <delegate>`
+  and `--delegation-source <ref>`, the PM's standing words, if any, in `--standing-direction-quote`,
+  never `--utterance` (`A-DELEGATED-RUN-STAMPS-THE-DELEGATE-NOT-THE-PM`). A body changed before any
+  mint recovers after plan review via `restamp --authorized-by-delegation <d> --delegation-source <ref>`.
+- **pm** and **ceo** modes: the stamp records `authorized by accepted sizing (mode=<mode>)`, citing
+  the sizing path, and passes no `--utterance` — never the sizing's `pm_quote`, never invented
+  words. An `engine-ask` run never reaches the skill.
+- `mise_prepped_*` is not the quartet (`A-HANDOFF-AN-EM-RETYPES-IS-NOT-A-SEAM`).
+- Canvas re-probe (step 3a): an unreadable canvas is reported, never waited on; a dispatch-leg
+  refusal is final until re-harvested and `SETTLED.md` updated. Contract:
+  `coordinator/docs/wiki/schema-and-validation-contracts/canvas-harvest-record.md`.
+
+## Phase 4 steps 3.4 to 3.7, in full
+
+- **3.5 Promote the falsifier, when it promotes.** An executable, deterministic falsifier graduates
+  into the suite: `promotion: promoted` plus `promoted_to: <test path>` (`partial`: the path of the
+  promoted portion); already a standing test → `already-in-suite`, no `promoted_to`, test named in
+  `promotion_reason`. PROMOTION IS AN OUTCOME, NOT A GATE: a one-shot query or manual observation
+  records `not-applicable` plus a reason.
+- **3.6 Adversarial criterion-only reader.** M per `sizing_object.estimate.tshirt` AND no executor
+  BLOCKed: dispatch one reader given the prime exit criterion, the plan, and `HEAD`: does HEAD do
+  this? A roster's judge stage (`coordinator:exit-criterion-judge`) is this reader; no second. THE
+  DENIAL LIST IS THE MECHANISM AND MUST BE EXPLICIT IN THE DISPATCH: no agent's account of the run:
+  no run reports, reviewer sidecars or executor output.
+- **3.7 Reachability re-check.** The judge's `reachability` block (`review.reachability`, wiki
+  `judge-reachability-check`) is the re-check; unreachable is its not_met. No block: caller-grep at
+  `HEAD`. Unconfirmed → Phase-5-halted, no stamp.
+
+## Fired-run states, in full
+
+- **Fifth state, fired-then-died.** A handle with `log_size_bytes: 0` stalled past startup: report
+  and stop.
+- **Sixth state, returned `incomplete`, nothing halted.** Not a resume. Run `dispatch.land_run`, then
+  `emit-dispatch-workflow --plan <plan> --only-incomplete <task-output>` and fire; never
+  hand-dispatch. A row partial only on a break outside its files is re-graded by `land_run`; any
+  other is re-emitted with `--only-incomplete`, never reverified. Hand-committing its files refuses
+  the stamp.

@@ -254,7 +254,68 @@ def check_plan(path: Path, for_execution: bool = False) -> dict:
     if goal_finding is not None:
         report["rows"].append(goal_finding)
         report["verdict"] = "INVALID"
+    gate_findings = _prep_gate_findings(path, text)
+    if gate_findings and report["verdict"] not in ("UNREADABLE",):
+        report["rows"].extend(gate_findings)
+        report["verdict"] = "INVALID"
     return report
+
+
+#: prep_gate classes whose defects fail this check; the same predicates `plan.prep_gate` halts on.
+_PREP_GATE_CLASSES = ("SPINE", "REGISTER")
+
+
+def _prep_gate_findings(path: Path, text: str) -> list:
+    """Structural rows for the SPINE and REGISTER defects `prep_gate.gate_plan` reports, and for
+    the anchor-premise declaration defects `_anchor_premise.parse_anchors` reports. Terminal
+    (already-ran) plans owe nothing and yield none."""
+    _ensure_engine_on_path()
+    import yaml
+    from coordinator_core.frontmatter.primitives import split_frontmatter
+    from coordinator_core.ops import _anchor_premise
+    from coordinator_core.roadmap.prep_gate import gate_plan
+
+    root = _repo_root_of(path) or path.resolve().parent
+    try:
+        gate = gate_plan(root, path.resolve(), text=text)
+    except Exception as exc:  # noqa: BLE001 - an engine fault is reported, never a crash
+        return [
+            {
+                "row": "-",
+                "error": f"PREP-GATE-ENGINE-ERROR: {type(exc).__name__}: {exc}"[:300],
+                "at": "prep_gate",
+                "class": "advisory",
+            }
+        ]
+    if gate.get("terminal"):
+        return []
+    out = []
+    for cls in _PREP_GATE_CLASSES:
+        verdict = (gate.get("classes") or {}).get(cls) or {}
+        if verdict.get("status") in ("DEFECT", "REFUSE", "ERROR"):
+            rows = verdict.get("withheld") or []
+            out.append(
+                {
+                    "row": ",".join(rows) if rows else "-",
+                    "error": f"{cls} {verdict.get('kind')}: {_trim(str(verdict.get('detail') or ''))}",
+                    "at": cls,
+                    "class": "structural",
+                }
+            )
+    split = split_frontmatter(text)
+    fm = None
+    if split is not None:
+        try:
+            fm = yaml.safe_load(split.fm_text)
+        except yaml.YAMLError:
+            fm = None
+    if isinstance(fm, dict):
+        _anchors, defects = _anchor_premise.parse_anchors(fm, root)
+        for defect in defects:
+            out.append(
+                {"row": "-", "error": _trim(defect), "at": "anchor_premises", "class": "structural"}
+            )
+    return out
 
 
 def _falsifier_anchor_advisory(text: str):

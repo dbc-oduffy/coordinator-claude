@@ -389,6 +389,19 @@ def _check_dest_state(dest: str) -> Tuple[Optional[str], bool, Optional[str]]:
     return (None, ahead > 0, branch_head)
 
 
+def _remote_lags_head(dest: str, branch: str) -> bool:
+    """True when the remote's tip for `branch` is readable and differs from HEAD.
+
+    An unreadable remote answers False: the push leg it would unlock fails loudly on its own."""
+    remote = _run(["git", "-C", dest, "-c", "credential.interactive=never",
+                   "ls-remote", "origin", f"refs/heads/{branch}"])
+    head = _run(["git", "-C", dest, "rev-parse", "HEAD"])
+    if remote.returncode != 0 or head.returncode != 0:
+        return False
+    tip = remote.stdout.split()[:1]
+    return bool(tip) and tip[0] != head.stdout.strip()
+
+
 def _round_failure_marker_path(target: str, percolate_root: str) -> Path:
     """percolate_root-relative, same directory and naming convention as
     `<target>.lastsync` (percolate-gate.py) and `<target>.delta-state.json`
@@ -908,6 +921,11 @@ def _push_under_slot(
                 print(default_branch_refusal, file=sys.stderr)
                 return _EXIT_FAIL
 
+            if not has_commits_to_push and branch_head:
+                # Trap: `# branch.ab +0` compares against the local tracking ref, which can
+                # match HEAD while the remote does not (seen 2026-10-29 and 2026-10-30:
+                # "already in sync", and the next hand push shipped the publish commit).
+                has_commits_to_push = _remote_lags_head(dest, branch_head)
             if not has_commits_to_push and (
                 branch_head == default_branch or branch_head in _RELEASE_CHANNELS
             ):

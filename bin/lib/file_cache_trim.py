@@ -40,7 +40,8 @@ LOG_WAIT_SECONDS = 5.0
 
 
 def trim_log_path() -> Path:
-    return Path(os.environ.get("ProgramData", r"C:\ProgramData")) / "BoxMemory" / "trim.log"
+    root = os.environ.get("ProgramData") or (os.environ.get("SystemDrive", "C:") + os.sep + "ProgramData")
+    return Path(root) / "BoxMemory" / "trim.log"
 
 
 def _log_tail(path: Path) -> str:

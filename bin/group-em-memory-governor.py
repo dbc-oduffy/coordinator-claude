@@ -643,6 +643,26 @@ def process_start_times(pids: list[int]) -> dict[int, Optional[float]]:
     return out
 
 
+def _declared_writes():
+    """Context manager yielding a `declare(path)` callable that records the governor's own file writes
+    through the engine's declare-write seam; a no-op pair when the engine is unresolvable (the waiter
+    loads this module without it, and the governor must keep running)."""
+    import contextlib
+
+    try:
+        from coordinator_core.cli_entry import recording_declared_writes  # type: ignore
+        from coordinator_core.session.declared_writes import declare_write  # type: ignore
+    except ImportError:
+        return contextlib.nullcontext(lambda _path: None)
+
+    @contextlib.contextmanager
+    def _scope():
+        with recording_declared_writes():
+            yield declare_write
+
+    return _scope()
+
+
 def _write_frozen(pidfile: Optional[Path], paused: list[tuple[Proc, list[int]]],
                   start_times_fn: Callable[[list[int]], dict[int, Optional[float]]] = process_start_times) -> None:
     """Persist {governor_pid, governor_start_time, frozen:[{pid, start_time}]}, or remove the file
@@ -651,15 +671,17 @@ def _write_frozen(pidfile: Optional[Path], paused: list[tuple[Proc, list[int]]],
         return
     try:
         pids = [t for _, tree in paused for t in tree]
-        if pids:
-            me = os.getpid()
-            times = start_times_fn(pids + [me])
-            frozen = [{"pid": p, "start_time": times[p]} for p in pids if times.get(p) is not None]
-            pidfile.write_text(json.dumps({"governor_pid": me,
-                                           "governor_start_time": times.get(me),
-                                           "frozen": frozen}), encoding="utf-8")
-        else:
-            pidfile.unlink(missing_ok=True)
+        with _declared_writes() as declared:
+            if pids:
+                me = os.getpid()
+                times = start_times_fn(pids + [me])
+                frozen = [{"pid": p, "start_time": times[p]} for p in pids if times.get(p) is not None]
+                pidfile.write_text(json.dumps({"governor_pid": me,
+                                               "governor_start_time": times.get(me),
+                                               "frozen": frozen}), encoding="utf-8")
+            else:
+                pidfile.unlink(missing_ok=True)
+            declared(pidfile)
     except OSError:  # an unwritable pidfile must not stop the governor
         pass
 

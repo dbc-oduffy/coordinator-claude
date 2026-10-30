@@ -18,9 +18,10 @@
 # --premise-provenance, --boundary-in-notch, --scout-evidence-kind,
 # --scout-evidence).
 #
-# READ-ONLY — mutates nothing. sizing_assemble.route() never writes a
-# sizing-object; it returns the route/detents/fork fields for the caller to
-# persist.
+# READ-ONLY unless `--write <sizing.yaml>` is passed. sizing_assemble.route()
+# never writes a sizing-object; only main()'s `--write` branch does, and that
+# branch runs inside the declare-write seam (see `_recording_writes`) so the
+# sizing-object it scaffolds or updates is claimed by the calling session.
 #
 # Exit codes (locally scoped to this CLI, NOT inherited):
 #   0 — OK, a decision object was computed and printed.
@@ -32,6 +33,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import sys
 
 
@@ -82,6 +84,26 @@ def _floor_gate(argv: list[str]):
     return None
 
 
+def _recording_writes(argv: list[str]):
+    """The declare-write seam for a `--write` call; a no-op for a read-only call or an unresolvable engine.
+
+    An unresolvable engine is left to `run_target`, which reports it with this CLI's transport exit code.
+    """
+    if _flag(argv, "--write") is None:
+        return contextlib.nullcontext()
+    from entry_point_shim import _cc_invoke_resolve_claude_klabauter_root
+
+    try:
+        root = _cc_invoke_resolve_claude_klabauter_root()()
+    except RuntimeError:
+        return contextlib.nullcontext()
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    from coordinator_core.cli_entry import recording_declared_writes
+
+    return recording_declared_writes()
+
+
 def main(argv: list[str]) -> int:
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from entry_point_shim import run_target  # noqa: E402
@@ -89,7 +111,8 @@ def main(argv: list[str]) -> int:
     refusal = _floor_gate(argv)
     if refusal is not None:
         return refusal
-    return run_target("sizing-assemble", argv)
+    with _recording_writes(argv):
+        return run_target("sizing-assemble", argv)
 
 
 if __name__ == "__main__":

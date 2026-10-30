@@ -7,16 +7,12 @@ argument-hint: "[system-name]"
 
 # Architecture Audit — Rotational System Audit
 
-Selects the highest-priority system from the health ledger, dispatches domain reviewers against
-it, and **packages findings as spinoff candidates** down a disposition ladder — the audit itself
-**never edits code**. Updates the health ledger's `Last targeted audit` clock and the atlas
-metadata.
+Selects the highest-priority system from the health ledger, dispatches domain reviewers, and
+**packages findings as spinoff candidates** — the audit **never edits code**. Updates the ledger's
+`Last targeted audit` clock and the atlas metadata.
 
-Run when `/workstream-start` surfaces a stale targeted audit (`check-arch-audit-staleness` owns
-the verdict), or when PM intuition wants a targeted review. `$ARGUMENTS` names a system directly,
-skipping Step 1.
-
-**Announce:** _"I'm using /architecture-audit to audit [system name]."_
+Run when `/workstream-start` surfaces a stale targeted audit (`check-arch-audit-staleness`), or on
+PM request. `$ARGUMENTS` names a system directly, skipping Step 1.
 
 ---
 
@@ -34,17 +30,12 @@ select the highest-priority system in the ledger — selection signals and worke
 ## Step 2: Review Existing Debt
 
 Read `state/debt-backlog/*.yaml` (or `bin/query-records --type debt --status open`) for the target
-system; present open items to the PM before/alongside the audit — full pipeline (plan → review →
-execute), not inline here.
-
----
+system; present open items to the PM before/alongside the audit (full pipeline, not inline).
 
 ## Step 2.5: Load Atlas Context
 
 `docs/architecture/systems/{target-system}.md` exists → include it in the reviewer dispatch as
 background context. Absent → reviewer discovers from scratch.
-
----
 
 ## Step 2.75: Emit Ground-Truth File-Enumeration Artifact
 
@@ -52,9 +43,8 @@ background context. Absent → reviewer discovers from scratch.
 `state/audits/{run-id}/ground-truth-files.txt`, commit it. Pass the path in every analysis-agent prompt;
 the Opus reviewer diffs any "fabricated"/"non-existent" claim against it before issuing a verdict.
 
-**Out of scope: cross-repo targets** — a host↔addon boundary or any target spanning two repos.
-Run the audit once per repo and link the two audit records to each other, naming the boundary
-in each.
+**Out of scope: cross-repo targets** (a host↔addon boundary or any target spanning two repos):
+audit once per repo and link the two audit records, naming the boundary in each.
 
 ---
 
@@ -65,8 +55,8 @@ direct Opus domain-reviewer dispatch, larger ones need Haiku→Sonnet pre-digest
 reviewer overloads. Threshold, dispatch procedure, prompt sources, and multi-reviewer criteria:
 wiki.
 
-> **Do not ask whether to dispatch** — invoking this skill IS the request for the dispatch this
-> step names; it dissolves no gate this skill's own body names.
+> **Do not ask whether to dispatch** — invoking this skill IS the request for it; it dissolves no
+> gate this skill's body names.
 
 <!-- engine-gap: field=dispatch.review_tier producer=unknown memo=2026-08-27-claude-klabauter-em-doe-unmarked-obligations-and-four-lost-markers.md -->
 
@@ -77,14 +67,11 @@ wiki.
 ## Step 3.6: Scaffold the Canonical Audit Record
 
 `coordinator-doc-new --type audit-record --system <target>` writes
-`docs/architecture/audit-records/<YYYY-MM-DD>-<target>.md` — the scaffolded skeleton is
-authoritative; the reviewer fills it in-place via `mode: auto`. Reviewer prompt must cover:
-populate frontmatter (`grade`, `health_status`, `run_id`, `reviewer`), write the `### Diagram
-(ASCII)` section, fill every prose section without flattening grade-rationale/ambition-check
-content.
-
-**Negative-spec (hard):** the three historical audit records (`2026-05-28-coordinator-runtime.md`
-et al.) are frozen; never retrofit them to the canonical schema.
+`docs/architecture/audit-records/<YYYY-MM-DD>-<target>.md`; the reviewer fills the skeleton
+in-place via `mode: auto`. Reviewer prompt must cover: populate frontmatter (`grade`,
+`health_status`, `run_id`, `reviewer`), write the `### Diagram (ASCII)` section, fill every prose
+section without flattening grade-rationale/ambition-check content. The three historical audit
+records (`2026-05-28-coordinator-runtime.md` et al.) are frozen; never retrofit them.
 
 ---
 
@@ -93,24 +80,23 @@ et al.) are frozen; never retrofit them to the canonical schema.
 Disposition is EM judgment down a ladder:
 
 - **Trivial, tradeoff-free, non-structural** → EM dispatches an executor immediately, no PM gate.
-  **Hard guardrail:** any finding touching a module boundary, interface, or cross-system surface
-  is ineligible regardless of size — always a spinoff candidate instead.
+  A finding touching a module boundary, interface, or cross-system surface is never eligible —
+  always a spinoff candidate.
 - **Mid-size cluster** → one bundled spinoff candidate, not N singles or one bloated plan.
-- **Large/structural** → standalone spinoff candidate, or escalate to `/plan`. Scaffold a DR first
-  when it's an architectural decision: `coordinator-doc-new --type decision --title "<title>"
-  --out docs/decisions/DR-<NNN>-<slug>.md`.
+- **Large/structural** → standalone spinoff candidate, or escalate to `/plan`; scaffold a DR first
+  for an architectural decision: `coordinator-doc-new --type decision --title "<title>" --out
+  docs/decisions/DR-<NNN>-<slug>.md`.
 
-Spinoff PM-gate applies only to the grouped/standalone path — surface `Candidate spinoff: <slug>
-— <topic>. Authorize?` and block. No debt-backlog auto-write.
+The PM-gate applies only to the grouped/standalone path: surface `Candidate spinoff: <slug> —
+<topic>. Authorize?` and block. No debt-backlog auto-write.
 
 ---
 
 ## Step 6: Update Health Ledger
 
-Update the system's row (grade, status, audit date, open-issue counts) and the **`Last targeted
-audit`** date only — never `Last full audit`. Calculate and update `Next rotation target` if
-present. **Stage, do not commit** (`git add state/health-ledger.md`) — the commit lands only after
-the Step 6.5 gate PASSes, so the clock never advances against a stale atlas.
+Update the system's row (grade, status, audit date, open-issue counts), the **`Last targeted
+audit`** date only (never `Last full audit`), and `Next rotation target` if present. **Stage, do
+not commit** (`git add state/health-ledger.md`) until the Step 6.5 gate PASSes.
 
 <!-- engine-gap: field=rotation.next_target producer=unknown memo=2026-08-27-claude-klabauter-em-doe-unmarked-obligations-and-four-lost-markers.md -->
 
@@ -134,8 +120,7 @@ and branch mechanics: wiki.
 
 ## Step 6.75: Triage Scratch Files
 
-Large-systems path used → `rm -rf tasks/scratch/weekly-architecture-audit/{run-id}/` (Haiku/Sonnet
-output is fully consumed by the Opus reviewer).
+Large-systems path used → `rm -rf tasks/scratch/weekly-architecture-audit/{run-id}/`.
 
 ---
 
@@ -146,18 +131,10 @@ output is fully consumed by the Opus reviewer).
 `### Diagram (ASCII)` section, committed with the atlas + ledger close-out, and the Step 6.5 gate
 returned `PASS` — on `FAIL`, fix per that step. Chat report ≠ on-disk record (FAIL text: wiki).
 
-```markdown
-## Architecture Audit Complete
-
-**System:** [name]
-**Reviewer(s):** [name] at High effort [+ second-angle reviewer, or "none — single angle sufficed"]
-**Previous grade:** [X] | **New grade:** [Y]
-**Findings:** N total — [X → immediate executor, Y → spinoff candidate(s) surfaced to PM, Z → escalated to /plan]
-**Spinoff candidates surfaced:** [list, or "none"]
-**Next rotation target:** [system]
-```
-
----
+Print `## Architecture Audit Complete` with: **System**; **Reviewer(s)** (+ second-angle reviewer
+or "none — single angle sufficed"); **Previous grade** | **New grade**; **Findings** N total (X →
+immediate executor, Y → spinoff candidate(s) surfaced to PM, Z → escalated to /plan); **Spinoff
+candidates surfaced**; **Next rotation target**.
 
 ## Notes
 

@@ -14,9 +14,7 @@ argument-hint: "[optional context]"
 
 Fallback only: an `emit-dispatch-workflow` run closes in-run.
 
-
-The short checklist for a session whose work is finished, small, and unremarkable. Fail one of the
-four entry conditions and route to the named remedy, no negotiating.
+The short checklist for a session whose work is finished, small, and unremarkable. Fail one entry condition and route to the named remedy.
 
 ---
 
@@ -37,8 +35,7 @@ it. `dispatch`-routed sessions carry `governing_plan.present: false` and pass as
 `none`/null, no `additional_predecessors`, no `forked_from`) is stamped terminal in step 2; one
 with ancestors gets its Session Ledger row appended first.
 
-`close_gate.diff` already excludes relocated and doc-only lines; report gross and novel counts in
-step 5 when the carve-out drops the session under the line.
+`close_gate.diff` already excludes relocated and doc-only lines; report gross and novel counts in step 5 when the carve-out drops the session under the line.
 
 ### The named routes past test 2
 
@@ -65,8 +62,7 @@ governs. This route terminates in `/handoff`, never in `/execute-plan`'s Phase-5
 - **Branch ready to ship** → `/merging-to-main`; quick-wrap ends a session, never a branch.
 - **End of the working day** → `/workday-complete`; never run both.
 
-**Mutual exclusion.** `/quick-wrap`, `/workstream-complete`, and `/handoff` are exclusive — one
-session, one closing ceremony; two different workstreams close separately, named which.
+**Mutual exclusion.** `/quick-wrap`, `/workstream-complete`, `/handoff`: one session, one closing ceremony; two workstreams close separately, named which.
 
 ---
 
@@ -124,10 +120,9 @@ exclusive with `message`. Paths outside the safe pathspec drop silently.
   '{"mode":"already-terminal","dry_run":false,"candidate_ids":["state/sizings/<slug>.yaml"]}'` —
   it moves and commits itself (a hand `git mv` is refused by `safe_commit_offer`). Other sessions'
   terminal sizings are not this close's work. No `closed_at`/`closed_by`. A record still at `sized`,
-  `routed`, or `draft` is untouched. A sizing FK resolving only under `archive/` is correct.
+  `routed`, or `draft` is untouched.
 - `coordinator-fold-execution-record` sidecars this session produced — a diverged sidecar's prose
-  is already in the envelope (judgment point `j-diverged-sidecars`, or `-degraded` on a failed
-  scan): settle that point, then delete. Never open sidecars to read.
+  is already in the envelope (`j-diverged-sidecars`, or `-degraded`): settle that point, then delete. Never open sidecars to read.
 
 **Completion entry and lessons, before the drain.** Write the completion entry with
 `coordinator-complete-entry` (title, prose of eight sentences or fewer, nature) — once per session.

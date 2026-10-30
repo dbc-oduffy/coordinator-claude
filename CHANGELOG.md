@@ -4,6 +4,14 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.6.11] — 2026-10-30
+
+- **Friction reporting:** with no memo route (a cloud session or an OSS install), file a GitHub issue on public `dbc-oduffy/coordinator-claude` (doctrine) or `dbc-oduffy/claude-klabauter` (engine). The EM that owns the friction fixes it rather than memoing itself.
+- **Flag severity:** a peer's "file it" is not a named reason to leave a break unfixed; plan-sized means a plan, not a queue row.
+- **Scratch retention:** an async SessionStart leg sweeps `<repo>/scratch/` entries older than 7 days.
+- **Sizing scout:** a code-primary ask covers named on-disk modules; a NotebookLM source must name the NotebookLM-only kind it needs.
+- **Skills:** group-em, plan and repo-setup load situational sections on demand from `references/`; the resident skill set is smaller.
+
 ## [4.6.10] — 2026-10-28
 
 - **Two-box reconcile:** combines the machine-a and machine-b lines, one implementation per file; the weekly-gate cluster takes machine-b's mechanical-to-code side, and `plan-blitz.mjs` carries both.

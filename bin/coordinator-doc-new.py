@@ -4152,6 +4152,15 @@ def _scaffold_plan(
             _pb_source = _pm_brief_lib.SOURCE_BATON_ORIGINATING_ASK
             _pb_ref = _pm_baton or sizing_object
         lines.append(f"pm_brief: {{source: {_pb_source}, ref: {_yaml_quote(_pb_ref)}}}")
+    _sample_register_ids = "[" + ", ".join(_yaml_quote(i) for i in _register_pins) + "]"
+
+    def _sample_register_rows_lines(live_template: str) -> list[str]:
+        # plan-tasks.schema.json gives `register_rows` minItems: 1, so a live `[]`
+        # is schema-invalid: with no register the slot is a comment, not a key.
+        if _register_pins:
+            return [live_template.format(ids=_sample_register_ids)]
+        return ["  # register_rows: []  # no requirement_register on the cited sizing"]
+
     if _register_pins:
         lines += [
             "register_claims:",
@@ -4256,6 +4265,10 @@ def _scaffold_plan(
         # complete and true declaration; a placeholder criterion is neither.
         "census: []  # counted premises as question/command/result rows; [] declares none —",
         "            # a claim a reviewer can falsify. Bar: coordinator/bin/mise-prep-gate.py.",
+        # Declared-empty for the same reason as `census`: an absent key reads as
+        # `anchor-premises-undeclared`; `[]` is the true value of a fresh scaffold.
+        "anchor_premises: []  # {id, claim, check: {command, expect}} per load-bearing premise;",
+        "                     # [] declares the plan rests on none. Shape: _anchor_premise.py.",
         # `capabilities` is never scaffolded as a live `[]`: that is the positive claim
         # that the plan delivers no user-facing capability, and a scaffold cannot make it.
         # A schema-valid entry of `<REPLACE:` markers keeps the plan refused by
@@ -4426,6 +4439,7 @@ def _scaffold_plan(
         "  #   - chunk: C0  # predecessor row's id — SCHEMA-CORRECT object form only, never a bare id",
         "  #     gate_kind: output-consumption-runtime  # or epistemic-premise — the only two writable kinds",
         "  #     note: one-line rationale for the edge",
+        *_sample_register_rows_lines("  register_rows: {ids}  # requirement_register ids this row serves"),
         "  queue_scope: project  # project (default) | central",
         "  disposition: open  # open (default) | coded | spun_off | backlogged | wont_do | delivered_elsewhere",
         "  # case_against: >",
@@ -4440,6 +4454,7 @@ def _scaffold_plan(
         "  change_kind: doc-edit  # replace with the actual change kind for this row",
         "  surface: path/to/secondary/target",
         "  writes: [path/to/another/file/this/chunk/writes.py]  # REQUIRED — see C1's writes: comment",
+        *_sample_register_rows_lines("  register_rows: {ids}"),
         "  queue_scope: project",
         "  disposition: open",
         "  body: |",

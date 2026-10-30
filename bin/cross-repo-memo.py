@@ -2623,7 +2623,9 @@ def _cmd_draft(args: argparse.Namespace) -> int:
         try:
             body_text = sys.stdin.read() if body_file == "-" else Path(body_file).read_text(encoding="utf-8")
         except OSError as exc:
-            print(f"cross-repo-memo draft: cannot read --body-file: {exc}", file=sys.stderr)
+            # Trap: argparse expands `--body "<text>"` to --body-file, so inline text lands here as a path.
+            print(f"cross-repo-memo draft: --body-file takes a file path, or - for stdin; "
+                  f"cannot read {body_file[:60]!r}: {exc.strerror or exc}", file=sys.stderr)
             return 2
         if not body_text.strip():
             print("cross-repo-memo draft: --body-file is empty", file=sys.stderr)
@@ -2780,6 +2782,7 @@ def _cmd_draft(args: argparse.Namespace) -> int:
             "unknown_receiver": 2,
             "registry_error": 3,
             "ambiguous_receiver": 3,
+            "self_addressed": 2,
         }
         return rejection_exit_codes.get(rejection_class, 1)
 
@@ -3032,6 +3035,43 @@ def _format_age(seconds: float) -> str:
     if seconds < 86400:
         return f"{int(seconds // 3600)}h"
     return f"{int(seconds // 86400)}d"
+
+
+def _cmd_inbox(args: argparse.Namespace) -> int:
+    """Handle: cross-repo-memo inbox
+
+    Lists the current repo's state/cross-repo/inbox/*.md, one line per memo:
+      <status>  <from>  <file stem>  :: <title>
+    Open memos sort first, then by filename. Read-only; `list` stays outbox-only.
+    """
+    root = _current_repo_root()
+    if root is None:
+        print(
+            "cross-repo-memo inbox: must be invoked from inside a git repo. "
+            "Current cwd is not a git working tree.",
+            file=sys.stderr,
+        )
+        return 2
+    inbox = Path(root) / "state" / "cross-repo" / "inbox"
+    rows: list[tuple[str, str, str, str]] = []
+    if inbox.is_dir():
+        for p in sorted(inbox.glob("*.md")):
+            fm, _body = _parse_outbox_file(str(p))
+            rows.append((
+                fm.get("status") or "unknown",
+                fm.get("from") or "?",
+                p.stem,
+                fm.get("title") or "(untitled)",
+            ))
+    if not rows:
+        print("no inbound memos")
+        return 0
+    rows.sort(key=lambda r: (r[0] != "open", r[2]))
+    for status, sender, stem, title in rows:
+        print(f"{status}  {sender}  {stem}  :: {title}")
+    n_open = sum(1 for r in rows if r[0] == "open")
+    print(f"{len(rows)} memo(s), {n_open} open")
+    return 0
 
 
 def _cmd_list(args: argparse.Namespace) -> int:
@@ -3705,7 +3745,7 @@ def _cmd_compose(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 # Verbs that trigger subcommand dispatch (not legacy flag-only path).
-_SUBCOMMAND_VERBS: frozenset[str] = frozenset({"draft", "compose", "list", "discard", "reconcile", "send"})
+_SUBCOMMAND_VERBS: frozenset[str] = frozenset({"draft", "compose", "list", "inbox", "discard", "reconcile", "send"})
 
 # Verbs that plausibly name "close/action an inbound memo" intent — this tool
 # has no such verb (it only sends OUTBOUND memos), so these get a pointer at
@@ -3919,6 +3959,12 @@ def _build_combined_parser(for_help: bool = False) -> argparse.ArgumentParser:
         help="List outbox drafts in the sender repo with age (marks >24h stale)",
     )
 
+    # inbox subparser (handler is _cmd_inbox)
+    subparsers.add_parser(
+        "inbox",
+        help="List inbound memos in state/cross-repo/inbox with status, sender and title",
+    )
+
     # reconcile subparser (handler is _cmd_reconcile)
     reconcile_p = subparsers.add_parser(
         "reconcile",
@@ -4105,6 +4151,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_draft(args)
         elif verb == "list":
             return _cmd_list(args)
+        elif verb == "inbox":
+            return _cmd_inbox(args)
         elif verb == "discard":
             return _cmd_discard(args)
         elif verb == "reconcile":
@@ -4144,7 +4192,7 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         print(
             f"cross-repo-memo: unknown subcommand '{first}'. "
-            f"Valid verbs: draft, compose, list, discard, send. "
+            f"Valid verbs: draft, compose, list, inbox, discard, reconcile, send. "
             f"Run 'cross-repo-memo --help' for the legacy flag-only form.",
             file=sys.stderr,
         )

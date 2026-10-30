@@ -141,9 +141,22 @@ def resolve_launcher() -> Optional[str]:
     return None
 
 
-def _subprocess_runner(argv: List[str]) -> int:
-    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
-    return subprocess.run(argv, creationflags=flags).returncode
+def _make_subprocess_runner() -> Runner:
+    """Runner whose child stdout/stderr passes through (the operator's only failure reason)."""
+    try:
+        import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
+        import cc_invoke
+
+        cc_invoke.ensure_engine_on_path(__file__)
+        from coordinator_core.win_portability import no_console_passthrough_kwargs
+    except ImportError as exc:
+        raise AuditError(f"engine unavailable: {exc}") from exc
+    kwargs = no_console_passthrough_kwargs()
+
+    def run(argv: List[str]) -> int:
+        return subprocess.run(argv, **kwargs).returncode
+
+    return run
 
 
 def seed_plan(launcher: str, root: Path, rel: str, key: str, hits: List[Hit], runner: Runner) -> int:
@@ -208,6 +221,7 @@ def main(argv: Optional[Sequence[str]] = None, runner: Optional[Runner] = None,
             launcher = launcher or resolve_launcher()
             if not launcher:
                 raise AuditError("coordinator-queue-append not found on PATH or in COORDINATOR_SETTINGS_HOME/bin")
+            runner = runner or _make_subprocess_runner()
     except AuditError as exc:
         print(f"deferral-prose-audit: could not check: {exc}", file=sys.stderr)
         return 2
@@ -222,7 +236,7 @@ def main(argv: Optional[Sequence[str]] = None, runner: Optional[Runner] = None,
         if already_seeded(root, key):
             skipped += 1
         elif args.seed:
-            if seed_plan(launcher, root, rel, key, hits, runner or _subprocess_runner) == 0:
+            if seed_plan(launcher, root, rel, key, hits, runner) == 0:
                 seeded += 1
             else:
                 failed = True

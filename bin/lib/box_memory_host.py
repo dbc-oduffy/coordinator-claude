@@ -349,41 +349,62 @@ def _num(value) -> float | None:
     return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
 
 
-def _pid_holds(line: dict, pid, alive_fn, create_time_fn) -> bool:
+_UNSTAMPED_MAX_AGE_S = 6 * 3600.0
+
+
+def pid_image(pid: int) -> str | None:
+    """Executable name of ``pid`` (lower-case), or None when unreadable or gone."""
+    import psutil
+
+    try:
+        return str(psutil.Process(pid).name()).lower()
+    except Exception:
+        return None
+
+
+def _image_is_declared_command(image: str | None, line: dict) -> bool:
+    """True when ``image`` is a python-family interpreter or contains the run key's command token."""
+    if not image:
+        return False
+    stem = image.rsplit(".", 1)[0] if image.endswith(".exe") else image
+    if stem.startswith(("python", "py")):
+        return True
+    token = str(line.get("run") or "").split(":", 1)[0].split("-", 1)[0]
+    return bool(token) and token in stem
+
+
+def _pid_holds(line: dict, pid, alive_fn, create_time_fn, image_fn=None, now_fn=None) -> bool:
     """True while ``pid`` is still the process the START ``line`` was written for.
 
-    Dead pid: no. Stamped ``create_time``: the live create_time must match it. Legacy line with a
-    ``ts``: the live create_time must not be later than ``ts`` (a later one is a recycled pid).
-    Legacy line with neither: a live pid holds.
+    Dead pid: no. Stamped ``create_time``: the live create_time must match it. Unstamped line
+    (no ``create_time``): needs a ``ts`` no older than ``_UNSTAMPED_MAX_AGE_S`` (no ``ts`` never
+    holds), a live create_time not later than ``ts`` (a later one is a recycled pid) and, when
+    ``image_fn`` is given, a process image that is the declared command.
     """
     if not alive_fn(pid):
         return False
     stamped, ts = _num(line.get("create_time")), _num(line.get("ts"))
-    if stamped is None and ts is None:
-        return True
     current = create_time_fn(pid)
     if stamped is not None:
         return current is not None and abs(current - stamped) <= _CREATE_TIME_TOLERANCE_S
-    return current is None or current <= ts + _CREATE_TIME_TOLERANCE_S
+    if ts is None:
+        return False
+    if now_fn is not None and now_fn() - ts > _UNSTAMPED_MAX_AGE_S:
+        return False
+    if current is not None and current > ts + _CREATE_TIME_TOLERANCE_S:
+        return False
+    return image_fn is None or _image_is_declared_command(image_fn(pid), line)
 
 
-def _safe_holds(line, pid, alive_fn, create_time_fn) -> bool:
+def _safe_holds(line, pid, alive_fn, create_time_fn, image_fn=None, now_fn=None) -> bool:
     try:
-        return _pid_holds(line, pid, alive_fn, create_time_fn)
+        return _pid_holds(line, pid, alive_fn, create_time_fn, image_fn, now_fn)
     except Exception:
         return False
 
 
-def reserved_bytes(
-    path, rss_fn=tree_rss_mb, alive_fn=pid_alive, create_time_fn=pid_create_time
-) -> int:
-    """Sum over holding START pids with no matching END of max(0, declared peak - tree RSS), in bytes.
-
-    START and END match on (session_id, run). A START without ``declared_peak_mb``, a pid that
-    does not hold (see ``_pid_holds``: dead, or recycled by create_time), an unreadable file or
-    an unreadable RSS contributes 0. A legacy START with neither ``ts`` nor ``create_time``
-    reserves while its pid is live. Reads only the last 1 MiB of the file.
-    """
+def _holdings(path, rss_fn, alive_fn, create_time_fn, image_fn, now_fn) -> list[dict]:
+    """One entry per holding (START, pid): session, run, pid, image, bytes. Reads the last 1 MiB."""
     import json
 
     try:
@@ -393,7 +414,7 @@ def reserved_bytes(
             fh.seek(max(0, size - _ADMISSION_TAIL_BYTES))
             raw = fh.read()
     except OSError:
-        return 0
+        return []
     starts: dict = {}
     for text in raw.splitlines():
         try:
@@ -407,22 +428,61 @@ def reserved_bytes(
             starts.pop(key, None)
         elif line.get("phase") == "START":
             starts[key] = line
-    total_mb = 0.0
+    out = []
     for line in starts.values():
         peak = line.get("declared_peak_mb")
         if isinstance(peak, bool) or not isinstance(peak, (int, float)) or peak <= 0:
             continue
         for pid in line.get("pids") or []:
-            if not _safe_holds(line, pid, alive_fn, create_time_fn):
+            if not _safe_holds(line, pid, alive_fn, create_time_fn, image_fn, now_fn):
                 continue
             try:
-                total_mb += max(0.0, peak - rss_fn(pid))
+                held = max(0.0, peak - rss_fn(pid))
             except Exception:
                 continue
-    return int(total_mb * 1024 * 1024)
+            try:
+                image = image_fn(pid) if image_fn else None
+            except Exception:
+                image = None
+            out.append({
+                "session_id": line.get("session_id"), "run": line.get("run"), "pid": pid,
+                "image": image, "bytes": int(held * 1024 * 1024),
+            })
+    return out
 
 
-def compact_admission(path, alive_fn=pid_alive, create_time_fn=pid_create_time, *, locked: bool = False) -> int:
+def reserved_bytes(
+    path, rss_fn=tree_rss_mb, alive_fn=pid_alive, create_time_fn=pid_create_time,
+    image_fn=pid_image, now_fn=None,
+) -> int:
+    """Sum over holding START pids with no matching END of max(0, declared peak - tree RSS), in bytes.
+
+    START and END match on (session_id, run). A START without ``declared_peak_mb``, a pid that
+    does not hold (see ``_pid_holds``: dead, recycled, unstamped and stale or without ``ts``, or
+    an image that is not the declared command), an unreadable file or an unreadable RSS
+    contributes 0. Reads only the last 1 MiB of the file.
+    """
+    import time
+
+    rows = _holdings(path, rss_fn, alive_fn, create_time_fn, image_fn, now_fn or time.time)
+    return sum(r["bytes"] for r in rows)
+
+
+def top_holders(
+    path, limit: int = 5, rss_fn=tree_rss_mb, alive_fn=pid_alive, create_time_fn=pid_create_time,
+    image_fn=pid_image, now_fn=None,
+) -> list[dict]:
+    """The ``limit`` largest holdings counted by ``reserved_bytes``, as dicts of session_id, run, pid, image, bytes."""
+    import time
+
+    rows = _holdings(path, rss_fn, alive_fn, create_time_fn, image_fn, now_fn or time.time)
+    return sorted(rows, key=lambda r: r["bytes"], reverse=True)[:limit]
+
+
+def compact_admission(
+    path, alive_fn=pid_alive, create_time_fn=pid_create_time, *, locked: bool = False,
+    image_fn=pid_image, now_fn=None,
+) -> int:
     """Rewrite the ledger under ``admission_lock`` without dead or recycled STARTs; returns rows removed.
 
     ``locked=True`` means the caller already holds ``admission_lock`` (the lock is not reentrant).
@@ -434,7 +494,9 @@ def compact_admission(path, alive_fn=pid_alive, create_time_fn=pid_create_time, 
     """
     import json
     import os
+    import time
 
+    now_fn = now_fn or time.time
     path = Path(path)
     with contextlib.nullcontext() if locked else admission_lock(path):
         try:
@@ -461,7 +523,7 @@ def compact_admission(path, alive_fn=pid_alive, create_time_fn=pid_create_time, 
                 drop.add(index)
                 continue
             pids = row.get("pids") or []
-            if not any(_safe_holds(row, pid, alive_fn, create_time_fn) for pid in pids):
+            if not any(_safe_holds(row, pid, alive_fn, create_time_fn, image_fn, now_fn) for pid in pids):
                 drop.add(index)
             elif len(pids) == 1 and _num(row.get("create_time")) is None:
                 stamp = create_time_fn(pids[0])
@@ -611,7 +673,7 @@ def admit_and_register(
     """
     import dataclasses
 
-    liveness = {k: v for k, v in reserved_kwargs.items() if k in ("alive_fn", "create_time_fn")}
+    liveness = {k: v for k, v in reserved_kwargs.items() if k in ("alive_fn", "create_time_fn", "image_fn", "now_fn")}
     with admission_lock(admission_path):
         compact_admission(admission_path, locked=True, **liveness)
         reserved = reserved_bytes(admission_path, **reserved_kwargs)

@@ -284,6 +284,15 @@ def _state_root_or_empty(*, central: bool = False, git_root: str = "") -> str:
         _STATE_ROOT_FAILURES.pop(central, None)
         return root
     except StateRootError as exc:
+        if central and not git_root:
+            # Consumer repo: no live engine tree, so central state is unresolvable;
+            # the cwd repo's own live state root hosts the log instead.
+            try:
+                root = coordinator_state_root(central=False)
+                _STATE_ROOT_FAILURES.pop(central, None)
+                return root
+            except StateRootError:
+                pass
         _STATE_ROOT_FAILURES[central] = str(exc)
         return ""
 

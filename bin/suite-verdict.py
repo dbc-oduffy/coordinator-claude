@@ -46,6 +46,15 @@ _COUNT = re.compile(r"(\d+) (failed|passed|skipped|error|errors)\b")
 GrantCheck = Callable[[], "tuple[bool, str]"]
 
 
+def _console_python() -> str:
+    """A console CPython for the pytest child; `sys.executable` alone can be a forwarder exe that never runs it."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
+    from python_interp import resolve_console_python
+
+    return resolve_console_python() or sys.executable
+
+
 def _shared_git_run():
     """`coordinator_core.git.run.run_git`, with the engine put on sys.path first when the script runs bare."""
     try:
@@ -226,7 +235,7 @@ def main(argv: list[str], grant_check: Optional[GrantCheck] = None) -> int:
         verdict = unavailable_verdict(sha, ref, "pytest not importable; install with: pip install pytest")
         print(write_verdict(repo, verdict))
         return 0
-    cmd = tail or [sys.executable, *_DEFAULT_CMD]
+    cmd = tail or [_console_python(), *_DEFAULT_CMD]
     verdict = build_verdict(repo, sha, cmd, ref, args.good)
     if verdict is None:
         print("suite-verdict: no test summary in the run output; nothing written", file=sys.stderr)

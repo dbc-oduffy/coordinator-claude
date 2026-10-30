@@ -412,7 +412,13 @@ def run_pytest_json(
             from coordinator_core.bash_guards._heavy_command_class import register_spawn
 
             register_spawn(admission.key, admission.peak_gib, proc.pid)
-        proc.communicate()
+        try:
+            proc.communicate()
+        finally:
+            if admission is not None:
+                from coordinator_core.bash_guards._heavy_command_class import release_spawn
+
+                release_spawn(admission.key, proc.pid)
         if not report_path.exists():
             raise RuntimeError(
                 f"red-set-report collector plugin did not write {report_path} "

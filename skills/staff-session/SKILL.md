@@ -7,44 +7,30 @@ argument-hint: "--mode plan|review --tier standard|full [--members \"the Staff E
 
 # Staff Session — Chatty-Workflow Planning and Review Driver
 
-There are no tasks or `blockedBy`. The EM scopes the work, selects the debaters, fires ONE background `Workflow`, and is **freed**; the
-Workflow runs the debate as rounds and synthesizes autonomously. Roles, models and counts:
-`pipelines/staff-session/team-protocol.md` § Roles. Doctrine:
-`coordinator/docs/wiki/dispatching-parallel-agents/chatty-workflows.md`.
+The EM scopes the work, selects the debaters, fires ONE background `Workflow`, and is **freed**;
+the Workflow runs the debate as rounds and synthesizes autonomously. Roles, models and counts:
+`pipelines/staff-session/team-protocol.md` § Roles.
 
 **Lightweight tier falls through to single-reviewer dispatch via `/review` (plan) or
 `/review-code` (code) — no Workflow fired.**
 
-## Arguments
+## Step 1 — Arguments and Setup
 
-`$ARGUMENTS`:
-- `--mode plan|review` — required.
-- `--tier lightweight|standard|full` — required. `lightweight` → single-reviewer dispatch.
-  `standard` = 2 debaters. `full` = 3-5 debaters.
-- `--members "persona-a,persona-b,..."` — optional override of auto-selection.
-- `<input>` — required. Plan mode: objectives document/text. Review mode: artifact path.
-
-## Step 1 — Parse Arguments and Setup
-
-Parse `--mode`, `--tier` (both required — fail with usage message if missing), `--members`
-(optional), remaining text as `<input>`.
+`$ARGUMENTS`: `--mode plan|review` and `--tier lightweight|standard|full` (both required — fail
+with usage message if missing; `standard` = 2 debaters, `full` = 3-5), optional `--members
+"persona-a,..."` overriding auto-selection, and `<input>` (plan mode: objectives document/text;
+review mode: artifact path).
 
 Generate run ID (`YYYY-MM-DD-HHhMM`), spawn timestamp, topic slug from input. Create
-`docs/research/{run-id}-workdir/` (shared paper-trail convention with
-`/coordinator:research` — detail: wiki). Output path: plan mode →
-`docs/plans/YYYY-MM-DD-{topic-slug}.md`; review mode →
-`state/review-findings/YYYY-MM-DD-{topic-slug}-staff-review.md`. Advisory path:
-`{scratch-dir}/advisory.md`.
-
-Announce: "Running `/staff-session --mode {mode} --tier {tier}` on '{topic}'."
+`docs/research/{run-id}-workdir/`. Output path: plan mode → `docs/plans/YYYY-MM-DD-{topic-slug}.md`; review
+mode → `state/review-findings/YYYY-MM-DD-{topic-slug}-staff-review.md`. Advisory path:
+`{scratch-dir}/advisory.md`. Announce: "Running `/staff-session --mode {mode} --tier {tier}` on '{topic}'."
 
 ## Step 2 — Tier Routing
 
 **`--tier lightweight`:** do NOT fire a Workflow. Route to `/review` (plan artifacts) or
 `/review-code` (code artifacts) with the specified member (default `the Staff Engineer`). Announce and
-**STOP — the rest of this command does not execute.**
-
-**`standard`/`full`:** fires the chatty Workflow. Continue to Step 3.
+**STOP — the rest of this command does not execute.** `standard`/`full` → Step 3.
 
 ## Step 3 — Scope (EM Direct)
 
@@ -63,45 +49,36 @@ judgment-select 1-3 additional personas and append to an explicit override list.
 Shape W (rung 0) — ladder and shapes: `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`.
     `& "$env:COORDINATOR_SETTINGS_HOME\bin\staff-session-assemble.exe" --session-mode <plan|review> (--domain-signal "<category>" | --slug <slug> [--slug <slug> ...]) --json`
 
-Returns `{personas: [{slug, agent_file, subagent_type}, ...], narration, source}`. Fails loud
-(usage exit) on an unresolvable domain signal, unknown slug, or `the Director of Engineering` as a debater — surface that
-error to the PM verbatim. `the Director of Engineering` is never a valid debater slug — fixed synthesizer identity
-(`coordinator:eng-director`), the Workflow's synthesizer stage in Step 6. Resolver mechanics: wiki.
-
-Debater count: `standard` = 2 (default pair), `full` = 3-5 (default pair + judgment-selected
-additions).
-
+Returns `{personas: [{slug, agent_file, subagent_type}, ...], narration, source}`. Fails loud on an
+unresolvable domain signal, unknown slug, or `the Director of Engineering` as a debater — surface that error to the PM
+verbatim. `the Director of Engineering` is never a debater slug — fixed synthesizer identity (`coordinator:eng-director`,
+Step 6). Resolver mechanics: wiki. Debater count: `standard` = 2 (default pair), `full` = 3-5.
 Announce the resolved `personas[].slug` debaters plus the staff synthesizer to the PM before firing.
 
 ## Step 5 — Fill Prompts
 
-Prompt templates are not filled by hand: `staff-session.manifest.yaml` names them and the Workflow
-reads per-run values from `scope.md`. Complete `{scratch-dir}/scope.md` with the run fields, the output and advisory paths,
-and the Roster table from Step 4's `personas[]` (`slug`, `subagent_type` as `agent_type`,
-persona name, perspective, `agent_file`) — see `pipelines/staff-session/templates-and-fields.md`
-§ Template vocabulary and the brief. Create `{scratch-dir}/mail/`.
+Templates are not filled by hand: `staff-session.manifest.yaml` names them and the Workflow reads
+per-run values from `scope.md`. Complete `{scratch-dir}/scope.md` with the run fields, the output
+and advisory paths, and the Roster table from Step 4's `personas[]` (`slug`, `subagent_type` as
+`agent_type`, persona name, perspective, `agent_file`) — see
+`pipelines/staff-session/templates-and-fields.md` § Template vocabulary and the brief. Create
+`{scratch-dir}/mail/`.
 
 ## Step 6 — Fire the Workflow
 
-Emit the Workflow from the manifest; the EM supplies the brief and roster, never a script. CLI
-resolved per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` (Shape W, rung 0, on a
-PowerShell host: `& "$env:COORDINATOR_SETTINGS_HOME\bin\emit-dispatch-workflow.exe" --pipeline
-staff-session ...` with the same flags):
+The EM supplies the brief and roster, never a script; CLI resolved per
+`${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` (on PowerShell: `& "$env:COORDINATOR_SETTINGS_HOME\bin\emit-dispatch-workflow.exe"` with the same flags):
 
     ${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/bin/emit-dispatch-workflow --pipeline staff-session --brief {scratch-dir}/scope.md --flag mode=<plan|review> --list roster=<slug>=<agent_type>,<slug>=<agent_type>,... --out {scratch-dir}/staff-session.workflow.mjs
 
-`--list roster` carries one `slug=agent_type` per debater from the Roster table (`agent_type` is
-Step 4's `subagent_type`, never hardcoded — game-dev personas use `game-dev:`); `--flag mode` is
-required. Fire the printed `Workflow` line as ONE background `Workflow`. The graph is
-`staff-session.manifest.yaml`: round 1 (all debaters in parallel), one rebuttal round for each
-debater with unread mail, then the synthesizer (`coordinator:eng-director`), the only output to
-the EM. Ordering is the manifest's `depends_on`.
+`--list roster` carries one `slug=agent_type` per debater (`agent_type` is Step 4's
+`subagent_type`, never hardcoded); `--flag mode` is required. Fire the printed `Workflow` line as
+ONE background `Workflow`; the synthesizer (`coordinator:eng-director`) is the only output to the EM.
 
 ## Step 7 — EM Is Freed
 
-After firing, tell the PM the topic, debater names, and that you will be notified on completion.
-**You are now free to continue with the PM.** Do not poll, monitor, or message the agents — the
-script self-governs via `team-protocol.md`.
+Tell the PM the topic, debater names, and that you will be notified on completion. **You are now
+free to continue with the PM.** Do not poll, monitor, or message the agents.
 
 ## Step 8 — On Workflow Completion Notification
 
