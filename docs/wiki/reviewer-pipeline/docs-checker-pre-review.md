@@ -24,6 +24,7 @@ _Last calibrated: 2026-05-03 against Claude Opus 4.7 (1M context) training distr
 
 | Language / Domain | Default | EM discretion |
 |---|---|---|
+| **Repo declaring `project_type: unreal-engine`** | **Always run on every plan and diff**, whatever the language or whether the artifact cites in-repo symbols only. | None — no EM discretion; overrides every skip row below. |
 | **C++ (Unreal Engine, native libraries)** | **Always run.** UE's API surface drifts every release; signatures and module/`.Build.cs` boundaries are easy to hallucinate. | None — run it. |
 | **C++ (non-UE)** | Run unless trivially small. | Skip only when the artifact cites ≤3 stdlib calls and nothing else. |
 | **C# (Unity, .NET)** | EM discretion, bias toward running for Unity package version drift and recent .NET preview features. | Skip for trivial scripts touching only well-known BCL APIs. |
@@ -31,7 +32,7 @@ _Last calibrated: 2026-05-03 against Claude Opus 4.7 (1M context) training distr
 | **TypeScript / JavaScript** | EM discretion. | Run when SDK signatures matter (Anthropic, Stripe, AWS SDK v3 vs v2). Skip for routine React/Node code in the training distribution. |
 | **Go, Rust, Swift** | EM discretion. | Bias toward running — fewer training tokens than Python/TS. |
 | **Pure prose** (lessons, postmortems, retros, strategy memos) | Skip. | None — nothing to mechanically verify. |
-| **Plans citing in-repo symbols only** | Skip docs-checker (use project-RAG instead). | None — docs-checker is for external APIs. |
+| **Plans citing in-repo symbols only** | Skip docs-checker (use project-RAG instead). | None — docs-checker is for external APIs. Not in a `project_type: unreal-engine` repo. |
 
 **Heuristic, not law.** The EM applies judgment: scale (1-page stub vs 30-page spec), complexity (3 API calls vs 50), distance from training (UE 5.6 features vs `Array.prototype.map`). When in doubt, run it — it's cheap. When skipping, no need to justify; the EM may simply proceed.
 

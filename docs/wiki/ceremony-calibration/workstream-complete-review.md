@@ -558,7 +558,7 @@ pointlessly on TS-only stubs and miss future workstreams that drop the `tc-` pre
 
 Coordinator skill bodies invoke the gate via a presence-check (`[ -x <path> ] && <path>
 [args]`) against the UE build-freshness script. Absent script → graceful no-op so non-UE
-repos see no change. See `example-game-repo-doctrine.md §7.7` under `<example-game-repo-root>/docs/wiki/` (`<example-game-repo-root>` = `machine-local get repos.example_game_workbench_repo`) for the full convention.
+repos see no change. See `example-game-repo-doctrine.md §7.7` under `<example-game-repo-root>/docs/wiki/` (`<example-game-repo-root>` = `machine-local get repos.claude_unreal_holodeck`) for the full convention.
 
 ### Verdict semantics extension
 

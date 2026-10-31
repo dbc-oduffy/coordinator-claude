@@ -85,7 +85,7 @@ Closes incompleteness in the 2026-05-19 `coordinator_whoami` + `$HOME/.claude/ma
 #### Changed (substrate)
 
 - **`coordinator/commands/install.md` Phase 3 See: line** cites `coordinator-doctor.md` as the canonical post-install verification surface.
-- **`docs/wiki/hook-best-practices/machine-local-registry.md`** prose aligned to template ground-truth: `repos.example-game-repo` → `repos.example_game_workbench_repo` across §4 (naming + shell examples) and §8(f) anti-pattern. Template (`registry.toml.example`) is operative; the wiki now matches.
+- **`docs/wiki/hook-best-practices/machine-local-registry.md`** prose aligned to template ground-truth: `repos.holodeck` → `repos.claude_unreal_holodeck` across §4 (naming + shell examples) and §8(f) anti-pattern. Template (`registry.toml.example`) is operative; the wiki now matches.
 - **`docs/wiki/install-playbook-rationale/percolate-setup.md` Step 2** default-registers via `machine-local set publish.targets.<name>`; the legacy `publish-targets.sh` path is reachable only via `--legacy` flag.
 - **`setup/publish.sh`** uses a portable PY fallback chain (`python3 || py -3 || python` with fail-loud) instead of bare `python`, so the script works on Linux/macOS AND Windows Git Bash. Smoke `--dry-run` clean across 4 targets.
 - **`/session-start` orientation health-check** now invokes `python3 -m coordinator_whoami.project_rag --human` (gated on `coordinator_whoami` importability) as a spot-check of the coordinator/RAG-plugin binding. Cites `coordinator-doctor.md` P-6.
@@ -93,12 +93,12 @@ Closes incompleteness in the 2026-05-19 `coordinator_whoami` + `$HOME/.claude/ma
 
 #### Fixed (substrate)
 
-- **`/example-game-repo:doctor` discovery order** — `machine-local get repos.example_game_workbench_repo` is now tier 1; `MACHINE_LOCAL_REPOS_EXAMPLE_GAME_WORKBENCH_REPO` tier 2; `EXAMPLE_GAME_REPO_REPO` env var demoted to named-successor tier 3; cwd marker tier 4; hard error remediation now points operators at `machine-local-registry.md`. Example-game-repo doctor's remediation prose now names machine-local as Tier 0 (canonical fix) before the env-var and reinstall fallbacks.
+- **`/example-game-repo:doctor` discovery order** — `machine-local get repos.claude_unreal_holodeck` is now tier 1; `MACHINE_LOCAL_REPOS_EXAMPLE_GAME_WORKBENCH_REPO` tier 2; `EXAMPLE_GAME_REPO_REPO` env var demoted to named-successor tier 3; cwd marker tier 4; hard error remediation now points operators at `machine-local-registry.md`. Example-game-repo doctor's remediation prose now names machine-local as Tier 0 (canonical fix) before the env-var and reinstall fallbacks.
 - **The RAG plugin's doctor skill — PLUGIN_ROOT discovery** — prepended a `machine-local get repos.project_rag` lookup; a hardcoded machine-specific candidate removed from the fallback loop.
 - **`coordinator_whoami/project_rag/cli.py:270` HTTP-transport classification** — `_probe_claude()` now accepts `entry.get("url")` alongside `command` and `args`. Post-multi-RAG MCP daemon entries (HTTP transport, no `command` field) no longer mis-classify as `"broken"`. Mirror of the RAG plugin's UE-addon F4 finding from the same dogfood run.
 - **`docs/wiki/hook-best-practices/wiring-env-source-of-truth.md`** — `status: current` → `status: deprecated`, `superseded_by: machine-local-registry.md`, with a prominent deprecation banner naming the dogfood-friction trigger. Wiring.env retirement is the worked precedent for the broader `$HOME/.<project>/` → `$HOME/.claude/<project>/` migration pattern.
 - **`docs/wiki/addon-protocol/authoring-an-addon.md:118`** — `required_env` row now flags the RAG plugin's legacy per-user wiring-env file as transitional/deprecated and names `$HOME/.claude/machine-local/project_rag.toml [env]` as the canonical successor for future addon authors.
-- **`bin/verify-ue-overrides.sh`** — machine-specific hardcoded paths (`...`) removed; resolves UE-context roots via `machine-local get repos.example_game_workbench_repo` and `repos.project_rag`. Now fail-loud on absent registry instead of silent-pass.
+- **`bin/verify-ue-overrides.sh`** — machine-specific hardcoded paths (`...`) removed; resolves UE-context roots via `machine-local get repos.claude_unreal_holodeck` and `repos.project_rag`. Now fail-loud on absent registry instead of silent-pass.
 - **`/session-start` `<plugin-cli-path>` literal placeholder** — resolved with an inline `$HOME/.claude.json`-parsing snippet sourced from `commands/workday-start.md` Step 3.6.
 - **Global `CLAUDE.md` line 16 parenthetical** — described `publish-targets.sh` as "(machine-local)" which conflated the legacy file with the canonical `$HOME/.claude/machine-local/` registry. Reworded to "(per-machine legacy file, superseded by `$HOME/.claude/machine-local/`)".
 

@@ -335,7 +335,7 @@ The reviewer-side consumption block (`snippets/plan-coverage-check-consumption.m
 - `agents/staff-data-sci.md` (the Data Science Reviewer)
 - `agents/senior-front-end.md` (the Front-End Reviewer)
 - `agents/eng-director.md` (the Director of Engineering — reviews plans at Director-of-Engineering altitude)
-- example-game-repo sibling repo `game-dev/agents/staff-game-dev.md` (the Game Dev Reviewer — example-game-repo-resolved via machine-local registry key `repos.example_game_workbench_repo`; skipped when example-game-repo repo is absent locally; `game-dev` retired from OSS coordinator-claude distribution)
+- example-game-repo sibling repo `game-dev/agents/staff-game-dev.md` (the Game Dev Reviewer — example-game-repo-resolved via machine-local registry key `repos.claude_unreal_holodeck`; skipped when example-game-repo repo is absent locally; `game-dev` retired from OSS coordinator-claude distribution)
 
 **Excluded intentionally:** `agents/code-reviewer.md` (Sonnet code-shaped review, not plan-shaped) and `agents/staff-ux.md` (the UX Reviewer — UX flow review rarely has audit/slate structure). These exclusions are the same as for the sibling consumption snippets.
 

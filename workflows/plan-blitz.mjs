@@ -22,6 +22,8 @@
  *   contributedSignals: object[]  OPTIONAL signals plugins contribute ({id, plugin, selects, model?}); passed
  *                             with availablePlugins it replaces the scan. availablePlugins alone also skips
  *                             the scan, so no plugin signal is contributed and the host runs no attach.
+ *     pluginRoot: string,  // OPTIONAL resolved absolute coordinator plugin root; the plan-prep-gate host runs
+ *                          // <pluginRoot>/lib/plugin_review_signals.py. Absent, the attach is skipped (advisory).
  *     spineCheckCli: string,  // OPTIONAL resolved absolute CLI (plugin-local).
  *     armingCheckCli: string,  // OPTIONAL resolved absolute CLI (plugin-local).
  *   gateReportPath: string    the frozen `roadmap.plan_gate` JSON this wave was resolved from.
@@ -707,7 +709,7 @@ function fnv1a32Hex(text) {
 }
 
 const PREMISE_BRIEF_VERSION = fnv1a32Hex(
-  PREMISE_SNIPPET_DIGEST,
+  PREMISE_SNIPPET_DIGEST + '|carry-reverify-flagged-rows-v1',
 )
 
 const ROLE_CONTRACTS = {
@@ -1081,6 +1083,9 @@ ${CLI_RESOLUTION_RULE}
 
   (a) Run \`coordinator-invoke plan.premise_scope\` with one JSON argument
       \`{"plan": "${planResult.planPath}", "brief_version": "${PREMISE_BRIEF_VERSION}"}\`.
+  (b) On a refire, re-verify EVERY carried row whose verdict is UNRESOLVED or absent-at-HEAD against
+      current HEAD (\`git cat-file -e HEAD:<path>\`, \`git ls-files\`) before you return it: a path
+      present at HEAD resolves. Pass each re-verified row in \`rows\` so it records as fresh.
   (e) On EVERY pass, then run \`coordinator-invoke plan.premise_record\` with one JSON argument
       \`{"plan", "brief_version", "rows", "retired", "citations_skipped"}\`. Return the reply's
       \`rows\` VERBATIM as \`rows\`, plus \`carry: {"firstPass": <scope first_pass>, "carried": <reply
@@ -1150,9 +1155,12 @@ function classCoverage(rows) {
 function premiseLines(premise) {
   if (!premise) return '(no premise check ran for this plan — the citation classes are UNCHECKED, not clean)'
   const rows = premise.rows || []
-  const flagged = rows.filter((r) => r.verdict === 'UNRESOLVED' || r.verdict === 'CONTRADICTED')
+  const isStale = (r) => r.carried === true && r.reverified !== true
+  const flagged = rows.filter((r) => (r.verdict === 'UNRESOLVED' || r.verdict === 'CONTRADICTED') && !isStale(r))
+  const withheld = rows.filter((r) => (r.verdict === 'UNRESOLVED' || r.verdict === 'CONTRADICTED') && isStale(r)).length
   const unsettled = rows.filter((r) => r.verdict === 'UNCHECKABLE')
   const parts = [
+    ...(withheld ? [`${withheld} carried flagged row(s) withheld: not re-verified at HEAD this pass`] : []),
     `${rows.length} citation(s) checked, ${flagged.length} unresolved/contradicted, `
       + `${unsettled.length} unsettled${premise.citationsSkipped ? `, ${premise.citationsSkipped} beyond the cap` : ''}.`,
     ...(premise.carry ? [`carried ${premise.carry.carried}, fresh ${premise.carry.fresh}`] : []),
@@ -1636,10 +1644,38 @@ const CONTRIBUTED_IDS = new Set(SUPPLIED_CONTRIBUTIONS ? parsedArgs.contributedS
 const PLUGINS_FROM_ARG = AVAILABLE_PLUGINS !== null
 const PLUGIN_ATTACH_OWED = !PLUGINS_FROM_ARG || CONTRIBUTED_IDS.size > 0
 
-const PLUGIN_SIGNALS_CLI_RULE = `
-\`plugin_review_signals.py\` lives at lib/plugin_review_signals.py under the coordinator plugin root (the
-directory holding agents/plan-reviewer.md; \`$CLAUDE_PLUGIN_ROOT\` names it). Run it with python3 (python on
-Windows); its stdout is one JSON object.`
+// The resolved plugin root arrives as a wave arg: CLAUDE_PLUGIN_ROOT is unset in workflow subagents.
+// Without the arg it is derived from the emitter-resolved plugin-local CLIs (`<root>/bin/<script>.py`).
+function pluginRootFromCli(cli) {
+  if (typeof cli !== 'string') return null
+  const tail = cli.trim()
+  const q = tail.slice(-1)
+  const script = q === "'" || q === '"' ? tail.slice(tail.lastIndexOf(q, tail.length - 2) + 1, -1) : tail.split(/\s+/).pop()
+  const folded = script.split('\\').join('/')
+  for (const name of ['plan-spine-check.py', 'instrument-can-report-red.py']) {
+    const tailPart = `/bin/${name}`
+    if (folded.endsWith(tailPart) && folded.length > tailPart.length) return script.slice(0, script.length - tailPart.length)
+  }
+  return null
+}
+const PLUGIN_ROOT =
+  (typeof parsedArgs.pluginRoot === 'string' && parsedArgs.pluginRoot.trim()
+    ? parsedArgs.pluginRoot.trim().replace(/[\\/]+$/, '')
+    : null) ||
+  pluginRootFromCli(parsedArgs.spineCheckCli) ||
+  pluginRootFromCli(parsedArgs.armingCheckCli)
+const PLUGIN_SIGNALS_CLI = PLUGIN_ROOT ? `${PLUGIN_ROOT}/lib/plugin_review_signals.py` : null
+
+const PLUGIN_SIGNALS_CLI_RULE = PLUGIN_SIGNALS_CLI
+  ? `
+Run it with python3 (python on Windows); its stdout is one JSON object.`
+  : `
+This wave was fired without \`pluginRoot\`, so the script's path is unresolved. Do NOT search for it or
+guess a path.`
+
+// A plugin-signal attach that returned nothing never fails the wave: it is echoed apart from
+// agentIncidents, which alone mark the wave incomplete.
+const advisoryIncidents = []
 
 // planPath -> the last plan-prep-gate host reply, set by planPrepGateHost.
 const PLAN_HOST_REPLIES = new Map()
@@ -1653,7 +1689,7 @@ function signalsFor(plan) {
   const reply = PLAN_HOST_REPLIES.get(plan.planPath)
   const readable = reply && Array.isArray(reply.attached) && (PLUGINS_FROM_ARG || Array.isArray(reply.availablePlugins))
   if (!readable) {
-    agentIncidents.push({
+    advisoryIncidents.push({
       role: 'plan-prep-gate', kind: 'plugins-unreadable',
       detail: 'the plan-prep-gate host reply carried no plugin scan; plugin-contributed signals are absent and non-coordinator reviewers degrade to the default',
     })
@@ -2677,7 +2713,9 @@ function singleContextFor(baton, trailDir) {
 async function planPrepGateHost(baton, plan, trailDir) {
   const root = REPO_ROOT || '<repo root>'
   const attachStep = PLUGIN_ATTACH_OWED ? `
-4. Run \`python3 <coordinator plugin root>/lib/plugin_review_signals.py attach --repo-root ${root} --plan ${plan.planPath}\`.
+4. ${PLUGIN_SIGNALS_CLI
+    ? `Run \`python3 "${PLUGIN_SIGNALS_CLI}" attach --repo-root ${root} --plan ${plan.planPath}\`.`
+    : 'Skip this step: there is no resolved plugin-signal CLI for this wave. Omit the three fields below.'}
    Return its \`availablePlugins\` (plugin names), \`signals\` (each entry verbatim: id, plugin, selects, model,
    prose_terms, write_triggers) and \`attached\` (signal ids) as it printed them. If it fails to run, omit those
    three fields; that never changes the verdict.${PLUGIN_SIGNALS_CLI_RULE}` : ''
@@ -3512,6 +3550,7 @@ return {
       agentIncidents,
     }
     : {}),
+  ...(advisoryIncidents.length ? { advisoryIncidents } : {}),
   // The trail is shared, so the caller needs this fire's own leaf.
   trailSlotDir: `${trailDir}/${waveSlot}`,
   ready: verdicts.filter((v) => v.verdict === 'ready'),

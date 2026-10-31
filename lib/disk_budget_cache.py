@@ -21,7 +21,7 @@ from typing import Callable, Optional, Sequence
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from disk_budget import Policy, Roots, SweepReport, resolve_roots  # noqa: E402
+from disk_budget import FreeProbe, Policy, Roots, SweepReport, resolve_roots, under_volume_pressure  # noqa: E402
 from win_portability import no_console_creationflags  # noqa: E402
 
 __all__ = ["prune_cache"]
@@ -304,12 +304,14 @@ def prune_cache(
     runner: Optional[Runner] = None,
     apply: bool = True,
     embedder_model: str = "",
+    free_probe: Optional[FreeProbe] = None,
 ) -> SweepReport:
     """Prune uv (prune, then clean if still over), huggingface and codex-runtimes.
 
     `deadline` is an absolute `time.monotonic()` value; a sweep that hits it logs and returns
     what it freed so far. `still_over` is set when uv or huggingface remain over their caps or
-    the whole `~/.cache` exceeds `cache_total_cap`.
+    the whole `~/.cache` exceeds `cache_total_cap`, AND a volume holding those roots has fewer
+    free bytes than `policy.volume_free_floor` (`free_probe(path) -> bytes`).
     """
     roots = roots or resolve_roots()
     runner = runner or _default_runner
@@ -321,4 +323,8 @@ def prune_cache(
         _prune_cache_total(policy, deadline, roots, apply, report)
     except _DeadlineExceeded:
         report.log.append("deadline reached; sweep resumes next boot")
+    if report.still_over and not under_volume_pressure(
+        policy, [roots.cache, roots.uv_cache, roots.huggingface], free_probe
+    ):
+        report.still_over = False
     return report

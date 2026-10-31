@@ -562,7 +562,7 @@ deny text itself, not from the doctrine that governs when it should be used.
 
 ## Derive Global Doctrine: Mirror and Fail Loud {#derive-global-doctrine-mirror-and-fail-loud}
 
-This advisory (`derive-global-doctrine-live-copy.py`) fires when a tracked global-doctrine source
+This advisory (engine op `hooks.derive_global_doctrine_live_copy`) fires when a tracked global-doctrine source
 (the repo's own hand-authored copy of the operator's global instructions) may have drifted from
 the LIVE copy the harness actually
 loads at session start. Direction is always tracked -> live, never the reverse: the tracked file

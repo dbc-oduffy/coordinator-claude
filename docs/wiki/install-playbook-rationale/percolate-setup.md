@@ -64,7 +64,7 @@ in **the doctrine repo** — see `CLAUDE.md`.
   2. The cwd's git root, if it contains the marker — excluded when that root IS the shared-install
      path (rung 4), so resolution continues to rung 3 rather than colliding with it.
   3. The registry-first source-repo-root pointer (`coordinator_core.content_root_pointer.read_content_root_pointer()`
-     — registry key `repos.content_root`, then the durable pointer-file mirror, then the legacy
+     — registry key `repos.doe_claude`, then the durable pointer-file mirror, then the legacy
      pointer file), accepted only if it contains the marker.
   4. `${CLAUDE_HOME:-$HOME}/.claude`, if it contains the marker.
   On no rung resolving, the seam fails loud with the same remediation text `coordinator_percolate_runtime_root()` raises.

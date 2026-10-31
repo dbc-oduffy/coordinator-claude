@@ -245,8 +245,8 @@ copies mirror → `~/.claude`; the reverse direction — restoring the tracked c
 after a mirror loss — is a deliberate manual recovery action, never automated.
 
 > **The tracked copy is where doctrine is authored**, and an enforcement envelope keys on it: the
-> `derive-global-doctrine-live-copy.py` PostToolUse hook (re-derives `~/.claude` on every write to
-> the tracked file, fail-loud), `coordinator/tests/test_global_doctrine_tracked_copy.py`, and the
+> engine body `coordinator_core.hooks.derive_global_doctrine_live_copy` (re-derives `~/.claude` at
+> every SessionStart, driven by `sweep-boot.py`, fail-loud), `coordinator/tests/test_global_doctrine_tracked_copy.py`, and the
 > CLAUDE.md admission gate (`hooks/scripts/_claude_md_ledger.py` — `GOVERNED_AUTHORING_SURFACES`
 > names the tracked surface). `~/.claude/CLAUDE.md` carries **no byte cap and no heading admission
 > ledger**. That asymmetry is the whole argument: an edit made live is an edit that never passed

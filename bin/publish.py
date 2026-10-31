@@ -7732,6 +7732,20 @@ def _engine_toplevel_key() -> str:
     return str(Path(top)) if top is not None else ""
 
 
+def _refresh_source_ref(source_root: Path, pinned_shas: "dict[str, str]") -> str:
+    """The commit dest-refresh checks a peer publish against: the round's pin for *source_root*.
+
+    Trap: `_source_ref_override` is claude-klabauter's commit; a round sourced from another repo (DoE) checked
+    against it reads every peer publish as missing and blocks the round."""
+    top = _resolve_show_toplevel(str(source_root))
+    key = str(Path(top)) if top is not None else ""
+    if key in pinned_shas:
+        return pinned_shas[key]
+    if key and key == _engine_toplevel_key() and _source_ref_override:
+        return _source_ref_override
+    return "HEAD"
+
+
 def _root_fully_published(
     repo_root: Path,
     succeeded_row_names: "Sequence[str]",
@@ -14924,7 +14938,7 @@ def _main(argv: Optional[List[str]] = None) -> int:
                 out=sys.stdout,
                 err=sys.stderr,
                 source_root=percolate_root,
-                source_ref=_source_ref_override or "HEAD",
+                source_ref=_refresh_source_ref(percolate_root, round_pinned_shas),
             )
             if not _refresh.ok:
                 publish_lock_stack.close()

@@ -28,8 +28,8 @@
     },
     "project_type": {
       "type": "string",
-      "enum": ["general", "game-dev", "web-dev", "data-science"],
-      "description": "Canonical project-type classification asked once during coordinator:install onboarding (DR-099). Legacy values ('unreal', 'meta', 'web') are migrated away from, not accepted here."
+      "enum": ["general", "game-dev", "unreal-engine", "web-dev", "data-science"],
+      "description": "Canonical project-type classification asked once during coordinator:install onboarding (DR-099). 'unreal-engine' marks an Unreal Engine repo: ue-territory review signals fire on every plan. Legacy values ('unreal', 'meta', 'web') are migrated away from, not accepted here."
     },
     "project_subtypes": {
       "type": "array",

@@ -16,6 +16,7 @@ import dataclasses
 import json
 import math
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -167,6 +168,31 @@ class SweepReport:
 
 
 Runner = Callable[[Sequence[str], Optional[float]], int]
+FreeProbe = Callable[[Path], int]
+
+
+def volume_free_bytes(path: Path) -> int:
+    """Free bytes on the volume holding `path` (its nearest existing ancestor); `-1` when unreadable."""
+    probe = Path(path)
+    while not probe.exists() and probe != probe.parent:
+        probe = probe.parent
+    try:
+        return shutil.disk_usage(probe).free
+    except OSError:
+        return -1
+
+
+def under_volume_pressure(policy: Policy, paths: Sequence[Path], free_probe: Optional[FreeProbe] = None) -> bool:
+    """True when any volume holding `paths` has fewer free bytes than `policy.volume_free_floor`.
+
+    An unreadable probe (-1) counts as no pressure: size-cap overage alone never reports pressure.
+    """
+    probe = free_probe or volume_free_bytes
+    for path in paths:
+        free = probe(Path(path))
+        if 0 <= free < policy.volume_free_floor:
+            return True
+    return False
 
 
 def spawn_detached(argv: Sequence[str]) -> int:
@@ -300,11 +326,14 @@ def prune_projects(
     now: Optional[float] = None,
     live_sessions: Sequence[str] = (),
     apply: bool = True,
+    free_probe: Optional[FreeProbe] = None,
 ) -> SweepReport:
     """Prune ~/.claude/projects under `policy`; `deadline` is an absolute time.monotonic() value."""
     from disk_budget_projects import prune_projects as _impl  # lazy: that module imports this one
 
-    return _impl(policy, deadline, roots=roots, now=now, live_sessions=live_sessions, apply=apply)
+    return _impl(
+        policy, deadline, roots=roots, now=now, live_sessions=live_sessions, apply=apply, free_probe=free_probe
+    )
 
 
 def prune_cache(
@@ -315,10 +344,12 @@ def prune_cache(
     runner: Optional[Runner] = None,
     apply: bool = True,
     embedder_model: str = "",
+    free_probe: Optional[FreeProbe] = None,
 ) -> SweepReport:
     """Prune uv, huggingface and codex-runtimes; `runner(argv, timeout_s) -> returncode` replaces subprocess."""
     from disk_budget_cache import prune_cache as _impl  # lazy: that module imports this one
 
     return _impl(
-        policy, deadline, roots=roots, runner=runner, apply=apply, embedder_model=embedder_model
+        policy, deadline, roots=roots, runner=runner, apply=apply, embedder_model=embedder_model,
+        free_probe=free_probe,
     )

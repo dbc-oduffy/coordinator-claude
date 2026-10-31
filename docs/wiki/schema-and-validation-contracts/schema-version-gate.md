@@ -588,7 +588,7 @@ dashboard wearing a gate's clothes.
 **Reconcile against the registry — do not enumerate from it.** The obvious reading of the rule
 above is "walk `repos.*`," and that substitutes one defect for another: the registry also carries
 sandbox, fixture, and scratch keys (on the 2026-07-31 fleet, 15 keys including
-`repos.zzztest-normcheck` → `/tmp/zzz` and `repos.example-game-repo-python-audit` → a UE `Saved/` dir), so a
+`repos.zzztest-normcheck` → `/tmp/zzz` and `repos.holodeck-python-audit` → a UE `Saved/` dir), so a
 walker built on it sweeps in exactly the non-repo class an explicit list exists to keep out.
 `--list-receivers` is not the escape hatch either — it emits mirrors and aliases tagged
 `is_receiver: False` and leaves filtering to the caller. The shape that satisfies the invariant

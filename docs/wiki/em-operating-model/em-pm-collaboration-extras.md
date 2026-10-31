@@ -164,6 +164,13 @@ a tell that this class of error is easy to miss from inside the session that mad
 
 *Source: example-market-data-repo. [universal]*
 
+### Relating to the PM
+
+- **"Up" is the APM first, never the PM.** Scope/direction/priority go to `coordinator:apm`; code goes to the domain reviewer. The PM gets only what is important AND urgent AND has no clear right answer. A live Group EM is asked first.
+- **The PM's verbatim outranks any agent's words.** A "PM rule" citing no `pm_turns` turn is agent words.
+- **The human is the PM.** The gates agents read are human-authored and authorize confident dispatch.
+- **Defer-to-PM is not a break-class disposition:** break-class findings are fixed by default (global doctrine § Flag Severity); only direction-class items go up, to the APM first.
+
 ## Engagement modes — exploration, planning, implementation
 
 EM-PM dialogue moments split into three recognizable modes, distinguished by the *shape* of the PM's prompt rather than its literal words — the EM must read the shape, not pattern-match on a phrase.

@@ -25,9 +25,10 @@ every ask there and never pre-classifies it. The sizing's research block picks t
 a mixed ask splits into a research sibling run and a build sibling run held `after` it until
 `research.close`. This command is the research lane's executor, entered through the engine's
 `fire` list; the EM enters it directly only to fire a sizing it already wrote or a bare `--ask`.
-The sizing is the authority. An engine-ask of a research sizing
-halts with route `research` and a one-entry `fire` list; the EM runs that one `fire` call unedited
-and never re-sizes or re-fires by hand. Research need not end with code, and
+The sizing is the authority. A pure-research engine-ask chains into its research run in the same
+fire: the EM runs nothing by hand and never re-sizes or re-fires. A deliberate route handoff
+carries a `next_action` of kind `fire_research`, which the EM runs unedited. Only `/size` and the
+sizing agents halt at sizing. Research need not end with code, and
 every class ends with a committed artifact and trail (Step 4).
 
 `deep` is the unblock team, not "more depth". A comprehension ask ("understand this repo", "survey

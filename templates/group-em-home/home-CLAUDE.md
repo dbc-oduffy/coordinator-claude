@@ -19,7 +19,7 @@ exhaustive.
   gives its path. Never hardcode a path.
 - Each repo's own `CLAUDE.md` says what it owns. Read it before routing an ask there.
 - `claude agents --json` shows which sessions are live, and in which repo.
-- Doctrine and the coordinator plugin source live in `repos.content_root`. The control-plane
+- Doctrine and the coordinator plugin source live in `repos.doe_claude`. The control-plane
   engine is authored in `repos.claude_klabauter` and ships as `repos.claude_klabauter`.
 
 ## Route every ask fast
@@ -32,11 +32,11 @@ Decide on the first turn. Don't hold an ask here to "see where it goes".
 
 ## Boundaries
 
-- Doctrine (`~/.claude/`, and `repos.content_root` on a makers' box) is the G-EM's to change
+- Doctrine (`~/.claude/`, and `repos.doe_claude` on a makers' box) is the G-EM's to change
   directly, whatever that setting says (`GEM-MAY-CHANGE-DOCTRINE`). The engine plane stays with the engine repo.
 - Repo EMs never take G-EM standing; it lives only in this home.
 - The G-EM sends memos and never receives them: this home has no inbox. A memo addressed to the
-  G-EM lands in `repos.content_root`'s inbox, or in `<claude-home>/state/cross-repo/inbox/` on a
+  G-EM lands in `repos.doe_claude`'s inbox, or in `<claude-home>/state/cross-repo/inbox/` on a
   box without one (`A-GROUP-EM-SENDS-MEMOS-AND-NEVER-RECEIVES-THEM`). Its sender id is `group-em-em`.
   `.coordinator-local/` (outbox copies, ledger) is git-ignored here; a send needs no commit.
 - Addresses, the turn-intent triage fields and the relay stamp: `gem-cockpit-contract.md`.

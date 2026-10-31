@@ -8,7 +8,9 @@ argument-hint: "[no arguments — invoke from the group-em home to take box-wide
 # Group EM — Peer-Session Monitoring and Wave Coordination
 
 `/group-em`, run from the machine-local group-em home, switches this session into box-wide G-EM
-standing: monitoring other sessions and moving them along; a **mode, not an operation**. Cockpit
+standing: monitoring other sessions and moving them along; a **mode, not an operation**. There is
+one network-wide G-EM, last writer wins: `/group-em` on any box displaces the holder on any other,
+and the displaced holder gets its release message over Unimatrix (`references/multibox.md`). Cockpit
 contract: `coordinator/docs/wiki/cross-repo-communication/gem-cockpit-contract.md`.
 
 **Outside the home, `/group-em` renders NOT ENTERED** (`group-em-home ensure`).
@@ -136,6 +138,7 @@ is a per-entry act with both gates declared, the address re-resolved from the se
 before; **never loop over `entries` sending.** `roster` is the shortlist, not the population.
 
 Read `references/passes.md` when reading the roster or working a send digest.
+Read `references/multibox.md` when a job or session targets a box other than this one.
 
 ## The escalation screen — a claimed PM item is presumed yours until it survives
 

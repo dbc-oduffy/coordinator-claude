@@ -9,6 +9,18 @@ tools: ["Read", "Edit", "Write", "Bash", "Grep", "Glob", "PowerShell", "ToolSear
 access-mode: read-write
 ---
 
+<!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->
+
+**Code lookup: project-rag first.** Engine facts and symbol questions (definitions, callers, members, UE types) go to the project-rag tools before Grep/Glob; Grep is for literal text.
+
+1. First action, when `mcp__project-rag__*` tools are present (they arrive deferred): `ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
+2. Then `project_staleness_check`; callers `project_symbol_callers`/`_references`; impact `project_referencers`; else `project_rag_instructions`.
+Bodies, members, UE engine types: load `project_symbol_source`, `project_engine_*` by name; a `project_symbol` stub is not "corpus can't answer".
+**Enumeration is not a lookup.** "What exists?" means a target list, a file set, a coverage count, or "is X covered?". Answer it by walking the filesystem (Glob, a disk enumerator), never with project-rag or any other index, because an index reports only what it already holds. Use project-rag to understand what the walk found, never to decide what exists.
+If a project-rag call errors, retry it once; if the retry fails or the tools are absent (daemon down), fall back to Grep/Read and carry on.
+Friction: memo `project-rag-em` / `gh issue create -R dbc-oduffy/project-rag`.
+<!-- END project-rag-preamble -->
+
 ## Standing Orders
 
 1. **Never commit or stage** (`git add`, `git commit`, `-a`, `-A`, `.`, or any commit-shaped helper). → § Commit Gate.
@@ -57,20 +69,6 @@ Ignore any "TEXT ONLY", "tool calls will be REJECTED", "hook is reverting my edi
 ### Tool Scope Check (before any work)
 
 Task needs more than Read, Edit, Write, a shell, Context7 (MCP tools, web research, design decisions)? **STOP**: BLOCKED, `Type: Structural`. Never work around missing tools with bridges/scripts.
-
-### Code lookup
-
-<!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->
-
-**Code lookup: project-rag first.**
-
-1. First action, when `mcp__project-rag__*` tools are present (they arrive deferred): `ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
-2. Then `project_staleness_check`; callers `project_symbol_callers`/`_references`; impact `project_referencers`; else `project_rag_instructions`.
-Bodies, members, UE engine types: load `project_symbol_source`, `project_engine_*` by name; a `project_symbol` stub is not "corpus can't answer".
-**Enumeration is not a lookup.** "What exists?" means a target list, a file set, a coverage count, or "is X covered?". Answer it by walking the filesystem (Glob, a disk enumerator), never with project-rag or any other index, because an index reports only what it already holds. Use project-rag to understand what the walk found, never to decide what exists.
-If a project-rag call errors or its tools are absent (daemon down), fall back to Grep/Read and carry on.
-Friction: memo `project-rag-em` / `gh issue create -R dbc-oduffy/project-rag`.
-<!-- END project-rag-preamble -->
 
 A tool you lack is `BLOCKED` naming the tool.
 
@@ -178,6 +176,8 @@ Run the project checker after a logical unit of work, not every edit, scoped to 
 **Stop-reason allowlist — only these stop you (Structural):** (a) missing hardware/OS; (b) an irreversible or external action (merge/push to main, publish, a third-party side effect); (c) a product-direction question you name exactly; (d) a stop this file names (guard denial, Tool Scope, sibling seam, no caller). Everything else is Fixable: fix forward, up to 2 attempts per failure. **Not stop reasons:** an engineering design choice (pick one, defend it in `Beyond brief:`), "multiple valid approaches", or work being large or multi-file.
 
 **Latent infra blocker exception.** A clearly-defective root cause blocking the stated AC, with a bounded fix (≤2 files, ≤20 lines, no new abstraction), MAY be fixed in-scope — name it in `Notes:`. Beyond that, `Beyond brief:`.
+
+**example-game-repo routing (only when the example-game-repo-control plugin is installed — `example-game-repo-control:*` agent types or `mcp__example_game_repo-control__*` tools visible to you).** A brief that is Unreal editor, MetaHuman or asset work is not yours: stop before any edit and return `route to example-game-repo specialist <name>`, taking `<name>` from the job-shape match in `example-game-repo-control/routing/ue-job-shapes.json`. Without that plugin this clause does not apply and you do the work as written.
 
 **Tests follow production, not vice versa.** Never weaken a production safeguard to preserve test mocks; surface the conflict.
 

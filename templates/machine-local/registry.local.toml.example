@@ -29,7 +29,7 @@ schema = 1
 # ---------------------------------------------------------------------------
 # "repos.project_rag"            = "X:/project-rag" <!-- foreign-path-ok: illustrative sample value for this per-machine example file, not a real machine path -->
 # "repos.project_rag_ue_addon"   = "X:/project-rag-ue-addon" <!-- foreign-path-ok: illustrative sample value for this per-machine example file, not a real machine path -->
-# "repos.example_game_workbench_repo" = "X:/example-game-workbench-repo" <!-- foreign-path-ok: illustrative sample value for this per-machine example file, not a real machine path -->
+# "repos.claude_unreal_holodeck" = "X:/example-game-workbench-repo" <!-- foreign-path-ok: illustrative sample value for this per-machine example file, not a real machine path -->
 
 # ---------------------------------------------------------------------------
 # Per-machine publish-mirror roots. A publish mirror is an outward-only push

@@ -32,7 +32,7 @@ allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskU
 No producer automates reviewer selection yet. Until then:
 
 - **Routing table:** merge `coordinator/routing.md` with every enabled plugin's `routing.md` fragments; match signals to Reviewer 1 (domain specialist) and Reviewer 2 (generalist, if needed).
-- **Start from the plan's `review_signals`**, resolving ids through `coordinator/contract/review-signals.json`; an unknown id surfaces loudly. Hand-match prose only when the plan has **no** `review_signals` field.
+- **Start from the plan's `review_signals`**, resolving ids through `coordinator/contract/review-signals.json`; an unknown id surfaces loudly. Hand-match prose only when the plan has **no** `review_signals` field. `project_type: unreal-engine` repos: the Game Dev Reviewer (`game-dev:staff-game-dev`) is the default Opus reviewer for plans and code, and `docs-checker` runs on every plan and diff, no EM skip (routing.md Project-Type Configuration).
 - **Effort is PM-gated:** no level in a dispatch prompt unless the PM named it.
 - **the Director of Engineering:** cross-team/consumer-leak signal → standalone primary (director-altitude posture in brief; no `mode` arg), skip the Staff Engineer.
 - `--reviewers "a,b"` skips auto-detection; report "PM-directed review: [a] then [b]."

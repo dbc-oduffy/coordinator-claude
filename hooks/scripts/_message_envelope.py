@@ -277,7 +277,7 @@ def compose(
 # repo's own root, and 404s for a reader in any OTHER repo the plugin is
 # installed into (verified live from project-rag's checkout -- see the C2
 # dispatch report). `render()` was appending it verbatim ("See <anchor>."),
-# per the standing reviewer note in `derive-global-doctrine-live-copy.py`
+# per the standing reviewer note on bare anchor fragments
 # that a bare fragment (no path at all) is even less useful -- that note is
 # correct and is why the fix is NOT to strip the path down, but to resolve
 # it against the plugin root the hook is ACTUALLY running from.

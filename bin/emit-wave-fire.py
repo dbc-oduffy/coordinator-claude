@@ -1017,6 +1017,7 @@ def _emit_repair(args, repo_root: Path, trail_dir: Path, plugin_root: Path, engi
     spine_check_cli = args.spine_check_cli or pba._default_spine_check_cli(plugin_root)
     if spine_check_cli:
         repair_args["spineCheckCli"] = spine_check_cli
+    repair_args["pluginRoot"] = str(plugin_root)
     try:
         text = _bind(script_source, repair_args, args.live_engine_tree)
     except ValueError as exc:
@@ -1446,6 +1447,7 @@ def _emit_single_from_sizing(
         wave_args["spineCheckCli"] = spine_check_cli
     if arming_check_cli:
         wave_args["armingCheckCli"] = arming_check_cli
+    wave_args["pluginRoot"] = str(plugin_root)
     if args.overseer:
         wave_args["overseer"] = True
 
@@ -1987,6 +1989,7 @@ def main(argv=None) -> int:
             wave_args["spineCheckCli"] = spine_check_cli
         if arming_check_cli:
             wave_args["armingCheckCli"] = arming_check_cli
+        wave_args["pluginRoot"] = str(plugin_root)
         if args.overseer:
             wave_args["overseer"] = True
         try:

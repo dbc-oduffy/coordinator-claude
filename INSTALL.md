@@ -275,6 +275,23 @@ In a Claude Code session, run **`/coordinator:setup`**: it walks `direct_deps`, 
 engine is satisfied and emits the chain-complete banner. It installs nothing; run earlier it fails
 loud with "engine not satisfied." That is the whole install.
 
+### Consumer box: Unimatrix from the released plugin
+
+A consumer box (released `coordinator-claude` plus `claude-klabauter` only) runs Unimatrix from the
+installed plugin root, `$CLAUDE_PLUGIN_ROOT`, once a release that ships the `unimatrix-*` scripts
+is installed. Check mode first; `--install` only after it prints `in verified range`:
+
+```bash
+python3 "$CLAUDE_PLUGIN_ROOT/bin/unimatrix-install.py"            # Windows: python
+python3 "$CLAUDE_PLUGIN_ROOT/bin/unimatrix-install.py" --install
+```
+
+The relay, the mirroring supervisor and the install step all ship in that release. Bridge pipes
+are named `cc-msg-<32 hex>`; idle notices cross boxes over Unimatrix only. The released scripts
+try the far box's LAN address first and use the tunnel address only when the LAN address is
+unreachable; the tunnel is never required on the home network. Box addresses and tunnel addresses
+stay out of tracked files.
+
 ## Verifying your install
 
 Don't infer coordinator is live from the absence of errors:

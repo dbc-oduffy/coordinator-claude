@@ -32,7 +32,7 @@ Under interactive, ask once via `AskUserQuestion`:
 machine-local set publish.mirrors.coordinator_claude.path "${PATH_VALUE}"
 machine-local set repos.project_rag            "${PATH_VALUE}"
 machine-local set repos.project_rag_ue_addon   "${PATH_VALUE}"
-machine-local set repos.example_game_workbench_repo "${PATH_VALUE}"
+machine-local set repos.claude_unreal_holodeck "${PATH_VALUE}"
 ```
 
 **Do NOT write paths to `registry.local.toml` by hand-editing or heredoc.** `machine-local set` is atomic, idempotent, and sets the example for every future script that needs to populate the registry.

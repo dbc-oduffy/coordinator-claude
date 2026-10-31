@@ -7,13 +7,13 @@ Why a second contract, not a widened first one
 `_guard_runner_contract.py` earned its twelve clauses solving ONE specific
 problem: many PreToolUse guards, one stdout `hookSpecificOutput` envelope,
 one exit code, CLASS-AWARE deny-vs-additionalContext combining (at most one
-deny surfaces; every advisory concatenates). Four of the five PostToolUse
-write-path guards this contract enrolls (`derive-global-doctrine-live-copy.py`,
-`derive-setup-copies.py`, `nudge-initiative-goals-ladder.py`,
-`nudge-new-file-zero-budget-ratchets.py`) speak a DIFFERENT native protocol
+deny surfaces; every advisory concatenates). The PostToolUse
+write-path guards this contract enrolls (`derive-setup-copies.py`,
+`nudge-initiative-goals-ladder.py`, `nudge-new-file-zero-budget-ratchets.py`)
+speak a DIFFERENT native protocol
 entirely -- the Stop-family shape (`_message_envelope.CHANNEL_STOP`, or the
-identical hand-rolled stderr-write-then-`return 2` idiom the two `derive-*`
-guards use pre-`_message_envelope`): each guard EITHER writes its own prose
+identical hand-rolled stderr-write-then-`return 2` idiom
+`derive-setup-copies.py` uses pre-`_message_envelope`): each guard EITHER writes its own prose
 directly to stderr and returns `2`, OR stays silent and returns `0`. There is
 no deny/advisory class distinction here, no `permissionDecisionReason` vs
 `additionalContext` split -- just N independent "did I have something to say"
@@ -118,7 +118,6 @@ TRIPWIRE_TOKEN = "STOP-FAMILY-RUNNER-CONTRACT"
 #: `return 2`, or silent `return 0`). Filenames only (no directory prefix) -- each is a
 #: sibling of this module under coordinator/hooks/scripts/.
 ENROLLED_GUARD_MODULES: Tuple[str, ...] = (
-    "derive-global-doctrine-live-copy.py",
     "derive-setup-copies.py",
     "nudge-initiative-goals-ladder.py",
     "nudge-new-file-zero-budget-ratchets.py",
@@ -131,14 +130,6 @@ ENROLLED_GUARD_MODULES: Tuple[str, ...] = (
 #: conformance test can both source from THIS one dict rather than either
 #: re-declaring a copy.
 STOP_FAMILY_SCOPE_DESCRIPTORS = {
-    # Real scope: file_path resolves to exactly the tracked global-doctrine/CLAUDE.md path,
-    # or a hook_event_name == "SessionStart" payload -- path-shape is the only discriminant
-    # a Write|Edit|MultiEdit-scoped descriptor needs.
-    "derive-global-doctrine-live-copy.py": GuardScopeDescriptor(
-        guard_module="derive-global-doctrine-live-copy.py",
-        path_suffixes=frozenset({"CLAUDE.md"}),
-        directory_substrings=("global-doctrine/",),
-    ),
     # Real scope: file_path resolves to one of the canonical/derived rows under a setup/
     # tree. No suffix restriction: the tracked pairs are .yaml, .md, .py.
     "derive-setup-copies.py": GuardScopeDescriptor(

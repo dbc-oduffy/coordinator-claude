@@ -31,14 +31,14 @@ schema = 1
 # its path lives at "publish.mirrors.coordinator_claude.path" below. Declaring
 # it under repos.* makes every repos.* enumerator (cross-repo memo routing
 # included) offer the publish mirror as a memo destination.
-"repos.example-sim-repo"               = ""
+"repos.dronesim"               = ""
 "repos.project_rag"            = ""
 "repos.project_rag_ue_addon"   = ""
-"repos.example_game_workbench_repo" = ""
+"repos.claude_unreal_holodeck" = ""
 # Additional sibling repos (declare what you use; leave others empty if you
 # don't have them on this machine):
-"repos.example_repo"             = ""
-"repos.example_stats_repo"             = ""
+"repos.geneva_mvp"             = ""
+"repos.fifa_stats"             = ""
 "repos.experiments"            = ""
 # G-EM group-em home; empty means <settings-home>/group-em. Must lie outside every repo.
 "coordinator.group_em_home" = ""
@@ -48,14 +48,14 @@ schema = 1
 # registered during the 2026-07-14 cold-install dogfood that had no tracked
 # baseline declaration (each trips check-machine-local-regeneratability.py
 # Check 2 once classified below without a matching declaration here).
-"repos.example-os-repo"                   = ""
-"repos.example_cockpit_repo"            = ""
+"repos.delphios"                   = ""
+"repos.project_opticon"            = ""
 "repos.project_rag_template_addon" = ""
-# repos.example_store_repo and repos.example_market_data_repo are real on-disk sibling
+# repos.delphi_store and repos.market_intelligence are real on-disk sibling
 # repos that fall outside the § F8 spec's enumerated list above; their
 # registration is intentional.
-"repos.example_store_repo"              = ""
-"repos.example_market_data_repo"        = ""
+"repos.delphi_store"              = ""
+"repos.market_intelligence"        = ""
 # The doctrine repo's canonical key. It shares its path with the depersonalized
 # alias repos.example_doctrine_repo; declaring it here is what makes
 # canonical_repo_key_for_root pick it by roster rather than by tie-break.
@@ -223,28 +223,28 @@ concerns = ["project_rag", "unreal"]
 "publish.mirrors.coordinator_claude.path" = "session-accumulated-must-survive-crash"
 "external_workspaces"          = "session-accumulated-must-survive-crash"
 "stores"                       = "session-accumulated-must-survive-crash"
-"repos.example-sim-repo"               = "session-accumulated-must-survive-crash"
+"repos.dronesim"               = "session-accumulated-must-survive-crash"
 "repos.project_rag"            = "session-accumulated-must-survive-crash"
 "repos.project_rag_ue_addon"   = "session-accumulated-must-survive-crash"
-"repos.example_game_workbench_repo" = "session-accumulated-must-survive-crash"
-"repos.example_repo"             = "session-accumulated-must-survive-crash"
-"repos.example_stats_repo"             = "session-accumulated-must-survive-crash"
+"repos.claude_unreal_holodeck" = "session-accumulated-must-survive-crash"
+"repos.geneva_mvp"             = "session-accumulated-must-survive-crash"
+"repos.fifa_stats"             = "session-accumulated-must-survive-crash"
 "repos.experiments"            = "session-accumulated-must-survive-crash"
 # tasks/2026-07-14-install-dogfood-friction.md § F8 — classes for repos.*
 # keys registered during the 2026-07-14 cold-install dogfood (see matching
 # declarations above). All repos.* keys are session-accumulated-must-survive-crash
 # by definition (§13): they encode this operator's machine layout, not
 # something an idempotent script can re-derive.
-"repos.example-os-repo"                   = "session-accumulated-must-survive-crash"
-"repos.example_cockpit_repo"            = "session-accumulated-must-survive-crash"
+"repos.delphios"                   = "session-accumulated-must-survive-crash"
+"repos.project_opticon"            = "session-accumulated-must-survive-crash"
 "repos.project_rag_template_addon" = "session-accumulated-must-survive-crash"
-# repos.example_store_repo and repos.example_market_data_repo sit beyond the § F8
+# repos.delphi_store and repos.market_intelligence sit beyond the § F8
 # enumerated list (see matching declaration-block comment above). Same class
 # as every other repos.* key by definition (§13),
 # except a key written by that repo's own installer at its own install time
 # (see repos.claude_klabauter below).
-"repos.example_store_repo"               = "session-accumulated-must-survive-crash"
-"repos.example_market_data_repo"        = "session-accumulated-must-survive-crash"
+"repos.delphi_store"               = "session-accumulated-must-survive-crash"
+"repos.market_intelligence"        = "session-accumulated-must-survive-crash"
 # Operator-set: session-start-register-coordinator-content-repo-root.py only seeds it when
 # absent, never overwrites the operator's choice of clone.
 "repos.content_root"                 = "session-accumulated-must-survive-crash"

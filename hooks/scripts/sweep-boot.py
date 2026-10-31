@@ -94,17 +94,21 @@ env-opt-out convention used elsewhere in this codebase (e.g.
 Spec backlink: state/handoffs/2026-07-29-orientation-cache-stale-by-construction.md
 Spec backlink: state/audits/2026-07-29-orientation-cache-boot-facts.md § "Proposed fix" item 2
 
-Global-doctrine mirror fold-in (added 2026-08-01): a third, independent leg,
-`_derive_global_doctrine_mirror()`, invokes
-`derive-global-doctrine-live-copy.py`'s SessionStart derivation mode
-IN-PROCESS (via `importlib.util.spec_from_file_location` -- that file's own
-name is hyphenated, so it is not `import`-able by bare module name) rather
-than by subprocess. That derivation hook was registered ONLY on
-PostToolUse(Write|Edit|MultiEdit), so it was structurally blind to the most
-common way its tracked source actually changes on this shared-branch repo:
-`git pull`/`checkout`/`merge`/a peer session's commit landing between
-sessions. Its own module already carries an inert SessionStart mode built
-for exactly this gap -- this leg is what wires it up.
+Global-doctrine mirror leg: a third, independent leg,
+`_derive_global_doctrine_mirror()`, runs the engine body
+`coordinator_core.hooks.derive_global_doctrine_live_copy` IN-PROCESS
+(`evaluate({"hook_event_name": "SessionStart"})`) rather than by subprocess,
+with the engine root resolved through `resolve_claude_klabauter_root()` and placed on
+`sys.path`. The write-path derivation only fires on a tracked-source edit, so
+it is blind to `git pull`/`checkout`/`merge`/a peer session's commit landing
+between sessions; this leg closes that gap at boot.
+
+The engine's SessionStart branch re-derives more than the former sibling
+script did: it also refreshes the published copy under
+`coordinator/templates/global-doctrine/` (CLAUDE.md and rules/), and it
+returns an `OK <path>` note per changed copy, so stderr carries one advisory
+line whenever a copy moved. It also retires superseded rules files by explicit
+name (`_RETIRED_RULES_FILES`) from the live and published rules dirs.
 
 Deliberately NOT given its own `hooks.json` SessionStart entry: that block
 carries a standing PM directive (2026-07-15, full-kill-keep-fast-
@@ -124,14 +128,13 @@ hook entry should read this paragraph first.
 Failure handling matches the two legs above: never allowed to affect this
 module's exit code or the boot-sweep leg's byte-parity stdout contract,
 never raises past `_derive_global_doctrine_mirror()` itself, and stays
-silent on stdout in every case (the wrapped derivation module speaks only to
-stderr, and only when it actually re-derives the live copy or hits a genuine
-read/write failure -- see that module's own docstring; a clean, in-sync boot
-prints nothing new here). Called LAST in `main()`, after both the boot-sweep
-and orientation-selfheal legs, so a failure in this leg can never pre-empt
-either of the higher-priority legs ahead of it.
+silent on stdout in every case (advisory text goes to stderr only, and only
+when a copy actually moved or a genuine read/write failure occurred; a clean,
+in-sync boot prints nothing new here). Called LAST in `main()`, after both the
+boot-sweep and orientation-selfheal legs, so a failure in this leg can never
+pre-empt either of the higher-priority legs ahead of it.
 
-Spec backlink: coordinator/hooks/scripts/derive-global-doctrine-live-copy.py
+Spec backlink: coordinator_core/hooks/derive_global_doctrine_live_copy.py (engine)
 Spec backlink: coordinator/hooks/REGISTRATIONS.md (SessionStart `sweep-boot.py`
   section)
 Spec backlink: coordinator/tests/test_guard_hook_generation_self_probe.py::
@@ -140,7 +143,7 @@ Spec backlink: coordinator/tests/test_guard_hook_generation_self_probe.py::
 
 from __future__ import annotations
 
-import importlib.util
+import importlib
 import os
 import random
 import signal
@@ -869,75 +872,56 @@ def _reap_sessions(root: Optional[str]) -> None:
 
 
 def _load_global_doctrine_mirror_module():
-    """Best-effort in-process import of `derive-global-doctrine-live-copy.py`
-    (sibling script, same directory). Its filename is hyphenated, so it is
-    not `import`-able by bare module name -- resolved via
-    `importlib.util.spec_from_file_location` from `Path(__file__)`, matching
-    the pattern this repo's own hook tests already use for the same reason
-    (e.g. `coordinator/tests/test_sweep_boot_orientation_selfheal.py`'s
-    `_load_module` helper, and the sibling hook-scripts test suite's own
-    equivalent).
+    """Best-effort in-process import of the engine body
+    `coordinator_core.hooks.derive_global_doctrine_live_copy`, with the engine
+    root from `resolve_claude_klabauter_root()` placed on `sys.path`.
 
-    Returns None on ANY import failure (missing sibling file, syntax error,
-    partial deploy) -- the caller below treats that identically to "nothing
-    to do", per this leg's own never-break-the-sweep contract.
+    Returns None on ANY failure (no engine root, import error) -- the caller
+    treats that as "nothing to do", per this leg's never-break-the-sweep
+    contract.
     """
-    hook_path = Path(__file__).resolve().parent / "derive-global-doctrine-live-copy.py"
-    spec = importlib.util.spec_from_file_location(
-        "global_doctrine_mirror_inline", hook_path
-    )
-    if spec is None or spec.loader is None:
-        return None
-    module = importlib.util.module_from_spec(spec)
     try:
-        # exec_module() can raise
-        # FileNotFoundError (missing sibling) or SyntaxError (broken sibling),
-        # neither of which the spec/loader check above catches. Contain them
-        # here so the docstring's "returns None on ANY import failure" claim
-        # is actually true, rather than relying implicitly on the caller's
-        # own try/except.
-        spec.loader.exec_module(module)
+        root = resolve_claude_klabauter_root()
+        if not root:
+            return None
+        from _engine_root import arm_lazy_ops, place_engine_root_on_path
+
+        arm_lazy_ops()
+        place_engine_root_on_path(root)
+        return importlib.import_module(
+            "coordinator_core.hooks.derive_global_doctrine_live_copy"
+        )
     except Exception:
         return None
-    return module
 
 
 def _derive_global_doctrine_mirror() -> None:
     """Best-effort, in-process SessionStart re-derivation of the global-doctrine
-    live copy -- see module docstring's "Global-doctrine mirror fold-in" section
+    live copy -- see module docstring's "Global-doctrine mirror leg" section
     for why this lives here instead of its own `hooks.json` entry, and for the
     failure-handling contract this function exists to enforce.
 
-    Deliberately does NOT go through the sibling module's own `main()` (which
-    parses a JSON stdin payload to decide SessionStart-vs-Write|Edit mode) --
-    this call site already KNOWS it is the SessionStart case, so it drives the
-    sibling module's own building-block functions directly: the OSS-clobber
-    dev-repo gate first (load-bearing, not defense-in-depth, exactly as that
-    module's own docstring requires), then the tracked-source existence check,
-    then the shared read/compare/write path. Any exception anywhere in that
-    chain -- including the import itself -- is swallowed here and reported to
-    stderr only; it must never propagate past this function.
+    Calls the engine body's `evaluate({"hook_event_name": "SessionStart"})`,
+    which owns the dev-repo gate, the live/published copy-in and the superseded
+    rules retirement, and writes the rendered advisory (if any) to stderr. Any
+    exception anywhere in that chain -- including the import -- is swallowed
+    here and reported to stderr only; it must never propagate past this
+    function.
 
-    The containment scope here is
-    `Exception` subclasses only, not `BaseException` -- a `SystemExit` or
-    `KeyboardInterrupt` raised anywhere in this chain would still propagate.
-    No path in this module currently raises either, so this is not
-    exploitable today; deliberately not widened to `except BaseException`,
-    since swallowing those at a boot hook would be worse than the gap it
-    closes.
+    The containment scope here is `Exception` subclasses only, not
+    `BaseException` -- swallowing `SystemExit`/`KeyboardInterrupt` at a boot
+    hook would be worse than the gap it closes.
     """
     try:
         module = _load_global_doctrine_mirror_module()
         if module is None:
             return
-        if not module._is_dev_repo():
+        message = module.evaluate({"hook_event_name": "SessionStart"})
+        if message is None:
             return
-        tracked = module._tracked_path()
-        if tracked.is_file():
-            module._derive_live_copy(tracked, module._live_path())
-        for rules_tracked in module._tracked_rules_files():
-            rules_live = module._live_rules_dir() / rules_tracked.name
-            module._derive_live_copy(rules_tracked, rules_live)
+        from coordinator_core.hooks.support.message_envelope import render
+
+        print(render(message), file=sys.stderr)
     except Exception as exc:
         print(
             f"sweep-boot.py: WARN: global-doctrine mirror derivation raised — {exc}",

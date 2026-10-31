@@ -540,7 +540,7 @@ registrations apply from the next session; nothing else waits on it.
 
 > Your `~/.claude` is the surface you evolve — git-track it and back it up;
 > the coordinator plugin source lives in the doctrine-plane clone
-> (`repos.content_root`), resolved live via `claude-author`. Bare `claude` works
+> (`repos.doe_claude`), resolved live via `claude-author`. Bare `claude` works
 > via the installed `coordinator` function — it reads the `.content-root` pointer and
 > delegates to `claude-author` automatically; bare `claude` stays the plain binary. If not yet active in your current
 > shell, run `claude-author` directly or open a new terminal. Never copy plugin

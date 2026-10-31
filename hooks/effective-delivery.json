@@ -1,10 +1,10 @@
 {
   "x-effective-delivery": {
     "version": 1,
-    "generated_from_sha": "b952749469b58596ca2caac55bc7953e4226b7c5",
-    "generated_at": "2026-10-21T06:05:29Z",
+    "generated_from_sha": "93ab49f5d47abd258ae96b876a4992a1e68403a2",
+    "generated_at": "2026-10-30T19:17:46Z",
     "generated_from_dirty_tree": true,
-    "engine_source_sha": "4f027d43bac38860ec896c54f1badef0e00d2e11",
+    "engine_source_sha": "bb681478cccf2b29c009d0dfe32a589bdfdfa6fd",
     "engine_source_dirty_tree": false,
     "engine_source_resolution": "resolved-engine/published-target",
     "carriers": {
@@ -372,6 +372,16 @@
             ]
           },
           {
+            "id": "block_published_engine_mirror_write",
+            "script": "write_guards/block_published_engine_mirror_write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
             "id": "block_sizing_object_schema_violation",
             "script": "write_guards/block_sizing_object_schema_violation.py",
             "tool_names": [
@@ -562,13 +572,6 @@
             ]
           },
           {
-            "id": "nudge_new_sh_file_naked_python",
-            "script": "write_guards/nudge_new_sh_file_naked_python.py",
-            "tool_names": [
-              "Write"
-            ]
-          },
-          {
             "id": "nudge_outbox_draft_frontmatter_shape",
             "script": "write_guards/nudge_outbox_draft_frontmatter_shape.py",
             "tool_names": [
@@ -741,17 +744,6 @@
         "matcher": "Write|Edit|MultiEdit|Bash|PowerShell",
         "guards": [
           {
-            "id": "derive-global-doctrine-live-copy.py",
-            "script": "scripts/derive-global-doctrine-live-copy.py",
-            "tool_names": [
-              "Write",
-              "Edit",
-              "MultiEdit",
-              "Bash",
-              "PowerShell"
-            ]
-          },
-          {
             "id": "derive-setup-copies.py",
             "script": "scripts/derive-setup-copies.py",
             "tool_names": [
@@ -886,21 +878,6 @@
             ]
           },
           {
-            "id": "block-fleet-delegation-creation",
-            "script": "bash_guards/block_fleet_delegation_creation.py",
-            "tool_names": [
-              "Bash",
-              "PowerShell"
-            ]
-          },
-          {
-            "id": "block-hand-authored-handoff-creation",
-            "script": "bash_guards/block_hand_authored_handoff_creation.py",
-            "tool_names": [
-              "Bash"
-            ]
-          },
-          {
             "id": "block-home-root-bash-write",
             "script": "bash_guards/block_home_root_bash_write.py",
             "tool_names": [
@@ -925,24 +902,8 @@
             ]
           },
           {
-            "id": "block-disarm-marker-sentinel-creation",
-            "script": "bash_guards/block_disarm_marker_sentinel_creation.py",
-            "tool_names": [
-              "Bash",
-              "PowerShell"
-            ]
-          },
-          {
             "id": "block-stash-destruction",
             "script": "bash_guards/block_stash_destruction.py",
-            "tool_names": [
-              "Bash",
-              "PowerShell"
-            ]
-          },
-          {
-            "id": "block-subagent-stash-creation",
-            "script": "bash_guards/block_subagent_stash_creation.py",
             "tool_names": [
               "Bash",
               "PowerShell"
@@ -983,14 +944,6 @@
           {
             "id": "deploy-dirty-tree",
             "script": "bash_guards/guard_deploy_dirty_tree.py",
-            "tool_names": [
-              "Bash",
-              "PowerShell"
-            ]
-          },
-          {
-            "id": "block-unreal-engine-resave",
-            "script": "bash_guards/block_unreal_engine_resave.py",
             "tool_names": [
               "Bash",
               "PowerShell"
@@ -1092,16 +1045,8 @@
             ]
           },
           {
-            "id": "block-subagent-grant-acquisition",
-            "script": "bash_guards/block_subagent_grant_acquisition.py",
-            "tool_names": [
-              "Bash",
-              "PowerShell"
-            ]
-          },
-          {
-            "id": "block-subagent-findings-reject",
-            "script": "bash_guards/block_subagent_findings_reject.py",
+            "id": "guard-disk-fill",
+            "script": "bash_guards/guard_disk_fill.py",
             "tool_names": [
               "Bash",
               "PowerShell"
@@ -1110,14 +1055,6 @@
           {
             "id": "guard-post-executor-verification",
             "script": "bash_guards/guard_post_executor_verification.py",
-            "tool_names": [
-              "Bash",
-              "PowerShell"
-            ]
-          },
-          {
-            "id": "block-subagent-guard-grant",
-            "script": "bash_guards/block_subagent_guard_grant.py",
             "tool_names": [
               "Bash",
               "PowerShell"
@@ -1150,14 +1087,6 @@
           {
             "id": "block-dev-repo-sentinel-removal-advisory",
             "script": "bash_guards/block_dev_repo_sentinel_removal.py",
-            "tool_names": [
-              "Bash",
-              "PowerShell"
-            ]
-          },
-          {
-            "id": "block-venv-creation",
-            "script": "bash_guards/block_venv_creation.py",
             "tool_names": [
               "Bash",
               "PowerShell"
@@ -1248,6 +1177,20 @@
             "tool_names": [
               "Bash",
               "PowerShell"
+            ]
+          },
+          {
+            "id": "block-em-post-fire-product-write",
+            "script": "bash_guards/guard_em_post_fire_shell_write.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "xs-lane-shell-write",
+            "script": "bash_guards/guard_xs_lane_shell_write.py",
+            "tool_names": [
+              "Bash"
             ]
           },
           {
@@ -1461,6 +1404,11 @@
             "tool_names": []
           },
           {
+            "id": "session_start_unreal_em_notice",
+            "script": "scripts/session-start-unreal-em-notice.py",
+            "tool_names": []
+          },
+          {
             "id": "guard_hook_generation_self_probe",
             "script": "scripts/guard-hook-generation-self-probe.py",
             "tool_names": []
@@ -1504,6 +1452,16 @@
           {
             "id": "session_start_ensure_group_em_home",
             "script": "scripts/session-start-ensure-group-em-home.py",
+            "tool_names": []
+          },
+          {
+            "id": "session_start_disk_budget",
+            "script": "scripts/session-start-disk-budget.py",
+            "tool_names": []
+          },
+          {
+            "id": "session_start_scratch_retention",
+            "script": "scripts/session-start-scratch-retention.py",
             "tool_names": []
           },
           {
@@ -1560,6 +1518,11 @@
           {
             "id": "group_em_park_spool",
             "script": "scripts/group-em-park-spool.py",
+            "tool_names": []
+          },
+          {
+            "id": "stop_disk_budget_sweep",
+            "script": "scripts/stop-disk-budget-sweep.py",
             "tool_names": []
           }
         ]
@@ -1727,7 +1690,11 @@
       {
         "id": "postuse-split-readme-autosync.py",
         "script": "scripts/postuse-split-readme-autosync.py",
-        "tool_names": []
+        "tool_names": [
+          "Edit",
+          "MultiEdit",
+          "Write"
+        ]
       },
       {
         "id": "postuse-subagent-compaction-warning.py",
@@ -1743,6 +1710,13 @@
         "id": "postusefailure-path-fault-advisory.py",
         "script": "scripts/postusefailure-path-fault-advisory.py",
         "tool_names": []
+      },
+      {
+        "id": "preuse-monitor-dispatch.py",
+        "script": "scripts/preuse-monitor-dispatch.py",
+        "tool_names": [
+          "Monitor"
+        ]
       },
       {
         "id": "preuse-sendmessage-dispatch.py",
@@ -1772,6 +1746,11 @@
           "resume",
           "startup"
         ]
+      },
+      {
+        "id": "subagent-start-unreal-training-notice.py",
+        "script": "scripts/subagent-start-unreal-training-notice.py",
+        "tool_names": []
       },
       {
         "id": "subagent-zero-tool-use-detect.py",

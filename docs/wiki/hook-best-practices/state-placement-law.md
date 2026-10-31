@@ -154,7 +154,7 @@ encapsulated inside `machine-local get`):
 
 The doctrine repo's authoring-repo root — the *doctrine plane*, sibling to `CLAUDE_KLABAUTER_ROOT` (the *engine
 plane*). Resolver primitive `coordinator_content_root` (engine-native — `coordinator_core/ops/coordinator_content_root.py`; there is NO `lib/coordinator-content-root.sh` and never was, so do not reach for a sourced shell form. Reached in practice through `lib/coordinator-state-root.py --central --subject doctrine`, which routes to the doctrine plane), same outer chain
-shape as `CLAUDE_KLABAUTER_ROOT`: `$REPO_CONTENT_ROOT` env → `machine-local get repos.content_root` → hard-error +
+shape as `CLAUDE_KLABAUTER_ROOT`: `$REPO_CONTENT_ROOT` env → `machine-local get repos.doe_claude` → hard-error +
 remediation. Callers in the central write loop wrap it and degrade (WARN + skip); the primitive
 itself fails loud. Introduced by the doctrine-repo-authoring seam rewire (W2.1).
 
@@ -281,7 +281,7 @@ These surfaces are NOT subject to the placement law:
 - Decisions: `docs/decisions/`
 - Settings and config: `settings.json`, `.mcp.json`, `CLAUDE.md`, the (now-removed) `the (now-removed) meta-repo local-doctrine file`
 - `docs/README.md` (meta-repo master index — stays; updated to point cross-repo to engine-repo-resident plans)
-- **`.content-root`** — **a disposable, non-authoritative mirror under `~/.claude`.** The durable, authoritative coordinator-root anchor is now the settings-home machine-local registry (`~/.coordinator-claude-settings/machine-local/registry.local.toml`, key `repos.content_root`), mirroring the engine repo's own analogous root-anchor file. `~/.claude/.content-root` remains as a regenerated, untracked cache (never a committed per-machine value); it is downstream of the registry, not the source of truth. the engine repo's `coordinator/bin/coordinator-settings-home` (the settings-home resolution seam).
+- **`.content-root`** — **a disposable, non-authoritative mirror under `~/.claude`.** The durable, authoritative coordinator-root anchor is now the settings-home machine-local registry (`~/.coordinator-claude-settings/machine-local/registry.local.toml`, key `repos.doe_claude`), mirroring the engine repo's own analogous root-anchor file. `~/.claude/.content-root` remains as a regenerated, untracked cache (never a committed per-machine value); it is downstream of the registry, not the source of truth. the engine repo's `coordinator/bin/coordinator-settings-home` (the settings-home resolution seam).
 - **`~/.claude/setup/`** — coordinator-written, coordinator-read, authoritative, durable, and
   deliberately RETAINED under `~/.claude` (DR-072 RETAINED-UNDER-CLAUDE): nothing reads `setup/` from settings-home at runtime,
   and migrating it would create two diverging copies the fail-loud divergent-file guard then

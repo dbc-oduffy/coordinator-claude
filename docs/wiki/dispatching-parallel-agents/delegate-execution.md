@@ -69,6 +69,8 @@ Each wave is a checkpoint. Prefer to never batch multiple waves before committin
 
 #### Dispatch
 
+**With the example-game-repo-control plugin installed, Unreal editor, MetaHuman and asset work dispatches to a `example-game-repo-control:*` specialist, never `general-purpose` or `coordinator:executor`.** Pick the specialist from the job shapes in `example-game-repo-control/routing/ue-job-shapes.json` (example-game-repo-owned; cite, never copy). An executor that receives such a brief returns `route to example-game-repo specialist <name>`: re-dispatch to that specialist. Without the plugin nothing changes. See [with-example-game-repo-installed-ue-work-routes-to-a-specialist](../coordinator-tripwires/with-example-game-repo-installed-ue-work-routes-to-a-specialist.md).
+
 #### Briefing Concreteness
 
 Prefer enumerated targets over described scope. "Apply this regex to these 7 files" beats "apply this regex everywhere it's needed." When the work is enumerable, enumerate it in the prompt.

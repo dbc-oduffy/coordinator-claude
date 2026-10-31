@@ -28,11 +28,13 @@ from typing import Optional, Sequence
 
 from disk_budget import (
     TERMINAL_RUN_STATUSES,
+    FreeProbe,
     Policy,
     Roots,
     SweepReport,
     Unit,
     resolve_roots,
+    under_volume_pressure,
 )
 
 __all__ = ["prune_projects"]
@@ -276,11 +278,13 @@ def prune_projects(
     now: Optional[float] = None,
     live_sessions: Sequence[str] = (),
     apply: bool = True,
+    free_probe: Optional[FreeProbe] = None,
 ) -> SweepReport:
     """Prune ~/.claude/projects under `policy`; `deadline` is an absolute time.monotonic() value.
 
     Returns a SweepReport whose `freed_bytes` counts every deleted unit (`apply=False` counts what
-    would be deleted) and whose `still_over` is true when the remaining total exceeds the cap.
+    would be deleted) and whose `still_over` is true only when the remaining total exceeds the cap
+    AND the volume's free bytes are below `policy.volume_free_floor` (`free_probe(path) -> bytes`).
     """
     roots = roots or resolve_roots()
     now = time.time() if now is None else now
@@ -382,5 +386,7 @@ def prune_projects(
         if u.paths not in deleted:
             remove(u, True)
 
-    report.still_over = state["total"] > policy.projects_cap
+    report.still_over = state["total"] > policy.projects_cap and under_volume_pressure(
+        policy, [roots.projects], free_probe
+    )
     return report

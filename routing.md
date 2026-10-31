@@ -104,7 +104,7 @@ Domain plugins MUST provide `routing.md` at the plugin root with this structure:
 Per-project config in `coordinator.local.md`:
 
     ---
-    project_type: game-dev   # general | game-dev | web-dev | data-science
+    project_type: game-dev   # general | game-dev | web-dev | data-science | unreal-engine
     project_subtypes:        # optional free-form tags; used for engine-specific routing
       - unreal
     active_reviewers:        # optional explicit override
@@ -113,6 +113,8 @@ Per-project config in `coordinator.local.md`:
     ---
 
 `project_type` is a single string. `project_subtypes` is an optional list of free-form tags (e.g. `unreal`, `unity`) that enable engine-specific or stack-specific routing within the declared type. Downstream consumers do best-effort matching; unknown subtypes are silently ignored.
+
+`project_type: unreal-engine` (or `game-dev` with `project_subtypes: unreal`) selects `sid` (`game-dev:staff-game-dev`) as the default Opus reviewer for plans and code. For `project_type: unreal-engine` alone, `ue_review_signal.declares_unreal_engine` makes the `unreal` signal fire on every plan in the repo, doc-only plans included. `coordinator:docs-checker` runs on every plan and diff there, with no EM skip.
 
 If no `.local.md` exists, default to core-only (the Staff Engineer + the Director of Engineering) for universal routing. The Data Science Reviewer, the Front-End Reviewer, and the UX Reviewer are always-registered signal-gated reviewers and activate by signal match regardless of `project_type`.
 
@@ -205,7 +207,7 @@ F1 reconciliation, PM 2026-07-24) — verbatim data, relocated home. -->
 | Domain Signal | Default Pair |
 |---|---|
 | Architecture / infrastructure | `the Staff Engineer` + `vp-product` |
-| Game dev / Unreal | `sid` + `the Staff Engineer` |
+| Game dev / Unreal (incl. `project_type: unreal-engine`) | `sid` + `the Staff Engineer` |
 | Frontend / UI | `the Front-End Reviewer` + `the UX Reviewer` |
 | Data science / ML | `the Data Science Reviewer` + `the Staff Engineer` |
 | Cross-cutting / unclear | `the Staff Engineer` + `vp-product` |

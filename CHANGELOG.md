@@ -4,6 +4,19 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.6.13] — 2026-10-31
+
+- **Unimatrix key pinning:** every relay ssh call passes `-o IdentitiesOnly=yes`, so the bridge, inbox and roster offer only the Unimatrix key and never an agent key.
+- **LAN first:** Unimatrix tooling tries a far box's LAN address first and falls back to its tunnel address only when the LAN is unreachable; the tunnel is for off-network boxes and is never required at home.
+- **Relay delivery failures:** a failed relay writes a delivery-failure notice (target and ssh error) into the sender's inbox and records the send in `<settings home>/unimatrix/deliveries.jsonl`; `unimatrix-bridge.py status` lists recent sends as `delivered` or `FAILED`.
+
+## [4.6.12] — 2026-10-31
+
+- **Unimatrix:** cross-account box-to-box `SendMessage` ships as a documented mechanism (`unimatrix-mechanism.md`): bridge, forced-command relay with a `source` mode, inbox and rekey, installed by `unimatrix-install.py`; Windows pipe names follow `cc-msg-<32 hex>` and mirrors run both ways.
+- **One Group EM per network:** a single G-EM spans every box; `/group-em` on any box displaces the holder on any other (last writer wins, keyed by box plus session id), and the displaced holder is told to release its watch.
+- **Key naming:** keys are titled `<role>: <from> → <to>`, one per role per box pair: `Unimatrix-01` break-glass full shell (full mesh), `Unimatrix-Zero` relay only, `Unimatrix-02` project-rag tunnel only. Every key is `from=`-pinned.
+- **Consumer boxes:** a box without the authoring repos joins Unimatrix through the released installer (see `INSTALL.md` and `box-onboarding`).
+
 ## [4.6.11] — 2026-10-30
 
 - **Friction reporting:** with no memo route (a cloud session or an OSS install), file a GitHub issue on public `dbc-oduffy/coordinator-claude` (doctrine) or `dbc-oduffy/claude-klabauter` (engine). The EM that owns the friction fixes it rather than memoing itself.

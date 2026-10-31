@@ -24,6 +24,13 @@ plan paths, their `bar:` / `seam:` lines and the bar's refusal.
   `coordinator_core.roadmap.census.ALLOWED_FORM` -- "one pipeline of read-only commands (grep, rg, find, ls, wc, sed, awk, jq, git <read>, ...) joined by | && || ; -- `python <script>` / `python -m <module>` only when the target is a literal git-tracked file of this repo (no $VAR, no glob, no untracked or site-packages target); no `python -c`, no `$( )` or backticks, no `for`/`while` loops, no redirect except to /dev/null; a loop over N things is N census entries, or one `grep -c`/`find | wc -l` over all of them" --
   or, for a live check that cannot take that form, move it to execution-time evidence
   (`plan.tasks.mutate` `evidence-append`). Never delete the premise to clear the refusal.
+- Repair-class findings (`coordinator/docs/wiki/planning/plan-blitz.md` § "Repair-class and halt-class
+  findings") are repaired in place, and the run continues; none is a halt. Beyond the census row, edit:
+  a class-1 citation to the `corrected:` value the premise-checker's evidence states; a register row
+  a mid-run `workflow.revise` added but the plan lacks (copy the ledger row verbatim); a class-5
+  `UNCHECKABLE` premise into an execution-time falsifier row (`plan.tasks.mutate` `evidence-append`).
+  Report each repair in your summary. Only a scope or direction call is halt-class: surface it per
+  the last rule and stop short of editing it.
 - No `ui_carve_out`: a proposed carve-out is an `Escalate to PM` line in your summary.
 - No scaffold, no `status` change, no `mise_prepped_*` key, no body edit beyond a named class.
 - Never fill a capability row with a plausible guess to clear a refusal. Declare empty only where

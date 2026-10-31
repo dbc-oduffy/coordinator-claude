@@ -1,5 +1,5 @@
-"""SessionStart hook — self-heals `engine.working_repos.content_root` AND
-`repos.content_root` in the machine-local registry.
+"""SessionStart hook — self-heals `engine.working_repos.doe_claude` AND
+`repos.doe_claude` in the machine-local registry.
 
 Purpose: DR-132
 (docs/decisions/DR-132-engine-working-repos-is-its-own-namespace-not-a-repos-star-inference.md,
@@ -61,11 +61,11 @@ succeeds, since it shares no state with them. See that function's own
 docstring for the full contract gap it closes.
 
 Second key, `repos.content_root` — the only sibling-map key this hook writes;
-the legacy twin `repos.content_root` is read-only here. Write-when-absent-only,
+the legacy twin `repos.doe_claude` is read-only here. Write-when-absent-only,
 not write-when-different: this is the engine's own canonical `content_root`
 resolution anchor (`coordinator_core.trusted_root_guard._content_root`,
 `OperatorConfigError` on `''`), a SEPARATE namespace from
-`engine.working_repos.content_root` by design (DR-132 — do not merge them).
+`engine.working_repos.doe_claude` by design (DR-132 — do not merge them).
 Unlike the `engine.working_repos.*` key above, the content root is
 operator-set and a box may legitimately hold more than one doctrine-repo clone with
 the operator pointing the sibling map at whichever one they're using —
@@ -78,7 +78,7 @@ the same wrong-repo guard and written through the same
 `_write_registry_value` seam as the first key.
 
 Write path: the sanctioned CLI writer, `machine-local set
-engine.working_repos.content_root <path>` — never a hand-edit of the registry
+engine.working_repos.doe_claude <path>` — never a hand-edit of the registry
 TOML (a concurrent session may be writing it; see
 `docs/wiki/hook-best-practices/machine-local-registry.md` § "Use this instead of editing
 registry files by hand"). Delegated to `_registry_write.machine_local_set`,
@@ -175,9 +175,9 @@ except Exception:
         return None
 
 
-_REGISTRY_KEY = "engine.working_repos.content_root"
+_REGISTRY_KEY = "engine.working_repos.doe_claude"
 _CONTENT_ROOT_REGISTRY_KEY = "repos.content_root"
-_REPOS_REGISTRY_KEY = "repos.content_root"  # legacy registry key: read-only, never written
+_REPOS_REGISTRY_KEY = "repos.doe_claude"  # legacy registry key: read-only, never written
 _SENTINEL_NAME = ".coordinator-dev-repo"
 _EXPECTED_SLUG = "coordinator-content-repo"
 
@@ -282,7 +282,7 @@ def _scan_for_doe_clone(payload_cwd: "Optional[str]") -> "Optional[Path]":
     publish mirror (a `directory` marketplace) while the fleet's real clones
     sit somewhere else entirely — under the session's own working area, with
     no path relation to the mirror. Nothing `__file__`-anchored can reach
-    them, so nothing registered `repos.content_root` or wrote `.content-root`, and
+    them, so nothing registered `repos.doe_claude` or wrote `.content-root`, and
     every no-launcher fence refused with an installer remedy the container
     has no install to run.
 
@@ -332,7 +332,7 @@ def _write_content_root_pointer(root_str: str) -> None:
 
     Write-when-absent-or-different: an operator-written pointer that already
     names this clone is left untouched, and a pointer naming a DIFFERENT
-    clone is overwritten. `main` never reaches this when `repos.content_root`
+    clone is overwritten. `main` never reaches this when `repos.doe_claude`
     names another genuine clone (`_registry_names_other_clone`): the registry
     is the operator's choice, and only a session from the registered clone
     rewrites the pointers.
@@ -552,7 +552,7 @@ def _same_path(a: str, b: str) -> bool:
 
 def _maybe_seed_content_root(reg_dir, root_str: str) -> None:
     """Write-when-absent-only seed for `repos.content_root` — see module
-    docstring's "Second key" section. Never writes `repos.content_root`. A
+    docstring's "Second key" section. Never writes `repos.doe_claude`. A
     non-empty content root is the operator's choice and is left alone; a
     legacy value naming a different path also blocks the seed.
     """

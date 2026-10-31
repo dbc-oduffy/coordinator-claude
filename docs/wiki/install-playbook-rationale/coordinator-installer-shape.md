@@ -450,7 +450,7 @@ Pre-existing installs may still carry real files under `~/.claude/bin` from befo
 
 ### example-game-repo repo discovery uses wrong env var as primary
 
-`/example-game-repo:doctor` repo-discovery routing uses `EXAMPLE_GAME_REPO_REPO` (deprecated env var) as its primary lookup instead of `machine-local get repos.example-game-repo`. Operators who populate `registry.local.toml` with `repos.example-game-repo` but don't also set `EXAMPLE_GAME_REPO_REPO` hit the cwd-marker check or hard error silently. Fix: replace with `$(machine-local get repos.example-game-repo --default "")`.
+`/example-game-repo:doctor` repo-discovery routing uses `EXAMPLE_GAME_REPO_REPO` (deprecated env var) as its primary lookup instead of `machine-local get repos.holodeck`. Operators who populate `registry.local.toml` with `repos.holodeck` but don't also set `EXAMPLE_GAME_REPO_REPO` hit the cwd-marker check or hard error silently. Fix: replace with `$(machine-local get repos.holodeck --default "")`.
 
 ### project-rag:doctor hardcodes a machine-specific drive letter
 

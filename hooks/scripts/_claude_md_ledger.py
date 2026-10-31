@@ -14,7 +14,7 @@ Neither enforcement point defines a rival predicate -- both import from here.
 
 REPOINTED AND WIDENED (C7a, `docs/plans/2026-07-30-boot-doctrine-cut-and-
 refill-gate.md` § C7a). The gate used to fire on `~/.claude/CLAUDE.md`
-ONLY -- the DERIVED live copy `derive-global-doctrine-live-copy.py` writes
+ONLY -- the DERIVED live copy the engine's `hooks.derive_global_doctrine_live_copy` writes
 via `shutil.copyfile`, invisible to every PreToolUse hook. Agents author
 `global-doctrine/CLAUDE.md`, not the derived copy, so a gate pointed only at
 the derived copy was structurally unreachable on the surface agents actually
@@ -424,7 +424,7 @@ def resolve_governed_surface(
     resolves to, or `None` if it is not a governed surface at all.
 
     Recognizes each tracked authoring surface directly, AND -- for
-    defense-in-depth, since `derive-global-doctrine-live-copy.py` writes the
+    defense-in-depth, since the engine's `hooks.derive_global_doctrine_live_copy` writes the
     derived `~/.claude/CLAUDE.md` copy via `shutil.copyfile` with no tool
     call in the path, so no PreToolUse hook ever sees that write on its own
     -- a direct edit to the derived global copy, mapped back onto

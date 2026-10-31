@@ -71,6 +71,13 @@ Route by row:
 
 ## 2. Draft the residue
 
+**Repair-class and halt-class findings:** a
+mechanically repairable finding (a class-1 citation corrected from the checker's own evidence, a
+register row a mid-run revise added, a class-5 UNCHECKABLE premise converted to an execution-time
+falsifier row) is repaired in place by the residue agent and the run continues. Only a scope or
+direction call halts and hands the EM `rule_and_refire`; a repair-only resume carries prior review
+verdicts once the engine reuse lands (`plan-blitz.md` § "Repair-class and halt-class findings").
+
 Residue the loop cannot fix mechanically is authorship: the bar asks what only a plan's author
 knows. `mise-prep-run` emits it as the **residue-author workflow stage** and prints a
 `Workflow({scriptPath})` line: **fire that line** — never compose the stage by hand, and never a

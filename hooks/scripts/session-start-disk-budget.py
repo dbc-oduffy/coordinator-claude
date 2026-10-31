@@ -7,9 +7,10 @@ Runs only inside a live coordinator session: the async SessionStart leg (folded 
 pass under `Policy.deadline_s`, then spawns this same script as a detached `--child --max-wall-s N`
 that runs the full sweep (uv clean included) under `sweep_lock`; the child's monotonic deadline is
 its hard cap, and it never spawns, re-arms or persists anything beyond the stamp, `sweeps.jsonl`
-and the over-budget notice. A child sweep that ends still over budget writes `over-budget.json`
-(read by the sync dispatcher, which tells the session to SendMessage the live Group EM) and a
-record to the repo's `state/housekeeping-failures.log`; one that ends under budget clears it.
+and the over-budget notice. Only a child sweep whose result carries `still_over` true (the swept
+volume is below its free floor; absent reads as not-over) writes `over-budget.json` (free_bytes,
+floor_bytes; an operator log, never read into session context) and a record to the repo's
+`state/housekeeping-failures.log`; any other ending clears the notice.
 
 `run_sweep` is shared with `coordinator/bin/disk-budget-sweep.py`. Fail-open: any exception is
 swallowed, boot is never blocked, and `main` returns 0.
@@ -155,14 +156,12 @@ def _sweep(policy, roots, env, wall, cwd, runner, apply, fast) -> dict:
         policy, deadline, roots=roots, runner=runner, apply=apply,
         embedder_model=env.get(EMBEDDER_MODEL_ENV, ""),
     )
-    return _finish(projects, cache, wall, cwd, stamp, state, apply, policy, roots, env, deadline)
+    return _finish(projects, cache, wall, cwd, stamp, state, apply, roots, env)
 
 
-def _pressure(policy, deadline, roots, env, wall) -> dict:
-    """Volume free bytes vs its floor, and bytes a dry-run projects pass could still delete (non-live)."""
+def _pressure(roots, env) -> dict:
+    """Volume free bytes vs its floor, for the operator-facing pressure record."""
     import shutil
-
-    from disk_budget_projects import prune_projects
 
     try:
         floor = int(env.get(FREE_FLOOR_ENV, DEFAULT_FREE_FLOOR))
@@ -172,20 +171,16 @@ def _pressure(policy, deadline, roots, env, wall) -> dict:
         free = shutil.disk_usage(str(roots.state_dir.parent if roots.state_dir.parent.exists() else Path.home())).free
     except OSError:
         free = None
-    try:
-        deletable = prune_projects(policy, deadline, roots=roots, now=wall, apply=False).freed_bytes
-    except Exception:
-        deletable = None
-    return {"free_bytes": free, "floor_bytes": floor, "deletable_bytes": deletable}
+    return {"free_bytes": free, "floor_bytes": floor}
 
 
-def _finish(projects, cache, wall, cwd, stamp, state, apply, policy, roots, env, deadline) -> dict:
+def _finish(projects, cache, wall, cwd, stamp, state, apply, roots, env) -> dict:
     """Merge the two pass reports; an applied sweep logs the record and sets or clears the notice."""
     unfinished = any("deadline" in line for line in projects.log + cache.log)
     per_root = dict(projects.per_root)
     for k, v in cache.per_root.items():
         per_root[k] = per_root.get(k, 0) + v
-    still_over = projects.still_over or cache.still_over
+    still_over = bool(getattr(projects, "still_over", False) or getattr(cache, "still_over", False))
     record = {
         "ts": wall,
         "freed_bytes": projects.freed_bytes + cache.freed_bytes,
@@ -202,12 +197,16 @@ def _finish(projects, cache, wall, cwd, stamp, state, apply, policy, roots, env,
     with open(state / SWEEPS_LOG, "a", encoding="utf-8") as fh:
         fh.write(json.dumps(record) + "\n")
     notice = state / NOTICE
-    if still_over:
-        _write_json(notice, {
-            "ts": wall, "per_root": per_root, "log": record["log"],
-            **_pressure(policy, deadline, roots, env, wall),
-        })
-        _record_over_budget(cwd, "disk budget still over after sweep: " + json.dumps(per_root))
+    pressure = _pressure(roots, env) if still_over else None
+    # An engine with the old cap-overage `still_over` can report true with ample free space; the
+    # operator surfaces record real pressure only.
+    if pressure is not None and (pressure["free_bytes"] is None or pressure["free_bytes"] < pressure["floor_bytes"]):
+        _write_json(notice, {"ts": wall, "per_root": per_root, "log": record["log"], **pressure})
+        _record_over_budget(
+            cwd,
+            "disk budget still over after sweep: " + json.dumps(per_root)
+            + f" free_bytes={pressure['free_bytes']} floor_bytes={pressure['floor_bytes']}",
+        )
     else:
         notice.unlink(missing_ok=True)
     return record

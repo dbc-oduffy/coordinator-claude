@@ -1,13 +1,13 @@
-"""PostToolUse(Write|Edit|MultiEdit) naked-Python dispatcher for the four
+"""PostToolUse(Write|Edit|MultiEdit) naked-Python dispatcher for the three
 Stop-family write-path advisory guards (C4b,
 docs/plans/2026-08-06-hook-spawn-fan-in-finish-and-extend.md § C4b) --
-`derive-global-doctrine-live-copy.py`, `derive-setup-copies.py`,
-`nudge-initiative-goals-ladder.py`, `nudge-new-file-zero-budget-ratchets.py`.
+`derive-setup-copies.py`, `nudge-initiative-goals-ladder.py`,
+`nudge-new-file-zero-budget-ratchets.py`.
 
-Replaces those four scripts' standalone `hooks.json` PostToolUse
+Replaces those scripts' standalone `hooks.json` PostToolUse
 registrations with ONE `python3` hook entry -- same fan-in motivation as
 `preuse-write-dispatch.py`, applied to the sibling event. Doctrine-plane-resident
-throughout: none of the four guards import the sibling engine for their own
+throughout: none of the three guards import the sibling engine for their own
 logic (one uses it only incidentally, via `_resolve_claude_klabauter_root`, for an
 "engine leg" path classification -- see `nudge-new-file-zero-budget-
 ratchets.py`), so unlike `preuse-write-dispatch.py` this dispatcher never
@@ -17,12 +17,12 @@ Contract:
   stdin   -- PostToolUse JSON (tool_name, tool_input, session_id, cwd, ...)
   stdout  -- NOTHING (this protocol has no stdout envelope -- see below)
   stderr  -- ONE combined blob (contract clause 4, CONCATENATE-ALL) when one
-             or more of the four guards fires; nothing otherwise
+             or more of the three guards fires; nothing otherwise
   exit 2  -- only if this dispatcher declares a protected act in the roster (none does)
   exit 0  -- otherwise: a fired blob goes to the friction log, never to context
              (including any internal failure -- fail-open)
 
-Batches the four guards via `_stop_family_runner.run_registered_stop_family_
+Batches the three guards via `_stop_family_runner.run_registered_stop_family_
 guards` -- see `_stop_family_runner_contract.py` for the aggregation rule
 this implements (concatenate-all, never first-fires-wins) and why it is a
 SIBLING mechanism to `_guard_runner.py`/`preuse-write-dispatch.py`, not an

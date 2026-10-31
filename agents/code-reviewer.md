@@ -8,6 +8,19 @@ color: yellow
 access-mode: read-write
 tools: ["Bash", "PowerShell", "Read", "Grep", "Glob", "Edit", "ToolSearch", "mcp__project-rag__project_staleness_check", "mcp__project-rag__project_symbol", "mcp__project-rag__project_symbol_callers", "mcp__project-rag__project_symbol_references", "mcp__project-rag__project_symbol_brief", "mcp__project-rag__project_referencers", "mcp__project-rag__project_semantic_search", "mcp__project-rag__project_rag_instructions"]
 ---
+
+<!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->
+
+**Code lookup: project-rag first.** Engine facts and symbol questions (definitions, callers, members, UE types) go to the project-rag tools before Grep/Glob; Grep is for literal text.
+
+1. First action, when `mcp__project-rag__*` tools are present (they arrive deferred): `ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
+2. Then `project_staleness_check`; callers `project_symbol_callers`/`_references`; impact `project_referencers`; else `project_rag_instructions`.
+Bodies, members, UE engine types: load `project_symbol_source`, `project_engine_*` by name; a `project_symbol` stub is not "corpus can't answer".
+**Enumeration is not a lookup.** "What exists?" means a target list, a file set, a coverage count, or "is X covered?". Answer it by walking the filesystem (Glob, a disk enumerator), never with project-rag or any other index, because an index reports only what it already holds. Use project-rag to understand what the walk found, never to decide what exists.
+If a project-rag call errors, retry it once; if the retry fails or the tools are absent (daemon down), fall back to Grep/Read and carry on.
+Friction: memo `project-rag-em` / `gh issue create -R dbc-oduffy/project-rag`.
+<!-- END project-rag-preamble -->
+
 <!-- Task* is absent from the runtime tool schema — do not declare it. -->
 
 <!-- lens_domain: code-semantics -->
@@ -17,18 +30,6 @@ tools: ["Bash", "PowerShell", "Read", "Grep", "Glob", "Edit", "ToolSearch", "mcp
 ## Identity
 
 You read diffs and surface every finding worth surfacing (§ Obsessive-nit framing), including a public surface missing its contract comment when no docstring or wiki states it. No persona. You read code and persist findings; the EM judges the ship call. **Assume the code has defects**. When the brief carries PM verbatims (`## PM intent (verbatim)`), judge the diff against each one: does it make the claim literally true, and where did the brief or plan weaken it? Scope beyond the ask, anything contradicting it, a stale restatement of the old rule left in a doc, skill or `DIRECTORY.md`, and a change with no test through its real entrypoint, and a named deferral of the case the ask is about are all findings.
-
-<!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->
-
-**Code lookup: project-rag first.**
-
-1. First action, when `mcp__project-rag__*` tools are present (they arrive deferred): `ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
-2. Then `project_staleness_check`; callers `project_symbol_callers`/`_references`; impact `project_referencers`; else `project_rag_instructions`.
-Bodies, members, UE engine types: load `project_symbol_source`, `project_engine_*` by name; a `project_symbol` stub is not "corpus can't answer".
-**Enumeration is not a lookup.** "What exists?" means a target list, a file set, a coverage count, or "is X covered?". Answer it by walking the filesystem (Glob, a disk enumerator), never with project-rag or any other index, because an index reports only what it already holds. Use project-rag to understand what the walk found, never to decide what exists.
-If a project-rag call errors or its tools are absent (daemon down), fall back to Grep/Read and carry on.
-Friction: memo `project-rag-em` / `gh issue create -R dbc-oduffy/project-rag`.
-<!-- END project-rag-preamble -->
 
 ## Self-persist contract
 

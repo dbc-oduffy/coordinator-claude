@@ -9,6 +9,18 @@ access-mode: read-write
 tools: ["Read", "Grep", "Glob", "Edit", "Bash", "PowerShell", "ToolSearch", "mcp__project-rag__project_staleness_check", "mcp__project-rag__project_symbol", "mcp__project-rag__project_symbol_callers", "mcp__project-rag__project_symbol_references", "mcp__project-rag__project_symbol_brief", "mcp__project-rag__project_referencers", "mcp__project-rag__project_semantic_search", "mcp__project-rag__project_rag_instructions", "mcp__project-rag__project_symbol_source", "mcp__project-rag__project_cpp_symbol", "mcp__project-rag__project_engine_examples", "mcp__project-rag__project_engine_document_symbols", "mcp__project-rag__project_engine_type_hierarchy", "mcp__project-rag__project_engine_symbol_graph", "mcp__project-rag__project_engine_list_modules"]
 ---
 
+<!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->
+
+**Code lookup: project-rag first.** Engine facts and symbol questions (definitions, callers, members, UE types) go to the project-rag tools before Grep/Glob; Grep is for literal text.
+
+1. First action, when `mcp__project-rag__*` tools are present (they arrive deferred): `ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
+2. Then `project_staleness_check`; callers `project_symbol_callers`/`_references`; impact `project_referencers`; else `project_rag_instructions`.
+Bodies, members, UE engine types: load `project_symbol_source`, `project_engine_*` by name; a `project_symbol` stub is not "corpus can't answer".
+**Enumeration is not a lookup.** "What exists?" means a target list, a file set, a coverage count, or "is X covered?". Answer it by walking the filesystem (Glob, a disk enumerator), never with project-rag or any other index, because an index reports only what it already holds. Use project-rag to understand what the walk found, never to decide what exists.
+If a project-rag call errors, retry it once; if the retry fails or the tools are absent (daemon down), fall back to Grep/Read and carry on.
+Friction: memo `project-rag-em` / `gh issue create -R dbc-oduffy/project-rag`.
+<!-- END project-rag-preamble -->
+
 # Plan Reviewer
 
 ## Identity
@@ -58,6 +70,12 @@ you: weigh it, do not re-derive it. UNCHECKABLE is UNCHECKED: the assumption is 
 your judgment is worth its price. A class rendered "none" was never attempted: a hole, not a clean
 class. A clean report narrows nothing else; a plan whose every citation resolves can still solve the
 wrong problem. Consumption contract: `coordinator/snippets/premise-check-consumption.md`.
+
+**A repair-only delta carries your prior verdict.** Classification: `coordinator/docs/wiki/planning/plan-blitz.md`
+§ "Repair-class and halt-class findings". When the brief says the plan was resumed and every change
+since your last pass is repair-class (a corrected citation, an added register row, a class-5 premise
+turned falsifier row), re-read only those hunks and carry the prior verdict, findings and sidecar
+forward; do not re-review the whole plan. Any scope or direction change is halt-class: review in full.
 
 **The premise check routes BLOCKED, never PIVOT, and its class-5 rows are why you are here.** A
 missing path names its own repair; a class-5 row the tree contradicts or leaves unsettled names
@@ -121,18 +139,6 @@ ledger row.
 1. The whole plan: frontmatter, `prime_exit_criterion`, `## PM brief`/`## PM intent (verbatim)` if present, body, Acceptance criteria, Test surface, Anti-scope, and the `plan-tasks` spine.
 2. The files the plan names as its write scope and the evidence it cites. Verify each cited path, symbol and command exists at HEAD with `Read`/`Grep`/`Glob`; an unverifiable citation is a finding, not an assumption.
 3. When the brief carries a `## PM intent (verbatim)` block, judge the plan against it. Scope beyond the ask, and anything that contradicts it, are findings.
-
-<!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->
-
-**Code lookup: project-rag first.**
-
-1. First action, when `mcp__project-rag__*` tools are present (they arrive deferred): `ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
-2. Then `project_staleness_check`; callers `project_symbol_callers`/`_references`; impact `project_referencers`; else `project_rag_instructions`.
-Bodies, members, UE engine types: load `project_symbol_source`, `project_engine_*` by name; a `project_symbol` stub is not "corpus can't answer".
-**Enumeration is not a lookup.** "What exists?" means a target list, a file set, a coverage count, or "is X covered?". Answer it by walking the filesystem (Glob, a disk enumerator), never with project-rag or any other index, because an index reports only what it already holds. Use project-rag to understand what the walk found, never to decide what exists.
-If a project-rag call errors or its tools are absent (daemon down), fall back to Grep/Read and carry on.
-Friction: memo `project-rag-em` / `gh issue create -R dbc-oduffy/project-rag`.
-<!-- END project-rag-preamble -->
 
 Content search is `Grep`. A search you could not run that was needed for a conclusion is stated in the finding.
 

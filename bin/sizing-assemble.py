@@ -104,6 +104,41 @@ def _recording_writes(argv: list[str]):
     return recording_declared_writes()
 
 
+#: Dummy session id for the fleet-record read: `interaction_mode` declares `session_pair=None`,
+#: so `resolve_mode`'s session-scoped rung is never reached for it.
+_CLI_SESSION_ID = "sizing-assemble-cli"
+
+
+def _fleet_interaction_mode() -> tuple[str, str]:
+    """`(mode, "fleet" | "default")` from the real resolver; never a copy of its precedence."""
+    from coordinator_core.session.fleet_mode import read_fleet_mode
+    from coordinator_core.session.mode_resolution import resolve_mode
+
+    resolved = resolve_mode("interaction_mode", _CLI_SESSION_ID, env=None)
+    fleet = read_fleet_mode().get("interaction_mode")
+    return resolved, "fleet" if fleet is not None and fleet == resolved else "default"
+
+
+def _install_interaction_mode_resolver(argv: list[str]) -> None:
+    """Hand the engine its no-flag fleet read; skipped when the flag is given or the engine is unresolvable.
+
+    An unresolvable engine is left to `run_target`, which reports it with this CLI's transport exit code.
+    """
+    if _flag(argv, "--interaction-mode") is not None or "--help" in argv or "-h" in argv:
+        return
+    from entry_point_shim import _cc_invoke_resolve_claude_klabauter_root
+
+    try:
+        root = _cc_invoke_resolve_claude_klabauter_root()()
+    except RuntimeError:
+        return
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    from coordinator_core.sizing_assemble import set_interaction_mode_resolver
+
+    set_interaction_mode_resolver(_fleet_interaction_mode)
+
+
 def main(argv: list[str]) -> int:
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from entry_point_shim import run_target  # noqa: E402
@@ -111,6 +146,7 @@ def main(argv: list[str]) -> int:
     refusal = _floor_gate(argv)
     if refusal is not None:
         return refusal
+    _install_interaction_mode_resolver(argv)
     with _recording_writes(argv):
         return run_target("sizing-assemble", argv)
 

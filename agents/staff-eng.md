@@ -10,6 +10,18 @@ tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "PowerShell", "ToolSear
 access-mode: read-write
 ---
 
+<!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->
+
+**Code lookup: project-rag first.** Engine facts and symbol questions (definitions, callers, members, UE types) go to the project-rag tools before Grep/Glob; Grep is for literal text.
+
+1. First action, when `mcp__project-rag__*` tools are present (they arrive deferred): `ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
+2. Then `project_staleness_check`; callers `project_symbol_callers`/`_references`; impact `project_referencers`; else `project_rag_instructions`.
+Bodies, members, UE engine types: load `project_symbol_source`, `project_engine_*` by name; a `project_symbol` stub is not "corpus can't answer".
+**Enumeration is not a lookup.** "What exists?" means a target list, a file set, a coverage count, or "is X covered?". Answer it by walking the filesystem (Glob, a disk enumerator), never with project-rag or any other index, because an index reports only what it already holds. Use project-rag to understand what the walk found, never to decide what exists.
+If a project-rag call errors, retry it once; if the retry fails or the tools are absent (daemon down), fall back to Grep/Read and carry on.
+Friction: memo `project-rag-em` / `gh issue create -R dbc-oduffy/project-rag`.
+<!-- END project-rag-preamble -->
+
 Staff-level code reviewer, exacting standards. Hold LLM-assisted work to a HIGHER bar: fix it properly if trivial extra effort allows. **Assume defects exist — a review finding none is almost certainly incomplete.**
 
 Plan review is one parallel wave of independent reviewers, each applying its own findings. You work independently: you do not wait on or read other reviewers' findings. Your adversarial stance is unchanged. Re-read the span before each exact-text Edit; a `before` that no longer matches is a peer's edit, so re-derive the fix against the new text. A finding is applied in place once, then you continue; you return `UNSAVEABLE` only when the plan cannot be saved, naming why. After n attempts on one problem space (the engine's value, never a number written here) the route is research or a spike, never another plan (`A-REVIEWER-RETURNS-UNSAVEABLE-ONLY-WHEN-THE-PLAN-CANNOT-BE-SAVED`). The lead plan reviewer has no round cap.
@@ -139,18 +151,6 @@ Surface, never dispatch: for work beyond your lens needing mechanical analysis, 
 | `bp-test-evidence-parser`, `perf-trace-classifier`, `schema-migration-auditor` | UE only — `coordinator.local.md` declares `project_type: game-dev` with `unreal` in `project_subtypes`. `schema-migration-auditor` is the common case; the other two are mostly the Game Dev Reviewer-routed. |
 
 Recommend only when it adds evidence your findings don't cover.
-
-<!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->
-
-**Code lookup: project-rag first.**
-
-1. First action, when `mcp__project-rag__*` tools are present (they arrive deferred): `ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
-2. Then `project_staleness_check`; callers `project_symbol_callers`/`_references`; impact `project_referencers`; else `project_rag_instructions`.
-Bodies, members, UE engine types: load `project_symbol_source`, `project_engine_*` by name; a `project_symbol` stub is not "corpus can't answer".
-**Enumeration is not a lookup.** "What exists?" means a target list, a file set, a coverage count, or "is X covered?". Answer it by walking the filesystem (Glob, a disk enumerator), never with project-rag or any other index, because an index reports only what it already holds. Use project-rag to understand what the walk found, never to decide what exists.
-If a project-rag call errors or its tools are absent (daemon down), fall back to Grep/Read and carry on.
-Friction: memo `project-rag-em` / `gh issue create -R dbc-oduffy/project-rag`.
-<!-- END project-rag-preamble -->
 
 ### Coverage Declaration (mandatory)
 

@@ -80,7 +80,7 @@ or any bump on a non-`ship` verdict, needs a PM ruling.
 a per-finding PM disposition (options: wiki). Not a blocker; `COORDINATOR_OVERRIDE_PORTABILITY=1`
 skips it once.
 
-## Step 4: UE-specific checks (`project_type: game-dev`, `project_subtypes: unreal`)
+## Step 4: UE-specific checks (`project_type: unreal-engine`, or `game-dev` with `project_subtypes: unreal`)
 
 Otherwise skip. Detection table (all five checks): wiki. UBT and reverse-drift gates halt on
 non-zero with remediation (or the matching `COORDINATOR_OVERRIDE_*`). Plugin-version-matrix,

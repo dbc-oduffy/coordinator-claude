@@ -354,7 +354,7 @@ PowerShell host (rung 0): `& "$env:COORDINATOR_SETTINGS_HOME\bin\machine-local.c
 
 Skip under `--check-only`. A repo onboarded later re-renders this overlay via `repo-setup` from the persisted value (wiki).
 
-`test -f coordinator.local.md`. Exists: report `project_type` (flag legacy values for manual migration). Missing, not `--check-only`: `--non-interactive` fails loud (no safe default); interactive asks `project_type`/subtypes, writes:
+`test -f coordinator.local.md`. Exists: report `project_type` (flag legacy values for manual migration). Missing, not `--check-only`: `--non-interactive` fails loud (no safe default); interactive asks `project_type`/subtypes (`unreal-engine` for an Unreal Engine repo: the Game Dev Reviewer default reviewer, docs-checker on every plan and diff), writes:
 
 ```markdown
 ---

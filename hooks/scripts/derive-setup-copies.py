@@ -51,7 +51,7 @@ alone — this applies to both parity modes.
      2026-08-01. This hook now only ever touches paths inside THIS repo. -->
 
 Contract (house PostToolUse-advisory convention, matching
-derive-global-doctrine-live-copy.py — exit 2 + stderr reaches the model's next
+the PostToolUse advisory hooks — exit 2 + stderr reaches the model's next
 turn without blocking; exit 0 + silence is the non-firing no-op):
   stdin   -- PostToolUse JSON (tool_name, tool_input.file_path, ...)
   stderr  -- one advisory block on a MATCHING write (success or failure)

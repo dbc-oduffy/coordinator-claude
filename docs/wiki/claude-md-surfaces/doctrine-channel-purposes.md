@@ -9,19 +9,6 @@ Defines what each always-on doctrine channel is for and the routing test for whe
 
 ---
 
-## Why this page exists
-
-Doctrine keeps drifting onto the wrong channel because nothing states, in one place, what each
-channel is FOR. Every channel below accretes content that "seemed related" at the time it was
-added, and nobody asked whether it belonged. This page is that question, answered once per
-channel, so a future addition can be checked against a test instead of a feeling.
-
-Six channels carry doctrine to an agent before it reads a single project file. Five are
-authored files; the sixth is a machine-local cache most people forget to count, which is
-exactly why it needs a channel definition too.
-
----
-
 ## The Six Channels
 
 ### 1. Global, all-agents doctrine — reaches every agent, every repo, always-on
@@ -34,16 +21,24 @@ regardless of what it was asked to do.
 
 **NEGATIVE SPEC:** anything only the orchestrating session has the authority to do. A rule
 that only ever applies to the agent doing the dispatching does not belong on a channel every
-dispatched worker also pays for.
+dispatched worker also pays for. How to relate to the PM is EM-only (channel 2): a subagent
+never talks to the PM.
 
 ### 2. EM-only operating doctrine — the orchestrating session only
 
-**FOR:** the orchestrating session's relationship with the human it reports to, and its own
-operating loop — how it decides, converses, dispatches work, and reviews what comes back. This
-is a relationship and conduct channel, not a facts channel.
+**FOR:** exactly three things:
 
-**THE TEST:** does this govern the human relationship, or an authority only the orchestrating
-session holds?
+1. **Identity.** The reader IS the EM.
+2. **Essential EM-only pointers.** The few things every EM needs every session and no subagent
+   does: the Group EM, and that firing engine asks is the way work gets done.
+3. **How to relate to this PM.** How much substrate versus outcome they want to hear, and their
+   register: this PM welcomes Star Trek and pop-culture references. An EM should know why the
+   PM grieves a Star Trek actor; a subagent never talks to the PM, so it never needs to.
+
+**THE TEST:** does every EM need this every session, and does it govern the human relationship
+or an authority only the EM holds? A topic rule that only some sessions hit (an opt-out, a
+mechanism, a seam) goes to a wiki page plus a tripwire, never here. This channel has been bloated
+to the point where EMs read only its preview and dismissed it; every line must earn its place.
 
 **NEGATIVE SPEC:** facts about any repo, including this one; where anything lives; how content
 is delivered to an agent; rationale for why a rule exists. A dispatched worker never reads this
@@ -85,7 +80,10 @@ ever needed.
 **NEGATIVE SPEC:** none of its own — this channel is the residue, and it is not itself
 always-on, so it cannot violate the always-on discipline the other channels are held to.
 
-### 6. Auto-memory — machine-local, always-on, unstructured
+### 6. Auto-memory — machine-local, EM-only, unstructured
+
+Only the EM reads or writes it; a subagent never sees it, so a rule held only in memory never
+reaches a worker, and memory guidance belongs on the EM channel, never the global one.
 
 **FOR:** session-earned operational knowledge that would otherwise be relearned by making the
 same mistake twice — the specific thing the repo's own files cannot tell you, because it was
@@ -94,14 +92,9 @@ learned by getting it wrong rather than by being documented anywhere.
 **THE TEST:** did we learn this by getting it wrong, and would the next session get it wrong
 the same way without it?
 
-**STATE IT AS A CACHE, NOT A RECORD.** This framing is the operative half of the entry and has
-to be stated plainly, because the failure mode here is a belief, not an oversight. Writing a
-memory entry FEELS like committing a durable fact — like a save-point where the system
-acknowledges something and it will not recur. It is not that. It is unstructured, machine-local,
-untracked, unreviewed, and evictable — a working cache wearing the costume of a permanent
-record. Nothing durable may rest on it. If a fact matters beyond one machine, it belongs in a
-wiki, a lesson, or a decision record — writing it to memory INSTEAD of one of those is how it
-gets lost.
+**STATE IT AS A CACHE, NOT A RECORD.** Memory is unstructured, machine-local, untracked,
+unreviewed and evictable. Nothing durable may rest on it: a fact that matters beyond one machine
+belongs in a wiki, a lesson or a decision record.
 
 **ROUTING TEST — memory is the residue, never the default.** Before writing a memory entry, the
 other five channels get first refusal, and channel 4 (the orientation cache) is the one that
@@ -125,12 +118,8 @@ rather than merely discouraged:
   heard. That feeling is real; the channel that discharges it is not this one.
 
 **NOT AN AWARENESS CHANNEL — measured, not assumed.** Auto-memory is delivered at session boot
-and nowhere else: a running session's copy is frozen in its already-sent context, and nothing
-re-delivers an update mid-session. A memory entry cannot notify a peer session, cannot reach a
-session that is already running, and is not reliably read before that session's own next boot.
-It is not a message channel — a commit landing in the repo, or a durable state surface, is. This
-is also the clearest evidence for the cache-not-record framing above: a channel with no
-delivery semantics at all cannot be a record anyone can rely on being informed by.
+and nowhere else; it cannot notify a peer or reach a running session. A commit or a durable state
+surface is the message channel.
 
 **HARD LIMITS, ENFORCED, NOT ASPIRATIONAL.** This channel is capped by a fail-closed write
 guard, not by an exhortation: a fixed byte ceiling on the whole file, a fixed row count, a

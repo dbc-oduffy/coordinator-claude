@@ -376,7 +376,7 @@ the engine repo's `coordinator/lib/resolve-coordinator-clone.py` consumers runni
 is a path swap only — the consumers described here always ran inside an active session and invoked whichever
 resolver was current, bash then Python).
 
-**Resolution mechanism:** read the registry directly via `machine-local get repos.content_root`. The
+**Resolution mechanism:** read the registry directly via `machine-local get repos.doe_claude`. The
 hook generators (`coordinator-ensure-post-commit-hook`, `coordinator-ensure-prepare-commit-msg-hook`,
 the engine repo's `coordinator/bin/gen-settings-hooks.py`) bake the registry-resolved path into the hook body at generate-time — the
 **warm half** of the coherent split. See the commit "hooks: installers resolve coordinator bin from
@@ -453,7 +453,7 @@ lockstep. If you add an out-of-repo surface to the install, update the uninstall
 
 **Install surface — `coordinator/commands/install.md` (the doctrine repo):**
 Steps 3.5a–3.5c and the Phase 7 status table enumerate every out-of-repo surface the installer
-writes: registry keys (`repos.content_root`), the `.content-root` pointer
+writes: registry keys (`repos.doe_claude`), the `.content-root` pointer
 (`<settings-home>/machine-local/.content-root`), the owned shim file
 (`~/.claude/shell/claude-author-shim.sh`), the one marked `source` line in the interactive rc,
 settings.json hook block, and the doctrine-repo clone itself. The installer is the canonical listing of what

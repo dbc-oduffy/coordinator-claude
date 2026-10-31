@@ -222,6 +222,10 @@ REGISTRY: Tuple[StartGuard, ...] = (
     # tree walk. Silent unless uncommitted governed-surface text fails admission.
     StartGuard("governed_surface_drift", "session-start-governed-surface-drift.py",
                frozenset({"startup", "resume", "clear", "compact", "fork"})),
+    # Every source: the notice must survive a compact or clear; silent unless the repo declares
+    # `project_type: unreal-engine`.
+    StartGuard("session_start_unreal_em_notice", "session-start-unreal-em-notice.py",
+               frozenset({"startup", "resume", "clear", "compact", "fork"})),
     # LAST, deliberately -- see module docstring "INCREMENTAL FLUSH".
     StartGuard("guard_hook_generation_self_probe", "guard-hook-generation-self-probe.py",
                frozenset({"startup", "clear", "compact"})),
@@ -361,47 +365,6 @@ def _snapshot_surfaces(ctx: Ctx) -> None:
         pass
 
 
-def _emit_disk_budget_notice() -> None:
-    """Tell the session to SendMessage the live Group EM when the last sweep ended over budget.
-
-    Once per record: the stamp lives in `over-budget-relayed.json` beside it, keyed on the record's
-    `ts`. Silent when free space is at or above the floor and no deletable bytes remain.
-
-    One small file read, no walk; a hook has no SendMessage transport, so the model discharges
-    the send. Fail-open.
-    """
-    try:
-        path = Path(os.path.expanduser("~")) / ".claude" / "disk-budget" / "over-budget.json"
-        data = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(data, dict):
-            return
-        free, floor, deletable = data.get("free_bytes"), data.get("floor_bytes"), data.get("deletable_bytes")
-        under_floor = isinstance(free, (int, float)) and isinstance(floor, (int, float)) and free < floor
-        has_deletable = not isinstance(deletable, (int, float)) or deletable > 0
-        if not (under_floor or has_deletable):
-            return
-        relayed = path.with_name("over-budget-relayed.json")
-        try:
-            if json.loads(relayed.read_text(encoding="utf-8")).get("ts") == data.get("ts"):
-                return
-        except (OSError, ValueError, AttributeError):
-            pass
-        tmp = relayed.with_name(relayed.name + ".tmp")
-        tmp.write_text(json.dumps({"ts": data.get("ts")}), encoding="utf-8")
-        os.replace(tmp, relayed)
-        gib = {k: round(v / 1024**3, 2) for k, v in (data.get("per_root") or {}).items() if isinstance(v, (int, float))}
-        msg = (
-            "DISK BUDGET: the last sweep of ~/.claude/projects and ~/.cache ended still over "
-            f"budget (freed GiB per root: {gib}). SendMessage the live Group EM now (enumerate "
-            "recipients with `claude agents --json`, as coordinator/bin/group-em-box-notice.py "
-            "does) naming the overage; details in ~/.claude/disk-budget/over-budget.json.\n"
-        )
-        sys.__stdout__.buffer.write(msg.encode("utf-8"))
-        sys.__stdout__.buffer.flush()
-    except Exception:
-        pass
-
-
 def main() -> int:
     raw = sys.stdin.read()
     ctx = Ctx(raw)
@@ -453,9 +416,6 @@ def main() -> int:
         # through the banner channel and is fail-open by design, so a nonzero exit from it never
         # signals a real failure to surface.
         del rc
-
-    if ctx.source in ("", "startup", "resume", "compact"):
-        _emit_disk_budget_notice()
 
     if skipped:
         sys.__stderr__.write(
