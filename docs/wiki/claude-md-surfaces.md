@@ -71,11 +71,11 @@ renders per-repo into `.claude/em-context.md` instead; see § Known gap below.)
 
 ## Trap A — `coordinator/CLAUDE.md` is not plugin-delivered at all; it's nested-`CLAUDE.md` lazy load, this-repo-only
 
-<!-- spec backlink: docs/research/spike-verdicts/2026-07-27-plugin-claude-md-delivery.md -->
+<!-- spec backlink: docs/research/spikes/2026-07-27-plugin-claude-md-delivery/verdict.md -->
 
 The believable-but-wrong model this trap used to describe was: "`--plugin-dir` shims
 `coordinator/CLAUDE.md` into every coordinator session, fleet-wide." A 2026-07-27 spike
-(`docs/research/spike-verdicts/2026-07-27-plugin-claude-md-delivery.md`) falsified that model
+(`docs/research/spikes/2026-07-27-plugin-claude-md-delivery/verdict.md`) falsified that model
 directly, with a live cross-repo probe. The corrected model:
 
 **`--plugin-dir` does NOT deliver `CLAUDE.md`.** Per the official plugins-reference docs
@@ -243,6 +243,8 @@ authoritative — it is the **authoring** surface. `~/.claude/CLAUDE.md` is the 
 the harness loads. On conflict, `global-doctrine/` wins. The drift probe's `--sync` flag only ever
 copies mirror → `~/.claude`; the reverse direction — restoring the tracked copy FROM `~/.claude`
 after a mirror loss — is a deliberate manual recovery action, never automated.
+Install consequence: on a dev-repo box (`.coordinator-dev-repo` at the repo root) `/coordinator:install`
+skips the `~/.claude/CLAUDE.md` seed and tour Movement 2 points the operator at `global-doctrine/CLAUDE.md`.
 
 > **The tracked copy is where doctrine is authored**, and an enforcement envelope keys on it: the
 > engine body `coordinator_core.hooks.derive_global_doctrine_live_copy` (re-derives `~/.claude` at

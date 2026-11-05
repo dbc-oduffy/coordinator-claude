@@ -187,10 +187,50 @@ def inbox_memo_lists(root: str) -> dict | None:
     return {"memos": memos, "stamped": stamped}
 
 
-def render_fleet_workflow(plugin_root: Path, repos: list[str], holder: dict) -> str:
-    """The exact `Workflow` invocation that grinds every fleet inbox to zero."""
+def _fire_stamp_path(repo_root: str, session_id: str) -> Path:
+    safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in session_id)
+    return Path(repo_root) / ".coordinator-local" / "gem-inbox-fire" / f"{safe}.json"
+
+
+def read_fire_stamp(repo_root: str, session_id: str) -> set[str] | None:
+    """Memo paths this session's earlier fleet-inbox fire listed; None when the session has no
+    readable stamp (a missing or corrupt stamp means no fire is on record, so the grind fires)."""
+    try:
+        data = json.loads(_fire_stamp_path(repo_root, session_id).read_text(encoding="utf-8"))
+        return {m for ms in data["memos"].values() for m in ms}
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return None
+
+
+def write_fire_stamp(repo_root: str, session_id: str, memo_lists: dict, prior: set[str] | None) -> None:
+    """Record the fire: the open/in_progress memos it listed (plus any prior fire's), keyed by
+    repo. Best effort -- an unwritable stamp only means the next re-entry fires again."""
+    import time
+
+    path = _fire_stamp_path(repo_root, session_id)
+    memos = {r: sorted(v["memos"]) for r, v in memo_lists.items()}
+    if prior:
+        memos["_prior"] = sorted(prior)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(
+            json.dumps({"session_id": session_id, "fired_at": time.time(), "memos": memos}),
+            encoding="utf-8",
+        )
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
+def render_fleet_workflow(
+    plugin_root: Path, repos: list[str], holder: dict, memo_lists: dict | None = None
+) -> str:
+    """The exact `Workflow` invocation that grinds every fleet inbox to zero. `memo_lists`, when
+    given, replaces the live inbox listing (the re-entry path passes only the unfired memos)."""
     script = (plugin_root / "workflows" / "fleet-inbox-blitz.mjs").as_posix()
-    memo_lists = {r: v for r in repos if (v := inbox_memo_lists(r)) is not None}
+    if memo_lists is None:
+        memo_lists = {r: v for r in repos if (v := inbox_memo_lists(r)) is not None}
     memo_counts = {r: len(v["memos"]) for r, v in memo_lists.items()}
     args = {
         "repos": repos,
@@ -225,9 +265,15 @@ def render_fleet_workflow(plugin_root: Path, repos: list[str], holder: dict) -> 
     )
 
 
-def _box_blocks(repo_root: str, session_id: str, payload: dict) -> list[str]:
+def _box_blocks(
+    repo_root: str, session_id: str, payload: dict, reentry: bool = False
+) -> list[str]:
     """The box-wide additions to the entry context: the owed notice sends, and the fleet inbox
-    workflow invocation when cross-repo memos are enabled. Fail-open per block."""
+    workflow invocation when cross-repo memos are enabled. Fail-open per block.
+
+    `reentry` marks a resume/clear/compact refresh of a standing the session already holds: the
+    workflow then lists only memos absent from this session's fire stamp, and nothing when none
+    are. A fresh entry always fires over every open memo and re-stamps."""
     blocks: list[str] = []
     notice_mod = None
     try:
@@ -253,9 +299,23 @@ def _box_blocks(repo_root: str, session_id: str, payload: dict) -> list[str]:
         if _machine_profile.feature_enabled("cross_repo_memos"):
             repos = fleet_repo_roots()
             if repos:
-                blocks.append(
-                    render_fleet_workflow(Path(__file__).resolve().parents[2], repos, holder)
-                )
+                prior = read_fire_stamp(repo_root, session_id) if reentry else None
+                memo_lists = {r: v for r in repos if (v := inbox_memo_lists(r)) is not None}
+                fire_lists = memo_lists
+                if prior is not None:
+                    fire_lists = {}
+                    for r, v in memo_lists.items():
+                        fresh = [m for m in v["memos"] if m not in prior]
+                        if fresh:
+                            fire_lists[r] = {"memos": fresh, "stamped": v["stamped"]}
+                    repos = [r for r in repos if r in fire_lists]
+                if prior is None or fire_lists:
+                    blocks.append(
+                        render_fleet_workflow(
+                            Path(__file__).resolve().parents[2], repos, holder, fire_lists
+                        )
+                    )
+                    write_fire_stamp(repo_root, session_id, fire_lists, prior)
     except Exception:  # noqa: BLE001
         pass
     return blocks
@@ -447,8 +507,13 @@ def render_additional_context(
         "it on each completion; never wrap it in a Monitor. Wakes are events "
         "(watch lines, peer SendMessages, notify_when_idle); arm no cron tick."
     )
+    trim_line = (
+        "BOX MEMORY IS YOURS TO FREE: on low Available, run `trim-file-cache --apply` yourself "
+        "(it fires BoxCacheTrim, no elevation; `box-memory-trim-ws <pid>` for one process), "
+        "re-measure, then admit or deny. Never ask the PM to run it."
+    )
     # Box blocks are owed sends and a workflow fire: obligations, so they ride the tail.
-    tail = "\n\n".join([*(box_blocks or []), arm_line, gate_line])
+    tail = "\n\n".join([*(box_blocks or []), arm_line, trim_line, gate_line])
     head = "\n".join(lines)
     text = head + "\n\n" + tail
     if len(text) > budget:
@@ -470,7 +535,7 @@ def _outside_home_context(repo_root: str) -> str | None:
             "## Group EM entry: NOT ENTERED (group-em home refused)\n\n"
             f"{refused}\n\n"
             "The Group EM was NOT claimed. Fix `coordinator.group_em_home` so it lies outside "
-            "every checkout, then run `/group-em` from the home."
+            "every checkout, then start a session in the home; it enters on its own."
         )
     if _gem_home.is_home(repo_root):
         return None
@@ -478,7 +543,7 @@ def _outside_home_context(repo_root: str) -> str | None:
     return (
         "## Group EM entry: NOT ENTERED (outside the group-em home)\n\n"
         f"The Group EM enters only from the group-em home: {home}\n"
-        f"Create it with `python {ensure} ensure`, start a session there, and run `/group-em`.\n\n"
+        f"Create it with `python {ensure} ensure`, then start a session there; it enters on its own.\n\n"
         "The Group EM was NOT claimed and no roster or digest exists."
     )
 

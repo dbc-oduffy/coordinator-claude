@@ -1,0 +1,227 @@
+{
+  "ruling": "G-EM group-em-7d 2026-10-31: waiver for the eabd6aadea break-delta publish; pre-existing in 268caaf9c2, fixed by scrub #17",
+  "gate_result": "repo-key-literal gate FAILED on 29 literals in 13 files, none touched by the break delta",
+  "remove_when": "the scrub delta (#17) ships; its GO requires this gate green with no waivers",
+  "waivers": [
+    {
+      "row": "claude-klabauter",
+      "path": "_data_root.py",
+      "literal": "claude-klabauter",
+      "source": 1,
+      "published": 0
+    },
+    {
+      "row": "claude-klabauter",
+      "path": "content_root.py",
+      "literal": "repos.content_root",
+      "source": 1,
+      "published": 2
+    },
+    {
+      "row": "claude-klabauter",
+      "path": "content_root.py",
+      "literal": "repos.doe_claude",
+      "source": 1,
+      "published": 0
+    },
+    {
+      "row": "claude-klabauter",
+      "path": "frontmatter/schema_drift_watch.py",
+      "literal": "repos.project_opticon",
+      "source": 1,
+      "published": 0
+    },
+    {
+      "row": "claude-klabauter",
+      "path": "machine_resolver.py",
+      "literal": "repos.content_root",
+      "source": 5,
+      "published": 7
+    },
+    {
+      "row": "claude-klabauter",
+      "path": "machine_resolver.py",
+      "literal": "repos.doe_claude",
+      "source": 2,
+      "published": 0
+    },
+    {
+      "row": "claude-klabauter",
+      "path": "ops/check_machine_local_regeneratability.py",
+      "literal": "repos.claude_unreal_holodeck",
+      "source": 1,
+      "published": 0
+    },
+    {
+      "row": "claude-klabauter",
+      "path": "ops/check_machine_local_regeneratability.py",
+      "literal": "repos.market_intelligence3",
+      "source": 1,
+      "published": 0
+    },
+    {
+      "row": "claude-klabauter",
+      "path": "ops/check_machine_local_regeneratability.py",
+      "literal": "repos.market_intelligence4",
+      "source": 1,
+      "published": 0
+    },
+    {
+      "row": "claude-klabauter",
+      "path": "ops/check_machine_local_regeneratability.py",
+      "literal": "repos.market_intelligence0",
+      "source": 1,
+      "published": 0
+    },
+    {
+      "row": "claude-klabauter",
+      "path": "ops/check_machine_local_regeneratability.py",
+      "literal": "repos.market_intelligence1",
+      "source": 1,
+      "published": 0
+    },
+    {
+      "row": "claude-klabauter",
+      "path": "ops/check_machine_local_regeneratability.py",
+      "literal": "repos.project_opticon",
+      "source": 1,
+      "published": 0
+    },
+    {
+      "row": "claude-klabauter",
+      "path": "ops/check_posix_exec_assumptions.py",
+      "literal": "claude_unreal_holodeck",
+      "source": 1,
+      "published": 0
+    },
+    {
+      "row": "claude-klabauter",
+      "path": "ops/check_posix_exec_assumptions.py",
+      "literal": repos.market_intelligence6,
+      "source": 1,
+      "published": 0
+    },
+    {
+      "row": "claude-klabauter",
+      "path": "ops/check_posix_exec_assumptions.py",
+      "literal": "claude_klabauter",
+      "source": 1,
+      "published": 0
+    },
+    {
+      "row": "claude-klabauter",
+      "path": "ops/fleet/consumer_corpus_preflight.py",
+      "literal": "repos.delphi_store",
+      "source": 1,
+      "published": 0
+    },
+    {
+      "row": "claude-klabauter",
+      "path": "ops/fleet/consumer_corpus_preflight.py",
+      "literal": "repos.market_intelligence3",
+      "source": 1,
+      "published": 0
+    },
+    {
+      "row": "claude-klabauter",
+      "path": "ops/fleet/consumer_corpus_preflight.py",
+      "literal": "repos.market_intelligence4",
+      "source": 1,
+      "published": 0
+    },
+    {
+      "row": "claude-klabauter",
+      "path": "ops/fleet/consumer_corpus_preflight.py",
+      "literal": "repos.fifa_26wcle_data",
+      "source": 1,
+      "published": 0
+    },
+    {
+      "row": "claude-klabauter",
+      "path": "ops/fleet/consumer_corpus_preflight.py",
+      "literal": "repos.market_intelligence0",
+      "source": 1,
+      "published": 0
+    },
+    {
+      "row": "claude-klabauter",
+      "path": "ops/fleet/consumer_corpus_preflight.py",
+      "literal": "repos.market_intelligence1",
+      "source": 1,
+      "published": 0
+    },
+    {
+      "row": "claude-klabauter",
+      "path": "ops/fleet/consumer_corpus_preflight.py",
+      "literal": "repos.market_intelligence5",
+      "source": 1,
+      "published": 0
+    },
+    {
+      "row": "claude-klabauter",
+      "path": "ops/fleet/consumer_corpus_preflight.py",
+      "literal": "repos.memo_probe_receiver",
+      "source": 1,
+      "published": 0
+    },
+    {
+      "row": "claude-klabauter",
+      "path": "ops/fleet/consumer_corpus_preflight.py",
+      "literal": "repos.market_intelligence2",
+      "source": 1,
+      "published": 0
+    },
+    {
+      "row": "claude-klabauter",
+      "path": "ops/verify_ue_overrides.py",
+      "literal": "repos.claude_unreal_holodeck",
+      "source": 1,
+      "published": 0
+    },
+    {
+      "row": "claude-klabauter",
+      "path": "ops/verify_ue_overrides.py",
+      "literal": "repos.market_intelligence4",
+      "source": 1,
+      "published": 0
+    },
+    {
+      "row": "claude-klabauter",
+      "path": "percolate/live_identifiers.py",
+      "literal": "repos.project_opticon",
+      "source": 1,
+      "published": 0
+    },
+    {
+      "row": "claude-klabauter",
+      "path": "reconcile/ac27_differential_oracle.py",
+      "literal": "repos.market_intelligence",
+      "source": 1,
+      "published": 0
+    },
+    {
+      "row": "claude-klabauter",
+      "path": "reconcile/ac27_differential_oracle.py",
+      "literal": "repos.project_opticon",
+      "source": 1,
+      "published": 0
+    },
+    {
+      "row": "claude-klabauter",
+      "path": "ops/check_machine_local_regeneratability.py",
+      "literal": "repos.project_rag",
+      "source": 1,
+      "published": 0,
+      "note": "G-EM group-em-c9 2026-11-01: same unshipped scrub #17 class; remove when #17 lands"
+    },
+    {
+      "row": "claude-klabauter",
+      "path": "ops/verify_ue_overrides.py",
+      "literal": "repos.project_rag",
+      "source": 1,
+      "published": 0,
+      "note": "G-EM group-em-c9 2026-11-01: same unshipped scrub #17 class; remove when #17 lands"
+    }
+  ],
+  "publish_record": "Local klabauter 93629c4829 (unpushed) carried HEAD's check-persona-names.py via the unpinned checker refresh; reset to 268caaf9c2 under G-EM GO, recoverable via E:/claude-klabauter reflog. Fixed in 4102329fff."
+}

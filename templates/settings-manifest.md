@@ -110,7 +110,7 @@ both directions.
 >
 > **Do not reach for per-hook `"shell": "powershell"` as a spawn-cost win — it is measured slower.**
 > The mechanism is real (a hook spawns its shell directly, so the override works regardless of this
-> variable), and that is exactly what makes it a tempting wrong turn. `docs/research/2026-07-14-windows-first-class-coordinator/00-EMPIRICAL-spawn-benchmark.md`
+> variable), and that is exactly what makes it a tempting wrong turn. `docs/research/windows-first-class-coordinator/2026-07-14-windows-first-class-coordinator/outputs/00-EMPIRICAL-spawn-benchmark.md`
 > measures `pwsh -NoProfile` cold-start at **231.8ms** median against `bash -c :` at **17.6ms** —
 > pwsh costs ~13× more to start before it spawns anything. Current worst case (`bash → python`,
 > MSYS-mediated) measures 261.9ms; the pwsh equivalent lands ~265ms. A wash.
@@ -121,6 +121,19 @@ both directions.
 > correct mechanism (no MSYS fork-tax under pwsh) but never weighed pwsh's own interpreter
 > cold-start. `00-EMPIRICAL-*` is the later measurement and supersedes it. A mechanism argument
 > that never met a stopwatch is not evidence.
+
+## Cross-Session Inbound
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `crossSessionInbound` | `accept` | "Accept messages from other sessions": a session receives frames from sibling sessions with no approval prompt. |
+
+`crossSessionInbound: accept` is the coordinator's default and documented preference. The
+per-box peer router (`unimatrix-peer-router`) relies on it: it delivers directly to Claude
+session sockets, so there is no per-session poster to run, reap or leave stale. Provenance
+stamping and the router's controls stay in force; the setting removes the prompt, not the
+stamp. Install-time seeding of the key belongs to the `cross-session-inbound-accept-default`
+plan, not to this manifest.
 
 ## Adding a New Machine
 

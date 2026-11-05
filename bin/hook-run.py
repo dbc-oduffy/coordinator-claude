@@ -226,8 +226,20 @@ def main(argv: "list[str] | None" = None) -> int:
         )
         return 2
 
-    op_name = args[0]
+    # The marker must reach the dispatched op (remote_engine.fallback refuses in hook context), but an
+    # in-process caller (tests) must not inherit it, so it is set for this call and restored after.
+    prior = os.environ.get("COORDINATOR_HOOK_CONTEXT")
+    os.environ["COORDINATOR_HOOK_CONTEXT"] = "1"
+    try:
+        return _serve(args[0], advisory)
+    finally:
+        if prior is None:
+            os.environ.pop("COORDINATOR_HOOK_CONTEXT", None)
+        else:
+            os.environ["COORDINATOR_HOOK_CONTEXT"] = prior
 
+
+def _serve(op_name: str, advisory: bool) -> int:
     try:
         import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
         from cc_invoke import require_dispatch_engine_on_path

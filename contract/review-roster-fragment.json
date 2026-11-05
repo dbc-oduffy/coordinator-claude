@@ -54,7 +54,8 @@
       {
         "kind": "review-wave",
         "agents": [
-          { "agentType": "coordinator:code-reviewer", "model": "sonnet", "effort": "low", "per": "slice", "executor_rows_per_reviewer": { "min": 3, "max": 6 }, "applies": "own-slice", "schema": "slice-review-result", "merge": { "rule": "shared-paths", "min_shared_pct": 50, "result": "one-reviewer-multi-slice" } }
+          { "agentType": "coordinator:code-reviewer", "model": "sonnet", "effort": "low", "per": "slice", "executor_rows_per_reviewer": { "min": 3, "max": 6 }, "applies": "own-slice", "schema": "slice-review-result", "merge": { "rule": "shared-paths", "min_shared_pct": 50, "result": "one-reviewer-multi-slice" } },
+          { "accepts_signals": "named", "per": "whole-diff", "applies": "none", "schema": "whole-diff-review-result" }
         ],
         "lens_fold": {
           "when_rostered": "coordinator:overengineering-reviewer",

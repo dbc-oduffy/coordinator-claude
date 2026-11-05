@@ -136,11 +136,12 @@ Read `CONTEXT.md` if present at the project root; if absent, proceed silently �
 
 **Code lookup: project-rag first.** Engine facts and symbol questions (definitions, callers, members, UE types) go to the project-rag tools before Grep/Glob; Grep is for literal text.
 
-1. First action, when `mcp__project-rag__*` tools are present (they arrive deferred): `ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
-2. Then `project_staleness_check`; callers `project_symbol_callers`/`_references`; impact `project_referencers`; else `project_rag_instructions`.
+First action, when `mcp__project-rag__*` tools are present (they arrive deferred): `ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
+Then `project_staleness_check`; callers `project_symbol_callers`/`_references`; impact `project_referencers`; else `project_rag_instructions`.
 Bodies, members, UE engine types: load `project_symbol_source`, `project_engine_*` by name; a `project_symbol` stub is not "corpus can't answer".
 **Enumeration is not a lookup.** "What exists?" means a target list, a file set, a coverage count, or "is X covered?". Answer it by walking the filesystem (Glob, a disk enumerator), never with project-rag or any other index, because an index reports only what it already holds. Use project-rag to understand what the walk found, never to decide what exists.
 If a project-rag call errors, retry it once; if the retry fails or the tools are absent (daemon down), fall back to Grep/Read and carry on.
+**Every grep is scoped**: `git grep` or the Grep tool on named paths in your own repo. Never search recursively from a repo root, `..`, a sibling checkout or a drive; one such search saturates the box's disk. A search constraint in your brief or `em_context` binds you, even when project-rag is down (`A-RECURSIVE-GREP-FROM-A-REPO-ROOT-STALLS-THE-BOX`).
 Friction: memo `project-rag-em` / `gh issue create -R dbc-oduffy/project-rag`.
 <!-- END project-rag-preamble -->
 
@@ -1213,7 +1214,7 @@ A reviewer (the Staff Engineer / domain reviewer) will dispatch against the assu
 
 ### (d) Tool resolution in teammate prompts
 
-When a plan step dispatches a teammate agent that needs MCP tools, use graduated ToolSearch in the teammate's prompt — never hardcode a single tool name prefix. MCP tool names vary across teammate spawn contexts (e.g., the current NotebookLM server's `mcp__notebooklm-mcp__*`, vs the bare `mcp__notebooklm__*` form, vs the retired vendored `mcp__plugin_notebooklm_notebooklm__*` prefix — three different prefixes for the same tool suffixes across sessions/installs).
+When a plan step dispatches a teammate agent that needs MCP tools, use graduated ToolSearch in the teammate's prompt — never hardcode a single tool name prefix. MCP tool names vary across teammate spawn contexts (e.g., the current NotebookLM server's `mcp__gemini-notebook-mcp__*`, vs the prefix of the older `notebooklm-mcp` server key, vs the bare `mcp__notebooklm__*` form, vs the retired vendored `mcp__plugin_notebooklm_notebooklm__*` prefix — four different prefixes for the same tool suffixes across sessions/installs).
 
 **Graduated resolution order:** `select:exact` → `+prefix` keyword fallback → graceful failure message. Any teammate prompt that names an MCP tool should follow this pattern; hardcoding a single prefix is a silent failure waiting for the next spawn context change.
 

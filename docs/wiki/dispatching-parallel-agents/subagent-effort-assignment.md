@@ -144,7 +144,7 @@ invalidates the prompt-cache prefix, so churning the value costs cache re-creati
 
 This page states the *effort* axis in full; the sibling *model* axis (`model: opus` on the
 `persona` and `orchestrator` bands) went unmeasured until this pass. Full method, arms, and
-per-row reasons: `docs/research/2026-09-11-opus-model-tier-measurement.md`.
+per-row reasons: `docs/research/opus-model-tier-measurement/2026-09-11-opus-model-tier-measurement/synthesis.md`.
 
 **`orchestrator` band — measured, STAYS on `opus`.** All three rows
 (`research-synthesizer`, `structured-synthesizer`, `research-sweep`) share one band-level

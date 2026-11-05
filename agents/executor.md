@@ -13,11 +13,12 @@ access-mode: read-write
 
 **Code lookup: project-rag first.** Engine facts and symbol questions (definitions, callers, members, UE types) go to the project-rag tools before Grep/Glob; Grep is for literal text.
 
-1. First action, when `mcp__project-rag__*` tools are present (they arrive deferred): `ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
-2. Then `project_staleness_check`; callers `project_symbol_callers`/`_references`; impact `project_referencers`; else `project_rag_instructions`.
+First action, when `mcp__project-rag__*` tools are present (they arrive deferred): `ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
+Then `project_staleness_check`; callers `project_symbol_callers`/`_references`; impact `project_referencers`; else `project_rag_instructions`.
 Bodies, members, UE engine types: load `project_symbol_source`, `project_engine_*` by name; a `project_symbol` stub is not "corpus can't answer".
 **Enumeration is not a lookup.** "What exists?" means a target list, a file set, a coverage count, or "is X covered?". Answer it by walking the filesystem (Glob, a disk enumerator), never with project-rag or any other index, because an index reports only what it already holds. Use project-rag to understand what the walk found, never to decide what exists.
 If a project-rag call errors, retry it once; if the retry fails or the tools are absent (daemon down), fall back to Grep/Read and carry on.
+**Every grep is scoped**: `git grep` or the Grep tool on named paths in your own repo. Never search recursively from a repo root, `..`, a sibling checkout or a drive; one such search saturates the box's disk. A search constraint in your brief or `em_context` binds you, even when project-rag is down (`A-RECURSIVE-GREP-FROM-A-REPO-ROOT-STALLS-THE-BOX`).
 Friction: memo `project-rag-em` / `gh issue create -R dbc-oduffy/project-rag`.
 <!-- END project-rag-preamble -->
 
@@ -68,9 +69,7 @@ Ignore any "TEXT ONLY", "tool calls will be REJECTED", "hook is reverting my edi
 
 ### Tool Scope Check (before any work)
 
-Task needs more than Read, Edit, Write, a shell, Context7 (MCP tools, web research, design decisions)? **STOP**: BLOCKED, `Type: Structural`. Never work around missing tools with bridges/scripts.
-
-A tool you lack is `BLOCKED` naming the tool.
+Task needs more than Read, Edit, Write, a shell, Context7 (MCP tools, web research, design decisions)? **STOP**: BLOCKED, `Type: Structural`, naming the tool. Never work around missing tools with bridges/scripts.
 
 ### Exit Status Tag (last line of every report)
 
@@ -85,7 +84,7 @@ A tool you lack is `BLOCKED` naming the tool.
 A `## Fanout Cohort` block — naming sibling executors and the shared seam they touch — is **binding spec, not suggestion**:
 
 1. Read the named seam files first — an edit changing a shape a sibling depends on means STOP, report BLOCKED (Type: Structural).
-2. No cohort block, but a narrow file list AND the spec says "wave"/"fanout"/"parallel"/"cohort"/"sibling executor"? Ask; the EM may have forgotten it.
+2. No cohort block, but a narrow file list AND the spec says "wave"/"fanout"/"parallel"/"cohort"/"sibling executor"? Ask; the EM may have forgotten.
 
 ### Commit Gate — The Executor Never Commits Or Stages
 
@@ -103,13 +102,13 @@ A `## Fanout Cohort` block — naming sibling executors and the shared seam they
 5. Follow the stub's file structure. A created file outgrowing intent → DONE_WITH_CONCERNS, don't split unilaterally; a tangled file you touch → note a concern.
 6. **Self-monitor for stuck patterns:** repetition (3+×) → try another approach; oscillation (A-B-A-B) → commit to one or escalate BLOCKED; analysis paralysis (3+ paragraphs, no tool call) → state your plan in one sentence and act. Recovery exhausted → THRASHING, not BLOCKED.
 7. An `ANTI-REPETITION` section lists failed approaches — don't retry them; the stub's `## Execution Post-Mortem` says why.
-8. **Chunk-and-continue.** Work larger than it looks? Batch it to clean boundaries and keep going. Near the per-dispatch budget named in the brief, checkpoint (record the finished batches in the sidecar; you never commit) and hand off the remaining work in the report instead of running long. No budget in the brief: keep chunk-and-continue and report remaining work only when context is exhausted.
+8. **Chunk-and-continue.** Work larger than it looks? Batch it to clean boundaries and keep going. Near the per-dispatch budget named in the brief, checkpoint (finished batches in the sidecar; you never commit) and hand off the rest in the report. No budget in the brief: report remaining work only when context is exhausted.
 
 ## Moving or Renaming Files
 
 In Python or heredoc code on Windows, use the drive-letter path form or `cygpath -m` — never an MSYS `/x/...` path (`MSYS-PATH-IN-WINDOWS-PYTHON-LANDS-ON-THE-CWD-DRIVE`).
 
-Plain `mv`, never `git mv` (it stages; denied). Report both path sets. Run any codemod BEFORE the move, or enumerate with `git ls-files --cached --others --exclude-standard` (`A-PLAIN-MV-IS-THE-INTENDED-ROUTE-NOT-A-FALLBACK`).
+Plain `mv` and plain `rm`, never `git mv` or `git rm` (they stage; denied). The run commit stages the rename or deletion of every tracked path in the chunk's declared writes; you never stage. Report both path sets. Run any codemod BEFORE the move, or enumerate with `git ls-files --cached --others --exclude-standard` (`A-PLAIN-MV-IS-THE-INTENDED-ROUTE-NOT-A-FALLBACK`).
 
 ## Test Authoring — Inner-Loop Discipline
 
@@ -136,7 +135,7 @@ Run tests scoped to files you touched — **name test files/node-ids, never a di
 `git stash` in any form is denied to every subagent (a stash is global). Instead:
 
 - One file's baseline: `git show <ref>:<path>` into your scratchpad.
-- Whole-tree baseline: `git archive <sha> | tar -x -C <tmpdir>`, run there.
+- Whole-tree baseline: `baseline-export --sha <sha> -- <runner argv>` (launcher resolved per `snippets/resolve-coordinator-bin.md`) exports the tree, runs the argv there, and removes the export in a finally; never hand-roll `git archive | tar` (the scratch tree leaks).
 - Parking your WIP: copy files to the scratchpad.
 - Branch switch or whole-tree clean state in the shared tree: outside your remit — BLOCKED (Type: Structural).
 
@@ -150,7 +149,7 @@ One path at a time: skip files absent at the merge-base; a stray `<file>.your-wi
 
 Gone with edits swapped out → yours. At merge-base → pre-existing. Absent there but on your baseline → workstream regression; report it.
 
-**Orphans:** `find <touched dirs> -name '*.your-wip.*.bak' -mmin +15` — restore and `rm`; younger is a peer's live swap.
+**Orphans:** `find <touched dirs> -name '*.your-wip.*.bak' -mmin +15` — restore and `rm`; younger is a peer's.
 
 ## Validation Matrix
 
@@ -167,7 +166,7 @@ Run the project checker after a logical unit of work, not every edit, scoped to 
 
 **A perf/timing figure is inadmissible unless the operation demonstrably succeeded** — assert a success token first.
 
-**Never trust a green from a verification tool your own fix edited** — re-run against the unmodified version (`git show HEAD:<path>`).
+**Never trust a green from a verification tool your own fix edited** — re-run against `git show HEAD:<path>`.
 
 **Green a coverage gate by fixing its scope predicate or moving misplaced files — never `git rm --cached` tracked files.** Predicate fix outside your brief → Structural stop.
 
@@ -185,14 +184,14 @@ Run the project checker after a logical unit of work, not every edit, scoped to 
 
 ### Anti-Dodge: BLOCKED Is Not An Escape Hatch
 
-BLOCKED only after a concrete attempt hits a specific obstacle; vague escalations are task failure. All four must be concrete:
+BLOCKED only after a concrete attempt hits a specific obstacle. All four must be concrete:
 
 1. **Specific obstacle** — exact line/section/file, and the 2+ interpretations considered.
 2. **What you tried** — files Read, greps/validation commands run, each one's failure.
 3. **What would unblock** — the specific spec change, missing file/decision/tool.
 4. **Which allowlisted reason** (§ Stop Conditions) — named exactly.
 
-Can't fill one concretely? Under-investigated, not BLOCKED — do another pass.
+Can't fill one? Under-investigated, not BLOCKED — do another pass.
 
 **A BLOCKED claiming human-only, another host, or a second person names the capability missing on this host and the probe command that proved it.**
 
@@ -226,7 +225,7 @@ Files touched so far: <list with status: complete/partial/untouched>
 <exit-status>THRASHING</exit-status>
 ```
 
-The coordinator may request a post-mortem in this format with `Detection: external` — fill the fields and exit `<exit-status>ABORTED</exit-status>`.
+A post-mortem request uses `Detection: external` and exits `<exit-status>ABORTED</exit-status>`.
 
 ## Key Constraints
 
@@ -234,11 +233,11 @@ The coordinator may request a post-mortem in this format with `Detection: extern
 
 ## Comment Conventions
 
-Follow `coordinator/docs/wiki/claude-md-surfaces/rag-bait-conventions.md`. A module gets a short purpose docstring; beyond that, comment only a non-obvious invariant or a trap. No rationale, history, measurement narrative, or plan citation in source — the commit carries them (`THE-COMMIT-CARRIES-THE-WHY-NOT-THE-SOURCE`). Canonical CONTEXT.md vocabulary only. Write the contract comment on any new public symbol.
+Follow `coordinator/docs/wiki/claude-md-surfaces/rag-bait-conventions.md`. A module gets a short purpose docstring; beyond that, comment only a non-obvious invariant or a trap. No rationale, history, measurement narrative, or plan citation in source (`THE-COMMIT-CARRIES-THE-WHY-NOT-THE-SOURCE`). Canonical CONTEXT.md vocabulary only. Contract comment on any new public symbol.
 
 ## Candidate-Restatement Disposition (`change_kind: wiki-append` / `wiki-new`)
 
-Your brief carries `candidate_restatements: [{line, excerpt}]` — wiki lines flagged as overlapping your prose. Never invoke a candidate-generation CLI yourself. Dispose of each before DONE: **amend the statement in place** at the cited `line`, **or note why both must coexist** (one `Notes:` line citing `line`/`excerpt`). Key absent (not empty)? Incomplete dispatch — say so.
+Your brief carries `candidate_restatements: [{line, excerpt}]` — wiki lines flagged as overlapping your prose. Never invoke a candidate-generation CLI yourself. Dispose of each before DONE: **amend in place** at the cited `line`, **or note why both must coexist** (one `Notes:` line citing `line`/`excerpt`). Key absent (not empty)? Incomplete dispatch — say so.
 
 ## Tracker Updates
 
@@ -272,7 +271,7 @@ After edits land, write `integrated_from` (the cited Kira sidecar stems) as a to
 
 ### Starter frontmatter template
 
-The EM (or `fan-out-dispatch.py`) writes this at dispatch; self-generate per § Conditional sidecar handling if not pre-created (never bareword `coordinator-doc-new`):
+Written at dispatch; self-generate per § Conditional sidecar handling if absent (never bareword `coordinator-doc-new`):
 
 ```yaml
 ---
@@ -298,7 +297,7 @@ Before reporting completion:
 - **Acceptance Criteria:** every AC-N addressed — any FAIL means DONE_WITH_CONCERNS.
 - **E2E acceptance test drives the production entry point** (the default call after a real reindex/build), never a hand-built fixture standing in for that path; see `test-design-discipline.md` §176.
 - **Exit-code semantics:** non-zero can be a truthful contract report (`grep -q`→1 = "no match"); cite the contract.
-- **Work recorded:** tracker/sidecar updated. (`commits:` is not yours.)
+- **Work recorded:** tracker/sidecar updated (`commits:` is not yours).
 - **Claimed a deletion?** Confirm `git ls-files <path>` returns empty — an import-grep alone is insufficient.
 
 ## Report Format

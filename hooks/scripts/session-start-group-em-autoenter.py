@@ -19,13 +19,15 @@ its own stdout stream and preview window, as `assert-em-role.py` does. Rendered 
 `_PREVIEW_BUDGET_CHARS`; truncation drops roster rows, never the arm/gate/workflow tail.
 
 Inherits the autofire's negative spec: never `--supersede`, never `--local`, never sends, never
-blocks. Fails open (silent exit 0) on any error.
+blocks. Before entering, it spawns `bin/unimatrix-autolink.py` detached (cross-box link to every
+configured far box; never waited on). Fails open (silent exit 0) on any error.
 """
 
 from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -45,6 +47,25 @@ def _autofire():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _spawn_autolink() -> None:
+    """Fire-and-forget `unimatrix-autolink.py`; it is idempotent and silent when multibox is unconfigured."""
+    script = _HOOKS_DIR.parent.parent / "bin" / "unimatrix-autolink.py"
+    if not script.is_file():
+        return
+    try:
+        subprocess.Popen(
+            [sys.executable, str(script)],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+            start_new_session=sys.platform != "win32",
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def should_enter(source: str, session_id: str, holder: dict | None) -> bool:
@@ -76,6 +97,7 @@ def compute_context(stdin_text: str) -> str | None:
     if not should_enter(source, session_id, holder):
         return None
 
+    _spawn_autolink()
     af = _autofire()
     script = af.resolve_enter_cli()
     if script is None:
@@ -94,7 +116,7 @@ def compute_context(stdin_text: str) -> str | None:
 
     boxes: list[str] = []
     if result.returncode == 0 and (entered.get("standing") or {}).get("claimed"):
-        boxes = af._box_blocks(cwd, session_id, entered)
+        boxes = af._box_blocks(cwd, session_id, entered, source in _REENTRY_SOURCES)
     context = af.render_additional_context(
         entered, result.returncode, result.stderr or "", boxes, budget=_PREVIEW_BUDGET_CHARS
     )

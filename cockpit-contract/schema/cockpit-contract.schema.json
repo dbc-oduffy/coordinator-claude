@@ -2,8 +2,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://coordinator.local/cockpit-contract.schema.json",
   "title": "Cockpit work-state contract",
-  "description": "Canonical work-state contract (tc-2), version 4.15.0.",
-  "version": "4.15.0",
+  "description": "Canonical work-state contract (tc-2), version 4.16.0.",
+  "version": "4.16.0",
   "$defs": {
     "provenance-envelope": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -242,7 +242,7 @@
           }
         }
       ],
-      "version": "4.15.0"
+      "version": "4.16.0"
     },
     "coordinator-root": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -587,7 +587,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "4.15.0"
+      "version": "4.16.0"
     },
     "branch": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -949,7 +949,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "4.15.0"
+      "version": "4.16.0"
     },
     "goal": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1314,7 +1314,7 @@
         "parent_goal_id"
       ],
       "additionalProperties": false,
-      "version": "4.15.0"
+      "version": "4.16.0"
     },
     "routine-signal": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1653,7 +1653,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "4.15.0"
+      "version": "4.16.0"
     },
     "day-rollup": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -2096,7 +2096,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "4.15.0"
+      "version": "4.16.0"
     },
     "week-rollup": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -2554,7 +2554,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "4.15.0"
+      "version": "4.16.0"
     },
     "handoff-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -3412,7 +3412,7 @@
         "producer"
       ],
       "additionalProperties": false,
-      "version": "4.15.0",
+      "version": "4.16.0",
       "x-baton-class": {
         "description": "kind -> baton_class derivation map. Generated from frontmatter/schemas/handoff.schema.json's own x-baton-class.mapping key, resolved through coordinator_core.frontmatter.baton_class.baton_class() (which also folds in that function's pre-rename kind-alias resolution). One entry per member of this schema's own properties.kind.enum; a null value means baton_class() returns null for that kind (it is not a baton, e.g. 'spike-result'). Do not hand-author a copy of this map — it is generated at emit time from the one canonical source above.",
         "mapping": {
@@ -3776,7 +3776,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "4.15.0"
+      "version": "4.16.0"
     },
     "review-trail": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -4097,7 +4097,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "4.15.0"
+      "version": "4.16.0"
     },
     "lesson-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -4472,7 +4472,7 @@
         "created"
       ],
       "additionalProperties": false,
-      "version": "4.15.0"
+      "version": "4.16.0"
     },
     "plan-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -4984,7 +4984,7 @@
         "review_verified"
       ],
       "additionalProperties": false,
-      "version": "4.15.0"
+      "version": "4.16.0"
     },
     "cross-repo-memo-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -5347,7 +5347,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "4.15.0"
+      "version": "4.16.0"
     },
     "roadmap-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -5923,7 +5923,7 @@
         "scan_errors"
       ],
       "additionalProperties": false,
-      "version": "4.15.0"
+      "version": "4.16.0"
     },
     "tracker-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -6260,7 +6260,7 @@
         "items"
       ],
       "additionalProperties": false,
-      "version": "4.15.0"
+      "version": "4.16.0"
     },
     "health-status-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -6594,7 +6594,7 @@
         "summary"
       ],
       "additionalProperties": false,
-      "version": "4.15.0"
+      "version": "4.16.0"
     },
     "decision-guide-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -6940,7 +6940,7 @@
         "decision_count"
       ],
       "additionalProperties": false,
-      "version": "4.15.0"
+      "version": "4.16.0"
     },
     "session-hierarchy": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -7326,7 +7326,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "4.15.0"
+      "version": "4.16.0"
     },
     "initiative-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -8020,7 +8020,7 @@
         "description"
       ],
       "additionalProperties": false,
-      "version": "4.15.0"
+      "version": "4.16.0"
     },
     "exec-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -8451,7 +8451,7 @@
         "docs_staleness"
       ],
       "additionalProperties": false,
-      "version": "4.15.0"
+      "version": "4.16.0"
     },
     "roadmap-dag-node": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -8807,7 +8807,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "4.15.0"
+      "version": "4.16.0"
     },
     "roadmap-dag-edge": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -9107,7 +9107,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "4.15.0"
+      "version": "4.16.0"
     },
     "backlog-history": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -9422,7 +9422,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "4.15.0"
+      "version": "4.16.0"
     },
     "competitor-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -9778,7 +9778,7 @@
         "display_order"
       ],
       "additionalProperties": false,
-      "version": "4.15.0"
+      "version": "4.16.0"
     },
     "intelligence-signal": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -10242,7 +10242,7 @@
         "measurement_basis"
       ],
       "additionalProperties": false,
-      "version": "4.15.0"
+      "version": "4.16.0"
     },
     "financial-metric-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -10629,7 +10629,7 @@
         "measurement_basis"
       ],
       "additionalProperties": false,
-      "version": "4.15.0"
+      "version": "4.16.0"
     },
     "priority-ledger-entry": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -10964,7 +10964,390 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "4.15.0"
+      "version": "4.16.0"
+    },
+    "sizing-summary": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "intent": {
+          "type": "string"
+        },
+        "route": {
+          "type": "string"
+        },
+        "tshirt": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "xl_exit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "created": {
+          "type": "string"
+        },
+        "exit_criterion_accepted": {
+          "type": "boolean"
+        },
+        "linked_plan": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "resolution": {
+          "type": "string",
+          "enum": [
+            "unresolved",
+            "planned",
+            "closed"
+          ]
+        }
+      },
+      "required": [
+        "path",
+        "intent",
+        "route",
+        "tshirt",
+        "status",
+        "xl_exit",
+        "created",
+        "exit_criterion_accepted",
+        "linked_plan",
+        "resolution"
+      ],
+      "additionalProperties": false,
+      "version": "4.16.0"
+    },
+    "workflow-run": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "run_id": {
+          "type": "string"
+        },
+        "stage": {
+          "type": "string",
+          "enum": [
+            "minted",
+            "staged",
+            "halted",
+            "landed"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "live",
+            "halted",
+            "closed"
+          ]
+        },
+        "sizing_rel": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "session_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "started_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        },
+        "last_activity_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        },
+        "steps_planned": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "outcome": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "run_id",
+        "stage",
+        "status",
+        "sizing_rel",
+        "session_id",
+        "started_at",
+        "last_activity_at",
+        "steps_planned",
+        "outcome"
+      ],
+      "additionalProperties": false,
+      "version": "4.16.0"
+    },
+    "delivery-verdict-summary": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "observed_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        },
+        "plan_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "head_sha": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "recorded_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "session_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "delivery": {
+          "type": "object",
+          "properties": {
+            "verdict": {
+              "type": "string"
+            },
+            "unbacked": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {}
+              }
+            }
+          },
+          "required": [
+            "verdict",
+            "unbacked"
+          ],
+          "additionalProperties": false
+        },
+        "criterion": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string"
+            },
+            "observation": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "sidecar": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "status",
+            "observation",
+            "sidecar"
+          ],
+          "additionalProperties": false
+        },
+        "foreign_claims": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "path",
+        "observed_at",
+        "plan_id",
+        "head_sha",
+        "recorded_at",
+        "session_id",
+        "delivery",
+        "criterion",
+        "foreign_claims"
+      ],
+      "additionalProperties": false,
+      "version": "4.16.0"
+    },
+    "ruling-summary": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "observed_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "from": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "created": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "decision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pm_must_see": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "path",
+        "observed_at",
+        "title",
+        "from",
+        "created",
+        "source",
+        "decision",
+        "pm_must_see"
+      ],
+      "additionalProperties": false,
+      "version": "4.16.0"
     },
     "completion-receipt": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -11483,7 +11866,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "4.15.0"
+      "version": "4.16.0"
     },
     "snapshot-envelope": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -14498,6 +14881,168 @@
               "supersedes",
               "approved_by",
               "provenance"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "sizings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "intent": {
+                "type": "string"
+              },
+              "route": {
+                "type": "string"
+              },
+              "tshirt": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "xl_exit": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "created": {
+                "type": "string"
+              },
+              "exit_criterion_accepted": {
+                "type": "boolean"
+              },
+              "linked_plan": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "resolution": {
+                "type": "string",
+                "enum": [
+                  "unresolved",
+                  "planned",
+                  "closed"
+                ]
+              }
+            },
+            "required": [
+              "path",
+              "intent",
+              "route",
+              "tshirt",
+              "status",
+              "xl_exit",
+              "created",
+              "exit_criterion_accepted",
+              "linked_plan",
+              "resolution"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "workflow_runs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "run_id": {
+                "type": "string"
+              },
+              "stage": {
+                "type": "string",
+                "enum": [
+                  "minted",
+                  "staged",
+                  "halted",
+                  "landed"
+                ]
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "live",
+                  "halted",
+                  "closed"
+                ]
+              },
+              "sizing_rel": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "session_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "started_at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              "last_activity_at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              "steps_planned": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "outcome": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "run_id",
+              "stage",
+              "status",
+              "sizing_rel",
+              "session_id",
+              "started_at",
+              "last_activity_at",
+              "steps_planned",
+              "outcome"
             ],
             "additionalProperties": false
           }
@@ -22994,7 +23539,7 @@
         "malformed_records"
       ],
       "additionalProperties": false,
-      "version": "4.15.0"
+      "version": "4.16.0"
     },
     "emission-scope": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -23325,7 +23870,7 @@
           "additionalProperties": false
         }
       ],
-      "version": "4.15.0"
+      "version": "4.16.0"
     }
   }
 }

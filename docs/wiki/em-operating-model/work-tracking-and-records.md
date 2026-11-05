@@ -83,7 +83,7 @@ At session-end, `nature` is auto-inferred via a small Sonnet dispatch (~1KB payl
 
 <!-- src: plan08-032 -->
 
-When retiring a monolithic write pattern, enumerate every write surface explicitly rather than assuming a single choke point. The completion-log migration required covering six total surfaces: three in the main chunk plus three more found in a follow-up sweep (`executor.md` Archive Fallback, `tracker-maintenance.md` Step 2, `workday-start.md` Step 1.4). A tripwire enforces that no surface regresses back to monolith writes.
+When retiring a monolithic write pattern, enumerate every write surface explicitly rather than assuming a single choke point. The completion-log migration required covering six total surfaces: three in the main chunk plus three more found in a follow-up sweep (`executor.md` Archive Fallback, `tracker-maintenance.md` Step 2, `coordinator/commands/workday-start.md` Step 1.4). A tripwire enforces that no surface regresses back to monolith writes.
 
 ## Reference — Improvement Queue Schema
 

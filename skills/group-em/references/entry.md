@@ -4,7 +4,8 @@ class: protected
 order: 5
 situation: entry
 ---
-**Typing `/group-em` fires entry:** `hooks/scripts/group-em-autofire.py` runs the entry op and
+**A session started in the home enters on its own** (`hooks/scripts/session-start-group-em-autoenter.py`);
+**typing `/group-em` re-enters:** `hooks/scripts/group-em-autofire.py`. Either runs the entry op and
 injects standing, roster, digest and baseline. **Context absent = entry did not happen** (the hook
 fails open): run `<plugin-root>/bin/group-em-enter.py --repo <root> --session-id <your sid>` and
 find out why. **`--session-id` is required** (exit 2 without it). Every `<plugin-root>/bin/` CLI is
@@ -13,6 +14,8 @@ plugin-local: resolve per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bi
 **Exit 5: refused standing** — a live or unaccounted-for incumbent holds the role;
 `roster`/`digest`/`baseline`/`teammates` are absent. Payload shape:
 `coordinator_core/ops/group_em_enter.py`'s module docstring.
+
+**Read the open memos in `<home>/state/cross-repo/inbox/` at entry.**
 
 Never import `read_pass` / `send_pass` directly.
 

@@ -67,14 +67,22 @@ def _derive_summary(body: str) -> str:
     """Derive a summary from the first non-empty line of the memo body.
 
     Truncates to _SUMMARY_MAX_CHARS with a '…' suffix so the composed memo
-    never violates the ≤240-char summary cross-field rule.
+    never violates the ≤240-char summary cross-field rule. The cap is measured
+    on the YAML-escaped form (each double quote and backslash counts twice) because that is
+    what memo.send reads back from a written draft.
     """
+    def measure(text: str) -> int:
+        return len(text) + text.count("\\") + text.count('"')
+
     for line in body.splitlines():
         stripped = line.strip()
         if stripped:
-            if len(stripped) <= _SUMMARY_MAX_CHARS:
+            if measure(stripped) <= _SUMMARY_MAX_CHARS:
                 return stripped
-            return stripped[: _SUMMARY_MAX_CHARS - 1] + "…"
+            cut = _SUMMARY_MAX_CHARS - 1
+            while cut > 0 and measure(stripped[:cut] + "…") > _SUMMARY_MAX_CHARS:
+                cut -= 1
+            return stripped[:cut] + "…"
     return ""
 
 

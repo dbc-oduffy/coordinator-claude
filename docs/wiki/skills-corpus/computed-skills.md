@@ -245,6 +245,7 @@ above is one concrete instance of it.
 | `artifact.resolution` | object \| null | no | Present only on the archive-fallback path — `{status, archive_path, terminal_fields}`. |
 | `preflight.*` | object (sub-schema per key) | yes (object present; individual sub-keys conditional on branch — memo vs. handoff) | Evidence only, never a verdict. |
 | `gates.*` | object (sub-schema per key) | yes (object present; individual sub-keys conditional on branch) | Deterministic facts only; a semantic sub-field belongs in `judgment_points`, not here. |
+| `harness_task_directives` | array of object | no | Carried-task recreate list, in order: every `TaskCreate` before any `TaskUpdate`, each keyed by `old_id`. Consumed by the pickup skill (`CARRIED-TASKS-ARE-RECREATED-AT-PICKUP`). |
 | `directives[].id` | string | yes | Unique within the response. |
 | `directives[].cli` | string | yes | Names an existing atomic CLI entrypoint verbatim. |
 | `directives[].args` | array of string | yes | Fully resolved; may embed a value sourced from a `judgment_points` disposition. |

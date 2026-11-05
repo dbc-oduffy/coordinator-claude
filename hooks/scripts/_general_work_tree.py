@@ -5,8 +5,7 @@
 lives here), plus the general-work extras (`archive/`, `coordinator.local.md`, the canonical
 `.gitignore` block, `state/orientation_cache.md`). It returns the manifest, `archive/` and
 `coordinator.local.md` paths that exist after convergence (seeded now or earlier); content outside
-that set, such as a pre-existing `tax-2025/`, is never named. TRAP: the legacy `[general-work]` brackets are glob
-metacharacters, so the root is never handed to glob/fnmatch. Best-effort: never raises.
+that set, such as a pre-existing `tax-2025/`, is never named. Best-effort: never raises.
 """
 
 from __future__ import annotations

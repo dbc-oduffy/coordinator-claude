@@ -58,16 +58,19 @@ ceremony/coverage transients, `state/group-em-watch.json`, `state/group-em-watch
 `state/group-em-watch-spool.jsonl`, `state/engine-provenance-counts.jsonl`,
 `state/housekeeping-liveness.json`, `state/orientation_cache.md`,
 `state/**/fire-*.mjs`, `state/**/*.mjs.emitted.json`, `Intermediate/`, root-anchored `/scratch_*`,
-`.project-rag-corpus-artifacts/`, `.project-rag-corpus-store/`) is present — create if absent, append only missing lines under one header. Any already tracked: `git rm --cached` after adding the rule, never
+`.project-rag-corpus-artifacts/`, `.project-rag-corpus-store/`) is present. A non-empty `gitignore_candidates`
+from the close residue output lands as a rule in this template, never as a commit
+(`CLOSE-RESIDUE-IS-COMMITTED-OR-GITIGNORED` tripwire) — create if absent, append only missing lines under one header. Any already tracked: `git rm --cached` after adding the rule, never
 `git rm`. Warn if `.claude/` is blanket-ignored, if content is tracked under
 `scratch/`/`tasks/_*.log` (offer, don't auto-`git rm --cached`), or if the project-rag corpus paths (`.project-rag-corpus-artifacts/`, `.project-rag-corpus-store/`) are tracked (break-class).
 Warn on a lockfile from a package manager other than the repo's own (`packageManager` field, else the tracked
 lockfile); offer to delete or ignore it, never auto-remove. A generated cache is ignored or committed by its
 producer, never hand-committed churn.
 
-**Pre-commit corpus-artifact guard**: `cp` `${CLAUDE_PLUGIN_ROOT:?coordinator plugin root unset}/bin/pre_commit_corpus_artifact_guard.py`
-byte-for-byte to `.git/hooks/pre-commit`, `chmod +x`, confirm `head -1 .git/hooks/pre-commit`
-prints `#!/usr/bin/env python3`.
+**Pre-commit corpus-artifact guard**: write `#!/usr/bin/env python3` as line 1 of `.git/hooks/pre-commit`, then
+append the bytes of `${CLAUDE_PLUGIN_ROOT:?coordinator plugin root unset}/bin/pre_commit_corpus_artifact_guard.py`
+(`{ printf '#!/usr/bin/env python3\n'; cat "<src>"; } > .git/hooks/pre-commit`), `chmod +x`, confirm
+`head -1 .git/hooks/pre-commit` prints `#!/usr/bin/env python3`.
 
 **Post-commit auto-push hook**: `coordinator-ensure-hooks-fleet` (Shape W), idempotent. Skip if a
 custom hook exists with PM sign-off (`p3f5.custom-hook-skip`).

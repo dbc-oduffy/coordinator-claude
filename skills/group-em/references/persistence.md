@@ -15,8 +15,9 @@ state immediately before acting on it, **never** via a second entry op in one wa
 
 ### Gating granularity — entry AND per send
 
-**Entry stays PM-gated.** **The send is gated separately, per send:** the
-`ask-before-external-action` question lives there, justified by **cost to the receiver**.
+**Entry stays PM-gated:** the PM gates by booting a session in the home, no typed command needed.
+**The send is gated separately, per send:** the `ask-before-external-action` question lives
+there, justified by **cost to the receiver**.
 
 ### Standing check
 

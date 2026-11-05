@@ -3405,12 +3405,34 @@ def mutation_refusal_message(op: str, result: Any, *, op_stderr: str = "") -> st
     if op_stderr:
         message += f"\n  child stderr (may include non-fatal/succeeding-leg output): {op_stderr}"
     elif not error_text_available and not extras and not _failed_items_carry_reason(failed):
+        fields = _unclassified_result_fields(result)
+        if fields:
+            message += f"\n  result fields: {fields}"
         message += (
             "\n  no reason reached the caller: the op's diagnostic did not cross the "
-            "transport (a stale warm server drops it). Re-run the refused call with "
+            "transport (a stale warm server drops it; a timed-out or stalled leg inside "
+            "the op surfaces the same way). Re-run the refused call with "
             "COORDINATOR_WARM=0 to read the op's own stderr."
         )
     return message
+
+
+_ENVELOPE_RESULT_KEYS = frozenset({"exit_code", "failed", "error", "jsonrpc", "id"})
+
+
+def _unclassified_result_fields(result: dict[str, Any]) -> str:
+    """Scalar result fields beyond the envelope keys, each value capped at 160 chars.
+
+    A refusal whose reason sits under an op-specific key (a timeout flag, a
+    stage name) is still named when that key is not in `reason_keys`.
+    """
+    parts = []
+    for key, value in result.items():
+        if key in _ENVELOPE_RESULT_KEYS or not isinstance(value, (str, int, float, bool)):
+            continue
+        text = repr(value)
+        parts.append(f"{key}={text[:160]}")
+    return ", ".join(parts)
 
 
 def _failed_items_carry_reason(failed: Any) -> bool:

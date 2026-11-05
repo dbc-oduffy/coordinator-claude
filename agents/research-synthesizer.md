@@ -69,7 +69,7 @@ coverage_score: 5  # 1 = major holes ... 5 = comprehensive
 Severity: HIGH (changes conclusions), MEDIUM (adds meaningful depth), LOW (cosmetic). Type:
 `absent_claim`, `contradiction`, `uncorroborated`, `contested`, `coverage_imbalance`.
 
-**Also write a durable copy** to `docs/research/{run-stem}-gap-report.md` (`{run-stem}` per
+**Also write a durable copy** to `<run dir>/outputs/gap-report.md` (`<run dir>` per
 § Completion) — enumerated by `query-records --type gap-report` — only when your brief's write
 allowlist names that path. A brief that forbids new `docs/research/` paths makes
 `{scratch-dir}/gap-report.md` the one gap-report: write it there, skip the durable copy, and say so
@@ -227,16 +227,16 @@ Instead of the full document format, write `{scratch-dir}/deepening-delta.md`:
 ## Completion
 
 **Durable index records (always-on, all modes except merge mode):** before returning,
-emit two durable records to `docs/research/`. Derive `{run-stem}` from `{output-path}` by
-stripping its `docs/research/` prefix and `.md` suffix (e.g. `2026-06-30-topic-web.md` →
-`2026-06-30-topic-web`).
+emit two durable records inside the run dir your brief binds,
+`<run dir>` = `docs/research/<topic>/<date>-<run-slug>/` (the directory of `{output-path}`); write
+nothing else under `docs/research/`.
 
 | Record | Path | Content |
 |---|---|---|
-| Synthesis | `{run-stem}.md` | Phase 3 prose, `research-synthesis` frontmatter (§ Output Format) — frontmatter IS the index |
-| Durable gap-report | `{run-stem}-gap-report.md` | Same content as Phase 1's `gap-report.md` — confirm/write when your brief's allowlist names the path (else the scratch copy stands alone); what `query-records --type gap-report` enumerates |
+| Synthesis | `<run dir>/synthesis.md` | Phase 3 prose, `research-synthesis` frontmatter (§ Output Format) — frontmatter IS the index |
+| Durable gap-report | `<run dir>/outputs/gap-report.md` | Same content as Phase 1's `gap-report.md` — confirm/write when your brief's allowlist names the path (else the scratch copy stands alone); what `query-records --type gap-report` enumerates |
 
-**You never write `docs/research/{run-stem}.claims.json` or its `.claims.meta.json` sidecar** —
+**You never write the run's `.claims.json` or its `.claims.meta.json` sidecar** —
 that pair has exactly one writer, invoked by the EM after you report. You write the merged array
 to `{scratch-dir}/merged-claims.json` (all specialist `{LETTER}-claims.json` arrays concatenated,
 a bare top-level JSON array) and report `pipeline: web`.
@@ -254,7 +254,7 @@ field to prose**.
 only) — that write IS the `ran_at` stamp; (3) confirm the durable gap-report exists, writing it if
 missing (normal mode only); (4) write advisory to `{advisory-path}` AND `{scratch-dir}/advisory.md` if applicable;
 (5) return a brief result to the EM — the script hands it over as the Workflow result ("No
-advisory" if skipped; "Durable: {run-stem}.md + -gap-report.md. Merged claims:
+advisory" if skipped; "Durable: synthesis.md + outputs/gap-report.md. Merged claims:
 {scratch-dir}/merged-claims.json, pipeline: web") — no `ran_at`; the EM takes it from the
 merged file's mtime. A deep-tier return also carries `deepeningRecommended`.
 

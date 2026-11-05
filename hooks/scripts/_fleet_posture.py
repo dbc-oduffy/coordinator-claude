@@ -1,7 +1,7 @@
 """Fleet-scoped posture artifact: sanctioned writer plus per-session reader.
 
 Spec backlink: docs/plans/2026-09-11-fleet-control-plane-posture-authority-attention.md (C4);
-rulings R1, R3, R4, R8 in docs/research/2026-09-11-fleet-control-plane-design.md.
+rulings R1, R3, R4, R8 in docs/research/fleet-control-plane-design/2026-09-11-fleet-control-plane-design/synthesis.md.
 
 The artifact is one host-local JSON file at `fleet-posture.json` in `coordinator_temp_root("_fleet")`
 (grants beside it as `fleet-grant-<id>.json`; reads fall back to the bare-Temp legacy location;

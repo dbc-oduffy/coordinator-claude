@@ -57,6 +57,14 @@ Subcommands:
         INJECTED_FILES=<space-separated paths>
         COMMITTED=<0|1>
 
+  write-gap <ROOT> <DATE> [--machine M] [--today YYYY-MM-DD] [--no-commit]
+      Composes the missing archive/daily-summaries/<DATE>-<machine>.md for a
+      true-gap day (the `run` subcommand's TRUE_GAP_DATES): rollup
+      frontmatter, bare covered_tip_sha / covered_machine anchors and a
+      `## Work Completed` list of commit subjects, from `git log --all`. Exits
+      1 (nothing written) when a summary for the day exists, the day has no
+      commits, or its tips diverge. Prints `TARGET=<path>` and `COMMITTED=<0|1>`.
+
 Divergence from the ported bash prose (executor note, WDC-3): the bash
 source describes deriving a per-date `machine` value from a gap row's `$2`
 column via `awk` (assuming one row per machine per date) and forwarding it
@@ -356,6 +364,95 @@ def _cmd_run(argv: list[str]) -> int:
     return 0
 
 
+def _cmd_write_gap(argv: list[str]) -> int:
+    _bootstrap_engine()
+    import workday_ceremony_lib as wc
+
+    parser = argparse.ArgumentParser(
+        prog="workday-complete-backfill-anchor.py write-gap",
+        description="Compose archive/daily-summaries/<DATE>-<machine>.md for a day with no summary file.",
+    )
+    parser.add_argument("root")
+    parser.add_argument("date")
+    parser.add_argument("--machine", default=None, help="Machine name; defaults to compute_machine().")
+    parser.add_argument("--today", default=None, help="Override 'today' (YYYY-MM-DD) in the Generated line.")
+    parser.add_argument("--no-commit", action="store_true", help="Write the file but skip the git add+commit.")
+    args = parser.parse_args(argv)
+
+    if not os.path.isdir(args.root):
+        _err(f"ERROR: ROOT does not exist or is not accessible: {args.root}")
+        return 1
+    root = os.path.abspath(args.root)
+
+    try:
+        from cc_invoke import ensure_engine_on_path
+
+        ensure_engine_on_path(__file__)
+        from coordinator_core.ops.daily_summary_gap import GapRefusal, compose_daily_summary_gap
+    except (RuntimeError, ImportError) as exc:
+        _err(f"ERROR: coordinator engine unavailable: {exc}")
+        return 1
+
+    machine = args.machine
+    if not machine:
+        from coordinator_core.machine_resolver import compute_machine
+
+        machine = compute_machine()
+
+    try:
+        path, text = compose_daily_summary_gap(
+            root, args.date, machine, compute_descendant_tip, today=args.today
+        )
+    except GapRefusal as exc:
+        _err(f"REFUSED: {exc}")
+        return 1
+
+    target = str(path)
+    if os.path.exists(target):
+        _err(f"REFUSED: summary already exists: {target}")
+        return 1
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    import tempfile
+
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(target), suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+            f.write(text)
+        os.link(tmp, target)  # no-clobber publish: raises if target exists
+    except FileExistsError:
+        _err(f"REFUSED: summary already exists: {target}")
+        return 1
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+    try:
+        from coordinator_core.session.declared_writes import declare_write
+
+        declare_write(target)
+    except (RuntimeError, ImportError):
+        pass
+
+    committed = 0
+    if not args.no_commit:
+        rel = os.path.relpath(target, root)
+        add_proc = wc.git("-C", root, "add", "--", rel)
+        if add_proc.returncode != 0:
+            _err(f"ERROR: git add failed for {rel}: {add_proc.stderr.strip()}")
+            return 1
+        commit_proc = wc.git(
+            "-C", root, "commit", "-m",
+            f"chore(daily-summaries): backfill gap day {args.date}", "--", rel,
+        )
+        if commit_proc.returncode != 0:
+            _err(f"ERROR: git commit failed for {rel}: {commit_proc.stderr.strip()}")
+            return 1
+        committed = 1
+
+    print(f"TARGET={target}")
+    print(f"COMMITTED={committed}")
+    return 0
+
+
 def main(argv: list[str]) -> int:
     _bootstrap_engine()
     if not argv or argv[0] in ("-h", "--help"):
@@ -367,8 +464,10 @@ def main(argv: list[str]) -> int:
         return _cmd_descendant_tip(rest)
     if sub == "run":
         return _cmd_run(rest)
+    if sub == "write-gap":
+        return _cmd_write_gap(rest)
 
-    _err(f"ERROR: unknown subcommand '{sub}' (expected 'descendant-tip' or 'run')")
+    _err(f"ERROR: unknown subcommand '{sub}' (expected 'descendant-tip', 'run' or 'write-gap')")
     return 1
 
 

@@ -251,6 +251,34 @@ def extract_baton_paths(command_args: str) -> str:
     return " AND ".join(token for token in tokens if _is_baton_path(token))
 
 
+_PATH_SUFFIXES = (".md", ".yaml", ".yml")
+
+_BARE_PATH_REFUSAL = (
+    "/pickup refused: args must be the bare path of one artifact (or paths "
+    "joined with ` AND `); put rationale after ` -- `. No path-shaped token "
+    "(ending in .md/.yaml/.yml) was found in the args, so no brief was assembled."
+)
+
+
+def _is_path_shaped(token: str) -> bool:
+    return token.lower().endswith(_PATH_SUFFIXES) or _is_baton_path(token)
+
+
+def first_path_token(path_string: str) -> str | None:
+    """Reduce a `/pickup` path string that carries trailing rationale to its
+    first path-shaped token. A string with no whitespace or an ` AND `-joined
+    list passes through unchanged. Returns None when no token is path-shaped,
+    which the caller reads as a refusal. A path containing spaces is not
+    supported."""
+    tokens = path_string.split()
+    if len(tokens) <= 1 or _AND_SPLIT_RE.search(path_string):
+        return path_string
+    for token in tokens:
+        if _is_path_shaped(token):
+            return token
+    return None
+
+
 _BRIEF_TIMEOUT_SECONDS = 12
 _APPLY_TIMEOUT_SECONDS = 20
 
@@ -1020,6 +1048,11 @@ def compute_context(stdin_text: str) -> str | None:
     path_string, prose = split_prose_tail(command_args)
     if is_baton_grab:
         path_string = extract_baton_paths(path_string)
+    elif path_string:
+        reduced = first_path_token(path_string)
+        if reduced is None:
+            return _BARE_PATH_REFUSAL
+        path_string = reduced
     if not path_string:
         return None
 

@@ -162,9 +162,9 @@ Notebook C uses research_start — worker should use NLM discovery, not scout-pr
 [
   {
     "id": "{letter}-001",
-    "finding": "Specific factual finding extracted from NLM response",
+    "claim_text": "Specific factual claim extracted from NLM response",
     "evidence_excerpt": "Most relevant 1-3 sentences from NLM response. Prefix with [PARAPHRASED] if condensed.",
-    "query": "The question that produced this finding",
+    "query": "The question that produced this claim",
     "notebook_sources": ["Source 1 title", "Source 3 title"],
     "source_url": "https://www.youtube.com/watch?v=... (or null)",
     "source_date": "YYYY-MM-DD (or null)",
@@ -199,7 +199,7 @@ The sole statement of how `{letter}-claims.json` worker fields map to `research-
 | Worker field | `research-claim.schema.json` field | Rule |
 |---|---|---|
 | `id` | `id` | As-is (e.g. `A-001`) |
-| `finding` | `claim_text` | Direct |
+| `claim_text` | `claim_text` | Direct |
 | `confidence` | `confidence` | Direct |
 | `type` | `type` | `capability` → `fact`; fact/limitation/pattern/recommendation direct |
 | `evidence_excerpt` | `evidence` | Direct |
@@ -233,7 +233,7 @@ Pipeline D uses the **always-on** coverage auditor — dispatched by the EM as a
 
 **Graduated bootstrap for MCP tools (required):**
 
-1. Try exact names: `ToolSearch("select:mcp__notebooklm-mcp__notebook_query,mcp__notebooklm-mcp__cross_notebook_query")`
+1. Try exact names: `ToolSearch("select:mcp__gemini-notebook-mcp__notebook_query,mcp__gemini-notebook-mcp__cross_notebook_query")`
 2. If Step 1 returns nothing, keyword fallback: `ToolSearch("+notebooklm notebook_query", max_results=5)`
 3. If both return nothing — **graceful degrade:** proceed on `{letter}-claims.json` only and include this note in the sidecar header:
 
@@ -250,10 +250,10 @@ This is an architectural boundary, not an appetite call. The relay is revisited 
 
 ## Scratch Directory
 
-`docs/research/{run-id}-workdir/` (no trailing `-{topic-slug}` — Pipeline D's run-id, `{topic-slug}-{YYYYMMDD}` per the `scope` stage of `notebooklm.manifest.yaml`, already carries the slug; unlike the repo/web/structured drivers' timestamp-only run-id).
+`<run dir>/workdir/`, where `<run dir>` is `docs/research/<topic>/<date>-<run-slug>/` (Pipeline D's run-id, `{topic-slug}-{YYYYMMDD}` per the `scope` stage of `notebooklm.manifest.yaml`, already carries the slug; unlike the repo/web/structured drivers' timestamp-only run-id).
 
 - Strategy: `{scratch-dir}/strategy.md`
 - Scout output: `{scratch-dir}/sources.md`
 - Worker outputs: `{scratch-dir}/{letter}-claims.json` + `{scratch-dir}/{letter}-summary.md` (A, B, C as applicable)
-- Final output: `docs/research/YYYY-MM-DD-{topic-slug}-nlm.md`
+- Final output: `{scratch_dir}/<segment>/YYYY-MM-DD-{topic-slug}-nlm.md` (never outside the run dir; the layout guard refuses a stray)
 - Sweep advisory: `{output-path}-advisory.md` (+ backup at `{scratch-dir}/advisory.md`); omitted if nothing beyond scope

@@ -9,7 +9,7 @@
     { "type": "problem-set",         "schemaName": "problem-set",         "isSidecar": false, "offerable": true },
     { "type": "completion",          "schemaName": "completion-entry",    "isSidecar": false, "offerable": true },
     { "type": "goal",                 "schemaName": "goal",                "isSidecar": false, "offerable": true, "applies_to": "state/goals/*.yaml" },
-    { "type": "sizing-object",       "schemaName": "sizing-object",       "isSidecar": false, "offerable": true, "applies_to": "state/sizings/*.yaml" },
+    { "type": "sizing-object",       "schemaName": "sizing-object",       "isSidecar": false, "offerable": true, "applies_to": "state/sizings/**/*.yaml" },
     { "type": "completion-receipt",  "schemaName": "completion-receipt",  "isSidecar": false, "offerable": false, "neverManuallyScaffoldable": true, "applies_to": "state/completion-receipts/**/*.md" },
     { "type": "delivery-verdict",    "schemaName": "delivery-verdict",    "isSidecar": false, "offerable": false, "applies_to": "state/delivery-verdicts/**/*.md" },
     { "type": "ruling",              "schemaName": "ruling",              "isSidecar": false, "offerable": false, "applies_to": "state/{rulings,apm-rulings}/*.md" },

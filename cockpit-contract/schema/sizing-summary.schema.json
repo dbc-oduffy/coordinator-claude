@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "path": {
+      "type": "string"
+    },
+    "intent": {
+      "type": "string"
+    },
+    "route": {
+      "type": "string"
+    },
+    "tshirt": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string"
+    },
+    "xl_exit": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "created": {
+      "type": "string"
+    },
+    "exit_criterion_accepted": {
+      "type": "boolean"
+    },
+    "linked_plan": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "resolution": {
+      "type": "string",
+      "enum": [
+        "unresolved",
+        "planned",
+        "closed"
+      ]
+    }
+  },
+  "required": [
+    "path",
+    "intent",
+    "route",
+    "tshirt",
+    "status",
+    "xl_exit",
+    "created",
+    "exit_criterion_accepted",
+    "linked_plan",
+    "resolution"
+  ],
+  "additionalProperties": false,
+  "version": "4.16.0"
+}

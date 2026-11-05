@@ -129,13 +129,13 @@ The rebuttal round answers the challenges. A specialist converges once; the cont
 
 ## Work Directory
 
-`docs/research/{run-id}-{topic-slug}-workdir/`
+`{run-dir}/workdir/` (`{run-dir}` = `docs/research/{topic}/{date}-{run-slug}/`)
 
 - Scout writes to: `{workdir}/source-corpus.md`
 - Each specialist writes to: `{workdir}/{topic-letter}-claims.json` + `{workdir}/{topic-letter}-summary.md`
 - Mailboxes: `{workdir}/mail/<role>.jsonl`
-- Sweep writes synthesis to: `{output-path}` + `{workdir}/synthesis.md`
-- Sweep writes advisory to: `{advisory-path}` + `{workdir}/advisory.md` (optional — omitted if nothing beyond scope)
+- Sweep writes synthesis to: `{output-path}` (= `{run-dir}/synthesis.md`) + `{workdir}/synthesis.md`
+- Sweep writes advisory to: `{advisory-path}` (= `{run-dir}/outputs/advisory.md`) + `{workdir}/advisory.md` (optional — omitted if nothing beyond scope)
 
 ## Fidelity Relay Protocol
 
@@ -172,7 +172,7 @@ The rebuttal round answers the challenges. A specialist converges once; the cont
 
 The coverage auditor is a **plain `Agent` dispatch by the EM after the Workflow's task notification** (at the completion step in `pipelines/deep-research/web-driver.md`), before archive. It is a fresh-eyes Sonnet cross-reference pass — not the synthesizer grading its own homework.
 
-**What it does:** Cross-references specialist `*-claims.json` records against the synthesis. Emits one sidecar: `{output-path minus .md}-coverage-audit.md`. Never writes the synthesis output path.
+**What it does:** Cross-references specialist `*-claims.json` records against the synthesis. Emits one sidecar: `{run-dir}/outputs/{run-stem}-coverage-audit.md`. Never writes the synthesis output path.
 
 **Two coverage artifacts, two questions — explicit reader contract:**
 - `gap-report.md` — "Did we research enough?" (input coverage, drives the deepening gate, synthesizer-owned)

@@ -35,7 +35,7 @@ INDEX_RELPATH = "state/capabilities/fleet-index.json"
 REMEDY_LAUNCHER_CANDIDATES = ("coordinator-invoke",)
 REMEDY_OP = "fleet.aggregate_capability_index"
 
-_NO_CLONE = "no claude-klabauter clone registered"
+_NO_CLONE = "no engine-source clone registered"
 
 _DURATION_RE = re.compile(
     r"^P(?!$)(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)W)?(?:(\d+)D)?"

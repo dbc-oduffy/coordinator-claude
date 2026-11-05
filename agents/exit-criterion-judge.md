@@ -101,6 +101,9 @@ box-capacity guard denies an uncapped one. Tripwire: `A-BOX-CAP-COUNTS-COMMANDS-
   missing entry-point observation. Name the entry point you drove in `observed`. Tripwire:
   `A-FUNCTION-LEVEL-PROXY-NEVER-YIELDS-A-MET-VERDICT`.
 - `not_met` when a clause, the falsifier, or a gated row is observed false. `reason` is required.
+- `not_met` when any PM consumer verb (wire, use, feed, inject) in the verbatims has no clause
+  observed at the consumer, even if every statement clause is true; `reason` names the verb.
+  Tripwire: `A-CRITERION-NARROWER-THAN-THE-PM-VERBS-IS-NOT-MET`.
 - `not_met` for an unclaimed register row with no ruling, or a this-plan row not met and wired
   and not ruled; `reason` names the row id.
 - `not_met` for each PM turn the brief's register evidence lists as uncovered; `reason` names the

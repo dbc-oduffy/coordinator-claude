@@ -1127,6 +1127,14 @@ def _paths_with_no_uncommitted_content(
     return clean
 
 
+def _quote_path_arg(path: str) -> str:
+    """Double-quote a path holding whitespace or shell metacharacters; the
+    result pastes into bash, PowerShell and cmd alike (`shlex.quote` does not)."""
+    if any(c.isspace() or c in "\"'`$&|;<>()*?[]{}!#~\\^%" for c in path):
+        return '"' + path.replace('"', '\\"') + '"'
+    return path
+
+
 def _refuse_contested_pathspec(paths: Sequence[str], worktree_root: str) -> None:
     """The ownership gate the explicit-pathspec form never had.
 
@@ -1266,7 +1274,9 @@ def _refuse_contested_pathspec(paths: Sequence[str], worktree_root: str) -> None
             if name:
                 by_name.setdefault(name, []).append(path)
     for name, held in sorted(by_name.items()):
-        commands = "; ".join(f"session-claim-cli release-artifact artifact {p}" for p in held)
+        commands = "session-claim-cli release-artifact-bulk " + " ".join(
+            _quote_path_arg(p) for p in held
+        )
         message = f"Release request: if you have no pending edit in these, please run: {commands}"
         print(f"Release request: SendMessage({{to: {json.dumps(name)}, message: {json.dumps(message)}}})", file=sys.stderr)
     unnamed_remedy = (
@@ -1288,7 +1298,7 @@ def _refuse_contested_pathspec(paths: Sequence[str], worktree_root: str) -> None
         "address on its own. "
         "READ claims are not listed here and never block. "
         "A holder releases its own claim with `session-claim-cli "
-        "release-artifact artifact <path>` -- landed or still in flight, "
+        "release-artifact-bulk <path>...` -- landed or still in flight, "
         "its own claims only, never a peer's. "
         "`session-claim-cli who-claims-path <path>` lists every holder and "
         "each one's kind. " + unnamed_remedy,

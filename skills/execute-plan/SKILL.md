@@ -9,8 +9,8 @@ argument-hint: <plan-path>
 
 Run a PM-approved plan end-to-end without stopping for permission between tasks (`THE-EM-TIME-AND-COST-SPENT-IS-A-RED-FLAG`). Invoking `/execute-plan` IS the PM's authorizing act (`execution_authorized_at` records it; no precondition). **It also
 satisfies a chunk body's own "needs PM assent at execution dispatch" clause.** Never re-ask per
-chunk or offer to halt a fired run. A gate it does
-NOT satisfy names another act: a cross-repo commit (per-session assent, obtained at
+chunk or offer to halt a fired run. It does
+NOT satisfy another act's gate: a cross-repo commit (per-session assent, obtained at
 that dispatch) or an external-facing action. No chain into `/merging-to-main` (PM-gated).
 
 Execute = build the dispatch-gate graph and dispatch per chunk through a background Workflow (parallel where gates allow; a serial chain is N fresh dispatches with EM-verify between). No per-chunk reviewer gate: code review is the emitted workflow's own (`review-roster-fragment.md` § Stages); the EM never hand-dispatches a reviewer. Tripwire: `CODE-REVIEW-IS-A-STAGE-OF-THE-EXECUTE-WORKFLOW`. **A chunk that
@@ -46,8 +46,8 @@ Executors are always Sonnet; self-execute only on a named token-economics carve-
    `A-DELEGATED-RUN-STAMPS-THE-DELEGATE-NOT-THE-PM`.
 3. **Remaining-context gate** (skip under `/autonomous`): read the statusline's context % before same-session execution; a fresh (picked-up) session is the default.
 3a. **Re-probe every cited canvas, in the main loop**: read each `harvest/harvest.json`'s version and comments, run the engine harvest op's probe mode. A dispatch-leg
-   refusal at fire is final until re-harvested; an unreadable canvas is reported, not waited on. Executors read the record (`snippets/design-canvas-recipe.md`).
-4. Resolve EM-resolvable concerns yourself; one revealing the plan isn't executable → Phase 1.4. Announce and continue.
+   refusal at fire is final until re-harvested; an unreadable canvas is reported, not waited on. Executors read the record (`skills/design-canvas/SKILL.md`).
+4. Resolve EM-resolvable concerns yourself; one revealing the plan isn't executable → Phase 1.4.
 
 ---
 
@@ -80,7 +80,7 @@ An uncleared `external_gate` `blocks: execution` row is unschedulable; its owner
 must be live and its `memo:` sent (`A-EXTERNAL-OWNER-IS-LIVE-AND-ITS-MEMO-IS-SENT`).
 
 **Cross-check the AC table against the chunk list before emitting**: an `## Acceptance Criteria`
-row no chunk cites (`covers:` or body) is a silent gap; fix it in the plan first.
+row no chunk cites (`covers:` or body) is a gap; fix the plan first.
 
 A signature/param-removal chunk's scope must name test fixture defs and call sites (`execute-plan-residue.md` § Signature/param-removal). A static-gate or sweep-predicate chunk's brief sorts every
 case PROVE-BAD, PROVE-GOOD or CANNOT-DECIDE, flagging only PROVE-BAD; two dozen first-run hits get a hand-read sample before any fix wave (`A-STATIC-GATE-BRIEF-MUST-SORT-EVERY-CASE-INTO-PROVE-BAD-PROVE-GOOD-OR-CANNOT-DECIDE`).
@@ -107,13 +107,13 @@ place: `--restamp`, not re-emit (`AN-EMITTED-WORKFLOW-FIRES-WITHOUT-A-PROMPT-A-H
 
 **Fired-then-died** (`log_size_bytes: 0` past startup): report and stop. **Returned `incomplete`, nothing halted:** not a resume; `dispatch.land_run`, then `emit-dispatch-workflow --plan <plan> --only-incomplete <task-output>` and fire; never hand-dispatch or hand-commit its files (`execute-plan-residue.md` § Fired-run states).
 
-**A brief never asks an executor to commit** and never dictates code: intent, PM verbatims and constraints only (`dispatch-briefing.md` § Field rules). Wave shape comes from the file-write graph, never the plan's section structure; one dispatch per chunk. The workflow never pauses to ask; a `phase()`'s deterministic gate MAY halt it, resumed via `resumeFromRunId`.
+**A brief never asks an executor to commit** and never dictates code: intent, PM verbatims and constraints only (`dispatch-briefing.md` § Field rules). Wave shape comes from the file-write graph; one dispatch per chunk. The workflow never pauses to ask; a `phase()`'s deterministic gate MAY halt it, resumed via `resumeFromRunId`.
 
 **One emit per plan — a partial re-run resumes, never re-emits.** On a halt (BLOCKed executor, review-wave BLOCKED/FAIL, or rebuild verdict): edit the
 halting phase's agent step first (no earlier one), `emit-dispatch-workflow --restamp <script>` (refused unless the receipt names this session), then `Workflow({scriptPath, resumeFromRunId: <run>})`
 in the same session (resume alone re-halts). Re-emit only when the spine changed (`A-SECOND-EMIT-AFTER-A-PARTIAL-RUN-NARROWS-SILENTLY`).
 
-**No watching:** the completion notification is the wake; never poll.
+**No watching:** the completion notification is the wake.
 
 **Completion — the driver's first act on return is the terminal commit.** Nothing commits mid-run. The driver runs `coordinator-invoke dispatch.land_run` with `script_path` and
 `task_output_path` (`next_action.params`; script gone: `plan_path`, `run_id`): the run's ONE commit (`Inline-Review:` trailer, one completion receipt per baton; EM reads, never writes: [`completion-receipts.md`](../../docs/wiki/release-and-distribution/completion-receipts.md)). `implemented` = a met terminal verdict stamped it and Phase 4 steps 2.5 to 4 ran inside
@@ -136,7 +136,7 @@ state without checking. When Task* is unavailable, dispatch the phases in order,
 completion notification — that is the ordering a `blockedBy` chain would otherwise express.
 <!-- END task-tool-availability -->
 
-Plan in another repo → pass `coordinator-tasks-mirror --repo-root <plan's repo>`.
+Plan in another repo → `coordinator-tasks-mirror --repo-root <plan's repo>`.
 
 ---
 
@@ -164,7 +164,7 @@ plan's recorded falsifier; a failing one is `not_met` per
 **Precondition:** every wave-map chunk has landed (recovery triple: leg 1 `chunk-commits <plan-path> <chunk-id>`, leg 2 the Workflow script, leg 3 the Phase 2 Task list); else return
 to Phase 3. Steps 2.5 to 4: manual path, only if the terminal commit did not stamp.
 Leg 1 alone yields candidates, never a verdict: corroborate against leg 2 or 3 and a git log by chunk-id subject unscoped by path (never
-`--grep` or a pathspec: chunk ids restart at C1); `no_join_candidates` does not prove the chunks didn't ship.
+`--grep` or a pathspec: chunk ids restart at C1); `no_join_candidates` proves nothing.
 
 **`close-out-and-stamp` reads no commit message at all.** The commit-subject/`Deliverable-Id`-trailer
 join was deleted, not narrowed; do not restore it as an oversight. Two sha-ancestry paths survive: a `disposition: coded` row's `disposition_ref`, and a pre-spine plan's `## Dispatch Ledger` `committed <sha>` cells.

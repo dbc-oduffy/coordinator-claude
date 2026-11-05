@@ -1,34 +1,21 @@
 #!/usr/bin/env python3
-"""PreToolUse(Write|Edit|MultiEdit|NotebookEdit) naked-Python dispatcher.
+"""PreToolUse(Write|Edit|MultiEdit|NotebookEdit) doctrine-plane guard shim.
 
-Replaces the former ~10 `bash …/block-*.sh` + `bash …/nudge-*.sh` PreToolUse
-registrations with ONE `python3` hook entry — zero Git-Bash cold-starts per edit
-(each bash.exe spawn costs 200-500ms on Windows; this is the whole point).
+The split: the warm `hook-run` door carries the engine verdict
+(`coordinator_core.write_guards`); this shim carries ONLY the doctrine-plane
+registry (`_guard_runner.REAL_GUARD_REGISTRY`), run in-process. It resolves,
+imports and evaluates no engine code, so one edit pays one cheap interpreter
+start with no `coordinator_core` import.
 
-The doctrine plane owns only this thin PLUMBING shim (in-process `coordinator_core` import, sanctioned by DR-047's Python-caller-shape Addendum): resolve
-the engine, hand it the raw payload, relay its stdout. The engine repo owns the
-guard LOGIC (`coordinator_core.write_guards`, which also reuses
-`coordinator_core.subagent_sandbox`). The engine is imported and run IN-PROCESS —
-no bash, no `python3 -m` subprocess re-spawn — so a whole edit pays exactly one
-Python interpreter start.
-
-Contract (mirrors the bash hooks it replaces):
+Contract:
   stdin   — PreToolUse JSON (tool_name, tool_input, session_id, cwd, agent_id…)
   stdout  — one hookSpecificOutput JSON envelope on deny/advisory; NOTHING on allow
   exit 0  — always (ALLOW/DENY conveyed via stdout, never exit code)
 
-Graceful degradation — REQUIRED: any failure to resolve/import/run the engine
-drops only the engine's verdict. The plugin-resident guard registry still runs
-in-process, exit stays 0, and one stderr breadcrumb names the failure; only a
-verdict a plugin-resident guard returns itself can reach stdout. A missing sibling
-engine must NEVER brick every edit — identical philosophy to the bash sandbox
-shim it supersedes. The breadcrumb fires on every edit while the engine stays
-missing, deliberately (operator visibility of the outage); never latch it to
-once per session.
-
-NOTE (transition): the legacy bash guards stay registered until hooks.json is
-rewired to this dispatcher; both emitting is harmless (the harness aggregates
-deny envelopes first-deny-wins), so there is no window with guards down.
+Graceful degradation — REQUIRED: a registry guard module that fails to import or
+raises is skipped (fail-open for that guard only) and one stderr breadcrumb names
+it. A missing `_guard_runner.py` degrades the shim to a silent no-op. It must
+NEVER brick an edit.
 """
 
 from __future__ import annotations
@@ -41,46 +28,19 @@ from pathlib import Path
 _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
-try:
-    from _engine_root import (  # noqa: E402
-        arm_lazy_ops as _arm_lazy_ops,
-        resolve_claude_klabauter_root as _resolve_claude_klabauter_root,
-        place_engine_root_on_path as _place_engine_root_on_path,
-    )
-except Exception:
-    # Defensive fallback -- a hook script deployed without its sibling _engine_root.py must
-    # still fail-open rather than crash on import.
-    def _resolve_claude_klabauter_root() -> str | None:
-        return None
-
-
-    def _place_engine_root_on_path(root):
-        # Fallback mirrors the primitive's placement rule: never index 0 when the hooks dir
-        # holds it, never the tail where site-packages outranks us.
-        if root and root not in sys.path[:2]:
-            sys.path.insert(1 if sys.path else 0, root)
-        return root
-    def _arm_lazy_ops() -> None:
-        return None
 
 try:
     from _guard_runner import (  # noqa: E402
         REAL_GUARD_REGISTRY as _REAL_GUARD_REGISTRY,
         RegisteredGuard as _RegisteredGuard,
         build_registry_entries as _build_registry_entries,
-        envelope_to_verdict as _envelope_to_verdict,
         run_guards as _run_guards,
         verdict_to_envelope as _verdict_to_envelope,
     )
 except Exception:
-    # Same defensive-fallback shape as the _engine_root import above -- a missing sibling
-    # _guard_runner.py must degrade the runner to a no-op (engine verdict passes through
-    # unchanged), never brick the hook.
+    # A hook script deployed without its sibling _guard_runner.py must fail open, not crash.
     _RegisteredGuard = None  # type: ignore[assignment]
     _REAL_GUARD_REGISTRY = ()  # type: ignore[assignment]
-
-    def _envelope_to_verdict(out):  # type: ignore[no-redef]
-        return None
 
     def _verdict_to_envelope(result):  # type: ignore[no-redef]
         return None
@@ -92,17 +52,9 @@ except Exception:
         return []
 
 
-# The in-process guard runner's enrolment list (contract clause 12,
-# `_guard_runner_contract.ENROLLED_GUARD_MODULES`). C1 built the runner
-# MECHANISM with this deliberately empty so the aggregation/lazy-import path
-# was structurally exercised (AC1) before any real guard depended on it; C2
-# (three guards), C3b (a fourth), and C3 (the fifth, `check-claude-md-size`,
-# protocol-translated) proved each guard's parity in turn. C4 is what
-# actually points this constant at `_guard_runner.REAL_GUARD_REGISTRY` --
-# the live enrolment set -- rather than the placeholder empty tuple: without
-# this line, every registry change C2/C3/C3b/C4 made to `_guard_runner.py`
-# is inert in production, because THIS is the constant the dispatcher below
-# actually reads on every edit.
+# The live enrolment set (contract clause 12, `_guard_runner_contract.ENROLLED_GUARD_MODULES`).
+# This is the constant main() reads on every edit; a registry change in `_guard_runner.py`
+# is inert in production unless it reaches this binding.
 _GUARD_REGISTRY: "tuple" = _REAL_GUARD_REGISTRY
 
 
@@ -116,158 +68,33 @@ def _compose_skipped_guard_breadcrumb(skipped: "list[str]") -> str:
     )
 
 
-def _compose_engine_unavailable_breadcrumb(reason: str) -> str:
-    """Stderr breadcrumb for a missing engine verdict. Pure; main() prints it once per edit."""
-    return (
-        f"[preuse-write-dispatch] {reason}; engine guards skipped "
-        "(fail-open for engine guards only, plugin-resident guards ran)"
-    )
-
-
 def main() -> int:
     raw = sys.stdin.read()
 
-    evaluate_payload_json = None
-    engine_unavailable: "str | None" = None
-
-    root = _resolve_claude_klabauter_root()
-    if not root:
-        engine_unavailable = "engine root unresolvable"
-    else:
-        # Contract clause 8 (SYS.PATH ORDERING, `_guard_runner_contract.py`):
-        # the engine root is APPENDED, never inserted at index 0 -- the hooks
-        # dir (inserted at index 0 above, before this point) must stay AHEAD
-        # of the engine root on sys.path, so a module-name collision between a
-        # doctrine-plane-local helper and a same-named engine-side module resolves toward
-        # the doctrine-plane-local helper.
-        # Index-1 placement via the shared primitive: hooks dir stays at 0, engine root
-        # outranks site-packages. A bare append put it BEHIND an editable install of the
-        # engine, so the resolver answered the mirror and the import returned the working
-        # tree -- see _engine_root.place_engine_root_on_path.
-        _place_engine_root_on_path(root)
-
-        # Must precede the first coordinator_core.* import -- see _engine_root.arm_lazy_ops for
-        # the package-init cost this avoids.
-        _arm_lazy_ops()
-
-        try:
-            from coordinator_core.write_guards.engine import evaluate_payload_json
-        except Exception:
-            engine_unavailable = "engine import failed"
-
-    # Policy file for the reused subagent_sandbox guard lives at the doctrine-plane plugin
-    # root. __file__ parents: [0]=scripts [1]=hooks [2]=coordinator(plugin root)
-    policy_path = str(Path(__file__).resolve().parents[2] / "subagent-sandbox-policy.yaml")
-
-    cwd = None
     payload: dict = {}
     try:
         parsed = json.loads(raw)
         if isinstance(parsed, dict):
             payload = parsed
-            cwd = parsed.get("cwd") or None
     except Exception:
-        cwd = None
         payload = {}
 
-    # `_skipped` is populated in-place by evaluate_payload_json()'s own discovery pass -- the
-    # runtime-visible half of the silent-import-failure fix: a guard module that raised on
-    # import is otherwise just absent, with nothing to show for it. The in-process guard
-    # runner below reuses this same list for its own exception isolation -- one breadcrumb
-    # surface, not two.
+    # Populated in-place by `_run_guards` for each registry guard that raised.
     _skipped: list[str] = []
 
-    # Aggregation opt-in. Without it the engine returns only the first matching advisory in
-    # priority order and stops, so a lower-priority guard that fired is discarded before
-    # anyone reads it -- a real masking case is one priority-105 nudge masking a priority-110
-    # advisory on exactly the files where a subprocess spawn site is being authored.
-    # Re-prioritising was rejected: it only moves which advisory is masked.
-    #
-    # evaluate_payload_json does not declare `aggregate` yet -- only the evaluate() it
-    # delegates to does. Passing it blind would raise TypeError into the fail-open below and
-    # silently disable EVERY write guard, hard-denies included. So this feature-detects:
-    # byte-for-byte identical behaviour until the engine plane forwards the keyword, and
-    # aggregating automatically the moment it does.
-    #
-    # Detection reads __code__ directly rather than importing `inspect`: this dispatcher runs
-    # in a fresh interpreter on every Write/Edit event, and `inspect` is a multi-millisecond
-    # import to answer a question one tuple lookup already answers. A callee without
-    # __code__ (a C function, an un-unwrappable wrapper) simply keeps today's non-aggregating
-    # behaviour.
     out = None
-    if engine_unavailable is None:
-        kwargs: dict = {"policy_path": policy_path, "cwd": cwd, "skipped_out": _skipped}
-        try:
-            _code = evaluate_payload_json.__code__
-            _names = _code.co_varnames[: _code.co_argcount + _code.co_kwonlyargcount]
-            if "aggregate" in _names:
-                kwargs["aggregate"] = True
-        except Exception:
-            pass
-
-        try:
-            out = evaluate_payload_json(raw, **kwargs)
-        except Exception:
-            # No engine verdict; the plugin-resident registry below still runs.
-            engine_unavailable = "engine raised"
-            out = None
-
-    # Under aggregate=True the advisory phase returns a LIST of envelopes (empty when nothing
-    # fired); the hard-deny phase is unchanged and still returns a single envelope.
-    # Normalising here keeps `out` a lone envelope or None for every path below -- a list
-    # must never reach stdout, where the harness expects exactly one hookSpecificOutput.
     try:
-        _eh = out.get("hookSpecificOutput") if isinstance(out, dict) else None
-        if isinstance(_eh, dict) and _eh.get("permissionDecision") == "deny":
-            from _protected_act import advise_and_record, protected_act_for
-
-            if protected_act_for("coordinator_core.write_guards.engine") is None:
-                advise_and_record(
-                    "coordinator_core.write_guards.engine",
-                    str(_eh.get("permissionDecisionReason") or ""),
-                    "PreToolUse",
-                )
-                out = None
-    except Exception:
-        pass
-
-    engine_envelopes: list = []
-    if isinstance(out, list):
-        engine_envelopes = out
-        out = None
-
-    # In-process guard runner (C1): batches the doctrine-plane-resident write-path
-    # guards named in `_GUARD_REGISTRY` into this SAME interpreter, after
-    # the engine call, with zero subprocess spawns of its own (AC1). The
-    # registry is empty until C2 (next wave) enrols the three residual
-    # guards -- this call is still exercised structurally today, and folds
-    # cleanly into the same aggregation the engine's own verdict runs
-    # through, so the two verdict sources are never reconciled by two
-    # separate code paths.
-    try:
-        if engine_envelopes:
-            guard_entries: list = [
-                v for v in (_envelope_to_verdict(e) for e in engine_envelopes) if v
-            ]
-        else:
-            engine_verdict = _envelope_to_verdict(out)
-            guard_entries = [engine_verdict] if engine_verdict else []
+        guard_entries: list = []
         if _GUARD_REGISTRY and _RegisteredGuard is not None:
             guard_entries.extend(_build_registry_entries(_GUARD_REGISTRY, raw, payload))
         aggregated = _run_guards(guard_entries, payload, skipped_out=_skipped)
-        merged_out = _verdict_to_envelope(aggregated)
-        if merged_out is not None:
-            out = merged_out
+        out = _verdict_to_envelope(aggregated)
     except Exception:
-        # Guard-runner failure must never override the engine's own verdict, nor brick the
-        # edit -- fall through with `out` unchanged.
-        pass
+        # Guard-runner failure must never brick the edit.
+        out = None
 
-    # Best-effort signal only -- must never affect the ALLOW/DENY decision above or this
-    # hook's own exit code; any failure here is swallowed.
+    # Best-effort signal only -- must never affect the ALLOW/DENY decision or the exit code.
     try:
-        if engine_unavailable is not None:
-            print(_compose_engine_unavailable_breadcrumb(engine_unavailable), file=sys.stderr)
         if _skipped:
             print(_compose_skipped_guard_breadcrumb(_skipped), file=sys.stderr)
     except Exception:

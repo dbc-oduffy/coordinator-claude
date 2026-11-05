@@ -25,7 +25,7 @@ WHY IT IS NOT WIRED. Nothing calls this yet, deliberately. Piece (2) of C14b -- 
 caller -- is a hot-path edit to the live Bash guard and needs PM assent at execution dispatch
 (`state/sizings/2026-08-23-warm-route-the-bash-guard-hook-doe-half.yaml`, `pm_resolution.scope`:
 plan only). Two further reasons not to rush it: the http listener is currently un-startable on
-this box (`docs/research/2026-08-25-http-listener-availability.md`), and AC13's <50ms saving is
+this box (`docs/research/http-listener-availability/2026-08-25-http-listener-availability/synthesis.md`), and AC13's <50ms saving is
 NOT claimed by the op registration -- it lives in the client's reach path, which is unestablished.
 Authoring the correct interpreter now is free and makes the trap un-fall-into-able the day the
 caller lands.

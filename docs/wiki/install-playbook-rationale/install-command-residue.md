@@ -231,11 +231,12 @@ the stub.
 ## 1d NotebookLM (Pipeline D)
 
 Pipeline D is powered by an external, OSS, user-installed MCP server —
-jacob-bd/gemini-notebook-mcp-cli, server name `notebooklm-mcp` — not a
+jacob-bd/gemini-notebook-mcp-cli, server name `gemini-notebook-mcp` — not a
 coordinator carrier plugin; nothing in coordinator's own `enabledPlugins`
-gates it. `nlm login` (step 2 of the walk) drives a real Chrome window over
-the DevTools protocol in a live foreground console — cannot be automated or
-backgrounded; the installer hands this step to the operator.
+gates it. The walk-through only checks registration and points at the
+upstream README; install, `nlm login` (a real Chrome window over the
+DevTools protocol in a live foreground console) and registration are the
+operator's, run by upstream's own steps.
 
 ## 1f Global CLAUDE.md integration
 

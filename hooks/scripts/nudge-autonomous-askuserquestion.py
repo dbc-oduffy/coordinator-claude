@@ -22,7 +22,7 @@ reports `applies` (which only happens when `_fleet_grant.verify_grant` returned
 `granted` for the posture's grant), AskUserQuestion returns
 `permissionDecision: deny` with the text-turn alternative in the reason. Every
 session class is refused, the human-channel holder included (design doc
-`docs/research/2026-09-11-fleet-control-plane-design.md`, R5 and the
+`docs/research/fleet-control-plane-design/2026-09-11-fleet-control-plane-design/synthesis.md`, R5 and the
 channel-holder ruling). The refusal is never conditioned on the per-session
 autonomous sentinel or on posture "default"/"substrate-free" alone: those
 signals are agent-mintable, and widening a block to them is a product-direction

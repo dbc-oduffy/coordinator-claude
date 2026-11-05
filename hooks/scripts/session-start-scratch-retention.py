@@ -74,6 +74,10 @@ def run_hook(cwd: str, now: Optional[float] = None) -> list:
     repo = _repo_root(cwd)
     if repo is None or not (repo / "scratch").is_dir():
         return []
+    # A scratch/ that is a symlink or junction points outside the repo; sweeping it would age out
+    # files this repo does not own.
+    if os.path.realpath(repo / "scratch") != os.path.join(os.path.realpath(repo), "scratch"):
+        return []
     wall = time.time() if now is None else now
     state = repo / STATE_DIRNAME
     stamp = state / STAMP
@@ -85,8 +89,8 @@ def run_hook(cwd: str, now: Optional[float] = None) -> list:
     def invoke(params: dict):
         nonlocal replied
         reply = inner(params)
-        if isinstance(reply, dict) and isinstance(reply.get("summary"), dict):
-            replied = True
+        # Tracks the latest call, so a parsed dry run followed by a failed apply still retries.
+        replied = isinstance(reply, dict) and isinstance(reply.get("summary"), dict)
         return reply
 
     deleted = _sr.run_sweep(repo, _sr.Policy.from_env(), invoke)

@@ -45,7 +45,7 @@
 #                                                  grant (or another ceremony's, under
 #                                                  workweek->merge nesting) alone and still
 #                                                  exiting 0. bool->exit
-#   group-em-grant <grantee> <note> [--ttl-minutes N] [--repo <root>]
+#   group-em-grant <grantee | box_id:session> <note> [--ttl-minutes N] [--repo <root>]
 #                                              -> suite_grant.issue_suite_grant(): the live
 #                                                  verified box Group EM authorizes one named
 #                                                  session's broad test run (scoped, expiring,
@@ -87,7 +87,7 @@ def _import_module():
 
 _SUBCOMMANDS = (
     "subcommands: grant | read | check | revoke [--only-ceremony <name>] | "
-    "group-em-grant <grantee> <note> [--ttl-minutes N] [--repo <root>] | "
+    "group-em-grant <grantee | box_id:session> <note> [--ttl-minutes N] [--repo <root>] | "
     "group-em-revoke <grantee>"
 )
 
@@ -107,6 +107,19 @@ def _usage(prog: str) -> int:
 
 def _bool_to_exit(result: bool) -> int:
     return 0 if result else 1
+
+
+def _name_relay_issuer() -> None:
+    """A relayed grant's issuer when this process has no session env: the harness ancestor's
+    own session file. The holder check in `issue_suite_grant` still decides."""
+    try:
+        from coordinator_core.group_em import suite_grant
+
+        sid = suite_grant.harness_issuer_sid()
+    except ImportError:
+        return
+    if sid:
+        os.environ[suite_grant.RELAY_ISSUER_ENV] = sid
 
 
 def _grant_directive_module():
@@ -204,6 +217,8 @@ def main(argv: list[str]) -> int:
                 file=sys.stderr,
             )
             return _TRANSPORT_FAIL
+        if subcmd == "group-em-grant" and rest and ":" in rest[0]:
+            _name_relay_issuer()
         code, message = directive.run_grant_directive([subcmd, *rest])
         if subcmd == "grant":
             code, message = _report_grant(mod, directive, rest, code, message)

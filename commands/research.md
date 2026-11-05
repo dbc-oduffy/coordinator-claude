@@ -135,8 +135,9 @@ everything else reaches the EM through the overseer's return value. Doctrine: `c
 
 ## Step 1: Run Identity
 
-Run ID format `YYYY-MM-DD-HHhMM`. Shared run workdir: `docs/research/{run-id}-{topic-slug}-workdir`,
-bound as `{scratch-dir}`.
+Run ID format `YYYY-MM-DD-HHhMM`. Every output of a run lives in one run dir,
+`docs/research/<topic>/<YYYY-MM-DD>-<run-slug>/` (`RESEARCH-OUTPUT-LIVES-IN-A-RUN-DIR`). Shared run
+workdir: `<run dir>/workdir/`, bound as `{scratch-dir}`.
 
 ## Step 2: Structured Create Mode
 
@@ -162,7 +163,7 @@ exact commands to relay.
 
 Every class closes on a committed artifact and trail
 (`A-RESEARCH-CLOSES-ON-A-COMMITTED-ARTIFACT-AND-TRAIL`). The trail record is
-`docs/research/trail/<run-id>.yaml`: run id, sizing path, class, destination, output count, with
+`<run dir>/trail.yaml`: run id, sizing path, class, destination, output count, with
 repo-relative paths only.
 
 - **Scouts:** the Workflow returns `{results, next_action}`; run `next_action` (`research.close`,
@@ -182,7 +183,7 @@ repo-relative paths only.
   a `next_action` whose `params.halted_segments` is set: run `next_action` unedited; the close
   excuses those segments, and the report names them.
 - **Spike:** follow `coordinator/skills/spike/SKILL.md`; the committed artifact is the verdict
-  record at `docs/research/spike-verdicts/`, and the trail record names it. The engine has no
+  record `<run dir>/verdict.md` (topic `spikes`, or the sizing's topic), and the trail record names it. The engine has no
   spike pipeline, so the EM commits the trail record beside the verdict record by the ordinary
   scoped commit path.
 - **Local-only (any class):** the outputs stay under `research.local_root`; `research.close`
@@ -190,7 +191,7 @@ repo-relative paths only.
 - **NotebookLM:** the sweep never deletes notebooks. Once the coverage-audit sidecar exists, if the
   sizing asked for cleanup, read each `{letter}-summary.md`'s `notebook_id` and call `notebook_delete`
   for each, logging failures; otherwise report the preserved notebook names to the PM. The NotebookLM
-  pipeline needs the external `notebooklm-mcp-cli` server, an external dependency the plugin does not bundle:
+  pipeline needs the external `gemini-notebook-mcp` server (upstream README: https://github.com/jacob-bd/gemini-notebook-mcp-cli), an external dependency the plugin does not bundle:
   `coordinator/docs/wiki/mcp-topology/notebooklm-for-your-research.md`.
 
 ## Declared Pipelines

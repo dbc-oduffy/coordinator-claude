@@ -69,6 +69,12 @@ child inside suite_mutex.held(...)'s own context manager rather than a
 hand-rolled acquire/release pair — its finally releases whenever
 acquire() actually won, matching the module's own contract.
 
+WRAPPER DEATH: the child tree is bound to this wrapper (Windows: Job Object
+with KILL_ON_JOB_CLOSE; POSIX: own process group, plus PDEATHSIG on Linux), and
+interrupt paths kill the whole tree. suite_mutex.held() refreshes the lock's
+heartbeat from this process while the child runs, so a child orphaned by a
+wrapper that vanished reads as stale and its lock is reclaimed.
+
 SPAWN-THEN-ACQUIRE ORDERING (the actual PID chicken/egg): acquire()
 needs the child's PID at acquisition time (see PID SEMANTICS above), but the
 child's PID does not exist until after it is spawned — and spawning it
@@ -490,6 +496,138 @@ def _kill_process_tree(process: "subprocess.Popen[bytes]") -> int:
     return len(victims)
 
 
+_JOB_OBJECT_EXTENDED_LIMIT_INFORMATION_CLASS = 9
+_JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
+_PR_SET_PDEATHSIG = 1
+
+#: Keeps the Job Object handle open for the wrapper's lifetime; closing it (the
+#: wrapper dying by any means) is what kills the child tree.
+_JOB_HANDLES: list = []
+
+
+def _own_tree_popen_kwargs() -> dict:
+    """POSIX: put the child in its own process group so one signal reaches its
+    whole tree; on Linux also have the kernel SIGKILL it when this wrapper dies.
+    Windows binds the tree through a Job Object instead (see below)."""
+    if sys.platform == "win32":
+        return {}
+    kwargs: dict = {"process_group": 0}
+    if sys.platform.startswith("linux"):
+
+        def _die_with_parent() -> None:
+            import ctypes
+
+            ctypes.CDLL(None, use_errno=True).prctl(_PR_SET_PDEATHSIG, signal.SIGKILL)
+
+        kwargs["preexec_fn"] = _die_with_parent
+    return kwargs
+
+
+def _bind_child_to_wrapper_lifetime(process: "subprocess.Popen[bytes]", kernel32=None) -> bool:
+    """Windows: assign the child to a Job Object with KILL_ON_JOB_CLOSE, so the
+    child and its descendants die with this wrapper even when the wrapper is
+    killed outright (a caller-tool timeout). True when bound; no-op elsewhere.
+    Best-effort: a failure leaves the heartbeat to mark the orphaned lock stale."""
+    if kernel32 is None:
+        if sys.platform != "win32":
+            return False
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+    import ctypes
+
+    class _Basic(ctypes.Structure):
+        _fields_ = [
+            ("PerProcessUserTimeLimit", ctypes.c_int64),
+            ("PerJobUserTimeLimit", ctypes.c_int64),
+            ("LimitFlags", ctypes.c_uint32),
+            ("MinimumWorkingSetSize", ctypes.c_size_t),
+            ("MaximumWorkingSetSize", ctypes.c_size_t),
+            ("ActiveProcessLimit", ctypes.c_uint32),
+            ("Affinity", ctypes.c_size_t),
+            ("PriorityClass", ctypes.c_uint32),
+            ("SchedulingClass", ctypes.c_uint32),
+        ]
+
+    class _Extended(ctypes.Structure):
+        _fields_ = [
+            ("BasicLimitInformation", _Basic),
+            ("IoInfo", ctypes.c_uint64 * 6),
+            ("ProcessMemoryLimit", ctypes.c_size_t),
+            ("JobMemoryLimit", ctypes.c_size_t),
+            ("PeakProcessMemoryUsed", ctypes.c_size_t),
+            ("PeakJobMemoryUsed", ctypes.c_size_t),
+        ]
+
+    try:
+        job = kernel32.CreateJobObjectW(None, None)
+        if not job:
+            return False
+        info = _Extended()
+        info.BasicLimitInformation.LimitFlags = _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        if not kernel32.SetInformationJobObject(
+            job, _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION_CLASS,
+            ctypes.byref(info), ctypes.sizeof(info),
+        ):
+            kernel32.CloseHandle(job)
+            return False
+        if not kernel32.AssignProcessToJobObject(job, int(process._handle)):
+            kernel32.CloseHandle(job)
+            return False
+        _JOB_HANDLES.append(job)
+        return True
+    except Exception:  # noqa: BLE001 - binding is an extra safeguard, never a reason to fail the run
+        return False
+
+
+#: Per-process ceiling on one pre-kill stack dump; a wedged process must not stall the kill.
+_DUMP_TIMEOUT_SECS = 20
+#: Ceiling on the whole pre-kill dump however wide the tree.
+_DUMP_TOTAL_SECS = 25
+#: Least a dump may be given: py-spy needs seconds, so a wide tree dumps fewer pids rather than all of them badly.
+_DUMP_MIN_PER_PID_SECS = 5
+
+
+def _dump_process_tree(process: "subprocess.Popen[bytes]") -> None:
+    """py-spy every process in the child's tree to stderr BEFORE the ceiling kills it.
+
+    A ceiling kill destroys the only evidence of WHICH test wedged: the
+    controller sits idle in ``loop_once`` and the stuck stack lives in a worker.
+    2026-11-02: a fast tier was killed at 99% with no worker stacks because the
+    dump was an operator step. Making it the kill path's first act means it
+    cannot be missed. Absent py-spy is reported, never fatal.
+    """
+    py_spy = shutil.which("py-spy")
+    if py_spy is None:
+        print("with-suite-mutex: py-spy not on PATH; no pre-kill stack dump.", file=sys.stderr)
+        return
+    try:
+        parent = psutil.Process(process.pid)
+        pids = [parent.pid] + [c.pid for c in parent.children(recursive=True)]
+    except psutil.Error:
+        return
+    deadline = time.monotonic() + _DUMP_TOTAL_SECS
+    per_pid = min(_DUMP_TIMEOUT_SECS, max(_DUMP_MIN_PER_PID_SECS, _DUMP_TOTAL_SECS / len(pids)))
+    for index, pid in enumerate(pids):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0 or index >= max(1, int(_DUMP_TOTAL_SECS / per_pid + 1e-6)):
+            print(
+                f"with-suite-mutex: dump budget spent; {len(pids) - index} process(es) undumped.",
+                file=sys.stderr, flush=True,
+            )
+            return
+        try:
+            out = subprocess.run(
+                [py_spy, "dump", "--pid", str(pid)], capture_output=True, text=True,
+                timeout=min(per_pid, remaining),
+                **no_console_creationflags(),
+            )
+            body = (out.stdout or "") + (out.stderr or "")
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            body = f"dump failed: {exc}"
+        print(f"with-suite-mutex: pre-kill dump pid {pid}:\n{body}", file=sys.stderr, flush=True)
+
+
 def _wait_interruptible(
     process: "subprocess.Popen[bytes]", max_runtime: float = 0.0
 ) -> int:
@@ -517,6 +655,7 @@ def _wait_interruptible(
             return process.wait(timeout=0.25)
         except subprocess.TimeoutExpired:
             if deadline is not None and time.monotonic() >= deadline:
+                _dump_process_tree(process)
                 killed = _kill_process_tree(process)
                 print(
                     "with-suite-mutex: killed the command after "
@@ -602,7 +741,9 @@ def main(argv: List[str]) -> int:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         **no_console_creationflags(),
+        **_own_tree_popen_kwargs(),
     )
+    _bind_child_to_wrapper_lifetime(process)
     try:
         ps_process = psutil.Process(process.pid)
     except psutil.Error:
@@ -633,6 +774,10 @@ def main(argv: List[str]) -> int:
         try:
             ps_process.resume()
         except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+        try:
+            _kill_process_tree(process)
+        except Exception:  # noqa: BLE001 - the direct-child escalation below still runs
             pass
         if process.poll() is None:
             process.terminate()

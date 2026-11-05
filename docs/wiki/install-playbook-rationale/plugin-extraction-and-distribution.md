@@ -81,7 +81,7 @@ Agents at runtime read from `~/.claude/plugins/<name>/` (the installed copy), NO
 
   A plain `git mv` at the canonical side updates only that repo's index. The `~/.claude/` tree (the `source_is_live` consumer) sees the rename as a worktree change but not as a staged rename — a subsequent `git status` will show `deleted: old/path` + `untracked: new/path` unless `git add old/path new/path` is run in the consumer tree to mirror the index. Omitting the consumer `git add` step produces a commit where the delete and add are unrelated to each other (no rename detection), misleading `git log --follow` and diff tools that rely on rename tracking. *Source: central-improvement-queue #99.*
 
-**Drift detection:** `python check-plugin-drift.py` probes both legs (git-state and venv-state) for each registered plugin and surfaces results in `/workday-start` Step 1.10 Addon Health daily.
+**Drift detection:** the plugin-drift probe is engine-side, not a script in this tree; it probes both legs (git-state and venv-state) for each registered plugin and its results surface in `/workday-start` Step 1.10 Addon Health daily. The plugin-to-engine version floor is a separate fail-open notice (`ENGINE-FLOOR-NOTICE` in the tripwire registry).
 
 **`publish.py` direction:** `publish.py` runs source → publish-repo (sibling) for cross-machine distribution. It does NOT write back to the live install; the ban on publish-repo → live install clobber is preserved. These are orthogonal operations.
 
@@ -295,9 +295,17 @@ Enumerate and repoint all of them, then **verify a real commit fires clean in ev
 
 ## Dry-Run Is Not Hook-Invoking — a Clean Dry-Run Is Not Clean-Publish Evidence
 
-Percolate machinery built for one plugin layout breaks silently under another, and the dry-run will not tell you. The 2026-07 flat-repo (v3) cutover surfaced this: the then-live `publish.sh` still assumed the old nested `plugins/coordinator-claude/coordinator/` layout and resolved `COORDINATOR_BIN` to a stale `plugins/` path — so `install-sentinel-write` was never found (`version.txt` never written) and `check-version-consistency.py` was silently skipped. The **dry-run looked clean because the publish driver does not invoke post-rsync hooks on `--dry-run`** — only the real percolate runs them (still true of `publish.py`, its Python successor).
+`--dry-run` skips engine-phase dispatch, so post-rsync hooks and pre-verify guards fire only in the real percolate.
 
-Rule: after any layout/path cutover to the publish pipeline, a clean dry-run is advisory only. Confirm with a **real percolate plus an empirical `grep`/`comm` of the published tree against the prior release** — the dry-run cannot witness hook-dependent output (sentinels, version stamps, verification gates) it never fired.
+| Guard kind | Proves | Cannot see |
+|---|---|---|
+| `forbidden-script-globs` | no staged file matches a forbidden glob | a missing wanted file; permitted-file content |
+| `python-syntax-valid` | every staged `.py` parses | wrong behaviour in parsing code |
+| `published-import-resolves` | declared imports resolve in the published tree | a changed symbol meaning; undeclared imports |
+| `registration-liveness` | each registration targets an existing path | whether the target is right |
+| `canary-survival` | each declared marker is staged | removed files, regressions, prose drift beyond the marker |
+
+A green guard set is not clean-publish evidence (`A-PRE-VERIFY-GUARD-IS-NOT-A-POST-PUBLISH-DIFF`), and a clean dry-run witnesses no hook-dependent output (sentinels, version stamps, verification gates) at all. Rule: confirm every publish with a **real percolate plus an empirical `grep`/`comm` of the published tree against the prior release**.
 
 ## Cross-plugin contract — coordinator never parses peer-plugin config
 

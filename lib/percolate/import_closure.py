@@ -607,6 +607,210 @@ def find_import_closure_violations(
     return examined, violations
 
 
+COMMIT_NAME_ROOTS = ("coordinator_core", "coordinator/bin")
+"""Published roots `find_commit_from_import_name_violations` reads importers
+from, relative to the repo toplevel."""
+
+_COMMIT_FROM_IMPORT_RE = re.compile(r"^\s*from\s+" + PACKAGE_NAME + r"[\w.]*\s+import\s", re.MULTILINE)
+_TEST_DIR_NAMES = frozenset({"tests", "test"})
+
+
+_CAT_FILE_CHUNK = 400
+"""Blobs per `cat-file --batch` spawn in `_read_commit_py_blobs`."""
+
+
+class CommitReadError(RuntimeError):
+    """A git object read for the published commit failed; the gate fails closed."""
+
+
+def _git_bytes(repo: Path, args: list[str], stdin: bytes | None = None) -> bytes:
+    from coordinator_core.git.run import run_git
+
+    r = run_git(args, cwd=str(repo), input=stdin, binary=True)
+    if not r.ok:
+        why = "timed out" if r.timed_out else f"({r.returncode}): {r.stderr.strip()}"
+        raise CommitReadError(f"git {' '.join(args[:2])} failed {why}")
+    return r.stdout_bytes
+
+
+def _read_commit_py_blobs(repo: Path, commit: str, roots: tuple[str, ...]) -> tuple[dict[str, str], set[str]]:
+    """`(py_sources, dirs)` for `commit`: every `.py` blob under `roots` keyed by
+    repo-relative posix path, and every directory any tracked entry sits in.
+    Two git spawns total (`ls-tree`, one batched `cat-file`); the worktree is
+    never read."""
+    listing = _git_bytes(repo, ["ls-tree", "-r", "-z", commit, "--", *roots])
+    dirs: set[str] = set()
+    wanted: list[tuple[str, str]] = []
+    for entry in listing.split(b"\0"):
+        if not entry:
+            continue
+        meta, _, raw_path = entry.partition(b"\t")
+        mode, kind, sha = meta.decode("ascii").split()
+        path = raw_path.decode("utf-8", "surrogateescape")
+        parts = path.split("/")
+        for i in range(1, len(parts)):
+            dirs.add("/".join(parts[:i]))
+        if kind == "blob" and mode != "120000" and path.endswith(".py"):
+            wanted.append((path, sha))
+    sources: dict[str, str] = {}
+    # Trap: one cat-file over every blob (~2400 at 2026-11) measured 1.6-1.8s alone and timed out
+    # at 19s under publish load against run_git's 2s local budget, refusing the engine row.
+    # Chunks keep each spawn inside that budget; the budget is never widened.
+    for start in range(0, len(wanted), _CAT_FILE_CHUNK):
+        chunk = wanted[start : start + _CAT_FILE_CHUNK]
+        stream = _git_bytes(repo, ["cat-file", "--batch"], "".join(f"{s}\n" for _, s in chunk).encode("ascii"))
+        pos = 0
+        for path, _sha in chunk:
+            eol = stream.index(b"\n", pos)
+            header = stream[pos:eol].split()
+            if len(header) != 3 or header[1] != b"blob":
+                raise CommitReadError(f"cat-file returned {stream[pos:eol]!r} for {path}")
+            size = int(header[2])
+            sources[path] = stream[eol + 1 : eol + 1 + size].decode("utf-8", "replace")
+            pos = eol + 1 + size + 1
+    return sources, dirs
+
+
+def _is_test_path(path: str) -> bool:
+    parts = path.split("/")
+    name = parts[-1]
+    return (
+        any(p in _TEST_DIR_NAMES for p in parts[:-1])
+        or name.startswith("test_")
+        or name.endswith("_test.py")
+        or name == "conftest.py"
+    )
+
+
+def _bound_target_names(target: ast.expr, into: set[str]) -> None:
+    if isinstance(target, ast.Name):
+        into.add(target.id)
+    elif isinstance(target, (ast.Tuple, ast.List)):
+        for elt in target.elts:
+            _bound_target_names(elt, into)
+    elif isinstance(target, ast.Starred):
+        _bound_target_names(target.value, into)
+
+
+def _module_defined_names(tree: ast.Module) -> tuple[set[str], bool]:
+    """`(names, opaque)`: names bound at module scope (def/class/assign/import,
+    descending through if/try/with/for/while, plus `__all__` literals).
+    `opaque` is True when the module defines `__getattr__` or star-imports, so
+    its namespace cannot be enumerated and nothing imported from it flags."""
+    names: set[str] = set()
+    opaque = False
+    stack: list[ast.stmt] = list(tree.body)
+    while stack:
+        node = stack.pop()
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(node.name)
+            if node.name == "__getattr__":
+                opaque = True
+        elif isinstance(node, ast.Assign):
+            for target in node.targets:
+                _bound_target_names(target, names)
+                if isinstance(target, ast.Name) and target.id == "__all__":
+                    if isinstance(node.value, (ast.List, ast.Tuple)):
+                        for elt in node.value.elts:
+                            if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+                                names.add(elt.value)
+        elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+            _bound_target_names(node.target, names)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                names.add(alias.asname or alias.name.split(".", 1)[0])
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                if alias.name == "*":
+                    opaque = True
+                else:
+                    names.add(alias.asname or alias.name)
+        else:
+            if isinstance(node, (ast.For, ast.AsyncFor)):
+                _bound_target_names(node.target, names)
+            elif isinstance(node, (ast.With, ast.AsyncWith)):
+                for item in node.items:
+                    if item.optional_vars is not None:
+                        _bound_target_names(item.optional_vars, names)
+            for field in _STATEMENT_CHILD_FIELDS:
+                for child in getattr(node, field, None) or []:
+                    if isinstance(child, ast.stmt):
+                        stack.append(child)
+                    elif isinstance(child, ast.ExceptHandler):
+                        stack.extend(child.body)
+    return names, opaque
+
+
+def find_commit_from_import_name_violations(
+    repo: Path, commit: str, roots: tuple[str, ...] = COMMIT_NAME_ROOTS
+) -> tuple[int, list[tuple[str, str]]]:
+    """Check every level-0, unguarded `from coordinator_core[.X] import a` in a
+    non-test `.py` under `roots` against the blobs of `commit` (never the
+    worktree). Returns `(examined_importer_count, violations)`; each violation
+    is `(importer_path, "coordinator_core.X.a")`, or `(importer_path,
+    "coordinator_core.X")` when module X itself is absent from the commit.
+
+    `a` resolves when X's top-level namespace defines it or X is a package
+    holding submodule `a`. A namespace package (directory without
+    `__init__.py`) and a module defining `__getattr__` or star-importing never
+    flag. Raises `CommitReadError` on a failed git read: callers fail closed."""
+    sources, dirs = _read_commit_py_blobs(repo, commit, roots)
+    namespace_cache: dict[str, tuple[set[str], bool]] = {}
+
+    def namespace_of(path: str) -> tuple[set[str], bool]:
+        if path not in namespace_cache:
+            try:
+                namespace_cache[path] = _module_defined_names(ast.parse(sources[path], filename=path))
+            except SyntaxError:
+                namespace_cache[path] = (set(), True)
+        return namespace_cache[path]
+
+    violations: list[tuple[str, str]] = []
+    examined = 0
+    for importer in sorted(sources):
+        if _is_test_path(importer):
+            continue
+        source = sources[importer]
+        if not _COMMIT_FROM_IMPORT_RE.search(source):
+            continue
+        try:
+            tree = ast.parse(source, filename=importer)
+        except SyntaxError:
+            continue
+        examined += 1
+        for node in _unguarded_import_nodes(tree):
+            if not isinstance(node, ast.ImportFrom) or node.level or not node.module:
+                continue
+            if node.module != PACKAGE_NAME and not node.module.startswith(PACKAGE_NAME + "."):
+                continue
+            base = node.module.replace(".", "/")
+            init_path, file_path = f"{base}/__init__.py", f"{base}.py"
+            if init_path in sources:
+                module_path, is_package = init_path, True
+            elif file_path in sources:
+                module_path, is_package = file_path, False
+            elif base in dirs:
+                continue
+            else:
+                violations.append((importer, node.module))
+                continue
+            defined, opaque = namespace_of(module_path)
+            if opaque:
+                continue
+            for alias in node.names:
+                name = alias.name
+                if name == "*" or name in defined:
+                    continue
+                if is_package and (
+                    f"{base}/{name}.py" in sources
+                    or f"{base}/{name}/__init__.py" in sources
+                    or f"{base}/{name}" in dirs
+                ):
+                    continue
+                violations.append((importer, f"{node.module}.{name}"))
+    return examined, violations
+
+
 _UNION_IMPORT_LINE_RE = re.compile(r"^\s*(?:from|import)\s.*" + PACKAGE_NAME, re.MULTILINE)
 """Cheap prefilter for `find_union_closure_violations`: a single compiled
 `re.MULTILINE` pattern run once over a file's raw text (no `str.splitlines()`

@@ -55,7 +55,7 @@ When two machines simultaneously attempt `/pickup` on the same handoff, the fail
 
 ## MCP Tool Names May Differ Between Parent and Teammate Sessions
 
-Deferred tool names in Agent Teams teammates can vary from what the parent session sees. A tool that appears as `mcp__notebooklm-mcp__*` (the current external NotebookLM server) in the parent may arrive under a different prefix variant inside a teammate's session — historically seen variants for this same tool include the bare `mcp__notebooklm__*` form and the now-retired vendored `mcp__plugin_notebooklm_notebooklm__*` prefix. Hardcoding a single name pattern in the teammate prompt produces silent "tool not found" failures.
+Deferred tool names in Agent Teams teammates can vary from what the parent session sees. A tool that appears as `mcp__gemini-notebook-mcp__*` (the current external NotebookLM server) in the parent may arrive under a different prefix variant inside a teammate's session — historically seen variants for this same tool include the prefix of the older `notebooklm-mcp` server key, the bare `mcp__notebooklm__*` form and the now-retired vendored `mcp__plugin_notebooklm_notebooklm__*` prefix. Hardcoding a single name pattern in the teammate prompt produces silent "tool not found" failures.
 
 **Rule:** always use graduated ToolSearch in teammate prompts — `select:<exact-name>` first, then keyword `+prefix` fallback, then graceful failure with a diagnostic message. Never embed a naked `mcp__*` name as a constant in a teammate brief without a fallback resolution step.
 

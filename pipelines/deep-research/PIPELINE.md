@@ -53,6 +53,10 @@ Surface-level research ("does our project have X? yes") cannot find these. Only 
 
 With LLM-assisted implementation, the cost of doing the work is lower than the cost of carrying the debt. Every finding that survives cross-reference gets a tier and effort estimate. Nothing goes into a vague "future work" bucket.
 
+## Peer lens (opt-in)
+
+A live Codex or agy peer is an adviser colleague in research: the EM may consult one on a framing, a synthesis or a claim set, as an extra angle from a different training base. The contract is [Peer lens in pipelines](../../docs/wiki/cross-repo-communication/live-peer-consult.md#peer-lens-in-pipelines): opt-in per run, non-gating, report-only, silent when no peer is live. No stage here dispatches, waits on or consumes the consult, and the Opus synthesis stands without it.
+
 ---
 
 # Pipeline B: Repo Research (chatty Workflow)
@@ -180,8 +184,8 @@ Systems = EM-defined chunks. Atlas from assessment data only (no comparison data
 1. Verify synthesis has substantive content
 2. If `--deepest`: verify atlas artifacts, copy to output directory
 3. Commit
-4. Archive paper trail to `docs/research/archive/`
-5. Delete scratch directory
+4. The paper trail stays in `{run-dir}/workdir/`; nothing moves out of the run dir
+5. Delete scratch directory contents the run does not keep
 6. Present executive summary to PM (mention atlas artifacts if `--deepest`)
 
 ## Protocol and Templates
@@ -448,8 +452,8 @@ Three explicit sequential phases:
 
 ## Working Directory
 
-Both pipelines use `docs/research/{run-id}-{topic-slug}-workdir/`. Run ID format: `YYYY-MM-DD-HHhMM`.
+Both pipelines write only inside the run dir `{run-dir}` = `docs/research/<topic>/<YYYY-MM-DD>-<run-slug>/`. Run ID format: `YYYY-MM-DD-HHhMM`; the run-slug is the lowercased `HHhMM` plus a short slug.
 
-Throughout this document, `{scratch-dir}` is used as an alias for `docs/research/{run-id}-{topic-slug}-workdir/`.
+Fixed children of `{run-dir}`: `synthesis.md` (the deliverable), `trail.yaml`, `verdict.md` (spike class), `outputs/` (further committed outputs: claims pair, gap report, run record, coverage audit), `workdir/` (scratch).
 
-After completion, the working directory is atomically renamed to `docs/research/archive/YYYY-MM-DD-{topic-slug}/` via `mv` (no copy-then-delete race window).
+Throughout this document, `{scratch-dir}` is an alias for `{run-dir}/workdir`. The workdir is created inside the run dir and stays there after completion; there is no archive move.

@@ -791,6 +791,9 @@ the last. Report a bare `2572950` and the reader's `Get-Process` returns nothing
 exactly like a number you made up. Report `WINPID 63524 (Cygwin PID 2572953, PPID 2572950, from
 ps -W)` and it is checkable in one call. Same for any identifier with more than one namespace.
 
+MSYS `ps`/`pgrep` also see only MSYS processes, so a wait gated on them in Git Bash fires early on a
+windowless native runner: `A-PS-WAIT-IN-GIT-BASH-FIRES-EARLY` (`coordinator/docs/wiki/coordinator-tripwires/`).
+
 ## hooks.json `command` strings run via `sh` on Unix but PowerShell on Windows — no single-line guard ports
 
 A hook `command` string in `hooks.json` is parsed by **`sh` on macOS/Linux and by PowerShell on Windows** — the two shells share almost no guard syntax. `2>/dev/null` vs `2>$null`, `command -v` vs `Get-Command`, `||` vs `-or` — none of it ports in a single line, so a "clever" self-guarding one-liner is a fiction on one of the two platforms.

@@ -145,11 +145,11 @@ def _rag_registration(repo_root: str) -> dict[str, Any]:
     project-rag is absent or anything fails. One JSON read, no subprocess.
     """
     try:
-        try:
-            from coordinator_core.install import rag_fleet_registration as reg
-        except ImportError:
-            sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-            from coordinator_core.install import rag_fleet_registration as reg
+        import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
+        from cc_invoke import require_colocated_engine_on_path
+
+        require_colocated_engine_on_path(__file__)
+        from coordinator_core.install import rag_fleet_registration as reg
 
         rag = reg.detect_project_rag()
         if rag is None:

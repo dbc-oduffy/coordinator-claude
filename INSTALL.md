@@ -26,10 +26,48 @@ The install lands in the **settings home**, `~/.coordinator-claude-settings` (or
 |---|---|
 | `git`, Claude Code CLI | Required to begin. |
 | `bash` | No version floor (macOS 3.2 is fine). |
-| **Python 3.11+** | A **real** `python3`, not a stub (Windows note below); gates `tomllib`. |
-| `gh` | Required — clone auth and merge/release ceremonies. `gh auth login` first. |
-| `jq` / `node` 18+ | Optional / ceremony-gate JS suite and NotebookLM add-on only. |
+| **Python: CPython 3.13** | From **pyenv or python.org** — never Homebrew, never `uv` (the engine refuses PEP-668 interpreters, exit 96). Avoid 3.15. Bare `python3` must resolve to it (§ Python, below). Floor 3.11 (`tomllib`). |
+| `gh` | Required — clone auth and merge/release ceremonies. `gh auth login` first. No brew: § `gh` without Homebrew. |
+| `jq` / `node` 18+ | Optional / ceremony-gate JS suite only. |
+| NotebookLM MCP | Optional (deep-research Pipeline D). Install per the [upstream README](https://github.com/jacob-bd/gemini-notebook-mcp-cli); it registers as `gemini-notebook-mcp`. No venv needed; the walk-through does not install or register it. |
 | **The engine** | One hard dependency, not part of this clone. Installed at § Step 4, **after** the restart. |
+
+### Python — decide before installing anything
+
+Install **CPython 3.13** from **pyenv** or **python.org**, and make bare `python3` (the name every
+hook and forwarder spawns) resolve to it. Not Homebrew `python`/`python@3.x`, not `uv`-managed
+CPython (both refuse: PEP-668 `EXTERNALLY-MANAGED`); not 3.15 (the ML wheels are missing). Apple's
+`/usr/bin/python3` is 3.9-class and too old. Check: `python3 -c "import sys;print(sys.version)"`
+prints 3.13.x and `command -v python3` is not under `/usr/bin` or `/opt/homebrew`. A leftover
+Homebrew `python3.13` on PATH is still picked by the helper selector: `brew uninstall` it.
+
+**macOS preflight, first.** `git --version` and `python3 -c 1` must both exit 0. If they print
+"You have not agreed to the Xcode license", a human runs `sudo xcodebuild -license accept` (agents
+cannot: it needs sudo); on a box with no developer tools, `xcode-select --install`.
+
+**macOS PATH (pyenv).** In `~/.zprofile` (login shells) and `~/.zshenv` (non-login shells, GUI and
+launchd-spawned tools, an agent's Bash tool), so `python3` is 3.13 everywhere:
+
+```bash
+export PYENV_ROOT="$HOME/.pyenv"
+export PATH="$PYENV_ROOT/shims:$PYENV_ROOT/bin:$PATH"
+```
+
+Then `pyenv install 3.13` (use the latest 3.13.x) and `pyenv global 3.13.<x>`. A pyenv CPython on
+macOS links Homebrew libraries (`openssl@3`, `mpdecimal`, `readline`, `xz`, `gettext`, `ncurses`,
+`sqlite`, `zstd`). Run `brew install <lib>` for each, even if already present as a dependency, so
+it is marked **installed-on-request**; otherwise
+`brew autoremove` or an uninstall of another formula silently breaks `ssl` and `decimal`.
+Without pyenv, the python.org installer needs no PATH edit beyond placing
+`/Library/Frameworks/Python.framework/Versions/3.13/bin` first.
+
+### `gh` without Homebrew
+
+On a box with no brew, download the macOS `.zip`/`.pkg` for the box's arch from
+`https://github.com/cli/cli/releases/latest`, put `gh` on a PATH directory (for example
+`~/.local/bin`, added to `~/.zprofile`), then `gh auth login` and `gh --version`.
+
+### Windows
 
 **Windows:** `python3` is by default a Microsoft Store alias stub, invisible to Git Bash. Install
 a real Python (`winget install Python.Python.3.13`), put its dir before `…\WindowsApps` on PATH,
@@ -51,7 +89,9 @@ Read `environment.track` (with `track_reason`) from the JSON.
 - **`fresh`** — no coordinator plugin installed. Go to Step 1, then the restart gate.
 - **`update`** — installed; the installer performs the update itself (`plugin_update`,
   `engine_setup`, `engine_check`). `track_reason: already current` drops `plugin_update`. Skip
-  Steps 1 and 2; go to Step 3.
+  Steps 1 and 2; go to Step 3. A box installed before 8e7aef49ad that has NotebookLM registered
+  as `notebooklm-mcp` runs `nlm setup add claude-code` once; it renames the entry in place to
+  `gemini-notebook-mcp`.
 - **`repair`** — installed, not newer, engine check fails or the engine is unlocatable. Report
   `track_reason`. Skip Steps 1 and 2; go to Step 3.
 
@@ -175,7 +215,12 @@ once it runs; this hand-set is the cold-box bootstrap (Step 4 needs the key firs
 ```bash
 "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/machine-local" \
     set repos.claude_klabauter "$(dirname <coordinator-clone>)/claude-klabauter"
+"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/machine-local" \
+    set engine.target main
 ```
+
+**Both keys, always.** Without `engine.target` the ladder does not trust the registered engine and
+falls through to any sibling engine checkout it can find.
 
 > **If `machine-local` does not exist yet** (expected on a cold box; Phase 3 deposits it, so that
 > remedy is circular), hand-write the one durable route — a registry entry in
@@ -185,11 +230,15 @@ once it runs; this hand-set is the cold-box bootstrap (Step 4 needs the key firs
 > ```toml
 > [repos]
 > claude_klabauter = "<absolute path of the claude-klabauter clone>"
+>
+> [engine]
+> target = "main"   # "candidate" on a makers' box
 > ```
 >
 > The session-only alternative is `export COORDINATOR_ENGINE_ROOT="<that path>"`; it dies with the
-> shell. Verify with `python3 <plugin-root>/hooks/scripts/_engine_root.py`: it prints the path and
-> exits 0, and **an exit of 2 (empty stdout, stderr names `repos.claude_klabauter`) means this
+> shell. Verify with `python3 <plugin-root>/hooks/scripts/_engine_root.py`: it prints the
+> **claude-klabauter** path and exits 0. Any other path (a sibling engine working tree) means
+> `engine.target` is missing. **An exit of 2 (empty stdout, stderr names `repos.claude_klabauter`) means this
 > step is missing.** `CLAUDE_KLABAUTER_ROOT` is retired and unhonoured. Detail:
 > `docs/wiki/install-playbook-rationale.md` § Step 1e.
 
@@ -218,7 +267,7 @@ Tell the human exactly this:
    needs the human-typed command. Environment wiring as a script with declared choices
    (`<klabauter-clone>/lib/install/coordinator_install.py`: orientation, then `--plan`, then
    `--answers`; safe to re-run; reports every step RAN, SKIPPED, INHERITED or FAILED). It checks
-   prerequisites, lays down the machine-local registry, builds the helper venv, scaffolds the
+   prerequisites, lays down the machine-local registry, scaffolds the
    canonical document structure, records the `setup_concluded` receipt, sweeps git-perf config
    over registered worktrees, and offers a guided tour and repo bootstrap. **Phase 3 deposits the
    `machine-local` resolver** that Step 4 depends on.
@@ -292,6 +341,100 @@ try the far box's LAN address first and use the tunnel address only when the LAN
 unreachable; the tunnel is never required on the home network. Box addresses and tunnel addresses
 stay out of tracked files.
 
+### Codex and agy hosts
+
+A box with Codex, agy or both inherits the DoE doctrine under Klabauter governance through
+`unimatrix-install.py`. This is a host install; it is not the Codex reviewer integration that
+Phase 6 no longer carries, and it adds no review gate and no marketplace step. Prerequisite:
+`claude-klabauter` (Step 4), which ships `coordinator_core.host_hooks.shim`, the guard each host
+calls. Name the hosts explicitly; with no `claude` on PATH the Claude range gate is skipped, with
+a printed notice, only when `--hosts` names no `claude`:
+
+```bash
+python3 coordinator/bin/unimatrix-install.py --install --hosts codex,agy   # Windows: python
+python3 coordinator/bin/unimatrix-install.py --uninstall                   # removes every managed entry
+```
+
+(A consumer box runs the same script from `$CLAUDE_PLUGIN_ROOT/bin/`.) Bare `--install` still
+refuses outside the verified Claude range.
+
+`agy plugin import claude` is not an install route: agy's importer skips Claude agents (model
+tiers), `hooks.json` (top-level `description`) and `commands/`, and truncates files over 24000 B.
+Use this script.
+
+| Lands | Codex | agy |
+|---|---|---|
+| Doctrine block (`coordinator-doctrine`, `global-doctrine/CLAUDE.md` then `rules/rules.md`, beside the peer block) | `$CODEX_HOME/AGENTS.md` (cap 32768 B) | `~/.gemini/GEMINI.md` (cap 24000 B) |
+| Skills | one entry per skill in `~/.agents/skills/` (symlink, copy where refused; not moved by `CODEX_HOME`) | `{"entries":[{"path":"<plugin root>/skills"}]}` in `~/.gemini/config/skills.json` |
+| Guard hook | `PreToolUse` in `$CODEX_HOME/hooks.json`, synchronous, shell tools only | the one `PreToolUse` group in `~/.gemini/config/hooks.json`, merged with the peer-bootstrap hook |
+| Peer registration | `SessionStart` in `$CODEX_HOME/hooks.json` | flat `SessionStart` handler list |
+
+The block is managed: edits inside it are overwritten on the next install and removed on
+uninstall; text outside it is never touched. The installer resolves the engine root once and bakes
+it into each hook command as `--engine-root`.
+
+**Trust step.** Codex runs only trusted hooks. The installer trusts both owned handlers
+(SessionStart and the PreToolUse guard) and verifies discovery, enabled state and
+`currentHash == trustedHash` for each. A missing, disabled or untrusted guard prints
+`governance verification FAILED` and exits non-zero even when doctrine seeding succeeded. An
+unresolved engine root prints `governance DEGRADED: engine root unresolved`: the hooks are seeded
+without `--engine-root` and answer only the neutral fallback.
+
+**Fallbacks.** The guard never fails the host. With no engine verdict (engine absent, slow, error,
+timeout) it answers `{"decision": "ask"}` on agy, which fails closed, and `{}` on Codex, which
+fails open and leaves the normal approval flow untouched. Neither host ever gets `allow` as a
+fallback; agy never gets `force_ask`. A degraded answer is never counted as verified governance.
+
+**Limits.** Read these as the boundary of what is governed.
+
+- Governance is shell-command governance only. On Codex it does not cover `apply_patch`, MCP and
+  other local function calls, `write_stdin` input to a running shell, or hosted tools. `{}` is
+  fail-open, so a degraded guard under `danger-full-access` with approval `never` has no approval
+  backstop. The execpolicy rule the installer seeds is an allow prefix for peer-send only and has
+  no deny coverage.
+- `--dangerously-skip-permissions`, `--mode auto` (agy) and `danger-full-access` (Codex) are never
+  set by default. The live enforcement matrix exercises shell commands only, so a passing matrix is
+  evidence for shell-only governance, not complete Klabauter enforcement; it never clears these
+  options alone. Beyond the assigned-task ceiling below, they stay unoffered until the excluded
+  execution paths above are also covered.
+- Operating ceiling for assigned peer tasks: Codex runs at `--sandbox workspace-write` with approval
+  `on-request` (its auto equivalent). The sandbox bounds the paths no hook sees (`apply_patch`, MCP
+  calls, writes to a running shell) to the workspace, and the guard governs shell commands. Peers
+  take specific assigned tasks; they are not integrated into the workflow fleet, so the
+  approval prompts this ceiling raises are accepted.
+- agy runs assigned tasks at `--mode auto` in an interactive session. `auto` is not a sandbox: it
+  lowers agy's own approval thresholds, and its file edits are not bounded to the workspace. Shell
+  commands stay governed because the guard turns every non-deny answer into `ask`. Headless
+  `agy -p` runs only when the same launch first runs the PreToolUse guard health check and it
+  passes; a failed or absent check means no headless run. No such check ships yet, so headless
+  `agy -p` is not run.
+- Live matrix result (C6, 2026-11-04): shell-command deny holds under both Codex modes and under
+  `--dangerously-bypass-approvals-and-sandbox`, which still runs hooks and rules. Not covered: a
+  `forbidden` execpolicy rule does not match a command wrapped in `bash -c '...'` or `env ...`, so
+  rules never govern wrapped forms. A degraded guard (import failure, timeout, malformed reply)
+  enforces nothing on Codex. The p4-submit deny is armed only where the box sets
+  `policy.p4_no_submit`; without it the command is allowed. Warm-engine deny (server-correlated) and
+  the Codex on-request runtime (interactive TUI: approve runs, reject does not, hook deny blocks
+  before the prompt) are proven. agy (run in the real home): warm deny, backstop deny and neutral
+  `ask` are proven, and our hook denies `bash -c`/`env`-wrapped commands on both hosts, so the
+  wrapper gap is Codex's rule matcher only. agy headless (`agy -p`) runs an `ask` command with no
+  human, so a degraded guard (import failure, timeout, malformed reply) enforces nothing there,
+  the same as Codex `{}`. The guard never passes an engine `allow` through to agy; any non-deny
+  answer becomes `ask`. Matrix:
+  `docs/plans/2026-11/2026-11-04-hnd-codex-agy-doctrine-install-and-773493.c6-matrix.md`.
+- Budget versus cleanup: the guard's time budget bounds only the wait on the engine child
+  (`communicate`), not process start-up. After a timeout the child is killed and reaped with up to
+  2 s of additional cleanup grace, so the wall time of a degraded call can exceed the budget.
+- `hooks/hooks.json` (under the plugin root) holds 52 Claude handlers across 13 events. agy hosts 6 events and
+  has no event for 13 of those handlers (SessionEnd, SubagentStart/Stop, UserPromptExpansion,
+  UserPromptSubmit, PreCompact, PostToolUseFailure, CwdChanged, ConfigChange). Codex has no event
+  for 5 (UserPromptExpansion, PostToolUseFailure, CwdChanged, ConfigChange). Claude handlers are
+  not ported one by one on either host; the guard runs through the engine adapter only.
+- Commands and agent definitions are not ported; skills are.
+- agy: `SessionStart` carries only `ANTIGRAVITY_CONVERSATION_ID`, no language-server address or
+  CSRF token, so a peer leg starts on the first `run_command` through the `PreToolUse` rewrite,
+  not at session start.
+
 ## Verifying your install
 
 Don't infer coordinator is live from the absence of errors:
@@ -323,7 +466,8 @@ is `~/.claude/plugins/coordinator-claude` (no suffix; verify
    `installPath` `<plugin root>`, `version` from `.claude-plugin/plugin.json`.
 4. Merge `~/.claude/settings.json`: `enabledPlugins` keys are `<name>@coordinator-claude` (not
    bare); `extraKnownMarketplaces` is an object keyed by marketplace name; add `Edit` and `Write`
-   to `permissions.allow` (background subagents need them).
+   to `permissions.allow` (background subagents need them). Set top-level `crossSessionInbound`
+   to `"accept"` if absent (never overwrite an existing value).
 
 On Windows write **native** paths into the JSON, not `/c/…`. After a manual install, restart and
 run `/coordinator:install` as in Step 3.

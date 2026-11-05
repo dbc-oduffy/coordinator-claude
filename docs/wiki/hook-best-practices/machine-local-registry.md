@@ -452,6 +452,7 @@ The `publish.mirrors.*` namespace holds outward-only OSS distribution destinatio
 | Engine working-repo discriminant (§5c.3) | `engine.working_repos.*` | The (much narrower) set of repos that work ON the coordinator engine and must resolve the live engine checkout, not the published engine | `machine-local get engine.working_repos.<slug>` |
 | External workspaces (§5c.6) | `external_workspaces.*` | Directories of someone else's code, registered read-only — never peers, memo receivers or `$REPO_*` exports | `machine-local external-workspace <name-or-path>` |
 | Data stores (§5c.7) | `stores.*` | Data locations outside any repo that matter (render roots, vendor checkouts, build intermediates) — owned, described, probed and relocatable; never peers or workspaces | `machine-local store <name-or-path>` |
+| Cross-box storage roots (§5c.8) | `docs/fleet/storage-roots.toml` (tracked) | Roots visible from more than one box (a Machine-a drive, a NAS share, a release URL) — one tracked record, not a registry key | `machine-local locate <root>` |
 
 **Why distinct namespaces, not a class attribute on `repos.*`?** Distinct namespaces make the publish→working-repo clobber guard structural: the engine repo's `coordinator/bin/publish.py` reads only the mirror namespace, so it can never accidentally resolve a working repo as a publish destination. The clobber risk is documented at `plugin-extraction-and-distribution.md:87` and `live-install-drift-audit.md:21`.
 
@@ -676,6 +677,24 @@ dependents = ["<abs file>"]          # optional: files outside the registry that
   `[regeneratability]` entry `"stores"`.
 - **Registration is an operator act per box**, via `machine-local set stores.<name>.path <root>`
   (plus `.owner` and `.purpose`; `machine-local array-set` for `dependents`).
+
+## 5c.8. Cross-box storage roots — one tracked record, found with `locate`
+
+A root visible from more than one box is a row in `docs/fleet/storage-roots.toml`, found with
+`machine-local locate <root>`. A box-local data dir stays a store (§5c.7). Tripwire:
+`A-DATA-STORE-OUTSIDE-A-REPO-IS-FOUND-BY-NAME-NEVER-BY-DRIVE-SCAN`.
+
+- **Tracked record.** It travels with each box's `git pull`; its header comment pins the schema
+  (`kind` path or url; `box` a `box.id` value or `nas`; `path`/`url`; `purpose`; a `mounts` map for
+  `nas` roots). Boxes are named by the `box.id` key, never a hostname. The record path is machine-local
+  key `storage_registry.path`, else `<~/.claude/.content-root>/docs/fleet/storage-roots.toml`.
+- **Read verb.** `machine-local locate <root>` prints `name<TAB>box<TAB>path<TAB>reachable` and exits 0;
+  1 for an unknown root; 2 on operational failure (§4.1), such as a missing record. `--list` prints
+  every root. It never writes, moves or syncs data.
+- **Reachability is from the calling box only**, by `os.path.exists`: `true`/`false` for a root on this
+  box; for a `nas` root, the `mounts` entry for this box's `box.id`; `false` for a root on another box;
+  `unprobed` for a `url` root; `unknown` for every path root while `box.id` is unset (stderr names
+  `machine-local set box.id <name>`). No network probe, no mount automation.
 
 ## 5c. Coordinator-owned Keys — Reference
 

@@ -1,7 +1,7 @@
 """Fleet posture grant verifier: the bounded half of the P2 authority leg.
 
 Spec backlink: docs/plans/2026-09-11-fleet-control-plane-posture-authority-attention.md (C5);
-ruling R2 in docs/research/2026-09-11-fleet-control-plane-design.md.
+ruling R2 in docs/research/fleet-control-plane-design/2026-09-11-fleet-control-plane-design/synthesis.md.
 
 `verify_grant(path)` returns a `GrantVerdict`. Evaluation order:
   1. tombstone beside the grant (`<grant>.revoked`)  -> `revoked`

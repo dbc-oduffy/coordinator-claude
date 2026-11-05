@@ -158,6 +158,71 @@ def _warn_fail_open(where: str, exc: BaseException) -> None:
         pass
 
 
+def _warn_floor_notice(root: str, verdict) -> None:
+    """Emit ONE stderr notice line for a behind/indeterminate engine-floor verdict.
+
+    Notice only: the resolved tuple is never changed. The write is guarded so
+    a closed stderr cannot raise.
+    """
+    try:
+        import sys
+
+        if verdict.state == "behind":
+            line = (
+                f"[_engine_root] engine {root}: stamp {verdict.stamp} behind claude-klabauter "
+                f"floor {verdict.floor} (coordinator/engine-floor.json); "
+                "remedy: refresh the published engine\n"
+            )
+        else:
+            line = (
+                f"[_engine_root] engine {root}: engine floor check indeterminate "
+                f"({verdict.cause}); floor {verdict.floor} "
+                "(coordinator/engine-floor.json) not enforced\n"
+            )
+        sys.stderr.write(line)
+    except Exception:
+        pass
+
+
+def _load_engine_floor():
+    """The sibling `_engine_floor` module, importable whatever sys.path holds."""
+    import sys
+
+    mod = sys.modules.get("_engine_floor")
+    if mod is not None:
+        return mod
+    try:
+        import _engine_floor as mod  # type: ignore[import-not-found]
+
+        return mod
+    except ImportError:
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "_engine_floor", Path(__file__).resolve().with_name("_engine_floor.py")
+        )
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules["_engine_floor"] = mod
+        spec.loader.exec_module(mod)
+        return mod
+
+
+def _apply_engine_floor(root, cls, prov):
+    """Floor-check a published root; ALWAYS returns `(root, cls, prov)` unchanged.
+
+    behind and indeterminate verdicts emit one stderr notice each; clean is
+    silent. Any exception inside the check is swallowed here (an exception
+    reaching the resolver's outer handler would drop a healthy engine).
+    """
+    try:
+        verdict = _load_engine_floor().check_engine_floor(root)
+        if verdict.state != "clean":
+            _warn_floor_notice(root, verdict)
+    except Exception:
+        pass
+    return root, cls, prov
+
+
 def _flatten_registry(data: dict, _prefix: str = "") -> dict:
     """Flatten nested registry TOML tables to dotted keys.
 
@@ -1080,6 +1145,12 @@ def resolve_claude_klabauter_root_with_provenance() -> tuple[str | None, str, st
          all.
       5. Else `(None, RESOLUTION_UNRESOLVED, "none")`.
 
+      Every published answer (rung 0's link onto the published engine,
+      "published-target", "published-legacy-gate", "published-fallback")
+      passes through `_apply_engine_floor`: a behind or indeterminate engine
+      floor verdict emits one stderr notice and the tuple is unchanged.
+      Live-tree rungs are not floor-checked.
+
     Zero-spawn, fail-open, never raises — same contract as
     `resolve_claude_klabauter_root_with_class` and `resolve_claude_klabauter_root`, both of which
     delegate here. That promise is ENFORCED, not merely stated: the whole
@@ -1106,7 +1177,9 @@ def resolve_claude_klabauter_root_with_provenance() -> tuple[str | None, str, st
                 # engine (the cloud pin) names no live tree: report it as such.
                 published = _resolve_published_engine()
                 if published and os.path.realpath(env_override) == os.path.realpath(published):
-                    return published, RESOLUTION_RESOLVED_ENGINE, "published-target"
+                    return _apply_engine_floor(
+                        published, RESOLUTION_RESOLVED_ENGINE, "published-target"
+                    )
                 return env_override, RESOLUTION_LIVE_WORKING_TREE, "env-override"
             override_var = next(
                 (v for v in LIVE_TREE_ENV_VARS if os.environ.get(v) == env_override),
@@ -1124,10 +1197,14 @@ def resolve_claude_klabauter_root_with_provenance() -> tuple[str | None, str, st
         target_is_readable = _resolve_engine_target() is not None
 
         if published and target_is_readable:
-            return published, RESOLUTION_RESOLVED_ENGINE, "published-target"
+            return _apply_engine_floor(
+                published, RESOLUTION_RESOLVED_ENGINE, "published-target"
+            )
 
         if published and _is_engine_working_repo() is False:
-            return published, RESOLUTION_RESOLVED_ENGINE, "published-legacy-gate"
+            return _apply_engine_floor(
+                published, RESOLUTION_RESOLVED_ENGINE, "published-legacy-gate"
+            )
 
         live, live_provenance = _resolve_live_working_tree()
         if live:
@@ -1136,7 +1213,9 @@ def resolve_claude_klabauter_root_with_provenance() -> tuple[str | None, str, st
             return live, RESOLUTION_LIVE_WORKING_TREE, live_provenance
 
         if published:
-            return published, RESOLUTION_RESOLVED_ENGINE, "published-fallback"
+            return _apply_engine_floor(
+                published, RESOLUTION_RESOLVED_ENGINE, "published-fallback"
+            )
 
         return None, RESOLUTION_UNRESOLVED, "none"
     except Exception as exc:

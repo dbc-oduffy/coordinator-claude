@@ -38,7 +38,7 @@ processes. You never commit or stage.
 
 ## Verdict record
 
-Write `docs/research/spike-verdicts/YYYY-MM-DD-<mechanism-slug>.md`, validated against
+Write `<run dir>/verdict.md` (the `docs/research/<topic>/<date>-<run-slug>/` your brief binds; write nowhere else under `docs/research/`), validated against
 `coordinator/schemas/spike-result.schema.json`. No `status`, `deployment_state` or
 `pickup_ready` fields: it is evidence, not a baton. It carries:
 

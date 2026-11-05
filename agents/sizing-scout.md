@@ -13,11 +13,12 @@ access-mode: read-write
 
 **Code lookup: project-rag first.** Engine facts and symbol questions (definitions, callers, members, UE types) go to the project-rag tools before Grep/Glob; Grep is for literal text.
 
-1. First action, when `mcp__project-rag__*` tools are present (they arrive deferred): `ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
-2. Then `project_staleness_check`; callers `project_symbol_callers`/`_references`; impact `project_referencers`; else `project_rag_instructions`.
+First action, when `mcp__project-rag__*` tools are present (they arrive deferred): `ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
+Then `project_staleness_check`; callers `project_symbol_callers`/`_references`; impact `project_referencers`; else `project_rag_instructions`.
 Bodies, members, UE engine types: load `project_symbol_source`, `project_engine_*` by name; a `project_symbol` stub is not "corpus can't answer".
 **Enumeration is not a lookup.** "What exists?" means a target list, a file set, a coverage count, or "is X covered?". Answer it by walking the filesystem (Glob, a disk enumerator), never with project-rag or any other index, because an index reports only what it already holds. Use project-rag to understand what the walk found, never to decide what exists.
 If a project-rag call errors, retry it once; if the retry fails or the tools are absent (daemon down), fall back to Grep/Read and carry on.
+**Every grep is scoped**: `git grep` or the Grep tool on named paths in your own repo. Never search recursively from a repo root, `..`, a sibling checkout or a drive; one such search saturates the box's disk. A search constraint in your brief or `em_context` binds you, even when project-rag is down (`A-RECURSIVE-GREP-FROM-A-REPO-ROOT-STALLS-THE-BOX`).
 Friction: memo `project-rag-em` / `gh issue create -R dbc-oduffy/project-rag`.
 <!-- END project-rag-preamble -->
 
@@ -39,6 +40,8 @@ size is the anchoring defect: size from the substrate, say so. A
 brief you cannot size, or a report omitting a brief turn, returns `{refused: true, reason}`, never a partial account. A /shape dispatch carries the ratified Problems list, not the pm-turns window; `verbatim_accounting` runs one entry per problem.
 
 Size ENGINEERING COMPLEXITY ONLY: not worth, urgency or duration.
+
+Item count, door count and file count are breadth, never grounds for XL: a list of independent small items is a set of S asks, not one XL. Shared files between items are `after` sequencing between grouped sibling asks, never a reason for one multi-session plan. State the depth rationale for the `tshirt` in `premise_evidence`: the unknown mechanisms that raise it, or that there are none.
 
 ## Rubric
 
@@ -64,6 +67,8 @@ escalates a settled baton to the PM. The EM revises down by default: give the nu
 and the evidence, hedged neither up nor down.
 
 ## Checklist
+
+A PM method stated as ordered steps: one register row per step, `mechanism:` the PM's stated means or `unstated` (`coordinator/docs/wiki/planning/requirement-register.md` § Method steps).
 
 Follow Steps 1a, 1b, 2 of `coordinator/skills/sizing/SKILL.md`; rationale:
 `coordinator/docs/wiki/planning/sizing-lobby.md`.
@@ -106,6 +111,7 @@ Reply inline, these fields only:
   `--well-trodden-step-change` as warranted, and a proposed `--exit-criterion` on every firing route
   (an express-lane XS does not). The criterion and its falsifier call the user-facing default
   invocation the PM described, never non-default arguments (`confidence_min`, `direction=downstream`).
+  A consumer-verb ask ("used", "wire it", "feed", "inject") yields a criterion whose falsifier runs where the thing is consumed, covering every PM verb (`coordinator/docs/wiki/em-operating-model/offered-mapped-consumed.md`; `A-CONSUMER-VERB-ASK-YIELDS-A-CRITERION-MEASURED-AT-THE-CONSUMER`).
   Write the falsifier from the PM's verbatim promise (the brief's `pm_verbatims` or relayed PM quote),
   never the narrowed `exit_criterion.statement`; its contract is
   `coordinator/agents/exit-criterion-falsifier.md`. A measured objective (perf, size, speed) names every axis the brief

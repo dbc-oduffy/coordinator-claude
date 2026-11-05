@@ -33,14 +33,14 @@ resolver. A real `.exe`, unlike a `.cmd` shim, also satisfies a PATHEXT-aware `S
 — `.EXE` is in the default `PATHEXT` list — so the same artifact answers both the cmd.exe-side and
 CreateProcess-side rows. It does not help a bash `command -v python3` lookup, which stays on its
 own resolution contract. See
-`docs/research/2026-07-14-windows-first-class-coordinator/09-python3-shim-fix-recipe.md` Q3 for
+`docs/research/windows-first-class-coordinator/2026-07-14-windows-first-class-coordinator/outputs/09-python3-shim-fix-recipe.md` Q3 for
 the original wiring confirmation and Q1/Q2 for how
 the ensure-python3-exe-shim logic (now living in the engine repo's `coordinator_core/ops/ensure_python3_exe_shim.py`)
 is wired into install, run by the engine repo's `coordinator/bin/install-health-run.py` orchestrator
 — no direct call site needed or added.
 
 **Measured cost of each path** (this machine, native `CreateProcess` launch from PowerShell — see
-`docs/research/2026-07-14-windows-first-class-coordinator/00-EMPIRICAL-spawn-benchmark.md`
+`docs/research/windows-first-class-coordinator/2026-07-14-windows-first-class-coordinator/outputs/00-EMPIRICAL-spawn-benchmark.md`
 "Indirection-layer probe" table):
 
 | path to run python | median | overhead vs native |
@@ -84,7 +84,7 @@ In a multi-session Claude Code workflow with MCP servers, hooks, and frequent su
 %*`, a double indirection (cmd.exe resolves the shim, hands off to the `py` launcher, which then
 execs the actual interpreter; measured ~184 ms end-to-end vs. ~35 ms for the native `python3.exe`
 PE — see "Measured cost of each path" above and
-`docs/research/2026-07-14-windows-first-class-coordinator/00-EMPIRICAL-spawn-benchmark.md`). The
+`docs/research/windows-first-class-coordinator/2026-07-14-windows-first-class-coordinator/outputs/00-EMPIRICAL-spawn-benchmark.md`). The
 `python3.exe` PE placed beside the real interpreter, ahead of `%LOCALAPPDATA%\Microsoft\WindowsApps`
 on PATH, is the correct answer to the same `CreateProcess`/`PATHEXT` problem now — see "The three
 `python3`-resolution paths" above. A reader restoring `python3.cmd` to fix a picker or a

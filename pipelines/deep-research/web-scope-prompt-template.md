@@ -8,6 +8,10 @@ do not over-specify. This is judgment work: define the research, do not do it.
 The sizing is the file `{{brief}}`. Read it first. It carries the research intent, the research
 block (question, depth, constraints) and the targets (topics, known sources, timing if given).
 
+**Seeds:** the sizing's `research.seeds` entries of kind `doc` and `paper` are pre-selected known
+sources: carry each URL into scope.md as a known source on the topic it serves. Take only `doc` and
+`paper` seeds; the other kinds belong to other pipelines, so leave them out.
+
 **Write the scope to:** `{{scratch_dir}}/scope.md`. It replaces the sizing as the brief for the scout and the
 brief-author, so it must be complete on its own.
 
@@ -29,8 +33,8 @@ brief-author, so it must be complete on its own.
 7. The fields the prompts read: `min_sources`, `max_minutes` (from the sizing's timing when
    given; otherwise 5, 15 for a typical topic, 3, 8 for a trivial one, 5, 20 for a complex one),
    `scout_ceiling_minutes` (5, so the corpus lands early in the specialists' window), `corpus_path` (`{{scratch_dir}}/source-corpus.md`), `output_path`
-   (the requested output path when the request, including the sizing's exit criterion or a context file it names, states one; otherwise `{{scratch_dir}}/synthesis.md`, since the run archives its workdir and a default path under `docs/research/` would leave a duplicate), `advisory_path` (the output path with `.md`
-   replaced by `-advisory.md`; `{{scratch_dir}}/advisory.md` when the output path is the workdir default), and `run_stem` (always `YYYY-MM-DD-<topic-slug>-web`, whatever the output path).
+   (the requested output path when the request, including the sizing's exit criterion or a context file it names, states one; otherwise `<run dir>/synthesis.md`, the run dir being the parent of `{{scratch_dir}}`), `advisory_path` (the output path with `.md`
+   replaced by `-advisory.md`; `<run dir>/outputs/advisory.md` when the output path is the run-dir default), and `run_stem` (always `YYYY-MM-DD-<topic-slug>-web`, whatever the output path; its durable files land in `<run dir>/outputs/`).
 
 ## Quality Gates
 

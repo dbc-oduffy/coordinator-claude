@@ -31,6 +31,20 @@ filtered out `.md` files, which is exactly where the second consumer is
 recorded. Do not re-derive that error: keep the `argparse` main and the
 `.cmd` launcher on every script here.
 
+## A CLI missing from this directory is not missing
+
+This directory holds the plugin-local CLIs only. Others are engine-shipped
+and resolve from the settings-home rung, so an `ls` here returns nothing
+for them and that absence is not evidence they do not exist. Resolve before
+concluding: a check that never ran is indistinguishable downstream from a
+check that passed, and `snippet-registry`, `verify-snippet-sync` and
+`verify-snippet-registry-consistency` (engine-shipped, none here) were each
+read as "not runnable from here" for exactly that reason.
+
+Every script here self-resolves its own root from `__file__` / `BASH_SOURCE`,
+never cwd, so a CLI invoked by absolute path from any directory finds its
+own tree.
+
 See `docs/reference/cli-directive-execution-models.md` for the longer
 form: both dispatch-table populations, which assemblers are in each, the
 absent-producer table, and the measured cost ladder for going from a cold

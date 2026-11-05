@@ -365,7 +365,7 @@ table past the SHA it's pinned to.
 ## Index-coverage figure — a one-time fact, not a standing gate
 
 The wiki directory guide (`DIRECTORY_GUIDE.md`) reached only 177 of 805 pages at the time of the
-original audit (`docs/research/2026-08-30-17h00-llm-wiki-doctrine-corpus-workdir/own-side-audit.md`),
+original audit (`docs/research/llm-wiki-doctrine-corpus/2026-08-30-17h00-llm-wiki-doctrine-corpus/workdir/own-side-audit.md`),
 drifting from 145 of 203 recorded by the architecture atlas in July. A reader who knows 78% of the
 corpus is absent from the guide is better served than one who assumes it's exhaustive — that is
 worth stating once, here, and is deliberately **not** a number `check-citation-integrity.py`
@@ -443,6 +443,6 @@ not a real citation inside a fenced block; the scanner skips fences.
   correction pair.
 - `coordinator/lib/citation_graph.py` — the extraction/resolution library these figures are
   computed from.
-- `docs/research/2026-08-30-17h00-llm-wiki-doctrine-corpus-workdir/own-side-audit.md` — the
+- `docs/research/llm-wiki-doctrine-corpus/2026-08-30-17h00-llm-wiki-doctrine-corpus/workdir/own-side-audit.md` — the
   original 805-file audit this page's figures supersede.
   dispatched from (chunk C7).

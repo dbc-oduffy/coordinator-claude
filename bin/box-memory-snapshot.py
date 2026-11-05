@@ -9,7 +9,8 @@ failed clause (exit 4); the figure is net of `reserved=`, the sum over live STAR
 END in admission.jsonl of max(0, declared_peak_mb - tree RSS). Need is peak + min(0.25*peak, 8 GiB);
 `--fleet` drops the cushion (need is peak) for a fleet already sized with its reserve S.
 `--command-key K` with `--record-peak GIB` keeps K's largest seen peak (used when `--admit-peak` is omitted, except on a record or release call);
-`--register-pid P` on ADMIT reserves P's headroom, `--release-pid P` frees it. `--json` emits the same
+`--register-pid P` on ADMIT reserves P's headroom, `--release-pid P` frees it. `--reservation` prints
+each registered running job's headroom and the total in GiB (an exited job is absent: it adds 0). `--json` emits the same
 fields. Other hosts: exit 6.
 """
 
@@ -113,6 +114,14 @@ def _render(snap: dict) -> str:
     return "\n".join(lines)
 
 
+def _render_reservation(res: dict) -> str:
+    lines = ["Reservation (GO-admitted running jobs, max(0, declared peak - tree RSS)):"]
+    for j in res["jobs"]:
+        lines.append(f"  {'grant' if j['pid'] is None else j['pid']:>7}  {j['reserved_gib']:>7.2f} GiB  {j['run']}")
+    lines.append(f"Reservation total: {res['total_gib']} GiB")
+    return "\n".join(lines)
+
+
 def _admit_line(verdict, peak_gib: float, status, limit: int) -> str:
     if verdict.admit:
         return f"ADMIT peak={peak_gib}GiB need_avail={_gib(int(verdict.need_avail))}GiB"
@@ -138,6 +147,8 @@ def main(
     governor=None,
     rss_fn: Optional[Callable] = None,
     alive_fn: Optional[Callable] = None,
+    create_time_fn: Optional[Callable] = None,
+    image_fn: Optional[Callable] = None,
     proc_table_fn: Optional[Callable] = None,
     cmdline_fn: Optional[Callable] = None,
 ) -> int:
@@ -155,6 +166,8 @@ def main(
     parser.add_argument("--record-peak", type=float, metavar="GIB", help="record this command's seen peak (max kept)")
     parser.add_argument("--register-pid", type=int, help="on ADMIT, reserve this pid's headroom until release or exit")
     parser.add_argument("--release-pid", type=int, help="free the reservation registered for this pid")
+    parser.add_argument("--reservation", action="store_true", help="print each GO-admitted running job's "
+                        "max(0, declared peak - tree RSS) and their total in GiB; exited jobs add 0")
     args = parser.parse_args(argv)
     if args.fleet:  # a fleet's width formula already took its reserve S out; a cushion pads it twice
         args.cushion_pct = 0.0
@@ -195,16 +208,27 @@ def main(
     snap = build_snapshot(status, nonpaged_fn, cache_host_fn, consumers_fn, args.top)
     code = 0
     admit_line = None
+    reserved_kw = {
+        **({"rss_fn": rss_fn} if rss_fn else {}),
+        **({"alive_fn": alive_fn} if alive_fn else {}),
+        **({"create_time_fn": create_time_fn} if create_time_fn else {}),
+        **({"image_fn": image_fn} if image_fn else {}),
+    }
+    if args.reservation:
+        jobs = host.top_holders(adm_path, limit=sys.maxsize, **reserved_kw)
+        snap["reservation"] = {
+            "jobs": [
+                {"session_id": j["session_id"], "run": j["run"], "pid": j["pid"], "reserved_gib": _gib(j["bytes"])}
+                for j in jobs
+            ],
+            "total_gib": _gib(sum(j["bytes"] for j in jobs)),
+        }
     if args.admit_peak is not None:
         if status is None:
             print(f"{PROG}: cannot read memory status for admission", file=sys.stderr)
             return 1
         peak = int(args.admit_peak * host.GIB)
         limit = int(args.commit_limit_gib * host.GIB) if args.commit_limit_gib is not None else status.commit_limit
-        reserved_kw = {
-            **({"rss_fn": rss_fn} if rss_fn else {}),
-            **({"alive_fn": alive_fn} if alive_fn else {}),
-        }
         if args.command_key and args.register_pid is not None:
             verdict, reserved = host.admit_and_register(
                 adm_path, args.command_key, args.register_pid, args.admit_peak, status,
@@ -239,6 +263,8 @@ def main(
         print(json.dumps(snap))
     else:
         print(_render(snap))
+        if "reservation" in snap:
+            print(_render_reservation(snap["reservation"]))
         if admit_line:
             print(admit_line)
     return code

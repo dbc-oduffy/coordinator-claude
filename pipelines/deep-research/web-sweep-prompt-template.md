@@ -32,17 +32,17 @@ Read all specialist outputs from `{{scratch_dir}}/` (`<letter>-claims.json` and
 definition's three phases:
 
 - Phase 1 — assess all claims and emit the gap report to `{{scratch_dir}}/gap-report.md` AND
-  the durable path `docs/research/<run_stem>-gap-report.md`.
+  the durable path `<run_dir>/outputs/<run_stem>-gap-report.md`.
 - Phase 2 — fill gaps via WebSearch/WebFetch.
 - Phase 3 — frame with an executive summary and conclusion.
 
-Write the final document to `output_path` and `{{scratch_dir}}/synthesis.md` (once when they are the same file); never write a `docs/research/` path the brief does not name. Record secrets by key name only, never by value. Detect secrets by pattern and report the key name plus file:line only. Never print, quote or echo a matched value, in your reasoning, your documents or tool output: use counting or file-listing greps (`grep -c`, `grep -l`, `grep -q`) or anchored patterns that do not echo the match, never a bare `grep` that prints the matching line. The synthesis
+Write the final document to `output_path` and `{{scratch_dir}}/synthesis.md` (once when they are the same file); never write a path outside the run dir or one the brief does not name. Record secrets by key name only, never by value. Detect secrets by pattern and report the key name plus file:line only. Never print, quote or echo a matched value, in your reasoning, your documents or tool output: use counting or file-listing greps (`grep -c`, `grep -l`, `grep -q`) or anchored patterns that do not echo the match, never a bare `grep` that prints the matching line. The synthesis
 document MUST begin with `research-synthesis` frontmatter (title, question, date,
 pipeline: web, source_count, topic_facets[], coverage_score from the gap report).
 
 After writing the synthesis, merge all `<letter>-claims.json` files into
 `{{scratch_dir}}/merged-claims.json` (a bare JSON array). The claim schema is `research-claim.schema.json` under `${CLAUDE_PLUGIN_ROOT}/schemas/` (else `<content-root>/coordinator/schemas/`, `<content-root>` from `<home>/.claude/.content-root`); `topic_tags` is an array of strings, and claim `id` values must be unique across the array, so rename a collision before writing. Do NOT write
-`docs/research/<run_stem>.claims.json` or its sidecar; the EM emits that durable pair.
+`<run_dir>/outputs/<run_stem>.claims.json` or its sidecar; the EM emits that durable pair.
 
 Report `pipeline: web` and `deepeningRecommended` (from the gap report) in your return value. Do
 NOT report `ran_at` — you have no shell and therefore no clock, and writing

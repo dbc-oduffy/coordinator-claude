@@ -53,15 +53,15 @@ Full mode description, architecture rationale, and record-schema detail:
 3. Generate run ID: `YYYY-MM-DD-HHhMM` (current timestamp)
 4. Generate topic slug from repo name (e.g., `onnxruntime`, `langchain`)
 5. Record spawn timestamp: `date +%s` (Unix epoch seconds — the survey's `[SPAWN_TIMESTAMP]`; scouts, specialists, and later stages start their own clock)
-6. Create working directory — **accept-if-passed:** if `{scratch-dir}` is already bound (supplied by `research.md` Step 0), skip the `mkdir` and use the supplied value; otherwise create it (`mkdir -p docs/research/{run-id}-{topic-slug}-workdir`).
-   Set `{scratch-dir}` = `docs/research/{run-id}-{topic-slug}-workdir`
-7. Set output path: `docs/research/YYYY-MM-DD-repo-{topic-slug}.md` — the `repo-` infix distinguishes this pipeline's artifacts from web/structured pipeline outputs on the same date.
-8. Set advisory path: `docs/research/YYYY-MM-DD-repo-{topic-slug}-advisory.md`
-9. If `--compare`: set gap analysis path: `docs/research/YYYY-MM-DD-repo-{topic-slug}-gap-analysis.md`
+6. Create working directory — **accept-if-passed:** if `{scratch-dir}` is already bound (supplied by `research.md` Step 0), skip the `mkdir` and use the supplied value; otherwise create it (`mkdir -p {run-dir}/workdir`).
+   Set `{run-dir}` = `docs/research/{topic-slug}/{run-id}-{topic-slug}` (lowercase the run id) and `{scratch-dir}` = `{run-dir}/workdir`. Every durable path below lives inside `{run-dir}`.
+7. Set output path: `{run-dir}/synthesis.md`.
+8. Set advisory path: `{run-dir}/outputs/advisory.md`
+9. If `--compare`: set gap analysis path: `{run-dir}/outputs/gap-analysis.md`
 10. If `--deeper`: set repomap path: `{scratch-dir}/repomap.md`
-11. If `--survey` or `--deepest`: set survey path: `{scratch-dir}/survey.md`; set survey output path: `docs/research/YYYY-MM-DD-repo-{topic-slug}-survey.md`
-12. If `--deepest`: set atlas sketch (scratch) and refined-output (docs/research/) paths — see `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/repo-research-internals.md` § Atlas Path Conventions for the 3 sketch + 4 final artifact paths.
-13. Set claims path: `docs/research/YYYY-MM-DD-repo-{topic-slug}.claims.json` — durable queryable index of per-specialist claim records merged by the synthesizer. A requested output path overrides steps 7-13: every durable path derives from it, never from `docs/research/`.
+11. If `--survey` or `--deepest`: set survey path: `{scratch-dir}/survey.md`; set survey output path: `{run-dir}/outputs/survey.md`
+12. If `--deepest`: set atlas sketch (scratch) and refined-output (`{run-dir}/outputs/`) paths — see `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/repo-research-internals.md` § Atlas Path Conventions for the 3 sketch + 4 final artifact paths.
+13. Set claims path: `{run-dir}/outputs/synthesis.claims.json` — durable queryable index of per-specialist claim records merged by the synthesizer. A requested output path overrides steps 7-13: every durable path derives from it, never from `docs/research/`.
 
 Announce: "Running Pipeline B (repo research, chatty Workflow{', deepest mode' if --deepest}{', deeper mode' if --deeper and not --deepest}{', survey mode' if --survey and not --deepest}{', comparison mode' if --compare}) on {repo-path}."
 
@@ -112,7 +112,7 @@ The run is ONE background `Workflow` the engine emits from `repo.manifest.yaml` 
 
 - **Ordering replaces `blockedBy`.** Stage N+1 starts when stage N's `agent()` calls return (`await`, or `parallel()` for a fan-out). Nothing else gates a stage.
 - **No `SendMessage`** — between agents or to the EM. Peers exchange findings through mailbox files, `{scratch-dir}/mail/<role>.jsonl`. A line is `{"from": "<role>", "text": "..."}`; to message peer X, append to X's file. A reader appends `{"read": true}` after reading its file; it has unread mail when lines follow its last read marker. Roles: `scout-1`/`scout-2` (Haiku tier) or `scout-a`…`scout-d` (Sonnet tier), `specialist-a`…`specialist-d`, `sweep`, `synthesizer`.
-- **Challenge and relay rounds are continuation rounds.** Round 1: specialists write their outputs, append challenges to peers' mailboxes, and return. Round 2, after all of round 1 returns: the script probes the mailboxes and dispatches a fresh continuation agent for each specialist with unread mail. A wake is a dispatch, never a resume (`wake_mechanism: continuation`, harness 2.1.308: `docs/research/spike-verdicts/2026-10-22-returned-workflow-agent-resume-reprobe.md`). One rebuttal round by default.
+- **Challenge and relay rounds are continuation rounds.** Round 1: specialists write their outputs, append challenges to peers' mailboxes, and return. Round 2, after all of round 1 returns: the script probes the mailboxes and dispatches a fresh continuation agent for each specialist with unread mail. A wake is a dispatch, never a resume (`wake_mechanism: continuation`, harness 2.1.308: `docs/research/spikes/2026-10-22-returned-workflow-agent-resume-reprobe/verdict.md`). One rebuttal round by default.
 - **The synthesizer is the overseer** — the only agent whose return value reaches the EM. Workers return a one-line pointer to the script and never address the EM.
 - Model tiers are set per stage in `repo.manifest.yaml`; every disk check is an `agent()` call, because the script has no filesystem access.
 
@@ -335,7 +335,7 @@ When you receive the Workflow's completion notification (its result is the synth
    ```bash
    "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/claims-emit" \
      --producer repo-research \
-     --out docs/research/{run-stem} \
+     --out {run-dir}/outputs/synthesis \
      --ran-at "$RAN_AT" \
      --pipeline repo \
      < {scratch-dir}/merged-claims.json
@@ -352,19 +352,15 @@ When you receive the Workflow's completion notification (its result is the synth
    ```bash
    "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-safe-commit" "deep-research: complete — {topic-slug}"
    ```
-10. Archive paper trail (atomic rename — no copy-then-delete race window):
-    ```bash
-    mv docs/research/{run-id}-{topic-slug}-workdir docs/research/archive/YYYY-MM-DD-repo-{topic-slug}
-    ```
-    **Precondition: `docs/research/` and `docs/research/archive/` resolve to the same filesystem.** If `archive/` is ever moved to a different mount, this archive step must be revisited — POSIX `mv` across filesystems degrades to copy-then-unlink, reopening the race window the change is meant to eliminate. Executor-time guard: `stat -c '%d' docs/research 2>/dev/null || stat -f '%d' docs/research` on both paths before mv; fail-loud if device IDs differ.
-11. Commit: `coordinator-safe-commit "deep-research: archive + cleanup"`
+10. Paper trail: it already lives at `{run-dir}/workdir`; no move, no archive step.
+11. Commit: `coordinator-safe-commit "deep-research: cleanup"`
 12. Present executive summary to PM for discussion. If advisory exists, mention it: "The synthesizer flagged observations beyond scope — see the advisory at `{advisory-path}`." If `--deepest`: mention the atlas artifacts and their locations. Mention the coverage-audit sidecar: "Coverage audit written to `{output-path minus .md}-coverage-audit.md` — {present_count} claims present, {absent_count} absent." Mention the durable index artifacts: "Research-synthesis frontmatter prepended to `{output-path}`. Queryable claims index written to `{claims-path}` ({N} claims across {K} chunks)."
 
 ## Step 7.5 — Atlas Refinement (only if `--deepest`)
 
-**Phase 3:** After the Workflow completes and the assessment is verified, dispatch a Sonnet subagent to refine the preliminary atlas using specialist analysis and synthesis findings, producing the 4th artifact (architecture summary) which requires specialist data. Use `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/repo-atlas-prompt-template.md`. Verify all 4 artifacts (`atlas-file-index.md`, `atlas-system-map.md`, `atlas-connectivity-matrix.md`, `atlas-architecture-summary.md`) exist and have substantive content; on success, copy from scratch to the docs/research/ paths set in Step 1; on failure, note to PM and proceed (atlas is additive). Return to Step 7 item 9 (Commit).
+**Phase 3:** After the Workflow completes and the assessment is verified, dispatch a Sonnet subagent to refine the preliminary atlas using specialist analysis and synthesis findings, producing the 4th artifact (architecture summary) which requires specialist data. Use `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/repo-atlas-prompt-template.md`. Verify all 4 artifacts (`atlas-file-index.md`, `atlas-system-map.md`, `atlas-connectivity-matrix.md`, `atlas-architecture-summary.md`) exist and have substantive content; on success, copy from scratch to the `{run-dir}/outputs/` paths set in Step 1; on failure, note to PM and proceed (atlas is additive). Return to Step 7 item 9 (Commit).
 
-**Note on the copy step:** The atlas-refinement step copies artifacts from the workdir into `docs/research/` (using `cp` since both paths are sibling directories); the workdir's atomic `mv` to `archive/` happens at Step 7 item 10 and carries the cross-FS precondition guard there. No separate guard is needed at Step 7.5 because both src and dst are under `docs/research/` by construction.
+**Note on the copy step:** The atlas-refinement step copies artifacts from `{run-dir}/workdir` into `{run-dir}/outputs/` (using `cp`); both paths sit inside the one run dir, so no cross-filesystem guard applies.
 
 **Template fields, dispatch syntax, copy commands:** see `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/repo-research-internals.md` § Step 7.5.
 

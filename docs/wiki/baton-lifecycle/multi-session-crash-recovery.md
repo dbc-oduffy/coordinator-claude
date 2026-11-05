@@ -21,6 +21,10 @@ work-in-flight is lost from *context* but — crucially — **whether it is lost
 - **Power loss / bugcheck / hard reboot** — dirty pages may not have flushed; treat uncommitted work as
   suspect and verify every file against `git` before trusting it.
 
+- **OOM kill** — the kernel or harness reaps sessions under memory or commit exhaustion; filesystem
+  intact. An OOM kill whose sessions did not restart is a recovery event: run this playbook for
+  those sessions, whether or not anyone saw a crash.
+
 Determining which happened is Step 2 and it changes how aggressively you must preserve dirty trees.
 
 ## Step 1 — Pin the crash moment (mtime clustering)

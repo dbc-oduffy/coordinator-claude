@@ -232,5 +232,5 @@ authored in the engine authoring repo), never against this clone. Doe-clone-only
 - `docs/problems/2026-07-27-the-boot-envelope-is-paid-per-agent-and-.md` — the ratified problem-set.
   **Its Problem 8 states the falsified `--plugin-dir` mechanism**; the problem it names survives,
   its stated mechanism does not.
-- `docs/research/spike-verdicts/2026-07-27-boot-context-envelope.md` — the per-agent amplification
+- `docs/research/spikes/2026-07-27-boot-context-envelope/verdict.md` — the per-agent amplification
   evidence and the role-miscasting probes.

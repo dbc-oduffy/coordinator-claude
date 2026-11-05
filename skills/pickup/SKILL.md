@@ -1,7 +1,7 @@
 ---
 name: pickup
 description: Resume from a handoff or action a cross-repo memo.
-allowed-tools: ["Read", "Grep", "Glob", "Bash"]
+allowed-tools: ["Read", "Grep", "Glob", "Bash", "TaskCreate", "TaskUpdate"]
 argument-hint: "[handoff-file-path | memo-file-path]"
 ---
 
@@ -42,6 +42,8 @@ a stamped-authorization mismatch surfaces to the PM.
 - **An anti-scope constraint ("do NOT do X — sibling Y owns it") decays**: re-verify its witness against disk (`spinoff-handoffs.md` § Pickup-side premise check).
 - **An absence under `<path>` is evidence only if `<path>` still hosts that artifact class.**
 
+**A baton carrying `open_tasks:` is re-injected into the task list, no manual step.** `TaskCreate` each entry (`subject`, `description`) in listed order, recording old-id to new-id; then `TaskUpdate` each new task for `status` (`in_progress` only) and `blockedBy`, translated through that map. A `blockedBy` id absent from the block is dropped and named in your report. No `open_tasks:` key: do nothing.
+
 **Report briefly** — picked-up heading, branch, first recommended step; prepend any recovery
 banner (prior session died uncleanly: verify disk state first).
 
@@ -56,6 +58,8 @@ banner (prior session died uncleanly: verify disk state first).
 
 Claim, terminal flip, and pre-decision revert land automatically on a clean pickup. Resolve every `judgment_points` entry
 before its gated directive proceeds.
+
+**Recreate carried tasks from `harness_task_directives`, in list order** (`CARRIED-TASKS-ARE-RECREATED-AT-PICKUP`): run every `TaskCreate` first and map each `old_id` to the id it returns, then run each `TaskUpdate` with its `old_id` and every `addBlockedBy` id rewritten through that map. A harness without the Task API skips them.
 
 The claim is a **mutual-exclusion check** against concurrent pickups, firing at **brief**; the `apply` claim directive is a second, idempotent grab. Before committing, reconcile any commit since the claim touching your files.
 
@@ -82,6 +86,7 @@ TODAY. Claim anyway, and record the absence in your claim and close — do not s
 like any baton; a forked one is closed on its deliverable's ship by the cadence promoters.
 
 Not proceeding? `pickup-assemble drop <path>` releases the claim; repark leaves it claimed.
+A handover between live sessions is holder-drop-then-rebrief: `coordinator/snippets/pickup-handover-route.md`.
 
 ---
 

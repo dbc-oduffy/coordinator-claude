@@ -273,6 +273,8 @@ vibe:
 | `roadmap` | the work spans ≥2 named workstreams, or it carries (or needs) an initiative/goal FK. It is a programme of plans, not one plan. |
 | `accept_multi_session` | none of the three above hold — one coherent job, clear JTBD, one workstream, simply large — **and** the PM has explicitly assented. Writing `xl_exit: accept_multi_session` IS that record. |
 
+**Breadth is not depth.** Item count, door count and file count are breadth, never grounds for XL. An ask of independently shippable items takes `split` into grouped sibling asks, with `after` sequencing their shared writes, rather than halting for a PM exit. The finding "shares files" resolves to `after` sequencing; it is never grounds for `accept_multi_session`. Every sizing records its depth rationale (the unknown mechanisms behind the tshirt) in `premise_evidence`, so a breadth-based XL can be seen and challenged.
+
 **Anti-fallthrough — why `accept_multi_session` is defined by negation plus assent, not by
 default.** `xl_exit: null` on a `route: pm-decision` object is a legitimate open state, exactly
 like an unresolved `fork` — it means the PM has not chosen yet, and it never means accept. The

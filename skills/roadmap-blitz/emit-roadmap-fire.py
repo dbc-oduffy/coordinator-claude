@@ -29,6 +29,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+_LIB_DIR = Path(__file__).resolve().parents[2] / "lib"
+if str(_LIB_DIR) not in sys.path:
+    sys.path.insert(0, str(_LIB_DIR))
+from output_tree_layout import iter_tree_entries  # noqa: E402
+
 MODES = ("hands-on", "pm", "ceo")
 FIRE_NAME = "roadmap-blitz.fire.mjs"
 CANDIDATES_NAME = "candidates.json"
@@ -110,7 +115,7 @@ def collect_sweep(repo_root: Path) -> tuple[list[dict], list[dict]]:
     """Return (candidates, skipped) over every sizing with xl_exit: roadmap, status: routed."""
     cands: list[dict] = []
     skipped: list[dict] = []
-    for path in sorted((repo_root / "state" / "sizings").glob("*.yaml")):
+    for path in sorted(iter_tree_entries(repo_root, "state/sizings", "*.yaml"), key=lambda p: p.name):
         fields = top_level_fields(path.read_text(encoding="utf-8"))
         if not is_roadmap_routed(fields):
             continue

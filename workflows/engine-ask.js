@@ -19,6 +19,6 @@ return {
     "rewrite it, so nothing was emitted or run. Read the hook's reason in this call's hook output: a named " +
     "refusal is the engine declining these args, so fix the args and resubmit. With no hook output at all " +
     "the hook is not running: retry once, then do the work by hand (dispatch the agents yourself, scoped " +
-    "commits) and file this failure to claude-klabauter-em.",
+    "commits) and file this failure to the engine EM.",
   args,
 }

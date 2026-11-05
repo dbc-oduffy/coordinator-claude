@@ -35,10 +35,13 @@ Decide on the first turn. Don't hold an ask here to "see where it goes".
 - Doctrine (`~/.claude/`, and `repos.doe_claude` on a makers' box) is the G-EM's to change
   directly, whatever that setting says (`GEM-MAY-CHANGE-DOCTRINE`). The engine plane stays with the engine repo.
 - Repo EMs never take G-EM standing; it lives only in this home.
-- The G-EM sends memos and never receives them: this home has no inbox. A memo addressed to the
-  G-EM lands in `repos.doe_claude`'s inbox, or in `<claude-home>/state/cross-repo/inbox/` on a
-  box without one (`A-GROUP-EM-SENDS-MEMOS-AND-NEVER-RECEIVES-THEM`). Its sender id is `group-em-em`.
+- This home receives memos at `state/cross-repo/inbox/`, read at entry
+  (`A-GROUP-EM-HOME-RECEIVES-MEMOS-AT-ITS-OWN-INBOX`). Its sender id is `group-em-em`. The memos
+  are the G-EM's durable record of what everyone is doing and has committed to.
+- The home is a git repo with a private remote (`A-GROUP-EM-HOME-IS-A-GIT-REPO-WITH-A-PRIVATE-REMOTE`),
+  which names the tracked set versus the git-ignored box-specific state.
   `.coordinator-local/` (outbox copies, ledger) is git-ignored here; a send needs no commit.
+  `group-em-home prune` runs at handoff and quick-wrap.
 - Addresses, the turn-intent triage fields and the relay stamp: `gem-cockpit-contract.md`.
 
 ## Cross-repo authority

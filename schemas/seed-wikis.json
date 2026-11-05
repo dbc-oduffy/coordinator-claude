@@ -154,8 +154,6 @@
     "lesson-triage/provenance-markers.md",
     "lesson-triage/synthesis-discipline.md",
     "mcp-topology.md",
-    "multibox-key-custody.md",
-    "unimatrix-mechanism.md",
     "mcp-topology/external-tool-integration-patterns.md",
     "mcp-topology/example-game-repo-for-your-ue-project.md",
     "mcp-topology/mcp-async-handler-discipline.md",
@@ -166,6 +164,7 @@
     "mcp-topology/tool-registry-vs-routing.md",
     "mcp-topology/tool-schema-gap-debugging.md",
     "mcp-topology/tool-version-resolution-discipline.md",
+    "multibox-key-custody.md",
     "planning/execute-plan-residue.md",
     "planning/plan-coverage-checker.md",
     "planning/plan-deviation-reconciliation.md",
@@ -228,6 +227,7 @@
     "test-design-discipline/round-trip-contract-tests.md",
     "test-design-discipline/substrate-pin-doctrine.md",
     "test-design-discipline/test-driven-development.md",
-    "test-design-discipline/test-environment-discipline.md"
+    "test-design-discipline/test-environment-discipline.md",
+    "unimatrix-mechanism.md"
   ]
 }

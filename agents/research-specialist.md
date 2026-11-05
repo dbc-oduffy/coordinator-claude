@@ -26,7 +26,7 @@ In Windows Python code, use drive-letter paths or `cygpath -m`, never MSYS `/x/.
 
 ## Durable Claim Promotion
 
-Your per-specialist `{SCRATCH_DIR}/{LETTER}-claims.json` is the canonical scratch output. The **sweep/synthesizer agent** later merges all specialists' `{LETTER}-claims.json` into `docs/research/{run-stem}.claims.json`, preserving your fields unaltered — you do NOT write the merged durable file yourself. Write conformant claims to your scratch path per the prompt template's field contract (id, claim_text, confidence, source_url, source_date, topic_tags, type, plus optional fields).
+Your per-specialist `{SCRATCH_DIR}/{LETTER}-claims.json` is the canonical scratch output. The **sweep/synthesizer agent** later merges all specialists' `{LETTER}-claims.json` into the run dir's claims file (inside `docs/research/<topic>/<date>-<run-slug>/`), preserving your fields unaltered — you do NOT write the merged durable file yourself. Write conformant claims to your scratch path per the prompt template's field contract (id, claim_text, confidence, source_url, source_date, topic_tags, type, plus optional fields).
 
 ## Mailboxes and Returning
 

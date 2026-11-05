@@ -5,10 +5,11 @@ Purpose: project-rag's ceremony-gated SCIP cadence arm fires only when a ceremon
 it; this is that call, invoked from `handoff`, `workstream-complete`, and
 `merging-to-main` after each ceremony's own commit lands.
 
-Binary resolution is by `machine-local get project_rag.bin.project_rag_cli` ONLY -- no
-cwd-relative fallback; this script never guesses a path. A missing key skips only
-on a box without project-rag (`repos.project_rag` unset); with project-rag registered,
-it -- like a key naming a file that no longer exists -- prints a `defect -- <reason>`
+Binary resolution is by `machine-local get project_rag.bin.project_rag_cli`; a key naming a
+missing file falls back to the installed `project-rag-cli` (PATH, interpreter Scripts dirs)
+and the spawned line names the stale pointer. No cwd-relative fallback; the registry is never
+rewritten. A missing key skips only on a box without project-rag (`repos.project_rag` unset);
+with project-rag registered, it -- like a key naming a file that no longer exists -- prints a `defect -- <reason>`
 line instead, still exiting 0.
 
 Detached, best-effort, ALWAYS exits 0. The detached child is now
@@ -51,8 +52,10 @@ import json
 import math
 import os
 import re
+import shutil
 import subprocess
 import sys
+import sysconfig
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -172,6 +175,25 @@ def _resolve_registry_key(key: str) -> tuple[str | None, str | None]:
         stderr = result.stderr.strip()
         return None, f"registry key {key!r} unresolved ({stderr or 'no value'})"
     return value, None
+
+
+def _installed_cli() -> Path | None:
+    """The installed `project-rag-cli`: PATH first, then the Scripts dirs of the running
+    interpreter, the console interpreter and the user scheme. None when none holds it."""
+    found = shutil.which("project-rag-cli")
+    if found:
+        return Path(found)
+    dirs: list[str] = []
+    for scheme in (sysconfig.get_default_scheme(), sysconfig.get_preferred_scheme("user")):
+        dirs.append(sysconfig.get_path("scripts", scheme))
+    for interp in (sys.executable, _console_python()):
+        base = Path(interp).parent
+        dirs.extend((str(base / "Scripts"), str(base)))
+    for d in dict.fromkeys(dirs):
+        found = shutil.which("project-rag-cli", path=d)
+        if found:
+            return Path(found)
+    return None
 
 
 def _unresolved_cli_line(prefix: str, reason: str | None) -> str:
@@ -300,8 +322,13 @@ def run(ceremony: str, repo_root: Path) -> str:
     if exe is None:
         return _unresolved_cli_line("scip-rebuild", reason)
     exe_path = Path(exe).expanduser()
+    stale_note = ""
     if not exe_path.is_file():
-        return f"scip-rebuild: defect -- registry key names a file that does not exist: {exe_path}"
+        installed = _installed_cli()
+        if installed is None:
+            return f"scip-rebuild: defect -- registry key names a file that does not exist: {exe_path}"
+        stale_note = f" (registry pointer stale: {exe_path}; using {installed})"
+        exe_path = installed
 
     try:
         available = available_memory_gb()
@@ -335,7 +362,7 @@ def run(ceremony: str, repo_root: Path) -> str:
     if not _spawn_detached(argv, repo_root, log_path):
         return f"scip-rebuild: skipped -- failed to spawn {exe_path}"
 
-    line = f"scip-rebuild: spawned ({ceremony}) -> {log_path}"
+    line = f"scip-rebuild: spawned ({ceremony}) -> {log_path}{stale_note}"
     prior_line = _read_prior_publish_line(common_dir)
     if prior_line:
         line = f"{line}\n{prior_line}"

@@ -17,10 +17,9 @@ one before its gated directive proceeds; never auto-pick a Tier-3 no-recommendat
 (surface verbatim).
 
 **Flags.** `--catch-up` forces catch-up-only; `--conclude` forces a concluding run. They are
-mutually exclusive, and each is refused alongside `--only` or `--for-date`. Pass the flag the PM
-gave through to `workweek-complete-brief` unchanged; absent a flag, the brief resolves the mode
+mutually exclusive, and each is refused alongside `--only` or `--for-date`. Pass the PM's flag through to `workweek-complete-brief` unchanged; absent a flag, the brief resolves the mode
 from the week anchor and reports it in `period_mode`. Under catch-up the brief omits the
-concluding directives, and the release steps (Steps 7-15) and their PM gates do not run.
+concluding directives, and Steps 7-15 and their PM gates do not run.
 
 **Hard-blocking:** reverse-drift merge, version-consistency drift, pcli-04 drift
 (hand-invoked, Step 5, no directive). Everything else advisory. Read disposition from each
@@ -29,15 +28,15 @@ without halting.
 
 **Vendored-schema drift is advisory, and its absence from the set above is a ruling.** The
 `schema-drift-gate` verdict covers the ENGINE's vendored `coordinator_core/frontmatter/schemas/`,
-which a consuming repo cannot re-vendor. Surface DRIFT with the owning repo named and proceed.
+which a consuming repo cannot re-vendor. Surface DRIFT naming the owning repo and proceed.
 
 **UBT pending-record merge is NOT in that set, and its absence is a ruling.** UBT freshness is
-Example-game-repo's requirement, discharged by example-game-repo's own ceremonies. Do not re-add the gate or
-compensating EM prose for it.
+Example-game-repo's requirement, discharged by its own ceremonies. Do not re-add the gate or
+compensating EM prose.
 <!-- guard-allow: directive-ids-are-engine-current d_step4c_ubt_pending_merge_gate is named here as history: the engine repo drained it at f88ae3bddf and this text exists to say the gate is dead. -->
 Until the engine drain publishes, the mirror still emits `d_step4c_ubt_pending_merge_gate` (`4c`),
-which exits 1 with `ModuleNotFoundError: ... scan_unresolved_ubt_records`. That is a dead gate, not
-a release blocker; proceed and hand-derive no UBT verdict.
+which exits 1 with `ModuleNotFoundError: ... scan_unresolved_ubt_records`: a dead gate, not
+a release blocker; hand-derive no UBT verdict.
 
 ---
 
@@ -58,8 +57,7 @@ Surface: week span, commit count/range, workstreams, blockers, priorities met. P
 `python3 "${CLAUDE_PLUGIN_ROOT:?coordinator plugin root unset — run this from a plugin command/skill, or substitute an absolute path}/bin/goal-assessment-staleness.py"`: an unread instrument, not a missed goal.
 Own line, never inside the achieved/missed counts. Tripwire:
 `AN-UNSTAMPED-GOAL-IS-NEVER-ASSESSED-NOT-MISSED`. Exit 2 ("could not read the goals
-directory/artifacts") is unknown, not clean — surface it as such, never as "no never-assessed
-goals."
+directory/artifacts") is unknown, not clean.
 
 For each never-assessed goal, render per-KR status plus evidence candidates via
 `python3 "${CLAUDE_PLUGIN_ROOT:?coordinator plugin root unset — run this from a plugin command/skill, or substitute an absolute path}/bin/goal-kr-evidence.py" --json`.
@@ -73,9 +71,8 @@ Own line, never folded into the achieved/missed counts — same tripwire above s
 
 Resolve `fast_test_cmd` via `cs_resolve_fast_test_cmd`: `COORDINATOR_FAST_TEST_CMD` env var → the
 `fast_test_cmd` key → skip-with-notice (unconfigured → skipped, not failed) → `Validation:
-0|<non-zero>|skipped`. Non-zero: stop and fix. **Disclose the magnitude, don't just name the
-step** — `fast_test_cmd` is still a real test-suite run; source its actual cost from `python
-coordinator/tests/_spawn_budget.py` rather than assuming it's cheap because it's "fast-tier."
+0|<non-zero>|skipped`. Non-zero: stop and fix. **Disclose the magnitude** — `fast_test_cmd` is a real test-suite run, so source its actual cost from `python
+coordinator/tests/_spawn_budget.py`.
 
 `node "$CLAUDE_PLUGIN_ROOT/tests/plugin-ecosystem/run.js"` is a second Tier-U invocation.
 
@@ -118,8 +115,7 @@ Resolve from the spine's directives in one pass; advisory rows never block:
   `state/strategic/self-description.yaml` `version_highlights[].date` older than 14d → run
   `coordinator:strategic-self-description-refresh` this ceremony (it carries its own human ratify
   gate). Missing file in a repo that has adopted the standard reads as stale. **Negative-spec:** a
-  disposition of "skip" is recorded with a reason on the spine — never silently dropped or folded
-  into the advisory bucket. Standard: `coordinator/docs/wiki/skills-corpus/strategic-self-description-standard.md`;
+  "skip" is recorded with a reason on the spine, never folded into the advisory bucket. Standard: `coordinator/docs/wiki/skills-corpus/strategic-self-description-standard.md`;
   onboarding is `coordinator/skills/repo-setup/SKILL.md`'s.
 - **Sidecar reap (hand-run):** `reap-stale-subagent-sidecars`; non-zero → surface.
 - **wsc inline-budget:** `WARN: ... exceeds baseline` → mechanism inlined not extracted.
@@ -127,21 +123,23 @@ Resolve from the spine's directives in one pass; advisory rows never block:
   (Shape W); also reads `state/kr-suggestions/*.yaml`, unresolved `kr_id`/`goal_id` surfaced not
   dropped. EM/PM-confirmed only; apply via
   `& "$env:COORDINATOR_SETTINGS_HOME\bin\set-goal-kr-status.exe"`, never a hand-edit.
-  **Negative-spec:** neither auto-sets `status:` — why Step 1's never-assessed line exists; only
-  writer is human.
+  **Negative-spec:** neither auto-sets `status:`; only writer is human.
 - **Advisory results:** skill description length, owner-file invariant lint, enabledPlugins
   drift, CVE recheck (manifest changed in 14d only →
   `state/review-findings/<week-starting>-cve/deps.md`), competitor-positioning nudge, atlas
   drift/arch-audit staleness, human-facing doc content health (each
   finding gets its own `judgment_points[]` entry, never auto-picked).
-- **Doc staleness (hand-run):** `workweek-complete-doc-staleness`; each `docs[]` entry with `stale: true` is a per-doc PM point, never auto-picked. `skipped`
-  present (any value) → render it as one line.
+- **Doc staleness (hand-run):** `workweek-complete-doc-staleness`; each `docs[]` entry with `stale: true` is a per-doc PM point, never auto-picked. `skipped` present → one line.
 - **Hard-blocking results:** reverse-drift (`COORDINATOR_OVERRIDE_REVERSE_DRIFT=1`),
   version-consistency. Neither vendored-schema drift nor UBT is a member — see § Step 0.95 (a surviving `4c` is the dead gate).
 - **pcli-04 drift gate (hand-run):** `workweek-complete-drift-guards pcli-drift-gate` — `0`
   continue, `1` halt before Step 7, `2` cannot-run (never treat as clean).
 
 ---
+
+## Step 5b: Metric Breach Query
+
+`EVERY-PROJECT-CARRIES-A-METRIC-REGISTER`: per `coordinator/docs/wiki/planning/metric-register.md`, run the breach query (`project_metric_runs`) for each metric in `state/metrics/*/register.jsonl`; `SendMessage` each red to the owning EM and list it in the summary. Advisory.
 
 ## Step 6: Housekeeping
 
@@ -151,14 +149,13 @@ Resolve from the spine's directives in one pass; advisory rows never block:
 `... verify-no-console-flash --target "$HOME/.claude/plugins"` — route through
 `spawn-hidden.sh` or `# verify-no-console-flash: allow`.
 `... check-multi-event-hook-hardcoded-event` — fix is
-echoing stdin's `hook_event_name`, never hardcoded. Both exit 0, advisory, never block merge.
+echoing stdin's `hook_event_name`. Both advisory, never block merge.
 
 **Scratch purge + hold nag.** `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" fleet.scratch_hygiene '{"repo_root":"<repo-root>","cadence":"workweek_complete","apply":false}'`
 (Shape per `resolve-coordinator-bin.md`). Dry-run first; re-run with `"apply":true` only when the summary's `capabilities` includes
 `hold_pending_marker`, else report the plan. Render `hold-nag` records (incl.
 `skipped-hold-pending`) as a "Scratch-hold" section; exit 1 is a report section. The nag deletes
-nothing. Op absent or erroring → report "fleet.scratch_hygiene not yet available" and continue;
-never abort, never delete by hand.
+nothing. Op absent or erroring → report "fleet.scratch_hygiene not yet available" and continue; never delete by hand.
 
 ---
 
@@ -177,8 +174,7 @@ execute against the shard. The Staff Engineer NOT in this gate — see Step 8.
 Skip rules (full detail in skill body): <10 lines/internal-only skip; doc-only week skips
 code-semantics; plan-only week skips entirely; `--force` passes through.
 **Already-reviewed-span (EM-judgment):** a large catch-up span already verdicted at
-`/workstream-complete` may skip the chunk gate (record `incrementally-reviewed`) or narrow to
-the un-reviewed subset.
+`/workstream-complete` may skip the chunk gate (record `incrementally-reviewed`) or narrow to the un-reviewed subset.
 
 ---
 
@@ -189,8 +185,7 @@ One unnamed Sonnet `general-purpose` worker (`model: "sonnet"`, never a persona)
 (`ROADMAP.md`, `VISION.md`, `state/workstreams/`). It leaves a paper trail, not a verdict. Field
 detail and prompt: `<content-root>/coordinator/docs/wiki/ceremony-calibration/daily-summary-procedure.md`
 § Weekly Strategic Observer (`<content-root>` is the path in `~/.claude/.content-root`). Unresolvable → stop
-and report the missing path; never search the filesystem for it.
-No commit-count floor.
+and report the missing path. No commit-count floor.
 
 - Writes debt-backlog YAML via `coordinator-queue-append --schema debt-backlog`, tagged
   `weekly-arch-review` for each architectural-risk flag (Step 8's input).
@@ -218,9 +213,9 @@ spinoff; large/structural → standalone spinoff or `/plan`. Surface with the re
 
 ## Step 9: Architecture Audit Fold + Atlas Drift Walk
 
-**Staleness:** `STALE` (>10d or never targeted-audited) → auto-fold a targeted-on-diff audit,
-scoped to diff-touched systems. `FRESH` → no fold (EM may still trigger on heavy churn).
-`UNKNOWN` → note. Never edits code — findings become spinoff candidates.
+**Staleness:** `STALE` (>10d or never targeted-audited) → auto-fold a targeted-on-diff audit
+of diff-touched systems. `FRESH` → no fold (EM may trigger on heavy churn). `UNKNOWN` → note.
+Never edits code — findings become spinoff candidates.
 
 **Atlas drift walk:** `DRIFT`/`MISSING` folds into the staleness pass. `ERROR`/`MALFORMED` →
 helper issue, never FRESH. `STALE` (>30d) → EM-judgment: ratify current (no-op commit) or
@@ -237,8 +232,7 @@ schedule `/architecture-audit` — never auto-dispatches.
 Union four `query-completions` sets: chain-terminal `chain_loe.tshirt=XL`, same for `XXL`,
 single-session `loe.tshirt=XL AND chain_terminal=true`, same for `XXL`.
 
-**NEGATIVE SPEC:** never collapse into `chain_loe.tshirt in (XL, XXL)` — `in (...)` matches only
-a dotless field; a dotted field with `in` is a hard parse failure (exit 1), taking this mandatory
+**NEGATIVE SPEC:** never collapse into `chain_loe.tshirt in (XL, XXL)` — a dotted field with `in` is a hard parse failure (exit 1), taking this mandatory
 gate down. One `=` query per notch, unioned.
 
 Surface each entry's title, chain slug, sessions/tshirt, date span. Zero → note explicitly. No PM
@@ -254,12 +248,11 @@ entries since the week start that are named in no `archive/releases/*.yaml` (the
 entry status for released-ness. Zero → empty-week note.
 
 **Main-membership is not "already announced."** An entry already on `origin/main` is the
-catch-up target, not a double-count risk — what matters is coverage in a *prior* release's notes
+catch-up target; what matters is coverage in a *prior* release's notes
 (check `archive/release-notes/`).
 
 **Reconcile backstop is KILLED — no step here.** `workweek-complete-close reconcile-sweep` and
-`reconcile-completion-commits.py` are retired; their launchers survive and exit 127. Folding
-`Session-Id:`-trailer commits into an entry's `commits:` is now unbacked — a missing SHA is caught,
+`reconcile-completion-commits.py` are retired; their launchers exit 127. A missing `commits:` SHA is caught,
 if at all, by the editorial pass below. Restore only when a successor CLI ships.
 
 **Editorial bucketing:** dispatch a Sonnet worker with the entry corpus; writes
@@ -267,9 +260,8 @@ if at all, by the editorial pass below. Restore only when a successor CLI ships.
 L/XL/XXL → Highlights; roadmap S/M → Notable; roadmap XS → Other; user-visible bugfix (any) or
 bugfix XL → Notable; bugfix S/M/L → Other; tech-debt/infra non-XL → Other; tech-debt/infra XL →
 Notable (EM call, override stated). Empty buckets: `_none this week_`; ≥5 similar Other-only
-entries collapse to "... and assorted fixes" (EM override permitted on any row — state explicitly
-in the dispatch). Each entry cites its source file. Step 7's verdict goes verbatim under
-`_Code-review gate verdict:_`. Verify the file exists and is non-trivial before proceeding.
+entries collapse to "... and assorted fixes" (EM override permitted, stated in the dispatch). Each entry cites its source file. Step 7's verdict goes verbatim under
+`_Code-review gate verdict:_`. Verify the file is non-trivial before proceeding.
 
 Read the pending-release file, write `archive/release-notes/YYYY-MM-DD-vX.Y.Z.md` as a thin
 formatting wrapper — do NOT re-author. Version is a placeholder until Step 13.
@@ -286,8 +278,7 @@ in any `Decisions:` field; Minor = new feature/command; Patch = fixes/docs/refac
 
 **This step is the weekly bump for the coordinator-plugin-triple anchor** — `plugin.json`
 `.version`, `marketplace.json` `.metadata.version`, and the CHANGELOG's latest `## [X.Y.Z]`
-section. EM proposes the level; the gate below is PM's confirmation. The engine is not an anchor
-here — it bumps per-publish (`coordinator/docs/wiki/release-and-distribution/release-cadence-and-currency-notification.md`
+section. EM proposes the level; the gate below is PM's confirmation. The engine is not an anchor here — it bumps per-publish (`coordinator/docs/wiki/release-and-distribution/release-cadence-and-currency-notification.md`
 § Engine anchor), never on this weekly clock.
 
 **PM gate:** propose vX.Y.Z with one-line rationale; update release-notes filename and
@@ -301,15 +292,14 @@ HEADER.md `Prior week released:`.
 
 **`check-version-consistency --root <dir holding .claude-plugin/>` before Step 15** — `coordinator/`
 in the source repo, repo root in the mirror. **Omitting `--root` exits 0 having checked nothing**
-(it prints `could not locate ...`, then skips). Confirm the OK line names a version; the exit code
-alone does not. Add `--strict`: exit 3 (latest tag does not match `plugin.json`) is a stop until the
+(it prints `could not locate ...`). Confirm the OK line names a version. Add `--strict`: exit 3 (latest tag does not match `plugin.json`) is a stop until the
 matching tag or CHANGELOG section exists.
 
 ---
 
 ## Step 14: Release Publish — Backstop Un-Draft
 
-Catch-all for work reaching main via direct daily-branch commits bypassing `/merging-to-main`'s
+Catches work reaching main via daily-branch commits that bypass `/merging-to-main`'s
 tagged-publish leg. Precondition: PM confirmed version at Step 13 (`$VERSION_TAG`).
 
 `gh release view "$VERSION_TAG" --repo dbc-oduffy/coordinator-claude --json isDraft,isLatest`:
@@ -318,8 +308,7 @@ already published → skip; draft/none → proceed; tag missing → create it.
 **PM gate (irreversible external action):** un-draft via `gh release edit ... --draft=false
 --latest`, or create via `gh release create ...` using Step 12's notes file as body.
 
-**Scope:** coordinator-claude only. Deep-research-claude release publishing is owned by the
-deep-research-currency-notification spinoff. Claude Prime (`source_is_live`) never tagged — skip
+**Scope:** coordinator-claude only. Claude Prime (`source_is_live`) is never tagged — skip
 silently on the `~/.claude` meta-repo.
 
 ---
@@ -355,8 +344,7 @@ Delete every named file, re-run to confirm exit 0. Record the disposition list i
 **Auto-memory drain**.
 
 **First invocation exits 0 immediately, or `SKIPPED`:** omit the summary line. **If the gate ever
-printed residue this run, even once:** the disposition list is mandatory even though the store is
-now empty.
+printed residue this run:** the disposition list is mandatory even though the store is now empty.
 
 Residue is row-granular to this session only — never the whole store, never a peer's rows.
 
@@ -370,7 +358,7 @@ end up holding one `WEEK-SUMMARY.md` in the rollup-frontmatter shape —
 review-trail JSON to `archive/review-trail/<week-starting>/` (`.gitkeep` and
 `.weekly-reviewer-scopes-*.json` shards deleted not archived), rewrites `HEADER.md`, commits +
 pushes. Run `workweek-complete-close archive --version vX.Y.Z --merge-sha <merge-sha>`
-(`--no-push`/`--no-git` variants exist). **Must run AFTER Step 7 consumes the trail.**
+(`--no-push`/`--no-git` exist). **Must run AFTER Step 7 consumes the trail.**
 
 **Multi-week precondition.** Default archive is unbounded by date — destructive if a week was
 skipped. Compare block dates in `state/week-changelog/` against HEADER's `**Week starting:**`;
@@ -378,14 +366,12 @@ mismatch means multi-week — use `archive --week-only`, one run per week (pair 
 `--move-priorities` on the fragment-owning week only; out-of-window blocks stay in place;
 `.weekly-reviewer-scopes-*.json` shards are skipped not deleted and accrue). Under
 `--week-only`, the `HEADER.md` rewrite is conditional on `derive_week_start(HEADER.md) ==
-week_starting` — inert at a genuine live boundary but silently skipped if HEADER still carries
-the "(not yet set …)" sentinel; treat that as known behavior, not something this step branches
-on.
+week_starting` and is silently skipped if HEADER still carries
+the "(not yet set …)" sentinel; known behavior.
 
 **Negative spec:** the daily matcher `^\d{4}-\d{2}-\d{2}.*\.md$` also matches
 `YYYY-MM-DD-pending-release.md` (Step 12's live editorial corpus) — an unbounded sweep archives
-it and the next release draft finds nothing; concretely, `state/week-changelog/2026-07-20-pending-release.md`
-is the live accumulator this matches today. Check the dated-file list for non-daily entries
+it and the next release draft finds nothing. Check the dated-file list for non-daily entries
 first.
 
 Tail: opt-in `workweek_complete_post_command:` hook (advisory, non-blocking); cadence emission
@@ -393,13 +379,13 @@ at completion (best-effort).
 
 Then run the repo's `post_ceremony_skills` (optional list in `coordinator.local.md`; absent or empty →
 nothing runs): each skill id in list order, advisory — a failed or uninstalled skill is reported in the
-ceremony summary, never blocks or undoes the archive, later skills still run. This is the single run
+ceremony summary, never blocks or undoes the archive. This is the single run
 for this ceremony (Step 15's merge skips its own).
 
 **Push checkpoint — `push.outstanding`.** A backstop for anything the per-commit auto-push hook
 missed. Fire the primitive and move on — do not block on it, detach it, or wrap it; branch-gate,
 protected-branch policy, retry ladder and LFS-range predicate belong to the op, never a hand-rolled
-`git push`. An empty reconcile read is not proof the call failed — wait, then read again.
+`git push`. An empty reconcile read is not proof the call failed — read again.
 
 `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" push.outstanding '{}' --repo "<repo-root>"`
 
@@ -412,9 +398,8 @@ continues:
 `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" git.maintenance '{"tier":"weekly","repo":"<repo-root>"}'`
 
 Shape W above / Shape A/B POSIX — `snippets/resolve-coordinator-bin.md`. `--repo` flag refused
-(`scope='none'`); `repo` goes in the JSON params, not omitted. One call, one tier — the op prunes,
-runs the weekly schedule (superset of daily+hourly), then sweeps orphan packs, in that order
-internally; never sequence prune and maintenance as separate call-site steps.
+(`scope='none'`); `repo` goes in the JSON params. One call, one tier — the op prunes,
+runs the weekly schedule, then sweeps orphan packs internally; never sequence them as separate call-site steps.
 
 ---
 
@@ -447,8 +432,7 @@ Append a line only when its condition holds:
 | `**Post-ceremony hook:**` | the tail hook produced output |
 
 **Negative-spec — gone, do not restore:** `Week`, `Release notes`, `Docs updated`, `Code stats`,
-`Tracker`, `Week-changelog`. Each is already recorded by its own commit; absence here is not
-evidence the step was skipped.
+`Tracker`, `Week-changelog`. Each is recorded by its own commit.
 
 ---
 
@@ -461,5 +445,4 @@ evidence the step was skipped.
 - **Touch trail records via `/distill` or `/update-docs`/handoff-archival.** Trail JSON is
   archived in Step 18 only.
 
-Relationship to other commands, gate rationale, C-number archaeology, and Tier-U write history:
-wiki.
+Rationale and history: wiki.

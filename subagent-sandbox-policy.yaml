@@ -53,6 +53,7 @@ report_sidecar:
   - coordinator:code-reviewer
   - coordinator:docs-checker
   - coordinator:staff-eng
+  - game-dev:staff-game-dev
   - coordinator:staff-data-sci
   - coordinator:senior-front-end
   - coordinator:staff-ux
@@ -115,6 +116,7 @@ report_type_map:
   
   coordinator:falsifier-integrity-reviewer: review-findings
   coordinator:subtractive-adjudicator: review-findings
+  coordinator:external-reviewer: review-findings
   coordinator:sizing-scout: review-findings
   coordinator:blitz-em: staff-eng-review
   coordinator:plan-author: run-report
@@ -258,6 +260,7 @@ dispatch_tier:
   
   
   coordinator:premise-checker: review-execution
+  coordinator:external-reviewer: review-execution
   
   # Read/Grep/Glob only — clause (1) forces exploration, same as the other Write-less
   # reviewers. Its verdict (SOUND/BROKEN/UNREVIEWABLE plus the tell) returns as final
@@ -481,6 +484,8 @@ contract_blocks:
     - inline-return-cap
     - return-tldr
   coordinator:subtractive-adjudicator:
+    - inline-return-cap
+  coordinator:external-reviewer:
     - inline-return-cap
   coordinator:sizing-scout:
     - inline-return-cap

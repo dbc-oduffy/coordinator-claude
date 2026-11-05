@@ -392,6 +392,12 @@ When effort level is Medium:
 
 ---
 
+## Optional: Peer Lens (EM-run, not a phase)
+
+A live Codex or agy peer may be consulted on a plan or diff as an additional reviewer, never a persona. Opt-in, EM-run: no phase dispatches, waits on or consumes it, no verdict depends on it, and with no peer live it is silently absent. A fresh-context Claude stays the default second reviewer; the peer reports findings only, and the EM triages them into the Phase 5 table. Contract: [live-peer-consult.md § Peer lens in pipelines](cross-repo-communication/live-peer-consult.md#peer-lens-in-pipelines). `external-reviewer.md` is unchanged.
+
+---
+
 ## Phase 5: Report
 
 Summarize the review with a **triage table** — every finding must have an explicit disposition:
@@ -625,6 +631,8 @@ These rules are cross-cutting tripwires that apply regardless of which pipeline 
 their agent frontmatter. Dispatching a persona at Sonnet altitude (via `model: "sonnet"` override)
 is a **doctrine violation** — persona prompt complexity is calibrated for Opus judgment;
 Sonnet yields a "Sonnet-flavored the Staff Engineer" without the payoff. → `agents/code-reviewer.md`.
+`external-reviewer` is a lens, not a persona, and sits outside this rule
+.
 
 **2. Sonnet-tier code review uses `code-reviewer`, not a persona at Sonnet.** The dedicated agent
 at `agents/code-reviewer.md` is the correct tool for workstream-complete review, handoff review, mid-session

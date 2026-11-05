@@ -1005,12 +1005,22 @@ plugin root) § Plan-blitz wave briefs / Revising in place in full and follow it
      fill \`derived_from\` instead: \`plan.schema.json\` does not admit it, deliberately, because the
      bar means "someone sized this" rather than "this plan came from somewhere".` : ''
 
+  // The workflow fixes the plan filename: one date, and a slug with every leading date stripped.
+  const idLower = String(baton.id).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+  // A workflow script has no clock, so the date comes from the id, then the sizing path; an
+  // undated pair leaves the planner to write today's date once.
+  const sizingBase = String(decision.sizingObject || '').split(/[\\/]/).pop()
+  const idDate = idLower.match(/^(\d{4}-\d{2}-\d{2})-/) || sizingBase.match(/^(\d{4}-\d{2}-\d{2})-/)
+  const planFileSlug = idLower.replace(/^(\d{4}-\d{2}-\d{2}-)+/, '') || 'plan'
+  const newPlanPath = `docs/plans/${idDate ? idDate[1] : '<today>'}-${planFileSlug}.md`
+
   const authoringBrief = existingPlanPath ? `You are revising, so the generator has no part in this. Bring the plan up to the mise-prep
 bar (the FOUR DECLARATIONS below and the task spine), not only the prose you were sent for.` : PLUGIN_AGENTS ? `Invoke the coordinator:plan skill and follow it; your charter owns the scaffold rule.
+The plan path is fixed by the workflow: pass \`--out ${newPlanPath}\` to the scaffold, exactly${idDate ? '' : ' (replace the one `<today>` with today\'s date, nothing else)'}; do not derive another filename.
 Sizing-object that routed you here, cited with the scaffold's sizing flag, used EXACTLY:
 \`${decision.sizingObject || '(none emitted)'}\`. If none was emitted, write \`sizing_object: null\` and
 say so in your summary; never invent a path.${sizingAbsenceNote}` : `The coordinator plan tooling is NOT installed on this machine, so hand-author the plan file at
-${REPO_ROOT || '<repoRoot>'}/docs/plans/<YYYY-MM-DD>-<slug>.md, with \`sizing_object: ${sizingFm}\`. Read
+${REPO_ROOT || '<repoRoot>'}/${newPlanPath} (the workflow fixed this filename; do not derive another), with \`sizing_object: ${sizingFm}\`. Read
 \`agents/plan-author.md\` (under the coordinator plugin root) § Plan-blitz wave briefs / Hand-authoring
 without the scaffold in full and follow it: its exact frontmatter keys and its task spine.
 
@@ -1155,7 +1165,8 @@ function classCoverage(rows) {
 function premiseLines(premise) {
   if (!premise) return '(no premise check ran for this plan — the citation classes are UNCHECKED, not clean)'
   const rows = premise.rows || []
-  const isStale = (r) => r.carried === true && r.reverified !== true
+  // A row re-verified at HEAD comes back fresh (no `carried`), so any still-carried row is stale.
+  const isStale = (r) => r.carried === true
   const flagged = rows.filter((r) => (r.verdict === 'UNRESOLVED' || r.verdict === 'CONTRADICTED') && !isStale(r))
   const withheld = rows.filter((r) => (r.verdict === 'UNRESOLVED' || r.verdict === 'CONTRADICTED') && isStale(r)).length
   const unsettled = rows.filter((r) => r.verdict === 'UNCHECKABLE')

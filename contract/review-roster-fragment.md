@@ -67,8 +67,10 @@ personas (`review-signals.json`) are not rostered; they stay reachable through m
 
 `judge` is last and holds exactly one agent, `coordinator:exit-criterion-judge`, returning
 `terminal-judge-result`. It reads the plan's prime exit criterion against the tree and the PM's
-recorded words, and writes into the run record's `criterion` leg. At tier L and above the engine
-withholds the judge stage, keyed to the run tier; the fragment carries no key for it. It never halts
+recorded words, and writes into the run record's `criterion` leg. The judge runs at every tier and size:
+its agent entry carries no `tiers` or `min_tshirt` key, and `roster.py` `ReviewAgent.runs_at` runs an untiered agent at every tier
+(`coordinator_core/ops/review_mint/roster.py`; `emit.py` `compose_criterion_judge` is skipped only when
+the roster declares no judge). It never halts
 the wave: a `not_met` verdict (the terminal judge returns `met` or `not_met` only) leaves the plan
 `executing`. It has no `blocking_verdicts` row because the composer reads none for it.
 

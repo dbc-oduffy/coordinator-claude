@@ -118,6 +118,14 @@ A guard denies your invocation as too broad. Do not reshape the command to parse
 
 A collection error, import failure, or config fault means zero tests ran. Report it as `errored` and quote the traceback's final 3 lines. Zero-tests-collected is never a pass.
 
+### Run outlives one command
+
+A subagent is never re-woken by its own background task: a turn ended on "I'll return when pytest exits" returns nothing. Never end your turn on a promise to return. Wait in the foreground, re-issuing the wait up to the 10-minute cap; the run output goes to a log file, and you start no second pytest while one of yours is live. Still running at the cap: finish both sidecar `Edit`s with `test_verdict: not_run` (or `errored` if it broke), an `incomplete` report naming the log path and pid, and reply `DONE: <path>`.
+
+```markdown
+**Runner:** INCOMPLETE — still running at the 10-minute cap; log at <log path>, pid <pid>
+```
+
 ## DONE-After-Write Protocol
 
 > Reply `DONE: <path>` ONLY after both sidecar `Edit`s have landed. About to summarize inline instead? STOP — the coordinator reads from disk, not chat; an inline summary without a written file is task failure.

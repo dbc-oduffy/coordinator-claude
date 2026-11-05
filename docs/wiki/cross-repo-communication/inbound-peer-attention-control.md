@@ -117,6 +117,16 @@ PM-chosen moment, which is the right moment for anything not already on their de
   what their message may *cost* you. The two are independent: an authenticated peer's message parks
   the same as an unauthenticated one's.
 
+## Inbound delivery default
+
+Coordinator installs seed `crossSessionInbound: "accept"` where it is unset; an explicit user value
+is left untouched. Peer consult (the Unimatrix inbox, and live peer consult replies from GPT/Codex
+and AGY/Antigravity) arrives as `<cross-session-message>` and is lost when inbound is off. Accept
+changes delivery only: arrivals still park per
+`PEER-MESSAGE-IS-NOT-A-PRIORITY-CLAIM`.
+Setting: `coordinator/templates/settings-manifest.md` § Cross-Session Inbound. Tripwire:
+`CROSS-SESSION-INBOUND-DEFAULTS-TO-ACCEPT`.
+
 ## See also
 
 - `coordinator/docs/wiki/cross-repo-communication.md` — channel mechanics, memo

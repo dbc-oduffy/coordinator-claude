@@ -48,7 +48,7 @@ Scout 2 (chunks C, D) ─┘                                                    
 **Why all specialists start after all scouts return:** Cross-subsystem connections. Scout 1's chunks may have data flow into scout 2's chunks. Specialists need the COMPLETE inventory across all chunks to understand these connections. The latency cost is minimal — Haiku scouts have a 5-minute ceiling.
 
 - **Ordering, not gating.** The script starts stage N+1 when stage N's `agent()` calls return (`await`, or `parallel()` for a fan-out). No task list, `blockedBy`, or task status gates anything.
-- **Wake = continuation dispatch.** A returned agent cannot be resumed (`wake_mechanism: continuation`, harness 2.1.308: `docs/research/spike-verdicts/2026-10-22-returned-workflow-agent-resume-reprobe.md`). Any hand-off that needs a finished agent's attention — a challenge, a fidelity relay — is a mailbox line plus a fresh continuation agent dispatched by the script after the writers have returned.
+- **Wake = continuation dispatch.** A returned agent cannot be resumed (`wake_mechanism: continuation`, harness 2.1.308: `docs/research/spikes/2026-10-22-returned-workflow-agent-resume-reprobe/verdict.md`). Any hand-off that needs a finished agent's attention — a challenge, a fidelity relay — is a mailbox line plus a fresh continuation agent dispatched by the script after the writers have returned.
 
 ## Scout Protocol
 
@@ -140,12 +140,12 @@ Begin convergence when ANY of these conditions are met (AND the floor is satisfi
 
 ## Working Directory
 
-`docs/research/{run-id}-{topic-slug}-workdir/`
+`docs/research/{topic-slug}/{run-id}-{topic-slug}/workdir/` (the run dir's scratch child)
 
 - Scouts write to: `{scratch-dir}/{chunk-letter}-inventory.md` for their assigned chunks (Haiku tier: scout-1 → A, B; scout-2 → C, D)
 - Each specialist writes to: `{scratch-dir}/{chunk-letter}-assessment.md` (always) + `{scratch-dir}/{chunk-letter}-comparison.md` (if comparison mode)
 - Mailboxes: `{scratch-dir}/mail/<role>.jsonl`
-- Synthesizer writes to: `{output-path}` + `{scratch-dir}/synthesis.md`
+- Synthesizer writes to: `{output-path}` (`{run-dir}/synthesis.md`) + a scratch copy at `{scratch-dir}/synthesis.md`
 
 ## Deeper Mode
 

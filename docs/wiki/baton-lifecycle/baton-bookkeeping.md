@@ -73,7 +73,7 @@ fires are load-bearing and easy to conflate:
   status flip.
 - **The move stays gated.** `superseded: True, moved: False` is the ordinary outcome pre-spike: the
   flip lands every time, the `git mv` waits on the guard. The eager-supersede spike
-  (`docs/research/spike-verdicts/2026-08-14-lift-live-children-guard-on-supersede.md`) proved the
+  (`docs/research/spikes/2026-08-14-lift-live-children-guard-on-supersede/verdict.md`) proved the
   guard can be lifted on this path without orphaning anything, because the guard's own scan set
   (`handoff_children.py`'s `allowed_roots`, `handoff_children.py:362` and `:696`) already
   spans both `state/handoffs/` and `archive/handoffs/` — a child survives its parent's archival

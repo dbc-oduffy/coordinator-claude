@@ -28,7 +28,5 @@ Errand work is done by hand, anywhere on the box: no sizing, engine-ask or XS bu
 The boundary is a git-tracked repo other than this folder. A change inside one belongs to that
 repo's EM: send it as a memo (`cross-repo-memo`) and keep working. Reading any repo is fine.
 The repo registry (`repos.*`, read with `machine-local`) is the authority on which repos exist
-and where; never hardcode a path. The section below is generated from it.
-
-<!-- BEGIN generated: repos -->
-<!-- END generated: repos -->
+and where; never hardcode a path. List it with `machine-local keys | grep '^repos\.'` and read one
+with `machine-local get repos.<key>`. If the work belongs to one of those repos, route it there.

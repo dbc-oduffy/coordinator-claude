@@ -1370,7 +1370,7 @@ def _check_zero_tool_use_surface(
 # `_hook_spawn_budget.py` pins `UserPromptSubmit: 1`.
 #
 # Spec backlink: docs/plans/2026-08-19-promoted-baton-born-status-and-mint-hook.md § C4
-# Spike verdict: docs/research/spike-verdicts/2026-08-19-session-baton-mint-from-userpromptsubmit.md
+# Spike verdict: docs/research/spikes/2026-08-19-session-baton-mint-from-userpromptsubmit/verdict.md
 #
 # Captures a session's FIRST prompt into the engine's lazy session-baton
 # record via the `session_baton.mint` op, so a later `session_baton.promote`

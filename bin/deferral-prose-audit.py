@@ -2,8 +2,10 @@
 
 Population: docs/plans/*.md stamped `status: implemented` with a filename date on or after --since
 (default 2026-07-09); --plan PATH (repeatable) replaces it. A line is scanned unless it sits in the
-frontmatter, the `## Tasks` section, a `## Distill pass` section, or a fenced block (CRLF-normalised).
-A scanned line is a hit when it matches KEYWORDS and names no queue path and no `harvest-key:`.
+frontmatter, the `## Tasks`, `## Distill pass`, `## Anti-scope`, `## Out of scope` or `## Non-goals`
+section, a fenced block, or a blockquote line (CRLF-normalised).
+A scanned line is a hit when it matches KEYWORDS in an un-negated clause and names no queue path and
+no `harvest-key:`.
 --seed writes one `open` improvement-queue entry per hit plan through coordinator-queue-append,
 idempotent on `deferral-prose-key: <plan_id>;` (plan path when the plan has no plan_id).
 
@@ -27,7 +29,9 @@ DEFAULT_SINCE = "2026-07-09"
 KEYWORDS = re.compile(r"\b(?:defer\w*|follow[- ]?ups?|later)\b", re.I)
 ROUTED = re.compile(r"state/(?:improvement-queue|debt-backlog|bug-backlog)/|harvest-key:", re.I)
 _DATE = re.compile(r"^(\d{4}-\d{2}-\d{2})")
-_SKIP_HEADINGS = re.compile(r"^## (?:tasks|distill pass)\s*(?:\([^)]*\))?\s*$", re.I)
+_SKIP_HEADINGS = re.compile(
+    r"^## (?:tasks|distill pass|anti-scope|out[- ]of[- ]scope|non-goals)\s*(?:\([^)]*\))?\s*$", re.I)
+_NEGATOR = re.compile(r"\b(?:no|not|never|without|nor|nothing|none|cannot|\w+n't)\b(?:(?!\b(?:and|but|yet)\b)[^.;:,—–()])*$", re.I)
 _KEY_PREFIX = "deferral-prose-key: "
 
 Runner = Callable[[List[str]], int]
@@ -86,13 +90,19 @@ def out_of_spine_lines(text: str) -> List[Hit]:
         if line.startswith("## "):
             skip_section = bool(_SKIP_HEADINGS.match(line))
             continue
-        if not skip_section:
+        if not skip_section and not stripped.startswith(">"):
             out.append(Hit(i + 1, line))
     return out
 
 
+def _affirmative(text: str) -> bool:
+    """True when some keyword occurrence is not preceded by a negator in its clause."""
+    return any(not _NEGATOR.search(text[: m.start()]) for m in KEYWORDS.finditer(text))
+
+
 def find_hits(text: str) -> List[Hit]:
-    return [h for h in out_of_spine_lines(text) if KEYWORDS.search(h.text) and not ROUTED.search(h.text)]
+    return [h for h in out_of_spine_lines(text)
+            if KEYWORDS.search(h.text) and not ROUTED.search(h.text) and _affirmative(h.text)]
 
 
 def plan_key(text: str, rel_path: str) -> str:
@@ -113,6 +123,17 @@ def already_seeded(root: Path, key: str) -> bool:
     return False
 
 
+def _tree_md(tree: Path) -> List[Path]:
+    """`*.md` at the docs/plans root plus every shard, sorted by name so a plan keeps its place across shards."""
+    lib = str(Path(__file__).resolve().parent.parent / "lib")
+    if lib not in sys.path:
+        sys.path.insert(0, lib)
+    import output_tree_layout
+
+    out = output_tree_layout.iter_tree_entries(tree.parent.parent, "docs/plans", "*.md")
+    return sorted(out, key=lambda p: (p.name, str(p)))
+
+
 def population(root: Path, plans: Sequence[str], since: str) -> List[Path]:
     if plans:
         return [Path(p) if Path(p).is_absolute() else root / p for p in plans]
@@ -120,7 +141,7 @@ def population(root: Path, plans: Sequence[str], since: str) -> List[Path]:
     if not plan_dir.is_dir():
         raise AuditError(f"no docs/plans under {root}")
     chosen = []
-    for f in sorted(plan_dir.glob("*.md")):
+    for f in _tree_md(plan_dir):
         m = _DATE.match(f.name)
         if not m or m.group(1) < since:
             continue

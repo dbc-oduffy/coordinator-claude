@@ -121,6 +121,13 @@ def run_sweep(
     policy = Policy.from_env(env)
     if deadline_s is not _POLICY_DEADLINE:
         policy = dataclasses.replace(policy, deadline_s=deadline_s)
+    try:
+        floor_override = int(env[FREE_FLOOR_ENV])
+    except (KeyError, ValueError):
+        floor_override = None
+    if floor_override is not None:
+        # The engine's still_over reads Policy.volume_free_floor, not this env var.
+        policy = dataclasses.replace(policy, volume_free_floor=floor_override)
     wall = time.time() if now is None else now
     roots = resolve_roots(home=home, environ=env, repos=(_repo_root(cwd),) if cwd and _repo_root(cwd) else ())
     if apply and not ignore_throttle and not sweep_due(roots.state_dir, policy, wall):

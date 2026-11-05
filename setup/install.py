@@ -103,7 +103,7 @@ PLUGIN_REGISTRY: List[Tuple[str, str, str, str]] = [
     ("data-science", "on", "local", "Data Science reviewer"),
     ("deep-research", "on", "local", "Multi-agent deep research pipelines (web/repo/structured)"),
     ("game-dev", "off", "local", "Game Dev reviewer (Unreal Engine)"),
-    ("notebooklm", "optional", "npm", "Media research via NotebookLM (Python add-on, launched via uvx)"),
+    ("notebooklm", "optional", "npm", "Media research via NotebookLM (upstream-installed add-on)"),
 ]
 
 USAGE = """Usage: setup/install.py [OPTIONS]
@@ -120,8 +120,6 @@ USAGE = """Usage: setup/install.py [OPTIONS]
   --plugins LIST          Comma-separated list of plugins to install
                           (coordinator always included). Use --profile for
                           common presets; --plugins for fine-grained control.
-  --install-notebooklm    Opt in to the NotebookLM add-on (Python/uvx add-on).
-  --no-notebooklm         Skip the NotebookLM add-on prompt.
   --enable-codex          Opt in to the codex-review-gate skill (requires
                           the external openai/codex-plugin-cc plugin).
   --no-codex              Skip the codex-review-gate prompt.
@@ -192,7 +190,6 @@ class Args:
         self.plugins_arg = ""
         self.profile_arg = ""
         # "" = ask (or skip in non-interactive), True/False = explicit override.
-        self.notebooklm_opt: Optional[bool] = None
         self.codex_opt: Optional[bool] = None
         self.naming_opt: Optional[bool] = None
         self.help = False
@@ -220,10 +217,6 @@ def parse_args(argv: List[str]) -> Args:
             if i >= n:
                 raise UsageError("--profile: missing value")
             args.profile_arg = argv[i]
-        elif a == "--install-notebooklm":
-            args.notebooklm_opt = True
-        elif a == "--no-notebooklm":
-            args.notebooklm_opt = False
         elif a == "--enable-codex":
             args.codex_opt = True
         elif a == "--no-codex":
@@ -395,7 +388,7 @@ def check_prerequisites(non_interactive: bool, platform_name: str) -> Tuple[bool
     if uv_present:
         print(f"uv         : {uv_version or 'present'}")
     else:
-        print("uv         : not found (only required for the NotebookLM add-on)")
+        print("uv         : not found (optional)")
 
     optional_missing: List[str] = []
     if shutil.which("shellcheck") is None:
@@ -491,7 +484,6 @@ class InstallState:
         self.collisions: List[str] = []
         self.skipped_nonlocal: List[str] = []
         self.perms_appended: List[str] = []
-        self.notebooklm_installed = False
         self.codex_installed = False
         self.plugins_target = ""
 
@@ -572,53 +564,14 @@ def prompt_codex_addon(state: InstallState, args: Args, non_interactive: bool) -
 
 
 def prompt_optional_addons(state: InstallState, args: Args, non_interactive: bool) -> None:
-    """Prompt for opt-in add-ons. Currently: notebooklm."""
+    """Point at the NotebookLM add-on's upstream README; setup never installs it."""
     if "notebooklm" not in state.selected:
         return
 
-    if args.notebooklm_opt is True:
-        state.selected["notebooklm"] = True
-        state.notebooklm_installed = True
-        print("NotebookLM add-on: enabled (--install-notebooklm)")
-        print("")
-        return
-    if args.notebooklm_opt is False:
-        state.selected["notebooklm"] = False
-        print("NotebookLM add-on: skipped (--no-notebooklm)")
-        print("")
-        return
-
-    if args.plugins_arg and state.selected["notebooklm"]:
-        state.notebooklm_installed = True
-        print("NotebookLM add-on: enabled (via --plugins)")
-        print("")
-        return
-
-    if non_interactive:
-        state.selected["notebooklm"] = False
-        print("NotebookLM add-on: skipped (non-interactive default).")
-        print("  Re-run with --install-notebooklm to enable later.")
-        print("")
-        return
-
-    if sys.stdin.isatty():
-        print("")
-        print("Optional add-on:")
-        print("  notebooklm — Media research via NotebookLM (Python package, launched via uvx)")
-        print("  Resolved on enable by Claude Code from the marketplace manifest.")
-        choice = _prompt("Install the NotebookLM optional add-on? [y/N]: ", "N")
-        if re.match(r"^[Yy]$", choice):
-            state.selected["notebooklm"] = True
-            state.notebooklm_installed = True
-        else:
-            state.selected["notebooklm"] = False
-            print("Skipped. Re-run setup or pass --install-notebooklm to enable later.")
-        print("")
-    else:
-        state.selected["notebooklm"] = False
-        print("NotebookLM add-on: skipped (no TTY for prompt).")
-        print("  Re-run with --install-notebooklm to enable later.")
-        print("")
+    state.selected["notebooklm"] = False
+    print("NotebookLM add-on (optional, deep-research Pipeline D): install and sign in per")
+    print("  https://github.com/jacob-bd/gemini-notebook-mcp-cli (no venv required).")
+    print("")
 
 
 def select_plugins(state: InstallState, args: Args, non_interactive: bool) -> None:
@@ -632,24 +585,6 @@ def select_plugins(state: InstallState, args: Args, non_interactive: bool) -> No
 
     prompt_optional_addons(state, args, non_interactive)
     prompt_codex_addon(state, args, non_interactive)
-
-
-def check_notebooklm_prereqs(state: InstallState, uv_present: bool) -> None:
-    if not state.selected.get("notebooklm"):
-        return
-    if not uv_present:
-        print("ERROR: NotebookLM add-on selected but 'uv' not found on PATH.")
-        print("       The notebooklm-mcp server runs via")
-        print("       'uvx --from notebooklm-mcp-cli notebooklm-mcp' (a Python package;")
-        print("       uvx ships with uv and auto-fetches the package on first run).")
-        print("       Install uv:")
-        print("         macOS/Linux: curl -LsSf https://astral.sh/uv/install.sh | sh")
-        print("         macOS:       brew install uv")
-        print("         Windows:     winget install astral-sh.uv")
-        print("")
-        print("Re-run setup without --install-notebooklm (or answer 'n' at the prompt)")
-        print("to skip the add-on, or install uv and re-run.")
-        sys.exit(1)
 
 
 def prompt_naming_addon(args: Args, non_interactive: bool, script_dir: Path) -> None:
@@ -1240,10 +1175,7 @@ def print_summary(state: InstallState, repo_root: str, plat: str) -> None:
         print("")
 
     if "notebooklm" in state.selected:
-        if state.notebooklm_installed:
-            print("NotebookLM add-on: installed")
-        else:
-            print("NotebookLM add-on: skipped (run setup again or enable manually to add)")
+        print("NotebookLM add-on: not installed by setup (see https://github.com/jacob-bd/gemini-notebook-mcp-cli)")
         print("")
 
     if state.codex_installed:
@@ -1322,8 +1254,6 @@ def main(argv: List[str]) -> int:
 
     state = InstallState()
     select_plugins(state, args, args.non_interactive)
-
-    check_notebooklm_prereqs(state, uv_present)
 
     if not args.non_interactive and not args.plugins_arg:
         confirm = _prompt("Proceed with installation? [Y/n]: ", "Y")

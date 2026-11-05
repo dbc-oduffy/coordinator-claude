@@ -1,7 +1,8 @@
 """group-em-home: resolve, seed, migrate, and inspect the machine-local G-EM home.
 
-Verbs: `path`, `ensure`, `holder`, `migrate`; `--json` on each. Exit 3 on a refused home
-(prints the conflicting checkout), exit 4 when `migrate` cannot move the legacy home. Authored in
+Verbs: `path`, `ensure`, `holder`, `migrate`, `sync [--push]`, `prune`; `--json` on each. Exit 3 on a
+refused home (prints the conflicting checkout), exit 4 when `migrate` cannot move the legacy home,
+exit 5 on `sync: conflict` (paths on stderr). No remote is exit 0 with a warning. Authored in
 Claude-klabauter; DoE consumes it.
 """
 import argparse
@@ -11,6 +12,7 @@ import sys
 
 _HOLDER_FIELDS = ("session_id", "peer_name", "repo_root", "nominated_at", "live")
 _REFUSAL_TOKEN = "A-GROUP-EM-HOME-INSIDE-A-CHECKOUT-IS-REFUSED-NOT-MOVED"
+_SYNC_CONFLICT_EXIT = 5
 _OK_OUTCOMES = ("moved", "no-legacy", "configured")
 
 
@@ -37,6 +39,73 @@ def _place_engine_on_path() -> str:
     return root
 
 
+def _create_remote(gem_home, home, report: dict) -> None:
+    """`gh repo create --private` from the home and record the URL and branch machine-locally.
+    A failure leaves the report's opt-out untouched."""
+    import shutil
+    import subprocess
+
+    from coordinator_core import machine_resolver
+    from coordinator_core.git.run import run_git
+
+    if not shutil.which("gh"):
+        return
+    res = subprocess.run(
+        ["gh", "repo", "create", "group-em-home", "--private", "--source", str(home), "--remote", "origin"],
+        capture_output=True, text=True, timeout=60,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    if res.returncode != 0:
+        print(f"group-em-home: gh repo create failed: {(res.stderr or res.stdout).strip()}", file=sys.stderr)
+        return
+    url = run_git(["remote", "get-url", "origin"], cwd=str(home)).stdout.strip()
+    if not url:
+        return
+    branch = run_git(["rev-parse", "--abbrev-ref", "HEAD"], cwd=str(home)).stdout.strip()
+    machine_resolver.registry_set(gem_home.REMOTE_URL_KEY, url)
+    machine_resolver.registry_set(
+        gem_home.REMOTE_BRANCH_KEY, branch if branch and branch != "HEAD" else gem_home.DEFAULT_REMOTE_BRANCH
+    )
+    report["remote"], report["remote_opt_out"] = url, None
+
+
+def _ensure_tail(gem_home, report: dict, args) -> int:
+    """Create the remote on request, install the path guard, run the entry pull, print."""
+    from coordinator_core.group_em import gem_home_path_guard, gem_home_sync
+
+    home = report["home"]
+    if args.create_remote and not report["remote"]:
+        _create_remote(gem_home, home, report)
+    gem_home_path_guard.install(home)
+    sync = gem_home_sync.pull_on_entry(home)
+    report["sync"] = sync
+    if not report["remote"]:
+        print(f"group-em-home: no remote ({report['remote_opt_out']}); home is local-only", file=sys.stderr)
+    if sync["sync"] == "conflict":
+        print("group-em-home: sync: conflict: " + ", ".join(sync["paths"]), file=sys.stderr)
+    out = dict(report)
+    out["home"] = str(home)
+    print(json.dumps(out) if args.json else str(home))
+    return _SYNC_CONFLICT_EXIT if sync["sync"] == "conflict" else 0
+
+
+def _sync_or_prune(args, home) -> int:
+    from coordinator_core.group_em import gem_home_prune, gem_home_sync
+
+    if args.verb == "prune":
+        print(json.dumps(gem_home_prune.prune(home, fix_paths=args.fix_paths), default=str))
+        return 0
+    if args.push:
+        rep = gem_home_sync.push_leg(home, "group-em-home: sync")
+    else:
+        rep = gem_home_sync.pull_on_entry(home)
+    print(json.dumps({"home": str(home), **rep}))
+    if rep["sync"] == "conflict":
+        print("group-em-home: sync: conflict: " + ", ".join(rep["paths"]), file=sys.stderr)
+        return _SYNC_CONFLICT_EXIT
+    return 0
+
+
 def main(argv=None) -> int:
     try:
         _place_engine_on_path()
@@ -46,8 +115,17 @@ def main(argv=None) -> int:
         return 2
 
     ap = argparse.ArgumentParser(prog="group-em-home")
-    ap.add_argument("verb", choices=("path", "ensure", "holder", "migrate"))
+    ap.add_argument("verb", choices=("path", "ensure", "holder", "migrate", "sync", "prune"))
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--push", action="store_true", help="sync: commit, pull --rebase, push (default: entry pull)")
+    ap.add_argument(
+        "--fix-paths", action="store_true",
+        help="prune: also rewrite concrete path citations in the home's markdown (fix-concrete-path-citations --apply)",
+    )
+    ap.add_argument(
+        "--create-remote", action="store_true",
+        help="ensure: when no remote is recorded, `gh repo create --private` and record its keys",
+    )
     ap.add_argument(
         "--refresh",
         action="store_true",
@@ -65,7 +143,8 @@ def main(argv=None) -> int:
             else:
                 home = _gem_home.resolve_home()
         elif args.verb == "ensure":
-            home, seed = _gem_home.ensure_home_outcome(refresh=args.refresh)
+            report = _gem_home.ensure_home_report(refresh=args.refresh)
+            home, seed = report["home"], report["seed"]
         else:
             home = _gem_home.resolve_home()
     except _gem_home.HomeRefused as exc:
@@ -75,6 +154,10 @@ def main(argv=None) -> int:
     if seed == "no-template":
         print("group-em-home: no CLAUDE.md seed template resolved; set CLAUDE_PLUGIN_ROOT or "
               "machine-local repos.content_root", file=sys.stderr)
+    if args.verb == "ensure":
+        return _ensure_tail(_gem_home, report, args)
+    if args.verb in ("sync", "prune"):
+        return _sync_or_prune(args, home)
     if args.verb == "holder":
         rec = _gem_home.gem_holder()
         holder = {k: rec.get(k) for k in _HOLDER_FIELDS} if rec else None

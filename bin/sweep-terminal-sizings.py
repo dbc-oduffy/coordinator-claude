@@ -9,25 +9,11 @@ dry-run preview and an act mode, both `_common.archive_and_commit`-backed —
 the gap this script closes is that nothing ever called it (C3,
 docs/plans/2026-09-03-close-verb-archival-stops-asking-for-wri.md).
 
-Unlike `sweep-terminal-handoffs.py`, which reaches straight past its op's
-dispatch route into the shared `plan_sweep` + `archive_and_commit` primitives
-(no separately-exposed classification function exists for this op), this
-script invokes the REGISTERED op handler itself,
-`coordinator_core.ops.fleet.archive_sizings._archive_terminal_sizings`,
-in-process — never through `cc_invoke.route()`'s JSON-RPC round trip, and
-never by reimplementing any scan/classify/move logic of its own. `mode` is
-required and fail-closed (contract §4 version-skew guard): "already-terminal"
-is the only value slice A accepts, so both calls below pass it explicitly.
-
-Two in-process calls to the SAME handler, T1 then T3 (mirrors the op's own
-confirm→act wire contract): a `dry_run:true` preview enumerates candidates
-(mutates nothing), and — unless `--dry-run` was passed — every returned
-candidate id feeds straight into a `dry_run:false` act call. `--dry-run`
-returns after the preview call alone. This is two calls to one in-process
-async function, not two process spawns — the DR-344 cost this avoids is the
-`-m coordinator_core.invoke` cold-interpreter round trip `sweep-terminal-
-handoffs.py`'s own docstring measures at ~1046ms/30 processes; calling the
-handler directly, in this one process, pays for neither round trip.
+A thin caller of `coordinator_core.ops.fleet.terminal_sizing_drain.drain`, the
+single-pass drain the close verbs also run in-process: one call, no
+`candidate_ids`, no JSON-RPC round trip. `--dry-run` calls `drain(dry_run=True)`
+and mutates nothing; otherwise the drain archives every movable terminal
+sizing in one commit and this script prints its counters.
 
 Exit codes:
     0 — normal (including zero-candidates, all-retained, a completed
@@ -53,14 +39,11 @@ tail and never stamps. A `--dry-run` census also never stamps — a census is
 not a sweep, for the same reason `sweep-terminal-handoffs.py` gives.
 
 Spec backlink: docs/plans/2026-09-03-close-verb-archival-stops-asking-for-wri.md § C3
-Wraps: coordinator_core.ops.fleet.archive_sizings._archive_terminal_sizings
-(the registered "fleet.archive_terminal_sizings" op handler, called directly —
-not through cc_invoke.route()'s dispatch round trip).
+Wraps: coordinator_core.ops.fleet.terminal_sizing_drain.drain.
 
 Negative-spec:
-  - Does NOT reimplement any of the op's scan, classification, or move
-    logic — every candidate id this script acts on came straight out of the
-    op's own preview response.
+  - Does NOT reimplement any scan, classification, or move logic — the
+    drain owns all of it.
   - Does NOT resurrect `coordinator/bin/sweep-boot.py` — that file is a
     gravestone (see its own docstring: a boot-time sweep, if ever wanted
     again, is a NEW plan spiked from first principles, never a repoint of
@@ -79,8 +62,6 @@ _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 
 _USAGE = "usage: python sweep-terminal-sizings.py [-h] [--dry-run]"
 _DRY_RUN_FLAG = "--dry-run"
-
-_MODE = "already-terminal"
 
 
 def _ensure_claude_klabauter_on_path() -> str:
@@ -164,96 +145,47 @@ def main(argv: "list[str] | None" = None) -> int:
 
     _ensure_claude_klabauter_on_path()
     from coordinator_core.git.repo_root import git_common_dir
-    from coordinator_core.ops.fleet.archive_sizings import _archive_terminal_sizings
+    from coordinator_core.lifecycle import main_worktree_root
+    from coordinator_core.ops.fleet.terminal_sizing_drain import drain
 
     try:
-        common_dir = Path(git_common_dir(cwd=str(repo_root)))
+        worktree_root = main_worktree_root(Path(git_common_dir(cwd=str(repo_root))))
     except Exception as exc:
         print(f"sweep-terminal-sizings.py: git_common_dir failed: {exc}", file=sys.stderr)
         return 1
 
-    import asyncio
-
-    scan_skipped: "list[dict]" = []
-
-    async def _preview() -> dict:
-        return await _archive_terminal_sizings(
-            {"mode": _MODE, "dry_run": True}, repo_root=common_dir,
-            scan_skipped=scan_skipped,
-        )
-
     try:
-        preview_result = asyncio.run(_preview())
+        result = drain(worktree_root, dry_run=dry_run)
     except Exception as exc:
-        print(f"sweep-terminal-sizings.py: preview failed: {exc}", file=sys.stderr)
+        print(f"sweep-terminal-sizings.py: drain failed: {exc}", file=sys.stderr)
+        if not dry_run:
+            _stamp_archive_sweeps_liveness(repo_root)
         return 1
-
-    candidates = preview_result.get("candidates", [])
-    preview_exit_code = preview_result.get("exit_code", 1)
 
     if dry_run:
-        if preview_exit_code != 0:
-            print(
-                "sweep-terminal-sizings.py: dry run failed "
-                f"(exit_code={preview_exit_code})",
-                file=sys.stderr,
-            )
-            return 1
-        _print_planned_moves(candidates)
-        _print_refusal_census(scan_skipped, [])
+        _print_planned_moves(result.get("candidates", []))
+        _print_refusal_census(result.get("scan_skipped", []), [])
         return 0
 
-    if preview_exit_code != 0:
-        print(
-            f"sweep-terminal-sizings.py: preview failed (exit_code={preview_exit_code}) "
-            "-- nothing acted",
-            file=sys.stderr,
-        )
-        _stamp_archive_sweeps_liveness(repo_root)
-        return 1
-
-    dispatch_failed = False
-    act_result: dict = {}
-
-    if candidates:
-        candidate_ids = [c.get("id") for c in candidates if c.get("id")]
-
-        async def _act() -> dict:
-            return await _archive_terminal_sizings(
-                {"mode": _MODE, "dry_run": False, "candidate_ids": candidate_ids},
-                repo_root=common_dir,
-            )
-
-        try:
-            act_result = asyncio.run(_act())
-        except Exception as exc:
-            print(f"sweep-terminal-sizings.py: sweep failed: {exc}", file=sys.stderr)
-            dispatch_failed = True
-            act_result = {}
-
-    acted = act_result.get("acted", [])
-    archived = len(acted)
-    failed = act_result.get("failed", [])
-    act_exit_code = act_result.get("exit_code", 0)
-    if act_exit_code != 0 or failed:
+    archived = len(result.get("acted", []))
+    failed = result.get("failed", [])
+    if failed:
         print(
             f"sweep-terminal-sizings.py: WARN: {len(failed)} "
             f"move(s) failed (acted={archived}) -- check claude-klabauter logs",
             file=sys.stderr,
         )
-        dispatch_failed = True
 
     if archived == 0:
         print("no terminal sizings archived")
     else:
         print(f"{archived} terminal sizings archived")
 
-    _print_refusal_census(scan_skipped, act_result.get("skipped", []))
+    scan_skipped = result.get("scan_skipped", [])
+    _print_refusal_census(scan_skipped, [s for s in result.get("skipped", []) if s not in scan_skipped])
 
     _stamp_archive_sweeps_liveness(repo_root)
-    if dispatch_failed:
-        return 1
-    return 0
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

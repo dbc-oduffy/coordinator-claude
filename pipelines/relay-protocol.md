@@ -107,9 +107,9 @@ This log is the "sitemap" — it captures what was mapped, verified, judged, and
 ### Default Layout (always used)
 
 ```
-docs/research/
-  YYYY-MM-DD-{topic-slug}.md              <- Final result (Opus synthesis)
-  archive/YYYY-MM-DD-{topic-slug}/        <- Paper trail (straight to archive)
+docs/research/{topic-slug}/YYYY-MM-DD-{run-slug}/   <- the run dir
+  synthesis.md                             <- Final result (Opus synthesis)
+  workdir/                                 <- Paper trail (stays in the run dir)
     decisions.md                           <- Orchestrator judgment log
     prompts/                               <- Worker prompts (what was asked)
     phase-1/                               <- Haiku discovery outputs
@@ -136,30 +136,14 @@ Run ID format: `YYYY-MM-DD-HHhMM` (e.g., `2026-03-21-14h30`).
 ### Post-Completion Archival
 
 At pipeline completion, the command:
-1. Copies `decisions.md`, `prompts/`, `phase-*/`, and `dispatch-manifest.md` to the archive path
+1. Copies `decisions.md`, `prompts/`, `phase-*/`, and `dispatch-manifest.md` to the run dir's `workdir/`
 2. Deletes the scratch directory
 3. Reports paper trail location and size to the PM
 4. Asks: "Keep the paper trail for follow-up, or delete it?"
 
-### Restructure for Repeatable Research
+### Repeatable Research
 
-If the PM indicates the topic will be revisited, first create the topic's own subdirectory under `docs/research/` — a home for both this run's result and any future re-run's:
-
-```bash
-mkdir -p docs/research/{topic-slug}
-```
-
-Then move today's dated result into it, renaming to the subdirectory's own dated-result convention:
-
-```bash
-mv docs/research/YYYY-MM-DD-{topic-slug}.md docs/research/{topic-slug}/YYYY-MM-DD-result.md
-```
-
-Finally move the archived paper trail alongside it, so the result and the trail that produced it live together for the next revisit:
-
-```bash
-mv docs/research/archive/YYYY-MM-DD-{topic-slug}/ docs/research/{topic-slug}/YYYY-MM-DD-paper-trail/
-```
+No restructure step: the run already lives under its topic dir, so a revisit adds a sibling run dir beside this one.
 
 ---
 

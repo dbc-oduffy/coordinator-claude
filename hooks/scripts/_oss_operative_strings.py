@@ -204,6 +204,17 @@ IRREDUCIBLE_LITERALS: tuple = (
         "2026-08-05 narrowed the entry back to its original single "
         "operative site.",
     ),
+    (
+        "claude-klabauter-em",
+        "coordinator/templates/global-doctrine/rules/rules.md",
+        6,
+        "the `--to` value of the engine-friction memo route, which "
+        "`cross-repo-memo draft <topic> --to <this literal>` resolves as the "
+        "receiving EM. A role name breaks that call, and a wiki pointer puts back "
+        "the lookup this always-loaded rule exists to remove. The publish "
+        "depersonalize table rewrites it to the OSS engine EM's name. APM ruling, "
+        "PM-delegated gate, DoE 2026-11-03.",
+    ),
 )
 
 

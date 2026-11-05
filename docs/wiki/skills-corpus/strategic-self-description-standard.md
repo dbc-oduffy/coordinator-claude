@@ -154,7 +154,7 @@ different altitude entirely, and is **explicitly out of scope for a single repo'
 running this coordinator and a human PM pairing is not guaranteed to belong to a single company; the
 per-repo artifact cannot assume org-wide context it may not have. That rollup altitude belongs to
 Example-store-repo/cockpit (and, downstream, example-market-data-repo's `competitor_uid` resolution — see
-`docs/competitive-intel-enablement-initiative.md § Fleet convention`). See the ratified fleet-convention decision for the
+`docs/roadmaps/competitive-intel-enablement-initiative.md § Fleet convention`). See the ratified fleet-convention decision for the
 boundary this subsection encodes.
 
 **Two orthogonal axes.** `relationship` conflates two questions a reader might assume are one:

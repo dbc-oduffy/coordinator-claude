@@ -46,6 +46,10 @@ Options:
     --through YYYY-MM-DD    Last day the backfill may write; days after it are
         left open (catch-up runs pass the last missed day). Absent: bounded
         by the coordinator local day. A malformed date exits 2 with no write.
+    --week YYYY-MM-DD    A Monday. This bin writes (atomically, never over an
+        existing file) archive/week-changelogs/<monday>/<day>.md for each day of
+        that week with commits on any ref and no file yet; no HEADER.md needed.
+        A malformed or non-Monday value exits 2 with no write.
 
 Exit codes:
     0 -- success or advisory-error. changelog_ops.main() never propagates an
@@ -91,11 +95,104 @@ def _import_runner():
     return run_op_main
 
 
+def _flag_value(argv: "list[str]", flag: str) -> "str | None":
+    value = None
+    for i, tok in enumerate(argv):
+        if tok == flag:
+            value = argv[i + 1] if i + 1 < len(argv) else ""
+        elif tok.startswith(flag + "="):
+            value = tok.partition("=")[2]
+    return value
+
+
+def _run_week(argv: "list[str]") -> int:
+    """--week: write what `backfill_gaps(week=)` composes; refuse to overwrite.
+
+    coordinator_core composes (path, text) and writes nothing under archive/;
+    this bin is the writer (precedent: workweek-complete-close.py).
+    """
+    import json
+    import os
+    import tempfile
+    from pathlib import Path
+
+    week = _flag_value(argv, "--week")
+    through = _flag_value(argv, "--through")
+    try:
+        _import_runner()  # puts the engine on sys.path
+        from coordinator_core.cli_entry import recording_declared_writes
+        from coordinator_core.git.repo_root import git_common_dir
+        from coordinator_core.machine_resolver import compute_machine
+        from coordinator_core.ops import changelog_ops
+        from coordinator_core.session.declared_writes import declare_write
+    except (RuntimeError, ImportError) as exc:
+        print(f"backfill-week-changelog-gaps.py: engine import failed: {exc}", file=sys.stderr)
+        return 2
+
+    if not changelog_ops._is_monday(week):
+        print(
+            f"backfill-week-changelog-gaps: 'week' is not a Monday YYYY-MM-DD date: {week!r}",
+            file=sys.stderr,
+        )
+        return 2
+    if through is not None and not changelog_ops._is_iso_date(through):
+        print(
+            f"backfill-week-changelog-gaps: 'through' is not a valid YYYY-MM-DD date: {through!r}",
+            file=sys.stderr,
+        )
+        return 2
+    cwd = os.getcwd()
+    common_dir = git_common_dir(cwd)
+    if not common_dir:
+        print(f"backfill-week-changelog-gaps: cannot resolve git repo root from {cwd}", file=sys.stderr)
+        return 1
+
+    dry_run = "--dry-run" in argv
+    backfilled: "list[str]" = []
+    skipped: "list[str]" = []
+    result: dict = {}
+    try:
+        composed = changelog_ops.backfill_gaps(
+            repo_root=Path(common_dir), host=compute_machine(), through=through, week=week
+        )
+    except Exception as exc:  # advisory, like the default path
+        print(f"backfill-week-changelog-gaps: advisory error (non-fatal): {exc}", file=sys.stderr)
+        composed = []
+        result["error"] = str(exc)
+
+    with recording_declared_writes():
+        for path, text in composed:
+            if path.exists():
+                skipped.append(str(path))
+                continue
+            if not dry_run:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+                try:
+                    with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
+                        fh.write(text)
+                    os.link(tmp, path)  # no-clobber publish: raises if path exists
+                except FileExistsError:
+                    skipped.append(str(path))
+                    continue
+                finally:
+                    if os.path.exists(tmp):
+                        os.unlink(tmp)
+                declare_write(path)
+            verb = "would write" if dry_run else "wrote"
+            print(f"backfill-week-changelog-gaps: {verb} {path}", file=sys.stderr)
+            backfilled.append(str(path))
+    print(json.dumps({"backfilled": backfilled, "skipped": skipped, **result}))
+    return 0
+
+
 def main(argv: "list[str] | None" = None) -> int:
     argv = (sys.argv[1:] if argv is None else argv)
     if "-h" in argv or "--help" in argv:
         print(__doc__)
         return 0
+    if any(t == "--week" or t.startswith("--week=") for t in argv):
+        return _run_week(argv)
 
     try:
         run_op_main = _import_runner()

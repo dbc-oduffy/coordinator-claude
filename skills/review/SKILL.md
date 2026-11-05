@@ -22,7 +22,7 @@ allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskU
 
 ### A.1 — Pre-flight
 
-**Diff freeze:** the caller picks the range, never `code-reviewer`. Freeze via `freeze-review-diff` (range, slice-id) before dispatch; never default a shared `work/*` branch to `origin/main...HEAD`. Inject the frozen diff path as the primary artifact.
+**Diff freeze:** the caller picks the range, never `code-reviewer`. Freeze via `freeze-review-diff` (range, slice-id) before dispatch; never default a shared `work/*` branch to `origin/main...HEAD`. Inject the frozen diff path as primary.
 
 **Reviewers don't execute** (Bash read-only). The EM runs any runtime probe first and pastes the output into the brief; the verdict's `executed: <yes|no>` discloses it.
 
@@ -37,6 +37,7 @@ No producer automates reviewer selection yet. Until then:
 - **the Director of Engineering:** cross-team/consumer-leak signal → standalone primary (director-altitude posture in brief; no `mode` arg), skip the Staff Engineer.
 - `--reviewers "a,b"` skips auto-detection; report "PM-directed review: [a] then [b]."
 - One reviewer suffices unless a second would likely *contradict*.
+- **Peer lens (opt-in, EM-run):** a live Codex or agy peer may be consulted as an additional reviewer, never a persona; not a dispatched step, never gating, silent when no peer is live. Contract: [live-peer-consult.md § Peer lens in pipelines](../../docs/wiki/cross-repo-communication/live-peer-consult.md#peer-lens-in-pipelines).
 
 Pipeline phases aren't optional — walk the assembled phase list.
 
@@ -48,13 +49,15 @@ Pipeline phases aren't optional — walk the assembled phase list.
 
 ### A.3 — Sequencing
 
-**Code review (a diff): per executor group in plan runs; reviewers apply their own findings.** Slice owners, Kira and the named personas apply in place with exact-text `Edit`s. Kira (`overengineering-reviewer`) edits shipped code only, never plans, and runs only when the EM or PM names Kira. Only a rebuild verdict goes back to the EM; no second review round. `/review-code` verifies its own ledger before a second reviewer.
+**Code review (a diff): per executor group in plan runs; reviewers apply their own findings.** Slice owners, Kira and the named personas apply in place with exact-text `Edit`s. Kira (`overengineering-reviewer`) edits shipped code only, never plans, and runs only when the EM or PM names Kira. Only a rebuild verdict goes back to the EM; no second review round. `/review-code` verifies its own ledger.
+
+**Multi-reviewer review is parallel:** all reviewers go out in one message, then one fix pass over the union (Branch B once); never sequence Reviewers 1 and 2.
 
 **Plan review:** one parallel wave, each reviewer applying its own findings; a chatty run claims regions by mail (`CLAIM <region>`; review-integration-doctrine.md); a post-wave ledger verify catches lost edits.
 
 **Pre-flight sidecars are consumed alongside the plan.** Non-XL: the Sonnet pre-flights (`docs-checker`, `prior-art-checker`, `plan-coverage-checker`) gate before the Opus reviewer; accepted-XL adds a `plan-reviewer` pass ahead. `plan-coverage-checker` has no EM opt-out.
 
-**Angelique (apm) trigger — size-gated, plan-review-only.** Ladder on `sizing_object` (`estimate.tshirt`): XS/S Sonnet `plan-reviewer`, M and L the Staff Engineer, XL+ adds Angelique and the Director of Engineering. XL is the APM floor; add no second threshold surface. Kira is on no rung and never gates (`blocking_verdicts` is `null`).
+**Angelique (apm) trigger — size-gated, plan-review-only.** Ladder on `sizing_object` (`estimate.tshirt`): XS/S Sonnet `plan-reviewer`, M and L the Staff Engineer, XL+ adds Angelique and the Director of Engineering. XL is the APM floor. Kira is on no rung and never gates (`blocking_verdicts` is `null`).
 
 ---
 
@@ -76,13 +79,11 @@ The reviewer applies everything under `OK`/`WARN`/`BLOCKED`; under `REJECTED`/`P
 
 **Rejecting a plan-body finding makes an existing `mise_prepped_*` attest STALE**, as applying one does. Re-gate (`<settings-home>/bin/mise-prep-gate <plan>`), never re-stamp. Tripwire: `A-PRESENT-MISE-PREPPED-STAMP-IS-NOT-A-CERTIFICATION`.
 
-**`/review` fires on exiting `/plan`**: the EM invokes it in the same turn, unprompted.
+**`/review` fires on exiting `/plan`**: the EM invokes it that turn, unprompted.
 
 ---
 
 ## Cross-reference exit
-
-Outside a chatty run, once Reviewer 1's findings are applied, return to A.2 for Reviewer 2.
 
 The execution-authorization gate and stamp-op come from `review-assemble brief`. `/review` writes `reviewer:` + `status: reviewed`; nothing here stamps a plan mise-prepped. After authorization the EM owns the dispatch-gate graph: `coordinator:execute-plan` Phase 1.5.
 

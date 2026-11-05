@@ -271,7 +271,7 @@ claim as evidence, which is what this field exists to prevent. Should published 
 documentation ever be wanted as a signal, it belongs in a separate field with its own semantics —
 never as a third rung here, however carefully sourced.
 
-`docs/research/2026-07-11-aura-investigation-no-source-calibration.md` § Preamble corroborates the
+`docs/research/aura-investigation-no-source-calibration/2026-07-11-aura-investigation-no-source-calibration/synthesis.md` § Preamble corroborates the
 exclusion — five behavioral claims refuted by artifact forensics one day later — but is **not the
 reason for it**. Cite the categorical argument, which survives a contrary study; the n=5 result
 would not.

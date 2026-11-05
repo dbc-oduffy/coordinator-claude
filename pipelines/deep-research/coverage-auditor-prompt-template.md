@@ -46,7 +46,7 @@ present in the synthesis with a pointer to where?
 **Write your coverage audit to:** `[SCRATCH_DIR]/<segment>/[RUN_STEM]-coverage-audit.md`
 
 This is the run's destination under its scratch dir, never the bare `docs/research/` root
-(`research.close` flags a file there as a stray). The `[RUN_STEM]` must include the
+or a path outside the run dir (a layout guard refuses a stray there). The `[RUN_STEM]` must include the
 pipeline identifier (e.g., `my-topic-web`, `my-topic-repo`) so concurrent same-day runs
 on the same topic do not collide. No other writes permitted.
 

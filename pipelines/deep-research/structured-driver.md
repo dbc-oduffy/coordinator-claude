@@ -74,8 +74,8 @@ Do NOT proceed to Run Mode (Step 1) until the PM approves.
 4. Generate run ID: `YYYY-MM-DD-HHhMM` (current timestamp)
 5. Record spawn timestamp: `date +%s` (Unix epoch seconds — passed to the verifiers for timing)
 6. Generate subject slug from `{subject-key}` (e.g., `acme-corp`)
-7. Create workdir — **accept-if-passed:** if `{scratch-dir}` is already bound (supplied by `research.md` Step 0), skip the `mkdir` and use the supplied value; otherwise create `docs/research/{run-id}-{subject-slug}-workdir`.
-   Set `{scratch-dir}` = `docs/research/{run-id}-{subject-slug}-workdir`
+7. Create workdir — **accept-if-passed:** if `{scratch-dir}` is already bound (supplied by `research.md` Step 0), skip the `mkdir` and use the supplied value; otherwise set `{run-dir}` = `docs/research/{topic}/{date}-{run-slug}` and create `{run-dir}/workdir`.
+   Set `{scratch-dir}` = `{run-dir}/workdir` (a supplied `{scratch-dir}` is always that path)
 
 Announce: "Running structured research (Pipeline C, chatty Workflow) on '{subject-key}' using spec '{spec-path}'."
 
@@ -186,7 +186,7 @@ When the Workflow's task notification arrives carrying the synthesizer's return 
    in `synthesis-annotations.md`. Findings absent from both constitute silent coverage loss.
 
    The audit runs as the manifest's `coverage` stage (`structured-coverage-prompt-template.md`)
-   before the Workflow returns. Read its sidecar at `{output-path minus .md}-coverage-audit.md`.
+   before the Workflow returns. Read its sidecar at `{run-dir}/outputs/{run-stem}-coverage-audit.md`.
 
    If the auditor reports `absent` findings (verifier findings with no field mapping and no drop
    annotation), read the sidecar and include an `absent_findings` summary in the PM-facing report
@@ -201,7 +201,7 @@ When the Workflow's task notification arrives carrying the synthesizer's return 
 
    Derive the run-stem: `{run-id}-{subject-slug}-structured`
 
-   **a. Run-record** (`docs/research/{run-stem}.md`):
+   **a. Run-record** (`{run-dir}/outputs/{run-stem}.md`):
 
    Read `{scratch-dir}/gap-signal.md` for `coverage_score` (from its frontmatter).
    Compute `source_count` by counting unique URL entries across all "Sources Cited"
@@ -210,7 +210,7 @@ When the Workflow's task notification arrives carrying the synthesizer's return 
    Derive `confidence_summary` as the majority Confidence value (HIGH/MEDIUM/LOW)
    across all schema field table rows in all verifier findings files.
 
-   Write `docs/research/{run-stem}.md` — frontmatter block first, then thin-link body:
+   Write `{run-dir}/outputs/{run-stem}.md` — frontmatter block first, then thin-link body:
 
    ```markdown
    ---
@@ -232,10 +232,10 @@ When the Workflow's task notification arrives carrying the synthesizer's return 
    ```
    Structured research output for **{subject-key}** (Pipeline C).
    Structured payload: [{output-path}]({output-path})
-   Claims index: [docs/research/{run-stem}.claims.json](docs/research/{run-stem}.claims.json)
+   Claims index: [{run-dir}/outputs/{run-stem}.claims.json]({run-dir}/outputs/{run-stem}.claims.json)
    ```
 
-   **b. Claims** (`docs/research/{run-stem}.claims.json`):
+   **b. Claims** (`{run-dir}/outputs/{run-stem}.claims.json`):
 
    Read all `{scratch-dir}/*-findings.md`. For each data row in each "## Schema Field Table"
    section (skip header rows and rows where the Field cell is a placeholder), emit one
@@ -278,13 +278,13 @@ When the Workflow's task notification arrives carrying the synthesizer's return 
    Omit optional fields (`evidence`, `contested_by`, `source_date`) when they have no value.
 
    **Do not write the durable files yourself** — the pair
-   (`docs/research/{run-stem}.claims.json` + `.claims.meta.json`) has exactly one writer.
+   (`{run-dir}/outputs/{run-stem}.claims.json` + `.claims.meta.json`) has exactly one writer.
    Pipe the array you just constructed into it:
 
    ```bash
    "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/claims-emit" \
      --producer structured-research \
-     --out docs/research/{run-stem} \
+     --out {run-dir}/outputs/{run-stem} \
      --ran-at {RFC3339 timezone-aware timestamp captured now} \
      --pipeline structured \
      < {scratch-dir}/merged-claims.json
@@ -301,7 +301,7 @@ When the Workflow's task notification arrives carrying the synthesizer's return 
    no-op on disk — an occupied stem is restored byte-for-byte, so re-running over an existing
    run-stem is safe.
 
-   **c. Gap-report** (`docs/research/{run-stem}-gap-report.md`):
+   **c. Gap-report** (`{run-dir}/outputs/{run-stem}-gap-report.md`):
 
    Read `{scratch-dir}/gap-signal.md`.
 
@@ -332,23 +332,18 @@ When the Workflow's task notification arrives carrying the synthesizer's return 
    - Set subject status to `complete`
    - Record `manifest_version: 2`
 
-6. Commit (includes `docs/research/{run-stem}.md`, the `docs/research/{run-stem}.claims.json`
-   + `docs/research/{run-stem}.claims.meta.json` pair emitted by `claims-emit` at step b, and
-   `docs/research/{run-stem}-gap-report.md` if emitted):
+6. Commit (includes `{run-dir}/outputs/{run-stem}.md`, the `{run-dir}/outputs/{run-stem}.claims.json`
+   + `{run-dir}/outputs/{run-stem}.claims.meta.json` pair emitted by `claims-emit` at step b, and
+   `{run-dir}/outputs/{run-stem}-gap-report.md` if emitted):
    ```bash
    "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-safe-commit" "deep-research: structured complete — {subject-slug}"
    ```
 
-7. Archive paper trail (atomic rename — no copy-then-delete race window):
-   ```bash
-   mv docs/research/{run-id}-{subject-slug}-workdir docs/research/archive/YYYY-MM-DD-{subject-slug}
-   ```
+7. The paper trail stays in `{run-dir}/workdir`; nothing is moved or archived out of the run dir.
 
-   **Precondition: `docs/research/` and `docs/research/archive/` resolve to the same filesystem.** If `archive/` is ever moved to a different mount, this archive step must be revisited — POSIX `mv` across filesystems degrades to copy-then-unlink, reopening the race window the change is meant to eliminate. Executor-time guard: `stat -c '%d' docs/research 2>/dev/null || stat -f '%d' docs/research` on both paths before mv; fail-loud if device IDs differ.
+8. Commit: `coordinator-safe-commit "deep-research: structured cleanup"`
 
-8. Commit: `coordinator-safe-commit "deep-research: structured archive + cleanup"`
-
-9. Present summary of schema changes (CONFIRMED / UPDATED / NEW / REFUTED / CONTESTED-resolved counts) to PM for review. Include the queryable index layer locations: "Run-record at `docs/research/{run-stem}.md`; claims index at `docs/research/{run-stem}.claims.json`." If a gap-report was emitted, note it: "Gap-report at `docs/research/{run-stem}-gap-report.md` ({gap_count} gaps, coverage score {coverage_score})." If no gap-report was emitted, note why (all resolved or gap-signal missing). If advisory exists, mention it: "The synthesizer flagged observations beyond scope — see the advisory (archived with paper trail at `docs/research/archive/YYYY-MM-DD-{subject-slug}/advisory.md`)." If the coverage auditor reported absent findings, include a brief summary: "The coverage auditor found {N} verifier findings with no field mapping and no drop annotation — see `{output-path minus .md}-coverage-audit.md`."
+9. Present summary of schema changes (CONFIRMED / UPDATED / NEW / REFUTED / CONTESTED-resolved counts) to PM for review. Include the queryable index layer locations: "Run-record at `{run-dir}/outputs/{run-stem}.md`; claims index at `{run-dir}/outputs/{run-stem}.claims.json`." If a gap-report was emitted, note it: "Gap-report at `{run-dir}/outputs/{run-stem}-gap-report.md` ({gap_count} gaps, coverage score {coverage_score})." If no gap-report was emitted, note why (all resolved or gap-signal missing). If advisory exists, mention it: "The synthesizer flagged observations beyond scope — see the advisory (kept with the paper trail at `{scratch-dir}/advisory.md`)." If the coverage auditor reported absent findings, include a brief summary: "The coverage auditor found {N} verifier findings with no field mapping and no drop annotation — see `{run-dir}/outputs/{run-stem}-coverage-audit.md`."
 
 ## Error Handling
 

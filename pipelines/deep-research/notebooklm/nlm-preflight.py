@@ -14,13 +14,15 @@ import sys
 from pathlib import Path
 from typing import Callable
 
-INSTALL_REMEDY = "! uv tool install notebooklm-mcp-cli"
+UPSTREAM_REMEDY = (
+    "install and register per https://github.com/jacob-bd/gemini-notebook-mcp-cli "
+    "(its README; uv, uvx, pipx or pip — no venv required)"
+)
 LOGIN_REMEDY = "! nlm login --force"
-ADD_REMEDY = "! claude mcp add -s user notebooklm-mcp -- notebooklm-mcp"
-REMOVE_REMEDY = "! claude mcp remove gemini-notebook-mcp -s user"
+RENAME_REMEDY = "! nlm setup add claude-code"
 RESTART_REMEDY = "restart Claude Code"
-GOOD_KEY = "notebooklm-mcp"
-STALE_KEY = "gemini-notebook-mcp"
+GOOD_KEY = "gemini-notebook-mcp"
+STALE_KEY = "notebooklm-mcp"
 AUTH_PATTERN = re.compile(
     r"\b(?:(?:session|token|credentials?|cookies?)\s+(?:has\s+|have\s+)?expired"
     r"|authentication\s+(?:required|failed|error)"
@@ -67,7 +69,7 @@ def classify(runner: Runner, which: Callable[[str], str | None], mcp_keys: set[s
     nlm = which("nlm")
     checks["nlm_installed"] = nlm is not None
     if nlm is None:
-        remedy.append(INSTALL_REMEDY)
+        remedy.append(UPSTREAM_REMEDY)
     else:
         try:
             code, out = runner([nlm, "notebook", "list"])
@@ -82,15 +84,17 @@ def classify(runner: Runner, which: Callable[[str], str | None], mcp_keys: set[s
 
     if mcp_keys is None:
         checks["mcp_registration"] = "unreadable"
-        remedy.append(ADD_REMEDY)
+        if UPSTREAM_REMEDY not in remedy:
+            remedy.append(UPSTREAM_REMEDY)
         remedy.append(RESTART_REMEDY)
     elif GOOD_KEY in mcp_keys:
         checks["mcp_registration"] = GOOD_KEY
     else:
         checks["mcp_registration"] = STALE_KEY if STALE_KEY in mcp_keys else "absent"
-        remedy.append(ADD_REMEDY)
         if STALE_KEY in mcp_keys:
-            remedy.append(REMOVE_REMEDY)
+            remedy.append(RENAME_REMEDY)
+        elif UPSTREAM_REMEDY not in remedy:
+            remedy.append(UPSTREAM_REMEDY)
         remedy.append(RESTART_REMEDY)
 
     return {"ok": not remedy, "remedy": remedy, "checks": checks}

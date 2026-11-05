@@ -108,6 +108,7 @@ _RESTRICTED_SUBAGENT_TYPES = ("Explore", "Plan")
 #: definitions` is the live oracle, and a red run of it means this tuple
 #: drifted from `coordinator/agents/*.md`, never that the test is stale.
 _REPORTING_SUBAGENT_TYPES = (
+    "game-dev:staff-game-dev",
     "coordinator:apm",
     "coordinator:atlas-clarity-reviewer",
     "coordinator:blitz-em",
@@ -137,6 +138,7 @@ _REPORTING_SUBAGENT_TYPES = (
     "coordinator:sizing-scout",
     "coordinator:spike-worker",
     "coordinator:subtractive-adjudicator",
+    "coordinator:external-reviewer",
     "coordinator:test-runner",
     "coordinator:workflow-maker",
 )

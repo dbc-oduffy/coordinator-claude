@@ -1,7 +1,8 @@
 # Unimatrix mechanism
 
 Unimatrix is the cross-account interbox link: it lets a Claude Code session on one box
-`SendMessage` a session on another box. It is named for the link, never for a box. Key custody
+`SendMessage` a session on another box. It is named for the link, never for a box: ops prose says
+"Unimatrix", never a box name, for the link. Key custody
 is `multibox-key-custody.md`; the installer and key rules are the tripwires
 `A-UNIMATRIX-INSTALL-REFUSES-OUTSIDE-THE-VERIFIED-CLAUDE-RANGE` and
 `A-UNIMATRIX-KEY-IS-A-FORCED-COMMAND-RELAY-KEY`. Box names, addresses and key holders are not
@@ -17,35 +18,96 @@ First available wins (`A-SAME-ACCOUNT-CROSS-BOX-USES-NATIVE-RC-FIRST`):
 
 ## Transport: LAN first, tunnel off-network only
 
-Boxes on the same network reach each other directly over the LAN; the WireGuard tunnel stays off.
-The tunnel exists only for a box that is off the home network. Unimatrix tooling tries a far box's
-LAN address first, falls back to its tunnel address only when the LAN address is unreachable, and
-never requires the tunnel to be up. An operator on the home network never has to start the tunnel
-for a Unimatrix operation.
+Unimatrix tooling tries a far box's LAN address first, falls back to its WireGuard tunnel address
+only when the LAN address is unreachable, and never requires the tunnel to be up.
+
+### ssh and alias config (no ethernet: Wi-Fi LAN, tunnel off-network)
+
+A box without a wired link joins over the home Wi-Fi LAN; the WireGuard tunnel is the off-network
+fallback. One alias per far box and role, in `~/.ssh/config` on the near box (addresses come from
+the private fleet record, never this page):
+
+```
+Host <box>-lan
+    HostName <far box Wi-Fi LAN address>
+    User <far box user>
+    IdentityFile ~/.ssh/<unimatrix-key-file>
+    IdentitiesOnly yes
+    BatchMode yes
+    ConnectTimeout 5
+
+Host <box>-tunnel
+    HostName <far box WireGuard address>
+    User <far box user>
+    IdentityFile ~/.ssh/<unimatrix-key-file>
+    IdentitiesOnly yes
+    BatchMode yes
+    ConnectTimeout 5
+```
+
+Machine-local `unimatrix.far_boxes` lists `<box>-lan`; use `<box>-tunnel` only when it fails. The
+engine's ssh transport record takes the same host (`{kind: ssh, host, invoke}`). The far side's
+`from=` pin is the near box's Wi-Fi LAN address (tunnel address off-network); re-pin when wired.
 
 ## Parts
 
-All four ship in `coordinator/bin/` and are installed together by `unimatrix-install.py` into
+All six ship in `coordinator/bin/` and are installed together by `unimatrix-install.py` into
 `<settings home>/unimatrix`.
 
 - **Bridge** (`unimatrix-bridge.py`): binds a local endpoint (a Windows named pipe, a unix socket
   elsewhere) that stands for a remote session. A `SendMessage` to it is forwarded through the
   relay as `send <remote-pid>`. An optional return leg runs in the same process because the local
-  inbox accepts writes only from a process registered in `~/.claude/sessions`.
+  inbox accepts writes only from a process registered in `~/.claude/sessions`. Delivery into a
+  session assumes the `crossSessionInbound: accept` default (`settings-manifest.md` § Cross-Session
+  Inbound).
 - **Relay** (`unimatrix-relay.py`): the forced command on the receiving box, the only thing the
   Unimatrix key can run. Modes, from `SSH_ORIGINAL_COMMAND`: `roster` (one JSON line per live
   local session, entry plus key file), `send <pid>` (deliver one message line to that session's
   socket), `inbox <name>` (register a far session and stream what is delivered to it back over
   ssh), `source` (print the relay's own text). Anything else is refused. A far box that vendors
-  the relay syncs it with `ssh <key> source`, never over the full-shell key. The `authorized_keys` line uses `restrict`: no pty, no
-  forwarding.
+  the relay syncs it with `ssh <key> source`, never over the full-shell key. The `authorized_keys`
+  line uses `restrict`.
 - **Inbox** (`unimatrix-inbox.py`): registers a local session on the far box through `inbox`
   mode and carries each delivered frame into the local session, rewriting `from` into the local
   namespace. The session key travels over ssh stdin only, never argv or a log.
 - **Rekey** (`unimatrix-rekey.py`): makes each local mirror entry look like a session the harness
   wrote itself.
+- **Router** (`unimatrix-peer-router.py`): one per-box process that registers every live Codex
+  thread (found by its thread-writer-lock) and every live agy conversation (found by its
+  presence lock, plus the leg record in `<settings home>/unimatrix/agy-legs` the agy launch hook
+  writes), rescanned while serving, and retires a peer when its lock goes. A
+  `<settings home>/unimatrix/peers.json` entry is optional; `peers.json` wins a clash. Each is its own roster peer,
+  drops empty and bare-acknowledgement frames and empty replies unanswered,
+  holds one turn lock per peer, and routes any sender (a Claude session, or another peer through
+  `unimatrix-peer-router.py send <peer> <text>`) to any peer. Replies go straight to the sender's
+  session socket (receiver runs `crossSessionInbound: accept`), each frame stamped with
+  provenance: peer name, vendor, thread or conversation id, router pid. A Codex thread with a held
+  writer lock routes through `codex queue`, daemon up or not. Intra-box only; the
+  bridge, relay and inbox carry cross-box traffic.
 - **Roster**: the relay's `roster` output. A mirrored far session counts as detected on the
   roster, so `ListAgents` and `notify_when_idle` see it.
+
+## Peer registration: agy and Codex
+
+`unimatrix-install.py` seeds the hooks. Codex registers at session start with no tool call and no
+restart; agy registers a pending leg at session start and goes live at the first tool call (below). Each hook prints a `systemMessage`
+so the registration shows in the UI.
+
+- **agy**: `unimatrix-agy-hook-pretool.py` is the only PreToolUse group the installer owns. It
+  asks the engine's host guard first and returns a guard `deny` as-is; otherwise the
+  peer-bootstrap decision applies, and a guard `ask` with a reason plus a bootstrap `overwrite`
+  yields one `ask` carrying both. The fallback is `ask`, never `allow`, never `force_ask`.
+  SessionStart (`unimatrix-agy-hook-sessionstart.py`) starts a pending leg: agy's SessionStart env
+  carries only the conversation id, so the leg has no token. It binds its endpoint, records the
+  language-server address found from the agy pid's loopback listeners (`lsof`; none on Windows),
+  and queues each peer message, acking `queued` (spool at `$AGY_LEG_SPOOL` else `<conv>.queue.jsonl` beside the leg log; capped at 1 MiB, past which the sender gets `ok:false`). The first `run_command` through the PreToolUse
+  rewrite relaunches the leg live (a pending leg is never current), and the live leg drains the
+  queue into agy. The token is never persisted. The install path is the "Codex and agy hosts" section of the install guide.
+- **Codex**: a plain `codex` TUI, started without `--remote`, is reachable; the router finds its
+  thread by the thread-writer-lock. `unimatrix-codex-launch.py` (daemon, then `codex --remote`) is
+  optional. Every thread start, resume, clear and fork fires
+  `unimatrix-codex-hook-sessionstart.py`, which rebinds the stable peer name (`$UNIMATRIX_PEER_NAME`,
+  else `codex-<cwd basename>`) to the current thread id in `peers.json`; the router rescans it.
 
 ## Failure behaviour
 
@@ -71,8 +133,7 @@ blocks idle notices.
 
 ## Keys
 
-Three roles, private halves in the vault only. Each key is named `<role>: <from> → <to>`, one key
-per box pair, so a leaked key's blast radius is that pair:
+Three roles, private halves in the vault only. One key per box pair, named `<role>: <from> → <to>`:
 
 - **Unimatrix-01**: the full shell, break-glass. Carries nothing routine. A full mesh: any box can
   be the controller or the controlled, so long as the keys authenticate.
@@ -83,14 +144,25 @@ per box pair, so a leaked key's blast radius is that pair:
 
 Every key is pinned to its source address with `from=` in `authorized_keys`.
 
+Every ssh that uses a file key passes `-o IdentitiesOnly=yes`. Without it, a running ssh agent
+(1Password's included) offers its own keys first and trips `MaxAuthTries`, and a relay send drops
+silently.
+
+## Auto-arm
+
+A Group EM session start in the group-em home and the `/group-em` entry run
+`unimatrix-autolink.py` detached. Far boxes are the ssh aliases in machine-local
+`unimatrix.far_boxes`. Each alias without a live pair gets one bridge supervisor and one inbox
+supervisor, on the Unimatrix-Zero key only. It exits 0 silently when unconfigured; an unreachable
+far box adds one line to `<settings home>/unimatrix/autolink.log`.
+
 ## One network-wide Group EM
 
 There is one Group EM across the network, on whichever box holds the standing. It reaches the
 other boxes over Unimatrix: the relay lives on the box that receives, and the holder's box bridges
-that box's roster. A box without a Group EM is not missing one. Last writer wins network-wide:
-`/group-em` on any box displaces the holder on any other, keyed by box plus session id, and the
-displaced holder gets the release-your-watch message over Unimatrix. The unit of custody for a
-box's relay is that box.
+that box's roster. Last writer wins network-wide: `/group-em` on any box displaces the holder on
+any other, keyed by box plus session id, and the displaced holder gets the release-your-watch
+message over Unimatrix. The unit of custody for a box's relay is that box.
 
 ## Consumer boxes
 
@@ -100,6 +172,5 @@ box is interim and is replaced by the release.
 
 ## Where facts live
 
-Mechanism and rulings: this page. Box names, LAN and tunnel addresses, key-role holders and any
-interim relay: the operator's private fleet record, never a published tree. Key material: the
-vault.
+Mechanism: this page. Box names, addresses, key-role holders: the operator's private fleet
+record. Key material: the vault.

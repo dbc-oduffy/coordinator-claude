@@ -605,7 +605,7 @@ encodes for the altitude it actually drives.
 | `decision-guide` | `schemas/decision-guide.schema.json` | `docs/guides/*-decisions.md` |
 | `skill` | `schemas/skill.schema.json` | `coordinator/skills/*/SKILL.md` |
 | `research-synthesis` | `schemas/research-synthesis.schema.json` | `docs/research/*.md` |
-| `research-claim` | `schemas/research-claim.schema.json` | `docs/research/*.claims.json` |
+| `research-claim` | `schemas/research-claim.schema.json` | `docs/research/**/*claims.json` |
 | `coverage-audit` | `schemas/coverage-audit.schema.json` | `docs/research/*-coverage-audit.md` |
 | `gap-report` | `schemas/gap-report.schema.json` | `docs/research/*-gap-report.md` |
 | `workstream` | `schemas/workstream.schema.json` | `state/workstreams/*.yaml` |

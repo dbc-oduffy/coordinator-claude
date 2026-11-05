@@ -20,6 +20,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+_LIB_DIR = Path(__file__).resolve().parents[2] / "lib"
+if str(_LIB_DIR) not in sys.path:
+    sys.path.insert(0, str(_LIB_DIR))
+from output_tree_layout import iter_tree_entries  # noqa: E402
+
 MODES = ("hands-on", "pm", "ceo")
 FIRE_NAME = "goal-blitz.fire.mjs"
 CANDIDATES_NAME = "candidates.json"
@@ -63,7 +68,7 @@ def collect(repo_root: Path, targets: list[str] | None) -> tuple[list[dict], lis
     seeds: list[dict] = []
     wanted = set(targets) if targets is not None else None
 
-    for path in sorted((repo_root / "state" / "handoffs").glob("*.md")):
+    for path in sorted(iter_tree_entries(repo_root, "state/handoffs", "*.md"), key=lambda p: p.name):
         if wanted is not None and path.stem not in wanted:
             continue
         f = top_level_fields(path.read_text(encoding="utf-8"), frontmatter=True)
@@ -73,7 +78,7 @@ def collect(repo_root: Path, targets: list[str] | None) -> tuple[list[dict], lis
             continue
         seeds.append(_seed(path, repo_root, "goal-seed", f.get("summary") or f.get("title", "")))
 
-    for path in sorted((repo_root / "state" / "sizings").glob("*.yaml")):
+    for path in sorted(iter_tree_entries(repo_root, "state/sizings", "*.yaml"), key=lambda p: p.name):
         if wanted is not None and path.stem not in wanted:
             continue
         f = top_level_fields(path.read_text(encoding="utf-8"), frontmatter=False)

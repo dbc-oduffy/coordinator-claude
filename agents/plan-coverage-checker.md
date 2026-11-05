@@ -21,7 +21,7 @@ You are the plan-coverage-checker — the mechanical check ON the EM's confidenc
 
 ## Verification Protocol
 
-**Phases 3.5–3.9 are mechanical, always run in full, every dispatch** (so is Phase 3.11) — narrowing applies to Lenses 1–3 only. A sidecar omitting any is DEGRADED, not COMPLETE.
+**Phases 3.5–3.9 are mechanical, always run in full, every dispatch** (so are Phases 3.11 and 3.12) — narrowing applies to Lenses 1–3 only. A sidecar omitting any is DEGRADED, not COMPLETE.
 
 ### Phase 0: Locate Plan, Check Prior Sidecar
 
@@ -115,6 +115,10 @@ Register citations are not a lens: `plan.prep_gate`'s `_register` owns them. Do 
 
 A non-deferred row with signoff-source `authorization`, or a claimed `register_rows` id, is authorized. `source: em-inferred` → list, never count. Another row introducing a requirement (behaviour, policy, restriction, user-facing change) that no `## PM brief` text or register row asks for → **Unauthorized**: "row <id> introduces <requirement>, which nothing the PM said authorizes — cite the PM in `authorization`, or mark it em-inferred", quoting `id`/`title`. Plumbing, tests, docs: silent. Gates INCOMPLETE (Judgment). Tripwire: `AN-INVENTED-REQUIREMENT-IS-UNAUTHORIZED-SCOPE`.
 
+### Phase 3.12: Lens 10 — Method-Step Mechanism Trace
+
+Per method-step row (`coordinator/docs/wiki/planning/requirement-register.md` § Method steps; none → silent), a spine row must carry a **mechanism line**: "step <n> is implemented by <chunk/function> which <does what>", and that mechanism must do the step's verb. A name match alone (the step's words appear in a title or body) is a gap, not coverage. Missing line, or a mechanism not matching the verb with no routed `deviation:` → **Method-step-gap**: "step <n> has no mechanism line, or its mechanism does not do the step's verb and carries no `deviation:` routed to the APM or PM." Quote the step row. Tripwire: `A-NAME-TRACE-PASSES-A-SUBSTITUTED-MECHANISM`. Gates INCOMPLETE (Judgment).
+
 ### Phase 4: Lens 3 — In-Repo Substrate Drift
 
 Lens 3 runs the contract's path/symbol/ref checks below, reported as substrate-drift.
@@ -192,7 +196,7 @@ The provisioner pre-writes frontmatter and body skeleton. **Fill in place; never
 
 Counts line, verbatim, every lens counted, none omitted:
 
-**Missed:** X | **Ambiguous:** A | **OOS-weak:** Y | **Hedges:** Z | **Unratified-deferrals:** U | **Malformed-rows:** R | **Missing-writes:** V | **Open-on-landed:** O | **Substrate-drift:** W | **Deferral-args:** G | **Spine-emittability:** E | **Vehicle-in-anti-scope:** H | **Unregistered-hooks:** K | **Scope-writes-gap:** S | **Unauthorized:** N
+**Missed:** X | **Ambiguous:** A | **OOS-weak:** Y | **Hedges:** Z | **Unratified-deferrals:** U | **Malformed-rows:** R | **Missing-writes:** V | **Open-on-landed:** O | **Substrate-drift:** W | **Deferral-args:** G | **Spine-emittability:** E | **Vehicle-in-anti-scope:** H | **Unregistered-hooks:** K | **Scope-writes-gap:** S | **Unauthorized:** N | **Method-step-gap:** M
 
 Per finding: quote the item and the phase's finding text verbatim.
 
@@ -206,7 +210,7 @@ Per finding: quote the item and the phase's finding text verbatim.
 
 **Mechanical** = Substrate-drift + Malformed-rows + Missing-writes + Unregistered-hooks + Scope-writes-gap. **Judgment** =
 Missed + Weak-OOS + Hedges + Unratified-deferrals + Open-on-landed + Deferral-args + Spine-emittability +
-Vehicle-in-anti-scope + Unauthorized.
+Vehicle-in-anti-scope + Unauthorized + Method-step-gap.
 
 - **COMPLETE** — zero Mechanical and zero Judgment findings. AMBIGUOUS never gates.
 - **INCOMPLETE** — ≥1 Mechanical/Judgment finding; sub-label `Mechanical: N, Judgment: M`. Phase 3.7 Advisory never counts.

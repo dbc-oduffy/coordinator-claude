@@ -5,7 +5,7 @@ what, and where a key may never live. This is the **SSH credential** sense of "k
 
 ## Not the fleet-grant seam
 
-Coordinator-content-repo `coordinator/docs/wiki/fleet-control-plane.md` uses "key-custody" for the **fleet-grant verifier seam**: the signing
+The fleet control plane uses "key-custody" for the **fleet-grant verifier seam**: the signing
 authority behind `_fleet_grant.py`'s `granted | expired | revoked | tampered | unverifiable`
 verdict. That seam proves a human act happened. This page governs the SSH keys that carry a
 session or a tunnel between boxes. Different artifact, different owner, different failure. Name
@@ -41,12 +41,19 @@ messages and nothing else (`A-UNIMATRIX-KEY-IS-A-FORCED-COMMAND-RELAY-KEY`).
 - Rotation replaces the vault item first, then the `authorized_keys` line on each target, then
   deletes the old line. Revoke by deleting the line on the target.
 
+## Placing a key on a new macOS box
+
+The `box-onboarding` skill's key step follows this page: fetch the public half from the vault, append
+it to `~/.ssh/authorized_keys` pinned `from=<peer address>` (Wi-Fi LAN address, or WireGuard address
+over the tunnel). The engine mints this box's key and pins a peer's (op `groupem.box_key_pin`).
+Machine-local `box.*` keys have no engine writer; the doctrine repo owns that surface.
+
 ## Ownership
 
 | Owner | Owns |
 |-------|------|
-| DoE (this page) | The custody doctrine and the tripwires below. |
-| claude-klabauter | Issuing and placing per-box keys; generic box-to-box SSH for spawning sessions and jobs. |
+| Doctrine repo (this page) | The custody doctrine and the tripwires below. |
+| Engine | Issuing and placing per-box keys; generic box-to-box SSH for spawning sessions and jobs. |
 | project-rag | The pin recipe (`permitopen`, `command=`), its tests, tunnel recipe, bearer tokens. |
 | Group EM role | Holding the shell key; the placement GO/HOLD terms. |
 

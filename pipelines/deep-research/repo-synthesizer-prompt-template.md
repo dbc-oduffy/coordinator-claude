@@ -250,8 +250,8 @@ fails. Use `Directory` for local paths, as above.
 
 **Why this is emitted by default rather than on request.** A downstream fleet reader globs peer
 repos' `docs/research/` for this table, gated on a `docs/research/.fleet-readable` opt-in marker in
-the *consuming* repo. Pipeline B's output naming (`YYYY-MM-DD-repo-<slug>.md`) already puts every
-run in that glob's path, so a repo that has opted in picks up every future run for free — the table
+the *consuming* repo. Pipeline B's output (`<run dir>/synthesis.md` under `docs/research/<topic>/`) already puts every
+run in that subtree, so a repo that has opted in picks up every future run for free — the table
 is the only half that does not emit itself. Emitting it by default costs one table and removes a
 per-run decision from every EM fleet-wide. Emitting it into a repo that has *not* opted in is inert:
 with no marker, nothing reads it.

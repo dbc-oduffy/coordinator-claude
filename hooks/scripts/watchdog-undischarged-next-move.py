@@ -76,7 +76,12 @@ Five obligations:
                    executor, mint a successor), so it discharges on ANY
                    subsequent Skill OR Agent call -- the `Skill|Agent`
                    wildcard kind, the same "no verifiable identity" logic
-                   as review-a1-a2 widened one step.
+                   as review-a1-a2 widened one step. It also discharges on
+                   a pickup stand-down: a Bash `pickup-assemble drop`, a
+                   judgment point resolved via `pickup-assemble brief|apply
+                   --decisions[-file]`, or a `pickup-assemble brief` whose
+                   output is `directives: []` with a foreign holder in
+                   `gates.claim_grant`. Other Bash never discharges it.
 
 ROUTE TERMINALS -- only routes with a machine-resolved next call get an
 obligation opened at all (`_ROUTE_TERMINAL` below): `dispatch` -> an executor
@@ -193,7 +198,7 @@ _REVIEW_TERMINAL = "Skill(coordinator:review)"
 _ANY_CALL_KIND = "Skill|Agent"
 _PICKUP_NEXT_ACTION = "Skill|Agent(the narrated next move)"
 
-_SIZING_PATH_RE = re.compile(r"^state/sizings/[^/]+\.ya?ml$")
+_SIZING_PATH_RE = re.compile(r"^state/sizings/(?:\d{4}-\d{2}/)?[^/]+\.ya?ml$")
 _APPETITE_DIVERGENCE_DETENT = "appetite_exceeded"
 _POST_SIZE_PROMPT_DETENT = "post_size_prompt_pending"
 
@@ -270,6 +275,9 @@ def _sizing_route_and_exemption(repo_root: str, rel_path: str):
 
     m = scan_mapping(text)
     route = m.get("route")
+    if route == "plan" and "research" in m:
+        # A research-class sizing ends in a research run, not a plan; no review follows it.
+        route = "research"
     fork = m.get("fork")
     xl_exit = m.get("xl_exit")
     detents = m.get("detents")
@@ -348,6 +356,64 @@ def _discharge_matching(session_id: str, tool_name, tool_input) -> None:
             return
 
 
+_PICKUP_BIN = r"(?<![\w.-])pickup-assemble(?:\.exe)?[\"']?"
+_PICKUP_DROP_RE = re.compile(_PICKUP_BIN + r"\s+drop\b")
+_PICKUP_RESOLVE_RE = re.compile(
+    _PICKUP_BIN + r"\s+(?:brief|apply)\b[^\n|;&]*?\s--decisions(?:-file)?\b"
+)
+_PICKUP_BRIEF_RE = re.compile(_PICKUP_BIN + r"\s+brief\b")
+
+
+def _bash_stdout(tool_response) -> str:
+    if isinstance(tool_response, str):
+        return tool_response
+    if isinstance(tool_response, dict):
+        out = tool_response.get("stdout")
+        return out if isinstance(out, str) else ""
+    return ""
+
+
+def _brief_is_stand_down(stdout: str) -> bool:
+    """True when `stdout` is a `pickup-assemble brief` decision object that stands down:
+    `directives: []` with a foreign holder in `gates.claim_grant`."""
+    try:
+        decision = json.loads(stdout)
+    except ValueError:
+        return False
+    if isinstance(decision, list):
+        decision = decision[0] if len(decision) == 1 else None
+    if not isinstance(decision, dict) or decision.get("directives") != []:
+        return False
+    gates = decision.get("gates")
+    grant = gates.get("claim_grant") if isinstance(gates, dict) else None
+    if not isinstance(grant, dict):
+        return False
+    return bool(grant.get("holder")) and not grant.get("held_by_self")
+
+
+def _is_pickup_stand_down(command, tool_response) -> bool:
+    """Observable evidence that a pickup stood down: a Bash `pickup-assemble drop`, a
+    judgment point resolved through `--decisions`/`--decisions-file`, or a brief re-run
+    whose output stands down on a foreign claim holder. Any other Bash is not evidence."""
+    if not isinstance(command, str):
+        return False
+    if _PICKUP_DROP_RE.search(command) or _PICKUP_RESOLVE_RE.search(command):
+        return True
+    return bool(_PICKUP_BRIEF_RE.search(command)) and _brief_is_stand_down(
+        _bash_stdout(tool_response)
+    )
+
+
+def _discharge_pickup_stand_down(session_id: str) -> None:
+    for record in _ledger.read_records(session_id):
+        if record.get("discharged_at") is not None:
+            continue
+        obligation_id = record.get("obligation_id")
+        if obligation_id == _SEAM_PICKUP_NEXT_MOVE:
+            _ledger.discharge_obligation(session_id, obligation_id)
+            return
+
+
 def _handle_post_tool_use(payload: dict) -> None:
     if payload.get("agent_id"):
         return  # a subagent's own tool call, not the EM's
@@ -369,6 +435,10 @@ def _handle_post_tool_use(payload: dict) -> None:
     except Exception:  # noqa: BLE001
         pass
     _discharge_matching(session_id, tool_name, tool_input)
+    if tool_name == "Bash" and _is_pickup_stand_down(
+        tool_input.get("command"), payload.get("tool_response")
+    ):
+        _discharge_pickup_stand_down(session_id)
 
     if tool_name != "Skill":
         return

@@ -126,6 +126,8 @@ with `%(trailers:key=Fixes-Row,valueonly)`; empty → the line didn't take, repo
 **Before calling an unexpected commit-time state a peer's**, compare `HEAD`'s `Session-Id` with
 the brief's; a match is your own EM's prior work.
 
+**`Co-Authored-By:` is stamped from the brief, never from your own reminder.** Its value is the one the dispatching EM passes, taken from the EM session's attribution; your own attribution reminder names your model, not the EM's. Shape 2: `--trailer "Co-Authored-By: <value>"` before the `--`. Shape 1: the message's last paragraph. None in the brief: commit without the trailer and report it omitted. Never fill it from your own reminder.
+
 **The subject has provenance too, and yours is the brief.** Commit exactly the subject handed to
 you. Never compose one, substitute a placeholder, or use a working title.
 

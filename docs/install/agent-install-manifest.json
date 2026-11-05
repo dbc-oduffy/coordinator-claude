@@ -51,10 +51,10 @@
       "reference": "coordinator/docs/wiki/mcp-topology.md"
     },
     {
-      "id": "notebooklm-mcp",
+      "id": "gemini-notebook-mcp",
       "kind": "external_server",
       "tier": "advisory",
-      "description": "External MCP server notebooklm-mcp, served by the PyPI package notebooklm-mcp-cli (CLI: nlm), registered at user scope under the pinned key notebooklm-mcp, exposing tools under the mcp__notebooklm-mcp__ prefix.",
+      "description": "External MCP server gemini-notebook-mcp (CLI: nlm), installed and registered by its own upstream setup under the key gemini-notebook-mcp, exposing tools under the mcp__gemini-notebook-mcp__ prefix.",
       "why": "Powers deep-research Pipeline D; pipelines A/B/C are unaffected without it.",
       "probe": {
         "kind": "command_succeeds",
@@ -64,7 +64,7 @@
       },
       "install": {
         "mode": "manual",
-        "remediation": "install: uv tool install notebooklm-mcp-cli (requires uv/uvx), then nlm login (a browser flow), then claude mcp add -s user notebooklm-mcp -- notebooklm-mcp to register under the pinned key (never nlm setup add claude-code, whose key varies by version; remove a gemini-notebook-mcp entry). The install command performs the first and last."
+        "remediation": "install and register per the upstream README, https://github.com/jacob-bd/gemini-notebook-mcp-cli (install, nlm login and its own setup; no venv required). The install command runs none of it."
       },
       "reference": "coordinator/docs/wiki/mcp-topology/notebooklm-for-your-research.md"
     }

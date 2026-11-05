@@ -166,6 +166,8 @@ _BOOTSTRAPPED_NAMES = (
     "split_inclusion_exclusion",
     "_CLOSURE_PACKAGE_NAME",
     "find_import_closure_violations",
+    "find_commit_from_import_name_violations",
+    "CommitReadError",
     "bin_lib_imports",
     "check_plugin_payload",
     "format_plugin_payload_failures",
@@ -243,6 +245,16 @@ def _bootstrap_engine() -> None:
             PACKAGE_NAME as _CLOSURE_PACKAGE_NAME,
             find_import_closure_violations,
         )
+        # A pinned lib older than the commit-name gate lacks these two; None is the
+        # sentinel `_commit_import_name_gate` reads to skip rather than crash the boot.
+        try:
+            from percolate.import_closure import (  # noqa: E402
+                CommitReadError,
+                find_commit_from_import_name_violations,
+            )
+        except ImportError:
+            CommitReadError = None
+            find_commit_from_import_name_violations = None
         from percolate import bin_lib_imports  # noqa: E402
         from percolate.doc_path_refs import (  # noqa: E402
             check_payload as check_plugin_payload,
@@ -1343,6 +1355,7 @@ def _resolve_identity_checker_source_script(
     engine_claude_klabauter: Any,
     store: dict,
     percolate_root: Optional[Path],
+    round_pinned_shas: "Optional[dict[str, str]]" = None,
 ) -> Optional[Path]:
     """Locate THIS RUN's source-of-truth for `.github/scripts/
     check-persona-names.py`, independent of which row `dispatch_percolate_pre_ci`
@@ -1373,6 +1386,9 @@ def _resolve_identity_checker_source_script(
         except KeyError:
             continue
         section = _resolve_inject_src_placeholders(section, percolate_root)
+        # The refresh is written into the tree this round commits, so it must be the pinned
+        # commit's bytes, never the live working tree's (eabd6aadea shipped HEAD's checker).
+        section = _materialize_inject_srcs(section, percolate_root, round_pinned_shas)
         for entry in section.get("inject") or []:
             dst = str(entry.get("dst", "")).strip("/")
             required_children = entry.get("required_children") or []
@@ -1478,6 +1494,7 @@ def dispatch_percolate_pre_ci(
     percolate_root: Optional[Path] = None,
     written_paths: Optional[frozenset] = None,
     scope: str = "full",
+    round_pinned_shas: "Optional[dict[str, str]]" = None,
 ) -> None:
     """pre_ci phase — final class-(b) guard/assert checks (§ engine.py
     `run_pre_ci`), run LAST, after `dispatch_percolate_inject` has landed any
@@ -1656,7 +1673,7 @@ def dispatch_percolate_pre_ci(
     # this round's own end-of-run leg does not already cover.
     if scan_dest == target.dest_dir and scope != "staged":
         source_checker_script = _resolve_identity_checker_source_script(
-            engine_claude_klabauter, engine_ctx.store, percolate_root
+            engine_claude_klabauter, engine_ctx.store, percolate_root, round_pinned_shas
         )
         currency_note = _refresh_identity_checker_at_dest(scan_dest, source_checker_script)
         # Surfaced on every run, not only a failing identity check: a refresh
@@ -1799,6 +1816,7 @@ def dispatch_end_of_run_identity_check(
     rows_by_repo_root: "Optional[dict[Path, List[ResolvedTarget]]]" = None,
     skipped_row_names: "Optional[List[str]]" = None,
     out: IO[str] = sys.stdout,
+    round_pinned_shas: "Optional[dict[str, str]]" = None,
 ) -> bool:
     """Run `<repo root>/.github/scripts/check-persona-names.py` ONCE per
     distinct destination repo root touched by this `main()` invocation,
@@ -1881,7 +1899,7 @@ def dispatch_end_of_run_identity_check(
     ok = True
     for repo_root in repo_roots:
         source_checker_script = _resolve_identity_checker_source_script(
-            engine_claude_klabauter, engine_ctx.store, percolate_root
+            engine_claude_klabauter, engine_ctx.store, percolate_root, round_pinned_shas
         )
         currency_note = _refresh_identity_checker_at_dest(repo_root, source_checker_script)
         print(f"  end-of-run identity check ({repo_root}): checker currency: {currency_note}", file=sys.stderr)
@@ -3448,6 +3466,120 @@ def dispatch_end_of_run_live_identifier_gate(
     return ok
 
 
+def _load_repo_key_literals():
+    """The census is driver policy, not engine code: a `--commit` pin older than the
+    module must still be judged, so fall back to this driver's own pure-stdlib copy."""
+    try:
+        from coordinator_core.percolate import repo_key_literals  # type: ignore[import-not-found]
+        return repo_key_literals
+    except ImportError:
+        path = _REPO_ROOT / "coordinator_core" / "percolate" / "repo_key_literals.py"
+        spec = importlib.util.spec_from_file_location("_driver_repo_key_literals", path)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+
+_REPO_KEY_WAIVERS_PATH = Path(__file__).resolve().parent / "repo-key-literal-waivers.json"
+
+
+def _load_repo_key_waivers(path: Path = _REPO_KEY_WAIVERS_PATH) -> "dict[tuple, str]":
+    """Exact-match waivers: row, path, literal and both counts. Any drift beyond a
+    recorded entry, including a count change on a waived literal, still fails."""
+    if not path.is_file():
+        return {}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return {
+        (w["row"], w["path"], w["literal"], int(w["source"]), int(w["published"])): data["ruling"]
+        for w in data["waivers"]
+    }
+
+
+def dispatch_end_of_run_repo_key_literal_gate(
+    engine_ctx: PercolateEngineContext,
+    row_sections: "List[tuple]",
+) -> bool:
+    """Every `repos.<key>` / `REPO_*` registry-key string constant in the source
+    survives the row's content transform byte-identically or under
+    `INTENDED_RENAMES` (`coordinator_core/percolate/repo_key_literals.py`), and the
+    published file set's bare quoted codename residual count is reported and bounded by
+    `CODENAME_RESIDUAL_BASELINE` (the count at `CODENAME_BASELINE_REF`); files the
+    row's allowlist withholds are not counted.
+    Separate from, and stricter than, the live-identifier gate above, which only knows its own
+    IDENTITY_TARGETS.
+
+    Not the dormant `dispatch_end_of_run_functional_identifier_output_drift_check`:
+    that one needs the swapped `dest_dir` and an unmeasured baseline; this one
+    reads the row's transform over `source_dir`. FAIL-HARD; never raises.
+    """
+    assert engine_ctx.engine_claude_klabauter is not None  # narrowed by caller (never called under dry-run)
+    try:
+        from coordinator_core.percolate import engine as _pct_engine  # type: ignore[import-not-found]
+        _rkl = _load_repo_key_literals()
+        waivers = _load_repo_key_waivers()
+    except Exception as exc:  # noqa: BLE001 - AC15 fail-closed
+        print(f"  Error: end-of-run repo-key-literal gate could not load: {exc}", file=sys.stderr)
+        return False
+    ok = True
+    for target, section in row_sections:
+        if not target.source_dir.is_dir():
+            continue
+        try:
+            params = _pct_engine._resolve_transform_params(section)  # noqa: SLF001 - the row's real transform
+
+            def _transform(text: str, rel: str, _params=params) -> str:
+                return _pct_engine._apply_content_transforms(text, _params, rel)  # noqa: SLF001
+
+            hits = _rkl.drifted_in_tree(target.source_dir, _transform)
+            # The baseline is measured on the klabauter export only; other rows (the
+            # doctrine plugin names claude-klabauter as its prereq) carry codenames by design.
+            codename_hits = _rkl.codename_hits_in_tree(
+                target.source_dir,
+                _transform,
+                (lambda rels, _t=target: _paths_the_row_allowlist_denies(_t, rels))
+                if getattr(target, "allowlist", "")
+                else None,
+            ) if target.name.startswith("claude-klabauter") else []
+            baseline = _rkl.CODENAME_RESIDUAL_BASELINE
+            ref = _rkl.CODENAME_BASELINE_REF
+        except Exception as exc:  # noqa: BLE001 - AC15 fail-closed
+            print(
+                f"  Error: end-of-run repo-key-literal gate raised for {target.name}: {exc}",
+                file=sys.stderr,
+            )
+            ok = False
+            continue
+        n = len(codename_hits)
+        if target.name.startswith("claude-klabauter"):
+            print(f"  codename residuals for {target.name}: {n} (baseline {baseline} at {ref})")
+        if n > baseline:
+            print(
+                f"  Error: end-of-run codename residual gate FAILED for {target.name}: {n} bare "
+                f"quoted codename(s) in the published set, above the baseline {baseline}",
+                file=sys.stderr,
+            )
+            for rel_path, literal in codename_hits:
+                print(f"    {rel_path}: {literal}", file=sys.stderr)
+            ok = False
+        waived = [h for h in hits if (target.name, *h) in waivers]
+        hits = [h for h in hits if (target.name, *h) not in waivers]
+        for rel_path, literal, src_n, pub_n in waived:
+            print(f"  repo-key-literal gate WAIVED for {target.name}: {rel_path}: {literal!r} "
+                  f"source x{src_n} -> published x{pub_n} ({waivers[(target.name, rel_path, literal, src_n, pub_n)]})")
+        if hits:
+            print(
+                f"  Error: end-of-run repo-key-literal gate FAILED for {target.name}: the publish "
+                f"changed {len(hits)} registry repo-key literal(s) -- add each to "
+                "base.protected_literals:",
+                file=sys.stderr,
+            )
+            for rel_path, literal, src_n, pub_n in hits:
+                print(f"    {rel_path}: {literal!r} source x{src_n} -> published x{pub_n}", file=sys.stderr)
+            ok = False
+    return ok
+
+
 _INSTALL_DOC_PAYLOAD_CHECK_PATH = Path(__file__).resolve().parent / "check-install-doc-payload.py"
 
 
@@ -3951,6 +4083,13 @@ def dispatch_end_of_run_plugin_payload_gate(
             )
             for line in format_plugin_payload_failures(docs, imports, plan):
                 print(f"    {line}", file=err)
+            shadowed = sorted({f for r in rows for f in _SHADOWED_FILES_BY_ROW.get(r.name, [])})
+            for line in _shadowed_file_hits(shadowed, docs, imports):
+                print(
+                    f"    source_map shadowing: {line} -- dropped by a source_map override; "
+                    "carry the file into the source_map root",
+                    file=err,
+                )
             print(
                 "  Remedy: carry the missing file/module in some row targeting this dest "
                 "(allowlist or source_map), or fix the doc/import that names it.",
@@ -5271,12 +5410,66 @@ def _is_engine_forward_stub(path: Path) -> bool:
     return "_engine_forward" in text and "Edit in claude-klabauter" in text
 
 
+#: Row name -> files `_source_map_shadowed_files` found dropped, recorded by `assert_authored_parity`
+#: (per row, pre-assembly) and cross-referenced by `dispatch_end_of_run_plugin_payload_gate`.
+_SHADOWED_FILES_BY_ROW: "dict[str, list[str]]" = {}
+
+
+def _source_map_shadowed_files(target: ResolvedTarget) -> "list[str]":
+    """Files under `target.source_dir/<entry>` (entry in bin, lib) that a `source_map` override
+    routing `<entry>` to another root drops: present in the row's own source, absent at
+    `root/<entry>`. Paths are `source_dir`-relative, posix, sorted. Walks the filesystem (no git
+    spawn); build artifacts (`__pycache__`, `.pyc`) are not files the row publishes."""
+    routed = _parse_source_map(target.source_map)
+    shadowed: "list[str]" = []
+    for entry in ("bin", "lib"):
+        root = routed.get(entry)
+        if root is None or root == target.source_dir:
+            continue
+        base = target.source_dir / entry
+        if not base.is_dir():
+            continue
+        for path in sorted(base.rglob("*")):
+            if not path.is_file() or "__pycache__" in path.parts or path.suffix == ".pyc":
+                continue
+            rel = path.relative_to(target.source_dir)
+            if not (root / rel).exists():
+                shadowed.append(rel.as_posix())
+    return shadowed
+
+
+def _shadowed_file_hits(shadowed: "list[str]", docs, imports) -> "list[str]":
+    """Attribution lines for each doc-ref / import finding that names a file in `shadowed`.
+    A doc ref names the file by path; an import names the top-level module, i.e. the file stem
+    or the package directory under `bin/`/`lib/`."""
+    hits: "list[str]" = []
+    for rel in shadowed:
+        parts = Path(rel).parts
+        module = parts[1][:-3] if len(parts) == 2 and parts[1].endswith(".py") else parts[1]
+        for doc, ref in docs:
+            if ref == rel or ref.endswith("/" + rel):
+                hits.append(f"{rel}: referenced by {doc}")
+        for src, name in imports:
+            if name == module:
+                hits.append(f"{rel}: imported by {src}")
+    return hits
+
+
 def assert_authored_parity(target: ResolvedTarget) -> None:
     """Fail the row when a file matching `_AUTHORED_PARITY_GLOBS` in `target.source_dir`
     differs from (or is missing at) the contributing root its entry is routed to by
     `source_map`. Single-source rows and unrouted entries publish the authored file
     itself, so they pass by construction. Raises `EngineUnavailableError`, the row's
-    fail-closed refusal."""
+    fail-closed refusal. Also prints, never refuses on, the row-source bin/lib files the
+    `source_map` drops (`_source_map_shadowed_files`); the end-of-run payload gate refuses
+    when one is imported or doc-referenced."""
+    shadowed = _source_map_shadowed_files(target)
+    _SHADOWED_FILES_BY_ROW[target.name] = shadowed
+    if shadowed:
+        print(
+            f"  source_map shadowing: {target.name} drops {len(shadowed)} row-source bin/lib "
+            f"file(s) its source_map roots do not carry: {', '.join(shadowed)}",
+        )
     routed = _parse_source_map(target.source_map)
     drift: "list[str]" = []
     for pattern in _AUTHORED_PARITY_GLOBS:
@@ -5500,6 +5693,8 @@ def write_publish_provenance_record(
                 set(succeeded_row_names) | set(failed_row_names) | set(skipped_row_names)
             ),
         }
+        if _MID_STAGE_OVERRIDE:
+            record["override"] = {"at": now, **_MID_STAGE_OVERRIDE}
         record_path = _publish_provenance_record_path()
         record_path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = record_path.with_name(record_path.name + f".tmp-{os.getpid()}")
@@ -6087,6 +6282,45 @@ def _narrow_allowlist_to_shadow(
     return ",".join(kept)
 
 
+def _commit_import_name_gate(
+    target: "ResolvedTarget",
+    sha: str,
+    *,
+    out: IO[str] = sys.stdout,
+    err: IO[str] = sys.stderr,
+) -> bool:
+    """Fail-closed preflight: every level-0 `from coordinator_core[.X] import a`
+    in the published roots must resolve against the blobs of `sha`, never the
+    worktree. Prints the examined-file denominator; False refuses the row."""
+    _bootstrap_engine()
+    if find_commit_from_import_name_violations is None or CommitReadError is None:
+        print(
+            f"  Commit import-name gate: skipped, the pinned percolate lib @ {sha} predates it.",
+            file=out,
+        )
+        return True
+    try:
+        examined, violations = find_commit_from_import_name_violations(target.source_dir.parent, sha)
+    except CommitReadError as exc:
+        print(f"  Error: commit import-name gate could not read {sha}: {exc}", file=err)
+        return False
+    print(
+        f"  Commit import-name gate: {len(violations)} violation(s) over {examined} importer file(s) examined @ {sha}.",
+        file=out,
+    )
+    if not violations:
+        return True
+    print(
+        f"  Error: {len(violations)} from-import name(s) do not resolve in commit {sha} — "
+        "the importer ships, the name exists only uncommitted:",
+        file=err,
+    )
+    for importer, entry in violations:
+        print(f"    {importer}: {entry}", file=err)
+    print("  Remedy: commit the file or hunk that defines each name, then republish.", file=err)
+    return False
+
+
 def run_pre_sync_gates(
     target: ResolvedTarget,
     setup_dir: Path,
@@ -6408,6 +6642,22 @@ def run_pre_sync_gates(
             shutil.rmtree(restricted_tmp_src, ignore_errors=True)
             print("", file=out)
             return GateResult(proceed=False, source_dir=target.source_dir, shadow_roots=tuple(shadow_toplevels))
+
+        # From-import name gate: names resolve in the pinned commit's blobs, not the worktree.
+        if target.source_dir.name == _CLOSURE_PACKAGE_NAME and only_paths is None:
+            try:
+                name_gate_sha = root_shas.get(target.source_dir) or _round_pin_source_sha(
+                    target.source_dir, round_pinned_shas, out=out, late=True
+                )
+            except GitMaterializeError as exc:
+                print(f"  Error: commit import-name gate cannot pin a commit — {exc}", file=err)
+                name_gate_sha = None
+            if name_gate_sha is None:
+                print(f"  Error: commit import-name gate refused {target.name}: no commit to read.", file=err)
+            if name_gate_sha is None or not _commit_import_name_gate(target, name_gate_sha, out=out, err=err):
+                shutil.rmtree(restricted_tmp_src, ignore_errors=True)
+                print("", file=out)
+                return GateResult(proceed=False, source_dir=target.source_dir, shadow_roots=tuple(shadow_toplevels))
 
         # Bin-to-lib import gate: a published bin script importing a lib module the lib row
         # withholds is dead on every forwarding host. Fail-closed, no override.
@@ -11382,6 +11632,9 @@ def process_target(
             dry_run=dry_run,
             round_pinned_shas=round_pinned_shas,
             out=out,
+            # Trap: the default binds the stderr live when publish.py loaded; the row's reason tee
+            # is the redirected one, so a gate's Error line went nowhere and the row read as unexplained.
+            err=sys.stderr,
             **({"source_shadow": source_shadow, "only_paths": only_paths} if source_shadow is not None else {}),
         )
     if not gate_result.proceed:
@@ -12004,6 +12257,7 @@ def process_target(
                         identity_dest_dir=target.dest_dir,
                         percolate_root=setup_dir.parent,
                         written_paths=_staged_rel_ids(row_visited, sync_target.dest_dir),
+                        round_pinned_shas=round_pinned_shas,
                         **engine_scope_kwargs,
                     )
             except EngineUnavailableError as exc:
@@ -12417,6 +12671,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "The parent driver (e.g. `percolate-mirror.py`) passes its own "
             "already-resolved root here so a child `publish.py` invocation "
             "never silently re-resolves a different one."
+        ),
+    )
+    p.add_argument(
+        "--swap-over-mid-stage-runs",
+        metavar="REASON",
+        type=_swap_reason_arg,
+        default=None,
+        help=(
+            "One-shot: when the warm-handover hold ends with runs still mid-stage, publish "
+            "anyway instead of refusing. The hold still waits its full bound and still names "
+            "the runs; the publish provenance record gains an `override` object. REASON is "
+            "required and non-empty."
         ),
     )
     return p
@@ -13541,6 +13807,150 @@ def _plugin_version_stamp_gate_staged(
     return True
 
 
+class _QuiesceRefused(Exception):
+    """The warm engine under a destination could not be quiesced; the message is the FATAL text."""
+
+
+#: Set by `_main` from `--swap-over-mid-stage-runs` only; empty means the hold refuses as always.
+#: Never read from env or config: the override is per invocation, by flag, with a reason.
+_MID_STAGE_OVERRIDE: "dict[str, Any]" = {}
+
+
+def _swap_reason_arg(raw: str) -> str:
+    if not raw.strip():
+        raise argparse.ArgumentTypeError("--swap-over-mid-stage-runs needs a non-empty reason")
+    return raw.strip()
+
+
+def _swap_over_mid_stage(runs: "Sequence[Any]", held_s: float) -> bool:
+    """True when the override is active: the runs still mid-stage after the hold are recorded for the
+    provenance record and the caller proceeds instead of refusing. False leaves the refusal intact."""
+    if not _MID_STAGE_OVERRIDE:
+        return False
+    from coordinator_core.warm import live_runs as _live_runs
+
+    seen = _MID_STAGE_OVERRIDE["mid_stage_runs"]
+    for run in runs:
+        entry = {"run_id": run.run_id, "repo": run.repo}
+        if entry not in seen:
+            seen.append(entry)
+    _MID_STAGE_OVERRIDE.setdefault("at", datetime.now(timezone.utc).isoformat())
+    print(
+        f"[publish.py] WARNING: --swap-over-mid-stage-runs: proceeding over mid-stage runs "
+        f"({_MID_STAGE_OVERRIDE['reason']}):\n{_live_runs.format_refusal(list(runs), held_s)}",
+        file=sys.stderr,
+    )
+    return True
+
+
+@contextlib.contextmanager
+def _quiesced_engine_roots(roots: "Sequence[Path]"):
+    """Hold publish.marker and stop the warm pair for each engine root across the body, then
+    release every marker; a body that completes first starts the successor pair under the held
+    markers and waits for it to answer. Raises `_QuiesceRefused` before the body runs when a root cannot be
+    stopped, so nothing lands. Empty `roots` is a no-op."""
+    if not roots:
+        yield
+        return
+    from coordinator_core.warm import pair_stop as _pair_stop
+    from coordinator_core.session.core import (
+        MissingPsutilError as _MissingPsutilError,
+        _WinLivenessAmbiguous,
+    )
+    from coordinator_core.warm.breadcrumb import hold_handover_pending, hold_publish_marker
+    from coordinator_core.warm import live_runs as _live_runs
+
+    with contextlib.ExitStack() as stack:
+        # The handover-pending hold spans drain, stop and swap, so a new leg queues at admission
+        # while only the legs already in flight are waited on; a staged run between legs does not
+        # hold the stop. A lapsed drain refuses unless the operator override is active.
+        for _lock_root in roots:
+            stack.enter_context(hold_handover_pending(Path(_lock_root)))
+        for _lock_root in roots:
+            _mid_stage, _held_s = _live_runs.drain_for_handover(Path(_lock_root))
+            if _mid_stage and not _swap_over_mid_stage(_mid_stage, _held_s):
+                raise _QuiesceRefused(_live_runs.format_refusal(_mid_stage, _held_s) + "\nnot copying")
+        for _lock_root in roots:
+            # Slow teardown is absorbed here, before the marker degrades hooks: the marker is
+            # taken only once the pair is confirmed gone, and the stop under it mops up respawns.
+            try:
+                _pre_result = _pair_stop.stop_warm_pair(Path(_lock_root))
+            except (_MissingPsutilError, _WinLivenessAmbiguous, OSError) as exc:
+                raise _QuiesceRefused(
+                    f"could not quiesce the warm engine under {_lock_root} ({exc!r}); not copying"
+                ) from exc
+            # Only a pid the pre-stop failed to end refuses here; a respawn is the marked stop's.
+            if _pre_result.stuck():
+                raise _QuiesceRefused(
+                    f"warm engine still alive under {_lock_root}; not copying:\n"
+                    f"{_pre_result.render_survivors()}"
+                )
+            try:
+                stack.enter_context(
+                    hold_publish_marker(Path(_lock_root), holder=f"publish.py:{os.getpid()}")
+                )
+                # Zero-wait drain with the marker held and immediately before the stop: a leg that
+                # started after the drain above refuses here without a wait.
+                _live, _ = _live_runs.drain_for_handover(Path(_lock_root), bound_s=0.0)
+                if _live and not _swap_over_mid_stage(_live, 0.0):
+                    raise _QuiesceRefused(_live_runs.format_refusal(_live) + "\nnot copying")
+                _blocked = _pair_stop.probe_pair_terminable(Path(_lock_root))
+                if _blocked:
+                    _blocked_text = "\n".join(
+                        f"  pid={_pid} role={_role} {_why}" for _pid, _role, _why in _blocked
+                    )
+                    raise _QuiesceRefused(
+                        f"warm engine processes under {_lock_root} cannot be "
+                        f"stopped; nothing stopped, not copying:\n{_blocked_text}"
+                    )
+                _pair_result = _pair_stop.stop_warm_pair(Path(_lock_root))
+            except (_MissingPsutilError, _WinLivenessAmbiguous, OSError) as exc:
+                raise _QuiesceRefused(
+                    f"could not quiesce the warm engine under {_lock_root} ({exc!r}); not copying"
+                ) from exc
+            if not _pair_result.ok():
+                raise _QuiesceRefused(
+                    f"warm engine still alive under {_lock_root}; not copying:\n"
+                    f"{_pair_result.render_survivors()}"
+                )
+        yield
+        # Body done (copy complete): start and await the successor pair under the still-held
+        # markers; a raising body skips this and releases without a spawn.
+        from coordinator_core.percolate.round import start_successor_pair_in_hold as _start_pair
+
+        for _lock_root in roots:
+            _start_pair(Path(_lock_root))
+
+
+def _notify_land_event(event: str, round_id: str, repo_names: "Sequence[str]") -> None:
+    """Send `event` to the live subscribers; one stderr line per failed delivery, never raises."""
+    try:
+        from coordinator_core.percolate import land_notify as _land_notify  # noqa: PLC0415
+
+        results = _land_notify.notify(event, round_id, list(repo_names))
+    except Exception as exc:  # noqa: BLE001 - a notice never fails the publish
+        results = [{"session_id": None, "ok": False, "error": f"{type(exc).__name__}: {exc}"}]
+    for res in results:
+        if not res.get("ok"):
+            print(
+                f"[publish.py] land-notify {event} to {res.get('session_id')} failed: {res.get('error')}",
+                file=sys.stderr,
+            )
+
+
+@contextlib.contextmanager
+def _land_notices(active: bool, round_id: str, repo_names: "Sequence[str]"):
+    """Send `pre-land` on entry and `landed` on exit, the exit also when the body raises. Inactive is a no-op."""
+    if not active:
+        yield
+        return
+    _notify_land_event("pre-land", round_id, repo_names)
+    try:
+        yield
+    finally:
+        _notify_land_event("landed", round_id, repo_names)
+
+
 @dataclass
 class _SlotGate:
     """Outcome of `_hold_publish_slots`: `exit_code` set means refuse; `tokens` maps a slotted
@@ -13890,6 +14300,7 @@ def _run_round(
                 percolate_root=percolate_root,
                 rows_by_repo_root=gate_rows_by_root,
                 skipped_row_names=skipped_row_names,
+                round_pinned_shas=round_pinned_shas,
             )
         with _time_phase(round_timings, "<round>", "dispatch_end_of_run_install_doc_payload_check"):
             install_doc_ok = dispatch_end_of_run_install_doc_payload_check(
@@ -13944,6 +14355,8 @@ def _run_round(
                 _skipped("entrypoint gate", "needs the assembled tree; this repo's tests and the candidate's CI cover it")
         with _time_phase(round_timings, "<round>", "dispatch_end_of_run_live_identifier_gate"):
             live_identifier_ok = dispatch_end_of_run_live_identifier_gate(engine_ctx, end_of_run_row_sections)
+        with _time_phase(round_timings, "<round>", "dispatch_end_of_run_repo_key_literal_gate"):
+            repo_key_literal_ok = dispatch_end_of_run_repo_key_literal_gate(engine_ctx, end_of_run_row_sections)
         with _time_phase(round_timings, "<round>", "dispatch_end_of_run_argv_parity_gate"):
             argv_parity_ok = dispatch_end_of_run_argv_parity_gate(cold_gate_roots, target_filtered=target_filtered)
             if warm_gate_roots:
@@ -13973,6 +14386,7 @@ def _run_round(
             and entrypoint_gate_ok
             and door_rebuild_ok
             and live_identifier_ok
+            and repo_key_literal_ok
             and argv_parity_ok
         )
         if not gates_ok:
@@ -13985,129 +14399,157 @@ def _run_round(
         commit_ran = False
         commit_ok = True
         uncommitted_after_commit: "set[Path]" = set()
-        swap_ran = bool(gates_ok and staged_by_repo_root)
+        from coordinator_core.warm import engine_root as _warm_engine_root  # noqa: PLC0415
+
+        # A refused row lands nothing into an engine root: the land window is the only thing that
+        # stops the warm pair, so it opens only for a round no gate or row refused.
+        landing_by_repo_root = staged_by_repo_root
+        if gates_ok and failed_row_names:
+            landing_by_repo_root = {}
+            for repo_root, staged_rows in staged_by_repo_root.items():
+                if not _warm_engine_root.is_engine_root(repo_root):
+                    landing_by_repo_root[repo_root] = staged_rows
+                    continue
+                for target, _staged in staged_rows:
+                    print(
+                        f"  Not landing {target.name} into engine root {repo_root}: "
+                        f"{len(failed_row_names)} row(s) refused ({', '.join(failed_row_names)}).",
+                        file=sys.stderr,
+                    )
+                    if target.name in succeeded_row_names:
+                        succeeded_row_names.remove(target.name)
+                    if target.name not in failed_row_names:
+                        failed_row_names.append(target.name)
+                    failed_dest_dirs_by_repo_root.setdefault(repo_root, set()).add(target.dest_dir)
+        swap_ran = bool(gates_ok and landing_by_repo_root)
         if swap_ran:
             commit_now = bool(args.commit and succeeded_row_names)
             round_id = f"publish-{uuid.uuid4().hex}"
-            pre_land_head = {root: _git_head(root) for root in staged_by_repo_root if _is_git_repo(root)}
+            pre_land_head = {root: _git_head(root) for root in landing_by_repo_root if _is_git_repo(root)}
             commit_ran = commit_now
             if commit_now:
                 print("=== publish.py — commit ===")
-            for repo_root, staged_rows in staged_by_repo_root.items():
-                u = unions[repo_root]
-                root_ok_names = [t.name for t in targets_by_root[repo_root] if t.name in succeeded_row_names]
-                fully = _root_fully_published(repo_root, succeeded_row_names, rows_feeding)
-                head_sha = u.plan.head if len(u.plan.head) == 40 else ""
-                stamped = fully and bool(head_sha) and bool(u.plan.signature)
-                outcome = None
-                land_exc: "Optional[Exception]" = None
-                if u.survivors or u.deletions or u.converge:
-                    message = _sync_commit_message(
-                        repo_root.name,
-                        root_ok_names,
-                        sorted(u.survivors),
-                        u.deletions,
-                        _source_sha_suffix(round_pinned_shas, source_head=head_sha) if fully else "",
-                    ) + format_publish_trailers(
-                        round_id=round_id,
-                        source_head=head_sha if stamped else None,
-                        signature=u.plan.signature if stamped else None,
-                    )
-                    try:
-                        if slot_gate is not None:
-                            from coordinator_core.percolate import publish_slot as _slot  # noqa: PLC0415
 
-                            if repo_root in slot_gate.tokens:
-                                _slot.confirm_slot(repo_root, slot_gate.tokens[repo_root])
-                            message = _slot.append_slot_trailers(
-                                message,
-                                holder=slot_gate.tokens.get(repo_root),
-                            )
-                        outcome = land_diff(
-                            repo_root,
-                            list(u.survivors.values()) + u.converge,
+            with _land_notices(
+                commit_now, round_id, [r.name for r in landing_by_repo_root]
+            ), _quiesced_engine_roots(
+                [r for r in landing_by_repo_root if _warm_engine_root.is_engine_root(r)]
+            ):
+                for repo_root, staged_rows in landing_by_repo_root.items():
+                    u = unions[repo_root]
+                    root_ok_names = [t.name for t in targets_by_root[repo_root] if t.name in succeeded_row_names]
+                    fully = _root_fully_published(repo_root, succeeded_row_names, rows_feeding)
+                    head_sha = u.plan.head if len(u.plan.head) == 40 else ""
+                    stamped = fully and bool(head_sha) and bool(u.plan.signature)
+                    outcome = None
+                    land_exc: "Optional[Exception]" = None
+                    if u.survivors or u.deletions or u.converge:
+                        message = _sync_commit_message(
+                            repo_root.name,
+                            root_ok_names,
+                            sorted(u.survivors),
                             u.deletions,
-                            message,
-                            commit=commit_now,
-                            derived=frozenset({_EXPECTED_MANIFEST_REL}).union(
-                                rel for rel in u.survivors if rel.rsplit("/", 1)[-1] in _ROUND_DERIVED_BASENAMES
-                            ),
-                        )
-                    except Exception as exc:  # noqa: BLE001 - root isolation, recorded not raised
-                        land_exc = exc
-                if land_exc is not None:
-                    if commit_now:
-                        commit_ok = False
-                    for target, _staged in staged_rows:
-                        print(f"  Error: landing {target.name} failed: {land_exc!r}", file=sys.stderr)
-                        if target.name in succeeded_row_names:
-                            succeeded_row_names.remove(target.name)
-                        failed_row_names.append(target.name)
-                        failed_dest_dirs_by_repo_root.setdefault(repo_root, set()).add(target.dest_dir)
-                    continue
-
-                for target, staged in staged_rows:
-                    sys.stdout.write(staged.report_text)
-                    totals.synced += staged.synced
-                    totals.deleted += staged.deleted
-                    end_of_run_visited_by_repo_root.setdefault(repo_root, set()).update(
-                        target.dest_dir / rel for rel in staged.row_visited
-                    )
-                    end_of_run_published_dest_dirs_by_repo_root.setdefault(repo_root, set()).add(target.dest_dir)
-                    end_of_run_published_files_by_repo_root.setdefault(repo_root, set()).update(
-                        staged.row_published_files
-                    )
-                for target in targets_by_root[repo_root]:
-                    if target.name in succeeded_row_names:
-                        write_lastsync_marker(
-                            setup_dir,
-                            target.name,
-                            target.dest_dir,
-                            dry_run=False,
-                            precomputed_head=pre_land_head.get(repo_root),
-                        )
-
-                written = tuple(outcome.written) if outcome is not None else ()
-                deleted = tuple(outcome.deleted) if outcome is not None else ()
-                from coordinator_core.percolate.manifest import RoundManifest as _RoundManifest  # noqa: PLC0415
-                from coordinator_core.percolate.manifest import write_manifest as _write_manifest  # noqa: PLC0415
-                from coordinator_core.percolate.round import default_manifest_path as _default_manifest_path  # noqa: PLC0415
-                from coordinator_core.wire_paths import rel_id as _rel_id  # noqa: PLC0415
-
-                if any(s.row_changed_files is None for _t, s in staged_rows):
-                    _invalidate_token_index(repo_root)
-                    continue
-                if u.nonempty:
-                    declared = _declared_payload(u, written)
-                    _write_manifest(
-                        _RoundManifest(
+                            _source_sha_suffix(round_pinned_shas, source_head=head_sha) if fully else "",
+                        ) + format_publish_trailers(
                             round_id=round_id,
-                            added_or_updated=frozenset(written),
-                            removed=frozenset(deleted),
-                            declared_payload=declared,
-                            published_dest_dirs=frozenset(_rel_id(t.dest_dir, repo_root) for t, _s in staged_rows),
-                            source_sha=head_sha or round_pinned_shas.get(_engine_toplevel_key(), ""),
-                            stamp_source_head=head_sha if stamped else "",
-                            stamp_signature=(u.plan.signature or "") if stamped else "",
-                        ),
-                        _default_manifest_path(repo_root, round_id),
-                    )
-                if written or deleted:
-                    _update_token_index_from_delta(
-                        repo_root,
-                        {repo_root / rel for rel in written},
-                        {repo_root / rel for rel in deleted},
-                    )
+                            source_head=head_sha if stamped else None,
+                            signature=u.plan.signature if stamped else None,
+                        )
+                        try:
+                            if slot_gate is not None:
+                                from coordinator_core.percolate import publish_slot as _slot  # noqa: PLC0415
 
-            from coordinator_core.percolate import surface as _sweep_surface  # noqa: PLC0415
+                                if repo_root in slot_gate.tokens:
+                                    _slot.confirm_slot(repo_root, slot_gate.tokens[repo_root])
+                                message = _slot.append_slot_trailers(
+                                    message,
+                                    holder=slot_gate.tokens.get(repo_root),
+                                )
+                            outcome = land_diff(
+                                repo_root,
+                                list(u.survivors.values()) + u.converge,
+                                u.deletions,
+                                message,
+                                commit=commit_now,
+                                derived=frozenset({_EXPECTED_MANIFEST_REL}).union(
+                                    rel for rel in u.survivors if rel.rsplit("/", 1)[-1] in _ROUND_DERIVED_BASENAMES
+                                ),
+                            )
+                        except Exception as exc:  # noqa: BLE001 - root isolation, recorded not raised
+                            land_exc = exc
+                    if land_exc is not None:
+                        if commit_now:
+                            commit_ok = False
+                        for target, _staged in staged_rows:
+                            print(f"  Error: landing {target.name} failed: {land_exc!r}", file=sys.stderr)
+                            if target.name in succeeded_row_names:
+                                succeeded_row_names.remove(target.name)
+                            failed_row_names.append(target.name)
+                            failed_dest_dirs_by_repo_root.setdefault(repo_root, set()).add(target.dest_dir)
+                        continue
 
-            for _sweep_root in deduped_roots:
-                _swept = _sweep_surface.sweep_never_published_state(
-                    Path(_sweep_root),
-                    published_dest_dirs=end_of_run_published_dest_dirs_by_repo_root.get(Path(_sweep_root)),
-                )
-                if _swept:
-                    print(f"  swept {len(_swept)} never-published state/ file(s) from {_sweep_root}")
+                    for target, staged in staged_rows:
+                        sys.stdout.write(staged.report_text)
+                        totals.synced += staged.synced
+                        totals.deleted += staged.deleted
+                        end_of_run_visited_by_repo_root.setdefault(repo_root, set()).update(
+                            target.dest_dir / rel for rel in staged.row_visited
+                        )
+                        end_of_run_published_dest_dirs_by_repo_root.setdefault(repo_root, set()).add(target.dest_dir)
+                        end_of_run_published_files_by_repo_root.setdefault(repo_root, set()).update(
+                            staged.row_published_files
+                        )
+                    for target in targets_by_root[repo_root]:
+                        if target.name in succeeded_row_names:
+                            write_lastsync_marker(
+                                setup_dir,
+                                target.name,
+                                target.dest_dir,
+                                dry_run=False,
+                                precomputed_head=pre_land_head.get(repo_root),
+                            )
+
+                    written = tuple(outcome.written) if outcome is not None else ()
+                    deleted = tuple(outcome.deleted) if outcome is not None else ()
+                    from coordinator_core.percolate.manifest import RoundManifest as _RoundManifest  # noqa: PLC0415
+                    from coordinator_core.percolate.manifest import write_manifest as _write_manifest  # noqa: PLC0415
+                    from coordinator_core.percolate.round import default_manifest_path as _default_manifest_path  # noqa: PLC0415
+                    from coordinator_core.wire_paths import rel_id as _rel_id  # noqa: PLC0415
+
+                    if any(s.row_changed_files is None for _t, s in staged_rows):
+                        _invalidate_token_index(repo_root)
+                        continue
+                    if u.nonempty:
+                        declared = _declared_payload(u, written)
+                        _write_manifest(
+                            _RoundManifest(
+                                round_id=round_id,
+                                added_or_updated=frozenset(written),
+                                removed=frozenset(deleted),
+                                declared_payload=declared,
+                                published_dest_dirs=frozenset(_rel_id(t.dest_dir, repo_root) for t, _s in staged_rows),
+                                source_sha=head_sha or round_pinned_shas.get(_engine_toplevel_key(), ""),
+                                stamp_source_head=head_sha if stamped else "",
+                                stamp_signature=(u.plan.signature or "") if stamped else "",
+                            ),
+                            _default_manifest_path(repo_root, round_id),
+                        )
+                    if written or deleted:
+                        _update_token_index_from_delta(
+                            repo_root,
+                            {repo_root / rel for rel in written},
+                            {repo_root / rel for rel in deleted},
+                        )
+
+                from coordinator_core.percolate import surface as _sweep_surface  # noqa: PLC0415
+
+                for _sweep_root in deduped_roots:
+                    _swept = _sweep_surface.sweep_never_published_state(
+                        Path(_sweep_root),
+                        published_dest_dirs=end_of_run_published_dest_dirs_by_repo_root.get(Path(_sweep_root)),
+                    )
+                    if _swept:
+                        print(f"  swept {len(_swept)} never-published state/ file(s) from {_sweep_root}")
 
         residue_roots: "set[Path]" = set(failed_row_mutated_roots)
         if commit_ran:
@@ -14148,6 +14590,51 @@ def _run_round(
 
 _DRY_REFIRE_GATE_EXIT = 4
 
+_WIN_BELOW_NORMAL_PRIORITY_CLASS = 0x4000
+_WIN_PROCESS_MODE_BACKGROUND_BEGIN = 0x100000
+_POSIX_BACKGROUND_NICE = 10
+_IOPRIO_SYSCALL_NR = {"x86_64": 251, "amd64": 251, "aarch64": 30, "arm64": 30}
+
+
+def _libc():
+    import ctypes
+    import ctypes.util
+
+    return ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
+
+
+def lower_process_priority_self() -> None:
+    """Lowers this process to background CPU and I/O priority; children inherit it.
+
+    Every failure is swallowed: priority is a courtesy, never a publish gate.
+    Windows: ctypes needs explicit argtypes/restype, else the -1 pseudo-handle
+    truncates to 32 bits and SetPriorityClass fails with invalid handle.
+    """
+    try:
+        if sys.platform == "win32":
+            import ctypes
+
+            kernel32 = ctypes.WinDLL("kernel32")
+            kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+            kernel32.GetCurrentProcess.argtypes = []
+            kernel32.SetPriorityClass.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+            kernel32.SetPriorityClass.restype = ctypes.c_int
+            handle = kernel32.GetCurrentProcess()
+            kernel32.SetPriorityClass(handle, _WIN_BELOW_NORMAL_PRIORITY_CLASS)
+            kernel32.SetPriorityClass(handle, _WIN_PROCESS_MODE_BACKGROUND_BEGIN)
+            return
+        os.nice(_POSIX_BACKGROUND_NICE)
+        if sys.platform == "darwin":
+            _libc().setiopolicy_np(1, 0, 3)
+        elif sys.platform.startswith("linux"):
+            import platform
+
+            nr = _IOPRIO_SYSCALL_NR.get(platform.machine().lower())
+            if nr is not None:
+                _libc().syscall(nr, 1, 0, 3 << 13)
+    except Exception:
+        pass
+
 
 def main(argv: Optional[List[str]] = None) -> int:
     """Runs one publish round; `_main` holds the body so `_DEST_ROOT_OVERRIDE`
@@ -14187,6 +14674,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     row failure, making the two indistinguishable from the exit code alone.
     """
     global _DEST_ROOT_OVERRIDE, _PERCOLATE_ROOT_OVERRIDE
+    lower_process_priority_self()
     restore_signals = _install_staging_signal_cleanup()
     try:
         return _main(argv)
@@ -14241,6 +14729,11 @@ def _main(argv: Optional[List[str]] = None) -> int:
     _bootstrap_engine()
 
     args = build_arg_parser().parse_args(argv)
+    _MID_STAGE_OVERRIDE.clear()
+    if args.swap_over_mid_stage_runs:
+        _MID_STAGE_OVERRIDE.update(
+            flag="--swap-over-mid-stage-runs", reason=args.swap_over_mid_stage_runs, mid_stage_runs=[]
+        )
     if args.commit and args.source_ref and args.commit != args.source_ref:
         print("publish: --commit and --source-ref differ; give one", file=sys.stderr)
         return 2
@@ -14896,54 +15389,48 @@ def _main(argv: Optional[List[str]] = None) -> int:
 
     if lock_repo_roots:
         from coordinator_core.warm import engine_root as _warm_engine_root
-        from coordinator_core.warm import pair_stop as _pair_stop
-        from coordinator_core.session.core import (
-            MissingPsutilError as _MissingPsutilError,
-            _WinLivenessAmbiguous,
-        )
-        from coordinator_core.warm.breadcrumb import hold_publish_marker
-
-        for _lock_root in lock_repo_roots:
-            if not _warm_engine_root.is_engine_root(_lock_root):
-                continue
-            try:
-                publish_lock_stack.enter_context(
-                    hold_publish_marker(Path(_lock_root), holder=f"publish.py:{os.getpid()}")
-                )
-                _pair_result = _pair_stop.stop_warm_pair(Path(_lock_root))
-            except (_MissingPsutilError, _WinLivenessAmbiguous, OSError) as exc:
-                publish_lock_stack.close()
-                print(
-                    f"[publish.py] FATAL: could not quiesce the warm engine under "
-                    f"{_lock_root} ({exc!r}); not copying",
-                    file=sys.stderr,
-                )
-                return 1
-            if not _pair_result.ok():
-                publish_lock_stack.close()
-                print(
-                    f"[publish.py] FATAL: warm engine still alive under {_lock_root}; not copying:\n"
-                    f"{_pair_result.render_survivors()}",
-                    file=sys.stderr,
-                )
-                return 1
 
         from percolate.dest_refresh import (  # type: ignore[import-not-found]
-            refresh_dest_from_origin as _refresh_dest_from_origin,
+            fast_forward_dest as _fast_forward_dest,
+            fetch_dest_upstream as _fetch_dest_upstream,
         )
 
+        # Fetch is refs-only and unquiesced. Staging reads destination worktree files, so a root
+        # whose worktree must move (behind, subsumed, interrupted own merge) is fast-forwarded
+        # before the gates, and only that write is quiesced. A level engine root is never stopped
+        # here, so a run the gates refuse leaves it untouched.
+        _fetched = []
         for _refresh_root in lock_repo_roots:
-            _refresh = _refresh_dest_from_origin(
+            _fetch = _fetch_dest_upstream(
                 _refresh_root,
                 out=sys.stdout,
                 err=sys.stderr,
                 source_root=percolate_root,
                 source_ref=_refresh_source_ref(percolate_root, round_pinned_shas),
             )
-            if not _refresh.ok:
+            if not _fetch.ok:
                 publish_lock_stack.close()
-                print(f"[publish.py] FATAL: {_refresh.reason}", file=sys.stderr)
+                print(f"[publish.py] FATAL: {_fetch.reason}", file=sys.stderr)
                 return 1
+            _fetched.append(_fetch)
+        _moving_engine_roots = [
+            f.repo_root
+            for f in _fetched
+            if (f.behind or f.pending_abort or f.subsumed) and _warm_engine_root.is_engine_root(f.repo_root)
+        ]
+
+        try:
+            with _quiesced_engine_roots(_moving_engine_roots):
+                for _fetch in _fetched:
+                    _refresh = _fast_forward_dest(_fetch, out=sys.stdout, err=sys.stderr)
+                    if not _refresh.ok:
+                        publish_lock_stack.close()
+                        print(f"[publish.py] FATAL: {_refresh.reason}", file=sys.stderr)
+                        return 1
+        except _QuiesceRefused as _refused:
+            publish_lock_stack.close()
+            print(f"[publish.py] FATAL: {_refused}", file=sys.stderr)
+            return 1
 
     try:
         # See `_run_round`'s docstring for the phase breakdown; every `end_of_run_*`/
@@ -15274,6 +15761,9 @@ def _main(argv: Optional[List[str]] = None) -> int:
                 print(f"To publish (commit-only round, nothing pushed): {_push_command}")
 
         return _finish(0)
+    except _QuiesceRefused as _refused:
+        print(f"[publish.py] FATAL: {_refused}", file=sys.stderr)
+        return 1
     finally:
         publish_lock_stack.close()
 

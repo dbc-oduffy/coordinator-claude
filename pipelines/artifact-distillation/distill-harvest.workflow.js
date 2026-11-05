@@ -2711,7 +2711,7 @@ Plans in this run's batch files: ${JSON.stringify(BATCHES.flatMap((b) => (b && b
 
 1. Locate reviewer sidecars by content, never by filename: files whose frontmatter carries a
    \`findings_ledger:\` key, under .coordinator-local/subagent-share/ (one directory per session),
-   .coordinator-local/plan-sidecars/, docs/plans/ and archive/specs/, plus any the repo keeps
+   .coordinator-local/plan-sidecars/, docs/plans/ (and its YYYY-MM/ shards) and archive/specs/, plus any the repo keeps
    beside a plan. Count them all as sidecars_seen.
 2. Join a sidecar to a plan by its \`target_plan:\` or \`plan:\` frontmatter, compared on the plan's
    filename stem (an archived plan's sidecar still names its docs/plans/ path). A sidecar naming
@@ -3455,7 +3455,7 @@ Resolve each row:
   docs/decisions citation found for this artifact's extracted knowledge), or unresolved
   synthesis ambiguity left extraction incomplete. Name what is missing.
 - **BLOCKED** (override DISTILLED/EPHEMERAL) — a real EXTERNAL condition, not run
-  incompleteness: actively referenced by a live state/handoffs/*.md file or in-progress task
+  incompleteness: actively referenced by a live state/handoffs/*.md or state/handoffs/YYYY-MM/*.md file or in-progress task
   (Read state/handoffs/ to check — name the referencing file); a linked
   state/cross-repo-commitments/ entry is status: open; an accepted/partial memo has an
   absent/unverifiable realized_by; or the artifact is an in-progress/unapproved design spec.

@@ -241,6 +241,8 @@ the platform equivalent) for the PID(s) in question before treating the stop as 
 infer "stopped" from a clean return code alone — the return value is the same suspect channel
 shape-1/shape-3 already cover, now on the write path instead of the read path.
 
+**win32:** in Git Bash, MSYS `pgrep`/`ps` miss windowless native processes; check with `Get-Process`/`tasklist`/`Win32_Process` (`A-PS-WAIT-IN-GIT-BASH-FIRES-EARLY`, `coordinator/docs/wiki/coordinator-tripwires/`).
+
 The `Monitor`-outlives-its-owner case is the concrete instance of this in the wild:
 `a-monitor-armed-by-a-teammate-wakes-nobody.md` documents a monitor subprocess staying alive and
 writing events after the agent that armed it went idle — read that page for the dispatch-shape

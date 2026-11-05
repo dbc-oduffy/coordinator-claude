@@ -13,11 +13,12 @@ access-mode: read-write
 
 **Code lookup: project-rag first.** Engine facts and symbol questions (definitions, callers, members, UE types) go to the project-rag tools before Grep/Glob; Grep is for literal text.
 
-1. First action, when `mcp__project-rag__*` tools are present (they arrive deferred): `ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
-2. Then `project_staleness_check`; callers `project_symbol_callers`/`_references`; impact `project_referencers`; else `project_rag_instructions`.
+First action, when `mcp__project-rag__*` tools are present (they arrive deferred): `ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
+Then `project_staleness_check`; callers `project_symbol_callers`/`_references`; impact `project_referencers`; else `project_rag_instructions`.
 Bodies, members, UE engine types: load `project_symbol_source`, `project_engine_*` by name; a `project_symbol` stub is not "corpus can't answer".
 **Enumeration is not a lookup.** "What exists?" means a target list, a file set, a coverage count, or "is X covered?". Answer it by walking the filesystem (Glob, a disk enumerator), never with project-rag or any other index, because an index reports only what it already holds. Use project-rag to understand what the walk found, never to decide what exists.
 If a project-rag call errors, retry it once; if the retry fails or the tools are absent (daemon down), fall back to Grep/Read and carry on.
+**Every grep is scoped**: `git grep` or the Grep tool on named paths in your own repo. Never search recursively from a repo root, `..`, a sibling checkout or a drive; one such search saturates the box's disk. A search constraint in your brief or `em_context` binds you, even when project-rag is down (`A-RECURSIVE-GREP-FROM-A-REPO-ROOT-STALLS-THE-BOX`).
 Friction: memo `project-rag-em` / `gh issue create -R dbc-oduffy/project-rag`.
 <!-- END project-rag-preamble -->
 
@@ -64,18 +65,13 @@ Index title + one-line summary per source; full reads in Phase 2. A missing corp
 
 ### Phase 1: Scan the Plan and Enumerate Claims
 
-Read the plan in full. Its **claim surface** is the assertions, decisions, and approaches it makes. Per claim, capture:
-
-- **Topic** — the subsystem, pattern, or concern ("branch discipline," "test design," "agent dispatch shape").
-- **Direction** — what the plan asserts or proposes about it.
+Read the plan in full. Its **claim surface** is the assertions, decisions, and approaches it makes. Per claim, capture its **topic** (subsystem, pattern, or concern) and **direction** (what the plan asserts about it).
 
 **Counts:** architectural decisions, implementation approach, process changes, tradeoffs. **Does NOT count:** prose framing, outcome-phrased acceptance criteria, paths/names/mechanical text.
 
 **Novelty/negative-existence claims ("no X exists," an artifact marked **new**) count and outrank the exclusion above.** Search the corpus for the artifact's own role-name first.
 
-**Cap at 30 claims** (research mode: 30 facets). Beyond that, take the most architecturally-loaded and note: "30 of ~N claims checked; the rest unverified."
-
-Build a numbered list of claims (plan mode) or facets (research mode) before Phase 2.
+**Cap at 30 claims** (research mode: 30 facets). Beyond that, take the most architecturally-loaded and note: "30 of ~N claims checked; the rest unverified." Number them before Phase 2.
 
 ### Cross-repo path verification
 
@@ -114,7 +110,7 @@ Classify each claim into one bucket:
 
 **Skip entirely if `mode: research`, or `mode: plan` with no `fleet_capability_index:` supplied.** Distinct from the research-mode-only "Existing corpus" bucket (§ Input modes) — this fires in plan mode.
 
-Mechanical predicates; report the offer, the EM decides. `Read` the index once. Past `generated_at + ttl`, every `maturity` is `unverified` (`absent` stays). Per claim:
+Report the offer; the EM decides. `Read` the index once. Past `generated_at + ttl`, every `maturity` is `unverified` (`absent` stays). Per claim:
 
 1. **Construction-vs-production predicate (F1a).** Fires ONLY when the claim BUILDS new infrastructure (schema, store, query surface, index, embed-pipeline), not a write into an already-named existing seam.
 2. **Domain-aware match (F1b).** Match on `capability_label` PLUS the claim's data domain, not `capability_class` alone.
@@ -126,7 +122,7 @@ Mechanical predicates; report the offer, the EM decides. `Read` the index once. 
 
 ### Phase 2.6: Platform capability — copy-out (plan mode only)
 
-**Skip entirely if `mode: research`, or `mode: plan` with no `fleet_capability_index:` supplied.** Same index read and TTL downgrade as Phase 2.5; predicates are mechanical field comparisons.
+**Skip entirely if `mode: research`, or `mode: plan` with no `fleet_capability_index:` supplied.** Same index read and TTL downgrade as Phase 2.5.
 
 The index carries `shapes[]` entries: `shape_id`, `shape_label`, `shape_summary`, `exemplar_path`, `copy_posture` (`copy-out` | `ask-the-owner`), `maturity`, `provenance`, `source_repo`. No `shapes[]` → report nothing. Per Phase 1 claim:
 
@@ -247,7 +243,7 @@ No conflicts → "No conflicts found." None compatible-but-relevant → "No addi
 - Make architectural recommendations or judge code quality.
 - Fabricate prior art — a silent claim stays silent.
 - WebSearch for general guidance, or auto-block a plan (advisory only).
-- Call live MCP/CLI capability surfaces to build/refresh the fleet-capability index — the SKILL hands it to you.
+- Call live MCP/CLI surfaces to build the fleet-capability index — the SKILL hands it to you.
 - Recommend WHICH sibling capability to consume beyond naming the authored `consume_seam`.
 
 ## Edit Discipline
@@ -261,7 +257,7 @@ No conflicts → "No conflicts found." None compatible-but-relevant → "No addi
 
 ## Cost target
 
-Aim under 10K tokens. End the sidecar with `**Cost estimate:** ~N tokens (N1 claims × N2 corpus reads)`. Over 50K → **DEGRADED**.
+Under 10K tokens. End the sidecar with `**Cost estimate:** ~N tokens (N1 claims × N2 corpus reads)`. Over 50K → **DEGRADED**.
 
 ## Do Not Commit
 

@@ -6,9 +6,9 @@ situation: multibox
 ---
 ### Multibox — one G-EM drives N boxes
 
-**Mechanism status** per rule: `shipped (single-box)` exists today on one box; `claude-klabauter pending`
-is engine work claude-klabauter owns and DoE does not write; `after hardware` waits for the second and
-third box. Box identity comes from `machine-local` and claude-klabauter's box registry, never a hostname,
+**Mechanism status** per rule: `shipped (single-box)` exists today on one box; `engine pending`
+is engine work the engine owns and the doctrine repo does not write; `after hardware` waits for the second and
+third box. Box identity comes from `machine-local` and the engine's box registry, never a hostname,
 drive letter or user path.
 
 #### One G-EM
@@ -22,9 +22,9 @@ holder is owed the release-your-watch message over Unimatrix. The nominated hold
 
 #### Federated roster
 
-The federated roster is a feed claude-klabauter owns into `group-em-watch`: `PARKED`/`WAITING`/`GONE` plus
+The federated roster is a feed the engine owns into `group-em-watch`: `PARKED`/`WAITING`/`GONE` plus
 `last_seen`, from heartbeat records (`box_id`, `sid`, `last_tick`). Never an ssh liveness probe,
-never a PID read across the wire; transport carries bytes only (`claude-klabauter pending`). Today's roster
+never a PID read across the wire; transport carries bytes only (`engine pending`). Today's roster
 is `claude agents --json` on this box (`shipped (single-box)`); a native `/rc` session on another
 box counts as detected; any other remote session is unknown, not quiet, until the feed lands.
 
@@ -35,16 +35,16 @@ box, over transport, to run its own `box-memory-snapshot.py --admit-peak`, and n
 box's memory figures remotely. The GPU slot and bulk-writer queue are per box, on each registry
 row. Tripwire: `A-BOX-MEMORY-IS-THE-KERNEL-VERDICT-NOT-A-FREE-PAGES-FLOOR`.
 Local `--admit-peak` is `shipped (single-box)`;
-the remote ask is `claude-klabauter pending`.
+the remote ask is `engine pending`.
 
 #### Placement
 
-Two primitives, both claude-klabauter's:
+Two primitives, both the engine's:
 
 - **Whole runs.** A run is `engine-ask {sizing}` plus the plan path, fired on the target box and
-  landing on that box's daily branch. Never place single stages. (`claude-klabauter pending`)
+  landing on that box's daily branch. Never place single stages. (`engine pending`)
 - **Compute shards.** Splitting one long job is an op-level shard runner, not a Claude session.
-  (`claude-klabauter pending`)
+  (`engine pending`)
 
 The G-EM owns the placement GO/HOLD terms and the event definition. A box marked UE/p4-absent in
 the registry never receives UE work. Cockpit session spawn is a future primitive (`after
@@ -55,7 +55,7 @@ hardware`); until then a remote session is a headless `claude -p` job over the s
 The /rc walk-away contract: the PM starts the G-EM as a `/rc` session and leaves. Every job is
 checkpointed, resumable, and admitted on its own box. A job lacking any of the three is not
 placed. A box that goes silent is `GONE` on the feed; the G-EM re-places from the last
-checkpoint and tells the PM only what survives the escalation screen. (`claude-klabauter pending` for the
+checkpoint and tells the PM only what survives the escalation screen. (`engine pending` for the
 feed and checkpoints; the contract is the G-EM's today.)
 
 #### Cross-box SendMessage
@@ -72,7 +72,7 @@ Route order, first available wins (`A-SAME-ACCOUNT-CROSS-BOX-USES-NATIVE-RC-FIRS
    `coordinator/docs/wiki/unimatrix-mechanism.md`; its relay key is
    `A-UNIMATRIX-KEY-IS-A-FORCED-COMMAND-RELAY-KEY` (key custody page, Tripwires).
 3. **The federated route**, over the project-rag tunnel; relay stamps survive the hop
-   (`claude-klabauter pending`). Transport, tunnel pin and tokens are project-rag's; never route compute
+   (`engine pending`). Transport, tunnel pin and tokens are project-rag's; never route compute
    or spawning through the project-rag port.
 
 The typed-in path (a message typed as the PM would) is the last-resort fallback, never the

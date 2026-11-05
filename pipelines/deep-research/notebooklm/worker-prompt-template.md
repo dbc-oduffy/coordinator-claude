@@ -59,9 +59,9 @@ If ceiling reached: write partial output (claims.json with what you have, summar
     ```json
     {
       "id": "{{item}}-001",
-      "finding": "Single falsifiable assertion",
+      "claim_text": "Single falsifiable assertion",
       "evidence_excerpt": "Most relevant 1-3 sentences from NLM response. Prefix with [PARAPHRASED] if condensed.",
-      "query": "The question that produced this finding",
+      "query": "The question that produced this claim",
       "notebook_sources": ["Source 1 title", "Source 3 title"],
       "source_url": "https://www.youtube.com/watch?v=... (or null)",
       "source_date": "YYYY-MM-DD (or null)",
@@ -81,7 +81,7 @@ If ceiling reached: write partial output (claims.json with what you have, summar
     - **source_url:** URL of the primary cited source — resolve the first `notebook_sources` title against the source list you ingested in step 5 (the same title↔URL pairing your summary's `## Sources` table records). Use null only when NLM cited nothing resolvable. This field is consumed by external corpus readers; a claim without it cannot be cited.
     - **source_date:** Publication date of that primary source, from the scout's `Published:` field or NLM's source metadata. Use null when genuinely unknown — never guess a date.
     - **cross_notebook:** String with notebook letter + reason (e.g., "B — contradicts their source quality finding"). Use null if no cross-notebook relevance.
-    - **transcription_suspect:** Set true if finding contains technical terms that look garbled from audio/video transcription — API names, library names, proper nouns that don't parse correctly (e.g., "you gameplay ability" instead of UGameplayAbility). Especially important for YouTube and podcast sources.
+    - **transcription_suspect:** Set true if `claim_text` contains technical terms that look garbled from audio/video transcription — API names, library names, proper nouns that don't parse correctly (e.g., "you gameplay ability" instead of UGameplayAbility). Especially important for YouTube and podcast sources.
     - **evidence_excerpt:** Copy the most relevant 1-3 sentences verbatim. If condensing, paraphrase and prefix with [PARAPHRASED].
 
 12. Write {{scratch_dir}}/{{item}}-summary.md — include YAML front-matter at the top:
@@ -101,7 +101,7 @@ If ceiling reached: write partial output (claims.json with what you have, summar
     ```
     The body is a human-readable overview: metadata table, sources table, brief claims summary narrative, and artifacts section. See your agent definition for the full format.
 
-    **Durable claims field mapping (for sweep reference):** The sweep merges all `{letter}-claims.json` files into `{{scratch_dir}}/merged-claims.json` (the EM then emits the durable `docs/research/<run-stem>.claims.json` pair from it) per the mapping in `pipelines/deep-research/notebooklm/team-protocol.md` § Durable claims field mapping, under the plugin root (the directory in `CLAUDE_PLUGIN_ROOT` when set, else `<content-root>/coordinator`, where `<content-root>` comes from `COORDINATOR_ENGINE_ROOT` or the `.content-root` pointer in the settings home or the home `.claude` directory). No additional output is required from you — write complete scratch files and return.
+    **Durable claims field mapping (for sweep reference):** The sweep merges all `{letter}-claims.json` files into `{{scratch_dir}}/merged-claims.json` (the EM then emits the durable `<run dir>/outputs/<run-stem>.claims.json` pair from it) per the mapping in `pipelines/deep-research/notebooklm/team-protocol.md` § Durable claims field mapping, under the plugin root (the directory in `CLAUDE_PLUGIN_ROOT` when set, else `<content-root>/coordinator`, where `<content-root>` comes from `COORDINATOR_ENGINE_ROOT` or the `.content-root` pointer in the settings home or the home `.claude` directory). No additional output is required from you — write complete scratch files and return.
 
 13. **MANDATORY (all exit paths):** Return `DONE: Notebook {{item}} complete — {{scratch_dir}}/{{item}}-claims.json + {{scratch_dir}}/{{item}}-summary.md` (failure note appended if any) — the sweep stage starts when workers return. Never message the EM, the sweep, or other workers.
 

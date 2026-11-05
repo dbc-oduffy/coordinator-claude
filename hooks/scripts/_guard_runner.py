@@ -389,6 +389,7 @@ _GUARD_HANDOFF_SUMMARY_CAP_ON_WRITE = "guard-handoff-summary-cap-on-write.py"
 _GUARD_AUTONOMOUS_SENTINEL_WRITE = "guard-autonomous-sentinel-write.py"
 _GUARD_ENGINE_MIRROR_WRITE = "guard-engine-mirror-write.py"
 _GUARD_CANVAS_CITATION_NEEDS_HARVEST = "guard-canvas-citation-needs-harvest.py"
+_GUARD_RESEARCH_LAYOUT_WRITE = "guard-research-layout-write.py"
 
 def _external_workspace_dir_substrings() -> Tuple[str, ...]:
     """`/<basename>/` of every rostered external workspace root (raw and realpath
@@ -564,6 +565,16 @@ REAL_GUARD_REGISTRY: Tuple[RegisteredGuard, ...] = (
             # Real scope is a `.md` under a `docs/plans` directory; the in-guard predicate decides.
             path_suffixes=frozenset({".md"}),
             directory_substrings=("docs/plans/",),
+        ),
+    ),
+    RegisteredGuard(
+        module_key="guard_research_layout_write",
+        module_path=str(Path(_HOOKS_DIR) / _GUARD_RESEARCH_LAYOUT_WRITE),
+        descriptor=GuardScopeDescriptor(
+            guard_module=_GUARD_RESEARCH_LAYOUT_WRITE,
+            # Real scope is a target under a `docs/research/` directory; the in-guard
+            # predicate and layout classification decide.
+            directory_substrings=("docs/research/",),
         ),
     ),
 )

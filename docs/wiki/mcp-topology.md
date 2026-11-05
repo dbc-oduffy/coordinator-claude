@@ -16,7 +16,7 @@ Each entry in `servers:` is typed on **two independent axes**, plus an opt-out u
 |------|-------|--------|
 | **Boundary** | `configKey` | The `.mcp.json` server key — the SDK-visible boundary. Each entry is independently addressable at this granularity. |
 | **Load policy** | `loadPolicy` | `eager` — unconditionally at session start; `deferred` — on demand when intent surfaces; `conditional` — when a project-specific condition is met. |
-| **Opt-out unit** | `optOutUnit` | The unit a project disables to drop the whole tool family. For plugin-bundled servers (example-game-repo-control), this is the `settings.json` `enabledPlugins` gate — NOT the `.mcp.json` key. For raw per-project `.mcp.json` servers (project-rag, notebooklm-mcp), `optOutUnit == configKey` because no plugin gate exists. `context7` is a third shape: a user-scope plugin whose `enabledPlugins` gate DOES drop its tool surface, plus a finer per-project `disabledMcpServers` override. → § 9, `per-project-plugin-gating.md`. |
+| **Opt-out unit** | `optOutUnit` | The unit a project disables to drop the whole tool family. For plugin-bundled servers (example-game-repo-control), this is the `settings.json` `enabledPlugins` gate — NOT the `.mcp.json` key. For raw per-project `.mcp.json` servers (project-rag, gemini-notebook-mcp), `optOutUnit == configKey` because no plugin gate exists. `context7` is a third shape: a user-scope plugin whose `enabledPlugins` gate DOES drop its tool surface, plus a finer per-project `disabledMcpServers` override. → § 9, `per-project-plugin-gating.md`. |
 
 A third axis present in example-voice-system's `McpServerTopologyEntry` (`transport` / `endpointPath`, `mcpTopology.ts:207`) is **deliberately dropped**. All coordinator MCP servers are `stdio`/command-launched per `.mcp.json` — they are not HTTP-pathed — so the transport dimension adds no differentiating information in this stack. This is a divergence from example-voice-system, not an oversight.
 
@@ -46,7 +46,7 @@ The doctrine's job is to **keep coordinator deferred-by-default** as servers are
 | `project-rag` | `conditional` | Project has a RAG index (`Saved/ProjectRag/` marker or `--project-root` arg in `.mcp.json`) |
 | `plugin:context7:context7` | `deferred` | User-scope plugin, enabled fleet-wide by default; schema load defers to `ToolSearch` intent |
 | `example-game-repo-control` | `deferred` | UE workstream intent surfaces — 170 tools, UE-only |
-| `notebooklm-mcp` | `deferred` | Deep-research pipeline D only — user-installed external server, absent until registered |
+| `gemini-notebook-mcp` | `deferred` | Deep-research pipeline D only — user-installed external server, absent until registered |
 | `claude.ai Atlassian Rovo` | `deferred` | Account-side connector, held by `atlassian-worker` |
 | `claude.ai Google Drive` | `deferred` | Account-side connector, held by `drive-worker` |
 
@@ -122,7 +122,7 @@ The `core: none` posture is the invariant to preserve. Each addition should leav
 
 **`coordinator/mcp-topology.yaml` is the coordinator plugin's own instance — it is NOT shared substrate for percolation.**
 
-The declaration file is excluded from the OSS percolation path (`.percolate-ignore` entry). It references operator-specific and other-plugin servers (`example-game-repo-control`, `notebooklm-mcp`) that are coordinator-author-specific and must not land in the OSS `coordinator-claude` publish tree. The `the (now-removed) meta-repo local-doctrine file` editorial principle applies: these server entries are contingent on infrastructure the OSS user does not have.
+The declaration file is excluded from the OSS percolation path (`.percolate-ignore` entry). It references operator-specific and other-plugin servers (`example-game-repo-control`, `gemini-notebook-mcp`) that are coordinator-author-specific and must not land in the OSS `coordinator-claude` publish tree. The `the (now-removed) meta-repo local-doctrine file` editorial principle applies: these server entries are contingent on infrastructure the OSS user does not have.
 
 **What IS shared substrate:** the type model (the YAML shape — `configKey`, `loadPolicy`, `optOutUnit`, `tools`, `notes`) and this wiki. OSS coordinator users can read this wiki, understand the model, and author their own `mcp-topology.yaml` at their plugin root for the servers they actually ship. The wiki and type model percolate; the declaration instance does not.
 
@@ -143,12 +143,12 @@ When a server is gated via `settings.json` `enabledPlugins` (see `per-project-pl
 **Concrete rule:**
 
 - **`example-game-repo-control`** is gated via `settings.json` `enabledPlugins` entry `example-game-repo-control@example-game-workbench-repo`. Its `optOutUnit` is `example-game-repo-control@example-game-workbench-repo` — that is the unit you disable in `settings.json` to suppress the 170-tool surface on non-UE projects.
-- **`project-rag`** and **`notebooklm-mcp`** are raw per-project MCP servers loaded directly via `.mcp.json` — they are NOT gated via `enabledPlugins`. Their `optOutUnit` equals the server key (`project-rag`, `notebooklm-mcp` respectively); removing from `.mcp.json` is the opt-out mechanism. `notebooklm-mcp` (jacob-bd/gemini-notebook-mcp-cli, v0.9.8) is the external, user-installed replacement for the retired vendored NotebookLM server — the user registers it themselves via `nlm setup add claude-code`, so it is absent from a session entirely until installed, exactly like `project-rag`.
+- **`project-rag`** and **`gemini-notebook-mcp`** are raw per-project MCP servers loaded directly via `.mcp.json` — they are NOT gated via `enabledPlugins`. Their `optOutUnit` equals the server key (`project-rag`, `gemini-notebook-mcp` respectively); removing from `.mcp.json` is the opt-out mechanism. `gemini-notebook-mcp` (jacob-bd/gemini-notebook-mcp-cli, v0.9.8) is the external, user-installed replacement for the retired vendored NotebookLM server — the user installs and registers it themselves via upstream's own README, so it is absent from a session entirely until installed, exactly like `project-rag`.
 - **`context7`** is a third, distinct shape: a user-scope plugin (`context7@claude-plugins-official`), enabled fleet-wide by default. Its opt-out is two-tier: the `settings.json` `enabledPlugins` gate for `context7@claude-plugins-official` (unlike `example-game-repo-control`'s gate, this one DOES drop the tool surface, because the server itself comes from the plugin rather than being registered independently at user scope), plus a finer per-project `disabledMcpServers` entry naming `plugin:context7:context7` — this repo uses the latter.
 
 This distinction matters when an agent needs to understand what to disable: for plugin-gated servers, the `enabledPlugins` key is the correct surface; for raw MCP servers, the `.mcp.json` key is. → `per-project-plugin-gating.md`.
 
-**`notebooklm-mcp`'s upstream `pipeline` tool is deliberately unwired.** coordinator orchestrates via Agent Teams; a second in-MCP workflow engine (`pipeline`) is a competing routing layer, deliberately not surfaced. A future reader hitting `pipeline` in an upstream bump should find the reasoning here rather than re-litigating it.
+**`gemini-notebook-mcp`'s upstream `pipeline` tool is deliberately unwired.** coordinator orchestrates via Agent Teams; a second in-MCP workflow engine (`pipeline`) is a competing routing layer, deliberately not surfaced. A future reader hitting `pipeline` in an upstream bump should find the reasoning here rather than re-litigating it.
 
 ---
 

@@ -403,8 +403,68 @@ def _safe_holds(line, pid, alive_fn, create_time_fn, image_fn=None, now_fn=None)
         return False
 
 
+_SLOT_GRANT_KIND = "group-em-slot-grant"
+_SLOT_GRANT_TTL_CEILING_S = 240 * 60
+
+
+def slot_grants_dir(admission_path) -> Path:
+    """Slot-grant store, a sibling of the ``box/`` channel dir: ``<group-em>/slot-grants``."""
+    return Path(admission_path).parent.parent / "slot-grants"
+
+
+def _iso_epoch(value) -> float | None:
+    from datetime import datetime, timezone
+
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()
+    except ValueError:
+        return None
+
+
+def _grant_holdings(grants_dir, covered: set, now: float) -> list[dict]:
+    """One entry per unexpired slot grant whose (grantee, run) has no START or END in the ledger.
+
+    Pure file reads (one listing per issuer, one read per grant), no spawn. The issuer's
+    holder-liveness is not checked, so a grant counts until it expires, is revoked, or its job
+    writes an END. The full declared peak counts: a grant names no pid to take an RSS from.
+    """
+    import json
+
+    out = []
+    try:
+        files = list(Path(grants_dir).glob("*/*.json"))
+    except OSError:
+        return out
+    for file in files:
+        try:
+            rec = json.loads(file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(rec, dict) or rec.get("kind") != _SLOT_GRANT_KIND:
+            continue
+        issued, expires = _iso_epoch(rec.get("issued_at")), _iso_epoch(rec.get("expires_at"))
+        peak = rec.get("declared_peak_mb")
+        if issued is None or expires is None or isinstance(peak, bool) or not isinstance(peak, (int, float)):
+            continue
+        if peak <= 0 or not issued <= now < expires or expires - issued > _SLOT_GRANT_TTL_CEILING_S:
+            continue
+        key = (rec.get("grantee_session_id"), rec.get("run"))
+        if key in covered:
+            continue
+        out.append({
+            "session_id": key[0], "run": key[1], "pid": None, "image": None,
+            "bytes": int(peak * 1024 * 1024),
+        })
+    return out
+
+
 def _holdings(path, rss_fn, alive_fn, create_time_fn, image_fn, now_fn) -> list[dict]:
-    """One entry per holding (START, pid): session, run, pid, image, bytes. Reads the last 1 MiB."""
+    """One entry per holding (START, pid): session, run, pid, image, bytes. Reads the last 1 MiB.
+
+    Plus one pid-less entry per live slot grant not covered by a START or END (see ``_grant_holdings``).
+    """
     import json
 
     try:
@@ -414,8 +474,9 @@ def _holdings(path, rss_fn, alive_fn, create_time_fn, image_fn, now_fn) -> list[
             fh.seek(max(0, size - _ADMISSION_TAIL_BYTES))
             raw = fh.read()
     except OSError:
-        return []
+        raw = b""
     starts: dict = {}
+    covered: set = set()
     for text in raw.splitlines():
         try:
             line = json.loads(text)
@@ -426,9 +487,11 @@ def _holdings(path, rss_fn, alive_fn, create_time_fn, image_fn, now_fn) -> list[
         key = (line.get("session_id"), line.get("run"))
         if line.get("phase") == "END":
             starts.pop(key, None)
+            covered.add(key)
         elif line.get("phase") == "START":
             starts[key] = line
-    out = []
+            covered.add(key)
+    out = _grant_holdings(slot_grants_dir(path), covered, now_fn())
     for line in starts.values():
         peak = line.get("declared_peak_mb")
         if isinstance(peak, bool) or not isinstance(peak, (int, float)) or peak <= 0:
@@ -457,6 +520,8 @@ def reserved_bytes(
 ) -> int:
     """Sum over holding START pids with no matching END of max(0, declared peak - tree RSS), in bytes.
 
+    Plus the full declared peak of each unexpired slot grant (``slot_grants_dir``) whose
+    (grantee session, run) has no START or END row.
     START and END match on (session_id, run). A START without ``declared_peak_mb``, a pid that
     does not hold (see ``_pid_holds``: dead, recycled, unstamped and stale or without ``ts``, or
     an image that is not the declared command), an unreadable file or an unreadable RSS

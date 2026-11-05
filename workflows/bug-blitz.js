@@ -16,6 +16,6 @@ return {
   reason:
     "The engine did not take this bug-blitz submission: the PreToolUse(Workflow) hook did not " +
     "rewrite it. Retry once, then run the grind by hand (dispatch the agents yourself, scoped commits) " +
-    "and file this failure to claude-klabauter-em.",
+    "and file this failure to the engine EM.",
   args,
 }

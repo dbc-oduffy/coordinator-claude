@@ -35,8 +35,33 @@ import sys
 from pathlib import Path
 
 
+def _invoking_clone_bin(own_bin: Path) -> Path | None:
+    """The `coordinator/bin` of the nearest checkout enclosing cwd that carries its own
+    `publish.py`, or None when that is this file's own tree. Walks parents for `.git`
+    (no git spawn): a publish round pins `coordinator_core` to the clone it was launched
+    from, so the driver must come from that same clone."""
+    try:
+        here = Path.cwd().resolve()
+    except OSError:
+        return None
+    for root in (here, *here.parents):
+        if (root / ".git").exists():
+            clone_bin = root / "coordinator" / "bin"
+            if (clone_bin / "publish.py").is_file() and clone_bin != own_bin:
+                return clone_bin
+            return None
+    return None
+
+
 def main(argv: list[str]) -> int:
-    _target = Path(__file__).resolve().with_name("publish.py")
+    _own_bin = Path(__file__).resolve().parent
+    _clone_bin = _invoking_clone_bin(_own_bin)
+    if _clone_bin is not None:
+        _own_root = _own_bin.parents[1]
+        _drop = {str(_own_bin), str(_own_root)}
+        sys.path[:] = [p for p in sys.path if p not in _drop]
+        sys.path[:0] = [str(_clone_bin), str(_clone_bin.parents[1])]
+    _target = (_clone_bin or _own_bin) / "publish.py"
     argv = list(argv)
     argv[0] = str(_target)
     sys.argv = argv

@@ -143,7 +143,7 @@ upstream, deliberately not used here.
 
 ### Frontmatter
 
-Only `name` and `description` are supported in SKILL.md frontmatter. Two different character caps apply to two different surfaces — don't conflate them: the platform/API Skills `description` field validation caps at 1024 chars total; Claude Code's own skill-listing mechanism caps at 1,536 chars combining `description` + `when_to_use`. Neither cap governs a subagent's `description:` field — no documented character limit exists for that surface. Evidence: `2026-07-27-boot-description-census.md` under `state/audits/`, `docs/research/spike-verdicts/2026-07-27-boot-context-envelope.md`.
+Only `name` and `description` are supported in SKILL.md frontmatter. Two different character caps apply to two different surfaces — don't conflate them: the platform/API Skills `description` field validation caps at 1024 chars total; Claude Code's own skill-listing mechanism caps at 1,536 chars combining `description` + `when_to_use`. Neither cap governs a subagent's `description:` field — no documented character limit exists for that surface. Evidence: `2026-07-27-boot-description-census.md` under `state/audits/`, `docs/research/spikes/2026-07-27-boot-context-envelope/verdict.md`.
 
 - `name`: letters, numbers, hyphens only.
 - `description`: third-person, **describes ONLY when to use, NOT what it does** — start with "Use when..."
@@ -662,7 +662,7 @@ mutation capability — even when the body explicitly prohibits `Edit` / `Write`
 NOT use Edit or Write" is behavioral self-discipline within the `read-write` capability envelope;
 it is not a contradiction.
 
-Evidence: `docs/research/spike-verdicts/2026-07-27-boot-context-envelope.md` and the 2026-07-27
+Evidence: `docs/research/spikes/2026-07-27-boot-context-envelope/verdict.md` and the 2026-07-27
 census (30 read-write, 2 read-only, 1 keyless). → `coordinator/docs/wiki/coordinator-tripwires/` § validate-agent-tools.
 
 **Prompts live in one place.** A driver/skill/command MUST `@`-reference the canonical prompt

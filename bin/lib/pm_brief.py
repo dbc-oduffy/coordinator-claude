@@ -164,8 +164,20 @@ def _read_deliverable_id(path: Path) -> Optional[str]:
     return value if isinstance(value, str) and value else None
 
 
+def _handoff_files(state_dir: Path) -> list:
+    """`*.md` at the state/handoffs root plus every `<YYYY-MM>/` shard, sorted."""
+    import sys
+
+    lib = str(Path(__file__).resolve().parent.parent.parent / "lib")
+    if lib not in sys.path:
+        sys.path.insert(0, lib)
+    import output_tree_layout
+
+    return output_tree_layout.iter_tree_entries(state_dir.parent.parent, "state/handoffs", "*.md")
+
+
 def _resolve_baton_by_deliverable_id(deliverable_id: str, repo_root: Path) -> Optional[Path]:
-    """Match `deliverable_id` against `state/handoffs/*.md`, then `archive/handoffs/**/*.md`.
+    """Match `deliverable_id` against `state/handoffs/[<YYYY-MM>/]*.md`, then `archive/handoffs/**/*.md`.
 
     State tier is searched before archive tier. More than one match within a single tier is
     unresolvable -- this does not guess between two live candidates, and a resolved state-tier
@@ -174,7 +186,7 @@ def _resolve_baton_by_deliverable_id(deliverable_id: str, repo_root: Path) -> Op
     state_dir = repo_root / "state" / "handoffs"
     if state_dir.is_dir():
         state_matches = [
-            p for p in sorted(state_dir.glob("*.md"))
+            p for p in _handoff_files(state_dir)
             if _read_deliverable_id(p) == deliverable_id
         ]
         if len(state_matches) == 1:

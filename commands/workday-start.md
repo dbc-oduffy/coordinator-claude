@@ -48,12 +48,10 @@ After the workflow returns, if it did not itself run `finish`, run
 
 - **Step 0 (branch setup)** — exit 2 (`STALE-NEEDS-ABC`) is decided by the run's own rules: defer
   once, then stop-and-file. Exit 3 (`RECONCILE-CONFLICT`) → PM picks A/B/C. On **A** the merge
-  stays open: `RECONCILE-CONFLICT-OPEN` lists the conflicted paths and the EM dispatches one
-  file-only resolver (a Sonnet executor) that reads both sides, edits each listed path and runs
-  `git add -- <path>`, never merge, commit or abort. The EM then runs `reconcile-merge-conclude`;
-  a refusal names what is left. Keep the window short: while `MERGE_HEAD` stands, every peer
-  commit in the tree refuses. On **B** or **C** the merge is aborted by Step 0; the EM never runs
-  `git merge --abort`.
+  stays open: one file-only resolver executor edits each path `RECONCILE-CONFLICT-OPEN` lists and
+  runs `git add -- <path>` (never merge, commit or abort); the EM then runs `reconcile-merge-conclude`.
+  Keep the window short: while `MERGE_HEAD` stands every peer commit refuses. B or C: Step 0 aborts
+  the merge; the EM never runs `git merge --abort`.
 - **Handoff triage, advisory probes, freshness, the weekly group, the markers** — manifest steps of
   the run. Their findings arrive in the briefing; nothing is re-queried.
 - **The register stall check** — run by the launch via `coordinator-invoke requirement_register.stall_report`; findings render under `### Register stall check` in the briefing.
@@ -68,6 +66,8 @@ After the workflow returns, if it did not itself run `finish`, run
 say who holds the role and whether the watch is armed, or that the box has none. Report only: this
 ceremony never offers, nominates or calls `groupem.enter`; the G-EM is entered from the group-em home.
 
+**Open EM-owed batons.** List every open baton owed to the EM with its age; the EM discharges each or rules it out, in the open. Engine half: the wake-digest queue rows (ENGINE-5). Tripwire: `OPEN-EM-OWED-BATONS-ARE-LISTED-WITH-THEIR-AGE` (`coordinator-tripwires/open-em-owed-batons-are-listed-with-their-age.md`).
+
 **Day focus.** If `$ARGUMENTS` is provided: _"Requested focus: {arguments}"_ — carry it into
 "What should today's focus be?" in the briefing.
 
@@ -79,6 +79,13 @@ After the briefing renders, when staleness was flagged, run the structural-index
 or structural only, never a fresh full embed while production project-rag is serving; a full
 re-embed is a human ask. `/workweek-start` inherits this via its Step 10 chain
 (`coordinator/docs/wiki/coordinator-tripwires/a-reindex-is-a-staleness-flag-never-an-agent-trigger.md`).
+
+## Adopt a klabauter push (this box only)
+
+If the copies banner reads `engine-mirror currency=behind origin by N`, this box's claude-klabauter
+trails origin/candidate (the cached probe; run no new one). Only when the box is quiet (no other live Claude session), offer
+`git pull --ff-only` in `repos.claude_klabauter`, then `python scripts/setup.py`; else report N. Never
+drive another box (`coordinator/docs/wiki/coordinator-tripwires/a-box-adopts-an-engine-push-on-its-own-terms.md`).
 
 ## What This Does NOT Do
 

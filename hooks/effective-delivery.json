@@ -1,10 +1,10 @@
 {
   "x-effective-delivery": {
     "version": 1,
-    "generated_from_sha": "93ab49f5d47abd258ae96b876a4992a1e68403a2",
-    "generated_at": "2026-10-30T19:17:46Z",
+    "generated_from_sha": "3e44304456313bb9b0e021b63d2df597410b9add",
+    "generated_at": "2026-11-02T19:38:51Z",
     "generated_from_dirty_tree": true,
-    "engine_source_sha": "bb681478cccf2b29c009d0dfe32a589bdfdfa6fd",
+    "engine_source_sha": "7e88e3e431bab9285603d99bce06b015add3cf03",
     "engine_source_dirty_tree": false,
     "engine_source_resolution": "resolved-engine/published-target",
     "carriers": {
@@ -135,6 +135,16 @@
           {
             "id": "guard_canvas_citation_needs_harvest",
             "script": "scripts/guard-canvas-citation-needs-harvest.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "guard_research_layout_write",
+            "script": "scripts/guard-research-layout-write.py",
             "tool_names": [
               "Write",
               "Edit",
@@ -1330,8 +1340,8 @@
           }
         ]
       },
-      "scripts/postuse-advisory-dispatch.py": {
-        "script": "scripts/postuse-advisory-dispatch.py",
+      "door:hooks.postuse_advisory_dispatch": {
+        "script": "door:hooks.postuse_advisory_dispatch",
         "matcher": "Write|Edit|MultiEdit|NotebookEdit|Agent|Workflow",
         "guards": [],
         "ops": [
@@ -1662,10 +1672,26 @@
         "tool_names": []
       },
       {
+        "id": "guard-msys-ps-wait.py",
+        "script": "scripts/guard-msys-ps-wait.py",
+        "tool_names": [
+          "Bash",
+          "PowerShell"
+        ]
+      },
+      {
         "id": "guard-p4-no-submit-mcp.py",
         "script": "scripts/guard-p4-no-submit-mcp.py",
         "tool_names": [
           "mcp__.*example-game-repo.*"
+        ]
+      },
+      {
+        "id": "guard-recursive-grep-repo-root.py",
+        "script": "scripts/guard-recursive-grep-repo-root.py",
+        "tool_names": [
+          "Bash",
+          "PowerShell"
         ]
       },
       {
@@ -1782,12 +1808,12 @@
       {
         "id": "track-touched-files.py",
         "script": "scripts/track-touched-files.py",
-        "reason": "Standalone Write|Edit|MultiEdit|NotebookEdit registration folded into postuse-advisory-dispatch.py's hooks.track_touched_files call; fully absent from hooks.json."
+        "reason": "Standalone Write|Edit|MultiEdit|NotebookEdit registration folded into the hooks.postuse_advisory_dispatch op's track_touched_files call; fully absent from hooks.json."
       },
       {
         "id": "nudge-unauthorized-handoff.py",
         "script": "scripts/nudge-unauthorized-handoff.py",
-        "reason": "Its standalone PostToolUse(Write) registration was folded into postuse-advisory-dispatch.py's direct nudge_unauthorized_handoff.advisory_text() call; fully absent from current hooks.json."
+        "reason": "Its standalone PostToolUse(Write) registration was folded into the hooks.postuse_advisory_dispatch op's nudge_unauthorized_handoff advisory; fully absent from current hooks.json."
       },
       {
         "id": "sessionend-auto-commit.py",

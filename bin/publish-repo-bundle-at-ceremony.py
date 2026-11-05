@@ -37,8 +37,10 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import sysconfig
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -125,6 +127,25 @@ def _resolve_registry_key(key: str) -> tuple[str | None, str | None]:
         stderr = result.stderr.strip()
         return None, f"registry key {key!r} unresolved ({stderr or 'no value'})"
     return value, None
+
+
+def _installed_cli() -> Path | None:
+    """The installed `project-rag-cli`: PATH first, then the Scripts dirs of the running
+    interpreter, the console interpreter and the user scheme. None when none holds it."""
+    found = shutil.which("project-rag-cli")
+    if found:
+        return Path(found)
+    dirs: list[str] = []
+    for scheme in (sysconfig.get_default_scheme(), sysconfig.get_preferred_scheme("user")):
+        dirs.append(sysconfig.get_path("scripts", scheme))
+    for interp in (sys.executable, _console_python()):
+        base = Path(interp).parent
+        dirs.extend((str(base / "Scripts"), str(base)))
+    for d in dict.fromkeys(dirs):
+        found = shutil.which("project-rag-cli", path=d)
+        if found:
+            return Path(found)
+    return None
 
 
 def _unresolved_cli_line(prefix: str, reason: str | None) -> str:
@@ -488,7 +509,10 @@ def run(
             return _unresolved_cli_line("publish-repo-bundle", reason)
         exe_path = Path(exe).expanduser()
         if not exe_path.is_file():
-            return f"publish-repo-bundle: defect -- registry key names a file that does not exist: {exe_path}"
+            installed = _installed_cli()
+            if installed is None:
+                return f"publish-repo-bundle: defect -- registry key names a file that does not exist: {exe_path}"
+            exe_path = installed
 
     common_dir = _git_common_dir(repo_root) or repo_root
     record_path = common_dir / "coordinator-sessions" / _RECORD_NAME

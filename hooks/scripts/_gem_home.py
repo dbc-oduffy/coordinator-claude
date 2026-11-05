@@ -65,9 +65,14 @@ def _repo_roots() -> list[str]:
     return roots
 
 
+def _is_checkout(root) -> bool:
+    """A `repos.*` root is a checkout only when it holds `.git`; a drive root or plain folder is not."""
+    return os.path.exists(os.path.join(str(root), ".git"))
+
+
 def inside_checkout(path) -> str | None:
     """The checkout `path` lies in, else None: the first strict ancestor holding `.git`, or the
-    first `repos.*` root equal to or containing it."""
+    first `repos.*` root holding `.git` that equals or contains it."""
     target = _norm(path)
     # Walk the real path, not the normcased one, so a refusal names the checkout as spelled.
     cur = Path(os.path.realpath(str(path)))
@@ -76,7 +81,7 @@ def inside_checkout(path) -> str | None:
             return str(anc)
     for root in _repo_roots():
         r = _norm(root)
-        if target == r or target.startswith(r.rstrip(os.sep) + os.sep):
+        if (target == r or target.startswith(r.rstrip(os.sep) + os.sep)) and _is_checkout(root):
             return root
     return None
 

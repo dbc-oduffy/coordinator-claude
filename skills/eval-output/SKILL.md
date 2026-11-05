@@ -1,5 +1,5 @@
 ---
-name: coordinator:eval-output
+name: eval-output
 description: Score a research output on the 5-criteria rubric.
 version: 1.0.0
 ---

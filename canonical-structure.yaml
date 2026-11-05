@@ -125,6 +125,8 @@ entries:
       Session-continuity artifacts written by the `handoff` skill (`coordinator/skills/handoff/SKILL.md`)
       when a session ends via `/handoff`. Each entry is a per-session handoff record consumed by
       the next session picking up the same workstream. Empty until the first session ends.
+      Entries are sharded `state/handoffs/<YYYY-MM>/<file>`; `REDIRECTS.md` maps moved paths
+      (`coordinator/docs/wiki/output-tree-layout-contract.md`).
 
   
   - path: state/review-trail/
@@ -263,6 +265,8 @@ entries:
       Plan documents written by the `plan` skill (`coordinator/skills/plan/SKILL.md`) once a
       plan is ratified in plan mode. Each entry is a per-workstream plan consumed by
       `/execute-plan` dispatch. Empty until the first plan is ratified.
+      Entries are sharded `docs/plans/<YYYY-MM>/<file>`; `REDIRECTS.md` maps moved paths
+      (`coordinator/docs/wiki/output-tree-layout-contract.md`).
 
   
   - path: docs/research/
@@ -270,9 +274,10 @@ entries:
     schema: null
     readme: |
       Research outputs written by the `/research` command (`coordinator/commands/research.md`)
-      once a research pipeline run completes. Each entry is a per-run synthesis (plus an
-      `archive/` for completed run workdirs) consumed by planning and prior-art checks. Empty
-      until the first research run completes.
+      once a research pipeline run completes. Top level holds only `<topic>/` directories and a
+      `README.md` redirect index. Each topic holds run dirs `<YYYY-MM-DD>-<run-slug>/` whose fixed
+      children are `synthesis.md`, `trail.yaml`, `verdict.md`, `outputs/` and `workdir/`.
+      Consumed by planning and prior-art checks. Empty until the first research run completes.
 
   
   - path: state/health/
@@ -284,4 +289,94 @@ entries:
   - path: state/lessons.md
     creation: lazy
     schema: lesson-entry
+    readme: null
+
+  - path: break-glass.cmd
+    creation: lazy
+    schema: null
+    readme: null
+
+  - path: drive_root_write_guard.py
+    creation: lazy
+    schema: null
+    readme: null
+
+  - path: docs/PM-ACTION-ITEMS.md
+    creation: lazy
+    schema: null
+    readme: null
+
+  - path: docs/coordinator-currency.yaml
+    creation: lazy
+    schema: null
+    readme: null
+
+  - path: state/.workday-start-weekly-marker
+    creation: lazy
+    schema: null
+    readme: null
+
+  - path: state/backlog-snapshots.machine-b-local.jsonl
+    creation: lazy
+    schema: null
+    readme: null
+
+  - path: state/backlog-snapshots.machine-a.jsonl
+    creation: lazy
+    schema: null
+    readme: null
+
+  - path: state/cockpit-emission.HALTED.md
+    creation: lazy
+    schema: null
+    readme: null
+
+  - path: state/code-stats-history.md
+    creation: lazy
+    schema: null
+    readme: null
+
+  - path: state/distillation-log.md
+    creation: lazy
+    schema: null
+    readme: null
+
+  - path: state/fast-full-known-red.json
+    creation: lazy
+    schema: null
+    readme: null
+
+  - path: state/goals-log.machine-b-local.jsonl
+    creation: lazy
+    schema: null
+    readme: null
+
+  - path: state/goals-log.machine-a.jsonl
+    creation: lazy
+    schema: null
+    readme: null
+
+  - path: state/health-ledger.md
+    creation: lazy
+    schema: null
+    readme: null
+
+  - path: state/posix-exec-baseline.json
+    creation: lazy
+    schema: null
+    readme: null
+
+  - path: state/posix-exec-exempt-prefixes.json
+    creation: lazy
+    schema: null
+    readme: null
+
+  - path: state/runtime-tripwire-fire-log.tsv
+    creation: lazy
+    schema: null
+    readme: null
+
+  - path: state/shim-usage-census.jsonl
+    creation: lazy
+    schema: null
     readme: null

@@ -56,7 +56,8 @@ drafted around a proven mechanism.
 
 ## Durable Output — the Verdict Record
 
-Write to `docs/research/spike-verdicts/YYYY-MM-DD-<mechanism-slug>.md`, validated against
+Write to `docs/research/<topic>/<YYYY-MM-DD>-<mechanism-slug>/verdict.md` (topic `spikes`, or the
+sizing's topic; `RESEARCH-OUTPUT-LIVES-IN-A-RUN-DIR`), validated against
 `spike-result.schema.json`. No `state/handoffs/` lifecycle fields (no `status`,
 `deployment_state`, `pickup_ready`) — a verdict record is evidence, not a baton.
 

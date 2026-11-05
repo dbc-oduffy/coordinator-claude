@@ -884,7 +884,10 @@ def _assert_no_archived_handoff_twin(out_path: str, handoff_id: str | None, repo
     """
     if not repo_root:
         return
-    if os.path.basename(os.path.dirname(out_path)) != "handoffs":
+    _dest = os.path.dirname(out_path)
+    if re.fullmatch(r"\d{4}-\d{2}", os.path.basename(_dest)):
+        _dest = os.path.dirname(_dest)
+    if os.path.basename(_dest) != "handoffs":
         return
     try:
         _ensure_engine_on_path()
@@ -1231,7 +1234,9 @@ def _resolve_session_held_spinoff_roadmap_stub_path(repo_root: str | None) -> st
     for class_, basename in held_claims:
         if class_ != "handoff-claims":
             continue
-        live_path = os.path.join(repo_root, "state", "handoffs", basename)
+        from coordinator_core.session.output_tree_layout import locate as _locate  # noqa: PLC0415
+
+        live_path = os.path.join(repo_root, *_locate(repo_root, f"state/handoffs/{basename}").split("/"))
         if os.path.isfile(live_path):
             return live_path
         try:
@@ -1925,14 +1930,17 @@ def _resolve_same_title_sizing_deliverable_id(
         cutoff = (
             _dt.date.today() - _dt.timedelta(days=_SAME_TITLE_SIZING_WINDOW_DAYS)
         ).isoformat()
-        sizings = os.path.join(repo_root, "state", "sizings")
+        from coordinator_core.session.output_tree_layout import iter_entries  # noqa: PLC0415
+
+        by_name = {
+            rel.rsplit("/", 1)[-1]: os.path.join(repo_root, *rel.split("/"))
+            for rel in iter_entries(repo_root, "state/sizings", ".yaml")
+        }
         matches = []
-        for name in sorted(os.listdir(sizings), reverse=True):
-            if not name.endswith(".yaml"):
-                continue
+        for name in sorted(by_name, reverse=True):
             if name[:10] < cutoff:
                 break
-            with open(os.path.join(sizings, name), encoding="utf-8", errors="replace") as fh:
+            with open(by_name[name], encoding="utf-8", errors="replace") as fh:
                 for _ in range(40):
                     m = id_re.match(fh.readline())
                     if m:
@@ -1996,14 +2004,17 @@ def _resolve_same_title_baton_deliverable_id(
         cutoff = (
             _dt.date.today() - _dt.timedelta(days=_SAME_TITLE_BATON_WINDOW_DAYS)
         ).isoformat()
-        handoffs = os.path.join(repo_root, "state", "handoffs")
+        from coordinator_core.session.output_tree_layout import iter_entries  # noqa: PLC0415
+
+        by_name = {
+            rel.rsplit("/", 1)[-1]: os.path.join(repo_root, *rel.split("/"))
+            for rel in iter_entries(repo_root, "state/handoffs", ".md")
+        }
         matches = []
-        for name in sorted(os.listdir(handoffs), reverse=True):
-            if not name.endswith(".md"):
-                continue
+        for name in sorted(by_name, reverse=True):
             if name[:10] < cutoff:
                 break
-            with open(os.path.join(handoffs, name), encoding="utf-8", errors="replace") as fh:
+            with open(by_name[name], encoding="utf-8", errors="replace") as fh:
                 for _ in range(40):
                     line = fh.readline()
                     if not line:
@@ -4963,7 +4974,7 @@ def _baton_rel_for_sizing(sizing_rel: str) -> str:
     stem = os.path.splitext(os.path.basename(sizing_rel))[0]
     if not re.match(r"\d{4}-\d{2}-\d{2}-", stem):
         stem = f"{_today()}-{stem}"
-    return f"state/handoffs/{stem}.md"
+    return _shard_rel("state/handoffs", f"{stem}.md").replace(os.sep, "/")
 
 
 def _write_baton_file(out_abs: str, content: str) -> None:
@@ -5165,6 +5176,12 @@ def mint_baton_from_sizing(
         raise SizingMintRefused(
             ["sizing"], f"--from-sizing refused: {sizing_rel} is not a repo-relative state/sizings/ path"
         )
+    if not os.path.isfile(os.path.join(repo_root, sizing_rel)):
+        from coordinator_core.session.output_tree_layout import locate  # noqa: PLC0415
+
+        _moved = locate(repo_root, sizing_rel)
+        if os.path.isfile(os.path.join(repo_root, _moved)):
+            sizing_rel = _moved
     sizing_abs = os.path.join(repo_root, sizing_rel)
     try:
         meta = _read_sizing_meta(sizing_abs)
@@ -5198,8 +5215,11 @@ def mint_baton_from_sizing(
     join_edge = False
     if not baton and not existing:
         _derived = _baton_rel_for_sizing(sizing_rel)
+        _flat = "state/handoffs/" + _derived.rsplit("/", 1)[-1]
         if os.path.isfile(os.path.join(repo_root, _derived)):
             baton = _derived
+        elif os.path.isfile(os.path.join(repo_root, _flat)):
+            baton = _flat
     if baton:
         baton = _repo_relative_posix(baton, repo_root)
         _bparts = baton.split("/")
@@ -6765,6 +6785,42 @@ def _provision_findings_sidecar(
 # Output path helpers
 # ---------------------------------------------------------------------------
 
+def _shard_rel(tree: str, name: str) -> str:
+    """`<tree>/<YYYY-MM>/<name>` (flat when the name is undated), as a native-separator relative path."""
+    _ensure_engine_on_path()
+    from coordinator_core.session.output_tree_layout import write_rel  # noqa: PLC0415
+
+    return os.path.join(*write_rel(tree, name).split("/"))
+
+
+def _place_in_output_tree(out_path: str, *, explicit: bool) -> str:
+    """Move a record bound for the flat root of a sharded tree to its month shard.
+
+    An existing flat file stays put, so an overwrite or `--force` never moves a record.
+    A default path already sharded falls back to its flat twin when that exists; an
+    explicit `--out` already naming a shard is left alone. Spawn-free: one stat.
+    """
+    _ensure_engine_on_path()
+    from coordinator_core.session.output_tree_layout import is_month_dir, trees  # noqa: PLC0415
+
+    norm = out_path.replace("\\", "/")
+    parent, _, name = norm.rpartition("/")
+    for tree in trees():
+        if parent == tree or parent.endswith("/" + tree):
+            if os.path.isfile(out_path):
+                return out_path
+            prefix = parent[: len(parent) - len(tree)]
+            return os.path.normpath(prefix + _shard_rel(tree, name).replace(os.sep, "/"))
+        if explicit:
+            continue
+        head, _, month = parent.rpartition("/")
+        if is_month_dir(month) and (head == tree or head.endswith("/" + tree)):
+            flat = os.path.normpath(f"{head}/{name}")
+            if os.path.isfile(flat):
+                return flat
+    return out_path
+
+
 def _default_output_path(
     doc_type: str,
     title: str,
@@ -6816,16 +6872,20 @@ def _default_output_path(
         # F8 (klabauter#71): --slug, when supplied, overrides the
         # title-derived slug outright rather than feeding through
         # _slug_from_title's word-boundary truncation.
-        return slug_override if slug_override else _slug_from_title(t)
+        # Trap: a slug copied off a dated stem (a sizing's `2026-11-01-x`) already carries a date;
+        # joined to `today` it doubles (`2026-11-01-2026-11-01-x`), so a leading date is dropped.
+        if slug_override:
+            return re.sub(r"^\d{4}-\d{2}-\d{2}-", "", slug_override) or slug_override
+        return _slug_from_title(t)
 
     if doc_type in ("handoff", "spinoff", "recovery", "goal-seed", "roadmap-seed"):
         slug = _slug(title)
-        return os.path.join("state", "handoffs", f"{today}-{slug}.md")
+        return _shard_rel("state/handoffs", f"{today}-{slug}.md")
     elif doc_type == "roadmap-baton":
         # Canonical path includes real HHMMSS (see SKILL.md § Step 2.1); 000000 is the
         # best-effort fallback when --out is omitted. Use --out to supply the full path.
         id_slug = stub_id if stub_id else _slug(title)
-        return os.path.join("state", "handoffs", f"{today}_000000_roadmap-{id_slug}.md")
+        return _shard_rel("state/handoffs", f"{today}_000000_roadmap-{id_slug}.md")
     elif doc_type == "memo":
         # `.coordinator-local/memo-outbox/<topic>.md` — the CANONICAL outbox
         # dir `coordinator_core.ops.fleet.memo_draft.outbox_dir` writes (its
@@ -6845,7 +6905,7 @@ def _default_output_path(
         return os.path.join(".coordinator-local", "memo-outbox", f"{slug}.md")
     elif doc_type == "plan":
         slug = _slug(title)
-        return os.path.join("docs", "plans", f"{today}-{slug}.md")
+        return _shard_rel("docs/plans", f"{today}-{slug}.md")
     elif doc_type == "decision":
         slug = _slug(title)
         prefix = dr_id or "DR-XXX"  # dr_id always set by main() before this call; fallback is defensive only
@@ -6867,7 +6927,7 @@ def _default_output_path(
         return os.path.join("state", "goals", f"{today}-{slug}.yaml")
     elif doc_type == "sizing-object":
         slug = _slug(title)
-        return os.path.join("state", "sizings", f"{today}-{slug}.yaml")
+        return _shard_rel("state/sizings", f"{today}-{slug}.yaml")
     elif doc_type == "health-status":
         return os.path.join("state", "health", f"{today}-health-summary.md")
     elif doc_type == "strategic-self-description":
@@ -6882,7 +6942,7 @@ def _default_output_path(
         # review F3 — use manifest-derived dict; new sidecar types auto-populate suffix field
         # in the manifest rather than requiring a matching edit to a local static dict here.
         suffix = _SIDECAR_SUFFIXES[doc_type]
-        return os.path.join("docs", "plans", f"{stem}.{suffix}.md")
+        return _shard_rel("docs/plans", f"{stem}.{suffix}.md")
     elif doc_type == "review-findings":
         sid = slice_id or "SLICE"
         scp = scope or "SCOPE"
@@ -9505,6 +9565,8 @@ def main(argv: "list[str] | None" = None) -> int:
                 if _repo_root:
                     out_path = os.path.join(_repo_root, out_path)
                     _anchored_repo_root = _repo_root
+
+    out_path = _place_in_output_tree(out_path, explicit=bool(args.out))
 
     # Security: containment check — resolve symlinks + '..' and verify the output
     # path falls within an allowed write root before creating any directories or files.

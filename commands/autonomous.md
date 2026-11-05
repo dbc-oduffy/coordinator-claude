@@ -33,8 +33,10 @@ the verb reads one token and has no note slot; keep any other PM text in your ow
 
 ## Behavior While Active
 
-PM touchpoints themselves are set by the sizing's `interaction_mode` (hands-on / pm / ceo), not
-by this toggle.
+While active, the PM has no touchpoints: every PM gate a run or sizing names (an Approve, an
+`interaction_mode` hands-on / pm stop, a "check with the PM") is taken by `coordinator:apm`, with the
+live Group EM as backstop. Nothing waits for the PM's return. Only an act needing the human's own
+hands (an interactive login) reaches the PM, stated as that act.
 
 Presume the PM is away — don't wait for input. Status between steps is
 output-only; no mid-run "should we continue?". Everything else once printed

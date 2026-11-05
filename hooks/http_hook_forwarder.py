@@ -89,7 +89,7 @@ future edit must not "fix" the asymmetry by copy-paste:
 
 Reference: `hookSpecificOutput.permissionDecision: "deny"` is the documented and measured block
 channel for a `type: "http"` hook response
-(`docs/research/spike-verdicts/2026-08-19-http-hook-transport.md`), not invented here.
+(`docs/research/spikes/2026-08-19-http-hook-transport/verdict.md`), not invented here.
 """
 from __future__ import annotations
 
@@ -994,7 +994,7 @@ def _sup_mod() -> "Any":
 def _deny_body(hook_event_name: str, reason: str = DENY_REASON) -> bytes:
     """The permission decisions this module authors -- see module docstring's "no backend"
     property. Shape matches the measured block channel
-    (`docs/research/spike-verdicts/2026-08-19-http-hook-transport.md`).
+    (`docs/research/spikes/2026-08-19-http-hook-transport/verdict.md`).
 
     TWO REASONS, ONE SHAPE. `DENY_REASON` (the default) says the backend was never reached;
     `REFUSED_REASON` says it was reached and refused. Both are this module's own decision and

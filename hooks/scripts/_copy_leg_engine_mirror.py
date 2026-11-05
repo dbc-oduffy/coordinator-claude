@@ -40,7 +40,7 @@ STAMP_RELPATH = "coordinator_core/_engine_stamp"
 UNCHECKED = object()
 ORIGIN_BEHIND_PREFIX = "behind origin by "
 
-_NO_CLONE = "no claude-klabauter clone registered"
+_NO_CLONE = "no engine-source clone registered"
 _LIVE_TREE_EVIDENCE = "session executes the live tree; no copy in play"
 
 
@@ -152,7 +152,7 @@ def check_currency(
         COPY,
         cc.CURRENCY,
         cc.CURRENT,
-        evidence=f"stamp {stamp[:10]} is 0 engine-touching commits behind live claude-klabauter HEAD",
+        evidence=f"stamp {stamp[:10]} is 0 engine-touching commits behind live engine-source HEAD",
     )
 
 

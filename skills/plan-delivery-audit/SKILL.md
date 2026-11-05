@@ -3,7 +3,7 @@ name: plan-delivery-audit
 description: Triangulate plan claims against code and reviews.
 version: 1.0.0
 allowed-tools: ["Read", "Grep", "Glob", "Bash", "Agent"]
-argument-hint: "[plan-glob — default: docs/plans/*.md]"
+argument-hint: "[plan-glob — default: docs/plans/*.md + docs/plans/<YYYY-MM>/*.md]"
 ---
 
 # Plan-Delivery Audit
@@ -14,7 +14,7 @@ shipped-work reconciliation, or whenever `status: implemented` needs independent
 
 ## Phase 1 — Gather and filter (EM, ~2 min)
 
-Glob the plan set (default `docs/plans/*.md`, or the caller-supplied glob) and exclude sidecars —
+Glob the plan set (default `docs/plans/*.md` plus `docs/plans/<YYYY-MM>/*.md`, or the caller-supplied glob) and exclude sidecars —
 any filename containing `.prior-art-check`, `.coverage-check`, `.docs-check`, `.review-`, or
 `.check.`. They inherit their parent plan's `status:` and pollute the candidate set if left in.
 

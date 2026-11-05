@@ -18,6 +18,8 @@ A "hermetic test" assumes the test process can fully control its dependencies an
 
 Neither pattern is caught by "tests pass." Both produce green CI that silently misses production-shape regressions.
 
+**Bare pytest under a commit-capped runner** (a Job Object memory cap, or `scoped-pytest`): start it with `OPENBLAS_NUM_THREADS=1`. Otherwise every pytest process commits about 0.75 GiB of OpenBLAS thread buffers before any test runs. This is not a box-wide setting ([tripwire](../coordinator-tripwires/a-bare-pytest-under-a-commit-capped-runner-sets-openblas-num-threads.md)).
+
 ---
 
 ## 1. Resolve to the pinned venv python, not `sys.executable`

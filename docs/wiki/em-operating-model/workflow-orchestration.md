@@ -69,6 +69,16 @@ Workflow doctrine concentrates at `/execute-plan` rather than blanket-covering e
 
 **The journaled-scan-then-synth shape is the shared resume primitive.** Run a cheap, mechanical, near-free scan wave first and journal it; run the expensive agentic synth wave after. On a rate-limit wipeout `resumeFromRunId` re-runs only the failed synth agents — the cheap wave returns from cache. This makes the cheap wave durable independent of the EM's own context survival. `/distill` and `/architecture-survey` both run this shape and differ only in concurrency posture: `/distill` uses the plain cap of `min(16, cores-2)`; `/architecture-survey` uses a LOW cap (~4) plus exponential backoff, because its fan-out trips an **account-level** rate limit that stays hot for minutes regardless of the cap — arrival-rate-triggered, not concurrency-triggered.
 
+### Pause in place, then resume
+
+A percolate publish, an engine swap and a box hold each pause in-flight runs in place; the EM never waits for them to end and opens no quiet window.
+
+- **Pause** = stop the background run in place.
+- **Verify** with `git status` what the stopped agent already wrote (see "`git status` is the arbiter" below): the stopped phase re-runs live on resume.
+- **Resume** = `resumeFromRunId` with the identical script and args; resume is same-session only, so the session that paused the run resumes it. Any drift in script or args misses the cache (`AN-EMITTED-WORKFLOW-PROMPT-MUST-STAY-RESUMABLE`).
+- **Engine half** (warm-pair handover, `coordinator_core.warm`): `live_runs.hold_for_mid_stage_runs` holds a handover for mid-stage runs and then refuses; `paused_runs` writes `<repo>/.coordinator-local/paused-runs/<run_id>.json`, with the `pause-request.json` and `handover-complete.json` markers beside it. The resume call is rendered by `workflow_watch.stall.render_resume_call` from that record. No engine op is registered for these yet, so cite the module functions.
+- **A hold that ends the session** (restart, reclaimed container) leaves the run unresumable: the EM finishes the work itself, as for a limit-death. Runs that die uninvited: `a-compaction-can-kill-a-background-workflow.md`, `a-quiet-session-gets-its-container-reclaimed-under-running-work.md`.
+
 **Staging a Workflow rebuild that depends on a cross-team engine capability:** split the plan so doctrine-side chunks proceed immediately and only the engine-dependent chunks wait on the go-signal. Do not block the doctrine side on the engine team's delivery. Where the rebuild adds a structural-mapping fallback, gate that fallback on the project's own semantic index being absent — when a richer semantic index exists, prefer it.
 
 ---

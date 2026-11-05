@@ -89,6 +89,14 @@ pointing at `Skill(coordinator:<stage>)`. Advisory only, never a deny; it runs
 after the guards, so a deny suppresses it. One regex over the prompt, no import
 or spawn -- it sits on the Agent hot path.
 
+Accepted recall loss: the directive verbs exclude "use" and "then", so a brief
+saying only "use sizing and plan-blitz" is not advised ("then run X" is still
+caught by "run"). A false positive on this hot path teaches EMs to ignore the
+advisory, which costs more than that rare brief. A colon carries onto a list
+only when the verb's object points at it ("Run these:"), so "Run the diff
+report:" plus a stage list is not advised; a negator anywhere earlier in the
+clause ("Do not, ever, run X") suppresses the verb.
+
 Negative spec: do not add a fourth guard here without updating this module's
 docstring and the `hooks.json` comment naming the fold set; do not collapse
 the first-deny-wins short-circuit into concatenate-all; do not drop a non-deny
@@ -168,10 +176,17 @@ _SKILL_STAGE_RE = re.compile(
 _CLAUSE_SPLIT_RE = re.compile(r"[.;:!?\n]")
 _STAGE_DIRECTIVE_RE = re.compile(
     r"(?<![\w-])(?:(?:do|don'?t|not|never|without|skip)\s+)?"
-    r"(run|runs|invoke|execute|perform|apply|use|start|then)(?![\w-])",
+    r"(run|runs|invoke|execute|perform|apply|start)(?![\w-])",
     re.IGNORECASE,
 )
 _NEGATOR_RE = re.compile(r"^(?:do|don'?t|not|never|without|skip)\b", re.IGNORECASE)
+_PRIOR_NEGATOR_RE = re.compile(r"(?<![\w-])(?:not|never|don'?t|without|skip)(?![\w-])", re.IGNORECASE)
+# A trailing colon carries the directive onto a list only when the verb's object
+# points at that list ("Run these:"), not a named artifact ("Run the diff report:").
+_LIST_OBJECT_RE = re.compile(
+    r"(?<![\w-])(?:these|those|following|below|stages|skills|steps|in order|each)(?![\w-])",
+    re.IGNORECASE,
+)
 _LIST_ITEM_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
 
 
@@ -187,13 +202,18 @@ def _directed_stages(prompt: str) -> set:
         carry = False
         for clause in _CLAUSE_SPLIT_RE.split(line):
             for d in _STAGE_DIRECTIVE_RE.finditer(clause):
-                if _NEGATOR_RE.match(d.group(0)):
+                if _NEGATOR_RE.match(d.group(0)) or _PRIOR_NEGATOR_RE.search(clause[:d.start()]):
                     continue
                 directed.update(m.lower() for m in _SKILL_STAGE_RE.findall(clause[d.end():]))
                 break
         if line.rstrip().endswith(":"):
             last = _CLAUSE_SPLIT_RE.split(line.rstrip()[:-1])[-1]
-            carry = any(not _NEGATOR_RE.match(d.group(0)) for d in _STAGE_DIRECTIVE_RE.finditer(last))
+            carry = any(
+                not _NEGATOR_RE.match(d.group(0))
+                and not _PRIOR_NEGATOR_RE.search(last[:d.start()])
+                and _LIST_OBJECT_RE.search(last[d.end():])
+                for d in _STAGE_DIRECTIVE_RE.finditer(last)
+            )
         else:
             carry = False
     return directed

@@ -73,7 +73,7 @@ way:**
    — that is a stronger claim than "description drops, name survives."
 
    **Partially settled, not resolved.** A spike
-   (`docs/research/spike-verdicts/2026-07-27-boot-context-envelope.md`, corroborated by
+   (`docs/research/spikes/2026-07-27-boot-context-envelope/verdict.md`, corroborated by
    ) observed all 62 skill-listing entries at
    this repo's current catalog size intact by name. The 62 figure is a live-tool-listing
    self-observation made at spike time, not a number the census itself reports — the census

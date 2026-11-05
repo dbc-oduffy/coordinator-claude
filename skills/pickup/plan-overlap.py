@@ -54,6 +54,7 @@ import yaml
 _SCRIPT_DIR = Path(__file__).resolve().parent
 _PLUGIN_ROOT = _SCRIPT_DIR.parent.parent
 _HOOKS_SCRIPTS_DIR = _PLUGIN_ROOT / "hooks" / "scripts"
+_LIB_DIR = _PLUGIN_ROOT / "lib"
 
 OFFER = "offer"
 NONE = "none"
@@ -120,15 +121,16 @@ def _plan_index(repo_root: Path, needles: tuple = ()) -> tuple:
     `needles` limits parsing to plans whose frontmatter mentions one of the ids."""
     by_plan: dict = {}
     by_deliverable: dict = {}
-    plans_dir = repo_root / "docs" / "plans"
-    if not plans_dir.is_dir():
-        return by_plan, by_deliverable
-    for path in sorted(plans_dir.glob("*.md")):
+    if str(_LIB_DIR) not in sys.path:
+        sys.path.insert(0, str(_LIB_DIR))
+    from output_tree_layout import iter_tree_entries
+
+    for path in iter_tree_entries(repo_root, "docs/plans", "*.md"):
         try:
             fm = _frontmatter(path, needles)
         except OverlapError:
             continue  # unparseable plan: a baton naming it reads no-plan
-        rel = f"docs/plans/{path.name}"
+        rel = path.relative_to(repo_root).as_posix()
         for pid in _as_str_list(fm.get("plan_id")):
             by_plan.setdefault(pid, set()).add(rel)
         for did in _as_str_list(fm.get("deliverable_id")):

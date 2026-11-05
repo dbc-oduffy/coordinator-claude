@@ -251,6 +251,18 @@ def _row_declarations(rows: Dict, row_name: str) -> List[str]:
     )
 
 
+def _row_admits(rows: Dict, row_name: str) -> Dict[str, List[str]]:
+    """Per-deny-entry carve-ins: `{denied top-level name: [package-relative
+    posix files]}`. An entry's optional `admit:` list names the only files of
+    that denied package that may ship. The list is explicit: no pattern, no
+    closure-derived rule, so each new admission is a new declaration."""
+    admits: Dict[str, List[str]] = {}
+    for entry in (rows.get(row_name) or {}).get("deny") or []:
+        if isinstance(entry, dict) and entry.get("admit"):
+            admits[entry["name"]] = sorted(entry["admit"])
+    return admits
+
+
 def _existing_row_line(portable_text: str, row_name: str) -> Tuple[int, str]:
     lines = portable_text.splitlines(keepends=True)
     for idx, line in enumerate(lines):
@@ -606,6 +618,25 @@ def _derive_row(
     # it publishes. See the module docstring for the ruling and its cost.
     include_root = sorted(set(tracked) - set(deny_names))
 
+    # A denied package stays default-denied; its `admit:` files ship as nested
+    # `<name>/<file>` entries, each of which must be a tracked file.
+    tracked_files = {
+        Path(rel).relative_to(source_subdir).as_posix()
+        for rel in _git_ls_files(source_subdir, pending, repo_root)
+    }
+    carve_ins = []
+    for denied, files in _row_admits(rows, row_name).items():
+        for f in files:
+            rel = f"{denied}/{f}"
+            if rel not in tracked_files:
+                raise GeneratorError(
+                    f"'{row_name}': 'admit' entry {rel!r} under denied name "
+                    f"{denied!r} is not a git-tracked file under "
+                    f"'{source_subdir}' — the carve-in is stale or misspelled"
+                )
+            carve_ins.append(rel)
+    include_root = sorted(include_root + carve_ins)
+
     stale = sorted(set(deny_names) - set(tracked))
     if stale:
         raise GeneratorError(
@@ -657,13 +688,9 @@ def _derive_row(
     idx, row_line = _existing_row_line(portable_text, row_name)
     # An exclusion naming nothing tracked is dead: the publish refuses an
     # exclusion that narrows no admitted path, so a deleted file must drop out.
-    tracked_rel = {
-        Path(rel).relative_to(source_subdir).as_posix()
-        for rel in _git_ls_files(source_subdir, pending, repo_root)
-    }
     exclusions = [
         e for e in _existing_exclusions(row_line)
-        if any(t == e[1:].rstrip("/") or t.startswith(e[1:].rstrip("/") + "/") for t in tracked_rel)
+        if any(t == e[1:].rstrip("/") or t.startswith(e[1:].rstrip("/") + "/") for t in tracked_files)
     ]
     fields = row_line.rstrip("\n").split("|")
     new_csv = ",".join(sorted(include_root) + exclusions)

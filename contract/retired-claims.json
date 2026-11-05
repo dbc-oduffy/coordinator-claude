@@ -5,7 +5,7 @@
     {
       "id": "claude-bin-resolver-family-live",
       "claim": "The claude_machine_local.py / claude-machine-local.sh / .ps1 resolver family is installed at ~/.claude/bin/, and callers import, source, or probe it there.",
-      "retired_by": "docs/plans/2026-07-24-coordinator-owns-zero-claude-bin.md",
+      "retired_by": "docs/plans/2026-07/2026-07-24-coordinator-owns-zero-claude-bin.md",
       "signatures": [
         "\\b(?:import|source|dot-source|probe\\s+at)\\s+[`'\"]?~/\\.claude/bin/(?:claude_machine_local\\.py|claude-machine-local\\.(?:sh|ps1)|machine-local)\\b"
       ],
@@ -26,7 +26,7 @@
     {
       "id": "execute-review-has-an-integration-pass",
       "claim": "Execute-workflow code review ends in exactly one integration pass that applies the residue findings.",
-      "retired_by": "docs/plans/2026-10-01-execute-workflow-self-completes.md",
+      "retired_by": "docs/plans/2026-10/2026-10-01-execute-workflow-self-completes.md",
       "signatures": [
         "\\bexactly\\s+one\\s+integration\\s+pass\\b",
         "\\bparallel\\s+(?:review\\s+)?wave,?\\s+(?:then|plus)\\s+(?:exactly\\s+)?one\\s+integration\\s+pass\\b"
@@ -60,7 +60,7 @@
     {
       "id": "persona-named-legacy-kind-in-review-sidecar-kinds",
       "claim": "The persona-named legacy kind is a member of review-sidecar's `kinds` list.",
-      "retired_by": "docs/plans/2026-10-05-depersonalize-the-two-vendored-schemas.md",
+      "retired_by": "docs/plans/2026-10/2026-10-05-depersonalize-the-two-vendored-schemas.md",
       "signatures": [
         "\\bpatrik-review\\b[^\\n]{0,80}remain\\s+in\\b[^\\n]{0,80}\\bkinds\\b"
       ],
@@ -115,7 +115,7 @@
     {
       "id": "sizing-hand-fires-emit-wave-fire-as-default",
       "claim": "On an XS-L plan route the EM runs emit-wave-fire after the sizing write and fires its printed Workflow as the normal path.",
-      "retired_by": "docs/plans/2026-10-14-sizing-default-engine-ask-to-completion.md",
+      "retired_by": "docs/plans/2026-10/2026-10-14-sizing-default-engine-ask-to-completion.md",
       "signatures": [
         "writes\\s+the\\s+sizing,\\s+runs\\s+`?emit-wave-fire`?,\\s+and\\s+fires\\s+the\\s+Workflow",
         "Step\\s+4's\\s+`?--write`?\\s+runs\\s+`?emit-wave-fire`?\\s+and\\s+prints\\s+its"
@@ -126,7 +126,7 @@
     {
       "id": "plan-blitz-readiness-gate-owns-cross-plan-seams",
       "claim": "plan-blitz's readiness gate owns cross-plan seams.",
-      "retired_by": "docs/plans/2026-10-15-plan-blitz-readiness-gate-leg-removal.md",
+      "retired_by": "docs/plans/2026-10/2026-10-15-plan-blitz-readiness-gate-leg-removal.md",
       "signatures": [
         "plan-blitz['’]s\\s+readiness\\s+gate\\s+owns\\s+(?:the\\s+)?cross-plan\\s+seams"
       ],
@@ -136,7 +136,7 @@
     {
       "id": "plan-blitz-dispatches-a-readiness-gate-agent",
       "claim": "plan-blitz dispatches a readiness-gate agent (blitz-em phase readiness-gate).",
-      "retired_by": "docs/plans/2026-10-15-plan-blitz-readiness-gate-leg-removal.md",
+      "retired_by": "docs/plans/2026-10/2026-10-15-plan-blitz-readiness-gate-leg-removal.md",
       "signatures": [
         "plan-blitz\\s+dispatches\\s+a\\s+readiness-gate\\s+agent",
         "blitz-em\\s+phase\\s+`?readiness-gate`?"
@@ -147,7 +147,7 @@
     {
       "id": "workday-start-offers-group-em-standing",
       "claim": "The workday-start command offers the session the Group EM role.",
-      "retired_by": "docs/plans/2026-10-15-gem-general-work-home.md",
+      "retired_by": "docs/plans/2026-10/2026-10-15-gem-general-work-home.md",
       "signatures": [
         "\\boffer\\s+to\\s+take\\s+the\\s+role\\b",
         "\\bOffer\\s+to\\s+volunteer\\s+as\\s+Group\\s+EM\\b"
@@ -158,7 +158,7 @@
     {
       "id": "sessionstart-group-em-line-repo-scoped",
       "claim": "The SessionStart G-EM line reads only the opened repo's record, and the nomination holds this repo.",
-      "retired_by": "docs/plans/2026-10-15-gem-general-work-home.md",
+      "retired_by": "docs/plans/2026-10/2026-10-15-gem-general-work-home.md",
       "signatures": [
         "reads\\s+only\\s+that\\s+repo['’]s\\s+record",
         "nomination\\s+holds\\s+\\*\\*this\\*\\*\\s+repo"

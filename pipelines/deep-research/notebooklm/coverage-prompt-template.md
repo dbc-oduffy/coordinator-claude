@@ -36,7 +36,7 @@ Input universe: each claim object in `{letter}-claims.json` with a non-null `id`
 The on-disk claims files are a lossy extraction of the notebooks. For a load-bearing check, query
 the notebooks for claims you cannot locate in the synthesis.
 
-1. `ToolSearch("select:mcp__notebooklm-mcp__notebook_query,mcp__notebooklm-mcp__cross_notebook_query")`
+1. `ToolSearch("select:mcp__gemini-notebook-mcp__notebook_query,mcp__gemini-notebook-mcp__cross_notebook_query")`
 2. If that returns nothing: `ToolSearch("+notebooklm notebook_query", max_results=5)`
 3. If both return nothing, degrade gracefully to a claims-only check and put this verbatim in the
    sidecar header:
@@ -49,9 +49,10 @@ step after this audit.
 
 ## Output
 
-**Write your coverage audit to:** `docs/research/{run stem}-coverage-audit.md`, where the run stem
-is the synthesis file's name without `.md` (it carries the `nlm` pipeline identifier). No other
-writes.
+**Write your coverage audit to:** `{{scratch_dir}}/<segment>/{run stem}-coverage-audit.md`, where the run stem
+is the synthesis file's name without `.md` (it carries the `nlm` pipeline identifier). This is
+the run's destination under its scratch dir (`<run dir>/workdir`), never outside the run dir
+`docs/research/<topic>/<date>-<run-slug>/` (the layout guard refuses a stray). No other writes.
 
 ## Return
 

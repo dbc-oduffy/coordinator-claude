@@ -95,7 +95,7 @@ WORKFLOW_LOADER = (
     "sys.stdout.write(json.dumps({'hookSpecificOutput':{'hookEventName':'PreToolUse',"
     "'permissionDecision':'deny','permissionDecisionReason':'The engine did not take this submission "
     "(hook bootstrap unresolvable). Retry once, then do the work by hand (dispatch the agents "
-    "yourself, scoped commits) and file this failure to claude-klabauter-em.'}})) "
+    "yourself, scoped commits) and file this failure to the engine EM.'}})) "
     "if '\"Workflow\"' in (s:=sys.stdin.read()) and re.search(r'(?<![A-Za-z_])name\\\\?\"\\s*:\\s*\\\\?\"(?:[^\"\\\\]*:)?(engine-ask|bug-blitz)',s) "
     "else '')"
 )

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """warm-read-load-probe.py -- what does a fixed op mix cost the warm server's pool workers in read bytes and CPU.
 
 Resolves the live warm server (process scan for `coordinator_core/warm/server.py`, confirmed against
@@ -27,9 +26,10 @@ import sys
 import time
 from pathlib import Path
 
-_REPO = Path(__file__).resolve().parents[2]
-if str(_REPO) not in sys.path:
-    sys.path.insert(0, str(_REPO))
+import lib  # noqa: F401,E402 -- bootstraps coordinator/bin/lib onto sys.path
+from cc_invoke import require_colocated_engine_on_path  # noqa: E402
+
+_REPO = Path(require_colocated_engine_on_path(__file__))
 
 SERVER_SCRIPT_TAIL = ("coordinator_core", "warm", "server.py")
 #: Empty on purpose: a non-empty id makes the guards append a touch-record into the real

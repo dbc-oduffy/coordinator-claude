@@ -146,6 +146,10 @@ PowerShell hosts (rung 0, Shape W):
 Blocking. Exit 1 names every residual path this session owns — PROMOTE (durable home, own voice)
 or DROP per path, delete, re-run to confirm exit 0 (wiki).
 
+## Step 9b-metrics: Metric Breach Query
+
+`EVERY-PROJECT-CARRIES-A-METRIC-REGISTER`: per `coordinator/docs/wiki/planning/metric-register.md`, run the breach query (`project_metric_runs`) for each metric in `state/metrics/*/register.jsonl`; `SendMessage` each red to the owning EM and list it in the summary. Advisory; skip under `$ONLY_MODE=1` or catch-up.
+
 ## Step 8a: Scratch Purge
 
 `fleet.scratch_hygiene` cadence `workday_complete`, advisory, dry-run first; no local delete fallback:

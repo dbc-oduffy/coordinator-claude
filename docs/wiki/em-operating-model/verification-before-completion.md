@@ -52,6 +52,7 @@ Skip any step = lying, not verifying
 | Regression test works | Red-green cycle verified | Test passes once |
 | Agent completed | VCS diff shows changes | Agent reports "success" |
 | Requirements met | Line-by-line checklist | Tests passing |
+| Landed / mapped / used / handled / wired / consumed | The consumer-side command and its captured output (`offered-mapped-consumed.md`) | Producer exists, test passes, plan says so |
 
 ## Red Flags - STOP
 
@@ -76,6 +77,7 @@ When you catch yourself (or a subagent's reply) using any of these, demand the m
 - "Probably works" / "Should work" — either it's verified or it isn't
 - "Builds clean" — show the build log
 - "No errors" — show the run trace
+- "Landed" / "mapped" / "used" / "handled" / "wired" / "consumed" — show the consumer-side command and its output; `A-COMPLETION-WORD-NAMES-ITS-CONSUMER-SIDE-COMMAND`. Without it the honest word is "offered" (`offered-mapped-consumed.md`)
 
 These aren't bans on the words. They're tripwires: when the words appear without adjacent evidence, the claim is unsupported. The discipline is "evidence before assertions, always" — these phrases are common locations where that discipline lapses.
 

@@ -149,7 +149,7 @@ Convergence steps:
 
 ## Structured Claims Output Format (claims.json)
 
-Write a JSON array of claim objects to {{scratch_dir}}/{{item}}-claims.json. **Your scratch file is your deliverable.** After all specialists return, the sweep merges all per-specialist `<letter>-claims.json` files into one array, and the EM emits it to the durable `docs/research/<run-stem>.claims.json` (queryable via `query-records --type research-claim`). Your claim shape is preserved exactly — every field you write lands in the durable record. Do NOT write to the merged durable path yourself; the synthesizer merges and the EM emits.
+Write a JSON array of claim objects to {{scratch_dir}}/{{item}}-claims.json. **Your scratch file is your deliverable.** After all specialists return, the sweep merges all per-specialist `<letter>-claims.json` files into one array, and the EM emits it to the durable `<run-dir>/outputs/<run-stem>.claims.json` (queryable via `query-records --type research-claim`). Your claim shape is preserved exactly — every field you write lands in the durable record. Do NOT write to the merged durable path yourself; the synthesizer merges and the EM emits.
 
 [
   {

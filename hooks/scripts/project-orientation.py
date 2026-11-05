@@ -132,6 +132,13 @@ _LIB_DIR = _PLUGIN_ROOT / "lib"
 if str(_LIB_DIR) not in sys.path:
     sys.path.append(str(_LIB_DIR))
 from frontmatter_scan import scan_frontmatter, scan_mapping  # noqa: E402
+from output_tree_layout import iter_tree_entries  # noqa: E402
+
+
+def _pending_handoffs(state_root) -> list[str]:
+    """Handoff files at the state/handoffs root and in every month shard, as sorted path strings."""
+    return [str(p) for p in iter_tree_entries(Path(state_root).parent, "state/handoffs", "*.md")]
+
 
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
@@ -1266,6 +1273,15 @@ def install_currency_banner(repo_root: Optional[str]) -> None:
     # one indistinguishable silence at this artifact (P19-SILENT-TRIBRANCH). Render nothing.
 
 
+def _same_repo(sentinel_root: object, repo_root: Optional[str]) -> bool:
+    """True unless both roots are known and name different directories (case/slash-insensitive)."""
+    if not isinstance(sentinel_root, str) or not sentinel_root or not repo_root:
+        return True
+    # normcase folds case only on Windows; macOS volumes are case-insensitive too.
+    norm = lambda p: os.path.normcase(os.path.normpath(p)).casefold()  # noqa: E731
+    return norm(sentinel_root) == norm(repo_root)
+
+
 def corpus_currency_banner(repo_root: Optional[str]) -> None:
     """Print one line per `behind` band from the C1 corpus-currency-probe sentinel.
 
@@ -1337,6 +1353,11 @@ def corpus_currency_banner(repo_root: Optional[str]) -> None:
         parsed = json.loads(sentinel_text)
     except Exception:
         parsed = None
+
+    # Trap: the sentinel is one machine-wide file, but only a repo with a landed corpus store
+    # writes it. Without this gate every corpus-free repo reports that repo's stale cache.
+    if isinstance(parsed, dict) and not _same_repo(parsed.get("repo_root"), repo_root):
+        return
 
     ran_at_raw = parsed.get("ran_at") if isinstance(parsed, dict) else None
     age_hours: Optional[float] = None
@@ -2152,7 +2173,7 @@ def engine_resolution_banner() -> None:
 
     if klass == RESOLUTION_RESOLVED_ENGINE:
         if provenance_suffix:
-            root_suffix = f" — this session's DoE-plane hooks resolve to {_root}" if _root else ""
+            root_suffix = f" — this session's doctrine-plane hooks resolve to {_root}" if _root else ""
             _w(
                 f"── Engine: published engine mirror{branch_suffix}{provenance_suffix}"
                 f"{root_suffix} ──\n"
@@ -2160,7 +2181,7 @@ def engine_resolution_banner() -> None:
     elif klass == RESOLUTION_LIVE_WORKING_TREE and not _NON_GEM:
         _w(
             f"── Engine: sibling LIVE working tree{branch_suffix}{provenance_suffix} — "
-            "this session's DoE-plane hooks resolve here ──\n"
+            "this session's doctrine-plane hooks resolve here ──\n"
         )
 
     if is_plane and kept_rows and not _NON_GEM:
@@ -3051,7 +3072,7 @@ def full_mode(repo_root: Optional[str], state_root: str) -> None:
             _w(f"    {p}\n")
 
     # Pending handoffs
-    handoffs = sorted(glob.glob(str(Path(state_root) / "handoffs" / "*.md")))
+    handoffs = _pending_handoffs(state_root)
     if handoffs:
         _w("  Pending handoffs:\n")
         for h in handoffs:

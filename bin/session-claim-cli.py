@@ -479,6 +479,7 @@ _SUBCOMMANDS = (
     "release-or-relinquish <class> | clear-claim-if-dead <class> | "
     "release-artifact-bulk (--all | --stdin | <path>...) | "
     "claim-plan | take-over-claim plan | is-session-live | "
+    "follow-handoff-claim <sid> <old> <new> [cwd] | "
     "list-stale-claim-handoffs | list-claims-by-session | who-claims-path\n"
     "  <class>: handoff | memo | plan (basename-keyed claim records), row "
     "(a queue row path such as state/bug-backlog/<row>.yaml), or "
@@ -685,7 +686,7 @@ def _dispatch(argv: list[str]) -> int:
     _CLAIM_SUBCOMMANDS = (
         "claim-artifact", "release-artifact", "release-or-relinquish",
         "clear-claim-if-dead", "claim-plan", "list-claims-by-session",
-        "release-artifact-bulk",
+        "release-artifact-bulk", "follow-handoff-claim",
     )
     if subcmd in _CLAIM_SUBCOMMANDS:
         try:
@@ -726,6 +727,18 @@ def _dispatch(argv: list[str]) -> int:
 
     if subcmd == "release-artifact-bulk":
         return _cmd_release_artifact_bulk(mod, rest)
+
+    if subcmd == "follow-handoff-claim":
+        _usage_line = "session-claim-cli follow-handoff-claim <sid> <old_basename> <new_basename> [cwd]"
+        if len(rest) < 3:
+            return _usage(_usage_line)
+        _flagged = _reject_flag_like_positionals(_usage_line, rest)
+        if _flagged is not None:
+            return _flagged
+        return _call_claim_bool(
+            "follow-handoff-claim", mod.follow_handoff_claim, rest[0], rest[1], rest[2],
+            rest[3] if len(rest) > 3 else None,
+        )
 
     if subcmd == "release-or-relinquish":
         if len(rest) < 2:

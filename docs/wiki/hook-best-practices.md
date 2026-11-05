@@ -283,5 +283,5 @@ Being per-session also buys concurrency-safety for free: two EM sessions sharing
 
 ## Field rules
 
-- **Teardown tools find targets from authoritative sources** — port owner, pidfile, supervisor children — never an argv/name signature, which matches unrelated processes including the session's own stdio MCP child; signature sweep only behind an explicit `--all`. Stop the auto-restart monitor first, or it respawns what was killed.
+- **Teardown tools find targets from authoritative sources** — pidfile, supervisor children, or a port owner whose pid is known (an unprivileged Windows `net_connections` reports pid 0 and status `NONE`: `PORT-OWNER-IS-NOT-A-LISTEN-STATUS`) — never an argv/name signature, which matches unrelated processes including the session's own stdio MCP child; signature sweep only behind an explicit `--all`. Stop the auto-restart monitor first, or it respawns what was killed.
 - **A guard validating call options inspects the option's value expression, not token presence.** `model: cond ? undefined : 'sonnet'` satisfies a presence check and still inherits the parent model; un-credit bare `undefined`/`null`.

@@ -1,6 +1,6 @@
 # Deep-Research Prompting Guide
 
-> Read by the `brief-author` stage after the pipeline's own guide. Rules for writing a brief that a vendor deep-research product or a multi-agent research run can execute. Source: `docs/research/2026-10-28-what-does-openai-officially-publish-on-how-to/digest.md` (research run pipeline-research-20261028T004739-0c6b80). Items marked (practitioner) are untested advice from secondary articles; items marked (secondary) are vendor statements seen only through a summarizer.
+> Read by the `brief-author` stage after the pipeline's own guide. Rules for writing a brief that a vendor deep-research product or a multi-agent research run can execute. Source: `docs/research/what-does-openai-officially-publish-on-how-to/2026-10-28-what-does-openai-officially-publish-on-how-to/outputs/digest.md` (research run pipeline-research-20261028T004739-0c6b80). Items marked (practitioner) are untested advice from secondary articles; items marked (secondary) are vendor statements seen only through a summarizer.
 
 ## Write a fully formed prompt
 

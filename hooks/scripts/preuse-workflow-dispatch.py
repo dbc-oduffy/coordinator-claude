@@ -120,11 +120,11 @@ SUBMISSIONS: Mapping[str, str] = {
 _DENY_TAILS: Mapping[str, str] = {
     "hooks.submit_engine_ask": (
         "do the work by hand (dispatch the agents yourself, scoped commits) "
-        "and file this failure to claude-klabauter-em."
+        "and file this failure to the engine EM."
     ),
     "hooks.submit_bug_blitz": (
         "run the grind by hand (dispatch the agents yourself, scoped commits) "
-        "and file this failure to claude-klabauter-em."
+        "and file this failure to the engine EM."
     ),
 }
 #: Under the registration's own 15s: a warm emit measures ~0.4s.

@@ -76,7 +76,7 @@ Two-axis routing: content class first, query shape second.
 | 12 | project_staleness_check | staleness.py:445 | — |
 | 13 | project_subsystem_profile | subsystem.py:1224 | — |
 | 14 | project_health | health.py:1453 | — |
-| 15 | project_engine_domain_status | health.py:1719 | — |
+| 15 | engine_domain_status | health.py:1719 | — |
 | 16 | project_cvar | cvar.py:400 | deferred |
 | 17 | project_test_coverage | test_coverage.py:264 | deferred |
 | 18 | project_actor_composition | actor_composition.py:320 | deferred |
@@ -105,6 +105,12 @@ Two-axis routing: content class first, query shape second.
 | `openWorld` | True | Only: `project_file`, `project_symbol_source`, `project_staleness_check` |
 
 **Description prefix convention:** All 24 host-native tools carry `[Consumer project]` as description prefix — capital C, lowercase p, single space after `]`. This is the content-class signal embedded in every description.
+
+## Subagent reachability
+
+The wire name is `engine_domain_status`; `project_engine_domain_status` is not on the wire, so `ToolSearch("select:...")` for it finds nothing.
+
+A dispatched subagent sees every MCP tool as a deferred name, even one its frontmatter `tools:` lists: deferral is harness behaviour, the allowlist only permits the call. Load each tool with `ToolSearch("select:<tool_name>")` before first use; `engine_domain_status` is outside the preamble's eight-tool list, so name it explicitly.
 
 ## Bug ownership boundary
 

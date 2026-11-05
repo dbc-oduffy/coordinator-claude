@@ -1294,6 +1294,100 @@ def cmd_store(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+_STORAGE_RECORD_KEY = "storage_registry.path"
+_STORAGE_RECORD_RELPATH = ("docs", "fleet", "storage-roots.toml")
+
+
+def _storage_record_path(layers: list[dict]) -> str:
+    """Cross-box record location: key `storage_registry.path`, else
+    `<~/.claude/.content-root>/docs/fleet/storage-roots.toml`. "" when neither resolves."""
+    explicit = (_resolve_key(_STORAGE_RECORD_KEY, layers) or "").strip()
+    if explicit:
+        return os.path.expanduser(explicit)
+    home = os.environ.get("CLAUDE_HOME") or str(Path.home())
+    try:
+        root = Path(home, ".claude", ".content-root").read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+    return os.path.join(root, *_STORAGE_RECORD_RELPATH) if root else ""
+
+
+def _load_storage_record(layers: list[dict]) -> dict[str, dict]:
+    """Roots of the tracked cross-box record, keyed by name. Raises OSError when
+    the record is absent and ValueError when it is not valid TOML."""
+    path = _storage_record_path(layers)
+    if not path:
+        raise OSError("no storage record: set `storage_registry.path` or write ~/.claude/.content-root")
+    try:
+        with open(path, "rb") as f:
+            data = tomllib.load(f)
+    except tomllib.TOMLDecodeError as exc:
+        raise ValueError(f"malformed toml in {path}: {exc}") from exc
+    except FileNotFoundError as exc:
+        raise OSError(f"no storage record at {path}: set `storage_registry.path`, or check out a "
+                      f"coordinator-content-repo branch carrying docs/fleet/storage-roots.toml") from exc
+    roots = data.get("roots", {})
+    return {n: r for n, r in roots.items() if isinstance(r, dict)} if isinstance(roots, dict) else {}
+
+
+def _locate_row(name: str, root: dict, box_id: str) -> tuple[str, str, str, str]:
+    """(name, box, path, reachable) judged from the calling box only; no network probe."""
+    kind = str(root.get("kind", "path")).strip()
+    if kind == "url":
+        return name, "-", str(root.get("url", "")).strip() or "-", "unprobed"
+    box = str(root.get("box", "")).strip()
+    path = str(root.get("path", "")).strip()
+    if box.casefold() == "nas":
+        mounts = root.get("mounts", {})
+        path = ""
+        if box_id and isinstance(mounts, dict):
+            folded = {str(k).casefold(): v for k, v in mounts.items()}
+            path = str(folded.get(box_id.casefold(), "")).strip()
+        on_this_box = bool(box_id)
+    else:
+        on_this_box = bool(box_id) and box.casefold() == box_id.casefold()
+    if not box_id:
+        reach = "unknown"
+    elif on_this_box and path:
+        reach = "true" if os.path.exists(path) else "false"
+    else:
+        reach = "false"
+    return name, box or "-", path or "-", reach
+
+
+def cmd_locate(args: argparse.Namespace) -> int:
+    """Implement: machine-local locate <root-name> | --list.
+
+    Prints `name<TAB>box<TAB>path<TAB>reachable` from the cross-box record;
+    reachable is true/false (judged from this box via `box.id`), `unprobed` for a
+    url root, `unknown` when `box.id` is unset. Exit 0 found, 1 unknown root, 2
+    record missing/malformed or operational failure. Never writes.
+    """
+    layers = _build_resolution_layers(_registry_dir())
+    try:
+        roots = _load_storage_record(layers)
+    except (OSError, ValueError) as exc:
+        print(f"machine-local: locate: {exc}", file=sys.stderr)
+        return EXIT_OPERATIONAL
+    if not args.list and not args.target:
+        print("machine-local: locate needs <root-name> or --list", file=sys.stderr)
+        return EXIT_OPERATIONAL
+    box_id = (_resolve_key("box.id", layers) or "").strip()
+    if not box_id and any(str(r.get("kind", "path")).strip() != "url" for r in roots.values()):
+        print("machine-local: box.id is unset; reachability is unknown. Run: machine-local set box.id <name>",
+              file=sys.stderr)
+    if args.list:
+        for name, root in roots.items():
+            print("\t".join(_locate_row(name, root, box_id)))
+        return EXIT_OK
+    if args.target not in roots:
+        print(f"machine-local: locate: no root named {args.target!r}; run `machine-local locate --list`",
+              file=sys.stderr)
+        return EXIT_NOT_FOUND
+    print("\t".join(_locate_row(args.target, roots[args.target], box_id)))
+    return EXIT_OK
+
+
 def _stale_dependents(entry: dict, old_path: str) -> list[str]:
     """Declared dependents that exist and still spell `old_path` (as stored, `/`,
     `\\`, or JSON-escaped `\\\\`). Read-only: no dependent is opened for writing."""
@@ -2963,6 +3057,16 @@ def main() -> int:
         help="Existence probe: one missing/orphan/incomplete/dead-dependent line per finding; exit 1 when any",
     )
 
+    loc_p = subparsers.add_parser(
+        "locate",
+        help=(
+            "Resolve a cross-box storage root by name from the tracked record (docs/fleet/storage-roots.toml). "
+            "Prints name<TAB>box<TAB>path<TAB>reachable; exit 0 found, 1 unknown, 2 record missing or operational failure"
+        ),
+    )
+    loc_p.add_argument("target", nargs="?", default=None, help="Root name")
+    loc_p.add_argument("--list", action="store_true", help="Print every root in the record")
+
     rs_p = subparsers.add_parser(
         "relocate-store",
         help=(
@@ -3140,6 +3244,7 @@ def main() -> int:
         "keys": cmd_keys,
         "external-workspace": cmd_external_workspace,
         "store": cmd_store,
+        "locate": cmd_locate,
         "relocate-store": cmd_relocate_store,
         "dump": cmd_dump,
         "check": cmd_check,

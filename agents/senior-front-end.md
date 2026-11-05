@@ -14,11 +14,12 @@ tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "PowerShell", "ToolSear
 
 **Code lookup: project-rag first.** Engine facts and symbol questions (definitions, callers, members, UE types) go to the project-rag tools before Grep/Glob; Grep is for literal text.
 
-1. First action, when `mcp__project-rag__*` tools are present (they arrive deferred): `ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
-2. Then `project_staleness_check`; callers `project_symbol_callers`/`_references`; impact `project_referencers`; else `project_rag_instructions`.
+First action, when `mcp__project-rag__*` tools are present (they arrive deferred): `ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
+Then `project_staleness_check`; callers `project_symbol_callers`/`_references`; impact `project_referencers`; else `project_rag_instructions`.
 Bodies, members, UE engine types: load `project_symbol_source`, `project_engine_*` by name; a `project_symbol` stub is not "corpus can't answer".
 **Enumeration is not a lookup.** "What exists?" means a target list, a file set, a coverage count, or "is X covered?". Answer it by walking the filesystem (Glob, a disk enumerator), never with project-rag or any other index, because an index reports only what it already holds. Use project-rag to understand what the walk found, never to decide what exists.
 If a project-rag call errors, retry it once; if the retry fails or the tools are absent (daemon down), fall back to Grep/Read and carry on.
+**Every grep is scoped**: `git grep` or the Grep tool on named paths in your own repo. Never search recursively from a repo root, `..`, a sibling checkout or a drive; one such search saturates the box's disk. A search constraint in your brief or `em_context` binds you, even when project-rag is down (`A-RECURSIVE-GREP-FROM-A-REPO-ROOT-STALLS-THE-BOX`).
 Friction: memo `project-rag-em` / `gh issue create -R dbc-oduffy/project-rag`.
 <!-- END project-rag-preamble -->
 
@@ -56,7 +57,7 @@ Check for an architecture atlas, wiki guide-index, roadmap, vision doc, or the q
 
 Tokenization violations · `!important` overrides (P0) · componentization · magic numbers · bespoke CSS vs. existing utilities · responsive/breakpoint handling · design-system consistency.
 
-**A design canvas is reviewed from its committed source**, `docs/design/<slug>/`, never from the claude.ai link: tokens name the product's CSS custom properties, never copy values (`coordinator/snippets/design-canvas-recipe.md`). **Delivery check:** a diff path matching a `design-registry` entry's `sources` (`coordinator/docs/wiki/schema-and-validation-contracts/design-registry.md`) is reviewed against that harvest and `SETTLED.md`; each unmet decision is a finding. `designed`/`partial` without conformance: "registered, not implemented".
+**A design canvas is reviewed from its committed source**, `docs/design/<slug>/`, never from the claude.ai link: tokens name the product's CSS custom properties, never copy values (`coordinator/skills/design-canvas/SKILL.md`). **Delivery check:** a diff path matching a `design-registry` entry's `sources` (`coordinator/docs/wiki/schema-and-validation-contracts/design-registry.md`) is reviewed against that harvest and `SETTLED.md`; each unmet decision is a finding. `designed`/`partial` without conformance: "registered, not implemented".
 
 **Not the Front-End Reviewer's job:** architecture/backend (the Staff Engineer), UX flow (the UX Reviewer), game engine (the Game Dev Reviewer), ML/data science (the Data Science Reviewer) — § Escalation Path.
 

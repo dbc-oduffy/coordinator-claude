@@ -51,6 +51,7 @@ and say so in the report. Never `cd` and assert; never onboard from the creating
 
 **4 — Onboard via `coordinator:repo-setup` (in the rooted session from step 3)** — it produces the
 coordinator artifacts (CLAUDE.md, tracker, README index, orientation cache, `state/` skeleton,
+empty metric register (`EVERY-PROJECT-CARRIES-A-METRIC-REGISTER`),
 git hooks, currency stamp, starter `agent-install-manifest.json`). Never re-implement this half
 here (`NEW-PROJECT-REPO-SETUP-BOUNDARY` tripwire). Pass the name and project type as
 `--answers` so it asks nothing. A general project gets consumer artefacts only (no
@@ -84,6 +85,9 @@ Out of scope (v1): fleet creation, monorepo scaffolds, CI/deploy wiring, stack t
 
 ## Negative-spec
 
+- Never let a new repo's close leave residue: the scaffolded ignore block (from `repo-setup`'s
+  `gitignore.project.template`) carries the `gitignore_candidates` rule; candidates become ignore
+  rules, not commits (`CLOSE-RESIDUE-IS-COMMITTED-OR-GITIGNORED` tripwire).
 - Never silently overwrite an occupied dir — fail loud, surface, stop.
 - Never default the remote to public; never create any remote without explicit choice.
 - Never re-implement `coordinator:repo-setup`'s onboarding half — delegate.

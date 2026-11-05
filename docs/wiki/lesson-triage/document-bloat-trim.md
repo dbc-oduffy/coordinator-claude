@@ -30,7 +30,7 @@ Command/agent files exceeding ~300 lines extract to a sibling `pipelines/<name>-
 |---|---|---|
 | `repo.md` | 481 | 340 + `repo-research-internals.md` (110) |
 | `web.md` | 360 | 233 + `web-research-internals.md` (123) |
-| `workday-start.md` | 320 | 239 + `workday-start-internals.md` (102) |
+| `coordinator/commands/workday-start.md` | 320 | 239 + `workday-start-internals.md` (102) |
 | `bug-sweep.md` | 314 | 251 + `pipelines/bug-sweep/pattern-library.md` |
 
 The mechanical contract: top-level file keeps the dispatch surface (steps, names, contracts); the internals file carries elaboration the EM doesn't need on every read.

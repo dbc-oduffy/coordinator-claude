@@ -1,3 +1,5 @@
+# Residue rule: a non-empty `gitignore_candidates` from the close residue output lands here as an
+# ignore rule (CLOSE-RESIDUE-IS-COMMITTED-OR-GITIGNORED); never commit such a path.
 # coordinator — per-machine and per-session state (managed block)
 .coordinator-local/
 .claude/settings.local.json

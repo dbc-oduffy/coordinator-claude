@@ -1,0 +1,7 @@
+{
+  "min_engine_sha": "6dcfc87040dd72064f112969e3c146f8f1009673",
+  "claude_klabauter_source_sha": "c343f6ed19d0eb7e9f7d6b008f63b8d2f57eb997",
+  "source": "claude-klabauter",
+  "bumped_by": "DoE EM",
+  "bumped_when": "at each percolate: re-copy claude-klabauter MIN_KNOWN_GOOD_SHA (coordinator_core/engine_version.py) into claude_klabauter_source_sha, and set min_engine_sha to the earliest claude-klabauter commit whose Percolate-Source-Head trailer descends from it (the check runs merge-base in klabauter sha space); this file is a copy and drifts between bumps"
+}

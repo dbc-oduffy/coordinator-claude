@@ -186,7 +186,7 @@ if os.path.basename(p) == 'preuse-workflow-dispatch.py':
             'permissionDecisionReason': (
                 'The engine did not take this submission (' + why + '). Retry once, then '
                 'do the work by hand (dispatch the agents yourself, scoped commits) and '
-                'file this failure to claude-klabauter-em.'),
+                'file this failure to the engine EM.'),
         }}) + '\n')
         sys.stdout.flush()
 

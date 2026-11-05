@@ -17,18 +17,27 @@ import time
 
 
 def _place_engine_on_path() -> str:
-    """Resolve the engine root through the claude-klabauter bin resolver and put it on `sys.path`."""
-    lib = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-    if lib not in sys.path:
-        sys.path.insert(0, lib)
-    from engine_bootstrap import _resolve_engine_root
+    """Put the engine root on `sys.path` and return it.
 
-    root = _resolve_engine_root(os.path.abspath(__file__))
-    if not root:
-        raise RuntimeError("engine root unresolved")
-    if root not in sys.path:
-        sys.path.insert(0, root)
-    return root
+    Mirror-portable: a tree shipping `hooks/scripts/_engine_root.py` (the DoE mirror, whose bin/lib
+    carries no bootstrap or invoke helper) places through that seam, loaded by file path
+    so no hooks dir joins `sys.path`; the engine tree places through its own colocated resolver.
+    """
+    seam = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "hooks", "scripts", "_engine_root.py"
+    )
+    if os.path.isfile(seam):
+        spec = importlib.util.spec_from_file_location("_engine_root", seam)
+        engine_root = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(engine_root)
+        root = engine_root.resolve_claude_klabauter_root()
+        if not root:
+            raise RuntimeError("engine root unresolved")
+        return engine_root.place_engine_root_on_path(root)
+    import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_colocated_engine_on_path
+
+    return require_colocated_engine_on_path(os.path.abspath(__file__))
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -196,6 +196,11 @@ engine-computable fact.
     `python "<plugin-root>\templates\bin\install-box-cache-trim-task.py" --uninstall` (no-op if
     never installed): it deletes the task from an elevated shell; exit 3 means it needs one, so
     print that command for the operator to run from an elevated terminal.
+36. **`crossSessionInbound` seed** — DELIBERATELY-NOT-REVERSED. `bin/seed-cross-session-inbound.py --apply` sets it only when absent; an operator preference once set. Manual: delete the top-level `crossSessionInbound` key from `~/.claude/settings.json`.
+37. **Codex and agy host seeding (`unimatrix-install.py`)** — REVERSE. Run
+    `"$_py" <plugin-root>/bin/unimatrix-install.py --uninstall` (`$_py` per `snippets/resolve-coordinator-bin.md`): it removes the coordinator-doctrine
+    block from `$CODEX_HOME/AGENTS.md` and `~/.gemini/GEMINI.md`, the seeded skills, and the guard
+    PreToolUse hooks that `--install --hosts codex,agy` wrote.
 
 ## Uninstall boundary
 

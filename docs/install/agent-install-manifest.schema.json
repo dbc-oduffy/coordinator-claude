@@ -611,7 +611,7 @@
       "additionalProperties": false,
       "properties": {
         "id": {
-          "description": "Canonical identifier for this MCP surface, e.g. 'context7', 'notebooklm-mcp'.",
+          "description": "Canonical identifier for this MCP surface, e.g. 'context7', 'gemini-notebook-mcp'.",
           "type": "string",
           "minLength": 1
         },

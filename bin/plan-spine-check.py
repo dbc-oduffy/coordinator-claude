@@ -254,7 +254,7 @@ def check_plan(path: Path, for_execution: bool = False) -> dict:
     if goal_finding is not None:
         report["rows"].append(goal_finding)
         report["verdict"] = "INVALID"
-    gate_findings = _prep_gate_findings(path, text)
+    gate_findings = _prep_gate_findings(path, text) + _extra_findings(path, text)
     if gate_findings and report["verdict"] not in ("UNREADABLE",):
         report["rows"].extend(gate_findings)
         report["verdict"] = "INVALID"
@@ -648,6 +648,272 @@ def _test_caller_findings(path: Path, rows: list, written_paths: set) -> tuple:
                 }
             )
     return advisories, structural
+
+
+# Work units a same-wave executor sibling set must carry together to repay its spawns: every executor
+# spawn spends ~9% of its run orienting, so N siblings pay that N times. A code-kind row with a write
+# and a long acceptance is 3 units; two code-kind single-write rows (2 + 2) pass, only clear cases fail.
+_SIBLING_WORK_FLOOR = 4
+_LONG_ACCEPTANCE_CHARS = 300
+_CODE_KINDS = frozenset({
+    "code-edit", "script-edit", "hook-edit", "agent-prompt-edit", "skill-edit", "doctrine-edit", "wiki-new",
+})
+_EXECUTOR = "coordinator:executor"
+
+# Plan-status ladder, lowest first (coordinator-tripwires/plan-status-ladder.md).
+_STATUS_RANK = {"draft": 0, "reviewed": 1, "approved": 2, "executing": 3, "landed": 4, "implemented": 5}
+_GATE_MET_RE = re.compile(r"(?<!not )\b(met|satisfied|cleared|unblocked|already (?:landed|implemented))\b", re.I)
+_TASKS_BLOCK_RE = re.compile(r"```yaml plan-tasks.*?```", re.S)
+
+
+def _coordinator_lib() -> None:
+    """Put coordinator/lib on sys.path for the library modules the extra finding classes load."""
+    lib = str(Path(__file__).resolve().parent.parent / "lib")
+    if lib not in sys.path:
+        sys.path.insert(0, lib)
+
+
+def _row_writes(row: dict) -> "list | None":
+    """The row's declared write paths and prefixes, or None when it declares neither."""
+    writes, under = row.get("writes"), row.get("writes_under")
+    if not isinstance(writes, list) and not isinstance(under, list):
+        return None
+    return [str(w) for w in (writes or [])] + [str(u).rstrip("/") + "/" for u in (under or [])]
+
+
+def _row_work(row: dict) -> int:
+    units = len(_row_writes(row) or [])
+    units += row.get("change_kind") in _CODE_KINDS
+    units += len(str(row.get("acceptance") or "")) >= _LONG_ACCEPTANCE_CHARS
+    return units
+
+
+def _wave_levels(rows: list) -> dict:
+    """Row id -> depends_on depth. The engine's build_waves also splits write-overlapping rows into
+    later waves, so no public surface yields the depends_on-only level this check needs."""
+    deps = {
+        str(r.get("id")): [
+            str(e.get("chunk")) for e in (r.get("depends_on") or []) if isinstance(e, dict)
+        ]
+        for r in rows
+    }
+    levels: dict = {}
+
+    def level(rid: str, seen: frozenset) -> int:
+        if rid in levels:
+            return levels[rid]
+        if rid in seen:
+            raise ValueError("cycle")
+        value = 1 + max((level(d, seen | {rid}) for d in deps.get(rid, []) if d in deps), default=-1)
+        levels[rid] = value
+        return value
+
+    for rid in deps:
+        level(rid, frozenset())
+    return levels
+
+
+def micro_chunk_findings(rows: list) -> list:
+    """Same-wave executor sibling sets below `_SIBLING_WORK_FLOOR`, disjoint writes included.
+
+    A row carrying `disjoint_parallel: true` is exempt: the plan declares it parallel by design.
+    """
+    live = [r for r in rows if isinstance(r, dict) and r.get("disposition") != "deferred"]
+    try:
+        levels = _wave_levels(live)
+    except ValueError:
+        return []  # a dependency cycle is the engine verdict's to report
+    by_level: dict = {}
+    for r in live:
+        if (
+            r.get("agent_type") == _EXECUTOR
+            and _row_writes(r) is not None
+            and r.get("disjoint_parallel") is not True
+        ):
+            by_level.setdefault(levels[str(r.get("id"))], []).append(r)
+    found: list = []
+    for siblings in by_level.values():
+        if len(siblings) < 2:
+            continue
+        work = sum(_row_work(r) for r in siblings)
+        if work < _SIBLING_WORK_FLOOR:
+            ids = ", ".join(str(r.get("id")) for r in siblings)
+            found.append({
+                "class": "micro-chunk-siblings",
+                "detail": f"rows {ids} run in one wave and together carry {work} work units, under "
+                f"the spawn-tax floor of {_SIBLING_WORK_FLOOR}; merge them into one row, or set "
+                "`disjoint_parallel: true` on a row that is parallel by design",
+            })
+    return found
+
+
+def depends_on_plan_status_findings(text: str, raw_rows: list, repo_root: Path, prep_gate) -> list:
+    """Findings for a `depends_on_plan` entry whose named status the cited plan has not reached
+    while the plan prose (outside the spine) says that gate is met."""
+    prose = _TASKS_BLOCK_RE.sub("", text)
+    found: list = []
+    for row in raw_rows:
+        entries = row.get("depends_on_plan") if isinstance(row, dict) else None
+        for entry in entries if isinstance(entries, list) else []:
+            if not isinstance(entry, dict):
+                continue
+            named, cited = str(entry.get("status") or ""), str(entry.get("plan") or "")
+            if named not in _STATUS_RANK or not cited:
+                continue
+            cited_path = repo_root / cited.split(":", 1)[-1]
+            if not cited_path.is_file():
+                continue
+            actual = str(prep_gate.plan_frontmatter(cited_path.read_text(encoding="utf-8", errors="replace"))
+                         .get("status") or "")
+            if actual not in _STATUS_RANK or _STATUS_RANK[actual] >= _STATUS_RANK[named]:
+                continue
+            stem = cited_path.stem
+            if any(stem in line and _GATE_MET_RE.search(line) for line in prose.splitlines()):
+                found.append({
+                    "class": "depends-on-plan-status-mismatch",
+                    "detail": f"row {row.get('id')}: depends_on_plan {cited} names status {named!r} but the plan "
+                    f"is {actual!r} while the prose says the gate is met (name the status the prose requires)",
+                })
+    return found
+
+
+def contributed_signal_findings(fm: dict, raw_rows: list, repo_root: Path, contributed=None) -> list:
+    """One finding per installed-plugin overlay signal whose write trigger fires for the plan's writes
+    while `review_signals` lacks it. `contributed` is the overlay scan's `signals` list (default: scan
+    the installed plugins); with none installed this never fires."""
+    _coordinator_lib()
+    import plugin_review_signals
+
+    if contributed is None:
+        contributed = plugin_review_signals.scan()["signals"]
+    if not contributed:
+        return []
+    declared = fm.get("review_signals")
+    if isinstance(declared, str):
+        declared = declared.strip().strip("[]").split(",")
+    have = {str(s).strip().strip("'\"") for s in (declared if isinstance(declared, list) else [])}
+    writes: list = []
+    for row in raw_rows:
+        if isinstance(row, dict):
+            writes.extend(_row_writes(row) or [])
+    found: list = []
+    for sig in contributed:
+        if sig["id"] in have or not plugin_review_signals.signals_for_writes([sig], writes, repo_root):
+            continue
+        found.append({
+            "class": "contributed-signal-missing",
+            "detail": f"the plan's writes match plugin {sig['plugin']!r}'s declared write trigger but "
+            f"review_signals lacks {sig['id']!r}; add it so the plan routes to {sig['selects']}",
+        })
+    return found
+
+
+def _research_layout():
+    """coordinator/lib/research_layout.py loaded by path, as the write guard loads it."""
+    import importlib.util
+
+    path = Path(__file__).resolve().parent.parent / "lib" / "research_layout.py"
+    spec = importlib.util.spec_from_file_location("research_layout", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def research_layout_findings(raw_rows: list, repo_root: Path, today: "str | None" = None) -> list:
+    """One finding per row `writes`/`writes_under`/`surface` path under docs/research/ that the write guard
+    would deny: `research_layout.classify` says nonconforming and the path's top-level entry does not
+    already exist on disk (existing legacy entries are grandfathered, as in the guard)."""
+    import datetime
+
+    layout = _research_layout()
+    today = today or datetime.date.today().isoformat()
+    marker = "docs/research/"
+    found: list = []
+    for row in raw_rows:
+        if not isinstance(row, dict):
+            continue
+        declared = list(_row_writes(row) or [])
+        if isinstance(row.get("surface"), str):
+            declared.append(row["surface"])
+        for raw in dict.fromkeys(declared):  # a row's `surface` usually repeats one of its `writes`
+            posix = raw.strip().replace("\\", "/")
+            if posix.startswith("./"):
+                posix = posix[2:]
+            if not posix.startswith(marker):
+                continue
+            rel = posix[len(marker):]
+            parts = [p for p in rel.split("/") if p not in ("", ".")]
+            if not parts or (repo_root / "docs" / "research" / parts[0]).exists():
+                continue
+            if layout.classify(rel) != layout.NONCONFORMING:
+                continue
+            hint = "docs/research/<topic>/<date>-<run-slug>/synthesis.md"
+            if len(parts) == 1:
+                try:
+                    hint = f"docs/research/{layout.conforming_path_for(parts[0], today)}"
+                except ValueError:
+                    pass
+            found.append({
+                "class": "research-layout",
+                "detail": f"row {row.get('id')}: {raw!r} is not a conforming research path and the write guard "
+                f"denies it at execution; write {hint} instead (layout: docs/research/<topic>/<date>-<run-slug>/ "
+                "with children synthesis.md, trail.yaml, verdict.md, outputs/, workdir/)",
+            })
+    return found
+
+
+def abs_path_findings(text: str) -> list:
+    """Absolute path literals in the plan text, from the detector test_no_absolute_path_literals uses.
+
+    Scanned with no filename so fenced spine blocks are not exempt; the same-line
+    `abs-path-ok: <reason>` marker is honoured by the detector.
+    """
+    try:
+        from coordinator_core.ops.session import guard_concrete_path_citations as detector
+
+        hits = detector.detect_in_text(text, "")
+    except (ImportError, AttributeError) as exc:
+        return [{"class": "engine-drift", "detail": f"engine surface changed: {exc}"}]
+    return [
+        {
+            "class": "absolute-path-literal",
+            "detail": f"line {h.line} [{h.rule}]: {h.matched} (plan bodies are immutable once landed; "
+            "cite a repo-relative path or `machine-local get repos.<key>`, or add `abs-path-ok: <reason>` on that line)",
+        }
+        for h in hits
+    ]
+
+
+def _extra_findings(path: Path, text: str) -> list:
+    """Structural rows for the micro-chunk, depends-on-plan-status, contributed-signal, research-layout
+    and absolute-path classes. Terminal (already-ran) plans owe nothing and yield none."""
+    _ensure_engine_on_path()
+    from coordinator_core.roadmap import prep_gate
+
+    root = _repo_root_of(path) or path.resolve().parent
+    try:
+        if prep_gate.gate_plan(root, path.resolve(), text=text).get("terminal"):
+            return []
+        fm = prep_gate.plan_frontmatter(text)
+        raw_rows = prep_gate.raw_spine_rows(text)
+        found = micro_chunk_findings(raw_rows)
+        found.extend(contributed_signal_findings(fm, raw_rows, root))
+        found.extend(research_layout_findings(raw_rows, root))
+        found.extend(depends_on_plan_status_findings(text, raw_rows, root, prep_gate))
+        found.extend(abs_path_findings(text))
+    except Exception as exc:  # noqa: BLE001 - an engine fault is reported, never a crash
+        return [
+            {
+                "row": "-",
+                "error": f"PREP-GATE-ENGINE-ERROR: {type(exc).__name__}: {exc}"[:300],
+                "at": "extra_classes",
+                "class": "advisory",
+            }
+        ]
+    return [
+        {"row": "-", "error": f"{f['class']}: {_trim(f['detail'])}", "at": f["class"], "class": "structural"}
+        for f in found
+    ]
 
 
 def _check_spine(path: Path, text: str, for_execution: bool) -> dict:

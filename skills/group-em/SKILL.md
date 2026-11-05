@@ -18,8 +18,10 @@ contract: `coordinator/docs/wiki/cross-repo-communication/gem-cockpit-contract.m
 **THIS BODY IS A FROZEN SNAPSHOT, UNVERSIONED.** Read anything MECHANICAL (a signature, module
 path, flag, refusal vocabulary) from disk before citing it.
 
-**PM-GATED, never EM-initiated:** the PM types `/group-em` or starts a session in the home
-(`A-SESSION-STARTED-IN-THE-GROUP-EM-HOME-ENTERS-GROUP-EM`).
+**PM-GATED, never EM-initiated:** the PM gates by booting a session in the home; that boot is the
+entry evidence and enters on its own (`A-SESSION-STARTED-IN-THE-GROUP-EM-HOME-ENTERS-GROUP-EM`), so
+the PM need not type `/group-em`. Typing it only re-enters a home session already open. A resume
+or restart instruction says "open a session in the group-em home", never "type `/group-em`".
 
 **Invoking this skill IS the dispatch request, for three dispatches only:** the approvability
 judge (§ Delegated approve-for-execution, step 4), `coordinator:group-em-assistant` at entry, and
@@ -30,7 +32,8 @@ Tripwire: `UNATTRIBUTED-HARNESS-LINE-IS-NOT-PM`.
 
 ## Entry — already done by the time you read this
 
-**Typing `/group-em` fires entry** via the autofire hook; **context absent = entry did not happen**.
+**Starting a session in the home fires entry** (`session-start-group-em-autoenter.py`), as does
+typing `/group-em` (`group-em-autofire.py`); **context absent = entry did not happen**.
 Read `references/entry.md` at entry: the fallback op, exit 5, and the sends owed this turn (a
 displaced holder's message, the introduction to every live session).
 
@@ -38,6 +41,11 @@ displaced holder's message, the introduction to every live session).
 
 Every live named session is told when the standing begins (`BOX NOTICE OWED`) and ends. Read
 `references/notice.md` when sending it, and before this session ends.
+
+An engine swap or a box hold needs no quiet window: tell each owning session to pause its
+in-flight runs in place and resume them with `resumeFromRunId` after the clear. Resume is
+same-session only, so you never pause or resume a peer's run yourself
+(`workflow-orchestration.md` § Pause in place, then resume).
 
 ## What this skill does and does not do
 
@@ -65,15 +73,21 @@ it) — as you, on entering the mode, not the entry op. In this order, as your f
 
    Read `references/watch.md` when arming the watch, checking its liveness, or handling a wake.
 
+2a. **Cross-box link:** the home-start hook has already run `bin/unimatrix-autolink.py`; run it once
+   more, fire-and-forget, after a far box restarts (idempotent, silent when multibox is unconfigured). See
+   `coordinator/docs/wiki/unimatrix-mechanism.md` § Auto-arm.
+
 3. **Events wake you; no cron tick exists.** Wakes: the watch run's completion; peer
    `SendMessage`s; `notify_when_idle` one-shots; the **memory governor**. Run
-   `python -u <plugin-root>/bin/group-em-memory-governor.py`, stdout to `<home>/scratch/governor.log`,
-   once, detached; the wake is a second background run,
-   `<plugin-root>/bin/group-em-memory-governor-wait.py <that log>`, which exits on the first new
-   line. Relaunch only the waiter; never filter its line; both are plain background runs, no `Monitor` between. On a
-   PAUSED line, tell its owner. `WARN` and swap-out hold nothing; send no hold/clear messages. Admit a heavy command via
-   `<plugin-root>/bin/box-memory-snapshot.py --admit-peak <GiB>` (HOLD is exit 4); launch via `box-launch-windowless.py`. Admission formula, trim tools, copy rules: `group-em-residue.md` § Memory tools. Tripwire:
-   `A-BOX-MEMORY-IS-THE-KERNEL-VERDICT-NOT-A-FREE-PAGES-FLOOR`. The GPU is one slot: embedding writes
+   `python -u <plugin-root>/bin/group-em-memory-governor.py` once; it detaches itself and prints
+   `DETACHED ... log=<path>`, and that printed path is the log (not your redirect); the wake is a second background run,
+   `<plugin-root>/bin/group-em-memory-governor-wait.py <that log>`, which exits only on an actionable
+   line (LOW, PAUSED, RUNAWAY, CACHE-TRIM result, EXIT); DISK/DISK-STAT telemetry never wakes you.
+   Relaunch only the waiter; never filter its line yourself (the waiter filters); both are plain background runs, no `Monitor` between. On a
+   PAUSED line, tell its owner. `WARN` and swap-out hold nothing; send no hold/clear messages. Admit a heavy command when declared peak + cushion (`min(25% of peak, 8 GiB)`) + the reservation <= kernel-available. The reservation is the sum, over jobs you GO-admitted with a declared peak and that still run, of `max(0, declared peak - current tree RSS)`; it covers no other box process and lapses when the job exits. `box-memory-snapshot.py --reservation` prints the per-job `reserved_gib` and the total; `--admit-peak` nets it in. The commit-limit leg is unchanged. Gate with
+   `<plugin-root>/bin/box-memory-snapshot.py --admit-peak <GiB>` (HOLD is exit 4); a pre-clearance names its gate in these terms, never a bare available figure. Launch via `box-launch-windowless.py`. Trim tools, copy rules: `group-em-residue.md` § Memory tools. Tripwires:
+   `A-BOX-MEMORY-IS-THE-KERNEL-VERDICT-NOT-A-FREE-PAGES-FLOOR`;
+   `A-SPAWNED-TEST-RUNNER-CARRIES-A-DEPTH-SENTINEL-AND-A-PROCESS-CAP` (count processes by name first). **Freeing memory is your core duty, in order:** low Available with commit fine and a large file cache: (1) `trim-file-cache --apply` (fires `BoxCacheTrim`, no admin) or `box-memory-trim-ws <pid>`; (2) re-measure with `box-memory-snapshot.py`; (3) only then admit or deny. Never a PM ask, never a HOLD before the trim: `THE-G-EM-FREES-BOX-MEMORY-ITSELF-BEFORE-IT-HOLDS-OR-ASKS-THE-PM`. The GPU is one slot: embedding writes
    and UE GPU work never overlap (`A-GPU-IS-ONE-SLOT-EMBED-SIDECARS-AND-UE-GPU-WORK-NEVER-OVERLAP`).
    A `CronCreate` poll over an event surface is a poll where an event exists
    (`A-CRON-TICK-IS-A-POLL-WHEN-EVENTS-EXIST`).
@@ -187,6 +201,8 @@ Read `references/approve.md` when taking the PM's execute-plan turn for a plan.
 decision.** The autofire hook prints `FLEET INBOX GRIND, FIRE NOW`:
 
 Read `references/inbox.md` when firing the fleet inbox grind.
+
+**Apply rule:** re-read each memo's status (manifest `guard`) immediately before its stamp or send; not open/in_progress means drop its lines. The manifest carries it as `apply_rule`, so the live EM that applies it by path gets the rule too.
 
 ## Cross-repo commit authority
 

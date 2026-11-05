@@ -138,7 +138,7 @@ _GIT_TIMEOUT_SECONDS = 10
 #: a dead trampoline tail into a phantom registration.
 _TRAMPOLINE_TAILS = frozenset({"scripts/_hook_venv_inject.py", "scripts/_hook_boot.py"})
 
-#: The four carrier tail keys this plan's delivery graph names (C1),
+#: The script-registered carrier tail keys this plan's delivery graph names (C1),
 #: expressed as the raw pre-substitution hooks.json token each carrier's
 #: OWN top-level entry declares -- fed through `tail_key()` below, never
 #: hand-typed as a tail string, so a future rename of any of the four
@@ -147,7 +147,6 @@ _CARRIER_RAW_TOKENS = {
     "write_dispatch": "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/preuse-write-dispatch.py",
     "stop_family": "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/postuse-stop-family-dispatch.py",
     "bash_dispatch": "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/preuse-bash-dispatch.py",
-    "advisory_dispatch": "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/postuse-advisory-dispatch.py",
 }
 
 #: Filenames from `_CARRIER_RAW_TOKENS` above, bare (no `${CLAUDE_PLUGIN_ROOT}/...`
@@ -187,11 +186,11 @@ _RETIRED = (
     ),
     (
         "track-touched-files.py",
-        "Standalone Write|Edit|MultiEdit|NotebookEdit registration folded into postuse-advisory-dispatch.py's hooks.track_touched_files call; fully absent from hooks.json.",
+        "Standalone Write|Edit|MultiEdit|NotebookEdit registration folded into the hooks.postuse_advisory_dispatch op's track_touched_files call; fully absent from hooks.json.",
     ),
     (
         "nudge-unauthorized-handoff.py",
-        "Its standalone PostToolUse(Write) registration was folded into postuse-advisory-dispatch.py's direct nudge_unauthorized_handoff.advisory_text() call; fully absent from current hooks.json.",
+        "Its standalone PostToolUse(Write) registration was folded into the hooks.postuse_advisory_dispatch op's nudge_unauthorized_handoff advisory; fully absent from current hooks.json.",
     ),
     (
         "sessionend-auto-commit.py",
@@ -499,65 +498,29 @@ def _load_doe_local_stop_family_registry() -> List["_DoeLocalGuard"]:
 #: The advisory carrier's declared op list -- AC-11's doctrine-plane-derived
 #: contract, NOT a transcription of the engine plane's `list_ported_advisory_ops()`
 #: six-name tuple (C1 proved only 1 of those 6 is actually delivered by this
-#: carrier). This tuple is what `_advisory_ops_delivered()` actually returns; it
-#: is what survives a call-shape change at postuse-advisory-dispatch.py's own
-#: `dispatch_message()` sites (e.g. the op name moving from a `"method"` dict-
-#: literal key to a positional argument) -- the regex cross-check below only
-#: catches the OTHER failure mode, a call site added without updating this
-#: declaration. Keep in sync with postuse-advisory-dispatch.py's own
-#: `dispatch_message()` call sites by hand; the cross-check exists so drift
-#: fails loud rather than silently.
+#: carrier). This tuple is what `_advisory_ops_delivered()` returns. The
+#: engine op `hooks.postuse_advisory_dispatch` folds `hooks.track_touched_files`
+#: itself, so the declaration is the source of truth.
 _ADVISORY_OPS_DECLARED: Tuple[str, ...] = (
     "hooks.postuse_advisory_dispatch",
     "hooks.track_touched_files",
 )
+
+#: The advisory carrier's registered transport: the native door, running
+#: `<settings-bin>/hook-run --advisory hooks.postuse_advisory_dispatch`.
+_ADVISORY_CARRIER_DOOR_OP = "hooks.postuse_advisory_dispatch"
 
 
 def _advisory_ops_delivered() -> List[str]:
     """Returns `_ADVISORY_OPS_DECLARED` -- AC-11's doctrine-plane-derived op
     list, NOT a transcription of the engine plane's `list_ported_advisory_ops()`
     six-name tuple (C1 proved only 1 of those 6 is actually delivered by this
-    carrier). The declaration, not a regex parse, is the source of truth: it
-    is what survives a call-shape change at postuse-advisory-dispatch.py's own
-    `dispatch_message()` sites, e.g. the op name moving from a `"method"` dict-
-    literal key to a positional argument, which would silently empty out a
-    regex-only parse.
-
-    The regex below is retained as a CROSS-CHECK, never the source: it scans
-    postuse-advisory-dispatch.py's source for `"method": "hooks.<name>"`
-    dict-literal pairs (quote-style-tolerant) and, when it finds at least one,
-    asserts the declaration still matches what it found -- catching someone
-    adding a new dict-literal call site without declaring it here. When the
-    regex finds nothing (exactly the call-shape change this chunk exists to
-    survive -- a positional-argument call site has no `"method": ...` pair to
-    match), the cross-check is silently skipped and the declaration alone is
-    trusted; an empty regex result is not itself proof of drift.
-
-    Fails closed (`EmitterError`) if the declaration is empty, and on any
-    detected drift between the regex cross-check and the declaration -- an
-    under-reporting or silently-widened op list is exactly the failure mode
-    AC-11 and this manifest exist to prevent."""
+    carrier). Fails closed (`EmitterError`) if the declaration is empty."""
     ops = sorted(set(_ADVISORY_OPS_DECLARED))
     if not ops:
         raise EmitterError(
             "_ADVISORY_OPS_DECLARED is empty -- advisory-carrier op list "
             "cannot be derived; aborting closed"
-        )
-
-    source_path = SCRIPTS_DIR / "postuse-advisory-dispatch.py"
-    try:
-        text = source_path.read_text(encoding="utf-8")
-    except Exception as exc:  # noqa: BLE001
-        raise EmitterError(f"cannot read {source_path}: {exc}") from exc
-
-    regex_ops = sorted(
-        set(re.findall(r'["\']method["\']\s*:\s*["\'](hooks\.[A-Za-z0-9_]+)["\']', text))
-    )
-    if regex_ops and regex_ops != ops:
-        raise EmitterError(
-            f"advisory-carrier op declaration drifted from {source_path}'s own "
-            f"dict-literal call sites -- declared {ops!r}, regex cross-check "
-            f"found {regex_ops!r}; update _ADVISORY_OPS_DECLARED to match"
         )
     return ops
 
@@ -762,9 +725,9 @@ def build_carrier_bash_dispatch(
     }
 
 
-def build_carrier_advisory_dispatch(matchers_by_tail: Dict[str, Set[str]]) -> Dict[str, Any]:
-    carrier_tail = tail_key(_CARRIER_RAW_TOKENS["advisory_dispatch"])
-    carrier_matcher_tokens = matchers_by_tail.get(carrier_tail, set())
+def build_carrier_advisory_dispatch(doc: Dict[str, Any]) -> Dict[str, Any]:
+    carrier_tail = "door:" + _ADVISORY_CARRIER_DOOR_OP
+    carrier_matcher_tokens = _door_matchers_for_op(doc, _ADVISORY_CARRIER_DOOR_OP)
     if len(carrier_matcher_tokens) != 1:
         raise EmitterError(
             f"advisory_dispatch carrier ({carrier_tail}) matcher is not singular "
@@ -983,7 +946,7 @@ def build_block() -> Dict[str, Any]:
     carrier_write_dispatch = build_carrier_write_dispatch(matchers_by_tail)
     carrier_stop_family = build_carrier_stop_family(matchers_by_tail)
     carrier_bash_dispatch = build_carrier_bash_dispatch(matchers_by_tail, doc)
-    carrier_advisory_dispatch = build_carrier_advisory_dispatch(matchers_by_tail)
+    carrier_advisory_dispatch = build_carrier_advisory_dispatch(doc)
 
     carrier_list = [
         carrier_write_dispatch,

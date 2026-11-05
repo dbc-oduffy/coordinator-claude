@@ -14,8 +14,13 @@ brief. You write one file and change nothing else, except the one escalation lin
 The request is the file `{{brief}}`. Read it first. It is the sizing artifact: the research
 intent, the research block (value class, sources, appetite, `depth`) and the research targets.
 The first research target whose source is repo is the primary repo to study; each further repo
-target is a secondary, folded into this run (Phase 2 step 6). If the request names no repo target,
-the primary is the repo the run was fired from. If no repo can be resolved, write the scope file anyway with
+target is a secondary, folded into this run (Phase 2 step 6). If the request names no repo target and no `repo` seed,
+the primary is the repo the run was fired from.
+
+The sizing's `research.seeds` entries of kind `repo` are repos to clone and read: treat each as a
+repo target (the first is the primary when no repo target precedes it, the rest are secondaries).
+Take only `repo` seeds; the other kinds belong to other pipelines, so leave them out.
+If no repo can be resolved, write the scope file anyway with
 `Repository: UNRESOLVED` and say why in a `## Scope Notes` section, and make no chunk up.
 
 **Run scratch directory:** {{scratch_dir}}
@@ -91,7 +96,7 @@ record it in `## Scope Notes`.
 ## Paths
 
 Run ID is the current `YYYY-MM-DD-HHhMM`. The topic slug is the repo name in lowercase with
-hyphens. A requested output path wins: if the request (the sizing, including its exit criterion, or a context file it names) states where the final document goes, use that path as the Output path and derive the Advisory, Gap analysis and Claims paths by swapping its `.md` suffix for `-advisory.md`, `-gap-analysis.md` and `.claims.json`; record it in `## Scope Notes`. Otherwise the run writes only into its workdir: Output path is `{{scratch_dir}}/synthesis.md`, Advisory path is `{{scratch_dir}}/advisory.md`, and Gap analysis path is `{{scratch_dir}}/gap-analysis.md` when Comparison names a project, else `N/A`. With a requested output path, the Claims path is the derived one, never a `docs/research/` path, so a local-only destination outside the repo keeps every output there; otherwise it is `docs/research/YYYY-MM-DD-repo-<topic-slug>.claims.json` (the EM emits that durable pair). The workdir is the run's archive, so no default path under `docs/research/` is ever written beside it; paths are repo-relative.
+hyphens. A requested output path wins: if the request (the sizing, including its exit criterion, or a context file it names) states where the final document goes, use that path as the Output path and derive the Advisory, Gap analysis and Claims paths by swapping its `.md` suffix for `-advisory.md`, `-gap-analysis.md` and `.claims.json`; record it in `## Scope Notes`. Otherwise the run writes only inside its run dir (`docs/research/<topic>/<date>-<run-slug>/`, the parent of `{{scratch_dir}}`): Output path is `<run dir>/synthesis.md`, Advisory path is `<run dir>/outputs/advisory.md`, and Gap analysis path is `<run dir>/outputs/gap-analysis.md` when Comparison names a project, else `N/A`. With a requested output path, the Claims path is the derived one, never a `docs/research/` path, so a local-only destination outside the repo keeps every output there; otherwise it is `<run dir>/outputs/synthesis.claims.json` (the EM emits that durable pair). The workdir lives inside the run dir, so no path under `docs/research/` outside the run dir is ever written; paths are repo-relative.
 
 ## Output Format
 

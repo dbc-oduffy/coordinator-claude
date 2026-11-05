@@ -4,7 +4,7 @@ executes-rows: false
 description: "Opus NotebookLM sweep after workers: coverage check, gap fill, final framing."
 model: opus
 effort: medium
-tools: ["Read", "Write", "Bash", "PowerShell", "Glob", "Grep", "Edit", "WebSearch", "WebFetch", "ToolSearch", "mcp__notebooklm-mcp__notebook_query", "mcp__notebooklm-mcp__cross_notebook_query", "mcp__notebooklm-mcp__notebook_list"]
+tools: ["Read", "Write", "Bash", "PowerShell", "Glob", "Grep", "Edit", "WebSearch", "WebFetch", "ToolSearch", "mcp__gemini-notebook-mcp__notebook_query", "mcp__gemini-notebook-mcp__cross_notebook_query", "mcp__gemini-notebook-mcp__notebook_list"]
 color: red
 access-mode: read-write
 ---
@@ -25,7 +25,7 @@ The workflow script starts you only after every worker has returned. Read all wo
 
 Before follow-up queries, load the MCP tool schemas (skip `notebook_delete`). Names may vary across sessions — use a graduated bootstrap:
 
-1. `ToolSearch("select:mcp__notebooklm-mcp__notebook_query,mcp__notebooklm-mcp__cross_notebook_query,mcp__notebooklm-mcp__notebook_list")` — exact names.
+1. `ToolSearch("select:mcp__gemini-notebook-mcp__notebook_query,mcp__gemini-notebook-mcp__cross_notebook_query,mcp__gemini-notebook-mcp__notebook_list")` — exact names.
 2. If nothing returns: `ToolSearch("+notebooklm notebook_query", max_results=5)` — keyword fallback, use whatever names it returns.
 3. If both return nothing: the MCP tools are unavailable. Note this in your output, skip follow-up queries, and synthesize from the worker artifacts on disk.
 
@@ -38,7 +38,7 @@ Before follow-up queries, load the MCP tool schemas (skip `notebook_delete`). Na
 3. **Cross-reference against `strategy.md`'s questions** for silent gaps; use `cross_notebook` flags as reinforcement/contradiction leads; weigh source quality (YouTube > Podcast > Article for depth); flag topics that SHOULD have been covered but weren't — often more important than what was.
 4. **Write a gap report to `{scratch-dir}/gap-report.md`** covering: cross-notebook contradictions; low-confidence clusters; `cross_notebook` leads and whether corroborated or contradicted; absent findings (seed from workers' `coverage_gaps` plus your own analysis); coverage balance across notebooks; transcription-suspect count and which notebooks.
 
-   **Durable gap-report:** also write the durable copy to `{output-path-base}-gap-report.md` (replace `.md` with `-gap-report.md`), where `{output-path-base}` is the run destination `{scratch_dir}/<segment>/` your dispatch prompt names — never the bare `docs/research/` root, where `research.close` flags the file as a stray. Emit this frontmatter deterministically — the body stays agent-authored, no template:
+   **Durable gap-report:** also write the durable copy to `<run dir>/outputs/gap-report.md`, where `<run dir>` is the `docs/research/<topic>/<date>-<run-slug>/` your dispatch prompt names — write nothing else under `docs/research/` outside it. Emit this frontmatter deterministically — the body stays agent-authored, no template:
 
    ```yaml
    ---
@@ -97,7 +97,7 @@ Write the framing that turns worker findings into a coherent document. **Preserv
 
    **Run-stem note:** flag "Run-stem lacks pipeline identifier" in your completion message if the output path is missing `nlm` in the stem (e.g. `...-{topic-slug}-nlm.md`).
 
-2. **Write the merged claims array to `{scratch-dir}/merged-claims.json`.** **You never write `{output-path-base}.claims.json` or its `.claims.meta.json` sidecar** — that pair has exactly one writer, invoked by the EM after you report. **Do not report `ran_at`: you have no Bash, therefore no clock**, and an estimate in RFC3339 clothing passes `claims-emit`'s shape validation indistinguishably from a measured value. Writing this file IS the stamp — the EM reads its mtime. Report `pipeline: notebooklm`. Merge all workers' `{letter}-claims.json` arrays into one array, mapping fields to `research-claim.schema.json` per `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/notebooklm/team-protocol.md` § Durable claims field mapping (Read it; it is the sole statement of the mapping, including the null-omission rule and the dropped scratch-only keys).
+2. **Write the merged claims array to `{scratch-dir}/merged-claims.json`.** **You never write the run's `.claims.json` or its `.claims.meta.json` sidecar** — that pair has exactly one writer, invoked by the EM after you report. **Do not report `ran_at`: you have no Bash, therefore no clock**, and an estimate in RFC3339 clothing passes `claims-emit`'s shape validation indistinguishably from a measured value. Writing this file IS the stamp — the EM reads its mtime. Report `pipeline: notebooklm`. Merge all workers' `{letter}-claims.json` arrays into one array, mapping fields to `research-claim.schema.json` per `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/notebooklm/team-protocol.md` § Durable claims field mapping (Read it; it is the sole statement of the mapping, including the null-omission rule and the dropped scratch-only keys).
    - Report the count of claims lacking a `source_url` in your completion message.
 
 3. **Write advisory only if substantive.** Replace `.md` with `-advisory.md`; write to BOTH `{output-path-advisory}` and `{scratch-dir}/advisory.md`. Otherwise skip — no placeholder — and note "No advisory" in your completion message.
@@ -153,7 +153,7 @@ name from frontmatter:
 
 ## Completion
 
-1. Write the final document to the output path, under the run's `{scratch_dir}/<segment>/` destination, never the `docs/research/` root (research-synthesis frontmatter prepended — Phase 3 step 1).
+1. Write the final document to the output path, `<run dir>/synthesis.md`, never anywhere else under `docs/research/` (research-synthesis frontmatter prepended — Phase 3 step 1).
 2. Write the merged claims array to `{scratch-dir}/merged-claims.json` (Phase 3 step 2) — writing it IS the `ran_at` stamp, via its mtime.
 3. Write advisory to `{output-path-advisory}` AND `{scratch-dir}/advisory.md` (if applicable — skip if nothing beyond scope).
 4. Do NOT delete notebooks (§ Notebook Cleanup) — list each notebook ID and name in the completion message.

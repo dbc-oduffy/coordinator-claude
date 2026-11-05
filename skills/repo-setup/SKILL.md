@@ -44,6 +44,8 @@ Run from the project's directory (not `~/.claude`) or pass `--root`/`--target`.
 
 **3. Run the lane-independent mechanical procedure.** Read `residue/mechanics.md` and execute it in full. Substitute the lane's directive/default values at every judgment point; take no value from a prompt.
 
+**3a. Metric register** (`EVERY-PROJECT-CARRIES-A-METRIC-REGISTER`). Scaffold an empty `state/metrics/<register_id>/register.jsonl` and `values.jsonl` plus the `[[structured_records]]` config stanza, per `coordinator/docs/wiki/planning/metric-register.md`; skip when present.
+
 **4. UNATTENDED-HALT SET.** `p3j.1-test-cmd-detect`, `p3m.verify-reachability`, `tw.windows-console-verify-run`, `batch.hook-respect` are never pre-answered by any lane (`lanes/CONTRACT.md`) — return them unresolved to the calling agent/PM as mechanics.md surfaces them.
 
 **5. Roster.** Report the lane's `roster_slots[]` verbatim in the Phase 4 output (materializing it is a later ceremony's job).

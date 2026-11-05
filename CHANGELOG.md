@@ -4,6 +4,11 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.6.14] — 2026-11-04
+
+- **Codex and agy peers:** `unimatrix-install.py --install` seeds coordinator doctrine and skills into Codex and agy, and wires a PreToolUse guard that governs their shell commands, failing to `{}` on Codex and to `ask` on agy, never `allow`. INSTALL.md lists what the live matrix proved and the paths no hook sees.
+- **Doctrine:** relays quote the exit criterion and the judge verdict; an EM never self-asserts a criterion met; every project carries a metric register.
+
 ## [4.6.13] — 2026-10-31
 
 - **Unimatrix key pinning:** every relay ssh call passes `-o IdentitiesOnly=yes`, so the bridge, inbox and roster offer only the Unimatrix key and never an agent key.
@@ -115,9 +120,6 @@ All notable changes to coordinator-claude are documented here.
 
 ## [4.4.24] — 2026-10-16
 
-<!-- INSTALL-DOE-ONLY:BEGIN -->
-- **`claude-author --control-socket`** (opt-in): a PTY/ConPTY relay supervisor with a per-session control socket (compact, model and effort verbs, plus a user-idle gate). Verified live on macOS.
-<!-- INSTALL-DOE-ONLY:END -->
 - **Design registry:** a contract, a gate, and premise-checker and plan-coverage lenses.
 - **`op-relay` agent.**
 

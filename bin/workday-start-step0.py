@@ -7,8 +7,10 @@ entrypoint removes EM judgment from a mechanical procedure.
 
 Stdout: one-line status notice consumed by the briefing (RENAMED / IN-SPAN / FRESH-CUT /
 NAMED-WORKSTREAM / STALE-NEEDS-ABC / SYNC-MAIN-ABORT / RENAME-PUSH-FAILED / CRASH),
-followed by the reconcile leg's own line on the FRESH-CUT / NAMED-WORKSTREAM / RENAMED
-paths. CRASH is emitted by two guards, covering the two places an unhandled exception
+followed by the reconcile leg's own line on the FRESH-CUT / NAMED-WORKSTREAM / RENAMED /
+IN-SPAN paths (IN-SPAN no longer skips reconcile; the reconcile leg decides
+already-includes / fast-forward / merge). CRASH is emitted by two guards,
+covering the two places an unhandled exception
 can propagate BEFORE any of the deliberate-refusal lines above got a chance to print:
 a module-level try/except around the ``workday_ceremony_lib``/``cc_invoke`` imports
 (near the top of this file — the ACTUAL 2026-08-12 incident, a ``ModuleNotFoundError``
@@ -488,7 +490,7 @@ def main(argv: list[str]) -> int:
     configured_day_branch = read_configured_day_branch(os.getcwd())
     if configured_day_branch and current == configured_day_branch:
         _out(f"IN-SPAN branch={current}")
-        return 0
+        return _exec_reconcile()
 
     machine_slug_self_heal()
     contributor_slug_self_heal()
@@ -510,7 +512,7 @@ def main(argv: list[str]) -> int:
     rename_needed = should_prompt_rename(current, today, float(last_epoch))
     if not rename_needed and parse_branch_span(current) is not None:
         _out(f"IN-SPAN branch={current}")
-        return 0
+        return _exec_reconcile()
 
     head_detached = "no" if wc.git_ok("symbolic-ref", "-q", "HEAD") else "yes"
     commits_ahead = "0"
@@ -581,7 +583,7 @@ def main(argv: list[str]) -> int:
     today_dd = today.rsplit("-", 1)[-1]
     if current_recheck.endswith(f"to{today_dd}") or current_recheck.endswith(f"/{today}"):
         _out(f"IN-SPAN branch={current_recheck} note=concurrent-rename")
-        return 0
+        return _exec_reconcile()
 
     if new != old and wc.git_ok("show-ref", "--verify", "--quiet", f"refs/heads/{new}"):
         n = 2

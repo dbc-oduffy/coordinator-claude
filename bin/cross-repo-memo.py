@@ -3037,12 +3037,59 @@ def _format_age(seconds: float) -> str:
     return f"{int(seconds // 86400)}d"
 
 
+def _stranded_inbox_rows(root: str) -> "list[tuple[str, str, str, str]]":
+    """Rows for open inbox memos that exist only on a fetched sibling `origin/work/*/*`
+    ref. Binds the engine lazily; any failure yields no rows."""
+    try:
+        import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+        import cc_invoke
+
+        cc_invoke.ensure_engine_on_path(__file__)
+        from coordinator_core import memo_corpus
+        from coordinator_core.git import git_dir, git_objects
+
+        memos = memo_corpus.stranded_inbox_memos(root)
+        if not memos:
+            return []
+        common_dir = git_dir.resolve_git_common_dir(Path(root))
+    except Exception as exc:
+        print(
+            f"cross-repo-memo inbox: stranded-memo scan skipped ({type(exc).__name__}: {exc})",
+            file=sys.stderr,
+        )
+        return []
+    rows: list[tuple[str, str, str, str]] = []
+    for m in memos:
+        sender, title = "?", "(untitled)"
+        try:
+            obj = git_objects.read_object(common_dir, m.blob_sha)
+            in_fm = False
+            for line in obj[1].decode("utf-8", errors="replace").splitlines():
+                if line.strip() == "---":
+                    if in_fm:
+                        break
+                    in_fm = True
+                    continue
+                key, sep, val = line.partition(":")
+                if in_fm and sep and key.strip() in ("from", "title") and val.strip():
+                    if key.strip() == "from":
+                        sender = _unquote_yaml_scalar(val.strip())
+                    else:
+                        title = _unquote_yaml_scalar(val.strip())
+        except Exception:
+            pass
+        ref = m.ref.removeprefix("refs/remotes/")
+        rows.append(("stranded", sender, m.filename.removesuffix(".md"), f"{title} [on {ref}]"))
+    return rows
+
+
 def _cmd_inbox(args: argparse.Namespace) -> int:
     """Handle: cross-repo-memo inbox
 
     Lists the current repo's state/cross-repo/inbox/*.md, one line per memo:
       <status>  <from>  <file stem>  :: <title>
-    Open memos sort first, then by filename. Read-only; `list` stays outbox-only.
+    Open memos sort first, then by filename; open memos stranded on a fetched
+    sibling day branch follow as `stranded` rows. Read-only; `list` stays outbox-only.
     """
     root = _current_repo_root()
     if root is None:
@@ -3063,14 +3110,17 @@ def _cmd_inbox(args: argparse.Namespace) -> int:
                 p.stem,
                 fm.get("title") or "(untitled)",
             ))
+    rows.extend(_stranded_inbox_rows(root))
     if not rows:
         print("no inbound memos")
         return 0
-    rows.sort(key=lambda r: (r[0] != "open", r[2]))
+    rows.sort(key=lambda r: (r[0] == "stranded", r[0] != "open", r[2]))
     for status, sender, stem, title in rows:
         print(f"{status}  {sender}  {stem}  :: {title}")
     n_open = sum(1 for r in rows if r[0] == "open")
-    print(f"{len(rows)} memo(s), {n_open} open")
+    n_stranded = sum(1 for r in rows if r[0] == "stranded")
+    suffix = f", {n_stranded} stranded" if n_stranded else ""
+    print(f"{len(rows)} memo(s), {n_open} open{suffix}")
     return 0
 
 
@@ -3435,9 +3485,34 @@ def _cmd_send(args: argparse.Namespace) -> int:
         )
 
     try:
-        result = cc_invoke.route_mutation(
-            "memo.send", {"dry_run": False, "topic": topic}, sender_root, legacy_send
-        )
+        _sent_copy = _sent_outbox_archive_path(_outbox_write_path(sender_root, topic))
+    except Exception:  # engine binding unavailable: the op itself will refuse loudly
+        _sent_copy = ""
+    _sent_existed_before = bool(_sent_copy) and os.path.exists(_sent_copy)
+
+    try:
+        try:
+            result = cc_invoke.route_mutation(
+                "memo.send", {"dry_run": False, "topic": topic}, sender_root, legacy_send
+            )
+        except getattr(cc_invoke, "WarmDispatchIndeterminate", ()) as indeterminate:
+            print(f"cross-repo-memo send: {indeterminate}", file=sys.stderr)
+            if _sent_copy and os.path.exists(_sent_copy) and not _sent_existed_before:
+                print(
+                    "cross-repo-memo send: RECONCILED — the send completed despite "
+                    "the error above; the sender receipt is on disk. Do NOT re-send."
+                )
+                print(f"Sender-side receipt: {_sent_copy}")
+                return 0
+            print(
+                "cross-repo-memo send: no sender receipt yet — resuming once; "
+                "memo.send reconciles a delivery already landed in the receiver "
+                "(receipt only, no second delivery).",
+                file=sys.stderr,
+            )
+            result = cc_invoke.route_mutation(
+                "memo.send", {"dry_run": False, "topic": topic}, sender_root, legacy_send
+            )
     except RuntimeError as exc:
         print(f"cross-repo-memo send: {exc}", file=sys.stderr)
         _print_route_mutation_failure_reasons(exc)

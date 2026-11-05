@@ -32,7 +32,7 @@ Design the notebook topology, questions, source strategy and worker count direct
 The frontmatter carries the team-protocol Data Contract fields (`worker_count`, `total_expected_queries`, `tier_assumption`) plus:
 
 - `research_topic`, `topic_slug`
-- `output_path`: `docs/research/YYYY-MM-DD-{topic_slug}-nlm.md`; `output_path_base`: it without `.md`; `advisory_path`: `output_path` with `.md` replaced by `-advisory.md`
+- `output_path`: `{{scratch_dir}}/<segment>/YYYY-MM-DD-{topic_slug}-nlm.md` (the run's destination under its scratch dir `<run dir>/workdir`, never outside the run dir `docs/research/<topic>/<date>-<run-slug>/`, where the layout guard refuses a stray); `output_path_base`: it without `.md`; `advisory_path`: `output_path` with `.md` replaced by `-advisory.md`
 - `cleanup_notebooks`: `true` or `false` (default `false`)
 - `scout_ceiling_minutes`: default 5
 

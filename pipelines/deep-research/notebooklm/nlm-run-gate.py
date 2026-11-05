@@ -32,12 +32,15 @@ _TEXT_ENTRY = re.compile(r"\btext:\s*\S")
 
 
 def _sections(text: str, heading: re.Pattern[str]) -> dict[str, str]:
-    """Map letter -> section body, each running to the next `## ` heading."""
+    """Map letter -> section body, each running to the next `## ` heading.
+
+    Same-letter sections concatenate: a scout that writes a second `## Sources for Notebook A: ...`
+    heading (e.g. a coverage-gaps note) must not hide the first section's sources.
+    """
     out: dict[str, str] = {}
-    matches = list(heading.finditer(text))
-    for m in matches:
+    for m in heading.finditer(text):
         nxt = _ANY_HEADING.search(text, m.end())
-        out[m.group(1)] = text[m.end() : nxt.start() if nxt else len(text)]
+        out[m.group(1)] = out.get(m.group(1), "") + text[m.end() : nxt.start() if nxt else len(text)]
     return out
 
 

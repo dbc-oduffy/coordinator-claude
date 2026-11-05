@@ -52,10 +52,10 @@ Set during Step 1 when `--deepest` is active.
 - `{scratch-dir}/atlas-sketch-connectivity-matrix.md`
 
 **Refined (post-synthesis) — final outputs:**
-- `docs/research/YYYY-MM-DD-repo-{topic-slug}-file-index.md`
-- `docs/research/YYYY-MM-DD-repo-{topic-slug}-system-map.md`
-- `docs/research/YYYY-MM-DD-repo-{topic-slug}-connectivity-matrix.md`
-- `docs/research/YYYY-MM-DD-repo-{topic-slug}-architecture-summary.md` (4th artifact, requires specialist data)
+- `{run-dir}/outputs/file-index.md`
+- `{run-dir}/outputs/system-map.md`
+- `{run-dir}/outputs/connectivity-matrix.md`
+- `{run-dir}/outputs/architecture-summary.md` (4th artifact, requires specialist data)
 
 ## Step 7.5 — Atlas Refinement Details
 
@@ -65,7 +65,7 @@ After the Workflow completes and the assessment is verified, the EM dispatches a
 2. **Fill fields:** `[REPO_NAME]`, `[DATE]`, `[RUN_ID]`, `[VERSION]`; `[SYSTEM_A_NAME]`–`[SYSTEM_D_NAME]` and `[CHUNK_A_DESCRIPTION]`–`[CHUNK_D_DESCRIPTION]` from scope.md; `[SCRATCH_DIR]`, `[SYNTHESIS_PATH]` (= `{output-path}`), `[SPAWN_TIMESTAMP]` (= current `date +%s`); preliminary artifact paths `[PRELIMINARY_FILE_INDEX]`, `[PRELIMINARY_SYSTEM_MAP]`, `[PRELIMINARY_CONNECTIVITY_MATRIX]` from `{scratch-dir}/atlas-sketch-*.md`.
 3. **Dispatch as a regular Sonnet subagent.**
 4. **Verify** all 4 artifacts exist and have substantive content: `atlas-file-index.md`, `atlas-system-map.md`, `atlas-connectivity-matrix.md`, `atlas-architecture-summary.md`.
-5. **If verification passes:** copy the 4 artifacts from scratch to the `docs/research/...` paths set in Step 1.
+5. **If verification passes:** copy the 4 artifacts from scratch to the `{run-dir}/outputs/` paths set in Step 1.
 6. **If verification fails:** proceed without atlas. Note to PM: "Atlas generation failed or produced thin output — assessment is complete, atlas artifacts missing." Atlas is additive, not blocking.
 
 ## Phase B — Atlas Sketch Details (`--deepest`, in Step 5)
@@ -92,7 +92,7 @@ The relay runs **before** the synthesizer's final pass returns, so the Workflow'
 
 ### Relay locus — between the synthesizer's passes, pre-Step-7
 
-**The relay executes as stages of the one Workflow, not as a separate post-synthesis dispatch.** The synthesizer's pass 1 returns its draft; the script dispatches a fresh continuation agent per specialist (the specialists have returned, and a wake is a dispatch, never a resume: `docs/research/spike-verdicts/2026-10-22-returned-workflow-agent-resume-reprobe.md`); then the script dispatches the synthesizer's pass 2. The authors whose content the relay protects are represented by their continuations, which name each specialist's own output files and predecessor return value. Atlas refinement (Step 7.5) runs after the Workflow completes and is unrelated to the relay.
+**The relay executes as stages of the one Workflow, not as a separate post-synthesis dispatch.** The synthesizer's pass 1 returns its draft; the script dispatches a fresh continuation agent per specialist (the specialists have returned, and a wake is a dispatch, never a resume: `docs/research/spikes/2026-10-22-returned-workflow-agent-resume-reprobe/verdict.md`); then the script dispatches the synthesizer's pass 2. The authors whose content the relay protects are represented by their continuations, which name each specialist's own output files and predecessor return value. Atlas refinement (Step 7.5) runs after the Workflow completes and is unrelated to the relay.
 
 ### Relay sequence (script-driven; summarized for EM debuggability)
 
@@ -148,11 +148,11 @@ The auditor never edits the synthesis. It emits the sidecar only.
 
 ### Run-stem naming convention
 
-All repo-pipeline durable outputs share the stem `YYYY-MM-DD-repo-{topic-slug}` under `docs/research/`. The `repo-` infix distinguishes them from web-pipeline (`YYYY-MM-DD-{topic-slug}`) and structured-pipeline outputs on the same date. The `pipeline: repo` frontmatter field provides the same disambiguation for query-records filtering.
+All repo-pipeline durable outputs live inside one run dir, `{run-dir}` = `docs/research/{topic-slug}/{run-id}-{topic-slug}/`: `synthesis.md` at its top and the rest under `outputs/`. The `pipeline: repo` frontmatter field distinguishes them from web-pipeline and structured-pipeline outputs for query-records filtering.
 
 ### Research-synthesis frontmatter
 
-The synthesizer prepends YAML frontmatter to `docs/research/YYYY-MM-DD-repo-{topic-slug}.md` per `coordinator/schemas/research-synthesis.schema.json`. Fields: `title`, `question`, `date`, `pipeline: repo`, `source_count`, `topic_facets[]`, `coverage_score`, `confidence_summary` (optional). **The prose body is always agent-authored** — frontmatter is the only deterministic layer.
+The synthesizer prepends YAML frontmatter to `{run-dir}/synthesis.md` per `coordinator/schemas/research-synthesis.schema.json`. Fields: `title`, `question`, `date`, `pipeline: repo`, `source_count`, `topic_facets[]`, `coverage_score`, `confidence_summary` (optional). **The prose body is always agent-authored** — frontmatter is the only deterministic layer.
 
 ### Per-specialist claims files
 
@@ -160,13 +160,13 @@ Repo specialists write `{scratch-dir}/{chunk-letter}-claims.json` alongside thei
 
 ### Merged claims index
 
-The synthesizer merges `{scratch-dir}/[A-D]-claims.json` into `{scratch-dir}/merged-claims.json` and reports `pipeline: repo` (never `ran_at` — it has no clock; the EM measures the merge moment as the mtime of `merged-claims.json`); the **EM** then emits the durable pair `docs/research/YYYY-MM-DD-repo-{topic-slug}.claims.json` + `.claims.meta.json` via the single `claims-emit` writer (repo-driver Step 7.4.5). Claim `id` values are scoped per chunk (e.g., `"A-1"`, `"B-3"`) — no deduplication is needed. If no per-specialist claims files exist, the synthesizer derives claims from the assessment files (fallback documented in `repo-synthesizer-prompt-template.md` § Durable Index Artifacts).
+The synthesizer merges `{scratch-dir}/[A-D]-claims.json` into `{scratch-dir}/merged-claims.json` and reports `pipeline: repo` (never `ran_at` — it has no clock; the EM measures the merge moment as the mtime of `merged-claims.json`); the **EM** then emits the durable pair `{run-dir}/outputs/synthesis.claims.json` + `.claims.meta.json` via the single `claims-emit` writer (repo-driver Step 7.4.5). Claim `id` values are scoped per chunk (e.g., `"A-1"`, `"B-3"`) — no deduplication is needed. If no per-specialist claims files exist, the synthesizer derives claims from the assessment files (fallback documented in `repo-synthesizer-prompt-template.md` § Durable Index Artifacts).
 
 ### Gap-report — NOT produced by the repo pipeline
 
 The `*-gap-report.md` artifact (`coordinator/schemas/gap-report.schema.json`) is a **web-pipeline construct** — it drives the web pipeline's deepening gate ("did we research enough?"). The repo pipeline does not implement a deepening gate and does not produce a gap-report.
 
-Repo-pipeline gap signals appear as `[COVERAGE GAP]` inline markers in the synthesis prose (synthesizer-authored) and, in `--compare` mode, as the tiered action items in `docs/research/YYYY-MM-DD-repo-{topic-slug}-gap-analysis.md`. The coverage-audit sidecar (`*-coverage-audit.md`, auditor-owned) answers "did the synthesis carry the research?" — this is the repo pipeline's analog to the web pipeline's gap-report for output-coverage purposes.
+Repo-pipeline gap signals appear as `[COVERAGE GAP]` inline markers in the synthesis prose (synthesizer-authored) and, in `--compare` mode, as the tiered action items in `{run-dir}/outputs/gap-analysis.md`. The coverage-audit sidecar (`*-coverage-audit.md`, auditor-owned) answers "did the synthesis carry the research?" — this is the repo pipeline's analog to the web pipeline's gap-report for output-coverage purposes.
 
 Do not fabricate a gap-report for a repo pipeline run. If a caller expects `*-gap-report.md`, direct them to the `[COVERAGE GAP]` markers in the synthesis and the coverage-audit sidecar.
 

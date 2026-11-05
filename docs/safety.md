@@ -82,10 +82,10 @@ Source: `coordinator/hooks/hooks.json`.
 ### Optional add-ons
 
 - **NotebookLM (Pipeline D)** — default-off. An external, third-party, OSS MCP server
-  (`jacob-bd/gemini-notebook-mcp-cli`) that you install yourself via `uv tool install
-  notebooklm-mcp-cli`, authenticate via `nlm login` (your own Google account), and register via
-  `nlm setup add claude-code`. This repo does not install or launch it — it only offers to walk
-  you through the steps. Source: `coordinator/commands/install.md` § 1d.
+  (`jacob-bd/gemini-notebook-mcp-cli`) that you install yourself per its README
+  (https://github.com/jacob-bd/gemini-notebook-mcp-cli), authenticating with your own Google
+  account. This repo does not install, register or launch it — setup only points you at the
+  README. Source: `coordinator/commands/install.md` § 1d.
 
 ### The engine (`coordinator_core` / `claude-klabauter`)
 

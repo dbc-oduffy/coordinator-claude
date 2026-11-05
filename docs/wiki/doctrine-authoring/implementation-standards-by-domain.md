@@ -32,7 +32,7 @@ file.
 
 ## Why this exists
 
-<!-- spec backlink: docs/research/spike-verdicts/2026-07-27-plugin-claude-md-delivery.md -->
+<!-- spec backlink: docs/research/spikes/2026-07-27-plugin-claude-md-delivery/verdict.md -->
 
 Coordinator `CLAUDE.md` is **not** read at every session start — see
 `coordinator/docs/wiki/claude-md-surfaces.md` § Trap A and

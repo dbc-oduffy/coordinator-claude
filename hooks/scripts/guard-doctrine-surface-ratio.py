@@ -115,6 +115,7 @@ file; unreconstructable before/after; `delta_bytes <= 0`.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import sys
 from pathlib import Path
@@ -125,9 +126,26 @@ if _HOOKS_DIR not in sys.path:
 
 #: coordinator/lib/ holds doctrine_surface_tiers.py -- .../scripts -> hooks
 #: -> coordinator -> lib.
-_LIB_DIR = str(Path(__file__).resolve().parents[2] / "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
+#: Loaded by file path, never via sys.path: a warm host keeps this module's
+#: sys.path edits for the life of the process, and a lib dir at index 0
+#: outranks the hooks dir (runner-contract clause 8).
+_LIB_DIR = Path(__file__).resolve().parents[2] / "lib"
+
+
+def _load_lib_module(name: str):
+    mod = sys.modules.get(name)
+    if mod is not None:
+        return mod
+    spec = importlib.util.spec_from_file_location(name, _LIB_DIR / f"{name}.py")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod
+    try:
+        spec.loader.exec_module(mod)
+    except BaseException:
+        sys.modules.pop(name, None)
+        raise
+    return mod
+
 
 from _sentinel_write_guard import extract_target_path, reconstruct_after  # noqa: E402
 from _doctrine_changelog_prose import surface_of  # noqa: E402
@@ -138,7 +156,9 @@ from _message_envelope import (  # noqa: E402
     compose,
     emit,
 )
-from doctrine_surface_tiers import admission_cap_for, tier_boundaries_for  # noqa: E402
+_tiers = _load_lib_module("doctrine_surface_tiers")
+admission_cap_for = _tiers.admission_cap_for
+tier_boundaries_for = _tiers.tier_boundaries_for
 
 _GUARDED_TOOLS = ("Write", "Edit", "MultiEdit")
 

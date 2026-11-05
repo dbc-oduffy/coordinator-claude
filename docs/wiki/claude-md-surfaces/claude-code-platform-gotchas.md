@@ -451,7 +451,7 @@ A dispatched subagent does NOT have `Agent` in its tool surface; it cannot spawn
 
 ### MCP tool names in Agent Teams teammates may differ from parent
 
-Deferred tool names can vary by prefix convention — the current NotebookLM server exposes `mcp__notebooklm-mcp__*`, an earlier bare form was `mcp__notebooklm__*`, and the now-retired vendored server used `mcp__plugin_notebooklm_notebooklm__*` (same tool suffixes throughout; only the prefix varies). Always use graduated `ToolSearch`: exact `select:` → keyword `+prefix` fallback → graceful failure. Never hardcode a single naming pattern.
+Deferred tool names can vary by prefix convention — the current NotebookLM server exposes `mcp__gemini-notebook-mcp__*`, earlier forms were the `notebooklm-mcp` server key (its `mcp__` + key + `__*` prefix) and bare `mcp__notebooklm__*`, and the now-retired vendored server used `mcp__plugin_notebooklm_notebooklm__*` (same tool suffixes throughout; only the prefix varies). Always use graduated `ToolSearch`: exact `select:` → keyword `+prefix` fallback → graceful failure. Never hardcode a single naming pattern.
 
 ### `SendMessage` with a plain-string `message` requires a `summary` field
 

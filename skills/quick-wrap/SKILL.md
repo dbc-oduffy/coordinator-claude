@@ -90,6 +90,8 @@ POSIX: the bare `coordinator-invoke` door.
 `groups` param (list of `{"paths": [...], "message": "..."}`) for several — mutually
 exclusive with `message`. Paths outside the safe pathspec drop silently.
 
+**Residue gate.** Run `"$_py" "${CLAUDE_PLUGIN_ROOT}/bin/close-residue-check.py" --session-id <this session's id>` before the commit only to read its `groups` (a dirty tree exits 1 there; pass the groups to the commit); the run after the commit gates. Exit 1 after the commit refuses the close: stop, commit or ignore the listed residue, never wrap over it.
+
 **2. Close loose ends.** The judgment step — sweep what this session actually touched:
 
 - A **queue entry** resolved this session: closure is a move, never in-place — `git mv state/<queue>/<slug>.yaml archive/<queue>/<YYYY-MM>/<slug>.yaml`, set

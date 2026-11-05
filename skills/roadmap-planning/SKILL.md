@@ -70,7 +70,7 @@ source="unreal", limit=1)` returns a hit; else STOP those clusters (never substi
 1.5.3. `peer-team-asks.md` — present, empty as `- None identified at authoring time.`
    (`residue/peer-team-ask-format.md`); answer the consumer-render probe for any cross-repo contract here.
 1.5.4. PM round 1 (shape approval) before reviewers run; on approval `status: shape-approved`.
-1.5.5. Sequential reviews — the Staff Engineer, or the Director of Engineering cross-repo; domain reviewer by flavor.
+1.5.5. Parallel review wave — the Staff Engineer, or the Director of Engineering cross-repo; domain reviewer by flavor.
 1.5.6. PM round 2 (final approval) with a diff vs. shape-approved; on approval
    `status: final-approved`. **Phase 2 MUST NOT start without it** — unless the PM
    pre-waived round 2 at round 1 with a recorded verbatim "execute and adjust" ruling, which stands in for it.
@@ -122,8 +122,8 @@ Bins below resolve per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.m
 2.5. `pm-gates.md` — one row per stub whose `gate_notes`/`gate_dependency` carries a
    product-coupled signal (`PM `-prefix, named stakeholder, decision/policy/scope/user-facing language).
 2.6–2.7. Phase 2 close: `audit-roadmap <run-id>` — one gate, five audits; exit 1 blocks close. `kind: roadmap-baton` frontmatter must be validator-clean; `roadmap_id` must name an on-disk cluster. **No applicable cluster → scaffold the stub `kind: spinoff`** (never a null `roadmap_id` or placeholder cluster).
-2.8. Sequential reviews — same altitude rule and sidecar contract as Step 1.5.5. Domain reviewer
-   skippable when its 1.5.5 findings are pinned into the stub ACs verbatim AND each stub's
+2.8. Parallel wave — same altitude rule and sidecar contract as 1.5.5. Domain reviewer
+   skippable when its 1.5.5 findings are pinned in the stub ACs verbatim AND each stub's
    `coordinator:plan` re-applies the lens at PLAN altitude; record the skip in the roadmap dir.
 2.9. Retire each marked source plan, in order: migrate its load-bearing prose into the
    inheriting stubs, THEN stamp `status: superseded` + `superseded_by:
@@ -158,7 +158,7 @@ Phase 2 close IS the deliverable; a fresh session picks each stub up via `/picku
 
 ## Anti-scope
 
-- Auto-derive `gate_notes:`/`gate_dependency:` from natural language; author-supplied only.
+- Auto-derive `gate_notes:`/`gate_dependency:` from natural language; author-supplied only (the EM or a roadmap-planner the brief tasks with it; hard gates stay in `blocked_by`).
 - Cross-repo roadmap rollup, `/pickup` gate-meaningfulness triggers, dashboards.
 - **Replace `coordinator:plan` for single-plan work.** A picking-up EM keeps `deployment_state:
   in_flight`, writes `predecessor: none`, cites `roadmap_id/stub_id` in the plan's "Why this plan", no `roadmap_parent:` field.

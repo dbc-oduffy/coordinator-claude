@@ -9,6 +9,8 @@ home into place, so this leg moves it on the first boot with no live session in 
 Idempotent: a healthy home costs a registry read and three stats; `git init` spawns only when
 `.git` is absent, and an existing `CLAUDE.md` is never overwritten.
 
+It also records `coordinator.repo_home` (the folder holding most `repos.*` checkouts) when unset.
+
 Silent on success and on a refused home (one inside a checkout is the operator's to move, and
 `group-em-home ensure` names it). Fails open everywhere.
 """
@@ -34,6 +36,12 @@ def main() -> int:
         _gem_home.ensure_home()
     except Exception:
         # HomeRefused, a missing git, an unwritable settings home: none may block a session.
+        pass
+    try:
+        import _general_work
+
+        _general_work.record_repo_home()
+    except Exception:
         pass
     return 0
 
