@@ -1,7 +1,7 @@
 {
   "paths": {
-    ".claude-plugin/marketplace.json": "3f0ff29de1807e2818ed485f3d0f7d59bec0ed02",
-    ".claude-plugin/plugin.json": "16a5b1b52541dbfdb1f32dedcd9929b03cfdc5e3",
+    ".claude-plugin/marketplace.json": "c4bb5998bed466051eb0788192fea29122be7795",
+    ".claude-plugin/plugin.json": "69b132675f7f6648736742d854136a286d41cce2",
     ".gitattributes": "e601e3b4831fbad8558b4cf33c1d891e51bb4732",
     ".github/.persona-names-allowlist": "b192e993696d101230ee10c2cbe29faed29ea61f",
     ".github/ISSUE_TEMPLATE/bug_report.md": "0f541423ae94a7dd28b550bee94ce2babb50be4a",
@@ -34,7 +34,7 @@
     ".gitignore": "31886db36fd93b3817544f094188345777a5e87c",
     ".python-version": "e4fba2183587225f216eeada4c78dfab6b2e65f5",
     "AGENTS.md": "a88e4d5f37a62b3a64ab05156092552926c2cf0b",
-    "CHANGELOG.md": "5530d2b2a0bbbe542f5f33bbc3f886a34c0676d7",
+    "CHANGELOG.md": "51c028632b728a9ec99679ce3eb97505d6063b8b",
     "CODE_OF_CONDUCT.md": "ba00a30d3950eb141f7ba5c969661e60c2f5c97a",
     "COMMERCIAL.md": "a8701144cfb16aedda57ec490159cafe170ff1d1",
     "CONTRIBUTING.md": "b0db3c04182459734d8871e93ab8a8165e2783a1",
@@ -2258,7 +2258,7 @@
     "skills/artifact-investigation/scripts/coverage_scorer.py": "87b8ea73c01123ba0c33c074bcb410ed8d83e4a3",
     "skills/artifact-investigation/scripts/run_folder.py": "f730b8fd7b4329a2c4cc7e1bcfdbcf519d772d6d",
     "skills/artifact-investigation/scripts/sweep_gate.py": "e4496cc065669e2133e20ea1c3ac7e5bc3f94c1d",
-    "skills/box-onboarding/SKILL.md": "c102ba11c6320ab43fdc0d8423a12cd735df21af",
+    "skills/box-onboarding/SKILL.md": "366e9d0cc15aa2b1ca40b040e674e732cba63893",
     "skills/brainstorming/SKILL.md": "35e328968d650476fc6725cdaca80e9a95a5eead",
     "skills/bug-sweep/SKILL.md": "0d191da2cba7274edd77bfe2c187998e7ab64fc0",
     "skills/cloud-channel/SKILL.md": "8df9529a718dd00658f19e360f316e45ea53753d",
@@ -2524,5 +2524,5 @@
     "workflows/workday-start.mjs": "3bcc7c6c2e141ecf2f34cd9c8639e4f93ebafb58"
   },
   "schema": 1,
-  "source_head": "b227dfc1b46f7e45f501b11a0eb4db341ff1cfa0"
+  "source_head": "6ade6bcecb80f2792031cb4106f7755ac3534e39"
 }

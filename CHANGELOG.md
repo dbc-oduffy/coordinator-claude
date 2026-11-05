@@ -4,6 +4,11 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.6.15] — 2026-11-05
+
+- **Fresh-macOS install:** box onboarding installs the engine in one command (`setup.py --i-am-agent`, then `--check`) on a PEP-668 Homebrew python3; engine deps land in `<settings-home>/engine-site`, no venv, never `--break-system-packages`.
+- **Cold-install fixes** from the Mac Mini dogfood.
+
 ## [4.6.14] — 2026-11-04
 
 - **Codex and agy peers:** `unimatrix-install.py --install` seeds coordinator doctrine and skills into Codex and agy, and wires a PreToolUse guard that governs their shell commands, failing to `{}` on Codex and to `ask` on agy, never `allow`. INSTALL.md lists what the live matrix proved and the paths no hook sees.

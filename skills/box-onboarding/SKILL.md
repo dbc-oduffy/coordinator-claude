@@ -39,12 +39,10 @@ from `machine-local get repos.claude_klabauter`; `<home-repo>` is the owner's pr
    - `claude plugin list`; done when `coordinator-claude` is listed after a restart.
 
 4. **Engine: clone, setup, probe.** `<klabauter-clone>` exists from step 3.
-   - Interim, until the engine's installer fix lands (a fresh Homebrew python3 is PEP-668-refused
-     by the full install; engine ask `ask-20261105T155602-6cccf1`):
-     `python3 <klabauter-clone>/scripts/setup.py --register-only --i-am-agent`, then
-     `python3 <klabauter-clone>/scripts/setup.py --repair forwarders --i-am-agent`, then
+   - `python3 <klabauter-clone>/scripts/setup.py --i-am-agent`, then
      `python3 <klabauter-clone>/scripts/setup.py --check --i-am-agent`.
-     Done when the last prints `check: all items verified`. Never `--break-system-packages`.
+     Done when the last prints `check: all items verified`. Engine deps land in
+     `<settings-home>/engine-site` (no venv); never `--break-system-packages`.
    - **Capability probe (shipped):** `python3 -m coordinator_core.group_em.box_probe` writes `capability`
      (`os`, `arch`, `cpu_count`, `ram_mb`, `python`, `gpu`, `has_p4`, `has_ue`) into
      `<home>/state/group-em/box.json`. `has_ue` is true only with `UE_ROOT` or `UNREAL_ENGINE_ROOT` set
