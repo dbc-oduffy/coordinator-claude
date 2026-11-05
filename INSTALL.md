@@ -351,11 +351,11 @@ calls. Name the hosts explicitly; with no `claude` on PATH the Claude range gate
 a printed notice, only when `--hosts` names no `claude`:
 
 ```bash
-python3 coordinator/bin/unimatrix-install.py --install --hosts codex,agy   # Windows: python
-python3 coordinator/bin/unimatrix-install.py --uninstall                   # removes every managed entry
+python3 "$CLAUDE_PLUGIN_ROOT/bin/unimatrix-install.py" --install --hosts codex,agy   # Windows: python
+python3 "$CLAUDE_PLUGIN_ROOT/bin/unimatrix-install.py" --uninstall                   # removes every managed entry
 ```
 
-(A consumer box runs the same script from `$CLAUDE_PLUGIN_ROOT/bin/`.) Bare `--install` still
+Bare `--install` still
 refuses outside the verified Claude range.
 
 `agy plugin import claude` is not an install route: agy's importer skips Claude agents (model

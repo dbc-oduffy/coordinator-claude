@@ -4,6 +4,10 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.6.16] — 2026-11-05
+
+- **Install docs:** the Codex and agy host install runs `unimatrix-install.py` from `$CLAUDE_PLUGIN_ROOT/bin/`, the path a released plugin actually ships.
+
 ## [4.6.15] — 2026-11-05
 
 - **Fresh-macOS install:** box onboarding installs the engine in one command (`setup.py --i-am-agent`, then `--check`) on a PEP-668 Homebrew python3; engine deps land in `<settings-home>/engine-site`, no venv, never `--break-system-packages`.

@@ -1,7 +1,7 @@
 {
   "paths": {
-    ".claude-plugin/marketplace.json": "c4bb5998bed466051eb0788192fea29122be7795",
-    ".claude-plugin/plugin.json": "69b132675f7f6648736742d854136a286d41cce2",
+    ".claude-plugin/marketplace.json": "11cc9bc56ec013f7d6d688d8e51ac967c363cfb0",
+    ".claude-plugin/plugin.json": "c72eff25e2b78d11b7d9fa127d9648daed649f54",
     ".gitattributes": "e601e3b4831fbad8558b4cf33c1d891e51bb4732",
     ".github/.persona-names-allowlist": "b192e993696d101230ee10c2cbe29faed29ea61f",
     ".github/ISSUE_TEMPLATE/bug_report.md": "0f541423ae94a7dd28b550bee94ce2babb50be4a",
@@ -34,11 +34,11 @@
     ".gitignore": "31886db36fd93b3817544f094188345777a5e87c",
     ".python-version": "e4fba2183587225f216eeada4c78dfab6b2e65f5",
     "AGENTS.md": "a88e4d5f37a62b3a64ab05156092552926c2cf0b",
-    "CHANGELOG.md": "51c028632b728a9ec99679ce3eb97505d6063b8b",
+    "CHANGELOG.md": "c436673e814981eb12c8e574d3a3173340f47556",
     "CODE_OF_CONDUCT.md": "ba00a30d3950eb141f7ba5c969661e60c2f5c97a",
     "COMMERCIAL.md": "a8701144cfb16aedda57ec490159cafe170ff1d1",
     "CONTRIBUTING.md": "b0db3c04182459734d8871e93ab8a8165e2783a1",
-    "INSTALL.md": "31543925fbc57328f65b8969aadf46d8b95ec462",
+    "INSTALL.md": "597629876889a8173e7040b8f355533e07244a1d",
     "LICENSE": "3b18e59009725dee4caa2d7fdfc69901658941a7",
     "NOTICE.md": "948a7e83b38b7788383c20978444f50017a63f6a",
     "PRIVACY.md": "f66b9a72711beaaf52408052f34a0ba52392a39c",
@@ -2227,7 +2227,7 @@
     "queue-profiles/lessons-central-route.yaml": "40557887e380f28dc64369336e60019b68b7f39d",
     "queue-profiles/lessons-strip.yaml": "6dadd6798b5a108beeafc3473051f7b925ddaa9a",
     "queue-profiles/lessons.yaml": "f8225722f533f532dffe91de42bfa1205fc82c5f",
-    "routing.md": "5afa21e6d7dd1e83aebf34f8726dd02a7b621de0",
+    "routing.md": "ff81970b92c555c8677e035f90db7429671fa459",
     "schemas/coordinator-local-md.schema.json": "0e5829452c5ac5b7af2538f22fe011e5cc9fc867",
     "schemas/coordinator-registry.manifest.json": "05f56f183e21075d8716e28fa74f3e70880f3734",
     "schemas/fleet-capability-index.schema.json": "408fda4ffacf49d8191e4ce4f39fc91236a5bb04",
@@ -2524,5 +2524,5 @@
     "workflows/workday-start.mjs": "3bcc7c6c2e141ecf2f34cd9c8639e4f93ebafb58"
   },
   "schema": 1,
-  "source_head": "6ade6bcecb80f2792031cb4106f7755ac3534e39"
+  "source_head": "bf87d28a69947be3992396f10ba174a721fbef10"
 }

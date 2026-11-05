@@ -195,7 +195,7 @@ Read fresh, server-side, by `coordinator_core.staff_session_assemble.resolve_ros
 SKILL.md` carries no roster tables of its own. Format is parser-load-bearing: each section is an
 exact H3 heading immediately followed by a 2-column pipe table (header row + `|---|---|`
 separator + data rows) — do not rename a heading or reflow a table without checking
-`coordinator_core/staff_session_assemble/__init__.py`'s `_HEADING_*` constants and
+the engine module `coordinator_core.staff_session_assemble` (`claude-klabauter`): its `_HEADING_*` constants and
 `_parse_section`/`_split_pair_cell` first.
 
 <!-- Spec backlink: docs/plans/2026-07-24-computed-skills-b5-planning-cluster.md chunk C9/AC17.
