@@ -4629,6 +4629,12 @@ def _mutate_sizing_reverse_edge(
             # do NOT overwrite `plan:` below; only the `status` flip
             # proceeds.
             _fan_out_permitted = True
+        elif repo_root is not None and not os.path.exists(
+            os.path.join(repo_root, _existing_plan_value)
+        ):
+            # Cited plan was never written: this is first routing; the
+            # `plan:` overwrite below proceeds.
+            pass
         else:
             raise _MutateAbort(
                 f"sizing object already cites plan '{_existing_plan_value}' — "

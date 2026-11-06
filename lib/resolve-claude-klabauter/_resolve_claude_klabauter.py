@@ -982,28 +982,27 @@ def resolve_claude_klabauter_root_with_class() -> Tuple[Optional[str], str]:
     docstring and DR-326.
 
     Returns ``(root, resolution_class)`` where the class is one of
-    ``RESOLUTION_RESOLVED_ENGINE``, ``RESOLUTION_LIVE_WORKING_TREE``, or
-    (only via a raised ``ClaudeKlabauterResolutionError`` — see below)
-    ``RESOLUTION_UNRESOLVED`` never actually returned by this function today,
-    since the terminal miss raises rather than returning a sentinel tuple;
-    it is exported for callers building their own class-comparison logic.
+    ``RESOLUTION_RESOLVED_ENGINE`` or ``RESOLUTION_UNRESOLVED``; the terminal
+    miss returns ``(None, RESOLUTION_UNRESOLVED)`` (hooks run this every
+    session, so it never raises). ``RESOLUTION_LIVE_WORKING_TREE`` is no longer
+    returned here.
 
     Ladder:
-      1. A published engine registered/usable AND ``engine.target`` is
-         readable (AC20: presence/readability only — its VALUE is never
-         inspected here, same as DoE's own reader) AND the structural gate
-         (``_is_claude_klabauter_source_tree`` — is THIS session inside the engine's
-         own resolved source tree?) returns literally ``False`` (a
-         CONFIRMED not-the-source-tree session, not an undeterminable one)
-         -> ``(published, RESOLUTION_RESOLVED_ENGINE)``.
-      2. Otherwise today's existing ladder (``_resolve_claude_klabauter_root``:
-         registry key only) -> if it resolves,
-         ``(root, RESOLUTION_LIVE_WORKING_TREE)``.
-      3. Otherwise, if a published engine is registered/usable ->
-         ``(published, RESOLUTION_RESOLVED_ENGINE)``.
-      4. Otherwise re-raise the ``ClaudeKlabauterResolutionError`` step 2 raised —
-         "the existing" error, its remediation text now extended (see
-         ``_resolve_claude_klabauter_root``) to also mention ``repos.claude_klabauter``.
+      0. ``COORDINATOR_ENGINE_ROOT``, honoured only when it is an existing
+         directory carrying an engine stamp (a claude-klabauter tree has none,
+         so the stamp is the never-claude-klabauter test) ->
+         ``(override, RESOLUTION_RESOLVED_ENGINE)``.
+      1. A published engine registered and usable (stamped; see
+         ``_resolve_published_engine``) -> ``(published,
+         RESOLUTION_RESOLVED_ENGINE)``. Nothing ambient outranks it: not
+         ``engine.target`` presence, not whether this session sits inside
+         the live claude-klabauter tree, not a sibling or registered
+         ``repos.claude_klabauter`` checkout.
+      2. Otherwise ``(None, RESOLUTION_UNRESOLVED)``; callers print
+         ``unresolved_engine_message()`` (how to fetch claude-klabauter). No rung returns a claude-klabauter tree: PM ruling
+         2026-11-05 ("I never want claude-klabauter to be used as the engine. Ever.").
+         ``RESOLUTION_LIVE_WORKING_TREE`` is no longer returned here; the
+         LOCATOR (``_resolve_claude_klabauter_root``) keeps the live tree.
 
     2026-08-18 (C4): step 1's discriminant used to be per-repo
     ``engine.working_repos.*`` set membership (``_is_engine_working_repo``,
@@ -1020,34 +1019,40 @@ def resolve_claude_klabauter_root_with_class() -> Tuple[Optional[str], str]:
     a pure LOCATOR for other callers — see ``setup_chain_walker.py`` — it is
     simply not this gate's input any more).
 
-    ``engine.target`` GATES the divert too (AC20, ruling correction
-    2026-08-18): a box with ``repos.claude_klabauter`` registered but
-    ``engine.target`` never written (every machine installed before C8) MUST
-    NOT divert — "not yet rolled out" is the only meaning of absence, never
-    a silent opt-in, and C8's installer writes the key on the same pass that
-    registers the mirror. Presence/readability only; the VALUE (``main`` vs
-    ``candidate``) selects a channel elsewhere and is never inspected here,
-    matching DoE's own reader.
+    ``engine.target`` no longer gates the divert; its value selects a
+    channel elsewhere and is never inspected here.
 
-    Fail-open (AC7): on a single-tree box with no ``repos.claude_klabauter``,
-    ``published`` is always ``None`` and step 1 never fires — behavior
-    collapses to step 2 exactly as it runs today, byte-identical."""
+    With no stamped engine there is no live-tree fallback."""
     ml_dir = _ml_dir()
-    published = _resolve_published_engine(ml_dir)
-    target_readable = resolve_engine_target(ml_dir) is not None
 
-    if published and target_readable and _is_claude_klabauter_source_tree(ml_dir) is False:
+    override = os.environ.get("COORDINATOR_ENGINE_ROOT", "").rstrip("\r\n").rstrip("/")
+    if (
+        override
+        and "/.." not in override
+        and "\\.." not in override
+        and os.path.isdir(override)
+        and _is_stamped_engine_root(Path(override))
+    ):
+        return override, RESOLUTION_RESOLVED_ENGINE
+
+    published = _resolve_published_engine(ml_dir)
+    if published:
         _maybe_emit_skew_advisory(ml_dir, published)
         return published, RESOLUTION_RESOLVED_ENGINE
 
-    try:
-        live = _resolve_claude_klabauter_root(ml_dir)
-        return live, RESOLUTION_LIVE_WORKING_TREE
-    except ClaudeKlabauterResolutionError:
-        if published:
-            _maybe_emit_skew_advisory(ml_dir, published)
-            return published, RESOLUTION_RESOLVED_ENGINE
-        raise
+    return None, RESOLUTION_UNRESOLVED
+
+
+def unresolved_engine_message() -> str:
+    """The fetch-claude-klabauter remediation for a ``(None, 'unresolved')`` engine
+    resolution. Engine-invoking entrypoints print it and exit non-zero; hooks
+    degrade with it and never raise."""
+    return (
+        "ERROR: no published claude-klabauter engine; claude-klabauter is never an "
+        "engine. Fetch it: git clone https://github.com/dbc-oduffy/claude-klabauter "
+        "and run its setup, or 'machine-local set repos.claude_klabauter <path>' "
+        f"({_ml_dir()}/registry.local.toml), or set COORDINATOR_ENGINE_ROOT=<stamped engine path>\n"
+    )
 
 
 def _is_executable(path: str) -> bool:
@@ -1563,6 +1568,9 @@ def exec_cli(target: str, argv: Optional[List[str]] = None) -> None:
             resolution_class = RESOLUTION_LIVE_WORKING_TREE
         else:
             claude_klabauter_root, resolution_class = resolve_claude_klabauter_root_with_class()
+            if claude_klabauter_root is None:
+                sys.stderr.write(unresolved_engine_message())
+                sys.exit(1)
         bin_dir = _validate_bin_dir(claude_klabauter_root)
     except ClaudeKlabauterResolutionError as exc:
         sys.stderr.write(str(exc))

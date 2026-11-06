@@ -96,26 +96,29 @@ def _locate_machine_local_cli() -> Path | None:
     return None
 
 
+def _is_stamped_engine(root: str) -> bool:
+    """True when `root` carries a non-empty `coordinator_core/_engine_stamp`."""
+    try:
+        return bool((Path(root) / "coordinator_core" / "_engine_stamp").read_bytes())
+    except OSError:
+        return False
+
+
 def _locate_percolate_lib() -> Path:
     """Return the `coordinator/lib` directory containing `percolate/ignore.py`.
 
-    Rung 0: `$REPO_CLAUDE_KLABAUTER` env, then `$COORDINATOR_ENGINE_ROOT`
-    env (dir must exist) — repo-identity override
-    first, then the live-tree engine root under its current spelling, then
-    its legacy spelling, which stays readable indefinitely per DR-087.
+    Rung 0: `$COORDINATOR_ENGINE_ROOT` env, accepted only when it is a
+    stamped engine (`coordinator_core/_engine_stamp`); an engine-authoring
+    tree is never an engine.
 
     This copy duplicates that precedence rather than delegating: it holds no
     `_engine_root` import, and cannot, because it is seeded into repos that
     have no engine checkout in reach. It is therefore a THIRD independent
     ladder copy and must be kept in step with `_engine_root.py`'s
-    `LIVE_TREE_ENV_VARS` by hand — the repo-root `setup/publish_sync.py`,
+    ladder by hand — the repo-root `setup/publish_sync.py`,
     which does delegate via `_engine_root`, is the one that tracks it
     automatically. Peer copies honoring the same order: `_engine_root.py`,
-    `_claude_klabauter-root.js`, repo-root `setup/publish_sync.py`. Without
-    this rung an operator setting `REPO_CLAUDE_KLABAUTER` to override a
-    stale/misconfigured machine-local registry entry gets no effect here,
-    unlike everywhere else in the codebase that resolves an
-    engine-repo-derived path.
+    `_claude_klabauter-root.js`, repo-root `setup/publish_sync.py`.
     Rung 1: `$CLAUDE_PLUGIN_ROOT/lib/percolate/ignore.py` — harness-provided,
     most robust when this script runs under a Claude Code plugin context.
     Rung 2: `<install-root>/plugins/coordinator-claude/coordinator/lib/percolate/ignore.py`
@@ -124,7 +127,7 @@ def _locate_percolate_lib() -> Path:
     Rung 3 (machine-local registry): resolve the engine repo checkout
     root via `machine-local get repos.claude_klabauter` (CLI located by
     `_locate_machine_local_cli()` above) and look for
-    `<claude-klabauter-root>/coordinator/lib/percolate/ignore.py` there.
+    `<engine-root>/coordinator/lib/percolate/ignore.py` there.
     `coordinator/lib/percolate/` was relocated to the engine repo by the
     2026-07-22 "migrate the executable surface" commit (b644d5a9), so
     rungs 1-2 can never resolve on a machine where this script runs from a
@@ -133,14 +136,8 @@ def _locate_percolate_lib() -> Path:
     registry→pointer-ladder replacement for a `Path(__file__)`-depth-walk —
     it works regardless of where this file's own copy happens to sit on
     disk. Any of {CLI not found, non-zero exit, empty stdout, resolved path
-    missing the ignore.py file} is treated as a miss and falls through to
-    rung 4.
-    Rung 4 (dev-checkout convenience ONLY, file-relative, no env/registry):
-    an engine repo sibling of the doctrine-repo checkout this copy of
-    the file currently lives in. Deliberately narrow (pure `Path(__file__)`
-    ancestor math) so it degrades safely on a real deployed copy:
-    `<install-root>/setup/publish_sync.py` has no such sibling two
-    directories up and correctly falls through to the ImportError below.
+    missing the ignore.py file} is treated as a miss. Only a stamped engine
+    is accepted; no rung selects an engine-authoring tree.
 
     Fails loud (ImportError) if no rung resolves: a silently-imported
     second matcher implementation is exactly the drift this delegation
@@ -150,12 +147,11 @@ def _locate_percolate_lib() -> Path:
     Cross-cutting standards; formerly coordinator/CLAUDE.md § Implementation
     Standards, retired 2026-07-27).
     """
-    for env in ("REPO_CLAUDE_KLABAUTER", "COORDINATOR_ENGINE_ROOT"):
-        env_claude_klabauter_root = os.environ.get(env)
-        if env_claude_klabauter_root and Path(env_claude_klabauter_root).is_dir():
-            candidate = Path(env_claude_klabauter_root) / "coordinator" / "lib" / "percolate" / "ignore.py"
-            if candidate.is_file():
-                return candidate.parent.parent
+    env_engine_root = os.environ.get("COORDINATOR_ENGINE_ROOT")
+    if env_engine_root and _is_stamped_engine(env_engine_root):
+        candidate = Path(env_engine_root) / "coordinator" / "lib" / "percolate" / "ignore.py"
+        if candidate.is_file():
+            return candidate.parent.parent
 
     env_plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
     if env_plugin_root:
@@ -188,10 +184,10 @@ def _locate_percolate_lib() -> Path:
         except (OSError, subprocess.SubprocessError):
             result = None
         if result is not None and result.returncode == 0:
-            claude_klabauter_root = result.stdout.strip()
-            if claude_klabauter_root:
+            engine_root = result.stdout.strip()
+            if engine_root and _is_stamped_engine(engine_root):
                 registry_candidate = (
-                    Path(claude_klabauter_root)
+                    Path(engine_root)
                     / "coordinator"
                     / "lib"
                     / "percolate"
@@ -200,31 +196,13 @@ def _locate_percolate_lib() -> Path:
                 if registry_candidate.is_file():
                     return registry_candidate.parent.parent
 
-    try:
-        # Assumes this file's fixed dev-tree depth (<checkout-root>/coordinator/templates/setup/).
-        # A deployed copy is shallower, so this either lands outside the real checkout
-        # or raises IndexError on a filesystem root -- both caught below.
-        checkout_root = Path(__file__).resolve().parents[3]
-        sibling_candidate = (
-            checkout_root.parent
-            / "claude-klabauter"
-            / "coordinator"
-            / "lib"
-            / "percolate"
-            / "ignore.py"
-        )
-        if sibling_candidate.is_file():
-            return sibling_candidate.parent.parent
-    except IndexError:
-        pass
-
     raise ImportError(
         "publish_sync.py: could not locate coordinator/lib/percolate/ignore.py via "
-        "$REPO_CLAUDE_KLABAUTER env, $COORDINATOR_ENGINE_ROOT env, "
+        "$COORDINATOR_ENGINE_ROOT env, "
         "$CLAUDE_PLUGIN_ROOT/lib/percolate, "
         "<install-root>/plugins/coordinator-claude/coordinator/lib/percolate, "
-        "the machine-local registry's repos.claude_klabauter, or a claude-klabauter "
-        "sibling checkout's coordinator/lib/percolate. "
+        "or the machine-local registry's repos.claude_klabauter (stamped engines "
+        "only; fetch claude-klabauter from GitHub if absent). "
         "This module delegates to the SSOT ignore matcher on purpose (see the "
         "header comment above) rather than shipping a second implementation — "
         "fix the install layout, set CLAUDE_PLUGIN_ROOT, or set "

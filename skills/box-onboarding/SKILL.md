@@ -56,14 +56,32 @@ from `machine-local get repos.claude_klabauter`; `<home-repo>` is the owner's pr
    `Unimatrix-02` is the project-rag tunnel only (forwarding, no shell). One key per box pair, so
    a leak's blast radius is that pair; Zero is needed one way per pair because the initiating box
    holds the inbox connection. Unimatrix-01 is a full mesh: any one box can be the controller or
-   the controlled, so long as the keys authenticate. Fetch from the 1Password Team vault, install
-   the target-side `authorized_keys` line, never copy a private half onto this box. 1Password's CLI
-   cannot edit SSH Key items, and a CLI import of an existing OpenSSH key lands unparsed: import and
-   rename in the app (`op --ssh-generate-key` is fine).
-   - `op item get "<role>: <from> → <to>" --vault <team-vault> --fields label=public_key`
-   - Place the line in `~/.ssh/authorized_keys` (`chmod 700 ~/.ssh; chmod 600 ~/.ssh/authorized_keys`),
-     pinned `from=<the peer's Wi-Fi LAN address>` while there is no ethernet
-     (`unimatrix-mechanism.md`, "Keys").
+   the controlled, so long as the keys authenticate. Mint every key in 1Password; never run
+   `ssh-keygen` and upload the result. 1Password's CLI cannot edit SSH Key items, and a CLI import of
+   an existing OpenSSH key lands unparsed, so a key is minted, not imported.
+   - **PM step, before anything uses `op` (macOS):** grant Full Disk Access to Terminal (the host app
+     running Claude Code) in System Settings > Privacy & Security > Full Disk Access, then restart it.
+     Without it `op` app integration fails with "No accounts configured" or "operation not permitted",
+     because TCC blocks the 1Password Group Containers.
+   - Mint: `op item create --category 'SSH Key' --title "<role>: <from> → <to>" --vault <team-vault> --ssh-generate-key ed25519`.
+   - The initiating box reads the private half to disk, mode 600:
+     `op read "op://<team-vault>/<role>: <from> → <to>/private key?ssh-format=openssh" > ~/.ssh/<key-file>; chmod 600 ~/.ssh/<key-file>`.
+     Read the public half the same way (`.../public key`). No key body, fingerprint or vault content
+     enters a tracked file.
+   - The far-side `authorized_keys` line is installed by that box's EM or G-EM (a SendMessage over the
+     existing Unimatrix, or a pasted line), never by the PM by hand. `unimatrix-install.py`
+     prints the exact line, absolute interpreter included. Both directions of every box pair get the
+     line, each on its own far side:
+     `restrict,from="<LAN /24>,<tunnel /24>",command="<absolute interpreter> <absolute relay path>"`
+     (`unimatrix-mechanism.md`, "Keys"). Refuse a single-address `from=` and a bare `python3`
+     interpreter; the macOS interpreter is Homebrew's `$(brew --prefix)/bin/python3` (`/opt/homebrew` on Apple silicon, `/usr/local` on Intel). Windows far side: the line goes in
+     `C:\ProgramData\ssh\administrators_authorized_keys` for admin users, needs elevation, and the
+     forced command names absolute paths (`command="<absolute python.exe> <absolute path>\\unimatrix-relay.py"`).
+   - A re-minted key replaces the old line on the far side. Before testing, compare
+     `ssh-keygen -lf` on both ends; delete the superseded private key.
+     (`A-UNIMATRIX-KEY-IS-MINTED-IN-1PASSWORD-AND-VERIFIED-BY-FINGERPRINT`.)
+   - DHCP reservation uses the box's private Wi-Fi MAC with the private address set to "Fixed" for
+     that network, not the hardware MAC (`docs/fleet/unimatrix-fleet.md` carries the addresses).
    - This box's own engine key: `box_key.ensure_key` mints it; pin each peer's key with op
      `groupem.box_key_pin` (both directions). Pin recipe and its tests are project-rag's.
 
@@ -75,8 +93,17 @@ from `machine-local get repos.claude_klabauter`; `<home-repo>` is the owner's pr
      `coordinator/snippets/resolve-coordinator-bin.md` (§ CLIs with no launcher): check mode first,
      then `--install` once it prints `in verified range`.
    - Add the ssh alias block from `unimatrix-mechanism.md` "Transport" to `~/.ssh/config` and the
-     alias to machine-local `unimatrix.far_boxes`.
-   - The relay key follows the custody page (`A-UNIMATRIX-KEY-IS-A-FORCED-COMMAND-RELAY-KEY`).
+     alias to machine-local `unimatrix.far_boxes`. Its `HostName` is the far box's `<box>.local`
+     name, never an address (`A-UNIMATRIX-FAR-BOX-ALIAS-NAMES-THE-BOX-NEVER-ITS-IP`); a Linux near
+     box needs `nss-mdns`.
+   - The relay key follows the custody page (`A-UNIMATRIX-KEY-IS-A-FORCED-COMMAND-RELAY-KEY`). On
+     macOS its forced command names Homebrew's `$(brew --prefix)/bin/python3` by absolute path: sshd's PATH
+     `python3` is the Command Line Tools stub.
+   - `unimatrix-install.py --pair <alias>` pairs this box with the peer alias; it prints the line
+     the far side installs.
+   - **Existing-box backfill:** admitting a box means installing and verifying both directions
+     against every box already on the roster, not only the new box's own. A pair holding only one
+     direction gets the missing key and line now, then step 8 probes it.
 
 7. **Clone the G-EM home (when the owner has a private home repo).** Clone `<home-repo>` into this
    box's own resolved home path (`group-em-home.py` resolves it; paths differ per box) on the same
@@ -86,6 +113,9 @@ from `machine-local get repos.claude_klabauter`; `<home-repo>` is the owner's pr
 8. **Verify reach, then register.** From the box holding the G-EM standing, LAN first: on the home
    Wi-Fi verify over the box's LAN address with the tunnel off; try the tunnel address only when the
    LAN address is unreachable (`unimatrix-mechanism.md`, "Transport").
+   - **Roster probe, both directions:** run `ssh -o BatchMode=yes <alias> roster` from each box of the
+     pair to the other, for every existing box. Expect JSON lines or an empty roster and exit `0`;
+     a direction that fails is not onboarded.
    - SSH no-op: `ssh -o BatchMode=yes <box-alias> true; echo $?`. Expect `0`.
    - Tunnel pin refuses a shell: `ssh -o BatchMode=yes -i <tunnel-key> <box-alias> true` must fail.
    - Tunnel MCP initialize (the port is the tunnel's, carried only over the `Unimatrix-02` key):
@@ -111,7 +141,8 @@ from `machine-local get repos.claude_klabauter`; `<home-repo>` is the owner's pr
      - Verify: `machine-local keys | grep '^box\.'` lists all four; `machine-local get box.id` equals `box_id`.
 
 9. **Record the result.** One line per step, `PASS` / `FAIL` / `GUARDED-STOP`, in the box's
-   onboarding handoff. A `GUARDED-STOP` names the row it waits on.
+   onboarding handoff; steps 5, 6 and 8 record each direction of each pair separately.
+   A `GUARDED-STOP` names the row it waits on.
 
 ## After onboarding
 

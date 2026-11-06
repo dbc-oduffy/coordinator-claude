@@ -1419,6 +1419,11 @@
             "tool_names": []
           },
           {
+            "id": "engine_guards_importable",
+            "script": "scripts/session-start-engine-guards-importable.py",
+            "tool_names": []
+          },
+          {
             "id": "guard_hook_generation_self_probe",
             "script": "scripts/guard-hook-generation-self-probe.py",
             "tool_names": []

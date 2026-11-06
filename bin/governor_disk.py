@@ -81,9 +81,10 @@ def _worst(stats: list[DiskStat], idle_max: float, queue_min: float) -> Optional
 
 def format_disk_lines(stats: list[DiskStat], top: list[tuple[int, int]], cmds: dict[int, str],
                       idle_max: float = IDLE_MAX_PCT, queue_min: float = QUEUE_MIN) -> list[str]:
-    """DISK line for the top writer on the worst saturated disk, then one DISK-STAT per disk.
+    """DISK line for the box-wide top-IO pid beside the worst saturated disk, then one DISK-STAT per disk.
 
-    `top` is [(pid, bytes_delta)] ranked descending; `cmds` maps pid -> full command line.
+    `top` is [(pid, bytes_delta)] ranked descending over all disks; the readers carry no per-disk
+    pid IO, so the line says the pid is not proven to write that disk. `cmds` maps pid -> command line.
     """
     top_txt = ",".join(f"{pid}:{_mb(b)}MB" for pid, b in top)
     lines: list[str] = []
@@ -96,7 +97,8 @@ def format_disk_lines(stats: list[DiskStat], top: list[tuple[int, int]], cmds: d
         else:
             who, cmd = "pid=none io=0MB", ""
         lines.append(f"GOVERNOR DISK {who} disk={worst.name} idle={worst.idle_pct:.0f}% "
-                     f"queue={worst.queue:g} cmd={cmd}")
+                     f"queue={worst.queue:g} attribution=box-wide-top-io "
+                     f"(pid not proven to write this disk) cmd={cmd}")
     for s in stats:
         lines.append(f"GOVERNOR DISK-STAT disk={s.name} idle={s.idle_pct:.0f}% "
                      f"queue={s.queue:g} top={top_txt}")

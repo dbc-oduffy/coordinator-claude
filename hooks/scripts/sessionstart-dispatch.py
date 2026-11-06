@@ -226,6 +226,10 @@ REGISTRY: Tuple[StartGuard, ...] = (
     # `project_type: unreal-engine`.
     StartGuard("session_start_unreal_em_notice", "session-start-unreal-em-notice.py",
                frozenset({"startup", "resume", "clear", "compact", "fork"})),
+    # Every source: a compact or clear re-reads the boot payload, and the probe is a handful of
+    # in-process imports. Silent unless an engine guard module fails to import.
+    StartGuard("engine_guards_importable", "session-start-engine-guards-importable.py",
+               frozenset({"startup", "resume", "clear", "compact", "fork"})),
     # LAST, deliberately -- see module docstring "INCREMENTAL FLUSH".
     StartGuard("guard_hook_generation_self_probe", "guard-hook-generation-self-probe.py",
                frozenset({"startup", "clear", "compact"})),

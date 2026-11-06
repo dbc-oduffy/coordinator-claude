@@ -464,6 +464,19 @@ def _report_retired_plugins(settings_path: Path, data: dict, args: argparse.Name
     print(f"PRUNED — removed retired plugin(s) from {settings_path}: {', '.join(retired)}")
 
 
+def _doe_tree_from_evidence() -> "Path | None":
+    """The shared DoE-presence predicate (`coordinator_install.doe_tree_from_evidence`),
+    or None when the installer module is not importable beside this script."""
+    lib_dir = str(Path(__file__).resolve().parent.parent / "lib" / "install")
+    if lib_dir not in sys.path:
+        sys.path.insert(0, lib_dir)
+    try:
+        import coordinator_install
+        return coordinator_install.doe_tree_from_evidence()
+    except Exception:
+        return None
+
+
 def cmd_check_settings_membership(args: argparse.Namespace) -> int:
     settings_path = Path(args.settings or os.path.join(os.path.expanduser("~"), ".claude", "settings.json"))
 
@@ -493,19 +506,26 @@ def cmd_check_settings_membership(args: argparse.Namespace) -> int:
     # SKILL.md amendment (coordinator-content-repo 25121f849): absence from `enabledPlugins`
     # is the dev / `--plugin-dir` install shape's EXPECTED state, not
     # configured-but-broken. When Probe 0's route-2 evidence holds at the same
-    # --plugin-dir, degrade to WARN/exit 0 rather than failing an install that
-    # is demonstrably live. WARN, not SKIP, so the row stays visible.
+    # --plugin-dir, or the launcher delivers from a DoE tree, PASS: that
+    # delivery is the enabled state.
     if args.plugin_dir:
         source_dir = Path(args.plugin_dir)
         manifest_ok, commands_present, hooks_present = _route2_evidence(source_dir)
         if manifest_ok and (commands_present or hooks_present):
             print(
-                f"[WARN] coordinator plugin not in enabledPlugins, but is live-resolved "
-                f"via --plugin-dir at {source_dir} — expected for a dev/--plugin-dir "
-                f"install, which does not use marketplace enablement. Not a fault.",
-                file=sys.stderr,
+                f"PASS — coordinator plugin enabled by --plugin-dir delivery at "
+                f"{source_dir} (live-resolved; dev/--plugin-dir installs do not use "
+                f"marketplace enablement)"
             )
             return 0
+
+    doe_tree = _doe_tree_from_evidence()
+    if doe_tree is not None:
+        print(
+            f"PASS — coordinator plugin enabled by launcher delivery from the DoE tree "
+            f"at {doe_tree} (not marketplace-enabled)"
+        )
+        return 0
 
     print("FAIL — coordinator plugin NOT found in enabledPlugins")
     if not args.plugin_dir:
@@ -645,50 +665,49 @@ def cmd_check_plugin_registered(args: argparse.Namespace) -> int:
         args.known_marketplaces or (_default_claude_plugins_dir() / "known_marketplaces.json")
     )
 
+    # Route-1 FAIL detail is held until the verdict: a route-2 PASS prints none of it.
+    route1_fails: list[str] = []
+
     installed_ok = False
     if not installed_path.is_file():
-        print(
+        route1_fails.append(
             f"FAIL — installed_plugins.json not found at {installed_path} — "
-            f"{key} is NOT registered",
-            file=sys.stderr,
+            f"{key} is NOT registered"
         )
     else:
         try:
             data = json.loads(installed_path.read_text())
         except (OSError, json.JSONDecodeError) as exc:
-            print(f"FAIL — failed to parse {installed_path}: {exc}", file=sys.stderr)
+            route1_fails.append(f"FAIL — failed to parse {installed_path}: {exc}")
             data = None
         if data is not None:
             plugins = data.get("plugins", {}) if isinstance(data, dict) else {}
             if isinstance(plugins, dict) and key in plugins:
                 installed_ok = True
             else:
-                print(
-                    f"FAIL — {key} not found in installed_plugins.json ({installed_path})",
-                    file=sys.stderr,
+                route1_fails.append(
+                    f"FAIL — {key} not found in installed_plugins.json ({installed_path})"
                 )
 
     known_ok = False
     if not known_path.is_file():
-        print(
+        route1_fails.append(
             f"FAIL — known_marketplaces.json not found at {known_path} — "
-            f"marketplace '{marketplace}' is NOT registered",
-            file=sys.stderr,
+            f"marketplace '{marketplace}' is NOT registered"
         )
     else:
         try:
             mdata = json.loads(known_path.read_text())
         except (OSError, json.JSONDecodeError) as exc:
-            print(f"FAIL — failed to parse {known_path}: {exc}", file=sys.stderr)
+            route1_fails.append(f"FAIL — failed to parse {known_path}: {exc}")
             mdata = None
         if mdata is not None:
             if isinstance(mdata, dict) and marketplace in mdata:
                 known_ok = True
             else:
-                print(
+                route1_fails.append(
                     f"FAIL — marketplace '{marketplace}' not found in "
-                    f"known_marketplaces.json ({known_path})",
-                    file=sys.stderr,
+                    f"known_marketplaces.json ({known_path})"
                 )
 
     # Directory presence is NOT evidence (AC-1) -- reported only as an
@@ -757,6 +776,8 @@ def cmd_check_plugin_registered(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
 
+    for line in route1_fails:
+        print(line, file=sys.stderr)
     print("FAIL — plugin registration incomplete. Remediation:", file=sys.stderr)
     print(f"  claude plugin marketplace add {source}", file=sys.stderr)
     print(f"  claude plugin install {key}", file=sys.stderr)
@@ -804,7 +825,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Plugin root, as passed to check-plugin-registered. When given and the "
         "same route-2 live-resolved evidence holds there, absence from enabledPlugins "
-        "degrades to WARN/exit 0 instead of FAIL — the dev/--plugin-dir install shape "
+        "counts as enabled (PASS) instead of FAIL — the dev/--plugin-dir install shape "
         "never populates enabledPlugins.",
     )
     p_settings.add_argument(

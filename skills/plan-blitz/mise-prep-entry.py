@@ -230,8 +230,8 @@ def _engine_plan_gate():
     if not root:
         raise SeamError(
             "coordinator_core unreachable: could not resolve the engine root "
-            "(set REPO_CLAUDE_KLABAUTER, or COORDINATOR_ENGINE_ROOT, or register "
-            "repos.claude_klabauter in machine-local)"
+            "(set COORDINATOR_ENGINE_ROOT to a stamped claude-klabauter, or "
+            "register claude-klabauter in machine-local)"
         )
     if str(root) not in sys.path:
         sys.path.insert(0, str(root))

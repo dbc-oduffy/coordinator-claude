@@ -29,6 +29,10 @@ from __future__ import annotations
 
 import sys
 
+# Read-only subcommands the warm door may re-run cold after an indeterminate
+# dispatch; mirrored by door_core.c `door_replay_safe_invocations`.
+REPLAY_SAFE_SUBCOMMANDS = frozenset({"brief"})
+
 
 def main(argv: list[str]) -> int:
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path

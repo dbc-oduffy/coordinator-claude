@@ -4,6 +4,12 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.6.17] — 2026-11-06
+
+- **General work:** the default general-work folder is `_general-work`, not `0-general-work`; installers create `_general-work` and register it as `repos.general_work`.
+- **Unimatrix far-box aliases:** a `<box>-lan` ssh alias names the box by its mDNS name (`<box>.local`), never its LAN address; moving an existing alias carries its `known_hosts` key under the new name.
+- **Install:** the DoE root pointer seeds `plugin.mirrors.coordinator-claude.source_path` as the plugin root (`<clone>/coordinator`) and repairs a clone-root seed.
+
 ## [4.6.16] — 2026-11-05
 
 - **Install docs:** the Codex and agy host install runs `unimatrix-install.py` from `$CLAUDE_PLUGIN_ROOT/bin/`, the path a released plugin actually ships.

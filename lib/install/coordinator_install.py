@@ -159,9 +159,9 @@ def plugin_root_source() -> tuple[Path, str]:
     own = Path(__file__).resolve().parents[2]
     if manifest_path(own).is_file():
         return own, "script clone (CLAUDE_PLUGIN_ROOT unset)"
-    doctrine = doe_global_doctrine()
-    if doctrine and manifest_path(doctrine.parent.parent / "coordinator").is_file():
-        return (doctrine.parent.parent / "coordinator",
+    tree = doe_tree_from_evidence()
+    if tree and manifest_path(tree / "coordinator").is_file():
+        return (tree / "coordinator",
                 "DoE checkout named by the machine registry (CLAUDE_PLUGIN_ROOT unset)")
     return own, "script clone (CLAUDE_PLUGIN_ROOT unset; no install manifest found there or in a registered DoE checkout)"
 
@@ -775,17 +775,8 @@ def doe_tree_from_evidence(
     return None
 
 
-def doe_global_doctrine() -> Path | None:
-    """`global-doctrine/CLAUDE.md` of the DoE tree `doe_tree_from_evidence` names, else None."""
-    tree = doe_tree_from_evidence()
-    if tree is None:
-        return None
-    doctrine = tree / "global-doctrine" / "CLAUDE.md"
-    return doctrine if doctrine.is_file() else None
-
-
 def step_claude_md_seed(ctx: Ctx) -> StepResult:
-    if doe_global_doctrine():
+    if doe_tree_from_evidence():
         return StepResult(INHERITED, "derived from global doctrine")
     fwd = forwarder("render-template")
     if not fwd:
@@ -1224,7 +1215,7 @@ def detect_track() -> dict:
     present, have, market = _installed_coordinator()
     drift: list[str] = []
     stale: list[str] = []
-    doe_box = doe_global_doctrine() is not None
+    doe_box = doe_tree_from_evidence() is not None
     if not present:
         track, reason, steps = "fresh", "no coordinator plugin installed", ["plugin_install", *configure]
         if doe_box:
@@ -1256,6 +1247,8 @@ def detect_track() -> dict:
 
 
 def step_plugin_install(ctx: Ctx) -> StepResult:
+    if doe_tree_from_evidence():
+        return StepResult(INHERITED, "DoE box: the DoE checkout delivers coordinator, no plugin to install")
     return StepResult(SKIPPED, "plugin install is a harness action this script cannot perform",
                       "run: /plugin marketplace add dbc-oduffy/coordinator-claude, then /plugin install coordinator@coordinator-claude, then restart and re-run the install")
 
@@ -1303,8 +1296,12 @@ TRACK_STEP_RUNNERS = {
 }
 
 
-def track_step_runners(steps: list[str]) -> list[dict]:
-    return [{"id": i, **TRACK_STEP_RUNNERS[i]} for i in steps if i in TRACK_STEP_RUNNERS]
+_DOE_PLUGIN_INSTALL_RUNNER = {"runner": "agent", "handover": None}
+
+
+def track_step_runners(steps: list[str], doe_box: bool = False) -> list[dict]:
+    return [{"id": i, **(_DOE_PLUGIN_INSTALL_RUNNER if doe_box and i == "plugin_install" else TRACK_STEP_RUNNERS[i])}
+            for i in steps if i in TRACK_STEP_RUNNERS]
 
 
 TRACK_STEP_FNS = {"plugin_install": step_plugin_install, "plugin_update": step_plugin_update,
@@ -1370,7 +1367,7 @@ _DOE_OWNER_SENTENCE = ("Ask three things and note the answers in em-context.md, 
 
 def tour() -> list[dict]:
     """TOUR, with movement 2 pointed away from the live CLAUDE.md on a DoE-derived box."""
-    if not doe_global_doctrine():
+    if not doe_tree_from_evidence():
         return list(TOUR)
     return [{**m, "text": m["text"].replace(_OWNER_WRITE_SENTENCE, _DOE_OWNER_SENTENCE)} for m in TOUR]
 
@@ -1396,7 +1393,7 @@ def build_plan(permission_mode: str | None) -> dict:
         "environment": (env := {"platform": platform.system(), "plugin_root": str(root),
                                 "plugin_root_source": source, **detect_track()}),
         "answers_shape": answers_shape(),
-        "track_step_runners": track_step_runners(env["track_steps"]),
+        "track_step_runners": track_step_runners(env["track_steps"], env["doe_box"]),
         "mode_policy": mode_policy(permission_mode),
         "decisions": [decision_json(d) for d in build_decisions(permission_mode)],
         "tour": tour(),

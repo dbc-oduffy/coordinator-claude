@@ -26,7 +26,7 @@ The install lands in the **settings home**, `~/.coordinator-claude-settings` (or
 |---|---|
 | `git`, Claude Code CLI | Required to begin. |
 | `bash` | No version floor (macOS 3.2 is fine). |
-| **Python: CPython 3.13** | From **pyenv or python.org** — never Homebrew, never `uv` (the engine refuses PEP-668 interpreters, exit 96). Avoid 3.15. Bare `python3` must resolve to it (§ Python, below). Floor 3.11 (`tomllib`). |
+| **Python 3.11+: Homebrew `python3` on macOS** | `brew install python`; the engine puts its dependencies in `<settings-home>/engine-site`, so PEP-668 is no obstacle. No venv. Linux: the distro `python3`; Windows: python.org. Bare `python3` must resolve to it (§ Python, below). Floor 3.11 (`tomllib`). |
 | `gh` | Required — clone auth and merge/release ceremonies. `gh auth login` first. No brew: § `gh` without Homebrew. |
 | `jq` / `node` 18+ | Optional / ceremony-gate JS suite only. |
 | NotebookLM MCP | Optional (deep-research Pipeline D). Install per the [upstream README](https://github.com/jacob-bd/gemini-notebook-mcp-cli); it registers as `gemini-notebook-mcp`. No venv needed; the walk-through does not install or register it. |
@@ -34,32 +34,30 @@ The install lands in the **settings home**, `~/.coordinator-claude-settings` (or
 
 ### Python — decide before installing anything
 
-Install **CPython 3.13** from **pyenv** or **python.org**, and make bare `python3` (the name every
-hook and forwarder spawns) resolve to it. Not Homebrew `python`/`python@3.x`, not `uv`-managed
-CPython (both refuse: PEP-668 `EXTERNALLY-MANAGED`); not 3.15 (the ML wheels are missing). Apple's
-`/usr/bin/python3` is 3.9-class and too old. Check: `python3 -c "import sys;print(sys.version)"`
-prints 3.13.x and `command -v python3` is not under `/usr/bin` or `/opt/homebrew`. A leftover
-Homebrew `python3.13` on PATH is still picked by the helper selector: `brew uninstall` it.
+**macOS: Homebrew `python3`.** `brew install python`, and make bare `python3` (the name every hook
+and forwarder spawns) resolve to `/opt/homebrew/bin/python3`. The engine installs its dependencies
+into `<settings-home>/engine-site`, not the interpreter's site-packages, so Homebrew's PEP-668
+marker does not block it. No venv. Apple's `/usr/bin/python3` is a Command Line Tools stub, too old:
+it must never win on PATH. Check: `command -v python3` prints `/opt/homebrew/bin/python3`.
+
+**Anything sshd or launchd spawns does not read your shell profile.** Name the interpreter by
+absolute path there (`/opt/homebrew/bin/python3`), or it gets the `/usr/bin` stub.
 
 **macOS preflight, first.** `git --version` and `python3 -c 1` must both exit 0. If they print
 "You have not agreed to the Xcode license", a human runs `sudo xcodebuild -license accept` (agents
 cannot: it needs sudo); on a box with no developer tools, `xcode-select --install`.
 
-**macOS PATH (pyenv).** In `~/.zprofile` (login shells) and `~/.zshenv` (non-login shells, GUI and
-launchd-spawned tools, an agent's Bash tool), so `python3` is 3.13 everywhere:
+**macOS PATH.** In `~/.zprofile` (login shells) and `~/.zshenv` (non-login shells, GUI and
+launchd-spawned tools, an agent's Bash tool), put Homebrew first:
 
 ```bash
-export PYENV_ROOT="$HOME/.pyenv"
-export PATH="$PYENV_ROOT/shims:$PYENV_ROOT/bin:$PATH"
+export PATH="/opt/homebrew/bin:$PATH"
 ```
 
-Then `pyenv install 3.13` (use the latest 3.13.x) and `pyenv global 3.13.<x>`. A pyenv CPython on
-macOS links Homebrew libraries (`openssl@3`, `mpdecimal`, `readline`, `xz`, `gettext`, `ncurses`,
-`sqlite`, `zstd`). Run `brew install <lib>` for each, even if already present as a dependency, so
-it is marked **installed-on-request**; otherwise
-`brew autoremove` or an uninstall of another formula silently breaks `ssl` and `decimal`.
-Without pyenv, the python.org installer needs no PATH edit beyond placing
-`/Library/Frameworks/Python.framework/Versions/3.13/bin` first.
+A pyenv shim or version directory earlier on PATH shadows it; remove that line.
+
+**Linux:** the distro `python3` (3.11+). **Windows:** python.org 3.11+, with the App Execution Alias
+stubs disabled.
 
 ### `gh` without Homebrew
 

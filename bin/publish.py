@@ -3496,6 +3496,20 @@ def _load_repo_key_waivers(path: Path = _REPO_KEY_WAIVERS_PATH) -> "dict[tuple, 
     }
 
 
+def _repo_key_gate_cache(target, rkl, pct_engine, params):
+    """`(cache, transform identity, shared file walk)` for the repo-key gate. The cache
+    lives in the destination's git dir, so it is never published and survives the
+    throwaway staging trees; a destination with no `.git` directory runs uncached."""
+    files = rkl.list_files(target.source_dir)
+    git_dir = getattr(target, "dest_dir", None)
+    git_dir = git_dir / ".git" if git_dir is not None else None
+    if git_dir is None or not git_dir.is_dir():
+        return None, "", files
+    from coordinator_core.percolate.gate_result_cache import GateResultCache, gate_version_of
+    cache = GateResultCache(git_dir / "claude-klabauter-gate-result", "repo-key-literal", gate_version_of(rkl.__file__))
+    return cache, pct_engine._transform_identity(params), files  # noqa: SLF001
+
+
 def dispatch_end_of_run_repo_key_literal_gate(
     engine_ctx: PercolateEngineContext,
     row_sections: "List[tuple]",
@@ -3531,7 +3545,10 @@ def dispatch_end_of_run_repo_key_literal_gate(
             def _transform(text: str, rel: str, _params=params) -> str:
                 return _pct_engine._apply_content_transforms(text, _params, rel)  # noqa: SLF001
 
-            hits = _rkl.drifted_in_tree(target.source_dir, _transform)
+            cache, digest, files = _repo_key_gate_cache(target, _rkl, _pct_engine, params)
+            hits = _rkl.drifted_in_tree(
+                target.source_dir, _transform, cache=cache, params_digest=digest, files=files
+            )
             # The baseline is measured on the klabauter export only; other rows (the
             # doctrine plugin names claude-klabauter as its prereq) carry codenames by design.
             codename_hits = _rkl.codename_hits_in_tree(
@@ -3540,7 +3557,12 @@ def dispatch_end_of_run_repo_key_literal_gate(
                 (lambda rels, _t=target: _paths_the_row_allowlist_denies(_t, rels))
                 if getattr(target, "allowlist", "")
                 else None,
+                cache=cache,
+                params_digest=digest,
+                files=files,
             ) if target.name.startswith("claude-klabauter") else []
+            if cache is not None:
+                cache.flush()
             baseline = _rkl.CODENAME_RESIDUAL_BASELINE
             ref = _rkl.CODENAME_BASELINE_REF
         except Exception as exc:  # noqa: BLE001 - AC15 fail-closed
@@ -6802,6 +6824,21 @@ class RunTotals:
     warnings: int = 0
     processed: int = 0
     audit_files: List[Path] = field(default_factory=list)
+    decline_reason: Optional[str] = None
+
+
+def _decline_row(
+    totals: RunTotals,
+    timing_sink: "Optional[List[tuple]]",
+    row_name: str,
+    label: str,
+) -> None:
+    """Record why `process_target` is about to return without advancing
+    `totals.processed`: on `totals.decline_reason` (read by `main`'s row loop)
+    and as the row's `REFUSED:` timing label."""
+    totals.decline_reason = label
+    if timing_sink is not None:
+        timing_sink.append((row_name, f"REFUSED: {label}", 0.0, 0.0))
 
 
 def warn(totals: RunTotals, message: str, *, out: IO[str] = sys.stdout) -> None:
@@ -9398,6 +9435,7 @@ def _print_row_failure_detail(
 
 _REASON_LINE_RE = re.compile(r"^\s*(?:\[[^\]\n]+\]\s*)?(?:Error|FATAL)\b[:\s].*", re.IGNORECASE)
 _REASON_MAX_CHARS = 400
+_DECLINED_WITHOUT_REASON = "process_target declined without a reason (engine defect)"
 
 
 class _RowReasonTee:
@@ -9410,6 +9448,7 @@ class _RowReasonTee:
         self._buf = ""
         self.cause: Optional[str] = None
         self.remedy: Optional[str] = None
+        self.last_line: Optional[str] = None
 
     def write(self, text: str) -> int:
         self._buf += text
@@ -9419,6 +9458,8 @@ class _RowReasonTee:
         return self._inner.write(text)
 
     def _note(self, line: str) -> None:
+        if line.strip():
+            self.last_line = line.strip()[:_REASON_MAX_CHARS]
         if self.cause is None and _REASON_LINE_RE.match(line):
             self.cause = line.strip()[:_REASON_MAX_CHARS]
         if self.remedy is None and "Remedy:" in line:
@@ -9465,7 +9506,7 @@ def _print_outcome_block(
         print(f"  {name}: {verb.upper()}", file=out)
     for name in failed_row_names:
         cause, remedy = row_reasons.get(name, (None, None))
-        reason = cause or _timing_refusal_label(round_timings, name) or "no reason was captured; see the Error lines above the timings"
+        reason = cause or _timing_refusal_label(round_timings, name) or _DECLINED_WITHOUT_REASON
         next_step = remedy or f"fix the reason above, then re-run `coordinator-publish {name}`"
         print(f"  {name}: REFUSED/FAILED -- did not publish", file=out)
         print(f"      reason:    {reason}", file=out)
@@ -11618,8 +11659,7 @@ def process_target(
         if not root.is_dir():
             print(f"  Error: source path does not exist: {root}", file=sys.stderr)
             _print_row_refusal(target.name, err=sys.stderr)
-            if timing_sink is not None:
-                timing_sink.append((target.name, "REFUSED: source path absent", 0.0, 0.0))
+            _decline_row(totals, timing_sink, target.name, "source path absent")
             return
 
     with _time_phase(timing_sink, target.name, "run_pre_sync_gates"):
@@ -11648,8 +11688,7 @@ def process_target(
         # try/finally below, so it is the only point this path reaches; clean
         # up here or they leak.
         _cleanup_shadow_roots(gate_result.shadow_roots)
-        if timing_sink is not None:
-            timing_sink.append((target.name, "REFUSED: pre-sync gate declined", 0.0, 0.0))
+        _decline_row(totals, timing_sink, target.name, "pre-sync gate declined")
         return
     effective_source_dir = gate_result.source_dir
     restricted_tmp_src = gate_result.restricted_tmp_src
@@ -11691,8 +11730,7 @@ def process_target(
             target, totals, setup_dir=setup_dir, out=out
         )
     if not declared_ref_ok:
-        if timing_sink is not None:
-            timing_sink.append((target.name, "REFUSED: dest not on declared ref", 0.0, 0.0))
+        _decline_row(totals, timing_sink, target.name, "dest not on declared ref")
         return
 
     # C10 (docs/plans/2026-08-15-klabauter-release-channels.md) — same
@@ -11704,8 +11742,7 @@ def process_target(
             target, totals, setup_dir=setup_dir, out=out
         )
     if not engine_root_viable:
-        if timing_sink is not None:
-            timing_sink.append((target.name, "REFUSED: dest engine root not viable", 0.0, 0.0))
+        _decline_row(totals, timing_sink, target.name, "dest engine root not viable")
         return
 
     try:
@@ -11740,8 +11777,7 @@ def process_target(
         with _time_phase(timing_sink, target.name, "_ensure_dest_ready"):
             dest_ready = _ensure_dest_ready(target, totals, out=out)
         if not dest_ready:
-            if timing_sink is not None:
-                timing_sink.append((target.name, "REFUSED: dest not ready", 0.0, 0.0))
+            _decline_row(totals, timing_sink, target.name, "dest not ready")
             return
 
         print("", file=out)
@@ -11756,8 +11792,7 @@ def process_target(
                 file=sys.stderr,
             )
             _print_row_refusal(target.name, err=sys.stderr)
-            if timing_sink is not None:
-                timing_sink.append((target.name, "REFUSED: percolate engine unavailable", 0.0, 0.0))
+            _decline_row(totals, timing_sink, target.name, "percolate engine unavailable")
             return
         else:
             try:
@@ -11770,8 +11805,7 @@ def process_target(
             except EngineUnavailableError as exc:
                 print(f"  Error: {exc}", file=sys.stderr)
                 _print_row_refusal(target.name, err=sys.stderr)
-                if timing_sink is not None:
-                    timing_sink.append((target.name, "REFUSED: engine unavailable mid-row", 0.0, 0.0))
+                _decline_row(totals, timing_sink, target.name, f"engine unavailable mid-row ({exc})")
                 return
 
             staging_dir = _create_publish_staging_dir(target.dest_dir)
@@ -12153,8 +12187,7 @@ def process_target(
                 totals.audit_files.extend(sync_totals.audit_files)
                 print(f"  Skipping {target.name}.", file=out)
                 print("", file=out)
-                if timing_sink is not None:
-                    timing_sink.append((target.name, "REFUSED: manifest sync failed", 0.0, 0.0))
+                _decline_row(totals, timing_sink, target.name, "manifest sync failed")
                 return
         else:
             # `repo-cut` (and any future bootstrap-bearing mode) has no
@@ -12169,8 +12202,7 @@ def process_target(
             if mode_descriptor is None or not mode_descriptor.is_bootstrap_bearing:
                 print(f"  Error: unknown mode '{target.mode}'", file=sys.stderr)
                 print("", file=out)
-                if timing_sink is not None:
-                    timing_sink.append((target.name, "REFUSED: unknown mode", 0.0, 0.0))
+                _decline_row(totals, timing_sink, target.name, f"unknown mode '{target.mode}'")
                 return
 
         # Forward non-noise diagnostics (WARNING/Error lines — a genuinely
@@ -12269,8 +12301,9 @@ def process_target(
                 inject_shadow_toplevels = getattr(exc, "materialized_shadow_roots", ())
                 print(f"  Error: {exc}", file=sys.stderr)
                 _print_row_refusal(target.name, err=sys.stderr)
-                if timing_sink is not None:
-                    timing_sink.append((target.name, "REFUSED: engine unavailable in post_rsync/inject/pre_ci", 0.0, 0.0))
+                _decline_row(
+                    totals, timing_sink, target.name, f"engine unavailable in post_rsync/inject/pre_ci ({exc})"
+                )
                 # `staging_dir` is discarded by the `finally` block below
                 # (`staging_swapped` stays False) — the real destination was
                 # never touched by this row's sync, sweep, guards, or inject.
@@ -12339,8 +12372,7 @@ def process_target(
                 with _time_phase(timing_sink, target.name, "dispatch_preswap_function_gate"):
                     preswap_gate_ok = dispatch_preswap_function_gate(engine_ctx, target, staging_dir, out=out)
             if not preswap_gate_ok:
-                if timing_sink is not None:
-                    timing_sink.append((target.name, "REFUSED: pre-swap function gate failed", 0.0, 0.0))
+                _decline_row(totals, timing_sink, target.name, "pre-swap function gate failed")
                 return
             # RE-WIRED (chunk C5, state/dispatch-briefs/2026-08-26-payload-
             # parity-asks-an-index-not-the-payload/C5.md): the gate itself
@@ -12403,8 +12435,7 @@ def process_target(
                         out=out,
                     )
             if not preswap_parity_ok:
-                if timing_sink is not None:
-                    timing_sink.append((target.name, "REFUSED: pre-swap payload parity gate failed", 0.0, 0.0))
+                _decline_row(totals, timing_sink, target.name, "pre-swap payload parity gate failed")
                 return
             # § `dispatch_end_of_run_unscanned_published_check`'s
             # `published_files_by_repo_root` -- the row's payload is enumerated HERE,
@@ -13312,10 +13343,9 @@ def _engine_row_derived_writes(
     `scratch`, keyed by destination rel-id. A cold row's process_target already staged both."""
     prefix = engine_target.dest_dir.relative_to(repo_root).as_posix()
     prefix = "" if prefix == "." else prefix + "/"
-    sha = _round_pin_source_sha(engine_target.source_dir, round_pinned_shas, out=io.StringIO(), late=True)
-    stamp_sha = _scoped_engine_stamp_sha(engine_target.source_dir, sha, out=io.StringIO())
+    stamp = _round_engine_stamp(engine_target, round_pinned_shas)
     scratch.mkdir(parents=True, exist_ok=True)
-    (scratch / _ENGINE_STAMP_FILENAME).write_text(f"sha:{stamp_sha}\n", encoding="utf-8", newline="\n")
+    (scratch / _ENGINE_STAMP_FILENAME).write_text(f"{stamp}\n", encoding="utf-8", newline="\n")
     _emit_engine_row_published_at(scratch)
     out: "dict[str, Path]" = {}
     for name in _ROUND_DERIVED_BASENAMES:
@@ -13324,9 +13354,23 @@ def _engine_row_derived_writes(
     return out
 
 
-def _rebuild_round_door(repo_root: Path, union_root: Path, *, warm: bool) -> "tuple[bool, dict[str, Path]]":
+def _round_engine_stamp(
+    engine_target: "Optional[ResolvedTarget]", round_pinned_shas: "dict[str, str]"
+) -> "Optional[str]":
+    """`sha:<scoped sha>` the round's engine row stamps (warm and cold alike), or None with no engine row."""
+    if engine_target is None:
+        print("  Door rebuild: no engine row in this round; door stamp follows the destination.")
+        return None
+    pin = _round_pin_source_sha(engine_target.source_dir, round_pinned_shas, out=io.StringIO(), late=True)
+    return f"sha:{_scoped_engine_stamp_sha(engine_target.source_dir, pin, out=io.StringIO())}"
+
+
+def _rebuild_round_door(
+    repo_root: Path, union_root: Path, *, warm: bool, engine_stamp: "Optional[str]" = None
+) -> "tuple[bool, dict[str, Path]]":
     """Rebuild the mirror's `door.exe` from the union's transformed door sources. Warm rounds seed the
-    sources the delta did not touch from HEAD first. Returns (ok, rebuilt artifact files by rel-id)."""
+    sources the delta did not touch from HEAD first. `engine_stamp` is baked into the build in place of
+    the destination's stamp; None keeps the destination's. Returns (ok, rebuilt artifact files by rel-id)."""
     from coordinator_core.install.door_install import (  # noqa: PLC0415 - lazy, mirror-only step
         DoorInstallError,
         rebuild_door_for_mirror,
@@ -13335,7 +13379,10 @@ def _rebuild_round_door(repo_root: Path, union_root: Path, *, warm: bool) -> "tu
     if warm:
         _seed_union_from_head(repo_root, union_root, _DOOR_INPUT_RELS)
     try:
-        rebuilt = rebuild_door_for_mirror(union_root, repo_root)
+        if engine_stamp is None:
+            rebuilt = rebuild_door_for_mirror(union_root, repo_root)
+        else:
+            rebuilt = rebuild_door_for_mirror(union_root, repo_root, engine_stamp=engine_stamp)
     except DoorInstallError as exc:
         print(f"publish.py: FATAL — door rebuild for {repo_root}: {exc}", file=sys.stderr)
         return False, {}
@@ -13650,7 +13697,12 @@ def _assemble_root_union(
             derived.update(_engine_row_derived_writes(engine_target, repo_root, round_pinned_shas, scratch))
         door_inputs_in_delta = any(r in survivors or r in dels for r in _DOOR_INPUT_RELS)
         if not warm or door_inputs_in_delta:
-            door_ok, door_files = _rebuild_round_door(repo_root, union_root, warm=warm)
+            door_ok, door_files = _rebuild_round_door(
+                repo_root,
+                union_root,
+                warm=warm,
+                engine_stamp=_round_engine_stamp(engine_target, round_pinned_shas),
+            )
             derived.update(door_files)
         for rel, path in derived.items():
             dst = union_root / rel
@@ -13845,10 +13897,12 @@ def _swap_over_mid_stage(runs: "Sequence[Any]", held_s: float) -> bool:
 
 @contextlib.contextmanager
 def _quiesced_engine_roots(roots: "Sequence[Path]"):
-    """Hold publish.marker and stop the warm pair for each engine root across the body, then
-    release every marker; a body that completes first starts the successor pair under the held
-    markers and waits for it to answer. Raises `_QuiesceRefused` before the body runs when a root cannot be
-    stopped, so nothing lands. Empty `roots` is a no-op."""
+    """Hold the handover-pending breadcrumb, hold publish.marker and stop the warm pair for each
+    engine root across the body, then release every hold; a body that completes first starts the
+    successor pair under the held markers and waits for it to answer. The breadcrumb is taken
+    here and released by this function's own ExitStack on every exit, so it spans stop-and-copy
+    only. Raises `_QuiesceRefused` before the body runs when a root cannot be stopped, so nothing
+    lands. Empty `roots` is a no-op."""
     if not roots:
         yield
         return
@@ -13960,6 +14014,25 @@ class _SlotGate:
     tokens: "dict[Path, str]" = field(default_factory=dict)
 
 
+def _release_slot_reported(root: Path, token: str, err: Optional[IO[str]] = None) -> None:
+    """Exit-scoped slot release: a release that returns False or raises is reported on stderr, never
+    swallowed, and never replaces the exit code of the publish it follows."""
+    from coordinator_core.percolate import publish_slot  # noqa: PLC0415
+
+    err = err or sys.stderr
+    try:
+        released = publish_slot.release_slot(root, token)
+    except Exception as exc:  # noqa: BLE001 - reported below; the exit code stays the publish's own
+        print(f"[publish.py] WARNING: publish slot {token} for {root} not released: {exc!r}", file=err)
+        return
+    if not released:
+        print(
+            f"[publish.py] WARNING: publish slot {token} for {root} not released "
+            "(lease absent, taken over, or the release push was rejected)",
+            file=err,
+        )
+
+
 def _hold_publish_slots(
     lock_repo_roots: "Sequence[Path]",
     stack: ExitStack,
@@ -13993,7 +14066,7 @@ def _hold_publish_slots(
                 if holder is None:
                     holder = publish_slot.make_holder(resolve_session_id())
                 token = publish_slot.acquire_slot(root, holder)
-                stack.callback(publish_slot.release_slot, root, token)
+                stack.callback(_release_slot_reported, root, token, err)
         except publish_slot.PublishSlotHeldError as exc:
             print(f"[publish.py] BUSY: {exc}", file=err)
             gate.exit_code = 75
@@ -14128,6 +14201,7 @@ def _run_round(
                     }
 
                 prev_processed = totals.processed
+                totals.decline_reason = None
                 _tee_out = _RowReasonTee(sys.stdout)
                 _tee_err = _RowReasonTee(sys.stderr)
                 try:
@@ -14183,8 +14257,12 @@ def _run_round(
                 # `None` on its success path under --dry-run and on every declined path alike.
                 if totals.processed == prev_processed:
                     if row_reasons is not None:
+                        _last = _tee_err.last_line or _tee_out.last_line
                         row_reasons[target.name] = (
-                            _tee_err.cause or _tee_out.cause,
+                            _tee_err.cause
+                            or _tee_out.cause
+                            or totals.decline_reason
+                            or (f"{_DECLINED_WITHOUT_REASON}; last output: {_last}" if _last else None),
                             _tee_err.remedy or _tee_out.remedy,
                         )
                     failed_row_names.append(target.name)
@@ -14406,6 +14484,7 @@ def _run_round(
         landing_by_repo_root = staged_by_repo_root
         if gates_ok and failed_row_names:
             landing_by_repo_root = {}
+            _refused_before_landing = list(failed_row_names)
             for repo_root, staged_rows in staged_by_repo_root.items():
                 if not _warm_engine_root.is_engine_root(repo_root):
                     landing_by_repo_root[repo_root] = staged_rows
@@ -14420,6 +14499,12 @@ def _run_round(
                         succeeded_row_names.remove(target.name)
                     if target.name not in failed_row_names:
                         failed_row_names.append(target.name)
+                        if row_reasons is not None:
+                            row_reasons[target.name] = (
+                                f"staged fine but not landed into engine root {repo_root.name}: "
+                                f"refused row(s) in the round: {', '.join(_refused_before_landing)}",
+                                None,
+                            )
                     failed_dest_dirs_by_repo_root.setdefault(repo_root, set()).add(target.dest_dir)
         swap_ran = bool(gates_ok and landing_by_repo_root)
         if swap_ran:
@@ -14433,7 +14518,7 @@ def _run_round(
             with _land_notices(
                 commit_now, round_id, [r.name for r in landing_by_repo_root]
             ), _quiesced_engine_roots(
-                [r for r in landing_by_repo_root if _warm_engine_root.is_engine_root(r)]
+                [r for r in landing_by_repo_root if _warm_engine_root.is_engine_root(r)],
             ):
                 for repo_root, staged_rows in landing_by_repo_root.items():
                     u = unions[repo_root]
@@ -14485,6 +14570,8 @@ def _run_round(
                             if target.name in succeeded_row_names:
                                 succeeded_row_names.remove(target.name)
                             failed_row_names.append(target.name)
+                            if row_reasons is not None:
+                                row_reasons[target.name] = (f"landing failed: {land_exc!r}", None)
                             failed_dest_dirs_by_repo_root.setdefault(repo_root, set()).add(target.dest_dir)
                         continue
 
@@ -15318,121 +15405,111 @@ def _main(argv: Optional[List[str]] = None) -> int:
         _inherited_lock_realpaths.add(os.path.realpath(_path))
 
     publish_lock_stack = ExitStack()
-    for _lock_root in lock_repo_roots:
-        if os.path.realpath(str(_lock_root)) in _inherited_lock_realpaths:
-            # A stray env var (e.g. left exported in a
-            # debugging shell) would silently skip this root's lock with no signal.
-            print(
-                f"[publish.py] skipping lock for {_lock_root}: inherited from parent per-invocation env",
-                file=sys.stderr,
-            )
-            continue
-        try:
-            publish_lock_stack.enter_context(
-                _publish_held_lock(
-                    _lock_root,
-                    holder_label=str(_lock_root),
-                    timeout=_publish_lock_wait_secs(),
+    try:
+        for _lock_root in lock_repo_roots:
+            if os.path.realpath(str(_lock_root)) in _inherited_lock_realpaths:
+                # A stray env var (e.g. left exported in a
+                # debugging shell) would silently skip this root's lock with no signal.
+                print(
+                    f"[publish.py] skipping lock for {_lock_root}: inherited from parent per-invocation env",
+                    file=sys.stderr,
                 )
-            )
-        except _PublishLockTimeout as exc:
-            publish_lock_stack.close()
-            # Not FATAL and not exit 1: a held destination lock is a queue,
-            # not a defect (`percolate.wire_contract.lock_busy_message`
-            # carries the same distinction on its side of the seam, shared
-            # verbatim with `percolate-round.py`/`percolate-mirror.py`).
-            # Exit 75 is EX_TEMPFAIL, so a caller can tell "a peer is
-            # mid-publish" from "this publish is broken" without parsing
-            # stderr. Refuses on the FIRST contended root in
-            # `lock_repo_roots`' canonical sorted order — a multi-row
-            # publish never flattens a per-row refusal into a generic FAIL.
-            print(
-                f"[publish.py] BUSY: {_lock_busy_message(str(_lock_root), exc)}",
-                file=sys.stderr,
-            )
-            return 75
+                continue
+            try:
+                publish_lock_stack.enter_context(
+                    _publish_held_lock(
+                        _lock_root,
+                        holder_label=str(_lock_root),
+                        timeout=_publish_lock_wait_secs(),
+                    )
+                )
+            except _PublishLockTimeout as exc:
+                # Not FATAL and not exit 1: a held destination lock is a queue,
+                # not a defect (`percolate.wire_contract.lock_busy_message`
+                # carries the same distinction on its side of the seam, shared
+                # verbatim with `percolate-round.py`/`percolate-mirror.py`).
+                # Exit 75 is EX_TEMPFAIL, so a caller can tell "a peer is
+                # mid-publish" from "this publish is broken" without parsing
+                # stderr. Refuses on the FIRST contended root in
+                # `lock_repo_roots`' canonical sorted order — a multi-row
+                # publish never flattens a per-row refusal into a generic FAIL.
+                print(
+                    f"[publish.py] BUSY: {_lock_busy_message(str(_lock_root), exc)}",
+                    file=sys.stderr,
+                )
+                return 75
 
-    _slot_gate = _hold_publish_slots(
-        lock_repo_roots,
-        publish_lock_stack,
-        inherited=_inherited_slots_token,
-    )
-    if _slot_gate.exit_code is not None:
-        publish_lock_stack.close()
-        return _slot_gate.exit_code
-
-    # --- Destination refresh (PM ruling 2026-09-02) --------------------------
-    # Every destination this invocation will write to is brought level with its
-    # origin BEFORE the first row materializes anything. A clone that is behind
-    # does not merely miss a peer's work: a round writes the whole published
-    # surface over the top and pushes it, so publishing from a stale clone
-    # reverts whatever another box already landed. See
-    # `percolate.dest_refresh` for the ruling text and the fail-closed rules.
-    #
-    # HERE, and not in `percolate-round.py`, because this is the one choke
-    # point both entry points share -- a `coordinator-publish` reaches this
-    # function directly, and a `percolate-round` reaches it as its Step 1 child
-    # (its inherited dest lock is still spanned across this process, and the
-    # inherited root is still in `lock_repo_roots`, so the refresh runs inside
-    # the same held lock either way). A second implementation on the round's
-    # side would be a second thing to keep true.
-    #
-    # `lock_repo_roots` is empty under `--dry-run` by construction (§ its own
-    # guard above), which is exactly right: a dry run mutates no destination
-    # and must not mutate one here either.
-    for _lock_root in lock_repo_roots:
-        _stale = _stale_index_lock(_lock_root)
-        if _stale is not None:
-            publish_lock_stack.close()
-            print(f"[publish.py] FATAL: {_stale}", file=sys.stderr)
-            return 1
-
-    if lock_repo_roots:
-        from coordinator_core.warm import engine_root as _warm_engine_root
-
-        from percolate.dest_refresh import (  # type: ignore[import-not-found]
-            fast_forward_dest as _fast_forward_dest,
-            fetch_dest_upstream as _fetch_dest_upstream,
+        _slot_gate = _hold_publish_slots(
+            lock_repo_roots,
+            publish_lock_stack,
+            inherited=_inherited_slots_token,
         )
+        if _slot_gate.exit_code is not None:
+            return _slot_gate.exit_code
 
-        # Fetch is refs-only and unquiesced. Staging reads destination worktree files, so a root
-        # whose worktree must move (behind, subsumed, interrupted own merge) is fast-forwarded
-        # before the gates, and only that write is quiesced. A level engine root is never stopped
-        # here, so a run the gates refuse leaves it untouched.
-        _fetched = []
-        for _refresh_root in lock_repo_roots:
-            _fetch = _fetch_dest_upstream(
-                _refresh_root,
-                out=sys.stdout,
-                err=sys.stderr,
-                source_root=percolate_root,
-                source_ref=_refresh_source_ref(percolate_root, round_pinned_shas),
-            )
-            if not _fetch.ok:
-                publish_lock_stack.close()
-                print(f"[publish.py] FATAL: {_fetch.reason}", file=sys.stderr)
+        # --- Destination refresh (PM ruling 2026-09-02) --------------------------
+        # Every destination this invocation will write to is brought level with its
+        # origin BEFORE the first row materializes anything. A clone that is behind
+        # does not merely miss a peer's work: a round writes the whole published
+        # surface over the top and pushes it, so publishing from a stale clone
+        # reverts whatever another box already landed. See
+        # `percolate.dest_refresh` for the ruling text and the fail-closed rules.
+        #
+        # HERE, and not in `percolate-round.py`, because this is the one choke
+        # point both entry points share -- a `coordinator-publish` reaches this
+        # function directly, and a `percolate-round` reaches it as its Step 1 child
+        # (its inherited dest lock is still spanned across this process, and the
+        # inherited root is still in `lock_repo_roots`, so the refresh runs inside
+        # the same held lock either way). A second implementation on the round's
+        # side would be a second thing to keep true.
+        #
+        # `lock_repo_roots` is empty under `--dry-run` by construction (§ its own
+        # guard above), which is exactly right: a dry run mutates no destination
+        # and must not mutate one here either.
+        for _lock_root in lock_repo_roots:
+            _stale = _stale_index_lock(_lock_root)
+            if _stale is not None:
+                print(f"[publish.py] FATAL: {_stale}", file=sys.stderr)
                 return 1
-            _fetched.append(_fetch)
-        _moving_engine_roots = [
-            f.repo_root
-            for f in _fetched
-            if (f.behind or f.pending_abort or f.subsumed) and _warm_engine_root.is_engine_root(f.repo_root)
-        ]
 
-        try:
+        if lock_repo_roots:
+            from coordinator_core.warm import engine_root as _warm_engine_root
+
+            from percolate.dest_refresh import (  # type: ignore[import-not-found]
+                fast_forward_dest as _fast_forward_dest,
+                fetch_dest_upstream as _fetch_dest_upstream,
+            )
+
+            # Fetch is refs-only and unquiesced. Staging reads destination worktree files, so a root
+            # whose worktree must move (behind, subsumed, interrupted own merge) is fast-forwarded
+            # before the gates, and only that write is quiesced. A level engine root is never stopped
+            # here, so a run the gates refuse leaves it untouched.
+            _fetched = []
+            for _refresh_root in lock_repo_roots:
+                _fetch = _fetch_dest_upstream(
+                    _refresh_root,
+                    out=sys.stdout,
+                    err=sys.stderr,
+                    source_root=percolate_root,
+                    source_ref=_refresh_source_ref(percolate_root, round_pinned_shas),
+                )
+                if not _fetch.ok:
+                    print(f"[publish.py] FATAL: {_fetch.reason}", file=sys.stderr)
+                    return 1
+                _fetched.append(_fetch)
+            _moving_engine_roots = [
+                f.repo_root
+                for f in _fetched
+                if (f.behind or f.pending_abort or f.subsumed) and _warm_engine_root.is_engine_root(f.repo_root)
+            ]
+
             with _quiesced_engine_roots(_moving_engine_roots):
                 for _fetch in _fetched:
                     _refresh = _fast_forward_dest(_fetch, out=sys.stdout, err=sys.stderr)
                     if not _refresh.ok:
-                        publish_lock_stack.close()
                         print(f"[publish.py] FATAL: {_refresh.reason}", file=sys.stderr)
                         return 1
-        except _QuiesceRefused as _refused:
-            publish_lock_stack.close()
-            print(f"[publish.py] FATAL: {_refused}", file=sys.stderr)
-            return 1
 
-    try:
         # See `_run_round`'s docstring for the phase breakdown; every `end_of_run_*`/
         # `*_row_names`/`*_by_repo_root` accumulator below is mutated in place, same
         # sink idiom `process_target` uses throughout this module.
@@ -15758,7 +15835,10 @@ def _main(argv: Optional[List[str]] = None) -> int:
                     print(f"publish: dry-refire gate refused push: {_gate.error}", file=sys.stderr)
                     return _finish(_DRY_REFIRE_GATE_EXIT, "dry-refire gate refused the push; see its message above the timings.")
             for _push_command in _committed_branch_push_commands(_committed_roots):
-                print(f"To publish (commit-only round, nothing pushed): {_push_command}")
+                print(
+                    "To publish (commit-only round, nothing pushed) -- REQUIRED next step; "
+                    f"klabauter-promote refuses until it lands: {_push_command}"
+                )
 
         return _finish(0)
     except _QuiesceRefused as _refused:

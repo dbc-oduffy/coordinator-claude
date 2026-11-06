@@ -197,7 +197,7 @@ above, this predates the per-commit auto-push hook (`coordinator-auto-push`, →
 on every commit; the current `commands/workday-start.md` numbering repurposes "Step 0.6" for the
 unrelated Agent Worktree Sweep. Documented here for historical rationale only — do not execute.
 
-The retired step resolved the engine repo's root (checking `REPO_CLAUDE_KLABAUTER`, then `CLAUDE_KLABAUTER_ROOT`, then falling back to the settings-home registry/pointer helper `_engine_root.py`), failing loud with remediation guidance if none resolved, and pushed the active branch computed via that root's `coordinator-current-branch.py`.
+The retired step located the engine authoring checkout (checking `REPO_CLAUDE_KLABAUTER`, then `CLAUDE_KLABAUTER_ROOT`), failing loud with remediation guidance if none resolved, and pushed the active branch computed via that root's `coordinator-current-branch.py`.
 
 Report:
 - _"On branch {active-branch}. Consolidated N open branches: {list}."_

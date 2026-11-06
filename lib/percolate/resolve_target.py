@@ -728,7 +728,9 @@ def _resolve_publish_mirror_row(
         raise ResolveError(
             f"resolve-publish-target: publish.mirrors.{key}.path is unset on this "
             f"machine — cannot resolve dest for target '{name}'.\n"
-            f"  Remediation: machine-local set publish.mirrors.{key}.path "
+            "  Remediation: run `python scripts/setup.py` from the claude-klabauter checkout "
+            "(registers publish.mirrors.claude_klabauter.* on a claude-klabauter box); "
+            f"fallback: machine-local set publish.mirrors.{key}.path "
             "<absolute-path-to-the-publish-repo>",
             1,
         )

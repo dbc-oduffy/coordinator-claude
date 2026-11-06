@@ -9,11 +9,12 @@ today — the engine plane's own installer writes it via
 `scripts/setup.py::register_claude_klabauter_root()`. `content_root` is operator-set and has
 NO install-time (or session-time) self-registration, so a fresh clone, a wiped
 registry, or an operator typo leaves the key silently wrong or absent, and
-`_engine_root.py`'s working-repo gate (`_is_engine_working_repo()`) can never
-confirm this repo as a working repo on that machine. This hook closes that gap
+`_is_engine_working_repo()` can never confirm this repo as a working repo on
+that machine. The key is a working-repo discriminant only: a healthy registered
+published engine answers right after the rung-0 env override, so it never
+selects a live tree (docs/decisions/DR-418). This hook closes the registry gap
 from THIS repo's own plane — this repo cannot wait on an engine-plane
-installer change for a discriminant that governs whether THIS repo's own
-sessions resolve the live engine checkout or the published engine.
+installer change for it.
 
 Contract:
   stdin   — SessionStart JSON payload. This hook still resolves its OWN root

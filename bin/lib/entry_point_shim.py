@@ -262,6 +262,10 @@ def _cc_invoke_resolve_claude_klabauter_root():
     return _resolve_engine_root
 
 
+# Published-mirror spelling: the publish scrub renames `claude-klabauter` to `claude_klabauter`.
+_cc_invoke_resolve_claude_klabauter_root = _cc_invoke_resolve_claude_klabauter_root
+
+
 def _import_engine_module(dotted: str):
     resolve_claude_klabauter_root = _cc_invoke_resolve_claude_klabauter_root()
     claude_klabauter_root = resolve_claude_klabauter_root()

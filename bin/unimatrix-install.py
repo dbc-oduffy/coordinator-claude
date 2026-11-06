@@ -8,7 +8,9 @@ macOS, Windows and Linux.
 import argparse
 import importlib.util
 import json
+import ntpath
 import os
+import posixpath
 import re
 import shlex
 import shutil
@@ -39,7 +41,13 @@ VENDORED_SCRIPTS = (
     "unimatrix-codex-hook-sessionstart.py",
     "unimatrix-host-guard.py",
     "unimatrix-doctrine-seed.py",
+    "unimatrix-autolink.py",
+    "unimatrix-mirror-all.py",
+    "unimatrix-reshape.py",
 )
+
+AUTOLINK_SCRIPT = "unimatrix-autolink.py"
+_SCRIPT_REF = re.compile(r"unimatrix-[a-z0-9-]+\.py")
 
 AGY_HOOK_KEY = "unimatrix-agy-leg"
 AGY_HOOK_SCRIPT = "unimatrix-agy-hook-pretool.py"
@@ -112,19 +120,197 @@ def settings_home():
     return Path(env) if env else Path.home() / ".coordinator-claude-settings"
 
 
+def script_closure(src_dir, root=AUTOLINK_SCRIPT):
+    """Every unimatrix-*.py script named, transitively, from `root` in src_dir (root included)."""
+    seen, todo = set(), [root]
+    while todo:
+        name = todo.pop()
+        if name in seen:
+            continue
+        seen.add(name)
+        path = Path(src_dir) / name
+        if path.is_file():
+            todo.extend(_SCRIPT_REF.findall(path.read_text(encoding="utf-8")))
+    return seen
+
+
 def install_scripts(src_dir, dest_dir):
-    """Copy VENDORED_SCRIPTS from src_dir into dest_dir; return the copied names."""
-    missing = [n for n in VENDORED_SCRIPTS if not (Path(src_dir) / n).is_file()]
+    """Copy VENDORED_SCRIPTS plus the autolink closure from src_dir into dest_dir; return the copied names."""
+    wanted = list(VENDORED_SCRIPTS) + sorted(script_closure(src_dir) - set(VENDORED_SCRIPTS))
+    missing = [n for n in wanted if not (Path(src_dir) / n).is_file()]
     if missing:
         raise FileNotFoundError(f"vendored scripts missing in {src_dir}: {', '.join(missing)}")
     dest = Path(dest_dir)
     dest.mkdir(parents=True, exist_ok=True)
-    for name in VENDORED_SCRIPTS:
+    for name in wanted:
         shutil.copy2(Path(src_dir) / name, dest / name)
-    extra = [n for n in OPTIONAL_SCRIPTS if (Path(src_dir) / n).is_file()]
+    extra = [n for n in OPTIONAL_SCRIPTS if n not in wanted and (Path(src_dir) / n).is_file()]
     for name in extra:
         shutil.copy2(Path(src_dir) / name, dest / name)
-    return list(VENDORED_SCRIPTS) + extra
+    return wanted + extra
+
+
+HOMEBREW_PYTHONS = ("/opt/homebrew/bin/python3", "/usr/local/bin/python3")
+
+
+def forced_command_interpreter():
+    """Absolute interpreter for the forced command. On macOS sshd's PATH python3 is the CLT stub, so a
+    Homebrew python3 wins over sys.executable when one exists."""
+    if sys.platform == "darwin":
+        for cand in HOMEBREW_PYTHONS:
+            if os.path.isfile(cand) and os.access(cand, os.X_OK):
+                return cand
+    return sys.executable
+
+
+def authorized_keys_line(dest_dir, interpreter=None, key_body="<key-body>"):
+    """Paste-ready `restrict,command=...` authorized_keys line; `key_body` defaults to the <key-body> placeholder.
+    A path with a space is quoted inside the command and each inner quote escaped for sshd."""
+    interp = interpreter or forced_command_interpreter()
+    relay = str(Path(dest_dir) / "unimatrix-relay.py")
+    parts = [f'\\"{p}\\"' if " " in p else p for p in (interp, relay)]
+    return f'restrict,command="{" ".join(parts)}" ssh-ed25519 {key_body} unimatrix'
+
+
+FAR_DEST_DIR = "~/.coordinator-claude-settings/unimatrix"
+FAR_INTERPRETER = "python3"
+_ALIAS_UNSAFE = re.compile(r"[^A-Za-z0-9._-]")
+_SIBLINGS = {}
+
+
+def _sibling(script):
+    """A sibling unimatrix script loaded once from beside this file."""
+    if script not in _SIBLINGS:
+        spec = importlib.util.spec_from_file_location("unimatrix_" + script[9:-3].replace("-", "_"), _BIN_DIR / script)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _SIBLINGS[script] = mod
+    return _SIBLINGS[script]
+
+
+def _pub_body(pub_path):
+    """The base64 body of an ssh public key file; ValueError when it is not an ssh-ed25519 line."""
+    fields = Path(pub_path).read_text(encoding="utf-8").split()
+    if len(fields) < 2 or fields[0] != "ssh-ed25519":
+        raise ValueError(f"{pub_path} is not an ssh-ed25519 public key")
+    return fields[1]
+
+
+def pair_key(alias, run=subprocess.run):
+    """Return (private key path, public key body) for this box's pair with `alias`. Reads the key autolink's
+    resolve_key finds when it is alias-specific and present; otherwise mints (or adopts an unrecorded file at)
+    <settings home>/.secrets/ssh/unimatrix-<alias> and records unimatrix.keys.<alias>. Never overwrites a key.
+    RuntimeError when the alias reduces to nothing, ssh-keygen fails, or the machine-local record cannot be made."""
+    autolink, roster = _sibling(AUTOLINK_SCRIPT), _sibling("unimatrix-roster.py")
+    found = autolink.resolve_key(
+        roster, alias,
+        local_fn=lambda r, a: autolink.machine_local_key(r, a, run=run),
+        ssh_fn=lambda r, a: autolink.ssh_identity_file(r, a, run=run))
+    if found != roster.default_key() and Path(found).is_file():
+        priv = Path(found)
+    else:
+        safe = _ALIAS_UNSAFE.sub("-", alias)
+        if not safe.strip("-"):
+            raise RuntimeError(f"alias {alias!r} has no usable characters for a key file name")
+        priv = roster.settings_home() / ".secrets" / "ssh" / f"unimatrix-{safe}"
+        reader = roster.settings_home() / "bin" / "_machine_local.py"
+        if not reader.is_file():
+            raise RuntimeError(f"{reader} is missing; an unrecorded pair key would not be found next run")
+        if not priv.is_file():
+            priv.parent.mkdir(parents=True, exist_ok=True)
+            kg = run(["ssh-keygen", "-t", "ed25519", "-N", "", "-C", "unimatrix", "-f", str(priv)],
+                     capture_output=True, text=True, timeout=30, creationflags=roster.no_window())
+            if kg.returncode or not priv.is_file():
+                raise RuntimeError(f"ssh-keygen failed: {(kg.stderr or kg.stdout or '').strip()[:200]}")
+        rec = run([sys.executable, str(reader), "set", f"{autolink.KEYS_PREFIX}{alias}", str(priv)],
+                  capture_output=True, text=True, timeout=30, creationflags=roster.no_window())
+        if rec.returncode:
+            raise RuntimeError(f"recording {autolink.KEYS_PREFIX}{alias} failed: "
+                               f"{(rec.stderr or rec.stdout or '').strip()[:200]}")
+    pub = Path(str(priv) + ".pub")
+    if not pub.is_file():
+        raise RuntimeError(f"{pub} is missing; cannot read the public key of {priv}")
+    return priv, _pub_body(pub)
+
+
+def render_ssh_config_block(alias, key_path):
+    """The near-side `~/.ssh/config` block for the pair; printed, never written."""
+    return (f"Host {alias}\n"
+            f"    # HostName <address of {alias}>\n"
+            f"    IdentityFile {Path(key_path).as_posix()}\n"
+            f"    IdentitiesOnly yes\n")
+
+
+_PROBE_PROGRAM = (
+    "import os, sys\n"
+    "h = os.environ.get('COORDINATOR_SETTINGS_HOME') or "
+    "os.path.join(os.path.expanduser('~'), '.coordinator-claude-settings')\n"
+    "print(sys.platform, sys.executable, h, sep='\\t')\n")
+
+_APPEND_PROGRAM = '''import os, sys
+body, line = {body!r}, {line!r}
+if sys.platform == "win32":
+    import ctypes
+    if ctypes.windll.shell32.IsUserAnAdmin():
+        print("admin")
+        raise SystemExit(0)
+ssh = os.path.join(os.path.expanduser("~"), ".ssh")
+path = os.path.join(ssh, "authorized_keys")
+if not os.path.isdir(ssh):
+    os.makedirs(ssh)
+    if os.name == "posix":
+        os.chmod(ssh, 0o700)
+text = open(path, encoding="utf-8").read() if os.path.isfile(path) else ""
+if any(body in l.split() for l in text.splitlines()):
+    print("present")
+else:
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(("" if not text or text.endswith("\\n") else "\\n") + line + "\\n")
+    if os.name == "posix":
+        os.chmod(path, 0o600)
+    print("added")
+'''
+
+
+def _ssh_batch(alias, interp, program, run):
+    """Run `interp -` on the far box with `program` on stdin, over the user's own credentials only."""
+    return run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "--", alias, interp, "-"],
+               input=program, capture_output=True, text=True, timeout=30,
+               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+
+def probe_far(alias, run=subprocess.run):
+    """(interpreter name that answered, platform, absolute interpreter, far settings home), or None when no
+    authorized link answers with that triple (a relay key's forced command answers with something else)."""
+    for py in ("python3", "python"):
+        try:
+            r = _ssh_batch(alias, py, _PROBE_PROGRAM, run)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        lines = (r.stdout or "").strip().splitlines()
+        fields = lines[-1].split("\t") if r.returncode == 0 and lines else []
+        if len(fields) == 3 and all(f.strip() for f in fields) and " " not in fields[0]:
+            return py, fields[0], fields[1], fields[2]
+    return None
+
+
+def install_over_link(alias, body, run=subprocess.run):
+    """Append the pair's authorized_keys line on the far box over an already-authorized BatchMode link.
+    Returns (status, line): status is added | present | admin | no-link | failed; `line` is the line with the far
+    box's own interpreter and relay directory (None for no-link). Never prompts, never sudo, never the relay key."""
+    far = probe_far(alias, run)
+    if far is None:
+        return "no-link", None
+    py, plat, interp, home = far
+    join = ntpath.join if plat == "win32" else posixpath.join
+    line = authorized_keys_line(join(home, "unimatrix"), interp, body)
+    try:
+        r = _ssh_batch(alias, py, _APPEND_PROGRAM.format(body=body, line=line), run)
+    except (OSError, subprocess.SubprocessError):
+        return "failed", line
+    out = (r.stdout or "").strip().splitlines()
+    status = out[-1] if r.returncode == 0 and out else ""
+    return (status if status in ("added", "present", "admin") else "failed"), line
 
 
 def agy_hooks_path():
@@ -372,6 +558,104 @@ def unseed_file(path):
     return "removed"
 
 
+LOGIN_AGENT_LABEL = "com.unimatrix.autolink"
+LOGIN_TASK_NAME = "UnimatrixAutolink"
+LOGIN_UNIT = "unimatrix-autolink.service"
+
+
+def run_schtasks(*args):
+    """Run schtasks.exe; None when it cannot launch."""
+    try:
+        return subprocess.run(["schtasks.exe", *args], capture_output=True, text=True, timeout=30,
+                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def login_agent_dir():
+    """Where this OS reads user login agents; None on a platform with none."""
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "LaunchAgents"
+    if sys.platform.startswith("linux"):
+        return Path.home() / ".config" / "systemd" / "user"
+    return None
+
+
+def _autolink_argv(dest_dir):
+    return [sys.executable, str(Path(dest_dir) / AUTOLINK_SCRIPT)]
+
+
+def _login_agent_text(dest_dir):
+    """Bytes of the login-agent file for this OS: a RunAtLoad plist or a oneshot systemd unit. No restart, no interval."""
+    argv = _autolink_argv(dest_dir)
+    if sys.platform == "darwin":
+        import plistlib
+        return plistlib.dumps({"Label": LOGIN_AGENT_LABEL, "ProgramArguments": argv, "RunAtLoad": True,
+                               "ProcessType": "Background", "LowPriorityIO": True})
+    return ("[Unit]\nDescription=Unimatrix autolink at login\n\n[Service]\nType=oneshot\n"
+            f"ExecStart={' '.join(shlex.quote(a) for a in argv)}\n\n[Install]\nWantedBy=default.target\n"
+            ).encode("utf-8")
+
+
+def _login_agent_paths(agent_dir):
+    name = f"{LOGIN_AGENT_LABEL}.plist" if sys.platform == "darwin" else LOGIN_UNIT
+    return Path(agent_dir) / name, Path(agent_dir) / "default.target.wants" / LOGIN_UNIT
+
+
+def register_login_agent(dest_dir, agent_dir=None, schtasks=None):
+    """Register one run-once-at-login agent for the installed autolink; return (state, where).
+
+    state is "created", "updated" or "present" (plist / systemd unit), "registered" (Task Scheduler,
+    `/F` overwrites in place), or "skipped" (no login-agent mechanism here, or schtasks failed).
+    Plain file writes on macOS and Linux: picked up at next login, no process spawned.
+    """
+    if sys.platform == "win32":
+        run = schtasks or run_schtasks
+        proc = run("/Create", "/TN", LOGIN_TASK_NAME, "/SC", "ONLOGON", "/RL", "LIMITED",
+                   "/TR", subprocess.list2cmdline(_autolink_argv(dest_dir)), "/F")
+        if proc is None or proc.returncode != 0:
+            detail = "schtasks.exe could not be launched" if proc is None else (proc.stderr or proc.stdout or "").strip()
+            return "skipped", f"schtasks /Create failed: {detail}"
+        return "registered", f"scheduled task {LOGIN_TASK_NAME}"
+    root = Path(agent_dir) if agent_dir else login_agent_dir()
+    if root is None:
+        return "skipped", f"no login agent for platform {sys.platform!r}"
+    target, link = _login_agent_paths(root)
+    data = _login_agent_text(dest_dir)
+    state = "created"
+    if target.exists():
+        state = "present" if target.read_bytes() == data else "updated"
+    if state != "present":
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+    if sys.platform != "darwin" and not link.is_symlink():
+        link.parent.mkdir(parents=True, exist_ok=True)
+        link.symlink_to(f"../{LOGIN_UNIT}")
+    return state, str(target)
+
+
+def unregister_login_agent(agent_dir=None, schtasks=None):
+    """Remove the login agent; return "removed" or "absent" (absence is not an error)."""
+    if sys.platform == "win32":
+        run = schtasks or run_schtasks
+        found = run("/Query", "/TN", LOGIN_TASK_NAME)
+        if found is None or found.returncode != 0:
+            return "absent"
+        proc = run("/Delete", "/TN", LOGIN_TASK_NAME, "/F")
+        if proc is None or proc.returncode != 0:
+            raise OSError(f"schtasks /Delete {LOGIN_TASK_NAME} failed")
+        return "removed"
+    root = Path(agent_dir) if agent_dir else login_agent_dir()
+    if root is None:
+        return "absent"
+    removed = False
+    for path in _login_agent_paths(root):
+        if path.is_symlink() or path.exists():
+            path.unlink()
+            removed = True
+    return "removed" if removed else "absent"
+
+
 def render_peer_doctrine(dest_dir, template=None):
     """Return the managed block: the doctrine template with {SEND} bound to the installed send command."""
     body = Path(template or PEER_DOCTRINE_TEMPLATE).read_text(encoding="utf-8").strip("\n")
@@ -545,13 +829,20 @@ def trust_codex_hook(hooks_path, timeout=30):
 
 def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
          codex_hooks=None, codex_trust=None, codex_rules=None, agy_rules=None, codex_exec_rule=None,
-         agy_skills_json=None, codex_skills=None):
+         agy_skills_json=None, codex_skills=None, agent_dir=None, schtasks=None, pair_run=None):
     """`hooks_path` overrides agy's file. Codex's file defaults to codex_hooks_path(), or to a sibling
     `codex-hooks.json` when only `hooks_path` is overridden; trust runs against the real Codex only for
     the default path, unless `codex_trust` (a callable taking the hooks path) is injected. The peer
     doctrine files follow the same rule: real home files by default, siblings `codex-AGENTS.md` and
-    `agy-GEMINI.md` of `hooks_path` when it is overridden, or the explicit `codex_rules`/`agy_rules`."""
+    `agy-GEMINI.md` of `hooks_path` when it is overridden, or the explicit `codex_rules`/`agy_rules`.
+    The login agent lives in the OS agent directory by default, a `login-agent` sibling of `hooks_path`
+    when that is overridden, or `agent_dir`; `schtasks` (argv tail -> CompletedProcess) replaces the real
+    Task Scheduler, which an overridden `hooks_path` otherwise skips."""
     out = out or sys.stdout
+    if agent_dir is None and hooks_path is not None:
+        agent_dir = Path(hooks_path).with_name("login-agent")
+    if schtasks is None and hooks_path is not None:
+        schtasks = lambda *a: None
     codex_default = codex_hooks is None and hooks_path is None
     codex_hp = Path(codex_hooks) if codex_hooks else (
         codex_hooks_path() if hooks_path is None else Path(hooks_path).with_name("codex-hooks.json")
@@ -582,7 +873,33 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
     ap.add_argument("--force", action="store_true", help="warn instead of refusing outside the verified range")
     ap.add_argument("--hosts", help="comma list of claude,codex,agy; default codex,agy with the Claude range gate. "
                     "Naming no claude skips the gate when `claude` is not on PATH")
+    ap.add_argument("--pair", metavar="ALIAS", help="mint or read the pair key for a far box and print its "
+                    "authorized_keys line and ssh config block")
     args = ap.parse_args(argv)
+    if args.pair is not None:
+        try:
+            priv, body = pair_key(args.pair, run=pair_run or subprocess.run)
+        except (RuntimeError, ValueError, OSError, subprocess.SubprocessError) as exc:
+            print(f"REFUSE: {exc}", file=out)
+            return 6
+        print(f"pair key for {args.pair}: {priv}", file=out)
+        print("ssh config block for this box (add to ~/.ssh/config):", file=out)
+        print(render_ssh_config_block(args.pair, priv), file=out)
+        print(f"authorized_keys line for the far box (interpreter and path are placeholders: {FAR_INTERPRETER} "
+              f"and {FAR_DEST_DIR}; replace with the far box's absolute ones):", file=out)
+        print(authorized_keys_line(FAR_DEST_DIR, FAR_INTERPRETER, body), file=out)
+        status, line = install_over_link(args.pair, body, run=pair_run or subprocess.run)
+        if status == "no-link":
+            print(f"no authorized link to {args.pair}: paste the line above on the far box", file=out)
+        elif status == "failed":
+            print(f"install over the link to {args.pair} failed: paste this line on the far box:\n{line}", file=out)
+        elif status == "admin":
+            print(f"{args.pair} is a Windows administrator account: nothing written. Append this line to "
+                  f"%ProgramData%\\ssh\\administrators_authorized_keys on the far box:\n{line}", file=out)
+        else:
+            print(f"authorized_keys line {'already present' if status == 'present' else 'added'} on {args.pair}; "
+                  f"line:\n{line}", file=out)
+        return 0
     hosts = None
     if args.hosts is not None:
         hosts = [h.strip() for h in args.hosts.split(",") if h.strip()]
@@ -609,6 +926,8 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
                 codex_rp, _seed().DOCTRINE_BEGIN, _seed().DOCTRINE_END)))
             steps.append(("codex peer doctrine", codex_rp, lambda: unseed_peer_doctrine(codex_rp)))
             steps.append(("codex send rule", codex_xp, lambda: unseed_file(codex_xp)))
+        steps.append(("login agent", agent_dir or login_agent_dir() or LOGIN_TASK_NAME,
+                      lambda: unregister_login_agent(agent_dir, schtasks)))
         for label, where, fn in steps:
             try:
                 res = fn()
@@ -648,6 +967,8 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
         print(f"REFUSE: {exc}", file=out)
         return 3
     print(f"installed {len(copied)} scripts into {dest}", file=out)
+    print(f"authorized_keys line for the far side (paste verbatim, fill <key-body>): "
+          f"{authorized_keys_line(dest)}", file=out)
     engine_root, provenance = resolve_engine_root()
     hp = Path(hooks_path) if hooks_path else agy_hooks_path()
     if want_agy:
@@ -684,6 +1005,11 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
     except OSError as exc:
         print(f"WARN: peer doctrine not installed: {exc}", file=out)
     _seed_standing_doctrine(out, want_codex, want_agy, codex_rp, agy_rp, codex_sd, agy_sj)
+    try:
+        state, where = register_login_agent(dest, agent_dir, schtasks)
+        print(f"login agent {state}: {where}" if state != "skipped" else f"WARN: login agent not registered: {where}", file=out)
+    except OSError as exc:
+        print(f"WARN: login agent not registered: {exc}", file=out)
     if engine_root:
         print(f"governance engine root: {engine_root} ({provenance})", file=out)
         if verified:

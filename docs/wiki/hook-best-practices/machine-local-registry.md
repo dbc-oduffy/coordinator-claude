@@ -516,19 +516,14 @@ Contrast with `repos.*`, whose values are the OPERATOR's knowledge of *other* re
 
 **Regeneratability.** `idempotent-regeneratable` is the target class for the whole namespace — NOT `session-accumulated-must-survive-crash` like `repos.*`. For `claude_klabauter`, this holds today: re-running its installer regenerates the value with no human input and no state loss, because the installer is authoritative about its own root by construction. For `content_root`, this now also holds: every session's SessionStart hook re-derives and, if needed, rewrites the key from this repo's own `__file__`-resolved root, so a wiped registry or a fresh clone self-heals on the next session with no human input (gated on the repo-root sentinel, see above). This is the same reasoning class as `coordinator.python` (rewritten by `ensure_venv`), not the class as `repos.*` (which encodes operator knowledge of someone else's layout and has no self-writer).
 
-**Consumer.** Engine resolution — specifically the working-tree-vs-published-artifact gate in `coordinator/hooks/scripts/_engine_root.py`'s `resolve_claude_klabauter_root_with_class()` / `_is_engine_working_repo()`. Wired in the engine; `_resolve_published_engine()` has a producer — it reads `repos.claude_klabauter`, written at install time by the published mirror's own installer (`scripts/setup.py::register_claude_klabauter_root()`) — so the divert branch is live on any machine where that key is registered. On a machine with no `repos.claude_klabauter` registration, the ladder still degrades to pre-gate behaviour.
+**Consumer.** Engine resolution — `coordinator/hooks/scripts/_engine_root.py`'s `resolve_claude_klabauter_root_with_class()`. `_resolve_published_engine()` has a producer — it reads `repos.claude_klabauter`, written at install time by the published mirror's own installer (`scripts/setup.py::register_claude_klabauter_root()`) — so on any machine where that key is registered and healthy the published engine answers right after rung 0 (`COORDINATOR_ENGINE_ROOT`, which may name only a stamped published engine). On a machine with no `repos.claude_klabauter` registration the ladder is `unresolved` (`(None, "unresolved")`); no rung resolves the engine's authoring working tree, and engine-invoking entrypoints fail loudly with `claude-klabauter` fetch instructions.
 
-**`_is_engine_working_repo() is False` is one of two divert co-conditions, not the sole gate.** The
-divert condition is a disjunction: `published and (target_is_readable or
-_is_engine_working_repo() is False)`, where `target_is_readable` reads a SEPARATE key,
-`engine.target` (not part of this namespace — see the engine plane's own targeting contract),
-through `_resolve_engine_target()`. This namespace's own key (`engine.working_repos.*`) and its
-consumer (`_is_engine_working_repo()`) are otherwise unaffected; the gate that reads it has a
-second, independent way to fire, so a repo registered in `engine.working_repos.*` (this
-namespace's own discriminant) can still be diverted when `engine.target` is readable, even though
-`_is_engine_working_repo()` itself refuses. The other disjunct is pending retirement, gated on the
-engine plane's `engine.target` write running live for a cycle. See Consequences for the
-fuller anti-strand argument and the retirement gating.
+**The working-repo gate is not a ladder input.** A healthy registered published engine answers
+right after rung 0, whether or not the repo is in `engine.working_repos.*` and whether or not
+`engine.target` is readable; `engine.target` (a SEPARATE key, not part of this namespace — see the
+engine plane's own targeting contract) only selects the provenance (`published-target` vs
+`published-no-target`). No override selects the engine's authoring working tree on such a box
+.
 
 **Why not `repos.*`?** See the disambiguation note at the top of §5c.1 — `repos.*` is sibling-repo discovery (broad, ~19 keys on a reference machine, mostly consumer repos), not the engine-working set (narrow, exactly 2). A design that reads `repos.*` membership as "works on the engine" produces false positives for every consumer repo. See `docs/wiki/coordinator-tripwires/` for the incident.
 
@@ -570,11 +565,10 @@ Two consequences:
 - That clone is usually also `publish.mirrors.claude_klabauter.path` (distinct keys, same directory
   — `_engine_root.py:404-412`), so checking it out to receive a publish also flips every consumer.
   Only the publish path asserts the expected ref; the resolver never will.
-- A branch missing `coordinator_core/`, or a clone caught mid-checkout, fails the rung: a consumer
-  box degrades to `unresolved`, a mixed box (consumer plus a reachable live tree) falls back to the
-  **live working tree**, and an engine-working repo is unaffected because it never consumes the
-  published engine. Publish-time refusal covers that door; a manual checkout or promotion race does
-  not. Put it on the list when a session is unexpectedly running live-tree bits or resolving none.
+- A branch missing `coordinator_core/`, or a clone caught mid-checkout, fails the rung: the box
+  degrades to `unresolved`; no rung falls back to the engine's authoring working tree. Publish-time
+  refusal covers that door; a manual checkout or promotion race does not. Put it on the list when a
+  session is unexpectedly resolving no engine.
 
 Declare a required ref as `publish.mirrors.<key>.track_ref` (§12's name, one vocabulary; absent
 follows the HEAD of the source branch being percolated, never a fixed `main`). Read by publish and diagnostics, never by the ladder. Channel

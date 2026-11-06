@@ -66,8 +66,6 @@ import argparse
 import os
 import sys
 
-import yaml
-
 _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
 _LIB_DIR = os.path.join(_BIN_DIR, "lib")
 if _LIB_DIR not in sys.path:
@@ -108,6 +106,9 @@ def _parse_set_value(raw: str) -> object:
     caller writing a value that happens to look like broken YAML (e.g. a
     trailing colon in free text) should still be able to set it verbatim.
     """
+    # Deferred: `--help` must start on an interpreter without PyYAML (publish entrypoint gate).
+    import yaml  # noqa: PLC0415
+
     try:
         parsed = yaml.safe_load(raw)
     except yaml.YAMLError:

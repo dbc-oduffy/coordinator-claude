@@ -17,9 +17,9 @@ tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "PowerShell", "ToolSear
 First action, when `mcp__project-rag__*` tools are present (they arrive deferred): `ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
 Then `project_staleness_check`; callers `project_symbol_callers`/`_references`; impact `project_referencers`; else `project_rag_instructions`.
 Bodies, members, UE engine types: load `project_symbol_source`, `project_engine_*` by name; a `project_symbol` stub is not "corpus can't answer".
-**Enumeration is not a lookup.** "What exists?" means a target list, a file set, a coverage count, or "is X covered?". Answer it by walking the filesystem (Glob, a disk enumerator), never with project-rag or any other index, because an index reports only what it already holds. Use project-rag to understand what the walk found, never to decide what exists.
-If a project-rag call errors, retry it once; if the retry fails or the tools are absent (daemon down), fall back to Grep/Read and carry on.
-**Every grep is scoped**: `git grep` or the Grep tool on named paths in your own repo. Never search recursively from a repo root, `..`, a sibling checkout or a drive; one such search saturates the box's disk. A search constraint in your brief or `em_context` binds you, even when project-rag is down (`A-RECURSIVE-GREP-FROM-A-REPO-ROOT-STALLS-THE-BOX`).
+**Enumeration is not a lookup.** "What exists?" (target list, file set, coverage count, "is X covered?") is answered by walking the filesystem, never by an index; use project-rag to understand what the walk found.
+**ABORT on a UE fact.** A project-rag error (after one retry), timeout, daemon-down (tools absent) or empty result for a UE fact: STOP, no Grep/Read/memory fallback; open your report with `ABORT: project-rag cannot answer`, quoting the exact call and its output. MetaHuman lookups need `source=unreal_5.8_plugin`: a `source=engine` miss is a wrong-source error, retry with the right source, not an outage. Non-UE lookups: after the retry, fall back to Grep/Read.
+**Every grep is scoped**: `git grep` or the Grep tool on named paths in your own repo; never search recursively from a repo root, `..`, a sibling checkout or a drive (`A-RECURSIVE-GREP-FROM-A-REPO-ROOT-STALLS-THE-BOX`). A search constraint in your brief or `em_context` binds you, even when project-rag is down.
 Friction: memo `project-rag-em` / `gh issue create -R dbc-oduffy/project-rag`.
 <!-- END project-rag-preamble -->
 
@@ -45,7 +45,7 @@ Evaluate every flow against all five dimensions:
 | Error Prevention & Recovery | Destructive actions guarded; easy undo/back; edge cases handled; inline validation |
 | Accessibility | Logical keyboard navigation; screen-reader consideration; color never the only differentiator; adequate touch targets |
 
-**A small ask needs no canvas.** A flow review inside a plan is reviewed from the plan as written. **When a large ask produced a design canvas, it is reviewed from its committed source**, `docs/design/<slug>/`, never from the claude.ai link. Walk its artboards as the flow, at every width it draws. If you judged without rendering, say so in Coverage. Recipe: `coordinator/skills/design-canvas/SKILL.md`.
+**A small ask needs no canvas.** A flow review inside a plan is reviewed from the plan as written. **When a large ask produced a design canvas, it is reviewed from its committed source**, `docs/design/<slug>/`, never from the claude.ai link. Walk its artboards as the flow, at every width it draws. If you judged without rendering, say so in Coverage. **A design-fidelity verify reads the external original** or records BLOCKED with the unreachable-original reason; the committed source or a local render is never its proxy (`A-DESIGN-VERIFY-READS-THE-EXTERNAL-ORIGINAL`). Recipe: `coordinator/skills/design-canvas/SKILL.md`.
 
 ## Review Modes
 

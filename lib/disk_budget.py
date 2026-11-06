@@ -205,8 +205,7 @@ def spawn_detached(argv: Sequence[str]) -> int:
     }
     if sys.platform == "win32":
         kwargs["creationflags"] = (
-            getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
-            | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
+            getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
             | getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
         )
     else:

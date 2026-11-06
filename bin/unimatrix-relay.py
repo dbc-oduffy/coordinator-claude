@@ -1,8 +1,9 @@
 """Forced command for the unimatrix key on the receiving box: the ONLY thing that key
 can run. It moves Claude Code cross-session messages between boxes and nothing else.
 
-authorized_keys line (restrict = no pty, no forwarding of any kind; key body elided):
-  restrict,command="python3 ~/.coordinator-claude-settings/unimatrix/unimatrix-relay.py" ssh-ed25519 <key-body> unimatrix
+authorized_keys line (restrict = no pty, no forwarding of any kind; key body elided). The exact
+line for a box, with absolute interpreter and relay paths, is printed by `unimatrix-install.py --install`:
+  restrict,command="/opt/homebrew/bin/python3 /Users/me/.coordinator-claude-settings/unimatrix/unimatrix-relay.py" ssh-ed25519 <key-body> unimatrix
 
 Modes, read from SSH_ORIGINAL_COMMAND:
   roster            print one JSON line per live local session: its registry entry
@@ -121,13 +122,74 @@ def entries():
         yield pid, d, keys[0]
 
 
+def _engine_roots():
+    """Candidate engine roots: env locators first, then the checkout this copy sits in."""
+    for var in ("COORDINATOR_ENGINE_SOURCE_ROOT", "COORDINATOR_ENGINE_ROOT", "CLAUDE_KLABAUTER_ROOT"):
+        if os.environ.get(var):
+            yield Path(os.environ[var])
+    yield Path(__file__).resolve().parents[2]
+
+
+def _read_text(path):
+    try:
+        return Path(path).read_text(encoding="utf-8").strip()
+    except (OSError, ValueError):
+        return None
+
+
+def _head_sha(root):
+    """Checkout HEAD sha read from .git files (no git spawn); None when unresolvable."""
+    git = Path(root) / ".git"
+    if git.is_file():
+        ptr = _read_text(git) or ""
+        if not ptr.startswith("gitdir:"):
+            return None
+        git = (Path(root) / ptr[7:].strip()).resolve()
+    head = _read_text(git / "HEAD")
+    if not head:
+        return None
+    if not head.startswith("ref:"):
+        return head
+    ref = head[4:].strip()
+    sha = _read_text(git / ref)
+    if sha:
+        return sha
+    packed = _read_text(git / "packed-refs") or ""
+    for ln in packed.splitlines():
+        parts = ln.split()
+        if len(parts) == 2 and parts[1] == ref:
+            return parts[0]
+    return None
+
+
+def engine_fields():
+    """engine_sha (published `_engine_stamp`), engine_checkout_sha and, when a surfaced record
+    exists, engine_freshness. Standalone: reads files only, no coordinator_core import."""
+    sha = checkout = None
+    for root in _engine_roots():
+        if sha is None:
+            sha = _read_text(root / "coordinator_core" / "_engine_stamp")
+        if checkout is None:
+            checkout = _head_sha(root)
+    out = {"engine_sha": sha, "engine_checkout_sha": checkout}
+    home = Path(os.environ.get("COORDINATOR_SETTINGS_HOME") or Path.home() / ".coordinator-claude-settings")
+    try:
+        rec = json.loads((home / "coordinator" / "klabauter-freshness.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        rec = None
+    if isinstance(rec, dict) and rec:
+        out["engine_freshness"] = rec
+    return out
+
+
 def roster():
+    fields = engine_fields()
     for pid, d, key in entries():
-        if d.get("unimatrixMirror"):
-            continue  # never re-export a far session we are only mirroring
+        if d.get("unimatrixMirror") or d.get("macSocketPath"):
+            continue  # never re-export a far session we are only mirroring, whichever OS made the entry
         with open(os.path.join(os.path.expanduser(SESS), key), encoding="utf-8") as fh:
             body = fh.read()
-        print(json.dumps({"entry": d, "key_name": key, "key": body}))
+        print(json.dumps({"entry": d, "key_name": key, "key": body, **fields}))
 
 
 def local_reply_address(line):

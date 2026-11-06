@@ -4,7 +4,7 @@ class: protected
 order: 1
 situation: watch-run
 ---
-   The run's completion is the wake. It prints only `PARKED|WAITING|GONE|POLL-ERROR` lines (drop
+   The run's completion is the wake. It prints only `PARKED|WAITING|GONE|POLL-ERROR|LINK-DOWN|LINK-UP` lines (drop
    nothing: A-TURN-ENDED-IS-THE-WAKE-NOT-NOISE), one per peer entering a parked state (per
    `read_pass.classify_peer`), silent while that peer's cooldown is armed; then exits 0; any
    failure exit also completes it. After acting, read the fleet (`--status`), then relaunch the

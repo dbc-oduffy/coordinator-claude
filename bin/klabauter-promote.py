@@ -13,7 +13,7 @@ the act that protects consumers on the same code path as the routine that
 runs every round.
 
 REFUSAL BAR — a PM-invoked promotion refuses, naming which predicate
-failed, unless predicates 1-4 hold. The PM's invocation is the only trigger.
+failed, unless predicates 1-5 hold. The PM's invocation is the only trigger.
   1. The mirror dest status is readable and its branch has an upstream
      (`percolate-push.py::_check_dest_state`; uncommitted files never
      refuse, DR-390).
@@ -29,6 +29,9 @@ failed, unless predicates 1-4 hold. The PM's invocation is the only trigger.
      whose subject does not start with `WIP`. A committed-fact check at
      promotion (DR-390 keeps publish itself from refusing on source state);
      an unparseable stamp or unresolvable sha fails CLOSED.
+  5. `refs/remotes/origin/candidate` equals the local `candidate` tip. An
+     unpushed (or never-pushed) candidate refuses, naming the push command:
+     promotion must not report shipped while the candidate channel lags.
 
 Reuse, not reimplementation: `_resolve_dest`, `_check_dest_state`,
 `_round_failure_marker_path`, `_resolve_default_branch` are imported from
@@ -59,12 +62,12 @@ Usage:
     klabauter-promote.py <target> [--percolate-root <path>] [--confirm]
 
 Exit codes:
-    0 — dry-run: predicates 1-4 all passed (nothing pushed),
+    0 — dry-run: predicates 1-5 all passed (nothing pushed),
         or `--confirm`: the fast-forward push of `main` succeeded.
     1 — `--confirm` and the push failed (forwarded git exit code), or the
         default-branch resolution needed to name `main` failed.
     2 — usage error (bad argv, target not resolvable), or refused because
-        one or more of predicates 1-4 failed.
+        one or more of predicates 1-5 failed.
 """
 import argparse
 import importlib.util
@@ -237,6 +240,39 @@ def _dest_and_marker_refusals(
     return refusals, not dest_refusal, branch_head
 
 
+def _check_candidate_pushed(dest: str, candidate_branch: str) -> Optional[str]:
+    """Predicate 5 — origin/candidate equals the local candidate tip. One
+    `for-each-ref` spawn; an absent ref is missing from its output, so
+    absent and lagging both refuse."""
+    _bootstrap_engine()
+    prefix = "klabauter-promote: predicate 5 (candidate pushed)"
+    local_ref = f"refs/heads/{candidate_branch}"
+    remote_ref = f"refs/remotes/origin/{candidate_branch}"
+    result = _run([
+        "git", "-C", dest, "for-each-ref", "--format=%(refname) %(objectname)",
+        local_ref, remote_ref,
+    ])
+    if result.returncode != 0:
+        return (
+            f"{prefix} could not be evaluated — `git for-each-ref` in {dest} "
+            f"exited {result.returncode}. Refusing.\n" + (result.stderr or "").strip()
+        )
+    shas = dict(
+        line.split(" ", 1) for line in (result.stdout or "").splitlines() if " " in line
+    )
+    local_sha, remote_sha = shas.get(local_ref), shas.get(remote_ref)
+    if local_sha is not None and local_sha == remote_sha:
+        return None
+    seen = f"origin/{candidate_branch} at {remote_sha[:12]}" if remote_sha else (
+        f"origin/{candidate_branch} absent"
+    )
+    return (
+        f"{prefix} FAILED — candidate unpushed: local '{candidate_branch}' "
+        f"{(local_sha or 'unresolved')[:12]} but {seen} in {dest}. Refusing: "
+        f"run `git -C {dest} push origin {candidate_branch}`, then re-run."
+    )
+
+
 def _wrong_channel_refusal(dest: str, branch_head: Optional[str], candidate_branch: str) -> str:
     return (
         "klabauter-promote: predicate 3 (fast-forward) FAILED — "
@@ -249,7 +285,7 @@ def _wrong_channel_refusal(dest: str, branch_head: Optional[str], candidate_bran
 def _evaluate_bar(
     dest: str, target: str, percolate_root: str, candidate_branch: str, main_branch: str,
 ) -> List[str]:
-    """Returns the refusals (predicates 1-4). Prints nothing."""
+    """Returns the refusals (predicates 1-5). Prints nothing."""
     _bootstrap_engine()
 
     refusals, dest_ok, branch_head = _dest_and_marker_refusals(dest, target, percolate_root)
@@ -261,6 +297,9 @@ def _evaluate_bar(
             ff_refusal = _check_fast_forward(dest, candidate_branch, main_branch)
             if ff_refusal:
                 refusals.append(ff_refusal)
+        pushed_refusal = _check_candidate_pushed(dest, candidate_branch)
+        if pushed_refusal:
+            refusals.append(pushed_refusal)
 
     wip_refusal = _check_source_head_not_wip(dest, percolate_root)
     if wip_refusal:
@@ -292,23 +331,58 @@ def _refused(
         main_branch=main_branch, promoted_sha=None,
         message=(
             f"klabauter-promote: refusing to promote '{target}' — "
-            f"{len(refusals)} of 4 evidence-bar predicate(s) failed."
+            f"{len(refusals)} of 5 evidence-bar predicate(s) failed."
         ),
     )
+
+
+_REMOTE_HEAD_TIMEOUT_S = 10
+_SYMREF_HEAD_RE = re.compile(r"^ref:\s+refs/heads/(\S+)\s+HEAD\s*$", re.MULTILINE)
+
+
+def _remote_default_branch(dest: str) -> Optional[str]:
+    """origin's default branch as the remote reports it, or None when the remote is
+    unreachable or answers without a symref. The local `refs/remotes/origin/HEAD` can be stale."""
+    try:
+        result = _run(
+            ["git", "-C", dest, "ls-remote", "--symref", "origin", "HEAD"],
+            timeout=_REMOTE_HEAD_TIMEOUT_S,
+        )
+    except Exception:
+        return None
+    if result.returncode != 0:
+        return None
+    match = _SYMREF_HEAD_RE.search(result.stdout or "")
+    return match.group(1) if match else None
 
 
 def promote_candidate(
     dest: str, target: str, percolate_root: str, *, confirm: bool,
 ) -> PromotionOutcome:
-    """Evaluate predicates 1-4 on the `candidate` tip and, with `confirm`,
+    """Evaluate predicates 1-5 on the `candidate` tip and, with `confirm`,
     fast-forward `main`. Prints nothing."""
     _bootstrap_engine()
 
-    main_branch, default_branch_refusal = _resolve_default_branch(dest)
-    if default_branch_refusal:
+    main_branch = _remote_default_branch(dest)
+    if main_branch is None:
+        main_branch, default_branch_refusal = _resolve_default_branch(dest)
+        if default_branch_refusal:
+            return PromotionOutcome(
+                promoted=False, refusals=(), push_failed=False,
+                main_branch=None, promoted_sha=None, message=default_branch_refusal,
+            )
+
+    if main_branch == _CANDIDATE_BRANCH:
         return PromotionOutcome(
             promoted=False, refusals=(), push_failed=False,
-            main_branch=None, promoted_sha=None, message=default_branch_refusal,
+            main_branch=None, promoted_sha=None,
+            message=(
+                f"klabauter-promote: refusing to promote '{target}' — the resolved target "
+                f"branch '{main_branch}' equals the candidate branch, so the push would be "
+                f"'{_CANDIDATE_BRANCH}:{main_branch}' onto itself. The remote default could "
+                "not be read or reports the candidate; check `git ls-remote --symref origin HEAD` "
+                "and the local refs/remotes/origin/HEAD. Nothing was pushed."
+            ),
         )
 
     refusals = _evaluate_bar(dest, target, percolate_root, _CANDIDATE_BRANCH, main_branch)
@@ -320,7 +394,7 @@ def promote_candidate(
             promoted=False, refusals=(), push_failed=False,
             main_branch=main_branch, promoted_sha=None,
             message=(
-                f"klabauter-promote: DRY RUN — predicates 1-4 passed for '{target}'. "
+                f"klabauter-promote: DRY RUN — predicates 1-5 passed for '{target}'. "
                 "Nothing was pushed. "
                 "Re-run with --confirm to push '" + _CANDIDATE_BRANCH + "' onto '" + main_branch
                 + "' (fast-forward only)."

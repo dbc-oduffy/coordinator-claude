@@ -375,8 +375,9 @@ def _deny_reason(label: str, command: str) -> str:
         f"[guard] {TRIPWIRE}: {label} is denied. Grep storms (many `grep -r` reading whole repo "
         f"trees, .git packs included) fill the file cache and wedge the box; this is a standing "
         f"box-poison class, not a style note. Command: {snippet}\n"
-        "Use instead: the Grep tool (ripgrep, skips .git, takes a path and a glob); `rg` (honours "
-        ".gitignore); or `git grep <pattern> -- <pathspec>` (tracked files only). A recursive grep "
+        "Use instead: `git grep <pattern> -- <pathspec>` (tracked files only; works in every session "
+        "and every dispatched subagent); or `rg <pattern> <subpath>` (honours .gitignore). Sessions "
+        "that hold the Grep tool (not all dispatched subagents do) may use it too. A recursive grep "
         "scoped to one or two small subdirectories that hold no .git still runs, e.g. `grep -rn X coordinator/hooks`. "
         f"--exclude-dir=.git does not lift the deny. Tripwire: {TRIPWIRE}."
     )

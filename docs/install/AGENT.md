@@ -71,7 +71,8 @@ Option B+C (identity corrected 2026-08-17), it declares **one hard direct dep**:
 chain-walker visits coordinator-claude, probes that one dep, and terminates once it is
 satisfied:
 
-"coordinator install-chain walker — chain step 5 of 5: all deps satisfied."
+"[setup] coordinator install-chain walker — chain step 5 of 5: complete." (full install; `--check`
+prints "…: all deps satisfied.")
 
 No upstream probe is needed in the plugin-chain sense — as the root of THAT chain, there is
 nothing above coordinator-claude to walk — but the claude-klabauter probe still runs (it is
@@ -165,7 +166,7 @@ The `/coordinator:setup` skill reads `agent-install-manifest.json` at this path:
 1. Reads manifest — confirms `repo_id: coordinator-claude`, `direct_deps: [claude-klabauter]`.
 2. Probes the claude-klabauter dep (`claude_klabauter_seam_resolvable` — self-confirms if this walker code
    is running at all; see § Fail-loud claude-klabauter resolution above for the earlier chicken-egg gate).
-3. Emits banner: "coordinator install-chain walker — chain step 5 of 5: all deps satisfied."
+3. Emits banner: "[setup] coordinator install-chain walker — chain step 5 of 5: complete." (`--check`: "all deps satisfied.")
 4. Exits 0.
 
 No spinoff seeding in this plan (coord-as-orchestrator spinoff seeding is a follow-on workstream

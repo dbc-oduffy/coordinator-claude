@@ -185,14 +185,20 @@ def default_tunnel():
     return os.environ.get(TUNNEL_ENV) or None
 
 
-def ssh_endpoint(alias):
-    """(host, port) that ssh dials for `alias`, read from `ssh -G`; None when it prints neither."""
+def ssh_fields(alias):
+    """`ssh -G` output for `alias` as a lowercase-key dict."""
     r = subprocess.run(["ssh", "-G", "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", alias],
                        capture_output=True, timeout=10, creationflags=no_window())
     fields = {}
     for line in r.stdout.decode(errors="replace").splitlines():
         k, _, v = line.partition(" ")
         fields.setdefault(k, v.strip())
+    return fields
+
+
+def ssh_endpoint(alias):
+    """(host, port) that ssh dials for `alias`, read from `ssh -G`; None when it prints neither."""
+    fields = ssh_fields(alias)
     if not fields.get("hostname"):
         return None
     return fields["hostname"], int(fields.get("port") or 22)
@@ -208,6 +214,44 @@ def lan_reachable(alias, resolve=None, connect=None):
         return True
     except (OSError, ValueError, subprocess.SubprocessError):
         return False
+
+
+def stable_remote(alias, reachable=None, fields=None, connect=None):
+    """First stable name of this far box that answers now, else None: `<box>-lan` alias, then `<box>.local`.
+
+    For when the alias's own pinned HostName has gone stale. Costs one `ssh -G` (on the `-lan`
+    alias, shared by both legs) plus a TCP wait per leg, so call it only after the alias itself
+    failed. `.local` is dialled on the default port as `<user>@<box>.local`, the only shape a
+    single ssh host token can carry; the user is the alias's own, else the one ssh resolves."""
+    user, at, host = alias.rpartition("@")
+    lan = f"{user}{at}{host}-lan"
+    base = alias if host.endswith("-lan") else lan
+    memo = []
+
+    def get_fields():
+        if not memo:
+            memo.append((fields or ssh_fields)(base))
+        return memo[0]
+
+    def endpoint(_):
+        f = get_fields()
+        return (f["hostname"], int(f.get("port") or 22)) if f.get("hostname") else None
+
+    try:
+        if not host.endswith("-lan"):
+            up = reachable(lan) if reachable else lan_reachable(lan, resolve=endpoint, connect=connect)
+            if up:
+                return lan
+        f = get_fields()
+        port = int(f.get("port") or 22)
+        name = f"{host}.local"
+        if port != 22:
+            return None
+        (connect or socket.create_connection)((name, port), timeout=PROBE_SECONDS).close()
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+    who = user or f.get("user")
+    return f"{who}@{name}" if who else name
 
 
 def pick_remote(lan, tunnel=None, reachable=None):
@@ -241,6 +285,38 @@ def parse_args(argv):
     return a
 
 
+def inbound_names():
+    """Names a far box already reaches us by: live local entries its own relay holds (`unimatrixMirror`).
+
+    The far box's inbox relay already gives such a session a local socket, so mirroring it again
+    from here would list the one far session twice under one name."""
+    names = set()
+    sess = sessions_dir()
+    for f in os.listdir(sess):
+        if not f.endswith(".json"):
+            continue
+        try:
+            with open(os.path.join(sess, f), encoding="utf-8") as fh:
+                d = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        if isinstance(d, dict) and d.get("unimatrixMirror") and isinstance(d.get("pid"), int) and pid_alive(d["pid"]):
+            names.add(d.get("name"))
+    return names
+
+
+def mirrorable(rows, skip, inbound):
+    """far socket -> row for the far rows worth mirroring: true far sessions only.
+
+    A far relay older than its re-export filter still lists its own mirrors of our sessions
+    (`unimatrixMirror`, or the far-socket field); mirroring those back loops every name into a
+    duplicate. `inbound` is `inbound_names()`, computed once per poll by the caller."""
+    return {r["entry"]["messagingSocketPath"]: r for r in rows
+            if r["entry"]["messagingSocketPath"] not in skip
+            and not (r["entry"].get("unimatrixMirror") or r["entry"].get(FAR_SOCKET_FIELD))
+            and r["entry"].get("name") not in inbound}
+
+
 def fetch_roster(remote, key, tunnel_remote=None):
     remote = pick_remote(remote, tunnel_remote)
     r = subprocess.run(["ssh", "-i", key, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", remote, "roster"],
@@ -267,6 +343,14 @@ def log_label(entry):
     return str(entry["pid"])
 
 
+ENGINE_FIELDS = ("engine_sha", "engine_checkout_sha", "engine_freshness")
+
+
+def engine_fields(row):
+    """The far box's engine identity fields present on a roster row; nothing else is passed."""
+    return {k: row[k] for k in ENGINE_FIELDS if k in row}
+
+
 def mirror(row, cfg, say):
     e = row["entry"]
     far_sock = e["messagingSocketPath"]
@@ -279,7 +363,7 @@ def mirror(row, cfg, say):
     time.sleep(1)
     d = {k: v for k, v in e.items() if k not in ("pid", "procStart", "pidDomain", "messagingSocketPath")}
     d.update(pid=b.pid, procStart=proc_start(b.pid), pidDomain=pid_domain(),
-             messagingSocketPath=endpoint, **{FAR_SOCKET_FIELD: far_sock})
+             messagingSocketPath=endpoint, farPid=e["pid"], **{FAR_SOCKET_FIELD: far_sock}, **engine_fields(row))
     sess = sessions_dir()
     write_json_atomic(os.path.join(sess, f"{b.pid}.json"), d)
     with open(os.path.join(sess, key_name(b.pid, endpoint)), "w", encoding="utf-8") as kf:
@@ -302,6 +386,41 @@ def sync(bridges, rows, cfg, say):
         say(f"unmirror {sock}")
 
 
+def link_state_path(alias, home=None):
+    """Link-state record path for far `alias`: <settings home>/unimatrix/link-state/<alias, path-safe>.json."""
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", alias)
+    return (Path(home) if home else settings_home()) / "unimatrix" / "link-state" / f"{safe}.json"
+
+
+def read_link_state(path):
+    """The recorded state ("up"|"down") at `path`; "up" when absent or unreadable."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            d = json.load(fh)
+        return "down" if isinstance(d, dict) and d.get("state") == "down" else "up"
+    except (OSError, ValueError):
+        return "up"
+
+
+def note_link(prev, ok, alias, reason, say, path):
+    """Return the link state after one poll; on a change only, write the record and log one line.
+
+    Record contract (read by coordinator_core/group_em/watch.py): one JSON file per far alias at
+    `link_state_path(alias)` holding {"alias", "state": "up"|"down", "since": UTC ISO-8601, "reason"}.
+    A failed record write is logged and never raised."""
+    state = "up" if ok else "down"
+    if state == prev:
+        return state
+    since = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    say(f"LINK-{state.upper()} {alias}" + (f": {reason}" if reason else ""))
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        write_json_atomic(str(path), {"alias": alias, "state": state, "since": since, "reason": reason or ""})
+    except (OSError, ValueError, TypeError) as ex:
+        say(f"link-state write failed: {ex}")
+    return state
+
+
 def main(argv=None):
     cfg = parse_args(sys.argv[1:] if argv is None else argv)
     skip = set(cfg.skip)
@@ -317,15 +436,18 @@ def main(argv=None):
             sys.exit(128 + signum)
         signal.signal(signal.SIGTERM, stopped)
     bridges = {}
+    link_path = link_state_path(cfg.remote)
+    link = read_link_state(link_path)
     try:
         while True:
             try:
-                rows = {r["entry"]["messagingSocketPath"]: r for r in fetch_roster(cfg.remote, cfg.key, cfg.tunnel_remote)
-                        if r["entry"]["messagingSocketPath"] not in skip}
+                rows = mirrorable(fetch_roster(cfg.remote, cfg.key, cfg.tunnel_remote), skip, inbound_names())
             except (OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired) as ex:
                 say(f"roster failed: {ex}")
+                link = note_link(link, False, cfg.remote, str(ex), say, link_path)
                 time.sleep(POLL_SECONDS)
                 continue
+            link = note_link(link, True, cfg.remote, "", say, link_path)
             sync(bridges, rows, cfg, say)
             time.sleep(POLL_SECONDS)
     finally:

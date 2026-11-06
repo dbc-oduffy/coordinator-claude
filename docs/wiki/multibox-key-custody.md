@@ -44,8 +44,8 @@ messages and nothing else (`A-UNIMATRIX-KEY-IS-A-FORCED-COMMAND-RELAY-KEY`).
 ## Placing a key on a new macOS box
 
 The `box-onboarding` skill's key step follows this page: fetch the public half from the vault, append
-it to `~/.ssh/authorized_keys` pinned `from=<peer address>` (Wi-Fi LAN address, or WireGuard address
-over the tunnel). The engine mints this box's key and pins a peer's (op `groupem.box_key_pin`).
+it to `~/.ssh/authorized_keys` pinned `from="<LAN /24>,<tunnel /24>"` (every address the peer can come from, Wi-Fi, wired or
+tunnel; e.g. `192.168.0.0/24,10.77.0.0/24`). The engine mints this box's key and pins a peer's (op `groupem.box_key_pin`).
 Machine-local `box.*` keys have no engine writer; the doctrine repo owns that surface.
 
 ## Ownership

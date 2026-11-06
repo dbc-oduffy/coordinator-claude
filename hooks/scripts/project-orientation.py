@@ -1977,9 +1977,8 @@ def engine_resolution_banner() -> None:
     and until this banner existed the answer was invisible — a consumer running
     a half-edited engine saw a guard behaving oddly, indistinguishable from
     that guard behaving correctly. Two days were lost to exactly that on a
-    sibling plane. The `live-working-tree` line is the one that pays for
-    itself: a live tree is a legitimate answer on a co-development machine,
-    but it must be a visible state rather than an invisible default.
+    sibling plane. The ladder never resolves to a working tree, so the
+    banner only names a published engine mirror.
 
     Zero-spawn (this hook's 2026-07-15 boot mandate): delegates to
     `_engine_root.resolve_claude_klabauter_root_with_class`, which is a stat plus at most
@@ -2063,8 +2062,6 @@ def engine_resolution_banner() -> None:
         if _hooks_dir not in sys.path:
             sys.path.insert(0, _hooks_dir)
         from _engine_root import (
-            LIVE_TREE_ENV_VARS,
-            RESOLUTION_LIVE_WORKING_TREE,
             RESOLUTION_RESOLVED_ENGINE,
             _same_repo_path,
             resolve_claude_klabauter_root_with_provenance,
@@ -2089,48 +2086,13 @@ def engine_resolution_banner() -> None:
     except Exception:
         branch_suffix = ""
 
-    # Provenance suffix (2026-08-16, C2, § The provenance seam): rendered
-    # ONLY for a non-ambient rung — the ordinary/default rung for a given
-    # class (today: "published-target" for a resolved engine post-activation,
-    # "live-registry"/"sibling-walk" for an ambient live working tree)
-    # renders no suffix at all, byte-identical to the pre-provenance banner.
-    # Five states are worth calling out, none of them ambient:
-    #   - "env-override": an explicit operator/test intent.
-    #   - "published-fallback": published chosen only because no live tree
-    #     resolved at all.
-    #   - "published-legacy-gate": the pre-C5 disjunct — resolved via
-    #     `_is_engine_working_repo() is False` rather than a readable
-    #     `engine.target`. This is the state C5's retirement criterion keys
-    #     on ("safe to retire the legacy disjunct when no session reports
-    #     this provenance"); if it renders as ambient, that criterion is
-    #     unobservable. `published-target` is the post-activation normal
-    #     and `published-legacy-gate` is today's pre-activation path — the
-    #     ambient and anomalous roles swap once the engine plane's key
-    #     lands. Rendering it now is deliberate and self-limiting: it stops
-    #     appearing the moment the key goes live, which is the signal
-    #     wanted.
-    #   - "live-no-target": a published engine existed but neither disjunct
-    #     fired, so resolution fell through to the live tree anyway — the
-    #     rollout no-op: a divert opportunity the box failed to realize.
-    #   - "live-env-dup": an override rejected upstream by rung 0's health
-    #     guard, re-answered here as a bare locator rather than the
-    #     `env-override` provenance.
+    # Provenance suffix: rendered ONLY for a non-ambient rung. The ordinary
+    # rung ("published-target") renders no suffix. The one anomalous state:
+    #   - "published-no-target": a healthy published engine answered but
+    #     `engine.target` is unset; the box should register it.
     provenance_suffix = ""
-    if klass == RESOLUTION_LIVE_WORKING_TREE and _provenance == "env-override":
-        env_var = ""
-        for _var in LIVE_TREE_ENV_VARS:
-            if os.environ.get(_var):
-                env_var = _var
-                break
-        provenance_suffix = f" (env override: {env_var})" if env_var else " (env override)"
-    elif klass == RESOLUTION_RESOLVED_ENGINE and _provenance == "published-fallback":
-        provenance_suffix = " (fallback: no live tree resolved)"
-    elif klass == RESOLUTION_RESOLVED_ENGINE and _provenance == "published-legacy-gate":
-        provenance_suffix = " (legacy gate: engine-plane key not yet live)"
-    elif klass == RESOLUTION_LIVE_WORKING_TREE and _provenance == "live-no-target":
-        provenance_suffix = " (divert missed: published engine exists, no target)"
-    elif klass == RESOLUTION_LIVE_WORKING_TREE and _provenance == "live-env-dup":
-        provenance_suffix = " (env override unhealthy upstream, re-resolved)"
+    if klass == RESOLUTION_RESOLVED_ENGINE and _provenance == "published-no-target":
+        provenance_suffix = " (engine.target unset: add it to registry.local.toml)"
 
     # DR-188 Option D (chunk C3): resolve the roster and the two gates
     # BEFORE either class-line arm is rendered, so the resolved arm can fold
@@ -2178,11 +2140,6 @@ def engine_resolution_banner() -> None:
                 f"── Engine: published engine mirror{branch_suffix}{provenance_suffix}"
                 f"{root_suffix} ──\n"
             )
-    elif klass == RESOLUTION_LIVE_WORKING_TREE and not _NON_GEM:
-        _w(
-            f"── Engine: sibling LIVE working tree{branch_suffix}{provenance_suffix} — "
-            "this session's doctrine-plane hooks resolve here ──\n"
-        )
 
     if is_plane and kept_rows and not _NON_GEM:
         _w_live_plugin_root_line()

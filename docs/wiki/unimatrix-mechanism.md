@@ -29,7 +29,7 @@ the private fleet record, never this page):
 
 ```
 Host <box>-lan
-    HostName <far box Wi-Fi LAN address>
+    HostName <box>.local
     User <far box user>
     IdentityFile ~/.ssh/<unimatrix-key-file>
     IdentitiesOnly yes
@@ -45,9 +45,16 @@ Host <box>-tunnel
     ConnectTimeout 5
 ```
 
+The `<box>-lan` `HostName` is the far box's mDNS name, never its LAN address, so a DHCP change
+needs no edit (the address is informational). A Linux near box needs `nss-mdns`. A far box whose
+`.local` name does not resolve from the near box (a Windows far box, say) keeps the `<box>-tunnel`
+alias; its fleet-page entry records how the name resolves.
+(`A-UNIMATRIX-FAR-BOX-ALIAS-NAMES-THE-BOX-NEVER-ITS-IP`.)
+
 Machine-local `unimatrix.far_boxes` lists `<box>-lan`; use `<box>-tunnel` only when it fails. The
 engine's ssh transport record takes the same host (`{kind: ssh, host, invoke}`). The far side's
-`from=` pin is the near box's Wi-Fi LAN address (tunnel address off-network); re-pin when wired.
+`from=` pin carries the LAN /24 plus the tunnel /24 (`from="192.168.0.0/24,10.77.0.0/24"`), so the
+link survives the near box on Wi-Fi or wired and an address change.
 
 ## Parts
 
@@ -117,6 +124,23 @@ error) into the sender's inbox through the return leg's `write_local`, and recor
 `<settings home>/unimatrix/deliveries.jsonl` (last 100). `unimatrix-bridge.py status` prints recent
 sends as `delivered` or `FAILED`. The mirror stays on the roster; there is no probe, retry or queue.
 
+## Link health
+
+`unimatrix-roster.py` records each far box's link in `<settings home>/unimatrix/link-state/<alias>.json`
+(alias path-sanitised), written atomically: `{alias, state: "up"|"down", since: "%Y-%m-%dT%H:%M:%SZ",
+reason: str}`. The record is rewritten only on a change; an absent or unreadable record reads `up`.
+
+- One failed roster fetch (every 30 s poll) flips the box to `down`, with the fetch error as
+  `reason`; one successful fetch flips it back to `up`. There is no failure-count threshold.
+- The roster logs `LINK-DOWN <alias>: <reason>` / `LINK-UP <alias>` to `bridge-*.log` on the
+  change only, not per failed fetch.
+- The Group EM watch reads the records each tick and emits `LINK-DOWN <alias>: <reason>` and
+  `LINK-UP <alias>` once per transition. Its previous-state map persists in the watch prev record, so a
+  restart does not re-report a link already known down; a link already down at the first-ever tick
+  is reported once, one already up is not.
+- ListAgents and the mirror session files are unchanged: a down box's mirrors are not marked
+  unreachable or deleted.
+
 ## Mirror rules
 
 A mirror entry is accepted only when it matches what the harness writes. Any deviation silently
@@ -142,7 +166,33 @@ Three roles, private halves in the vault only. One key per box pair, named `<rol
   connection.
 - **Unimatrix-02**: the project-rag tunnel only. Forwarding, no shell, no relay.
 
-Every key is pinned to its source address with `from=` in `authorized_keys`.
+Every key is pinned to its source subnets (LAN /24 plus tunnel /24) with `from=` in `authorized_keys`;
+the forced-command relay key is the real control.
+
+Mint a key in 1Password with `op item create --category 'SSH Key' --ssh-generate-key ...`, then
+`op read` the private half to `~/.ssh` at mode 600. Never hand-run `ssh-keygen` and upload, and
+never write a key body or vault content into a tracked file. On macOS the `op` app integration
+needs Full Disk Access granted to the host app running Claude Code (Terminal); until then it fails
+with "No accounts configured" or "operation not permitted". That grant is a PM step, taken up
+front.
+
+The far-side `authorized_keys` line is installed by that box's EM or G-EM, by SendMessage over the
+existing Unimatrix or a pasted line, never by the PM by hand. `unimatrix-install.py` prints the
+exact line with an absolute interpreter, and `unimatrix-install.py --pair <alias>` pairs a box.
+The forced command names interpreter and script by absolute path:
+
+- Windows admin users: the line goes in `C:\ProgramData\ssh\administrators_authorized_keys` and
+  needs elevation. The command is `command="<absolute python.exe> <absolute path>\\unimatrix-relay.py"`;
+  sshd expands no `%USERPROFILE%`.
+- macOS: `/opt/homebrew/bin/python3` by absolute path, because the `python3` on sshd's PATH is the
+  CLT stub.
+
+On re-mint the far side replaces the old line. Both ends compare `ssh-keygen -lf` fingerprints
+before the first test, and the superseded private key is removed.
+
+A DHCP reservation for a Wi-Fi box uses its private Wi-Fi MAC, with the private address set to
+Fixed for that network, never the hardware MAC. Per-box addresses live in
+`docs/fleet/unimatrix-fleet.md`.
 
 Every ssh that uses a file key passes `-o IdentitiesOnly=yes`. Without it, a running ssh agent
 (1Password's included) offers its own keys first and trips `MaxAuthTries`, and a relay send drops

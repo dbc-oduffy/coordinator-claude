@@ -110,7 +110,7 @@ The failure shape (UE+MCP campaign closeout in example-game-repo): the EM wrote 
 
 ### Act on every lever found — never cap at "top N"
 
-**When the PM asks for the levers on a problem, act on every one found and track each in the owning session's lever register.** Never narrow to "top N" and never park a lever as too small. Keep the PM's quantifiers ("every", "all", "each") verbatim in the brief you dispatch; a brief that substitutes "top 3" for the PM's words has overridden the ask.
+**When the PM asks for the levers on a problem, act on every one found and track each in the owning session's lever register (group-em: its lever register).** Never narrow to "top N" and never park a lever as too small. Keep the PM's quantifiers ("every", "all", "each") verbatim in the brief you dispatch; a brief that substitutes "top 3" for the PM's words has overridden the ask.
 
 **How to apply:** for pipeline-shaped levers, planning stays above S sizing; every other stage is kept only for its measured unique catches. Test demoting, gating or merging each stage and keep nothing on faith.
 

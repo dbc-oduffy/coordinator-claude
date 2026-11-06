@@ -15,11 +15,15 @@ satisfied, or fails loud with remediation if the engine is unresolvable. Does NO
 **Runnable on stated intent.** The PM's stated intent to install or set up coordinator authorizes
 running this skill; it need not be human-typed. `plugin_update` stays gated.
 
-This skill uses direct Bash calls, not subagent dispatch.
+**`setup_skill` in the manifest is informational, not the dispatch primitive.** This skill uses
+direct Bash calls, not subagent dispatch (the engine self-confirms via `claude_klabauter_seam_resolvable`).
 
-**Registry-key resolution:** a dev-tree session resolves the engine via `repos.claude_klabauter` /
-`REPO_CLAUDE_KLABAUTER`; an OSS install (engine published as `claude-klabauter`) via
-`docs/install/AGENT.md`.
+**Engine resolution:** every install resolves the published `claude-klabauter` engine
+(`repos.claude_klabauter` in `<settings-home>/machine-local/registry.local.toml`); a missing engine
+is fetched from GitHub per `docs/install/AGENT.md`. No env var or sibling checkout selects an
+authoring tree.
+
+---
 
 ## Out-of-scope for all dispatched agents in this skill
 
@@ -67,8 +71,10 @@ Python is pre-verified (hard exit if absent — the sole hard gate on this path)
 (the engine resolves itself; no root variable to set). **Never the deprecated `setup.py`
 forwarder.**
 
-It calls `_co_run_prereq_gate post-consumer`, emitting one dep row (the engine, hard) and the
-prereq probe rows (git, python, uv, gh, node, pwsh, ue, clone_auth, longpaths, git_lfs).
+This calls `_co_run_prereq_gate post-consumer`, which emits one dep row (the engine, hard) and the
+prereq probe rows (`_PROBE_ORDER` in `coordinator_core/install/prereq_probe.py`; `ue` only when a UE addon is registered) at the
+severities the Step 5 terminal report shows below.
+
 Advisory failures print `[WARN]` to stderr and do not block exit 0. A missing/broken engine
 dependency triggers the [FAIL] hard-fail path — exit 1 (`--preflight`/`--check`) or consent-gate
 codes 90/91/92 (full install), remediation pointing at the engine-root resolver. Full contract
@@ -88,10 +94,16 @@ The installer's general-work step converges the root into a full coordinator rep
 
 ## Step 5 — Terminal report
 
-Header `## /coordinator:setup — chain step 5 of 5`; manifest path, contract version, layout,
-session id; a prerequisite table (python hard; the rest advisory); a dependency row (the engine,
-hard, `claude_klabauter_seam_resolvable`); result line `coordinator install-chain walker — chain step 5 of
-5: all deps satisfied.` then `coordinator-claude install chain complete.` Exit 0.
+Report: header `## /coordinator:setup — chain step 5 of 5`; manifest path, contract version,
+layout, session id; a prerequisite table (python hard — the sole hard gate; gh, node, git,
+clone_auth, uv, pwsh, longpaths, shell_login_env, skill_frontmatter_valid,
+windows_terminal_presence advisory; ue advisory only when a UE addon is registered); a dependency
+row (the engine, hard, `claude_klabauter_seam_resolvable`, self-confirming); result lines
+`[setup] coordinator install-chain walker — chain step 5 of 5: complete.` then `coordinator-claude
+has no Python/binary install phases.` (`--check` prints `…: all deps satisfied.` instead). Exit 0
+(advisory WARN rows do not affect it).
+
+---
 
 ## Step 6 — Live Claude-Code-integration validation
 

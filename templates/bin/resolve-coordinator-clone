@@ -91,43 +91,35 @@ def _flatten_registry(data: dict, _prefix: str = "") -> dict:
     return result
 
 
+def _is_stamped_engine(root: str) -> bool:
+    """True when `root` is a built engine: `coordinator_core/_engine_stamp`
+    exists and is non-empty. A claude-klabauter working tree carries no stamp
+    and is never an engine."""
+    try:
+        return bool((Path(root) / "coordinator_core" / "_engine_stamp").read_bytes())
+    except OSError:
+        return False
+
+
 def _engine_root() -> str | None:
-    """Resolve the claude-klabauter checkout root.
+    """Resolve the published claude-klabauter engine root; never a
+    claude-klabauter tree. The shim only locates lib/resolve-coordinator-clone.py
+    inside it.
 
-    Needed because the 2026-07-22 executable-surface migration moved
-    coordinator/{bin,lib,scripts} — including _LIB_REL itself — out of the
-    coordinator-content-repo source tree and into claude-klabauter. The rungs below are the
-    settled cross-repo claude-klabauter-locate ladder (kept in lockstep with
-    session-heartbeat.py's _resolve_claude_klabauter_root() and its two sibling hook
-    copies — see that function's docstring):
-
-      1. $REPO_CLAUDE_KLABAUTER env var
-      2. $COORDINATOR_ENGINE_ROOT env var
-      4. <settings-home>/machine-local/.claude-klabauter-root pointer file (plain read,
-         deliberately subprocess-free)
-      5. <settings-home>/machine-local/registry.local.toml (checked first),
-         falling back to registry.toml — key "repos.claude_klabauter", accepting
-         both the flat dotted form ("repos.claude_klabauter" = "...") and a
-         nested [repos] table (values are flattened to dotted keys before the
-         lookup, mirroring `_machine_local.py::_flatten_nested`); an
-         empty-string value is a sentinel placeholder, not a resolution
-      6. marker auto-discovery: a sibling "claude-klabauter" dir next to the
-         resolved coordinator-content-repo root
+      1. $COORDINATOR_ENGINE_ROOT, accepted only when stamped
+      2. <settings-home>/machine-local/registry.local.toml (checked first),
+         falling back to registry.toml — key "repos.claude_klabauter",
+         accepting both the flat dotted form and a nested [repos] table
+         (flattened to dotted keys, mirroring
+         `_machine_local.py::_flatten_nested`); accepted only when stamped,
+         and an empty-string value is a sentinel placeholder
     """
-    for env_var in ("REPO_CLAUDE_KLABAUTER", "COORDINATOR_ENGINE_ROOT"):
-        root = os.environ.get(env_var)
-        if root and Path(root).is_dir():
-            return root
+    root = os.environ.get("COORDINATOR_ENGINE_ROOT")
+    if root and _is_stamped_engine(root):
+        return root
 
     settings_home = _settings_home_dir()
     if settings_home is not None:
-        try:
-            pointer = (settings_home / "machine-local" / ".claude-klabauter-root").read_text(encoding="utf-8").strip()
-            if pointer and Path(pointer).is_dir():
-                return pointer
-        except OSError:
-            pass
-
         try:
             import tomllib
 
@@ -142,16 +134,10 @@ def _engine_root() -> str | None:
                 except (OSError, tomllib.TOMLDecodeError):
                     continue
                 v = _flatten_registry(data).get("repos.claude_klabauter")
-                if isinstance(v, str) and v and Path(v).is_dir():
+                if isinstance(v, str) and v and _is_stamped_engine(v):
                     return v
         except ImportError:
             pass
-
-    content_root = _content_root_pointer()
-    if content_root:
-        sibling = Path(content_root).parent / "claude-klabauter"
-        if sibling.is_dir():
-            return str(sibling)
 
     return None
 
@@ -216,14 +202,11 @@ def _locate_lib() -> Path | None:
         if candidate.is_file():
             return candidate
 
-    # 2b. Claude-klabauter root, via the settled cross-repo claude-klabauter-locate
-    #     ladder (see _engine_root()). The 2026-07-22 executable-surface
-    #     migration relocated _LIB_REL itself out of coordinator-content-repo and into
-    #     claude-klabauter's coordinator/ tree — this rung is the shim's only
-    #     path to the lib's current, post-migration home.
-    claude_klabauter_root = _engine_root()
-    if claude_klabauter_root:
-        candidate = Path(claude_klabauter_root) / "coordinator" / _LIB_REL
+    # 2b. Published engine root (see _engine_root()): the executable surface
+    #     lives in the engine's coordinator/ tree, not coordinator-content-repo's.
+    engine_root = _engine_root()
+    if engine_root:
+        candidate = Path(engine_root) / "coordinator" / _LIB_REL
         if candidate.is_file():
             return candidate
 
@@ -264,11 +247,11 @@ def main(argv: list[str]) -> int:
         sys.stderr.write(
             f"resolve-coordinator-clone: cannot locate {_LIB_REL} under any known coordinator install location.\n"
             f"  Searched: $CLAUDE_PLUGIN_ROOT, $COORDINATOR_ROOT, $COORDINATOR_CLONE, "
-            f"{home}/.coordinator-content-root pointer, claude-klabauter (via $COORDINATOR_ENGINE_ROOT, "
-            "$REPO_CLAUDE_KLABAUTER, the .claude-klabauter-root pointer, or registry.local.toml), "
+            f"{home}/.coordinator-content-root pointer, the published claude-klabauter engine (via a stamped $COORDINATOR_ENGINE_ROOT "
+            "or registry.local.toml repos.claude_klabauter), "
             f"{home}/plugins/coordinator-claude/coordinator/, and the versioned plugin cache.\n"
             f"  Remediation: install/repair the coordinator plugin (writes {home}/.coordinator-content-root), "
-            "set CLAUDE_PLUGIN_ROOT to its checkout, or set COORDINATOR_ENGINE_ROOT to the claude-klabauter checkout.\n"
+            "set CLAUDE_PLUGIN_ROOT to its checkout, or set COORDINATOR_ENGINE_ROOT to a stamped claude-klabauter.\n"
         )
         return 1
 

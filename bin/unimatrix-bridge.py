@@ -286,7 +286,8 @@ def relay_send(conn):
     if not mine or not lines:
         log.write(f"relay: nothing to send (mirror={bool(mine)}) raw={buf!r}\n")
         return
-    far_pid = os.path.basename(mine[FAR_SOCKET_FIELD]).removesuffix(".sock")
+    # A win32 peer's socket is a named pipe with no pid in its name; the roster records `farPid`.
+    far_pid = str(mine.get("farPid") or os.path.basename(mine[FAR_SOCKET_FIELD]).removesuffix(".sock"))
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if IS_WIN else 0
     for line in lines:
         log.write(f"relay >> {line!r}\n")

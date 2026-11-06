@@ -445,9 +445,8 @@ def _resolve_engine_root() -> tuple:
     if root is None:
         return (
             None,
-            "claude-klabauter repo not resolved (checked REPO_CLAUDE_KLABAUTER/"
-            "CLAUDE_KLABAUTER_ROOT env, the repos.claude_klabauter registry key, and the "
-            "conventional sibling-directory layout) — engine leg skipped",
+            "engine root not resolved (checked COORDINATOR_ENGINE_ROOT env "
+            "and the registered claude-klabauter) — engine leg skipped",
         )
     path = Path(root)
     if not path.is_dir():

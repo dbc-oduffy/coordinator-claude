@@ -3,7 +3,7 @@
 The governor runs detached from the session and appends to its --log; this waiter is the session's
 background run, and its exit is the wake. A reaped waiter is relaunched, and the governor survives
 it. The waiter starts at the log's current end, so lines the Group EM
-already acted on never re-wake it, prints the first new complete line, and exits 0. After acting,
+already acted on never re-wake it, prints the first new complete action line, and exits 0. After acting,
 relaunch the waiter only, never the governor: a governor restart would drop the trees it holds
 paused.
 
@@ -14,7 +14,9 @@ The pidfile names its owning governor (pid and start time): a live owner keeps i
 nothing is signalled and the file is kept; a dead owner's recorded pids are thawed only when their
 start times still match. A legacy or malformed file thaws nothing and is cleared.
 A missing log is waited for, not an error. A log that shrinks (rotated or truncated) restarts the
-read at 0. Never filter the output: the governor prints only action lines.
+read at 0. The governor also appends telemetry (DISK, DISK-STAT, HEADROOM, CACHE-TRIM-HINT, ...)
+that the Group EM cannot act on: only LOW, PAUSED, RUNAWAY, KILLED, STILL-CRITICAL, CACHE-TRIM and EXIT lines wake it. An
+exit with no action line prints its reason.
 """
 
 from __future__ import annotations
@@ -25,6 +27,19 @@ import sys
 import time
 from pathlib import Path
 from typing import Callable, Optional
+
+
+ACTION_KINDS = frozenset({"LOW", "PAUSED", "RUNAWAY", "KILLED", "STILL-CRITICAL", "CACHE-TRIM", "EXIT"})
+
+
+def is_action_line(line: str) -> bool:
+    """True when the line's kind (the token after GOVERNOR, any leading timestamp tolerated) is an
+    exact member of ACTION_KINDS; CACHE-TRIM-HINT and unknown kinds are not."""
+    tokens = line.split()
+    for i, tok in enumerate(tokens[:-1]):
+        if tok == "GOVERNOR":
+            return tokens[i + 1].rstrip(":") in ACTION_KINDS
+    return False
 
 
 def _size(path: Path) -> int:
@@ -53,7 +68,7 @@ def wait_for_line(path: Path, interval: float = 2.0, sleep: Callable[[float], No
             # Only a newline-terminated line counts: the governor may be mid-write.
             for raw in pending.split(b"\n")[:-1]:
                 line = raw.decode("utf-8", "replace").rstrip("\r")
-                if line.strip():
+                if is_action_line(line):
                     return line
             pending = pending.rsplit(b"\n", 1)[-1]
         sleep(interval)
@@ -86,7 +101,7 @@ def thaw_on_start(pidfile: Optional[Path] = None, signal_fn: Optional[Callable] 
 
 def main(argv: Optional[list[str]] = None,
          thaw: Callable[[], list[int]] = thaw_on_start) -> int:
-    ap = argparse.ArgumentParser(description="Wake once on the memory governor's next log line.")
+    ap = argparse.ArgumentParser(description="Wake once on the memory governor's next action line.")
     ap.add_argument("log", type=Path)
     ap.add_argument("--interval", type=float, default=2.0)
     args = ap.parse_args(argv)
@@ -94,6 +109,8 @@ def main(argv: Optional[list[str]] = None,
     line = wait_for_line(args.log, args.interval)
     if line is not None:
         print(line, flush=True)
+    else:
+        print("governor-wait: exiting with no action line (poll limit reached)", flush=True)
     return 0
 
 

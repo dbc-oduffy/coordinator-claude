@@ -1,10 +1,12 @@
 """Shared engine-root resolution seam for coordinator/hooks/scripts/*.py hooks.
 
-Purpose: every hook that needs to import `coordinator_core` from the sibling
-engine checkout previously carried its own copy-pasted
-`_resolve_claude_klabauter_root()` ladder (22 independent copies as of the 2026-07-22
-executable-surface migration). This module is the ONE seam all of them import
-from instead — one place to fix, one place to test.
+Purpose: every hook that needs to import `coordinator_core` resolves the
+engine root through this ONE seam — one place to fix, one place to test. Only
+a stamped engine root answers (the registered claude-klabauter mirror, or a
+stamped directory named by the rung-0 env var); no rung selects an
+engine-source working tree. The importable resolvers return
+`(None, "unresolved")` on a miss and never raise; the CLI entrypoint exits 2
+naming the claude-klabauter fetch.
 
 Second responsibility: this module also hosts `run_stop_hook_pointer_shim`,
 the shared Stop-hook transport body for the Family-A pointer-shim pair — see
@@ -59,11 +61,7 @@ def _settings_home_registry_dir() -> Path:
     wrong: when COORDINATOR_SETTINGS_HOME is explicitly set (the documented
     override rung), it already points AT the settings home, so appending the
     suffix again produced a doubled, nonexistent
-    `<value>/.coordinator-claude-settings/machine-local` path. On a machine
-    where a sibling engine checkout also exists next to this repo,
-    rung 3 (sibling walk) silently produced the right answer anyway, masking
-    the registry rung never having fired. Caught 2026-07-22 by explicitly
-    setting COORDINATOR_SETTINGS_HOME and neutralizing rung 3.
+    `<value>/.coordinator-claude-settings/machine-local` path.
     """
     return _settings_home() / "machine-local"
 
@@ -92,40 +90,23 @@ def _settings_home() -> Path:
 
 
 # Resolution classes returned alongside the root by
-# `resolve_claude_klabauter_root_with_class`. RESOLVED_ENGINE means a published engine
-# mirror; LIVE_WORKING_TREE means a checkout whose contents are whatever a
-# concurrent session has in it at this instant.
-#
-# RESOLUTION_RESOLVED_ENGINE now has a producer: `_resolve_published_engine`
-# reads `repos.claude_klabauter`, written at install time by the engine
-# plane's own installer (`scripts/setup.py::register_claude_klabauter_root()`,
-# commit `5080edc48d3f`) on a claude-klabauter (published-mirror) checkout.
-# It fires once that key is registered on the current machine — see
-# `_resolve_published_engine`'s own docstring for the read contract.
-# `project-orientation.py` already consumes the constant.
+# `resolve_claude_klabauter_root_with_class`. RESOLVED_ENGINE means a stamped engine
+# root (the registered claude-klabauter mirror, or a stamped directory named
+# by the rung-0 env var); UNRESOLVED means no engine answered. No rung returns
+# LIVE_WORKING_TREE: an engine-source working tree is never the engine. The
+# constant stays exported for consumers that still compare against it.
 RESOLUTION_RESOLVED_ENGINE = "resolved-engine"
 RESOLUTION_LIVE_WORKING_TREE = "live-working-tree"
 RESOLUTION_UNRESOLVED = "unresolved"
 
-#: Literal sibling-repo dirname the sibling-walk rung's last-resort probe
-#: matches against — see that rung's negative-spec and the OSS-locality
-#: allowlist entry covering this site.
-_CLAUDE_KLABAUTER_SIBLING_DIR_NAME = "claude-klabauter"
-
-#: NEGATIVE-SPEC: no `_LIVE_TREE_POINTER` constant here, and none should be
-#: re-added — see `_resolve_live_working_tree`'s own negative-spec below for
-#: the full reasoning (the retirement, the same-name settings-home perf
-#: cache trap, and the same-day revert this replaced).
-
-#: Env vars rung 1 consults, in ratified precedence order (see
-#: `_resolve_live_working_tree`). Exported as a constant rather than inlined at
-#: the loop so that consumers which must SET one of these — the OSS-only
-#: `coordinator-update` skill's tests, notably — can name it by reference
-#: instead of by literal. That matters beyond tidiness: this module goes
-#: through the publish content-transform sweep and the injected skill payload
-#: deliberately does not, so a literal spelled on the consumer side would name
-#: a variable the published resolver no longer reads.
-LIVE_TREE_ENV_VARS = ("REPO_CLAUDE_KLABAUTER", "COORDINATOR_ENGINE_ROOT")
+#: Env var(s) the rung-0 override consults. It answers only for a stamped
+#: engine root (`_is_stamped_engine_root`); an engine-source working tree
+#: carries no `coordinator_core/_engine_stamp` and is refused. Exported as a
+#: constant so consumers that must SET one — the OSS-only `coordinator-update`
+#: skill's tests, notably — name it by reference: the injected skill payload
+#: skips the publish content-transform sweep, so a literal on the consumer
+#: side would name a variable the published resolver no longer reads.
+LIVE_TREE_ENV_VARS = ("COORDINATOR_ENGINE_ROOT",)
 
 
 def _warn_fail_open(where: str, exc: BaseException) -> None:
@@ -774,16 +755,10 @@ def _is_engine_working_repo() -> bool | None:
     Tri-state, deliberately: `True`/`False` are determinations; `None` means
     "could not determine" (no session root, unreadable registry, or an empty
     working-repo set) — a genuinely different thing from `False`; a
-    consumer MUST NOT treat `None` as `False`, or a repo whose gate simply
-    couldn't be evaluated on this run would get diverted away from the live
-    tree it should still be resolving (see `resolve_claude_klabauter_root_with_class`'s
-    `is False` check, not a bare falsiness check).
+    consumer MUST NOT treat `None` as `False`.
 
-    Now armed: `_resolve_published_engine` can return non-`None` once
-    `repos.claude_klabauter` is registered, so the per-call TOML re-parse
-    and `.git` walk this performs is live cost on such a machine, not merely
-    speculative. No memoization was added at the producer-landing change
-    this comment used to defer to: this module is consumed by short-lived,
+    Not a ladder input: `resolve_claude_klabauter_root_with_provenance` never consults
+    it, so it cannot select or refuse a root. No memoization: this module is consumed by short-lived,
     per-invocation hook processes (see module docstring's zero-spawn/
     hot-path framing), where a module-level cache buys nothing — the values
     it would cache (this process's session root, the registry's on-disk
@@ -893,20 +868,24 @@ def _resolve_published_engine() -> str | None:
         root = _registry_value(reg_dir, "repos.claude_klabauter")
         if not root:
             return None
-        root_path = Path(root)
-        if not root_path.is_dir():
-            return None
-        if not (root_path / "coordinator_core").is_dir():
-            return None
-        try:
-            stamp_bytes = (root_path / "coordinator_core" / "_engine_stamp").read_bytes()
-        except OSError:
-            return None
-        if not stamp_bytes:
-            return None
-        return root
+        return root if _is_stamped_engine_root(root) else None
     except Exception:
         return None
+
+
+def _is_stamped_engine_root(root: str) -> bool:
+    """True when `root` is an existing directory whose `coordinator_core/`
+    carries a readable, non-empty `_engine_stamp`. The stamp is the only test
+    of "this is a built engine"; an engine-source working tree has none.
+    Never raises."""
+    try:
+        root_path = Path(root)
+        if not (root_path / "coordinator_core").is_dir():
+            return False
+        stamp_bytes = (root_path / "coordinator_core" / "_engine_stamp").read_bytes()
+        return bool(stamp_bytes)
+    except Exception:
+        return False
 
 
 def _resolve_engine_target() -> str | None:
@@ -949,18 +928,9 @@ def _resolve_engine_target() -> str | None:
     `engine.target` means on this plane" section and AC17). It never
     substitutes a default or a channel name for an unreadable read.
 
-    **Anti-strand duty.** The rule that "a `None`/unreadable determination
-    never diverts" re-homes onto this reader's return value once C4 wires
-    it in — the same principle already named doctrine at
-    `_is_engine_working_repo`'s own docstring (this module — the passage
-    reading "a consumer MUST NOT treat `None` as `False`, or a repo whose
-    gate simply couldn't be evaluated on this run would get diverted away
-    from the live tree it should still be resolving")
-    and at `docs/decisions/DR-132-engine-working-repos-is-its-own-namespace-
-    not-a-repos-star-inference.md` § Consequences ("no consumer repo can be
-    stranded"). Both are phrased against `_is_engine_working_repo()` because
-    it was the only mechanism that existed when they were written; the
-    principle is pinned, not the variable, and is not re-derived here.
+    **Provenance only.** The ladder uses this value solely to pick
+    `"published-target"` over `"published-no-target"`; readability never
+    decides whether the registered engine answers.
 
     Zero-spawn, no memoization, never raises — same contract as the rest of
     this module.
@@ -1004,9 +974,8 @@ def resolve_claude_klabauter_root_with_provenance() -> tuple[str | None, str, st
     class and the provenance are kept as two separate return values rather
     than folded into one richer class enum.
 
-    A live working tree is a LEGITIMATE answer, not a failure — on a
-    co-development machine it is the answer you want. What this makes possible
-    is that it be a deliberate, visible state rather than an invisible default.
+    No rung returns an engine-source working tree: the ladder answers a
+    stamped engine root or nothing.
 
     **Cross-plane downstream consumer — this ladder is not repo-local.** The
     engine plane's warm-server generation token fingerprints
@@ -1016,140 +985,48 @@ def resolve_claude_klabauter_root_with_provenance() -> tuple[str | None, str, st
     carry the same cross-repo heads-up duty as a change to the hook
     invocation shape: tell the engine team's EM before it lands.
 
-    **Rung 2 is a DISJUNCTION (2026-08-16, C4).** Divert to the published
-    engine when EITHER `engine.target` is readable (`_resolve_engine_target()`
-    is not `None`) OR the legacy gate concretely confirms a non-working repo
-    (`_is_engine_working_repo() is False`) — `published and (target_is_readable
-    or _is_engine_working_repo() is False)`. The legacy disjunct is UNCHANGED
-    and does not leave the ladder here: retiring it is a later, separately
-    risky chunk (C5), deliberately sequenced after the engine plane's
-    `engine.target` write has been observed live on this box for a cycle. This
-    chunk is strictly additive over the single-disjunct ladder — every state
-    that diverted before this chunk keeps diverting; `engine.target`
-    readability only ever adds NEW divert states. That is the monotonicity
-    property (AC14): no drivable state that resolved `RESOLUTION_RESOLVED_
-    ENGINE` before this chunk resolves `RESOLUTION_LIVE_WORKING_TREE` after
-    it — proved by construction (a disjunction only grows the set of true
-    conditions), not by an ex­haustive enumeration. See
-    `docs/plans/2026-08-16-engine-targeting-contract-reply.md` § The landing
-    property that de-risks this / § The provenance seam for the full
-    rationale, including why this is monotone rather than byte-identical (the
-    ladder already diverts today for every repo outside `engine.working_
-    repos`, so byte-identity was never available).
+    **Precedence rule.** An engine-source working tree is never the engine,
+    at any rung: only a STAMPED engine root answers. A registry live key, a
+    sibling engine checkout, the working-repo gate (`True`, `False` or
+    `None`) and an unstamped env-named directory never select anything.
+    The provenance `"published-no-target"` names a registered engine that
+    won while `engine.target` is unset, so orientation can tell the box
+    which key to add.
 
-    **Anti-strand duty, now shared between the two disjuncts.** The rule that
-    "a `None`/unreadable determination never diverts" — already named at
-    `_is_engine_working_repo`'s own docstring (this module — the passage
-    reading "a consumer MUST NOT treat `None` as `False`, or a repo whose
-    gate simply couldn't be evaluated on this run would get diverted away
-    from the live tree it should still be resolving") and at
-    `docs/decisions/DR-132-engine-working-repos-is-its-own-
-    namespace-not-a-repos-star-inference.md` § Consequences ("no consumer
-    repo can be stranded") — is what rung 3's `"live-no-target"` provenance
-    value makes visible: it is reached only when a published engine EXISTS
-    (there was somewhere to divert to) but BOTH disjuncts failed to fire —
-    `engine.target` unreadable AND `_is_engine_working_repo()` not concretely
-    `False` (i.e. `True` or `None`). That state is the rollout no-op flagged
-    to the engine plane: the box was supposed to divert and did not, named
-    per-session rather than silently inferred. When no published engine
-    exists at all, rung 3 keeps reporting whichever live sub-rung answered
-    (`"live-env-dup"` / `"live-registry"` / `"sibling-walk"`) exactly as
-    before — `"live-no-target"` names a
-    specifically UNREALIZED divert
-    opportunity, not "no live tree found."
-
-    **Rung 0 gained a health guard (AC19, C4).** Under this ladder, rung 0
-    (the explicit env-var override) is the ONLY live-tree-by-intent path —
-    the PM's manual test-and-execute carve-out — so a stale, typo'd, or moved
-    override must not silently outrank a healthy published engine with no
-    fallback. It now applies the same `coordinator_core/` existence guard
-    `_resolve_published_engine()` already applies to its own registered root:
-    a set-but-unhealthy override falls through to the rest of the ladder
-    rather than answering, emitting one `_warn_fail_open`-class line naming
-    the env var and the path. A HEALTHY override still wins outright, exactly
-    as before.
+    **Rung 0 stamp guard.** The explicit env-var override answers only for a
+    stamped engine root (`_is_stamped_engine_root`): a stale, typo'd, moved
+    or unstamped override (an engine-source working tree has no stamp) falls
+    through to the rest of the ladder, emitting one `_warn_fail_open`-class
+    line naming the env var and the path. A stamped override wins outright.
 
     **Resolution order — FAIL-OPEN is the load-bearing property here, not an
-    incidental one.** `RESOLUTION_RESOLVED_ENGINE` (the published-engine
-    rung) now has a producer: `_resolve_published_engine` fires once
+    incidental one.** `_resolve_published_engine` fires once
     `repos.claude_klabauter` is registered on the current machine (written
     at install time by the engine plane's own installer,
-    `scripts/setup.py::register_claude_klabauter_root()`, commit `5080edc48d3f`, on a
-    claude-klabauter checkout). On a machine with no such registration —
-    every machine before its klabauter install runs — this ladder still
-    degrades to exactly the live-tree-or-unresolved behaviour that existed
-    before the working-repo gate was wired. Once a published engine DOES
-    exist (registered on this machine), a repo is only ever diverted away
-    from the live tree when `engine.target` is readable OR
-    `_is_engine_working_repo()` returns the concrete `False`
-    determination — an unreadable target combined with an undeterminable
-    (`None`) or confirmed-working (`True`) gate never diverts, because
-    diverting a repo with no confirmed answer and no fallback would silently
-    strand it exactly the way the deleted rung-0 engine-snapshot producer
-    once did (see module docstring, rung 3 negative-spec):
+    `scripts/setup.py::register_claude_klabauter_root()`). On a machine with no such
+    registration, and no stamped env override, the ladder degrades to
+    unresolved and the caller fails loud:
 
       0. `env_override = _resolve_live_tree_env_override()` (an explicit
-         live-tree env var — see `LIVE_TREE_ENV_VARS` for the ratified
-         precedence order among the current spellings — pointing at an
-         existing directory). If set AND healthy (contains
-         `coordinator_core/`) →
-         `(env_override, RESOLUTION_LIVE_WORKING_TREE, "env-override")` — an
-         explicit override always wins over ambient discovery, published-
-         engine registration included, when it is actually an engine
-         checkout. If set but UNHEALTHY, one `_warn_fail_open`-class line is
-         emitted (naming the env var and the path) and resolution falls
-         through to the rest of the ladder rather than answering (AC19).
-         This rung is checked BEFORE the published-engine rung below on
-         purpose: an operator or test that sets this env var deliberately is
-         stating an explicit intent, and ambient registry state must never
-         outrank a stated intent (previously it did — see this module's own
-         history for the defect this rung ordering closes).
-      1. `published = _resolve_published_engine()`;
-         `target_is_readable = _resolve_engine_target() is not None`.
-      2. If `published` and `target_is_readable` →
-         `(published, RESOLUTION_RESOLVED_ENGINE, "published-target")` — the
-         NEW disjunct, added this chunk. Checked first so its provenance
-         wins when both disjuncts would fire, per § The provenance seam's
-         naming.
-         Else if `published` and `_is_engine_working_repo() is False` →
-         `(published, RESOLUTION_RESOLVED_ENGINE, "published-legacy-gate")`
-         — the ORIGINAL, single disjunct from before this chunk, unchanged
-         in condition, renamed to make explicit it is one of two now.
-         Retires at C5.
-      3. Else `live, live_provenance = _resolve_live_working_tree()`; if
-         `live`:
-           - if `published` and NOT `target_is_readable` (which, having
-             passed step 2's checks, also implies `_is_engine_working_repo()`
-             is not concretely `False`) → `(live, RESOLUTION_LIVE_WORKING_
-             TREE, "live-no-target")` — both disjuncts failed even though a
-             published engine existed; the rollout no-op named above.
-           - else → `(live, RESOLUTION_LIVE_WORKING_TREE, live_provenance)`
-             — no published engine existed at all, so there was nothing to
-             fail to divert to; covers working repos, undeterminable repos,
-             and (pre-activation) every repo. `_resolve_live_working_tree`
-             reports its OWN answering rung — `"live-env-dup"`,
-             `"live-registry"`, or `"sibling-walk"`
-             (matching § The provenance seam's vocabulary verbatim) —
-             rather than this
-             function collapsing them to one value from outside. Recording
-             it at the rung that answers, instead of re-deriving which
-             sub-check fired by re-running the checks here, is what keeps
-             this a single ladder rather than growing a second one that can
-             silently disagree with the first — see that helper's own
-             docstring for the full per-rung breakdown, including why
-             `"live-env-dup"` became reachable through this call path once
-             rung 0 gained its health guard: an unhealthy override refused
-             upstream is re-answered here as a bare locator.
-      4. Else if `published` → `(published, RESOLUTION_RESOLVED_ENGINE,
-         "published-fallback")` — a published engine beats no engine at
-         all.
-      5. Else `(None, RESOLUTION_UNRESOLVED, "none")`.
+         env var, see `LIVE_TREE_ENV_VARS`, naming an existing directory).
+         If set AND stamped →
+         `(env_override, RESOLUTION_RESOLVED_ENGINE, "env-override")` — an
+         explicit override outranks ambient registry state, published-engine
+         registration included. If set but NOT stamped, one
+         `_warn_fail_open`-class line is emitted and resolution falls
+         through rather than answering.
+      1. `published = _resolve_published_engine()`. If set →
+         `(published, RESOLUTION_RESOLVED_ENGINE, "published-target")` when
+         `_resolve_engine_target()` is not `None`, else
+         `(published, RESOLUTION_RESOLVED_ENGINE, "published-no-target")`.
+      2. Else `(None, RESOLUTION_UNRESOLVED, "none")`. Importable callers
+         degrade on it; the CLI entrypoint exits 2 naming the
+         claude-klabauter fetch.
 
-      Every published answer (rung 0's link onto the published engine,
-      "published-target", "published-legacy-gate", "published-fallback")
-      passes through `_apply_engine_floor`: a behind or indeterminate engine
-      floor verdict emits one stderr notice and the tuple is unchanged.
-      Live-tree rungs are not floor-checked.
+      Every resolved answer (rung 0's stamped override, "published-target",
+      "published-no-target") passes through `_apply_engine_floor`: a behind
+      or indeterminate engine floor verdict emits one stderr notice and the
+      tuple is unchanged.
 
     Zero-spawn, fail-open, never raises — same contract as
     `resolve_claude_klabauter_root_with_class` and `resolve_claude_klabauter_root`, both of which
@@ -1164,58 +1041,40 @@ def resolve_claude_klabauter_root_with_provenance() -> tuple[str | None, str, st
     `run_stop_hook_pointer_shim` and killed two Stop hooks with tracebacks in
     a live engine-plane session (2026-08-08).
 
-    No memoization (see `_is_engine_working_repo`'s own docstring, the
-    passage beginning "No memoization was added at the producer-landing
-    change..."): every rung is re-derived on each call, deliberately — see
-    that negative-spec before adding a cache here.
+    No memoization (see `_is_engine_working_repo`'s own docstring): every
+    rung is re-derived on each call, deliberately — see that negative-spec
+    before adding a cache here.
     """
     try:
         env_override = _resolve_live_tree_env_override()
         if env_override:
-            if (Path(env_override) / "coordinator_core").is_dir():
-                # An override that is only a link onto the stamped published
-                # engine (the cloud pin) names no live tree: report it as such.
+            if _is_stamped_engine_root(env_override):
                 published = _resolve_published_engine()
                 if published and os.path.realpath(env_override) == os.path.realpath(published):
                     return _apply_engine_floor(
                         published, RESOLUTION_RESOLVED_ENGINE, "published-target"
                     )
-                return env_override, RESOLUTION_LIVE_WORKING_TREE, "env-override"
+                return _apply_engine_floor(
+                    env_override, RESOLUTION_RESOLVED_ENGINE, "env-override"
+                )
             override_var = next(
                 (v for v in LIVE_TREE_ENV_VARS if os.environ.get(v) == env_override),
                 "unknown-env-var",
             )
             _warn_fail_open(
-                "resolve_claude_klabauter_root_with_provenance (rung 0 override unhealthy)",
+                "resolve_claude_klabauter_root_with_provenance (rung 0 override unstamped)",
                 RuntimeError(
-                    f"{override_var}={env_override} has no coordinator_core/ — "
+                    f"{override_var}={env_override} is not a stamped engine root — "
                     "falling through to the rest of the ladder"
                 ),
             )
 
         published = _resolve_published_engine()
-        target_is_readable = _resolve_engine_target() is not None
-
-        if published and target_is_readable:
-            return _apply_engine_floor(
-                published, RESOLUTION_RESOLVED_ENGINE, "published-target"
-            )
-
-        if published and _is_engine_working_repo() is False:
-            return _apply_engine_floor(
-                published, RESOLUTION_RESOLVED_ENGINE, "published-legacy-gate"
-            )
-
-        live, live_provenance = _resolve_live_working_tree()
-        if live:
-            if published and not target_is_readable:
-                return live, RESOLUTION_LIVE_WORKING_TREE, "live-no-target"
-            return live, RESOLUTION_LIVE_WORKING_TREE, live_provenance
-
         if published:
-            return _apply_engine_floor(
-                published, RESOLUTION_RESOLVED_ENGINE, "published-fallback"
+            provenance = (
+                "published-target" if _resolve_engine_target() is not None else "published-no-target"
             )
+            return _apply_engine_floor(published, RESOLUTION_RESOLVED_ENGINE, provenance)
 
         return None, RESOLUTION_UNRESOLVED, "none"
     except Exception as exc:
@@ -1254,19 +1113,10 @@ def resolve_claude_klabauter_root() -> str | None:
 
 
 def _resolve_live_tree_env_override() -> str | None:
-    """Rung 0 of `resolve_claude_klabauter_root_with_class` — an EXPLICIT live-tree
-    env var (see `LIVE_TREE_ENV_VARS` for the ratified precedence order
-    among the current spellings) pointing at an existing directory, checked
-    ahead of the published-engine rung.
-
-    Split out from `_resolve_live_working_tree` so the class-reporting
-    resolver can consult the explicit-override rung alone, before any
-    ambient registry state (the published-engine mirror) gets a vote. Same
-    env-var order and existence check as the first loop inside
-    `_resolve_live_working_tree` — deliberately duplicated there too (rather
-    than removed) so `_resolve_live_working_tree` alone still resolves the
-    full live-tree ladder (env, then registry, then sibling walk) for any
-    caller reaching it directly after the published-engine short-circuit.
+    """Rung 0 of `resolve_claude_klabauter_root_with_class` — an EXPLICIT env var (see
+    `LIVE_TREE_ENV_VARS`) naming an existing directory, checked ahead of the
+    published-engine rung. Existence only: the ladder applies the stamp test
+    (`_is_stamped_engine_root`) before it answers.
 
     Zero-spawn, fail-open, never raises.
     """
@@ -1278,141 +1128,15 @@ def _resolve_live_tree_env_override() -> str | None:
 
 
 def _resolve_live_working_tree() -> tuple[str | None, str]:
-    """Rungs 1-3 — a CHECKOUT, whose contents are whatever is in it right now.
+    """Locator compatibility stub: always `(None, "none")`.
 
-    Returns `(root, provenance)` (2026-08-16, C2 follow-on) — this helper now
-    reports its OWN answering rung rather than leaving the caller to collapse
-    every possible answer to one value or re-derive which sub-check fired.
-    Recording it here, at the point each rung actually answers, is what keeps
-    AC8 ("distinct provenance value per drivable state") satisfiable without
-    growing a second copy of this ladder in `resolve_claude_klabauter_root_with_
-    provenance` — the two-ladder-divergence defect this whole seam exists to
-    prevent. `provenance` is `"none"` alongside a `None` root when nothing
-    resolves, matching `resolve_claude_klabauter_root_with_provenance`'s own terminal
-    value.
-
-    Was split out unchanged when a since-deleted engine-snapshot rung landed
-    ahead of it, so the live-tree ladder was one named thing the
-    class-reporting resolver could point at distinctly from that rung. Every
-    rung here answers "where is the checkout?"; the deleted rung answered
-    "which engine do I execute?" — a distinction worth keeping even with that
-    rung gone, because the forthcoming published-engine-mirror rung will draw
-    the same line again. Those two questions coincide only on a
-    co-development machine, which is why the divergence went unnoticed for as
-    long as it did.
-
-    Rung 1 here (the env-var loop below, provenance `"live-env-dup"`) is
-    ALSO checked, alone, ahead of the published-engine rung by
-    `_resolve_live_tree_env_override` — see that function's docstring for
-    why. This function's own rung 1 stays in place so the full 1-3 ladder is
-    still available to whatever reaches this function directly.
-
-    This rung deliberately does NOT apply rung 0's `coordinator_core/`
-    health guard, and the asymmetry is a decision, not an oversight. Rung 0
-    answers "which engine do I execute, by stated intent?" — a stated intent
-    that points at something which is not an engine checkout is refused, so
-    it cannot outrank a healthy published engine. This ladder answers a
-    different question: "where is the checkout?" Requiring `coordinator_core/`
-    here would redefine the locator itself, and the cross-plane conformance
-    fixture pins existing cases whose live trees are declared without one —
-    flipping their expected outcomes would be a CASE-SET amend against a
-    shared contract, in a chunk whose whole property is that no existing
-    case's expectation changes.
-
-    It was tried and measured, so the concrete harm is on record rather than
-    left as an argument from principle. Guarding this rung does not merely
-    relabel a rejected override: it makes the loop skip it, and control falls
-    through to rung 3's sibling walk, which on a conventional side-by-side
-    checkout resolves the REAL engine repo next door. The operator who set an
-    unhealthy override would silently get an unrelated live tree instead of
-    the one they named — strictly worse than the duplicate-label consequence
-    the guard was meant to prevent, and inconsistent with the rest of this
-    sub-ladder (the registry rung and the sibling walk have never carried a
-    health requirement either). The live-tree contract is "whatever is
-    actually there," not "whatever is healthy."
-
-    The consequence, stated plainly because it is the non-obvious part:
-    `"live-env-dup"` IS reachable through
-    `resolve_claude_klabauter_root_with_provenance`'s own call path, and became so
-    when rung 0 gained its health guard. A set-but-unhealthy override — an
-    existing directory with no `coordinator_core/` — is refused by rung 0,
-    falls through, and, when neither rung-2 disjunct fires, is answered here
-    instead, returning that same path under `"live-env-dup"` rather than
-    `"env-override"`. No concurrent env mutation is required. The provenance
-    split is what makes that visible: an operator seeing `"live-env-dup"`
-    through the full seam is being told the override was rejected upstream
-    and re-answered as a bare locator, which is exactly the diagnostic the
-    unhealthy case needs. A caller reaching this function directly (a test,
-    or a future caller that skips rung 0) sees the same rung with no health
-    filtering at all.
-
-    Rung 2, provenance `"live-registry"`: the machine-local registry's
-    `repos.claude_klabauter` key -- on this mirror that is the SAME
-    registry key the published-engine rung reads; the two-rung distinction
-    the engine-source plane preserves collapses to one key here.
-
-    NEGATIVE-SPEC — no pointer-file rung, and the reason is narrower than
-    "the file does not exist". `repos.claude_klabauter` is the sole carrier
-    of published-engine LOCATION, by joint ratification across the doctrine
-    and engine planes — see `state/memo-outbox/sent/klabauter-location-
-    belongs-in-the-registry-not-a-pointer-file.md`. What that ruling retired
-    is the pointer's LOCATION-CARRYING JOB, with the memo's stated
-    semantics: absent key → `None` → fall through to the sibling walk.
-
-    A settings-home pointer file of a similar name IS live on an engine box
-    and must not be read as a location rung. The engine's own resolver
-    keeps a zero-spawn perf cache at `<settings-home>/machine-local/` whose
-    published name collides with the retired one, and whose contract is the
-    opposite of a rung's: absence is a NORMAL fallback there, never a
-    failure. Reading it here would resolve a different repo's root under a
-    name that looks like this one's.
-
-    Same-name-different-job across a publish rename is the trap: a rung was
-    reintroduced here once on the strength of the name alone, and reverted
-    the same day. Do not restore it, and do not "repair" any inventory row
-    that FAILs on that file's absence — that row belongs to the engine's
-    perf cache, not to this ladder.
-
-    Rung 3, provenance `"sibling-walk"`: the last-resort directory-next-to-
-    this-repo walk — see `resolve_claude_klabauter_root`'s own negative-spec for why
-    it is kept despite its layout-specific fragility. The anchor is DERIVED
-    by walking upward from `__file__` to the nearest ancestor containing a
-    `.claude-plugin/` directory (`_find_plugin_root`), never by counting a
-    fixed number of `Path.parents[]` — a fixed-depth count is correct only
-    under the nested plugin layout (`<repo>/coordinator/hooks/scripts/`)
-    and is silently wrong under the flat mirror layout this file is ALSO
-    published into (`<repo>/hooks/scripts/`), where the plugin root IS the
-    repo root. Both layouts are probed: the sibling of the plugin root
-    itself (flat layout, where the plugin root is the repo root) and the
-    sibling of the plugin root's parent (nested layout, where the repo
-    root is one level above the plugin root) — the first that `is_dir()`
-    wins.
+    NEGATIVE-SPEC — an engine-source working tree is never inferred, from a
+    registry key, a sibling-checkout walk, a pointer file or an env var, and
+    the ladder does not consult this function. `repos.claude_klabauter` is the
+    sole carrier of published-engine LOCATION; a settings-home pointer file of
+    a similar name belongs to the engine's perf cache and must not be read here.
+    Callers that import this name degrade to "no live tree".
     """
-    for env in LIVE_TREE_ENV_VARS:
-        v = os.environ.get(env)
-        if v and Path(v).is_dir():
-            return v, "live-env-dup"
-
-    try:
-        reg_dir = _settings_home_registry_dir()
-        v = _registry_value(reg_dir, "repos.claude_klabauter")
-        if v and Path(v).is_dir():
-            return v, "live-registry"
-    except Exception:
-        pass
-
-    try:
-        plugin_root = _find_plugin_root(Path(__file__).resolve().parent)
-        if plugin_root is not None:
-            for sibling in (
-                plugin_root.parent / _CLAUDE_KLABAUTER_SIBLING_DIR_NAME,
-                plugin_root.parent.parent / _CLAUDE_KLABAUTER_SIBLING_DIR_NAME,
-            ):
-                if sibling.is_dir():
-                    return str(sibling), "sibling-walk"
-    except Exception:
-        pass
-
     return None, "none"
 
 
@@ -1773,7 +1497,9 @@ if __name__ == "__main__":
         print(_root)
         sys.exit(0)
     print(
-        "engine root unresolved: set registry key repos.claude_klabauter in "
+        "engine root unresolved: no stamped claude-klabauter engine is registered. "
+        "Fetch it (git clone https://github.com/dbc-oduffy/claude-klabauter), then set "
+        "registry key repos.claude_klabauter in "
         f"{_settings_home_registry_dir() / 'registry.local.toml'} "
         "(INSTALL.md § Step 1e)",
         file=sys.stderr,

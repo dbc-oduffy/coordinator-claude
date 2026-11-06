@@ -326,18 +326,17 @@ def _claude_klabauter_root_gate_empty_remediation(candidate: str, *, source: str
     (Rung 3) needs a remedy naming the candidate/source that actually failed,
     not a registry-set instruction unrelated to their problem.
     """
-    if source == "machine-local repos.claude_klabauter":
-        return _CLAUDE_KLABAUTER_ROOT_REMEDIATION
-    # foreign-identity: SUBJECT — remedy names the candidate/checkout the reader must
-    # confirm or register (machine-local set repos.claude_klabauter); the name is the fix.
+    # foreign-identity: SUBJECT — claude-klabauter is never an engine; the fix is a stamped published
+    # claude-klabauter, not registering a claude-klabauter checkout.
     return (
         f"cc_invoke: cannot resolve the engine root — candidate {candidate!r} (from {source}) "
-        "imported coordinator_core.engine_root but the gated ladder returned no root.\n"
-        "  Remediate (choose one):\n"
-        f"    Confirm {candidate!r} is a genuine, stamped claude-klabauter checkout.\n"
+        "imported coordinator_core.engine_root but the gated ladder returned no root "
+        "('unresolved').\n"
+        "ERROR: no published claude-klabauter engine; claude-klabauter is never an engine.\n"
+        "  Fetch it (choose one):\n"
+        "    git clone https://github.com/dbc-oduffy/claude-klabauter and run its setup\n"
         "    machine-local set repos.claude_klabauter /path/to/claude-klabauter\n"
-        "    python3 <claude-klabauter>/scripts/setup.py   (installs and registers the engine)\n"
-        "  Reference: plugins/coordinator-claude/coordinator/docs/wiki/machine-local-registry.md §4c"
+        "    set COORDINATOR_ENGINE_ROOT=<stamped engine path>"
     )
 
 

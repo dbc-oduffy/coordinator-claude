@@ -38,7 +38,7 @@ Spec backlinks:
 
 **Canonical env-var naming** — ratified in the `repo`/`repo-id` env-override-family decision under `docs/decisions/`:
 `REPO_CLAUDE_KLABAUTER` (registry key `repos.claude_klabauter`, in `<settings-home>/machine-local/registry.local.toml`) is the ratified canonical name for
-the engine-repo root override — new prose and invocations in this doc and elsewhere should
+the engine authoring-repo locator (never an engine selector: the engine is the published `claude-klabauter`) — new prose and invocations in this doc and elsewhere should
 teach `REPO_CLAUDE_KLABAUTER` first. `CLAUDE_KLABAUTER_ROOT` is retained forever as a readable legacy alias
 (that decision's ruling 2 —
 documentation-only, no rename, no removal schedule) and

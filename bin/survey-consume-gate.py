@@ -68,6 +68,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+INSTALL_CLASS = False  # read-only RAG registration probe; see door_install.declared_install_class
+
 _NO_CONSOLE: dict[str, Any] = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
 
 # The forward schema_version this consumer was written against — mirrors

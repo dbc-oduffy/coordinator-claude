@@ -67,6 +67,10 @@ never copying them; a test checks each named token is still declared there.
 browser or take a Playwright screenshot, at several widths, and Read the images. A review that rendered
 nothing says so.
 
+**A design-fidelity verify reads the external original**, or records the verify BLOCKED with the
+unreachable-original reason. A harvested record or local render is never its proxy. Tripwire:
+`A-DESIGN-VERIFY-READS-THE-EXTERNAL-ORIGINAL`.
+
 ## Review
 
 - **Reviewers read the committed source**, never the link: `staff-ux` for flow, `senior-front-end` for

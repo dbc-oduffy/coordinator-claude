@@ -219,6 +219,14 @@ Subagent imminent-compaction warning. Skips main sessions (no `agent_id`). Estim
 
 The hook also appends one row per WebSearch call (outcome `ok`) to the settings-home WebSearch ledger, main sessions included; contract: `coordinator/contract/websearch-ledger.md`.
 
+## PostToolUse · `mcp__project-rag__.*` · `project_rag_abort_banner.py`
+
+Enforcement leg of tripwire `A-PROJECT-RAG-MISS-ON-A-UE-FACT-ABORTS-NEVER-FALLS-BACK`: an empty `mcp__project-rag__*` retrieval result injects the ABORT banner so the in-file rule does not depend on the agent remembering it. Same script as the PostToolUseFailure registration below. Silent for non-retrieval tools (health, staleness, instructions), for a MetaHuman lookup made without `source=unreal_5.8_plugin` (wrong-source, retry), and whenever example-game-repo's own `project_rag_abort_banner` hook is registered (example-game-repo-control plugin `hooks/hooks.json`, or a user, project or local settings file), so the banner never fires twice. Always exits 0.
+
+## PostToolUseFailure · `mcp__project-rag__.*` · `project_rag_abort_banner.py`
+
+The failed-call half of the registration above: every failed `mcp__project-rag__*` call injects the ABORT banner quoting the call and its error, under the same exemptions and example-game-repo stand-down.
+
 ## PostToolUseFailure · `*` · `postusefailure-cross-repo-memo-remediate.py`
 
 Register entry #17. Fires only for a hard tool failure carrying a top-level `error` key (confirmed: Bash non-zero exit, Read on a missing path). Narrowed in-script to Bash exit-127 commands naming cross-repo-memo; every other failure passes through silently.

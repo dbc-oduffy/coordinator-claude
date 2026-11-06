@@ -28,6 +28,11 @@ from typing import Callable, Optional
 PROG = "box-memory-snapshot"
 _LIB = Path(__file__).resolve().parent / "lib"
 _UNAVAILABLE = "unavailable"
+_READ_FIELDS = ("available_gib", "commit_used_gib", "system_cache_ws_gib", "nonpaged_pool_gib", "top_consumers")
+_FAILED_READ_NOTE = (
+    "a failed read is not evidence of a kernel leak; memory reads fail under commit exhaustion. "
+    "Read process_counts: a runaway python/conhost count is the leading signal."
+)
 
 
 def _load(name: str):
@@ -81,11 +86,49 @@ def _top_consumers_table(proc_table_fn: Callable, cmdline_fn: Callable, top: int
     ]
 
 
-def build_snapshot(status, nonpaged_fn, cache_host_fn, consumers_fn: Callable, top: int) -> dict:
+_COUNTED = ("python", "conhost")
+
+
+def _psutil_image_names() -> list:
+    import psutil
+
+    return [p.info["name"] or "" for p in psutil.process_iter(["name"])]
+
+
+def _image_stem(name: str) -> str:
+    low = name.lower()
+    low = low[:-4] if low.endswith(".exe") else low
+    return "python" if low.startswith("python") else low
+
+
+def _process_counts(table_fn: Optional[Callable], names_fn: Callable) -> Optional[dict]:
+    """Per-image counts (python, conhost): the process table first, then psutil; None if both fail.
+
+    In-process reads only: a spawn is the read most likely to fail under commit exhaustion.
+    """
+    names = None
+    if table_fn is not None:
+        rows = _try(table_fn)
+        if rows is not None:
+            names = [getattr(r, "image", "") or "" for r in rows]
+            if not any(names):  # a table without image names is no count
+                names = None
+    if names is None:
+        names = _try(names_fn)
+    if names is None:
+        return None
+    stems = [_image_stem(n) for n in names]
+    return {k: stems.count(k) for k in _COUNTED}
+
+
+def build_snapshot(
+    status, nonpaged_fn, cache_host_fn, consumers_fn: Callable, top: int, counts_fn: Optional[Callable] = None
+) -> dict:
     cache = _try(lambda: cache_host_fn().read_memory())
     nonpaged = _try(nonpaged_fn)
     consumers = _try(lambda: consumers_fn(top))
-    return {
+    counts = _try(counts_fn) if counts_fn else None
+    snap = {
         "available_gib": _gib(status.avail_phys) if status else _UNAVAILABLE,
         "commit_used_gib": _gib(status.commit_used) if status else _UNAVAILABLE,
         "commit_limit_gib": _gib(status.commit_limit) if status else _UNAVAILABLE,
@@ -93,7 +136,12 @@ def build_snapshot(status, nonpaged_fn, cache_host_fn, consumers_fn: Callable, t
         "standby_gib": _gib(cache.standby_bytes) if cache else _UNAVAILABLE,
         "nonpaged_pool_gib": _gib(nonpaged) if nonpaged is not None else _UNAVAILABLE,
         "top_consumers": consumers if consumers is not None else _UNAVAILABLE,
+        "process_counts": counts if counts is not None else _UNAVAILABLE,
     }
+    failed = [k for k in _READ_FIELDS if snap[k] == _UNAVAILABLE]
+    if failed:
+        snap["note"] = _FAILED_READ_NOTE
+    return snap
 
 
 def _render(snap: dict) -> str:
@@ -104,6 +152,13 @@ def _render(snap: dict) -> str:
         f"Standby:          {snap['standby_gib']} GiB",
         f"Nonpaged pool:    {snap['nonpaged_pool_gib']} GiB",
     ]
+    pc = snap["process_counts"]
+    if pc == _UNAVAILABLE:
+        lines.append(f"Process counts:   {_UNAVAILABLE}")
+    else:
+        lines.append("Process counts:   " + "  ".join(f"{k}={v}" for k, v in pc.items()))
+    if "note" in snap:
+        lines.append(f"Note:             {snap['note']}")
     top = snap["top_consumers"]
     if top == _UNAVAILABLE:
         lines.append(f"Top consumers:    {_UNAVAILABLE}")
@@ -151,6 +206,7 @@ def main(
     image_fn: Optional[Callable] = None,
     proc_table_fn: Optional[Callable] = None,
     cmdline_fn: Optional[Callable] = None,
+    names_fn: Optional[Callable] = None,
 ) -> int:
     parser = argparse.ArgumentParser(prog=PROG, description="One-screen box memory snapshot.")
     parser.add_argument("--top", type=int, default=10, help="top N consumers (default 10)")
@@ -183,7 +239,7 @@ def main(
     plat = platform if platform is not None else sys.platform
     if plat not in ("win32", "darwin"):
         return host.unsupported(PROG, plat, "reads Windows or macOS memory counters")
-    if governor is None and proc_table_fn is None:
+    if governor is None and proc_table_fn is None and names_fn is None:
         missing = host.require_psutil(PROG)
         if missing is not None:
             return missing
@@ -196,6 +252,7 @@ def main(
     else:
         nonpaged_fn = nonpaged_fn or host.nonpaged_pool_bytes
         cache_host_fn = cache_host_fn or _load_cache_host
+    table_fn = None
     if plat == "win32":
         table_fn = proc_table_fn or host.proc_table
         cmd_fn = cmdline_fn or host.proc_cmdline
@@ -205,7 +262,8 @@ def main(
         consumers_fn = lambda top: _top_consumers_gov(gov_fn(), top)
 
     status = _try(status_fn)
-    snap = build_snapshot(status, nonpaged_fn, cache_host_fn, consumers_fn, args.top)
+    counts_fn = lambda: _process_counts(table_fn, names_fn or _psutil_image_names)
+    snap = build_snapshot(status, nonpaged_fn, cache_host_fn, consumers_fn, args.top, counts_fn)
     code = 0
     admit_line = None
     reserved_kw = {
