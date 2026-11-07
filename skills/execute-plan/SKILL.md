@@ -28,6 +28,8 @@ Executors are always Sonnet; self-execute only on a named token-economics carve-
 
 ---
 
+On a corpus-required UE run, `coordinator:docs-checker` runs on the enriched plan and on the diff before Opus review, no EM skip; a no-op without project-rag or UE work.
+
 ## Phase 1: Load, Authorize, Review
 
 0. **One box per plan**, claimed before execute; another box's claim stops

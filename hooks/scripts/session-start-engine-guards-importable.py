@@ -55,11 +55,15 @@ def probe() -> List[Tuple[str, str]]:
 
 
 def banner(failures: List[Tuple[str, str]]) -> str:
-    lines = "\n".join(f"  - {mod}: {why}" for mod, why in failures)
+    """One line per distinct reason, naming every module that shares it (an unresolvable engine root
+    fails all modules for one reason, so the banner stays small on the resume/fork byte cap)."""
+    by_reason: dict = {}
+    for mod, why in failures:
+        by_reason.setdefault(why, []).append(mod)
+    lines = "\n".join(f"  - {why}: {', '.join(mods)}" for why, mods in by_reason.items())
     return (
-        "ENGINE GUARDS UNIMPORTABLE: these coordinator guards cannot load their engine module, so "
-        "each passes every call unchecked (a loud pass per dispatch, never a deny) until the import "
-        "is repaired:\n" + lines
+        "ENGINE GUARDS UNIMPORTABLE: these guards cannot load their engine module and pass every "
+        "call unchecked (a loud pass, never a deny) until the import is repaired:\n" + lines
     )
 
 

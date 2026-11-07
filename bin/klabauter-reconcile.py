@@ -122,7 +122,11 @@ def _git(repo: Path, *args: str) -> subprocess.CompletedProcess:
 
 def _on_rm_error(func, path, exc):
     del exc
-    Path(path).chmod(stat.S_IWRITE)
+    p = Path(path)
+    if sys.platform == "win32":
+        p.chmod(stat.S_IWRITE)
+    elif not p.is_symlink():
+        p.chmod(stat.S_IMODE(p.lstat().st_mode) | (0o700 if p.is_dir() else 0o200))
     func(path)
 
 

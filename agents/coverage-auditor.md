@@ -4,7 +4,7 @@ executes-rows: false
 description: "Fresh-eyes check of specialist claims against a finished synthesis: present/absent."
 model: sonnet
 effort: low
-tools: ["Read", "Grep", "Glob", "Write", "Edit", "Bash", "PowerShell", "ToolSearch", "mcp__gemini-notebook-mcp__notebook_query", "mcp__gemini-notebook-mcp__cross_notebook_query", "mcp__gemini-notebook-mcp__notebook_list"]
+tools: ["Read", "Grep", "Glob", "Write", "Edit", "Bash", "PowerShell", "ToolSearch", "mcp__gemini-notebook-mcp__notebook_query", "mcp__notebooklm-mcp__notebook_query", "mcp__gemini-notebook-mcp__cross_notebook_query", "mcp__notebooklm-mcp__cross_notebook_query", "mcp__gemini-notebook-mcp__notebook_list", "mcp__notebooklm-mcp__notebook_list"]
 color: yellow
 access-mode: read-write
 ---
@@ -58,7 +58,7 @@ a lossy extraction of actual notebook content.
 
 ### D-Only: MCP Bootstrap
 
-1. `ToolSearch("select:mcp__gemini-notebook-mcp__notebook_query,mcp__gemini-notebook-mcp__cross_notebook_query,mcp__gemini-notebook-mcp__notebook_list")`
+1. `ToolSearch("select:mcp__gemini-notebook-mcp__notebook_query,mcp__gemini-notebook-mcp__cross_notebook_query,mcp__gemini-notebook-mcp__notebook_list,mcp__notebooklm-mcp__notebook_query,mcp__notebooklm-mcp__cross_notebook_query,mcp__notebooklm-mcp__notebook_list")`
 2. No results → `ToolSearch("+notebooklm notebook_query", max_results=5)`, use whatever names it returns.
 3. Both empty → MCP unavailable: proceed on `{letter}-claims.json` only, and prepend this note to the sidecar header:
 

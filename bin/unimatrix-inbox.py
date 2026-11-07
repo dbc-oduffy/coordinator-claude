@@ -23,9 +23,11 @@ import glob
 import importlib.util
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 IS_WIN = sys.platform == "win32"
@@ -105,19 +107,42 @@ def inject_port(frame):
     return DEFAULT_PORT
 
 
-def localize(frame, line):
-    # The local receiver drops a reply address outside its own namespace, so a far
-    # socket path becomes the local mirror endpoint that reaches the same session.
+def _readdress(frame, src, new):
+    """Point `frame` and its cross-session-message `from=` attribute at `new` (a full address string)."""
+    frame["from"] = new
+    if isinstance(frame.get("message"), dict):
+        c = frame["message"]["content"]
+        frame["message"]["content"] = c.replace(f'from="uds:{src}"', f'from="{new}"', 1)
+    return json.dumps(frame).encode() + b"\n"
+
+
+def _from_name(frame):
+    m = frame.get("message")
+    found = re.search(r'from-name="([^"]+)"', m.get("content", "")) if isinstance(m, dict) else None
+    return found.group(1) if found else None
+
+
+def localize(frame, line, box=None):
+    """Rewrite a far `from` to an address the local receiver can reply to.
+
+    A mirror holding the sender's far socket wins. Failing that, the mirror of the same
+    session found by `from-name` (the far socket can be a cc-msg path no mirror lists).
+    Failing that, the name-and-box label replaces the far /tmp/cc-socks path: a label, not an endpoint,
+    and not proven replyable by the receiver. A frame with no from-name or no box is left as is.
+    """
     src = str(frame.get("from", "")).removeprefix("uds:")
-    for d in _mirrors():
+    mirrors = list(_mirrors())
+    for d in mirrors:
         if d.get(FAR_SOCKET_FIELD) == src:
-            local = d["messagingSocketPath"]
-            frame["from"] = "uds:" + local
-            if isinstance(frame.get("message"), dict):
-                c = frame["message"]["content"]
-                frame["message"]["content"] = c.replace(f'from="uds:{src}"', f'from="uds:{local}"', 1)
-            return json.dumps(frame).encode() + b"\n"
-    return line
+            return _readdress(frame, src, "uds:" + d["messagingSocketPath"])
+    name = _from_name(frame)
+    if not name:
+        return line
+    want = f"{name}.{box}" if box else name
+    for d in mirrors:
+        if d.get(FAR_SOCKET_FIELD) and d.get("name") == want and d.get("messagingSocketPath"):
+            return _readdress(frame, src, "uds:" + d["messagingSocketPath"])
+    return _readdress(frame, src, want) if box else line
 
 
 def registration_payload(entry, key):
@@ -126,6 +151,14 @@ def registration_payload(entry, key):
     The relay names the key file itself, so nothing but the entry and the key is sent.
     """
     return json.dumps(json.loads(entry)).encode() + b"\n" + key.encode() + b"\n"
+
+
+def log_far_stderr(stream):
+    """Why did the far `inbox` refuse or die: copy its stderr (the refusal reason) into the log."""
+    for raw in stream:
+        text = raw.decode("utf-8", "replace").rstrip()
+        if text:
+            log.write(f"far: {text}\n")
 
 
 def main(argv=None):
@@ -141,7 +174,9 @@ def main(argv=None):
     remote = pick_remote(a.remote, a.tunnel_remote)
     p = subprocess.Popen(["ssh", "-i", a.key, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", "-o", "ServerAliveInterval=30",
                           remote, f"inbox {a.name}"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                         creationflags=flags)
+                         stderr=subprocess.PIPE, creationflags=flags)
+    far_err = threading.Thread(target=log_far_stderr, args=(p.stderr,), daemon=True)
+    far_err.start()
     # The key goes over ssh stdin only, never argv or the log.
     p.stdin.write(registration_payload(entry, key))
     p.stdin.flush()
@@ -160,7 +195,7 @@ def main(argv=None):
             auth = line  # belongs to the frame on the next line
             continue
         if a.deliver_endpoint:
-            line = localize(frame, line)
+            line = localize(frame, line, str(a.remote).rpartition("@")[2])
             log.write(f"<< {a.deliver_endpoint} {line!r}\n")
             try:
                 write_local(a.deliver_endpoint, auth + line)
@@ -176,7 +211,9 @@ def main(argv=None):
         except OSError as e:
             log.write(f"handoff failed: {e}\n")
         auth = b""
-    log.write(f"inbox ended rc={p.wait()}\n")
+    rc = p.wait()
+    far_err.join(timeout=2)
+    log.write(f"inbox ended rc={rc}\n")
 
 
 if __name__ == "__main__":

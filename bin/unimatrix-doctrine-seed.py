@@ -6,7 +6,7 @@ is never touched.
 
 Surfaces: a managed coordinator-doctrine block in a host rules file under a byte cap (Codex
 `project_doc_max_bytes` 32768, agy 24000); agy `skills.json` `entries[]` path entries; Codex user
-skills at `$HOME/.agents/skills/<skill>/SKILL.md` (not moved by CODEX_HOME), one symlink per skill
+skills at SKILL.md under each skill's folder in the home directory's .agents/skills (not moved by CODEX_HOME), one symlink per skill
 (a copy where the symlink is refused) with a sibling `<skill>.coordinator-managed` marker that
 uninstall requires before removing anything.
 """

@@ -18,7 +18,9 @@ Three independent pre-flight checks beyond the diff freeze. Each fires or skips 
 
 - _Code cites C++ or Unreal Engine APIs?_
   → `docs-checker` is auto-provisioned its `assessment`-typed sidecar at spawn (`state/subagent-share/<session>/<provision_key>.md`) — no manual pre-scaffold. Dispatch it; it writes findings to its provisioned path and returns the pointer.
-  → Mandatory dispatch of `docs-checker`. Other external APIs are EM judgment; in-repo-only skips.
+  → Mandatory dispatch of `docs-checker`. Other external APIs are EM judgment; in-repo-only skips, except on a UE run.
+- _UE run with project-rag installed (`unreal` signal, or repo declares `project_type: unreal-engine`)?_
+  → **Mandatory**, no EM skip, in-repo-only and pure-prose diffs included; overrides the in-repo-only skip. No-op without project-rag, and the other rules then apply; a `project_type: unreal-engine` repo still always runs.
   _See `coordinator/docs/wiki/reviewer-pipeline/docs-checker-pre-review.md` for the full row table._
 
 **Check 3 — Test evidence (`weekly-gate-tests.py`)**

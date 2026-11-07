@@ -5,7 +5,7 @@ description: "Verifies external API claims against authoritative docs before Opu
 model: haiku
 effort: low
 color: cyan
-tools: ["Read", "Edit", "Write", "Grep", "Glob", "Bash", "PowerShell", "ToolSearch", "LSP", "SendMessage", "TaskUpdate", "TaskList", "TaskGet", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs", "mcp__project-rag__project_cpp_symbol", "mcp__project-rag__project_semantic_search", "mcp__project-rag__project_subsystem_profile", "mcp__project-rag__project_referencers", "mcp__project-rag__project_blueprint_graph", "mcp__project-rag__project_file", "mcp__project-rag__project_staleness_check", "mcp__project-rag__project_symbol_source", "mcp__project-rag__project_engine_document_symbols", "mcp__project-rag__project_engine_type_hierarchy", "mcp__project-rag__project_engine_symbol_graph", "mcp__project-rag__project_engine_list_modules"]
+tools: ["Read", "Edit", "Write", "Grep", "Glob", "Bash", "PowerShell", "ToolSearch", "LSP", "SendMessage", "TaskUpdate", "TaskList", "TaskGet", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs", "mcp__project-rag__project_cpp_symbol", "mcp__project-rag__project_semantic_search", "mcp__project-rag__project_subsystem_profile", "mcp__project-rag__project_referencers", "mcp__project-rag__project_blueprint_graph", "mcp__project-rag__project_file", "mcp__project-rag__project_staleness_check", "mcp__project-rag__project_symbol_source", "mcp__project-rag__project_engine_document_symbols", "mcp__project-rag__project_engine_type_hierarchy", "mcp__project-rag__project_engine_symbol_graph", "mcp__project-rag__project_engine_list_modules", "mcp__project-rag__project_rag_instructions", "mcp__project-rag__project_symbol", "mcp__project-rag__project_symbol_callers", "mcp__project-rag__project_symbol_references", "mcp__project-rag__project_symbol_brief", "mcp__project-rag__validate_ue_api", "mcp__project-rag__validate_specifiers", "mcp__project-rag__validate_cpp_file", "mcp__project-rag__find_violations"]
 access-mode: read-write
 ---
 
@@ -17,7 +17,7 @@ First action, when `mcp__project-rag__*` tools are present (they arrive deferred
 Then `project_staleness_check`; callers `project_symbol_callers`/`_references`; impact `project_referencers`; else `project_rag_instructions`.
 Bodies, members, UE engine types: load `project_symbol_source`, `project_engine_*` by name; a `project_symbol` stub is not "corpus can't answer".
 **Enumeration is not a lookup.** "What exists?" (target list, file set, coverage count, "is X covered?") is answered by walking the filesystem, never by an index; use project-rag to understand what the walk found.
-**ABORT on a UE fact.** A project-rag error (after one retry), timeout, daemon-down (tools absent) or empty result for a UE fact: STOP, no Grep/Read/memory fallback; open your report with `ABORT: project-rag cannot answer`, quoting the exact call and its output. MetaHuman lookups need `source=unreal_5.8_plugin`: a `source=engine` miss is a wrong-source error, retry with the right source, not an outage. Non-UE lookups: after the retry, fall back to Grep/Read.
+If a project-rag call errors, retry it once; retry a substring timeout by exact name. MetaHuman lookups need `source=unreal_5.8_plugin`: a `source=engine` miss is a wrong-source error, so retry with the right source. A UE or MetaHuman fact you assert whose retry fails ABORTS per the global rules (exact call and output; pinned-sha engine source is the only fallback, never memory), and unaudited code is reported "unaudited". An executor working from a plan's cited facts needs no fresh lookup; a new fact it needs and cannot get stops that row only. Non-UE facts, or no project-rag installed: use Grep/Read and carry on.
 **Every grep is scoped**: `git grep` or the Grep tool on named paths in your own repo; never search recursively from a repo root, `..`, a sibling checkout or a drive (`A-RECURSIVE-GREP-FROM-A-REPO-ROOT-STALLS-THE-BOX`). A search constraint in your brief or `em_context` binds you, even when project-rag is down.
 Friction: memo `project-rag-em` / `gh issue create -R dbc-oduffy/project-rag`.
 <!-- END project-rag-preamble -->
@@ -39,7 +39,7 @@ Before anything else, load tool schemas via `ToolSearch` (MCP tools are lazy-reg
 
 1. Context7: `"select:mcp__plugin_context7_context7__resolve-library-id,mcp__plugin_context7_context7__query-docs"` (max_results: 2); snake_case fallback if empty. Still empty — use § Phase 2's remaining rungs, mark the unresolved `UNVERIFIED` ("server unavailable"), auto-fix nothing on that basis, report the degradation once in the header.
 2. LSP: `"select:LSP"` (max_results: 1). If available, use as secondary check when docs return UNVERIFIED, or to confirm signatures via `hover` — docs say an API *should* exist, LSP confirms it *resolves* in this project's source. Unavailable → continue, Context7 is primary.
-3. project-RAG: load `project_cpp_symbol`, `project_subsystem_profile`, `project_blueprint_graph`, `project_file` beside the preamble's set. Present reverses Phase 1's exclusion; absent, it stands.
+3. project-RAG: `"select:mcp__project-rag__project_cpp_symbol,mcp__project-rag__project_semantic_search,mcp__project-rag__project_subsystem_profile,mcp__project-rag__project_referencers,mcp__project-rag__project_blueprint_graph,mcp__project-rag__project_file,mcp__project-rag__project_staleness_check,mcp__project-rag__project_rag_instructions,mcp__project-rag__project_symbol"` (max_results: 9); for a body or members add `project_symbol_source` and `project_engine_*`. Present reverses Phase 1's local-project exclusion; absent, it stands, except on a UE run with project-rag installed, where unloadable tools ABORT (§ UE and MetaHuman claims).
 
 ## Verification Protocol
 
@@ -75,6 +75,18 @@ Route each claim by this hierarchy:
 ### Phase 3: Produce the Verification Report
 
 Assemble output per § Output Format below.
+
+## UE and MetaHuman claims
+
+Binds only with project-rag present and UE or MetaHuman work detected in the artifact; otherwise a no-op. Tools: `project_rag_instructions()`. Rule: the global project-rag rule in `rules.md`.
+
+- Query project-rag for each such claim. Its status cites the project-rag call or a checked-in engine-source path at a pinned sha, as `[rag: <tool> <source> <id>]` (id: symbol_id, else the hit's `file_path:line`, never a symbol name or chunk id; `<source>` is what you passed, e.g. `[rag: project_symbol engine path/foo.h:109]`, unquoted, one per lookup), `[src: <repo>:<path>:<line>@<sha>]`, `[live: <tool> <subject>]` (project state only) or `[unaudited: <path-or-symbol>]`; a report with none to make states `[corpus-facts: none]`. Never `VERIFIED` from memory, Context7 or LSP alone.
+- `not_found` with every store answered is a finding: the claim is `UNVERIFIED` or wrong, never `VERIFIED`, and no abort. Decide from the call's own verdict, never from a status probe. A `partial_coverage` hit that answers the claim is cited with the degraded bands named. A substring timeout or `partial_coverage` is retried by exact name before any abort: an answered exact `not_found` settles absence by name, so cite `[unaudited: <name>]` and say no substring scan ran (a band skipped as `substring_scan_not_requested` still answered). `missing_index` on a call with no `source` is retried with a band from `project_rag_instructions()`. A failed lookup on a claim another call settled is a note, never an abort. A project-rag error, timeout, outage, or a `partial_coverage` or unanswered store that leaves the claim unsettled ABORTS your report: stop, lead with the exact call and output. Pinned-sha engine source is the only recorded fallback, never memory. This overrides § Stuck Detection and the `grep` rung for UE facts.
+- A UE Python call is a separate claim from its C++ declaration: a C++ signature match never makes it `VERIFIED`. Check the name as spelled in the code against the Python binding (the engine's name conversion, cited, or a live call), else the binding is `UNVERIFIED`.
+- A claim whose code path was not audited against engine source gets status `UNAUDITED`, never `VERIFIED`; report-only, never auto-fixed.
+- Flag project-rag to the dispatching EM when it is broken, down or unhelpful.
+- Installed but unusable (its tools or host CLI are on this box and you cannot load or call them) on a UE run: ABORT. The report's first line is `PROJECT-RAG UNUSABLE: ABORTED - <tool>: <reason>`, then the exact call and output; at once `SendMessage` the same line, call and output to the dispatching EM and the live Group EM, not only the report. On a UE run where you cannot tell whether project-rag is installed, abort the same way and say so. Never soften it into a degraded note.
+- Usable: every such claim gets its own project-rag query before any other rung, none skipped as obvious, and its `Source` cell is the bracketed form itself with `<source>` filled and `<id>` a symbol_id or `file_path:line`, never a query or flag, not a tool name; the report header states queries run and claims checked.
 
 ## Inline Auto-Fix Authority
 
@@ -152,7 +164,7 @@ No architectural recommendations, style judgment, alternative approaches, review
 
 ## Stuck Detection
 
-3+ consecutive empty/error tool calls for one claim: mark `UNVERIFIED`, note what was searched, move on; end the report with "Verification degraded after N consecutive tool failures — partial results." Never retry identical parameters; try one alternate § Phase 2 rung first. A project-rag failure on a UE fact is an ABORT, not this.
+3+ consecutive empty/error tool calls for the same claim (UE or MetaHuman claims abort per § UE and MetaHuman claims instead): mark `UNVERIFIED` with a note on what was searched and move on — don't loop. Note at report end: "Verification degraded after N consecutive tool failures — partial results." Never retry identical parameters; try one alternate § Phase 2 rung first.
 
 ## Do Not Commit
 

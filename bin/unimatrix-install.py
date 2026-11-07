@@ -42,8 +42,12 @@ VENDORED_SCRIPTS = (
     "unimatrix-host-guard.py",
     "unimatrix-doctrine-seed.py",
     "unimatrix-autolink.py",
+    "unimatrix-liveness.py",
     "unimatrix-mirror-all.py",
     "unimatrix-reshape.py",
+    "unimatrix-membership.py",
+    "unimatrix-doctor.py",
+    "unimatrix-pair.py",
 )
 
 AUTOLINK_SCRIPT = "unimatrix-autolink.py"
@@ -55,6 +59,8 @@ AGY_SESSIONSTART_SCRIPT = "unimatrix-agy-hook-sessionstart.py"
 CODEX_SESSIONSTART_SCRIPT = "unimatrix-codex-hook-sessionstart.py"
 GUARD_SCRIPT = "unimatrix-host-guard.py"
 DOCTRINE_SEED_SCRIPT = "unimatrix-doctrine-seed.py"
+PLUGIN_GEN_SCRIPT = "unimatrix-plugin-gen.py"
+AGY_PLUGIN_TREE_DIR = "agy-plugin"
 CODEX_SHELL_MATCHER = "Bash"
 HOST_NAMES = ("claude", "codex", "agy")
 
@@ -158,7 +164,7 @@ def forced_command_interpreter():
     Homebrew python3 wins over sys.executable when one exists."""
     if sys.platform == "darwin":
         for cand in HOMEBREW_PYTHONS:
-            if os.path.isfile(cand) and os.access(cand, os.X_OK):
+            if os.path.isfile(cand) and os.name == "posix" and os.access(cand, os.X_OK):
                 return cand
     return sys.executable
 
@@ -585,6 +591,51 @@ def _autolink_argv(dest_dir):
     return [sys.executable, str(Path(dest_dir) / AUTOLINK_SCRIPT)]
 
 
+RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+
+
+def _winreg():
+    import winreg
+    return winreg
+
+
+def _windows_run_command(dest_dir):
+    """Autolink command line for the HKCU Run value; pythonw.exe beside the interpreter keeps it windowless."""
+    argv = _autolink_argv(dest_dir)
+    pythonw = Path(argv[0]).with_name("pythonw.exe")
+    if pythonw.is_file():
+        argv[0] = str(pythonw)
+    return subprocess.list2cmdline(argv)
+
+
+def _delete_run_value():
+    """Delete the HKCU Run value; True when one was there."""
+    wr = _winreg()
+    try:
+        with wr.OpenKey(wr.HKEY_CURRENT_USER, RUN_KEY, 0, wr.KEY_SET_VALUE) as key:
+            wr.DeleteValue(key, LOGIN_TASK_NAME)
+    except FileNotFoundError:
+        return False
+    return True
+
+
+def _delete_login_task(schtasks=None, strict=False):
+    """Delete a legacy scheduled task of the old registration; True when one was removed.
+
+    Best effort unless strict, where a found task that will not delete raises OSError.
+    """
+    run = schtasks or run_schtasks
+    found = run("/Query", "/TN", LOGIN_TASK_NAME)
+    if found is None or found.returncode != 0:
+        return False
+    proc = run("/Delete", "/TN", LOGIN_TASK_NAME, "/F")
+    if proc is None or proc.returncode != 0:
+        if strict:
+            raise OSError(f"schtasks /Delete {LOGIN_TASK_NAME} failed")
+        return False
+    return True
+
+
 def _login_agent_text(dest_dir):
     """Bytes of the login-agent file for this OS: a RunAtLoad plist or a oneshot systemd unit. No restart, no interval."""
     argv = _autolink_argv(dest_dir)
@@ -605,18 +656,20 @@ def _login_agent_paths(agent_dir):
 def register_login_agent(dest_dir, agent_dir=None, schtasks=None):
     """Register one run-once-at-login agent for the installed autolink; return (state, where).
 
-    state is "created", "updated" or "present" (plist / systemd unit), "registered" (Task Scheduler,
-    `/F` overwrites in place), or "skipped" (no login-agent mechanism here, or schtasks failed).
+    state is "created", "updated" or "present" (plist / systemd unit), "registered" (Windows HKCU Run value,
+    needs no elevation; overwritten in place and any legacy scheduled task removed), or "skipped"
+    (no login-agent mechanism here, or the registry write failed).
     Plain file writes on macOS and Linux: picked up at next login, no process spawned.
     """
     if sys.platform == "win32":
-        run = schtasks or run_schtasks
-        proc = run("/Create", "/TN", LOGIN_TASK_NAME, "/SC", "ONLOGON", "/RL", "LIMITED",
-                   "/TR", subprocess.list2cmdline(_autolink_argv(dest_dir)), "/F")
-        if proc is None or proc.returncode != 0:
-            detail = "schtasks.exe could not be launched" if proc is None else (proc.stderr or proc.stdout or "").strip()
-            return "skipped", f"schtasks /Create failed: {detail}"
-        return "registered", f"scheduled task {LOGIN_TASK_NAME}"
+        try:
+            wr = _winreg()
+            with wr.CreateKeyEx(wr.HKEY_CURRENT_USER, RUN_KEY, 0, wr.KEY_SET_VALUE) as key:
+                wr.SetValueEx(key, LOGIN_TASK_NAME, 0, wr.REG_SZ, _windows_run_command(dest_dir))
+        except OSError as exc:
+            return "skipped", f"HKCU Run value write failed: {exc}"
+        _delete_login_task(schtasks)
+        return "registered", f"HKCU Run value {LOGIN_TASK_NAME}"
     root = Path(agent_dir) if agent_dir else login_agent_dir()
     if root is None:
         return "skipped", f"no login agent for platform {sys.platform!r}"
@@ -637,14 +690,9 @@ def register_login_agent(dest_dir, agent_dir=None, schtasks=None):
 def unregister_login_agent(agent_dir=None, schtasks=None):
     """Remove the login agent; return "removed" or "absent" (absence is not an error)."""
     if sys.platform == "win32":
-        run = schtasks or run_schtasks
-        found = run("/Query", "/TN", LOGIN_TASK_NAME)
-        if found is None or found.returncode != 0:
-            return "absent"
-        proc = run("/Delete", "/TN", LOGIN_TASK_NAME, "/F")
-        if proc is None or proc.returncode != 0:
-            raise OSError(f"schtasks /Delete {LOGIN_TASK_NAME} failed")
-        return "removed"
+        value = _delete_run_value()
+        task = _delete_login_task(schtasks, strict=True)
+        return "removed" if value or task else "absent"
     root = Path(agent_dir) if agent_dir else login_agent_dir()
     if root is None:
         return "absent"
@@ -677,6 +725,35 @@ def _seed():
     return _SEED_MODULE
 
 
+def _plugin_gen():
+    """The plugin-tree generator module, loaded from beside this file."""
+    spec = importlib.util.spec_from_file_location("unimatrix_plugin_gen", _BIN_DIR / PLUGIN_GEN_SCRIPT)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _write_agy_plugin_tree(args, out, dest=None):
+    """Generate the agy plugin tree from --plugin-root (or PLUGIN_ROOT) into --out (or <dest>/agy-plugin).
+
+    `dest` defaults to <settings home>/unimatrix. True when written; a generator OSError/ValueError
+    prints WARN and returns False, never raises.
+    """
+    plugin_root = Path(args.plugin_root) if args.plugin_root else PLUGIN_ROOT
+    tree = Path(args.out) if args.out else (dest or settings_home() / "unimatrix") / AGY_PLUGIN_TREE_DIR
+    if not args.out and not plugin_root.is_dir():
+        print(f"NOTE: agy plugin tree skipped: plugin root {plugin_root} not found (name one with --plugin-root)", file=out)
+        return True
+    try:
+        report = _plugin_gen().generate(plugin_root, tree, "agy")
+    except (OSError, ValueError) as exc:
+        print(f"WARN: agy plugin tree not written: {exc}", file=out)
+        return False
+    print(f"agy plugin tree written {len(report['written'])} files in {tree}; "
+          f"unmapped {len(report['unmapped'])} (see {tree / 'UNMAPPED.json'})", file=out)
+    return True
+
+
 def _split_block(text):
     """Return (before, after) around our peer-doctrine block, or None when absent."""
     return _seed().split_block(text, DOCTRINE_BEGIN, DOCTRINE_END)
@@ -695,9 +772,14 @@ def unseed_peer_doctrine(path):
     return _seed().unseed_block(path, DOCTRINE_BEGIN, DOCTRINE_END)
 
 
-def doctrine_root():
-    """The directory holding global-doctrine/, or None when this install does not carry it."""
-    for root in (PLUGIN_ROOT.parent, PLUGIN_ROOT):
+def doctrine_root(plugin_root=None):
+    """The directory holding global-doctrine/, or None when this install does not carry it.
+
+    A named `plugin_root` replaces this script's own location as the search base. A flat published
+    checkout keeps the tree under `templates/`, beside or inside the base.
+    """
+    base = Path(plugin_root) if plugin_root else PLUGIN_ROOT
+    for root in (base.parent, base, base.parent / "templates", base / "templates"):
         if (root / "global-doctrine" / "CLAUDE.md").is_file():
             return root
     return None
@@ -875,7 +957,12 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
                     "Naming no claude skips the gate when `claude` is not on PATH")
     ap.add_argument("--pair", metavar="ALIAS", help="mint or read the pair key for a far box and print its "
                     "authorized_keys line and ssh config block")
+    ap.add_argument("--plugin-root", metavar="DIR", help="seed Codex and agy doctrine and skills from this plugin "
+                    "root (doctrine in DIR.parent or DIR, skills in DIR/skills) instead of this script's own location")
+    ap.add_argument("--out", metavar="DIR", help="write the agy plugin tree (translated plugin source) into DIR; "
+                    f"default under --install: <settings home>/unimatrix/{AGY_PLUGIN_TREE_DIR}")
     args = ap.parse_args(argv)
+    skills_root = Path(args.plugin_root) / "skills" if args.plugin_root else SKILLS_ROOT
     if args.pair is not None:
         try:
             priv, body = pair_key(args.pair, run=pair_run or subprocess.run)
@@ -883,7 +970,13 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
             print(f"REFUSE: {exc}", file=out)
             return 6
         print(f"pair key for {args.pair}: {priv}", file=out)
-        print("ssh config block for this box (add to ~/.ssh/config):", file=out)
+        if _sibling("unimatrix-membership.py").load_pin(_sibling("unimatrix-roster.py").settings_home()) is not None:
+            print(f"signer pin present: no ssh config or authorized_keys edit. On this box run "
+                  f"`python {_sibling('unimatrix-roster.py').settings_home() / 'unimatrix' / 'unimatrix-pair.py'} "
+                  f"request --box {args.pair}` and give the JSON to the operator, who runs `unimatrix-pair.py "
+                  f"approve <request-file>` (the approval is the only 1Password prompt).", file=out)
+            return 0
+        print("no signer pin (pre-membership): ssh config block for this box (add to ~/.ssh/config):", file=out)
         print(render_ssh_config_block(args.pair, priv), file=out)
         print(f"authorized_keys line for the far box (interpreter and path are placeholders: {FAR_INTERPRETER} "
               f"and {FAR_DEST_DIR}; replace with the far box's absolute ones):", file=out)
@@ -915,7 +1008,7 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
         steps = []
         if want_agy:
             steps.append(("agy hook", hp, lambda: unseed_agy_hook(hp)))
-            steps.append(("agy skills", agy_sj, lambda: _seed().unseed_agy_skills(agy_sj, SKILLS_ROOT)))
+            steps.append(("agy skills", agy_sj, lambda: _seed().unseed_agy_skills(agy_sj, skills_root)))
             steps.append(("agy coordinator doctrine", agy_rp, lambda: _seed().unseed_block(
                 agy_rp, _seed().DOCTRINE_BEGIN, _seed().DOCTRINE_END)))
             steps.append(("agy peer doctrine", agy_rp, lambda: unseed_peer_doctrine(agy_rp)))
@@ -938,9 +1031,9 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
         return 0
 
     if version_text is None:
-        gate_skipped = hosts is not None and "claude" not in hosts and shutil.which("claude") is None
+        gate_skipped = hosts is not None and "claude" not in hosts
         if gate_skipped:
-            print("NOTE: claude not on PATH and --hosts names no claude; Claude version-range gate skipped", file=out)
+            print("NOTE: --hosts names no claude; Claude version-range gate skipped", file=out)
         else:
             try:
                 version_text = probe_claude_version()
@@ -956,6 +1049,11 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
         print(msg, file=out)
         if status == "refuse":
             return 1
+    if want_agy and args.out and not args.install:
+        if _write_agy_plugin_tree(args, out):
+            return 0
+        print("PARTIAL INSTALL: not installed: agy plugin tree", file=out)
+        return 7
     if not args.install:
         return 0
 
@@ -995,16 +1093,38 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
         else:
             print(f"governance verification FAILED: {note}", file=out)
             verified, rc = False, 5
+    missing = []
+    if want_agy:
+        _seed_agy_config(hp.with_name("config.json"), out)
+        if not _write_agy_plugin_tree(args, out, dest):
+            missing.append("agy plugin tree")
     try:
         block = render_peer_doctrine(dest)
-        for label, rp, wanted in (("codex", codex_rp, want_codex), ("agy", agy_rp, want_agy)):
-            if wanted:
-                print(f"{label} peer doctrine {seed_peer_doctrine(rp, block)} in {rp}", file=out)
-        if want_codex:
-            print(f"codex send rule {seed_file(codex_xp, render_codex_exec_rule(dest))} in {codex_xp}", file=out)
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
+        block = None
         print(f"WARN: peer doctrine not installed: {exc}", file=out)
-    _seed_standing_doctrine(out, want_codex, want_agy, codex_rp, agy_rp, codex_sd, agy_sj)
+    for label, rp, wanted in (("codex", codex_rp, want_codex), ("agy", agy_rp, want_agy)):
+        if not wanted:
+            continue
+        try:
+            if block is None:
+                raise OSError("peer doctrine template unreadable")
+            print(f"{label} peer doctrine {seed_peer_doctrine(rp, block)} in {rp}", file=out)
+        except (OSError, ValueError) as exc:
+            missing.append(f"{label} peer doctrine")
+            if block is not None:
+                print(f"WARN: {label} peer doctrine not installed: {exc}", file=out)
+    if want_codex:
+        try:
+            print(f"codex send rule {seed_file(codex_xp, render_codex_exec_rule(dest))} in {codex_xp}", file=out)
+        except (OSError, ValueError) as exc:
+            missing.append("codex send rule")
+            print(f"WARN: codex send rule not installed: {exc}", file=out)
+    missing += _seed_standing_doctrine(out, want_codex, want_agy, codex_rp, agy_rp, codex_sd, agy_sj,
+                                       args.plugin_root, skills_root)
+    if missing:
+        print(f"PARTIAL INSTALL: not installed: {', '.join(missing)}", file=out)
+        rc = rc or 7
     try:
         state, where = register_login_agent(dest, agent_dir, schtasks)
         print(f"login agent {state}: {where}" if state != "skipped" else f"WARN: login agent not registered: {where}", file=out)
@@ -1025,10 +1145,16 @@ def main(argv=None, version_text=None, dest_dir=None, out=None, hooks_path=None,
     return rc
 
 
-def _seed_standing_doctrine(out, want_codex, want_agy, codex_rp, agy_rp, codex_sd, agy_sj):
-    """Seed the coordinator-doctrine block and skills for the wanted hosts; every miss is a WARN, never a refusal."""
+def _seed_standing_doctrine(out, want_codex, want_agy, codex_rp, agy_rp, codex_sd, agy_sj,
+                            plugin_root=None, skills_root=None):
+    """Seed the coordinator-doctrine block and skills for the wanted hosts; every miss is a WARN, never a refusal.
+
+    Returns the "<host> coordinator doctrine" surfaces left uninstalled.
+    """
     seed = _seed()
-    root = doctrine_root()
+    missing = []
+    skills_root = skills_root or SKILLS_ROOT
+    root = doctrine_root(plugin_root) if plugin_root else doctrine_root()
     for label, rp, wanted, cap in (("codex", codex_rp, want_codex, seed.CODEX_CAP_BYTES),
                                    ("agy", agy_rp, want_agy, seed.AGY_CAP_BYTES)):
         if not wanted:
@@ -1039,15 +1165,33 @@ def _seed_standing_doctrine(out, want_codex, want_agy, codex_rp, agy_rp, codex_s
             res = seed.seed_block(rp, seed.render_coordinator_doctrine(root, cap), seed.DOCTRINE_BEGIN, seed.DOCTRINE_END)
             print(f"{label} coordinator doctrine {res} in {rp}", file=out)
         except (OSError, ValueError) as exc:
+            missing.append(f"{label} coordinator doctrine")
             print(f"WARN: {label} coordinator doctrine not installed: {exc}", file=out)
     try:
         if want_agy:
-            print(f"agy skills {seed.seed_agy_skills(agy_sj, SKILLS_ROOT)} in {agy_sj}", file=out)
+            print(f"agy skills {seed.seed_agy_skills(agy_sj, skills_root)} in {agy_sj}", file=out)
         if want_codex:
-            names = seed.seed_codex_skills(codex_sd, SKILLS_ROOT)
+            names = seed.seed_codex_skills(codex_sd, skills_root)
             print(f"codex skills seeded {len(names)} in {codex_sd}", file=out)
     except (OSError, ValueError) as exc:
         print(f"WARN: skills not installed: {exc}", file=out)
+    return missing
+
+
+def _seed_agy_config(path, out):
+    """Create agy's config.json as `{}` at mode 0600 only when absent; an existing file is never touched."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        print(f"agy config present in {path}", file=out)
+        return
+    except OSError as exc:
+        print(f"WARN: agy config not seeded: {exc}", file=out)
+        return
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write("{}\n")
+    print(f"agy config created in {path}", file=out)
 
 
 if __name__ == "__main__":

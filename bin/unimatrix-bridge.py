@@ -275,12 +275,28 @@ def delivery_status(limit=10):
             for r in rows[-limit:]]
 
 
+def ssh_mux_options():
+    """ssh options that reuse one warm connection per remote, shortening the send leg the sender waits on.
+
+    Win32 OpenSSH has no ControlMaster; the ControlPath is kept short (unix socket path limit).
+    """
+    if IS_WIN:
+        return []
+    uid = os.getuid() if hasattr(os, "getuid") else 0
+    return ["-o", "ControlMaster=auto", "-o", "ControlPersist=120", "-o", f"ControlPath=/tmp/unimatrix-cm-{uid}-%C",
+            "-o", "ConnectTimeout=10"]
+
+
 def relay_send(conn):
     # The relay forwards ONE stdin line, and the far receiver accepts tokenless
     # frames, so the sender's auth line is dropped rather than forwarded.
     buf = b""
     while chunk := conn.read():
         buf += chunk
+    # Close before the ssh leg: a cold leg takes 5-10s and the sender reports a held-open
+    # connection as "Failed to send" though the relay delivers. A failed relay still
+    # reaches the sender, as notify_sender's delivery-failure notice in its inbox.
+    conn.close()
     lines = frames_to_send(buf)
     mine = next((d for d in map(_load, os.listdir(os.path.expanduser(SESSIONS))) if d and d.get("messagingSocketPath") == cfg.endpoint), None)
     if not mine or not lines:
@@ -292,20 +308,22 @@ def relay_send(conn):
     for line in lines:
         log.write(f"relay >> {line!r}\n")
         target = f"{mine.get('name') or far_pid} (pid {far_pid})"
+        started = time.monotonic()
         try:
             remote = pick_remote(cfg.remote, getattr(cfg, "tunnel_remote", None))
-            r = subprocess.run(["ssh", "-i", cfg.key, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", remote, f"send {far_pid}"],
+            r = subprocess.run(["ssh", "-i", cfg.key, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", *ssh_mux_options(), remote, f"send {far_pid}"],
                                input=line + b"\n", capture_output=True, timeout=30, creationflags=flags)
         except Exception as e:  # any send-leg fault is a failed delivery, never a silent one
             r = subprocess.CompletedProcess([], 255, b"", f"{type(e).__name__}: {e}".encode())
         ts = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+        ms = round((time.monotonic() - started) * 1000)
         if r.returncode:
             log.write(f"relay send failed {r.returncode}: {r.stderr!r}\n")
             error = f"ssh exit {r.returncode}: " + r.stderr.decode(errors="replace").strip()[-300:]
-            record_delivery({"ts": ts, "target": target, "ok": False, "error": error})
+            record_delivery({"ts": ts, "target": target, "ok": False, "error": error, "ms": ms})
             notify_sender(line, target, error)
         else:
-            record_delivery({"ts": ts, "target": target, "ok": True})
+            record_delivery({"ts": ts, "target": target, "ok": True, "ms": ms})
 
 
 def pump_local_to_sock(conn, s):
@@ -333,8 +351,7 @@ def pump_sock_to_local(conn, s):
 
 def serve_one(conn):
     if cfg.port is None:
-        relay_send(conn)
-        conn.close()
+        relay_send(conn)  # closes conn itself, before the ssh leg
         return
     s = socket.create_connection((LOOPBACK, cfg.port))
     t = threading.Thread(target=pump_sock_to_local, args=(conn, s), daemon=True)

@@ -25,6 +25,7 @@ _Last calibrated: 2026-05-03 against Claude Opus 4.7 (1M context) training distr
 | Language / Domain | Default | EM discretion |
 |---|---|---|
 | **Repo declaring `project_type: unreal-engine`** | **Always run on every plan and diff**, whatever the language or whether the artifact cites in-repo symbols only. | None — no EM discretion; overrides every skip row below. |
+| **UE run with project-rag installed** (plan carries the `unreal` review signal, or repo declares `project_type: unreal-engine`) | **Always run on every UE run**, in-repo-symbols-only plans and pure-prose included. Without project-rag this row is a no-op. | None — no EM skip; overrides every skip row below. |
 | **C++ (Unreal Engine, native libraries)** | **Always run.** UE's API surface drifts every release; signatures and module/`.Build.cs` boundaries are easy to hallucinate. | None — run it. |
 | **C++ (non-UE)** | Run unless trivially small. | Skip only when the artifact cites ≤3 stdlib calls and nothing else. |
 | **C# (Unity, .NET)** | EM discretion, bias toward running for Unity package version drift and recent .NET preview features. | Skip for trivial scripts touching only well-known BCL APIs. |

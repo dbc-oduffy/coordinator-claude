@@ -14,6 +14,8 @@ not vouch for other unlisted work in the same hook.
 The scan matches invocations, not prose: Python members are read with ``ast`` (call arguments,
 list/tuple literals, imports), shell and JS members line by line with comment lines stripped.
 Any hook whose closure matches no ALLOWED entry is ``unclassified``, which counts as a violation.
+An import behind a guard the hook's own command line turns off is not in the closure
+(``_imports_behind_off_guard``); a runner invoked directly behind such a guard still counts.
 
 Stdlib only, zero subprocess (every answer is a file read). The ``_`` prefix keeps this module out
 of the hook population census.
@@ -50,7 +52,10 @@ DENIED_SHAPES: tuple[tuple[str, re.Pattern[str]], ...] = (
 ALLOWED: tuple[tuple[str, str, str], ...] = (
     ("size-guard", "bin/pre_push_size_guard.py", "size guard"),
     ("sdk-closure", "scripts/check-sdk-closure.mjs", "sdk-closure-guard"),
+    ("register-row-gate", "scripts/check_register_row_trailer.py", "Register-Row"),
 )
+
+_NO_FLAG_RE = re.compile(r"(?<![\w-])--no-([a-z][a-z0-9-]*)")
 
 _LFS_SHAPES = frozenset({"git-lfs", "coordinator-lfs-gate"})
 _LFS_PATTERN_RE = re.compile(r"(?<![\w-])filter\s*=\s*lfs(?![\w-])")
@@ -244,7 +249,36 @@ def _module_files(parts: list[str], search_dirs: list[Path], repo_root: Path) ->
     return found
 
 
-def _import_targets(tree: ast.AST, member: Path, repo_root: Path) -> list[Path]:
+def _off_guards(hook_text: str) -> frozenset[str]:
+    """Guard names the hook's own command line turns off: ``--no-proof`` yields ``proof``."""
+    return frozenset(
+        m.replace("-", "_") for _, line in _strip_comments(hook_text) for m in _NO_FLAG_RE.findall(line)
+    )
+
+
+def _imports_behind_off_guard(tree: ast.AST, off_guards: frozenset[str]) -> set[int]:
+    """Import nodes this hook cannot reach: inside a function's ``if <param> [and ...]`` body, where the
+    hook passes ``--no-<param>`` and this module reads ``.no_<param>``. An ``or`` guard or an ``else``
+    branch stays reachable, and dropping the flag from the hook puts the import back in the closure."""
+    read = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
+    skipped: set[int] = set()
+    for fn in ast.walk(tree):
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        params = {a.arg for a in [*fn.args.posonlyargs, *fn.args.args, *fn.args.kwonlyargs]}
+        for node in ast.walk(fn):
+            if not isinstance(node, ast.If):
+                continue
+            test = node.test
+            operands = test.values if isinstance(test, ast.BoolOp) and isinstance(test.op, ast.And) else [test]
+            names = {v.id for v in operands if isinstance(v, ast.Name)}
+            if any(n in off_guards and n in params and f"no_{n}" in read for n in names):
+                skipped |= {id(n) for stmt in node.body for n in ast.walk(stmt)}
+    return skipped
+
+
+def _import_targets(tree: ast.AST, member: Path, repo_root: Path, off_guards: frozenset[str]) -> list[Path]:
+    skipped = _imports_behind_off_guard(tree, off_guards)
     dirs: list[Path] = []
     cur = member.resolve().parent
     root = repo_root.resolve()
@@ -257,6 +291,8 @@ def _import_targets(tree: ast.AST, member: Path, repo_root: Path) -> list[Path]:
         dirs.append(root)
     found: list[Path] = []
     for node in ast.walk(tree):
+        if id(node) in skipped:
+            continue
         if isinstance(node, ast.Import):
             for alias in node.names:
                 found += _module_files(alias.name.split("."), dirs, repo_root)
@@ -334,7 +370,7 @@ class _Scan:
     lfs_pre_push: bool = False
 
 
-def _scan(path: Path, repo_root: Path) -> _Scan | None:
+def _scan(path: Path, repo_root: Path, off_guards: frozenset[str]) -> _Scan | None:
     text = _read(path)
     if text is None:
         return None
@@ -358,7 +394,7 @@ def _scan(path: Path, repo_root: Path) -> _Scan | None:
                     hits.append((node.lineno, "import pytest"))
                 elif isinstance(node, ast.Call) and _dotted(node.func).startswith("pytest."):
                     hits.append((node.lineno, "pytest.main"))
-            targets += _import_targets(tree, path, repo_root)
+            targets += _import_targets(tree, path, repo_root, off_guards)
             return _Scan(hits, targets, ast.get_docstring(tree) or "", text, lfs_pp)
     hits = [(n, h) for n, line in _strip_comments(text) for h in _hits_in(line)]
     targets = _path_targets("\n".join(line for _, line in _strip_comments(text)), path, repo_root)
@@ -385,11 +421,12 @@ def _closure(hook: Path, repo_root: Path) -> tuple[list[Path], dict[Path, _Scan]
     seen = {hook.resolve()}
     frontier = [hook]
     depth = 0
+    off_guards = _off_guards(_read(hook) or "")
     while frontier:
         nxt: list[Path] = []
         for member in frontier:
             order.append(member)
-            scan = _scan(member, repo_root)
+            scan = _scan(member, repo_root, off_guards)
             if scan is None:
                 reasons.append(f"{_rel(member, repo_root)}:1: closure member unreadable or over size limit")
                 continue

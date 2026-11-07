@@ -12,7 +12,7 @@ registry, or an operator typo leaves the key silently wrong or absent, and
 `_is_engine_working_repo()` can never confirm this repo as a working repo on
 that machine. The key is a working-repo discriminant only: a healthy registered
 published engine answers right after the rung-0 env override, so it never
-selects a live tree (docs/decisions/DR-418). This hook closes the registry gap
+selects a live tree (docs/decisions/DR-479). This hook closes the registry gap
 from THIS repo's own plane — this repo cannot wait on an engine-plane
 installer change for it.
 

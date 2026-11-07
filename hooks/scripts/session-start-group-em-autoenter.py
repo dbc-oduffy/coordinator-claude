@@ -19,7 +19,7 @@ its own stdout stream and preview window, as `assert-em-role.py` does. Rendered 
 `_PREVIEW_BUDGET_CHARS`; truncation drops roster rows, never the arm/gate/workflow tail.
 
 Inherits the autofire's negative spec: never `--supersede`, never `--local`, never sends, never
-blocks. Before entering, it spawns `bin/unimatrix-autolink.py` detached (cross-box link to every
+blocks. Before entering, it spawns `<engine-root>/coordinator/bin/unimatrix-autolink.py` detached (cross-box link to every
 configured far box; never waited on). Fails open (silent exit 0) on any error.
 """
 
@@ -51,10 +51,12 @@ def _autofire():
 
 def _spawn_autolink() -> None:
     """Fire-and-forget `unimatrix-autolink.py`; it is idempotent and silent when multibox is unconfigured."""
-    script = _HOOKS_DIR.parent.parent / "bin" / "unimatrix-autolink.py"
-    if not script.is_file():
-        return
     try:
+        from _engine_root import resolve_engine_bin_script
+
+        script = resolve_engine_bin_script("unimatrix-autolink.py")
+        if script is None:
+            return
         subprocess.Popen(
             [sys.executable, str(script)],
             stdin=subprocess.DEVNULL,

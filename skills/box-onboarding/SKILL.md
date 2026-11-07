@@ -116,7 +116,7 @@ from `machine-local get repos.claude_klabauter`; `<home-repo>` is the owner's pr
    - **Roster probe, both directions:** run `ssh -o BatchMode=yes <alias> roster` from each box of the
      pair to the other, for every existing box. Expect JSON lines or an empty roster and exit `0`;
      a direction that fails is not onboarded.
-   - SSH no-op: `ssh -o BatchMode=yes <box-alias> true; echo $?`. Expect `0`.
+   - SSH no-op: `ssh -o BatchMode=yes <box-alias> true`. Expect exit `0`.
    - Tunnel pin refuses a shell: `ssh -o BatchMode=yes -i <tunnel-key> <box-alias> true` must fail.
    - Tunnel MCP initialize (the port is the tunnel's, carried only over the `Unimatrix-02` key):
      `ssh -N -L 8767:127.0.0.1:8767 <tunnel-alias>` in one shell, then
@@ -138,7 +138,7 @@ from `machine-local get repos.claude_klabauter`; `<home-repo>` is the owner's pr
      - `machine-local set box.os <os>`: `capability.os`.
      - `machine-local set box.ram_mb <ram_mb>`: `capability.ram_mb`.
      - `machine-local set box.has_ue <has_ue>`: `capability.has_ue` (`true` / `false`).
-     - Verify: `machine-local keys | grep '^box\.'` lists all four; `machine-local get box.id` equals `box_id`.
+     - Verify: `machine-local keys` lists all four `box.*` keys; `machine-local get box.id` equals `box_id`.
 
 9. **Record the result.** One line per step, `PASS` / `FAIL` / `GUARDED-STOP`, in the box's
    onboarding handoff; steps 5, 6 and 8 record each direction of each pair separately.

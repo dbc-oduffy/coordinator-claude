@@ -796,14 +796,27 @@ def main(argv=None) -> int:
     advanced = sum(totals.values())
     # Nothing new and nothing refused: every baton was already landed. Exit clean and write
     # nothing, so the prior landing's hand-forward record stays the record.
+    # A trail without its `wave-N.landing.json` was landed out of band (a worker that finished
+    # after an indeterminate reply): the record is back-filled and committed, not skipped.
+    recovered_from_noop = False
     if advanced == 0 and noops > 0 and not all_refused:
-        if args.json:
-            print(json.dumps({"waveIndex": wave_index, "advanced": 0, "noop": noops,
-                              "refused": [], "landingCommit": None}, indent=2))
-        else:
-            print(f"land-wave: wave {wave_index} already landed — {noops} baton(s) already in "
-                  "state, nothing new; nothing written or committed")
-        return EXIT_OK
+        missing_record = any(
+            Path(l["trailDir"]).is_dir()
+            and not (Path(l["trailDir"]) / f"wave-{wave_index}.landing.json").exists()
+            for l in landings
+            if l["trailDir"]
+        )
+        if not missing_record:
+            if args.json:
+                print(json.dumps({"waveIndex": wave_index, "advanced": 0, "noop": noops,
+                                  "refused": [], "landingCommit": None}, indent=2))
+            else:
+                print(f"land-wave: wave {wave_index} already landed — {noops} baton(s) already in "
+                      "state, nothing new; nothing written or committed")
+            return EXIT_OK
+        recovered_from_noop = True
+        print(f"land-wave: wave {wave_index} already landed — {noops} baton(s) already in "
+              "state; the landing record was missing and is back-filled", file=sys.stderr)
     uncommitted = _landing_pathspec(fires, [l["reply"] for l in landings], repo_root)
     # The declaration written just below is dirty by construction, and the scan above ran before
     # it existed — so it is named here rather than left for the next landing to find.
@@ -830,10 +843,15 @@ def main(argv=None) -> int:
         "landings": [{"fire": l["fire"], "counted": l["counted"]} for l in landings],
         "uncommitted": uncommitted,
     }
+    if recovered_from_noop:
+        summary["recoveredFrom"] = "noop"
     for trail in {Path(l["trailDir"]) for l in landings if l["trailDir"]}:
+        record = trail / f"wave-{wave_index}.landing.json"
+        if recovered_from_noop and record.exists():
+            continue
         if trail.is_dir():
             try:
-                (trail / f"wave-{wave_index}.landing.json").write_text(
+                record.write_text(
                     json.dumps(summary, indent=2), encoding="utf-8", newline="\n"
                 )
             except OSError as exc:
@@ -929,7 +947,7 @@ def main(argv=None) -> int:
         )
         return EXIT_LANDING_REFUSALS
 
-    if advanced == 0:
+    if advanced == 0 and not recovered_from_noop:
         print(
             f"\nland-wave: STOP — wave {wave_index} opened nothing across all "
             f"{len(fires)} fire(s) (approved 0, execution_ready 0, closed 0). The next "

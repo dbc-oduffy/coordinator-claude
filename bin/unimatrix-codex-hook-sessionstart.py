@@ -4,7 +4,7 @@ Reads the hook payload on stdin ({"session_id": <thread id>, "cwd": ...}). Fires
 start, resume, clear and fork, so each one rebinds the same peer name to the current thread id; the
 router rescans peers.json, so no Codex restart is needed and nothing depends on the id staying put.
 
-Peer name: $UNIMATRIX_PEER_NAME, else codex-<cwd basename>. Prints a systemMessage so the
+Peer name: the UNIMATRIX_PEER_NAME env var, else codex- plus the cwd basename. Prints a systemMessage so the
 registration shows in the TUI. Never fails the session: every path exits 0.
 
 register_peer() is the shared registration helper: it takes the vendor and target, so another

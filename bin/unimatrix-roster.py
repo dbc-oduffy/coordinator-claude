@@ -121,21 +121,17 @@ def pid_alive(pid):
     return True
 
 
-def _filetime(pid):
-    # The harness compares procStart to the raw 100 ns creation FILETIME, as a string.
-    import ctypes
-    from ctypes import wintypes
-    k32 = ctypes.windll.kernel32
-    k32.OpenProcess.restype = wintypes.HANDLE
-    h = k32.OpenProcess(0x1000, False, pid)
-    if not h:
-        raise OSError(f"cannot open pid {pid}")
-    times = [wintypes.FILETIME() for _ in range(4)]
-    ok = k32.GetProcessTimes(h, *[ctypes.byref(t) for t in times])
-    k32.CloseHandle(h)
-    if not ok:
-        raise OSError(f"GetProcessTimes failed for pid {pid}")
-    return str((times[0].dwHighDateTime << 32) | times[0].dwLowDateTime)
+_LIVENESS = []
+
+
+def _liveness():
+    if not _LIVENESS:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("unimatrix_liveness", HERE / "unimatrix-liveness.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _LIVENESS.append(mod)
+    return _LIVENESS[0]
 
 
 def _ps_lstart(pid):
@@ -147,8 +143,15 @@ def _ps_lstart(pid):
 
 
 def proc_start(pid, platform=None):
-    """Raw process-start stamp the harness compares as a string."""
-    return _filetime(pid) if _is_win(platform) else _ps_lstart(pid)
+    """Raw process-start stamp the harness compares as a string.
+
+    Read without a spawn through the liveness module; `ps` only when that read raises OSError off Windows."""
+    try:
+        return _liveness().proc_start(pid, platform)
+    except OSError:
+        if _is_win(platform):
+            raise
+        return _ps_lstart(pid)
 
 
 def pid_domain(platform=None):
@@ -285,6 +288,76 @@ def parse_args(argv):
     return a
 
 
+LABEL_SEP = "."
+
+
+def bare_name(name):
+    """The session name without its box label (everything from the first dot); non-strings pass through.
+
+    A dot, not an at sign: SendMessage refuses any `@` in a recipient. Session names carry hyphens,
+    never dots, and the box label may itself hold dots (an IP), so the first dot is the cut."""
+    return name.partition(LABEL_SEP)[0] if isinstance(name, str) else name
+
+
+def box_label(remote):
+    """Which box a mirror is on: the ssh alias without any `user@` prefix."""
+    return str(remote).rpartition("@")[2]
+
+
+def labelled(name, remote):
+    """The name, a dot, then the box, for a mirror's session name; idempotent, so a re-mirror never stacks labels."""
+    if not isinstance(name, str) or not name:
+        return name
+    return f"{bare_name(name)}{LABEL_SEP}{box_label(remote)}"
+
+
+def live_sessions():
+    """(bare name, far socket or None) for each live session in the sessions dir, local and mirrored alike."""
+    out = []
+    sess = sessions_dir()
+    try:
+        files = os.listdir(sess)
+    except OSError:
+        return out
+    for f in files:
+        if not f.endswith(".json"):
+            continue
+        try:
+            with open(os.path.join(sess, f), encoding="utf-8") as fh:
+                d = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        if (isinstance(d, dict) and isinstance(d.get("name"), str) and isinstance(d.get("pid"), int)
+                and pid_alive(d["pid"])):
+            out.append((bare_name(d["name"]), d.get(FAR_SOCKET_FIELD)))
+    return out
+
+
+def live_bare_names(except_far_sock=None, scan=None):
+    """Bare names of the live sessions; `scan` is a `live_sessions()` result reused across one sync pass.
+
+    An entry mirroring `except_far_sock` is left out: it is the earlier mirror of the session being
+    named, not a competitor for its name."""
+    if scan is None:
+        scan = live_sessions()
+    return {n for n, sock in scan if not (except_far_sock and sock == except_far_sock)}
+
+
+def mirror_name(name, remote, far_sock=None, scan=None):
+    """The session name a mirror carries: bare, so SendMessage can address it, unless a live session
+    already holds that bare name, then the box-labelled form keeps the two distinct.
+
+    A far name with a dot that is not this box's label is dotted-to-hyphen first: the dot is the
+    label separator, so a raw dotted name would be cut at its first dot and collide."""
+    if not isinstance(name, str) or not name:
+        return name
+    if LABEL_SEP in name and not name.endswith(LABEL_SEP + box_label(remote)):
+        name = name.replace(LABEL_SEP, "-")
+    if bare_name(name) in live_bare_names(far_sock, scan):
+        return labelled(name, remote)
+    return bare_name(name)
+
+
 def inbound_names():
     """Names a far box already reaches us by: live local entries its own relay holds (`unimatrixMirror`).
 
@@ -301,7 +374,7 @@ def inbound_names():
         except (OSError, ValueError):
             continue
         if isinstance(d, dict) and d.get("unimatrixMirror") and isinstance(d.get("pid"), int) and pid_alive(d["pid"]):
-            names.add(d.get("name"))
+            names.add(bare_name(d.get("name")))
     return names
 
 
@@ -314,17 +387,28 @@ def mirrorable(rows, skip, inbound):
     return {r["entry"]["messagingSocketPath"]: r for r in rows
             if r["entry"]["messagingSocketPath"] not in skip
             and not (r["entry"].get("unimatrixMirror") or r["entry"].get(FAR_SOCKET_FIELD))
-            and r["entry"].get("name") not in inbound}
+            and bare_name(r["entry"].get("name")) not in inbound}
 
 
-def fetch_roster(remote, key, tunnel_remote=None):
+def _roster_once(remote, key, tunnel_remote):
     remote = pick_remote(remote, tunnel_remote)
-    r = subprocess.run(["ssh", "-i", key, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", remote, "roster"],
-                       capture_output=True, timeout=30, creationflags=no_window())
+    r = subprocess.run(["ssh", "-i", key, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes",
+                        "-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=5", "-o", "ServerAliveCountMax=2",
+                        remote, "roster"],
+                       capture_output=True, timeout=20, creationflags=no_window())
     if r.returncode:
         err = r.stderr.decode("utf-8", "replace").strip().splitlines()
         raise OSError(f"roster rc={r.returncode}" + (f": {err[-1][:200]}" if err else ""))
     return [json.loads(line) for line in r.stdout.splitlines() if line.strip()]
+
+
+def fetch_roster(remote, key, tunnel_remote=None):
+    """The far roster rows. A transient LAN stall (connect timeout, hung session) is retried once
+    with the endpoint re-picked, so one dropped SYN is not a LINK-DOWN; a second failure raises."""
+    try:
+        return _roster_once(remote, key, tunnel_remote)
+    except (OSError, subprocess.TimeoutExpired):
+        return _roster_once(remote, key, tunnel_remote)
 
 
 def unmirror(pid):
@@ -351,7 +435,7 @@ def engine_fields(row):
     return {k: row[k] for k in ENGINE_FIELDS if k in row}
 
 
-def mirror(row, cfg, say):
+def mirror(row, cfg, say, scan=None):
     e = row["entry"]
     far_sock = e["messagingSocketPath"]
     endpoint = local_endpoint(far_sock)
@@ -362,6 +446,8 @@ def mirror(row, cfg, say):
                          cfg.remote, cfg.key, tunnel_remote=cfg.tunnel_remote))
     time.sleep(1)
     d = {k: v for k, v in e.items() if k not in ("pid", "procStart", "pidDomain", "messagingSocketPath")}
+    if "name" in d:
+        d["name"] = mirror_name(d["name"], cfg.remote, far_sock, scan)
     d.update(pid=b.pid, procStart=proc_start(b.pid), pidDomain=pid_domain(),
              messagingSocketPath=endpoint, farPid=e["pid"], **{FAR_SOCKET_FIELD: far_sock}, **engine_fields(row))
     sess = sessions_dir()
@@ -372,15 +458,39 @@ def mirror(row, cfg, say):
     return b
 
 
+def rename_live_mirror(pid, sock, row, cfg, say, scan=None):
+    """Re-evaluate the name of the live mirror `pid` against the sessions now alive; rewrite it only on change."""
+    name = row["entry"].get("name")
+    if not isinstance(name, str) or not name:
+        return
+    path = os.path.join(sessions_dir(), f"{pid}.json")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            d = json.load(fh)
+    except (OSError, ValueError):
+        return
+    want = mirror_name(name, cfg.remote, sock, scan)
+    if isinstance(d, dict) and d.get("name") != want:
+        d["name"] = want
+        write_json_atomic(path, d)
+        say(f"rename mirror {sock} -> {want}")
+
+
 def sync(bridges, rows, cfg, say):
     """One reconcile pass: `rows` is far socket -> roster row; `bridges` far socket -> Popen."""
+    scan = live_sessions()
     for sock, row in rows.items():
         b = bridges.get(sock)
         if b and b.poll() is None:
+            rename_live_mirror(b.pid, sock, row, cfg, say, scan)
             continue
         if b:
             unmirror(b.pid)
-        bridges[sock] = mirror(row, cfg, say)
+            scan = [(n, s) for n, s in scan if s != sock]
+        bridges[sock] = mirror(row, cfg, say, scan)
+        nm = mirror_name(row["entry"].get("name"), cfg.remote, sock, scan)
+        if isinstance(nm, str) and nm:
+            scan.append((bare_name(nm), sock))
     for sock in [s for s in bridges if s not in rows]:
         unmirror(bridges.pop(sock).pid)
         say(f"unmirror {sock}")

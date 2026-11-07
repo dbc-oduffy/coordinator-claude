@@ -114,7 +114,7 @@ Per-project config in `coordinator.local.md`:
 
 `project_type` is a single string. `project_subtypes` is an optional list of free-form tags (e.g. `unreal`, `unity`) that enable engine-specific or stack-specific routing within the declared type. Downstream consumers do best-effort matching; unknown subtypes are silently ignored.
 
-`project_type: unreal-engine` (or `game-dev` with `project_subtypes: unreal`) selects `sid` (`game-dev:staff-game-dev`) as the default Opus reviewer for plans and code. For `project_type: unreal-engine` alone, `ue_review_signal.declares_unreal_engine` makes the `unreal` signal fire on every plan in the repo, doc-only plans included. `coordinator:docs-checker` runs on every plan and diff there, with no EM skip.
+`project_type: unreal-engine` (or `game-dev` with `project_subtypes: unreal`) selects `sid` (`game-dev:staff-game-dev`) as the default Opus reviewer for plans and code. For `project_type: unreal-engine` alone, `ue_review_signal.declares_unreal_engine` makes the `unreal` signal fire on every plan in the repo, doc-only plans included. `coordinator:docs-checker` runs on every plan and diff there, with no EM skip. With project-rag installed it also runs on every UE run (plan carrying the `unreal` signal, or a repo declaring `project_type: unreal-engine`), no EM skip; without project-rag that habit is a no-op.
 
 If no `.local.md` exists, default to core-only (the Staff Engineer + the Director of Engineering) for universal routing. The Data Science Reviewer, the Front-End Reviewer, and the UX Reviewer are always-registered signal-gated reviewers and activate by signal match regardless of `project_type`.
 

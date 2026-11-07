@@ -3496,11 +3496,26 @@ def _load_repo_key_waivers(path: Path = _REPO_KEY_WAIVERS_PATH) -> "dict[tuple, 
     }
 
 
+def _row_published_payload(target, files: "list[tuple[str, Path]]") -> "list[tuple[str, Path]]":
+    """`files` narrowed to what the row can publish: tracked in the source's git index
+    (one `ls-files` call) and not withheld by the row's allowlist. A source that is not a
+    git work tree keeps the allowlist narrowing only. The caller's walk still stats untracked
+    trees; only the scan and read are cut."""
+    listing = _git_capture(target.source_dir, "ls-files", "--cached", "-z")
+    if listing is not None:
+        tracked = set(listing.split("\0"))
+        files = [f for f in files if f[0] in tracked]
+    if getattr(target, "allowlist", ""):
+        withheld = _paths_the_row_allowlist_denies(target, [rel for rel, _ in files])
+        files = [f for f in files if f[0] not in withheld]
+    return files
+
+
 def _repo_key_gate_cache(target, rkl, pct_engine, params):
     """`(cache, transform identity, shared file walk)` for the repo-key gate. The cache
     lives in the destination's git dir, so it is never published and survives the
     throwaway staging trees; a destination with no `.git` directory runs uncached."""
-    files = rkl.list_files(target.source_dir)
+    files = _row_published_payload(target, rkl.list_files(target.source_dir))
     git_dir = getattr(target, "dest_dir", None)
     git_dir = git_dir / ".git" if git_dir is not None else None
     if git_dir is None or not git_dir.is_dir():
@@ -10965,7 +10980,10 @@ def _rmtree_clear_readonly_onerror(func: Callable, path: str, exc_info) -> None:
     remains accepted (if deprecated) through at least 3.14 and is the only
     signature portable across the whole supported range."""
     try:
-        os.chmod(path, stat.S_IWRITE)
+        _bootstrap_engine()
+        from coordinator_core.owner_safe_rmtree import make_removable
+
+        make_removable(path)
         func(path)
     except OSError:
         pass
@@ -13365,6 +13383,41 @@ def _round_engine_stamp(
     return f"sha:{_scoped_engine_stamp_sha(engine_target.source_dir, pin, out=io.StringIO())}"
 
 
+def _door_provenance_matches_sources(repo_root: Path, union_root: Path) -> bool:
+    """With no rebuild, the door.exe the mirror ships keeps its provenance: refuse (False, FATAL on
+    stderr) when that provenance's recorded hashes differ from the union's transformed door sources.
+    True when the union carries no door sources or the mirror has no provenance to judge."""
+    from coordinator_core.install.door_install import (  # noqa: PLC0415 - lazy, mirror-only step
+        DoorInstallError,
+        committed_prebuilt_source_drift,
+    )
+
+    door_dir = union_root / _DOOR_DIR_REL
+    if not (door_dir / "door.c").is_file():
+        return True
+    provenance_rel = _DOOR_ARTIFACT_RELS[1]
+    _seed_union_from_head(repo_root, union_root, (provenance_rel,))
+    provenance = union_root / provenance_rel
+    if not provenance.is_file():
+        return True
+    sources = [
+        union_root / rel for rel in _DOOR_INPUT_RELS if not rel.endswith(".py") and (union_root / rel).is_file()
+    ]
+    try:
+        drifted = committed_prebuilt_source_drift(provenance_path=provenance, sources=sources)
+    except DoorInstallError as exc:
+        print(f"publish.py: FATAL — door provenance for {repo_root}: {exc}", file=sys.stderr)
+        return False
+    if drifted:
+        print(
+            f"publish.py: FATAL — door.exe provenance for {repo_root} does not match the mirror's door "
+            f"sources ({', '.join(drifted)}); the shipped binary is behind them. Rebuild door.exe on Windows.",
+            file=sys.stderr,
+        )
+        return False
+    return True
+
+
 def _rebuild_round_door(
     repo_root: Path, union_root: Path, *, warm: bool, engine_stamp: "Optional[str]" = None
 ) -> "tuple[bool, dict[str, Path]]":
@@ -13387,7 +13440,7 @@ def _rebuild_round_door(
         print(f"publish.py: FATAL — door rebuild for {repo_root}: {exc}", file=sys.stderr)
         return False, {}
     if not rebuilt:
-        return True, {}
+        return _door_provenance_matches_sources(repo_root, union_root), {}
     return True, {rel: union_root / rel for rel in _DOOR_ARTIFACT_RELS if (union_root / rel).is_file()}
 
 
@@ -14792,6 +14845,32 @@ def _fold_bar_refusal(repo_root: Path, source_ref: str = "") -> Optional[str]:
     return f"fold bar: {result.reason}{detail}"
 
 
+_PUBLISHER_CODE_PATHS = (
+    "coordinator/bin/publish.py",
+    "coordinator/bin/lib",
+    "coordinator/lib/percolate",
+    "coordinator_core/percolate",
+)
+
+
+def _dirty_publisher_paths(repo_root: Path, sha: str) -> List[str]:
+    """Publisher code paths whose working-tree bytes differ from `sha` (`git diff
+    --name-only`), plus untracked files under them (`git ls-files -o`). A path
+    absent at `sha` or in the tree shows as a difference; a git failure yields
+    [] (the round's own git calls then refuse)."""
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    found: List[str] = []
+    for args in (("diff", "--name-only", sha), ("ls-files", "-o", "--exclude-standard")):
+        proc = subprocess.run(
+            ["git", "-C", str(repo_root), *args, "--", *_PUBLISHER_CODE_PATHS],
+            capture_output=True, creationflags=flags,
+        )
+        if proc.returncode != 0:
+            return []
+        found += [p for p in proc.stdout.decode(errors="replace").splitlines() if p.strip()]
+    return sorted(set(found))
+
+
 def _main(argv: Optional[List[str]] = None) -> int:
     global _ENGINE_ROOT
     if len(set(_round_ref_values_from_argv(argv))) > 1:
@@ -14806,6 +14885,16 @@ def _main(argv: Optional[List[str]] = None) -> int:
             print(f"publish: refused -- {exc}", file=sys.stderr)
             return 1
         _resolved_commit = ""
+    if _resolved_commit and not _BOOTSTRAP_DONE:
+        _dirty = _dirty_publisher_paths(_REPO_ROOT, _resolved_commit)
+        if _dirty:
+            print(
+                "publish: refused -- publisher code differs from "
+                f"{_resolved_commit[:12]}: {', '.join(_dirty)}; "
+                "commit them, or run from a clean export",
+                file=sys.stderr,
+            )
+            return 1
     if _explicit and not _BOOTSTRAP_DONE:
         try:
             _ENGINE_ROOT = _export_engine_at_ref(_REPO_ROOT, _resolved_commit)

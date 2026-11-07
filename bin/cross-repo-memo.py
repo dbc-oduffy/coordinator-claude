@@ -3909,7 +3909,7 @@ def _build_combined_parser(for_help: bool = False) -> argparse.ArgumentParser:
     """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from memo_compose import _SUMMARY_MAX_CHARS
-    description = textwrap.dedent("""\
+    description = textwrap.dedent(f"""\
         cross-repo-memo — manage outbound cross-repo memo drafts between EM working trees.
 
         DRAFT LIFECYCLE (canonical multi-line workflow):
@@ -3929,6 +3929,10 @@ def _build_combined_parser(for_help: bool = False) -> argparse.ArgumentParser:
                      the sender-side receipt. If the claude-klabauter engine is
                      unreachable this REFUSES — there is no direct-write
                      fallback (DR-210).
+
+        --summary is capped at {_SUMMARY_MAX_CHARS} chars.
+        Feature off (the verbs refuse)? Enable it with:
+          machine-local set coordinator.feature.cross_repo_memos on
 
         Stale drafts (>24h) surface at /workstream-start and /workday-start.
         Never write memo bodies to %TEMP% or tasks/ paths — the CLI owns the buffer.

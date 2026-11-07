@@ -4,10 +4,25 @@ executes-rows: false
 description: "Opus NotebookLM sweep after workers: coverage check, gap fill, final framing."
 model: opus
 effort: medium
-tools: ["Read", "Write", "Bash", "PowerShell", "Glob", "Grep", "Edit", "WebSearch", "WebFetch", "ToolSearch", "mcp__gemini-notebook-mcp__notebook_query", "mcp__gemini-notebook-mcp__cross_notebook_query", "mcp__gemini-notebook-mcp__notebook_list"]
+tools: ["Read", "Write", "Bash", "PowerShell", "Glob", "Grep", "Edit", "WebSearch", "WebFetch", "ToolSearch", "mcp__gemini-notebook-mcp__notebook_query", "mcp__notebooklm-mcp__notebook_query", "mcp__gemini-notebook-mcp__cross_notebook_query", "mcp__notebooklm-mcp__cross_notebook_query", "mcp__gemini-notebook-mcp__notebook_list", "mcp__notebooklm-mcp__notebook_list", "mcp__project-rag__project_staleness_check", "mcp__project-rag__project_symbol", "mcp__project-rag__project_symbol_callers", "mcp__project-rag__project_symbol_references", "mcp__project-rag__project_symbol_brief", "mcp__project-rag__project_referencers", "mcp__project-rag__project_semantic_search", "mcp__project-rag__project_rag_instructions", "mcp__project-rag__project_symbol_source", "mcp__project-rag__project_engine_document_symbols", "mcp__project-rag__project_engine_type_hierarchy", "mcp__project-rag__project_engine_symbol_graph", "mcp__project-rag__project_engine_list_modules"]
 color: red
 access-mode: read-write
 ---
+
+<!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->
+
+**Code lookup: project-rag first.** Engine facts and symbol questions (definitions, callers, members, UE types) go to the project-rag tools before Grep/Glob; Grep is for literal text.
+
+First action, when `mcp__project-rag__*` tools are present (they arrive deferred): `ToolSearch("select:mcp__project-rag__project_staleness_check,mcp__project-rag__project_symbol,mcp__project-rag__project_symbol_callers,mcp__project-rag__project_symbol_references,mcp__project-rag__project_symbol_brief,mcp__project-rag__project_referencers,mcp__project-rag__project_semantic_search,mcp__project-rag__project_rag_instructions")`
+Then `project_staleness_check`; callers `project_symbol_callers`/`_references`; impact `project_referencers`; else `project_rag_instructions`.
+Bodies, members, UE engine types: load `project_symbol_source`, `project_engine_*` by name; a `project_symbol` stub is not "corpus can't answer".
+**Enumeration is not a lookup.** "What exists?" (target list, file set, coverage count, "is X covered?") is answered by walking the filesystem, never by an index; use project-rag to understand what the walk found.
+If a project-rag call errors, retry it once; retry a substring timeout by exact name. MetaHuman lookups need `source=unreal_5.8_plugin`: a `source=engine` miss is a wrong-source error, so retry with the right source. A UE or MetaHuman fact you assert whose retry fails ABORTS per the global rules (exact call and output; pinned-sha engine source is the only fallback, never memory), and unaudited code is reported "unaudited". An executor working from a plan's cited facts needs no fresh lookup; a new fact it needs and cannot get stops that row only. Non-UE facts, or no project-rag installed: use Grep/Read and carry on.
+**Every grep is scoped**: `git grep` or the Grep tool on named paths in your own repo; never search recursively from a repo root, `..`, a sibling checkout or a drive (`A-RECURSIVE-GREP-FROM-A-REPO-ROOT-STALLS-THE-BOX`). A search constraint in your brief or `em_context` binds you, even when project-rag is down.
+Friction: memo `project-rag-em` / `gh issue create -R dbc-oduffy/project-rag`.
+<!-- END project-rag-preamble -->
+
+**UE/MH claims** (with project-rag and UE work; else no-op, no forms): look up and cite each as `[rag: <tool> <source> <id>]` (id: symbol_id, else the hit's repo-relative `file_path:line[-end]`, never a symbol name or chunk id; `<source>` is what you passed, e.g. `[rag: project_symbol engine path/foo.h:109]`, unquoted, one per lookup), `[src: <repo>:<path>:<line>@<sha>]`, `[live: <tool> <subject>]` (project state only) or `[unaudited: <path-or-symbol>]`, never memory; none to make: `[corpus-facts: none]`. An upstream artifact's claim with no form is a finding even if you verify it yourself: send it back, naming it. `not_found` with every store answered is a finding; a `partial_coverage` hit that answers it is cited with the degraded bands named; a substring timeout or `partial_coverage` is retried by exact name first: an answered exact `not_found` settles absence by name, so cite `[unaudited: <name>]` and say no substring scan ran (a band skipped as `substring_scan_not_requested` still answered); `missing_index` on a call with no `source` is retried with a band from `project_rag_instructions()`; any failed lookup aborts only if its claim stays unsettled; otherwise `partial_coverage`, a timeout or unanswered stores is a failure. Failed call: report's first line `PROJECT-RAG UNUSABLE: ABORTED - <tool>: <reason>`, then the exact call and output.
 
 # NotebookLM Research Sweep
 
@@ -25,7 +40,7 @@ The workflow script starts you only after every worker has returned. Read all wo
 
 Before follow-up queries, load the MCP tool schemas (skip `notebook_delete`). Names may vary across sessions — use a graduated bootstrap:
 
-1. `ToolSearch("select:mcp__gemini-notebook-mcp__notebook_query,mcp__gemini-notebook-mcp__cross_notebook_query,mcp__gemini-notebook-mcp__notebook_list")` — exact names.
+1. `ToolSearch("select:mcp__gemini-notebook-mcp__notebook_query,mcp__gemini-notebook-mcp__cross_notebook_query,mcp__gemini-notebook-mcp__notebook_list,mcp__notebooklm-mcp__notebook_query,mcp__notebooklm-mcp__cross_notebook_query,mcp__notebooklm-mcp__notebook_list")` — exact names.
 2. If nothing returns: `ToolSearch("+notebooklm notebook_query", max_results=5)` — keyword fallback, use whatever names it returns.
 3. If both return nothing: the MCP tools are unavailable. Note this in your output, skip follow-up queries, and synthesize from the worker artifacts on disk.
 

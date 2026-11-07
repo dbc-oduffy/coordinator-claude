@@ -3,7 +3,9 @@
 Order: unimatrix-host-guard.py (loaded as a sibling; `--engine-root <path>` selects the engine) answers
 first. A guard answer other than "ask" (a deny) is returned unchanged with no rewrite. An "ask" answer,
 including the guard's own degraded neutral "ask", falls through to the leg bootstrap below; a guard
-reason and the bootstrap rewrite then share one "ask". No path answers "allow" as a fallback.
+reason and the bootstrap rewrite then share one "ask". The one "allow" is a peer reply: a run_command that
+is exactly this interpreter and the installed unimatrix-send.py beside this hook, plain arguments, no shell
+operator or expansion (mirrors the Codex unimatrix.rules send rule); it is never a fallback.
 
 Hooks do not receive agy's language-server address or token, but run_command children do. When no
 current leg exists, the hook prefixes the command the agent is about to run with a detached start of
@@ -123,12 +125,41 @@ def bootstrap_rewrite(payload, agy_pid):
             "overwrite": {"CommandLine": f"{start}{sep}{cmd}"}}
 
 
+SEND_SCRIPT = HERE / "unimatrix-send.py"
+UNSAFE_SHELL_TEXT = ("$", "`", "\n", "\r", "%", "^")
+
+
+def is_peer_reply(payload):
+    """True only for a run_command that is the interpreter, then the installed send script, then plain
+    arguments: the shape of the Codex exec rule's argv. Any shell operator, expansion, other interpreter
+    or other script path is False."""
+    call = payload.get("toolCall")
+    call = call if isinstance(call, dict) else {}
+    args = call.get("args")
+    cmd = args.get("CommandLine") if isinstance(args, dict) else None
+    if call.get("name") != "run_command" or not isinstance(cmd, str) or any(c in cmd for c in UNSAFE_SHELL_TEXT):
+        return False
+    try:
+        lexer = shlex.shlex(cmd, posix=os.name != "nt", punctuation_chars=True)
+        lexer.whitespace_split = True
+        tokens = list(lexer)
+    except ValueError:
+        return False
+    if os.name == "nt":
+        tokens = [t[1:-1] if len(t) > 1 and t[0] == t[-1] == '"' else t for t in tokens]
+    if len(tokens) < 2 or tokens[0] != sys.executable or tokens[1] != str(SEND_SCRIPT):
+        return False
+    return not any(t and set(t) <= set("();<>|&") for t in tokens)
+
+
 def decide(payload, agy_pid, engine_root=None, raw=None):
     if not isinstance(payload, dict):
         return dict(PASS)
     guard = run_guard(json.dumps(payload) if raw is None else raw, engine_root)
     if guard.get("decision") != "ask":
         return guard
+    if is_peer_reply(payload):
+        return {**guard, "decision": "allow"}
     rewrite = bootstrap_rewrite(payload, agy_pid)
     if rewrite is None:
         return guard

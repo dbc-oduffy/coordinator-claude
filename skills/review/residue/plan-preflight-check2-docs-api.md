@@ -9,6 +9,7 @@ order: 3
 
 | API surface cited in plan | docs-checker? |
 |---|---|
+| UE run with project-rag installed (plan carries the `unreal` signal, or repo declares `project_type: unreal-engine`) | **Mandatory**, no EM skip, in-repo-only and pure prose included; overrides the skip row. No-op without project-rag, and the other rows then apply; a repo declaring `project_type: unreal-engine` still always runs, per the wiki's own row. |
 | C++ or Unreal Engine APIs | **Mandatory** — run `docs-checker` regardless of EM judgment. |
 | Other external library APIs | EM judgment — run if cost is justified; skip silently if not. |
 | Pure prose / in-repo-only references / no cited external APIs | Skip `docs-checker`. |

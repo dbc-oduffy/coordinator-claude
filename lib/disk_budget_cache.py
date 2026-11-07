@@ -12,7 +12,6 @@ from __future__ import annotations
 import math
 import os
 import shutil
-import stat
 import subprocess
 import sys
 import time
@@ -74,22 +73,40 @@ def _newest(path: Path, deadline: float) -> float:
     return newest
 
 
-def _rmtree(path: Path) -> None:
-    def _retry(func, p, _exc):
-        os.chmod(p, stat.S_IWRITE)
-        func(p)
+def _owner_safe():
+    """The shared owner-safe rmtree helper; imported lazily, off the sweep's import path."""
+    root = str(Path(__file__).resolve().parents[2])
+    if root not in sys.path:
+        sys.path.append(root)
+    from coordinator_core import owner_safe_rmtree
 
+    return owner_safe_rmtree
+
+
+def _rmtree(path: Path) -> None:
+    helper = _owner_safe()
     if path.is_symlink() or path.is_file():
         try:
             path.unlink()
         except PermissionError:
-            os.chmod(path, stat.S_IWRITE)
+            helper.make_removable(path)
             path.unlink()
         return
-    if sys.version_info >= (3, 12):
-        shutil.rmtree(path, onexc=_retry)
-    else:
-        shutil.rmtree(path, onerror=_retry)
+    shutil.rmtree(path, **helper.rmtree_kwargs())
+
+
+def _remove(path: Path, report: SweepReport, reason: str, size: Optional[int] = None) -> int:
+    """Delete `path`, then append one path/bytes/reason line to the persistent deletion log.
+
+    A delete that raises leaves no line, even if part of the tree was already removed."""
+    if size is None:
+        try:
+            size = path.lstat().st_size if path.is_symlink() or path.is_file() else _size(path, math.inf)
+        except OSError:
+            size = 0
+    _rmtree(path)
+    report.record_deletion(path, size, reason)
+    return size
 
 
 def _default_runner(argv: Sequence[str], timeout_s: Optional[float]) -> int:
@@ -130,6 +147,8 @@ def _prune_uv(policy: Policy, deadline: float, roots: Roots, runner: Runner, app
             break
     after = _size(uv_dir, deadline)
     report.record("uv", max(before - after, 0))
+    if before > after:
+        report.record_deletion(uv_dir, before - after, "uv-cache-prune")
     report.log.append(f"uv: {before} -> {after} bytes")
     if after > policy.uv_cap:
         report.still_over = True
@@ -147,7 +166,7 @@ def _snapshots(model_dir: Path) -> list:
         return []
 
 
-def _drop_orphan_blobs(model_dir: Path) -> None:
+def _drop_orphan_blobs(model_dir: Path, report: SweepReport) -> None:
     """Delete blobs no remaining snapshot symlink points at (a snapshot holds only links)."""
     blobs = model_dir / "blobs"
     if not blobs.is_dir():
@@ -162,7 +181,7 @@ def _drop_orphan_blobs(model_dir: Path) -> None:
     with os.scandir(blobs) as it:
         orphans = [e.path for e in it if os.path.realpath(e.path) not in live]
     for path in orphans:
-        _rmtree(Path(path))
+        _remove(Path(path), report, "huggingface-orphan-blob")
 
 
 def _prune_hf(policy: Policy, deadline: float, roots: Roots, apply: bool, embedder_model: str,
@@ -191,8 +210,8 @@ def _prune_hf(policy: Policy, deadline: float, roots: Roots, apply: bool, embedd
         if current <= policy.hf_cap:
             break
         _check(deadline)
-        _rmtree(snap)
-        _drop_orphan_blobs(model)
+        _remove(snap, report, "huggingface-stale-snapshot")
+        _drop_orphan_blobs(model, report)
         current = _size(hf, deadline)
 
     # Pass 2: least-recently-used whole models, never the embedder's.
@@ -205,7 +224,7 @@ def _prune_hf(policy: Policy, deadline: float, roots: Roots, apply: bool, embedd
             if current <= policy.hf_cap:
                 break
             _check(deadline)
-            _rmtree(model)
+            _remove(model, report, "huggingface-lru-model")
             current = _size(hf, deadline)
 
     report.record("huggingface", max(before - current, 0))
@@ -229,14 +248,14 @@ def _prune_codex(policy: Policy, deadline: float, roots: Roots, apply: bool, rep
         if not apply:
             report.log.append(f"codex-runtimes: would delete {version.name} ({size} bytes)")
             continue
-        _rmtree(version)
+        _remove(version, report, "codex-runtimes-over-keep", size)
         freed += size
     if freed:
         report.record("codex-runtimes", freed)
         report.log.append(f"codex-runtimes: freed {freed} bytes, kept newest {policy.codex_keep}")
 
 
-_OWNED_ELSEWHERE_NAMES = frozenset({"experiments-1d"})
+_OWNED_ELSEWHERE_NAMES = frozenset({"experiments-1d", "coordinator"})
 _OWNED_ELSEWHERE_PREFIXES = ("claude-klabauter", "retest")
 
 
@@ -285,7 +304,7 @@ def _prune_cache_total(policy: Policy, deadline: float, roots: Roots, apply: boo
             break
         _check(deadline)
         size = _size(d, deadline)
-        _rmtree(d)
+        _remove(d, report, "cache-total-over-cap-unrecognised", size)
         freed += size
         current -= size
     if freed:
@@ -315,7 +334,7 @@ def prune_cache(
     """
     roots = roots or resolve_roots()
     runner = runner or _default_runner
-    report = SweepReport()
+    report = SweepReport(deletion_log=roots.deletion_log)
     try:
         _prune_uv(policy, deadline, roots, runner, apply, report)
         _prune_hf(policy, deadline, roots, apply, embedder_model, report)

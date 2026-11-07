@@ -658,10 +658,12 @@ def cmd_publish_gh_release(args: argparse.Namespace) -> int:
 def _rmtree(path: Path) -> None:
     """A --local clone's pack files are read-only on Windows; clear the bit and retry."""
     import shutil
-    import stat
+
+    _require_engine_on_path()
+    from coordinator_core.owner_safe_rmtree import make_removable
 
     def _retry(func, target, _exc):
-        os.chmod(target, stat.S_IWRITE)
+        make_removable(target)
         func(target)
 
     shutil.rmtree(path, onexc=_retry) if sys.version_info >= (3, 12) else shutil.rmtree(

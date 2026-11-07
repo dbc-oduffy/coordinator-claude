@@ -29,7 +29,7 @@ You are the NotebookLM preflight stage. Check that NotebookLM can be reached bef
 
 2. Run `ToolSearch("select:mcp__gemini-notebook-mcp__notebook_query")`. The probe resolves when the tool's schema comes back; it misses when ToolSearch returns no match.
 
-3. Combine: `ok` is true only when the script's `ok` is true AND the probe resolved. Start `remedy` from the script's `remedy` list. When the probe missed, append `install and register per https://github.com/jacob-bd/gemini-notebook-mcp-cli (its README; uv, uvx, pipx or pip — no venv required)` (unless the list already holds it) and `restart Claude Code`, each once. Add a `probe` entry (true or false) to `checks`, keeping the script's `checks`.
+3. Combine: `ok` is true only when the script's `ok` is true AND the probe resolved. Start `remedy` from the script's `remedy` list. When the probe missed, append `install and register per https://github.com/jacob-bd/gemini-notebook-mcp-cli (its README: uv, uvx, pipx or pip, no venv required)` (unless the list already holds it) and `restart Claude Code`, each once. Add a `probe` entry (true or false) to `checks`, keeping the script's `checks`.
 
 ## Output
 

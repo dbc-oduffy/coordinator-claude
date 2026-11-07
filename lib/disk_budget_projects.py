@@ -245,10 +245,19 @@ def _script_units(roots: Roots, policy: Policy, now: float, terminal_ids: set, r
 
 def _on_rm_error(func, path, exc_info=None):
     try:
-        os.chmod(path, stat.S_IWRITE | stat.S_IREAD)
+        _make_removable(path)
         func(path)
     except OSError:
         pass
+
+
+def _make_removable(path: str) -> None:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    try:
+        from coordinator_core.owner_safe_rmtree import make_removable
+    finally:
+        sys.path.pop(0)
+    make_removable(path)
 
 
 def _delete(path: str) -> bool:
@@ -263,7 +272,7 @@ def _delete(path: str) -> bool:
             try:
                 os.remove(path)
             except PermissionError:
-                os.chmod(path, stat.S_IWRITE | stat.S_IREAD)
+                _make_removable(path)
                 os.remove(path)
     except OSError:
         pass

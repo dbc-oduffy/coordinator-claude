@@ -17,7 +17,7 @@ from typing import Callable
 
 UPSTREAM_REMEDY = (
     "install and register per https://github.com/jacob-bd/gemini-notebook-mcp-cli "
-    "(its README; uv, uvx, pipx or pip — no venv required)"
+    "(its README: uv, uvx, pipx or pip, no venv required)"
 )
 LOGIN_REMEDY = "! nlm login --force"
 RENAME_REMEDY = "! nlm setup add claude-code"

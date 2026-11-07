@@ -4,6 +4,13 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [4.6.18] — 2026-11-06
+
+- **Unreal and MetaHuman claims:** they now carry pinned citation forms, with a checker. A failed lookup aborts only if its claim stays unsettled; an answered `not_found` is a finding.
+- **Reviews:** Unreal runs fire docs-checker, and research agents can load project-rag.
+- **project-rag failures:** a loud abort banner shows when a project-rag tool call fails.
+- **Group EM:** autoenter spawns `unimatrix-autolink` from the resolved engine.
+
 ## [4.6.17] — 2026-11-06
 
 - **General work:** the default general-work folder is `_general-work`, not `0-general-work`; installers create `_general-work` and register it as `repos.general_work`.

@@ -27,6 +27,7 @@ from typing import Callable, Iterator, Mapping, Optional, Sequence
 __all__ = [
     "ENV_PREFIX",
     "CHILD_MAX_WALL_S",
+    "DELETION_LOG_NAME",
     "GiB",
     "LOCK_NAME",
     "MAX_SWEEP_S",
@@ -35,6 +36,7 @@ __all__ = [
     "SweepReport",
     "TERMINAL_RUN_STATUSES",
     "Unit",
+    "append_deletion_log",
     "prune_cache",
     "prune_projects",
     "resolve_roots",
@@ -57,6 +59,9 @@ MAX_SWEEP_S = 3600.0
 CHILD_MAX_WALL_S = 1800
 
 STAMP_NAME = "last-sweep.json"
+
+# Persistent per-deletion log under `<settings home>/disk-budget/`.
+DELETION_LOG_NAME = "deletions.log"
 
 ENV_PREFIX = "COORDINATOR_DISK_BUDGET_"
 
@@ -134,6 +139,7 @@ class Roots:
     codex_runtimes: Path
     state_dir: Path
     repos: tuple = ()
+    deletion_log: Optional[Path] = None
 
 
 @dataclass(frozen=True)
@@ -161,10 +167,35 @@ class SweepReport:
     still_over: bool = False
     deleted: list = field(default_factory=list)
     log: list = field(default_factory=list)
+    deletion_log: Optional[Path] = None
 
     def record(self, root: str, freed: int) -> None:
         self.per_root[root] = self.per_root.get(root, 0) + freed
         self.freed_bytes += freed
+
+    def record_deletion(self, path: Path, nbytes: int, reason: str) -> None:
+        """Append one applied deletion to the persistent `deletion_log` (when set)."""
+        append_deletion_log(self.deletion_log, [(str(path), nbytes, reason)])
+
+
+def append_deletion_log(log_path: Optional[Path], entries: Sequence[tuple]) -> None:
+    """Append one `<utc-iso>\\t<bytes>\\t<reason>\\t<path>` line per `(path, bytes, reason)` entry.
+
+    Best-effort: an unwritable log never aborts a sweep. A `None` path is a no-op.
+    """
+    if log_path is None or not entries:
+        return
+    stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    lines = "".join(
+        f"{stamp}\t{nbytes}\t{' '.join(str(reason).split())}\t{str(path).replace(chr(10), ' ')}\n"
+        for path, nbytes, reason in entries
+    )
+    try:
+        Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+        with open(log_path, "a", encoding="utf-8") as fh:
+            fh.write(lines)
+    except OSError:
+        pass
 
 
 Runner = Callable[[Sequence[str], Optional[float]], int]
@@ -306,7 +337,14 @@ def resolve_roots(
     cache = Path(env["XDG_CACHE_HOME"]) if env.get("XDG_CACHE_HOME") else base / ".cache"
     uv = Path(env["UV_CACHE_DIR"]) if env.get("UV_CACHE_DIR") else cache / "uv"
     hf = Path(env["HF_HOME"]) / "hub" if env.get("HF_HOME") else cache / "huggingface" / "hub"
+    if env.get("COORDINATOR_SETTINGS_HOME"):
+        settings = Path(env["COORDINATOR_SETTINGS_HOME"])
+    elif env.get("CLAUDE_HOME"):
+        settings = Path(env["CLAUDE_HOME"]) / ".coordinator-claude-settings"
+    else:
+        settings = base / ".coordinator-claude-settings"
     return Roots(
+        deletion_log=settings / "disk-budget" / DELETION_LOG_NAME,
         projects=base / ".claude" / "projects",
         cache=cache,
         uv_cache=uv,
@@ -330,9 +368,15 @@ def prune_projects(
     """Prune ~/.claude/projects under `policy`; `deadline` is an absolute time.monotonic() value."""
     from disk_budget_projects import prune_projects as _impl  # lazy: that module imports this one
 
-    return _impl(
+    roots = roots or resolve_roots()
+    report = _impl(
         policy, deadline, roots=roots, now=now, live_sessions=live_sessions, apply=apply, free_probe=free_probe
     )
+    if apply:
+        append_deletion_log(
+            roots.deletion_log, [(path, size, f"projects:{kind}:{reason}") for kind, path, size, reason in report.deleted]
+        )
+    return report
 
 
 def prune_cache(
